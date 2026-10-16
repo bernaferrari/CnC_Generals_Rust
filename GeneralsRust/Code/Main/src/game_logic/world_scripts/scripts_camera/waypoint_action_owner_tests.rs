@@ -60,82 +60,101 @@ fn prepare_modifier(
         ScriptActionType::CameraModLookToward | ScriptActionType::CameraModFinalLookToward
     ) {
         execute(world, foreign, vec![action_move_for_modifier()]);
-        assert!(world.session_view.scripted.script_camera_move_to.is_some());
+        assert!(world.session_view.scripted.motion.active);
         assert!(world.pending_camera_look_toward.is_none());
     }
 }
 fn assert_effect(world: &GameLogic, kind: ScriptActionType, x: f32, ground: f32) {
     let camera = Vec3::new(x, ground, x + 20.);
     let look = Vec3::new(x + 40., ground, x + 60.);
+    let motion = &world.session_view.scripted.motion;
+    let native = &world.session_view.camera;
     match kind {
-        ScriptActionType::MoveCameraTo => {
-            let movement = world
-                .session_view
-                .scripted
-                .script_camera_move_to
-                .as_ref()
-                .unwrap();
+        ScriptActionType::MoveCameraTo | ScriptActionType::ResetCamera => {
+            assert!(motion.active);
+            assert_eq!(motion.points[motion.num_waypoints].world(), camera);
             assert_eq!(
-                (movement.target, movement.total_time_seconds),
-                (camera, 1.75)
+                motion.total_time_ms,
+                if kind == ScriptActionType::MoveCameraTo {
+                    1750
+                } else {
+                    2500
+                }
             );
-            assert!(
-                !world.pending_camera_zoom_reset,
-                "MoveTo is distinct from ResetCamera"
-            );
-        }
-        ScriptActionType::ResetCamera => {
-            let movement = world
-                .session_view
-                .scripted
-                .script_camera_move_to
-                .as_ref()
-                .unwrap();
             assert_eq!(
-                (movement.target, movement.total_time_seconds),
-                (camera, 2.5)
+                world.pending_camera_zoom_reset,
+                kind == ScriptActionType::ResetCamera
             );
-            assert!(world.pending_camera_zoom_reset);
-            assert_eq!(
-                (
-                    world.pending_camera_zoom_reset_duration,
-                    world.pending_camera_zoom_reset_ease_in,
-                    world.pending_camera_zoom_reset_ease_out
-                ),
-                (2.5, 0.25, 0.75)
-            );
-            assert_eq!(world.session_view.scripted.camera_follow_target, None);
+            if kind == ScriptActionType::ResetCamera {
+                assert_eq!(
+                    (
+                        world.pending_camera_zoom_reset_duration,
+                        world.pending_camera_zoom_reset_ease_in,
+                        world.pending_camera_zoom_reset_ease_out
+                    ),
+                    (2.5, 0.25, 0.75)
+                );
+                assert_eq!(motion.angles[2], 0.);
+                assert_eq!(native.camera_pitch_target, Some(1.));
+                assert!(native.camera_zoom_target.is_some());
+                assert_eq!(world.session_view.scripted.camera_follow_target, None);
+            }
         }
         ScriptActionType::SetupCamera => {
-            assert_eq!(world.peek_pending_camera_focus(), Some(camera));
-            assert_eq!(world.pending_camera_pitch.as_ref().unwrap().pitch, 0.6);
+            assert!(motion.active);
             assert_eq!(
-                world.pending_camera_look_toward.as_ref().unwrap().position,
-                look
+                motion.total_time_ms, 0,
+                "setup1ms crossing defers actual focus"
             );
-            assert!(world.pending_camera_zoom.is_some());
+            assert_eq!(motion.points[2].world(), camera);
+            assert_eq!(native.camera_pitch_target, Some(0.6));
+            assert!(native.camera_zoom_target.is_some());
+            assert!(world.peek_pending_camera_focus().is_none());
+            assert!(world.pending_camera_look_toward.is_none());
+            let dx = look.x - camera.x;
+            let dy = look.z - camera.z;
+            let expected = (f64::from(dx / (dx * dx + dy * dy).sqrt()).acos() as f32)
+                - std::f32::consts::FRAC_PI_2;
+            assert_eq!(motion.angles[2].to_bits(), expected.to_bits());
         }
         ScriptActionType::CameraLookTowardWaypoint => {
             let request = world.pending_camera_look_toward.as_ref().unwrap();
             assert_eq!(request.position, look);
             assert_eq!(
                 (
-                    request.duration_seconds,
-                    request.ease_in_seconds,
-                    request.ease_out_seconds,
-                    request.reverse_rotation
+                    native.camera_yaw_duration,
+                    native.camera_yaw_ease_in,
+                    native.camera_yaw_ease_out
                 ),
-                (1.1, 0.2, 0.3, true)
+                (1.1, 0.2, 0.3)
             );
+            assert!(request.reverse_rotation);
+            assert!(native.camera_yaw_target.is_some());
         }
         ScriptActionType::CameraModLookToward | ScriptActionType::CameraModFinalLookToward => {
-            assert_eq!(
-                world.pending_camera_look_toward.as_ref().unwrap().position,
-                look
-            );
+            assert!(motion.active);
             assert!(
-                world.session_view.scripted.script_camera_move_to.is_some(),
-                "modifier keeps its receiving path"
+                world.pending_camera_look_toward.is_none(),
+                "path writes its actual angle table"
+            );
+            let destination = motion.points[motion.num_waypoints];
+            let dx = look.x - destination.x;
+            let dy = look.z - destination.y;
+            let length = f64::from(dx * dx + dy * dy).sqrt() as f32;
+            let mut expected = f64::from(dx / length).acos() as f32;
+            if dy < 0. {
+                expected = -expected;
+            }
+            expected -= std::f32::consts::FRAC_PI_2;
+            while expected < -std::f32::consts::PI {
+                expected += std::f32::consts::TAU;
+            }
+            while expected > std::f32::consts::PI {
+                expected -= std::f32::consts::TAU;
+            }
+            assert_eq!(
+                motion.angles[motion.num_waypoints].to_bits(),
+                expected.to_bits()
             );
         }
         ScriptActionType::CameraAddShakerAt => {
@@ -154,50 +173,33 @@ fn assert_effect(world: &GameLogic, kind: ScriptActionType, x: f32, ground: f32)
     }
 }
 fn assert_missing_effect(world: &GameLogic, kind: ScriptActionType) {
-    if matches!(
+    let modifier = matches!(
         kind,
         ScriptActionType::CameraModLookToward | ScriptActionType::CameraModFinalLookToward
-    ) {
-        // evaluate_and_execute_scripts advances the existing MoveTo at dt=0
-        // before the missing modifier is dispatched. Its ordinary travel look
-        // is legitimate; missing lookup must leave that path unchanged.
-        let movement = world
-            .session_view
-            .scripted
-            .script_camera_move_to
-            .as_ref()
-            .unwrap();
-        let travel_target = Vec3::new(800., 0., 600.);
-        assert_eq!(movement.target, travel_target);
-        assert_eq!(movement.total_time_seconds, 3.);
-        assert!(
-            movement.look_toward().is_none(),
-            "missing modifier must not install a look target"
-        );
+    );
+    assert_eq!(world.session_view.scripted.motion.active, modifier);
+    if modifier {
+        let motion = &world.session_view.scripted.motion;
         assert_eq!(
-            world.pending_camera_look_toward.as_ref().unwrap().position,
-            travel_target,
-            "retain ordinary travel orientation, never a peer waypoint"
+            motion.points[motion.num_waypoints].world(),
+            Vec3::new(800., 0., 600.)
         );
-    } else {
-        assert!(
-            world.pending_camera_look_toward.is_none(),
-            "missing waypoint is authoritative"
-        );
+        assert_eq!(motion.total_time_ms, 3000);
+        assert_eq!(motion.elapsed_ms, 0, "script walk never advances viewclock");
     }
+    assert!(world.pending_camera_look_toward.is_none());
+    assert!(world.pending_camera_add_shakers.is_empty());
     if matches!(
         kind,
         ScriptActionType::ResetCamera | ScriptActionType::MoveCameraTo
     ) {
-        assert!(world.session_view.scripted.script_camera_move_to.is_none());
         assert!(!world.pending_camera_zoom_reset);
     }
     if kind == ScriptActionType::SetupCamera {
         assert!(world.peek_pending_camera_focus().is_none());
-        assert!(world.pending_camera_zoom.is_none());
-        assert!(world.pending_camera_pitch.is_none());
+        assert!(world.session_view.camera.camera_zoom_target.is_none());
+        assert!(world.session_view.camera.camera_pitch_target.is_none());
     }
-    assert!(world.pending_camera_add_shakers.is_empty());
 }
 fn receiving_action(kind: ScriptActionType) {
     let (mut first, id, _) = world(110.);

@@ -17,6 +17,7 @@ struct StagedRestoreWorld {
     game_client_xfer_bytes: Option<Vec<u8>>,
     client_persist: crate::save_load::snapshot::WorldPersistV18,
     camera_continuation: Option<NativeCameraContinuation>,
+    owns_session_camera: bool,
     /// Detached groups decoded before candidate admission; no pending slot.
     control_groups: Option<std::collections::HashMap<i32, std::collections::HashMap<u8, Vec<u32>>>>,
     /// Driving-instance Rust RNG state capsule captured at save time.
@@ -1191,6 +1192,7 @@ impl CnCGameEngine {
             game_client_xfer_bytes,
             client_persist,
             camera_continuation,
+            owns_session_camera,
             mut control_groups,
             logic_rng_seed_words,
         } = staged;
@@ -1208,17 +1210,19 @@ impl CnCGameEngine {
         self.render_pipeline.invalidate_world_visual_state();
 
         let native_commit = runtime_world.install_globals();
-        let candidate_focus_previous = logic.session_view.pending_focus_previous_target;
-        let candidate_scripted = std::mem::take(&mut logic.session_view.scripted);
-        // Map actions already applied to the candidate's receiving filter.
-        #[cfg(feature = "game_client")]
-        let candidate_filter = std::mem::take(&mut logic.session_view.filter);
-        logic.session_view = std::mem::take(&mut self.game_logic.session_view);
-        logic.session_view.pending_focus_previous_target = candidate_focus_previous;
-        logic.session_view.scripted = candidate_scripted;
-        #[cfg(feature = "game_client")]
-        {
-            logic.session_view.filter = candidate_filter;
+        if !owns_session_camera {
+            let candidate_focus_previous = logic.session_view.pending_focus_previous_target;
+            let candidate_scripted = std::mem::take(&mut logic.session_view.scripted);
+            // Map actions already applied to the candidate's receiving filter.
+            #[cfg(feature = "game_client")]
+            let candidate_filter = std::mem::take(&mut logic.session_view.filter);
+            logic.session_view = std::mem::take(&mut self.game_logic.session_view);
+            logic.session_view.pending_focus_previous_target = candidate_focus_previous;
+            logic.session_view.scripted = candidate_scripted;
+            #[cfg(feature = "game_client")]
+            {
+                logic.session_view.filter = candidate_filter;
+            }
         }
         let old_logic = std::mem::replace(&mut self.game_logic, logic);
         #[cfg(feature = "game_client")]
@@ -1245,12 +1249,20 @@ impl CnCGameEngine {
         // Restore GameClient/View before exposing the candidate world. No
         // Core callback is replayed: native map admission already executed its
         // owned actions before saved continuation replaced runtime state.
-        let has_camera_continuation = camera_continuation.is_some();
+        let has_camera_continuation = camera_continuation.is_some() || owns_session_camera;
+        let owned_camera = owns_session_camera.then(|| {
+            crate::presentation_frame::camera::continuation::SessionCameraState::capture(
+                &self.game_logic.session_view.camera,
+            )
+        });
         if let Some(camera) = camera_continuation {
             self.admit_camera_continuation(camera);
-        } else if let Some(camera) = client_persist.camera() {
+            if let Some(owned) = owned_camera {
+                owned.admit(&mut self.game_logic.session_view.camera);
+            }
+        } else if !owns_session_camera && let Some(camera) = client_persist.camera() {
             self.game_logic.session_view.target = glam::Vec3::from_array(camera.target);
-        } else if let Some(camera) = client_persist.tactical_view_camera {
+        } else if !owns_session_camera && let Some(camera) = client_persist.tactical_view_camera {
             self.game_logic.session_view.target =
                 glam::Vec3::new(camera.position[0], camera.position[2], camera.position[1]);
         }
@@ -1344,6 +1356,12 @@ impl CnCGameEngine {
                 render_look,
                 glam::Vec3::Y,
             );
+        }
+        if owns_session_camera {
+            // The saved matrix retains the completed camera pose, including
+            // fast-view continuation, but projection belongs to this display's
+            // current viewport. Loading must not restore another window's aspect.
+            self.rebuild_tactical_projection();
         }
         // Keep the client companion staged until the first complete frozen
         // frame after the successful world replacement. Actual collection
@@ -1599,6 +1617,9 @@ impl CnCGameEngine {
         let camera_continuation =
             crate::save_load::snapshot::read_native_camera_continuation(&snapshot.lifecycle_tail)
                 .map_err(|err| format!("{err}"))?;
+        let owns_session_camera =
+            crate::save_load::snapshot::read_owned_session_camera(&snapshot.lifecycle_tail)
+                .map_err(|err| format!("{err}"))?;
         // Validate detached view data before map staging can touch shared services.
         if let Some(camera) = snapshot.persist_v18.camera() {
             camera.validate().map_err(|err| format!("{err}"))?;
@@ -1698,6 +1719,7 @@ impl CnCGameEngine {
             game_client_xfer_bytes,
             client_persist: snapshot.persist_v18.clone(),
             camera_continuation,
+            owns_session_camera,
             control_groups,
             logic_rng_seed_words: snapshot.logic_rng_seed_words,
         })

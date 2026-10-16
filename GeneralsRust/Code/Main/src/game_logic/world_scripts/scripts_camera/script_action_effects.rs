@@ -78,27 +78,12 @@ impl GameLogic {
         }
 
         if !camera_focus.move_to_selection.is_empty() {
-            // C++ doModCameraMoveToSelection → cameraModFinalMoveTo: path modifier,
-            // not a new lookAt. No-op during rotate; no-op if no path/move.
-            if self.pending_camera_rotate.is_none() {
+            // C++ cameraModFinalMoveTo does not alter an active rotate.
+            if self.session_view.camera.camera_yaw_target.is_none() {
                 if let Some(center) = self.selected_objects_center_for_local_player() {
-                    if let Some(path) = self.session_view.scripted.script_camera_path.as_mut() {
-                        path.camera_mod_final_move_to(center);
-                    }
-                    if let Some(move_to) = self.session_view.scripted.script_camera_move_to.as_mut()
-                    {
-                        move_to.camera_mod_final_move_to(center);
-                    }
-                    #[cfg(feature = "game_client")]
-                    {
-                        game_client::display::view::with_tactical_view(|view| {
-                            view.camera_mod_final_move_to(
-                                &game_client::display::view::Point3::new(
-                                    center.x, center.z, center.y,
-                                ),
-                            );
-                        });
-                    }
+                    self.session_view.scripted.motion.final_move_to(
+                        crate::presentation_frame::waypoint::Point::from_world(center),
+                    );
                 }
             }
         }
@@ -115,8 +100,8 @@ impl GameLogic {
                 self.session_view.scripted.camera_follow_target = None;
                 self.session_view.scripted.camera_tether_play = None;
             } else {
-                self.session_view.scripted.script_camera_move_to = None;
-                self.session_view.scripted.script_camera_path = None;
+                self.session_view.scripted.motion.active = false;
+                self.session_view.scripted.path_arrived = false;
                 self.session_view.scripted.camera_tether_play = None;
                 self.session_view.scripted.camera_follow_target = Some(ObjectId(last.object_id));
                 if last.snap_to_unit {
@@ -128,8 +113,8 @@ impl GameLogic {
         }
 
         if let Some(last) = camera_focus.tethers.into_iter().last() {
-            self.session_view.scripted.script_camera_move_to = None;
-            self.session_view.scripted.script_camera_path = None;
+            self.session_view.scripted.motion.active = false;
+            self.session_view.scripted.path_arrived = false;
             self.set_camera_tether_object(ObjectId(last.object_id), last.snap_to_unit, last.play);
         }
 
@@ -249,26 +234,38 @@ impl GameLogic {
             .last()
         {
             self.session_view.scripted.camera_follow_target = None;
-            // C++ setupWaypointPath ends with m_doingRotateCamera = false.
-            // Leftover reset_camera replaces camera_rotate so a prior ROTATE
-            // cannot keep peeking into presentation after the reset.
             self.pending_camera_rotate = None;
-            self.session_view.scripted.script_camera_rotate_remaining = 0.0;
             self.pending_camera_zoom_reset = true;
             self.pending_camera_zoom_reset_duration = last.duration_seconds.max(0.0);
             self.pending_camera_zoom_reset_ease_in = last.ease_in_seconds.max(0.0);
             self.pending_camera_zoom_reset_ease_out = last.ease_out_seconds.max(0.0);
-            let request = CameraMoveToRequest {
-                position: last.position,
-                seconds: last.duration_seconds,
-                camera_stutter_seconds: 0.0,
-                ease_in_seconds: last.ease_in_seconds.max(0.0),
-                ease_out_seconds: last.ease_out_seconds.max(0.0),
-            };
-            self.start_camera_move_to(request);
-            if let Some(move_to) = self.session_view.scripted.script_camera_move_to.as_mut() {
-                move_to.set_suppress_travel_look(true);
+            self.start_camera_move_to_oriented(
+                CameraMoveToRequest {
+                    position: last.position,
+                    seconds: last.duration_seconds,
+                    camera_stutter_seconds: 0.,
+                    ease_in_seconds: last.ease_in_seconds,
+                    ease_out_seconds: last.ease_out_seconds,
+                },
+                false,
+            );
+            self.session_view.scripted.motion.angles[2] = 0.;
+            self.session_view.camera.camera_yaw_radians =
+                self.session_view.scripted.motion.angles[0];
+            if let Some(zoom) = self.owned_script_camera_max_zoom_at(last.position) {
+                self.session_view.camera.install_zoom(
+                    zoom,
+                    last.duration_seconds,
+                    last.ease_in_seconds,
+                    last.ease_out_seconds,
+                );
             }
+            self.session_view.camera.install_pitch(
+                1.,
+                last.duration_seconds,
+                last.ease_in_seconds,
+                last.ease_out_seconds,
+            );
         }
 
         if let Some(last) = self
@@ -277,7 +274,12 @@ impl GameLogic {
             .into_iter()
             .last()
         {
-            self.begin_script_camera_zoom(last.duration_seconds);
+            self.session_view.camera.install_zoom(
+                last.zoom,
+                last.duration_seconds,
+                last.ease_in_seconds,
+                last.ease_out_seconds,
+            );
             self.pending_camera_zoom = Some(last);
         }
 
@@ -287,7 +289,12 @@ impl GameLogic {
             .into_iter()
             .last()
         {
-            self.begin_script_camera_pitch(last.duration_seconds);
+            self.session_view.camera.install_pitch(
+                last.pitch,
+                last.duration_seconds,
+                last.ease_in_seconds,
+                last.ease_out_seconds,
+            );
             self.pending_camera_pitch = Some(last);
         }
 
@@ -299,7 +306,15 @@ impl GameLogic {
         {
             // C++ rotateCamera replaces any current animation. FREEZE_ANGLE only
             // pins the in-flight move/path and must not swallow later rotates.
-            self.begin_script_camera_rotate(last.duration_seconds);
+            self.session_view.scripted.motion.active = false;
+            self.session_view.scripted.path_arrived = false;
+            self.session_view.scripted.object_tracking = None;
+            self.session_view.camera.install_rotate(
+                last.rotations,
+                last.duration_seconds,
+                last.ease_in_seconds,
+                last.ease_out_seconds,
+            );
             self.pending_camera_rotate = Some(last);
         }
 
@@ -319,24 +334,7 @@ impl GameLogic {
             .into_iter()
             .last()
         {
-            #[cfg(feature = "game_client")]
-            {
-                game_client::display::view::with_tactical_view(|view| {
-                    view.camera_mod_final_zoom(last.zoom, last.ease_in, last.ease_out);
-                });
-            }
-            // Leftover/C++ cameraModFinalZoom: idle (no rotate/path/move) is a no-op.
-            let remaining = self.script_camera_remaining_seconds();
-            if remaining > 0.0 {
-                let max_zoom = (320.0 + 300.0) / 320.0;
-                self.begin_script_camera_zoom(remaining);
-                self.pending_camera_zoom = Some(CameraZoomRequest {
-                    zoom: last.zoom * max_zoom,
-                    duration_seconds: remaining,
-                    ease_in_seconds: (remaining * last.ease_in.clamp(0.0, 1.0)).max(0.0),
-                    ease_out_seconds: (remaining * last.ease_out.clamp(0.0, 1.0)).max(0.0),
-                });
-            }
+            self.install_owned_final_zoom(last.zoom, last.ease_in, last.ease_out);
         }
 
         if let Some(last) = self
@@ -345,23 +343,7 @@ impl GameLogic {
             .into_iter()
             .last()
         {
-            #[cfg(feature = "game_client")]
-            {
-                game_client::display::view::with_tactical_view(|view| {
-                    view.camera_mod_final_pitch(last.pitch, last.ease_in, last.ease_out);
-                });
-            }
-            // Leftover/C++ cameraModFinalPitch: idle (no rotate/path/move) is a no-op.
-            let remaining = self.script_camera_remaining_seconds();
-            if remaining > 0.0 {
-                self.begin_script_camera_pitch(remaining);
-                self.pending_camera_pitch = Some(CameraPitchRequest {
-                    pitch: last.pitch,
-                    duration_seconds: remaining,
-                    ease_in_seconds: (remaining * last.ease_in.clamp(0.0, 1.0)).max(0.0),
-                    ease_out_seconds: (remaining * last.ease_out.clamp(0.0, 1.0)).max(0.0),
-                });
-            }
+            self.install_owned_final_pitch(last.pitch, last.ease_in, last.ease_out);
         }
 
         if let Some(last) = self
@@ -371,36 +353,18 @@ impl GameLogic {
             .last()
         {
             self.session_view.scripted.camera_follow_target = None;
-            // C++ moveCameraTo → setupWaypointPath rebuilds m_mcwpInfo and
-            // sets m_doingRotateCamera = false. Leftover setup_camera →
-            // look_at cancels camera_move / camera_path / camera_rotate.
-            self.session_view.scripted.script_camera_move_to = None;
-            self.session_view.scripted.script_camera_path = None;
-            self.session_view.scripted.script_look_toward_object_id = None;
-            self.session_view.scripted.script_look_toward_hold_seconds = 0.0;
-            self.session_view.scripted.script_camera_rotate_remaining = 0.0;
-            self.request_camera_focus(last.position);
-            let max_zoom = (320.0 + 300.0) / 320.0;
-            self.pending_camera_zoom = Some(CameraZoomRequest {
-                zoom: last.zoom * max_zoom,
-                duration_seconds: 0.0,
-                ease_in_seconds: 0.0,
-                ease_out_seconds: 0.0,
+            // ScriptActions::doSetupCamera performs the original zero-ms
+            // waypoint admission, then modifies that same live path in order.
+            self.start_camera_move_to(CameraMoveToRequest {
+                position: last.position,
+                seconds: 0.,
+                camera_stutter_seconds: 0.,
+                ease_in_seconds: 0.,
+                ease_out_seconds: 0.,
             });
-            self.pending_camera_pitch = Some(CameraPitchRequest {
-                pitch: last.pitch,
-                duration_seconds: 0.0,
-                ease_in_seconds: 0.0,
-                ease_out_seconds: 0.0,
-            });
-            self.pending_camera_rotate = None;
-            self.pending_camera_look_toward = Some(CameraLookTowardWaypointRequest {
-                position: last.look_toward,
-                duration_seconds: 0.0,
-                ease_in_seconds: 0.0,
-                ease_out_seconds: 0.0,
-                reverse_rotation: false,
-            });
+            self.apply_script_camera_mod_look_toward(last.look_toward, false);
+            self.install_owned_final_pitch(last.pitch, 0., 0.);
+            self.install_owned_final_zoom(last.zoom, 0., 0.);
         }
 
         if let Some(last) = self
@@ -409,12 +373,20 @@ impl GameLogic {
             .into_iter()
             .last()
         {
-            // C++ rotateCameraTowardPosition: m_doingMoveCameraOnWaypointPath = false.
-            self.session_view.scripted.script_camera_move_to = None;
-            self.session_view.scripted.script_camera_path = None;
-            self.pending_camera_rotate = None;
-            self.begin_script_camera_rotate(last.duration_seconds);
-            self.pending_camera_look_toward = Some(last);
+            if self.session_view.camera.install_look_toward(
+                self.session_view.target,
+                last.position,
+                last.duration_seconds,
+                last.ease_in_seconds,
+                last.ease_out_seconds,
+                last.reverse_rotation,
+            ) {
+                self.session_view.scripted.motion.active = false;
+                self.session_view.scripted.path_arrived = false;
+                self.session_view.scripted.object_tracking = None;
+                self.pending_camera_rotate = None;
+                self.pending_camera_look_toward = Some(last);
+            }
         }
         if let Some(last) = self
             .mission_scripts
@@ -427,11 +399,15 @@ impl GameLogic {
                 .get(&ObjectId(last.object_id))
                 .map(|obj| obj.get_position())
             {
-                // C++ rotateCameraTowardObject: m_doingMoveCameraOnWaypointPath = false.
-                self.session_view.scripted.script_camera_move_to = None;
-                self.session_view.scripted.script_camera_path = None;
                 self.pending_camera_rotate = None;
-                self.begin_script_camera_rotate(last.duration_seconds + last.hold_seconds.max(0.0));
+                self.install_camera_object_tracking(
+                    last.object_id,
+                    position,
+                    last.duration_seconds,
+                    last.hold_seconds,
+                    last.ease_in_seconds,
+                    last.ease_out_seconds,
+                );
                 self.pending_camera_look_toward = Some(CameraLookTowardWaypointRequest {
                     position,
                     duration_seconds: last.duration_seconds,
@@ -439,9 +415,6 @@ impl GameLogic {
                     ease_out_seconds: last.ease_out_seconds,
                     reverse_rotation: false,
                 });
-                self.session_view.scripted.script_look_toward_object_id = Some(last.object_id);
-                self.session_view.scripted.script_look_toward_hold_seconds =
-                    last.hold_seconds.max(0.0);
             } else {
                 log::warn!(
                     "Camera look toward object request ignored; object {} not found",
@@ -808,6 +781,86 @@ impl GameLogic {
                 }
             }
         }
+    }
+    fn owned_script_camera_max_zoom_at(&self, target: Vec3) -> Option<f32> {
+        let owner = self.world_services.terrain();
+        let terrain = match owner.read() {
+            Ok(terrain) => terrain,
+            Err(_) => {
+                log::error!("receiving camera zoom terrain poisoned");
+                return None;
+            }
+        };
+        let height = crate::presentation_frame::camera::height::height_around(target, |x, z| {
+            Some(terrain.get_ground_height(x, z, None))
+        })?;
+        let max_height = game_engine::common::global_data::read().max_camera_height
+            * self.session_view.scripted.script_default_camera_max_height;
+        Some(
+            self.session_view
+                .camera
+                .native_camera
+                .default_zoom(height, max_height),
+        )
+    }
+
+    fn install_owned_final_zoom(&mut self, factor: f32, ease_in: f32, ease_out: f32) {
+        if !self.session_view.scripted.motion.active
+            && self.session_view.camera.camera_yaw_target.is_none()
+        {
+            return;
+        }
+        // Source tests the active flags, not a positive remaining time. An
+        // instant path still admits final axes after its terminal crossing;
+        // scalar admission performs the original minimum-one-ms handling.
+        let remaining = self.script_camera_remaining_seconds();
+        let target = if self.session_view.scripted.motion.active {
+            self.session_view.scripted.motion.points
+                [self.session_view.scripted.motion.num_waypoints]
+                .world()
+        } else {
+            self.session_view.target
+        };
+        let Some(max_zoom) = self.owned_script_camera_max_zoom_at(target) else {
+            return;
+        };
+        let request = CameraZoomRequest {
+            zoom: factor * max_zoom,
+            duration_seconds: remaining.max(0.),
+            ease_in_seconds: remaining * ease_in,
+            ease_out_seconds: remaining * ease_out,
+        };
+        self.session_view.camera.install_zoom(
+            request.zoom,
+            request.duration_seconds,
+            request.ease_in_seconds,
+            request.ease_out_seconds,
+        );
+        self.pending_camera_zoom = Some(request);
+    }
+    fn install_owned_final_pitch(&mut self, pitch: f32, ease_in: f32, ease_out: f32) {
+        if !self.session_view.scripted.motion.active
+            && self.session_view.camera.camera_yaw_target.is_none()
+        {
+            return;
+        }
+        // Source tests the active flags, not a positive remaining time. An
+        // instant path still admits final axes after its terminal crossing;
+        // scalar admission performs the original minimum-one-ms handling.
+        let remaining = self.script_camera_remaining_seconds();
+        let request = CameraPitchRequest {
+            pitch,
+            duration_seconds: remaining.max(0.),
+            ease_in_seconds: remaining * ease_in,
+            ease_out_seconds: remaining * ease_out,
+        };
+        self.session_view.camera.install_pitch(
+            request.pitch,
+            request.duration_seconds,
+            request.ease_in_seconds,
+            request.ease_out_seconds,
+        );
+        self.pending_camera_pitch = Some(request);
     }
 }
 

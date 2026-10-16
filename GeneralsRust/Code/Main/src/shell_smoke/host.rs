@@ -25,9 +25,7 @@ pub(super) struct HostSession {
     pub dual_tick_counters_ok: bool,
     pub gameworld_shadow_ok: bool,
 
-
     pub dual_tick_policy_authority_only: bool,
-
 }
 
 pub(super) fn run_host_session(frames: u32) -> HostSession {
@@ -92,6 +90,7 @@ pub(super) fn run_host_session(frames: u32) -> HostSession {
     for _ in 0..frames.max(1) {
         // Dual-tick: authority step then multi-consumer presentation apply.
         logic.update();
+        logic.headless_camera_view_offer(33);
         let _ = PresentationFrame::build_and_apply_for_shell_consumers(
             &mut logic,
             0,
@@ -162,7 +161,6 @@ pub(super) fn run_host_session(frames: u32) -> HostSession {
         crate::authoritative_world::DualTickPolicy::AuthorityOnly
     );
 
-
     HostSession {
         logic,
         hud,
@@ -184,8 +182,6 @@ pub(super) fn run_host_session(frames: u32) -> HostSession {
         dual_tick_counters_ok,
         gameworld_shadow_ok,
 
-
         dual_tick_policy_authority_only,
-
     }
 }

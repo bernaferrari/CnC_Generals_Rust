@@ -217,6 +217,7 @@ fn panel_flag_is_indestructible(flag: &str) -> bool {
         .eq_ignore_ascii_case("indestructible")
 }
 
+mod camera_motion;
 mod named_commands;
 #[cfg(test)]
 mod named_lifecycle_owner_tests;
@@ -224,6 +225,7 @@ mod nearest_object_move;
 #[cfg(test)]
 mod nearest_object_move_tests;
 mod owned_team_state;
+mod path_admission;
 #[cfg(test)]
 mod prerequisite_owner_tests;
 mod script_action_effects;
@@ -396,3 +398,6 @@ mod script_nearest_button_owner_tests;
 
 #[cfg(all(test, feature = "game_client"))]
 mod camera_completion_cpp_tests;
+
+#[cfg(test)]
+mod camera_admission_cpp_tests;

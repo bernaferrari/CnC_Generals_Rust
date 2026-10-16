@@ -4,6 +4,7 @@ use super::camera_height::CameraHeightContinuation;
 use super::mouse::LookAtContinuation;
 use super::native_display::{NativeDisplayContinuation, NativeDisplayState};
 use super::{CnCGameEngine, ScriptCameraShaker};
+use crate::presentation_frame::camera::SessionCamera;
 use crate::save_load::camera_codec::CameraCodec;
 use glam::Vec3;
 use serde::{Deserialize, Serialize};
@@ -133,7 +134,87 @@ fn restore_age(now: Instant, age: Option<u64>) -> Option<Instant> {
             .expect("validated monotonic camera input age")
     })
 }
+impl CameraState {
+    /// One projection for live admission and detached cross-block validation.
+    /// All values were validated before admission; no callbacks or clocks run.
+    fn admit_session_camera_fields(&self, camera: &mut SessionCamera) {
+        camera.native_camera.admit_continuation(self.height.clone());
+        camera.camera_slave_mode = self.slave.as_ref().map(|(thing_template_name, bone_name)| {
+            crate::game_logic::mission_scripts::CameraSlaveModeRequest {
+                thing_template_name: thing_template_name.clone(),
+                bone_name: bone_name.clone(),
+            }
+        });
+        camera.camera_position = self.camera_position;
+        camera.scripted_camera_constraint_widen = self.scripted_camera_constraint_widen;
+        camera.camera_zoom = self.camera_zoom;
+        camera.camera_zoom_target = self.camera_zoom_target;
+        camera.camera_zoom_start = self.camera_zoom_start;
+        camera.camera_zoom_duration = self.camera_zoom_duration;
+        camera.camera_zoom_frame = self.camera_zoom_frame;
+        camera.camera_zoom_ease_in = self.camera_zoom_ease_in;
+        camera.camera_zoom_ease_out = self.camera_zoom_ease_out;
+        camera.camera_pitch_radians = self.camera_pitch_radians;
+        camera.camera_pitch_target = self.camera_pitch_target;
+        camera.camera_pitch_start = self.camera_pitch_start;
+        camera.camera_pitch_duration = self.camera_pitch_duration;
+        camera.camera_pitch_frame = self.camera_pitch_frame;
+        camera.camera_pitch_ease_in = self.camera_pitch_ease_in;
+        camera.camera_pitch_ease_out = self.camera_pitch_ease_out;
+        camera.camera_fx_pitch = self.camera_fx_pitch;
+        camera.camera_yaw_radians = self.camera_yaw_radians;
+        camera.camera_yaw_target = self.camera_yaw_target;
+        camera.camera_yaw_start = self.camera_yaw_start;
+        camera.camera_yaw_duration = self.camera_yaw_duration;
+        camera.camera_yaw_frame = self.camera_yaw_frame;
+        camera.camera_yaw_ease_in = self.camera_yaw_ease_in;
+        camera.camera_yaw_ease_out = self.camera_yaw_ease_out;
+        camera.camera_shake_rotation = self.camera_shake_rotation;
+        camera.script_camera_shakers = self.script_camera_shakers.clone();
+        camera.camera_follow_factor = self.camera_follow_factor;
+    }
+
+    fn completed_view(&self) -> glam::Mat4 {
+        glam::Mat4::look_at_rh(
+            self.completed_eye,
+            self.completed_eye + self.completed_forward,
+            self.completed_up,
+        )
+    }
+}
+
 impl NativeCameraContinuation {
+    /// Decode/capture validates each record independently; this detects two
+    /// individually valid records that refer to different camera continuations.
+    pub(crate) fn validate_logic_continuation(
+        &self,
+        logic: &crate::game_logic::LogicCameraContinuation,
+    ) -> Result<(), String> {
+        let Some(owned) = logic.owned_camera_state() else {
+            // Raw/V1 inactive Rust records have no complete camera to compare.
+            return Ok(());
+        };
+        let (eye, forward, up) = owned.completed_pose()?;
+        let same =
+            |a: Vec3, b: Vec3| a.to_array().map(f32::to_bits) == b.to_array().map(f32::to_bits);
+        if !same(eye, self.0.completed_eye)
+            || !same(forward, self.0.completed_forward)
+            || !same(up, self.0.completed_up)
+        {
+            return Err("logic/native completed camera pose disagrees".into());
+        }
+        let mut camera = SessionCamera::default();
+        self.0.admit_session_camera_fields(&mut camera);
+        camera.view_matrix = self.0.completed_view();
+        #[cfg(feature = "game_client")]
+        {
+            let (scroll, previous_target) = self.1.unwrap_or_default();
+            camera.native_filter_scroll = scroll;
+            camera.native_filter_previous_target = previous_target;
+        }
+        logic.validate_native_projection(&camera, self.0.camera_target)
+    }
+
     pub(crate) fn camera_persist(&self) -> crate::save_load::snapshot::CameraPersist {
         crate::save_load::snapshot::CameraPersist {
             angle: self.0.camera_yaw_radians,
@@ -384,27 +465,18 @@ impl CnCGameEngine {
                 .native_filter_previous_target = previous_target;
         }
         let state = continuation.0;
+        let completed_view = state.completed_view();
         let now = Instant::now();
-        self.game_logic
-            .session_view
-            .camera
-            .native_camera
-            .admit_continuation(state.height);
+        state.admit_session_camera_fields(&mut self.game_logic.session_view.camera);
         self.look_at_modes.admit_continuation(state.look_at);
         self.native_display
             .admit_continuation(state.display, client_frame(self));
-        self.game_logic.session_view.camera.camera_slave_mode =
-            state.slave.map(|(thing_template_name, bone_name)| {
-                crate::game_logic::mission_scripts::CameraSlaveModeRequest {
-                    thing_template_name,
-                    bone_name,
-                }
-            });
+
         self.last_context_cursor = state.cursor.as_deref().and_then(cursor_name);
         self.last_control_group_select = state
             .control_group_click
             .map(|(group, nanos)| (group, restore_age(now, Some(nanos)).unwrap()));
-        self.game_logic.session_view.camera.camera_position = state.camera_position;
+
         self.game_logic
             .session_view
             .admit(crate::presentation_frame::SessionViewState {
@@ -415,36 +487,8 @@ impl CnCGameEngine {
                 offset: state.camera_shake_offset,
             })
             .expect("native CameraState was validated before commitment");
-        self.game_logic
-            .session_view
-            .camera
-            .scripted_camera_constraint_widen = state.scripted_camera_constraint_widen;
-        self.game_logic.session_view.camera.camera_zoom = state.camera_zoom;
-        self.game_logic.session_view.camera.camera_zoom_target = state.camera_zoom_target;
-        self.game_logic.session_view.camera.camera_zoom_start = state.camera_zoom_start;
-        self.game_logic.session_view.camera.camera_zoom_duration = state.camera_zoom_duration;
-        self.game_logic.session_view.camera.camera_zoom_frame = state.camera_zoom_frame;
-        self.game_logic.session_view.camera.camera_zoom_ease_in = state.camera_zoom_ease_in;
-        self.game_logic.session_view.camera.camera_zoom_ease_out = state.camera_zoom_ease_out;
-        self.game_logic.session_view.camera.camera_pitch_radians = state.camera_pitch_radians;
-        self.game_logic.session_view.camera.camera_pitch_target = state.camera_pitch_target;
-        self.game_logic.session_view.camera.camera_pitch_start = state.camera_pitch_start;
-        self.game_logic.session_view.camera.camera_pitch_duration = state.camera_pitch_duration;
-        self.game_logic.session_view.camera.camera_pitch_frame = state.camera_pitch_frame;
-        self.game_logic.session_view.camera.camera_pitch_ease_in = state.camera_pitch_ease_in;
-        self.game_logic.session_view.camera.camera_pitch_ease_out = state.camera_pitch_ease_out;
-        self.game_logic.session_view.camera.camera_fx_pitch = state.camera_fx_pitch;
-        self.game_logic.session_view.camera.camera_yaw_radians = state.camera_yaw_radians;
-        self.game_logic.session_view.camera.camera_yaw_target = state.camera_yaw_target;
-        self.game_logic.session_view.camera.camera_yaw_start = state.camera_yaw_start;
-        self.game_logic.session_view.camera.camera_yaw_duration = state.camera_yaw_duration;
-        self.game_logic.session_view.camera.camera_yaw_frame = state.camera_yaw_frame;
-        self.game_logic.session_view.camera.camera_yaw_ease_in = state.camera_yaw_ease_in;
-        self.game_logic.session_view.camera.camera_yaw_ease_out = state.camera_yaw_ease_out;
-        self.game_logic.session_view.camera.camera_shake_rotation = state.camera_shake_rotation;
-        self.game_logic.session_view.camera.script_camera_shakers = state.script_camera_shakers;
         self.script_fps_limit = state.script_fps_limit;
-        self.game_logic.session_view.camera.camera_follow_factor = state.camera_follow_factor;
+
         self.host_match_camera_follow_active = state.host_match_camera_follow_active;
         self.host_match_camera_follow_position = state.host_match_camera_follow_position;
         self.host_match_camera_follow_id = state.host_match_camera_follow_id;
@@ -494,11 +538,7 @@ impl CnCGameEngine {
         // Fast camera steps can change axes without committing the visible view.
         // Restore the completed semantic pose independently; never infer timers
         // or the fixed map basis from the saved eye.
-        self.game_logic.session_view.camera.view_matrix = glam::Mat4::look_at_rh(
-            state.completed_eye,
-            state.completed_eye + state.completed_forward,
-            state.completed_up,
-        );
+        self.game_logic.session_view.camera.view_matrix = completed_view;
     }
 }
 pub(super) fn cursor_name(name: &str) -> Option<&'static str> {
@@ -545,3 +585,7 @@ mod validation;
 
 mod filter;
 use filter::{decode_native_camera, encode_native_camera};
+
+#[cfg(test)]
+#[path = "camera_continuation/owner_consistency_tests.rs"]
+mod owner_consistency_tests;

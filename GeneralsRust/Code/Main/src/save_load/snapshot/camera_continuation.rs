@@ -99,15 +99,19 @@ pub(super) fn prefix_len(bytes: &[u8]) -> SaveLoadResult<usize> {
 pub(super) fn decode(bytes: &[u8]) -> SaveLoadResult<Option<Decoded>> {
     record(bytes)?
         .map(|record| {
-            Ok(Decoded {
-                logic: GameLogic::decode_camera_continuation(&record.logic).map_err(invalid)?,
-                native: record
-                    .native
-                    .as_deref()
-                    .map(CnCGameEngine::decode_camera_continuation)
-                    .transpose()
-                    .map_err(invalid)?,
-            })
+            let logic = GameLogic::decode_camera_continuation(&record.logic).map_err(invalid)?;
+            let native = record
+                .native
+                .as_deref()
+                .map(CnCGameEngine::decode_camera_continuation)
+                .transpose()
+                .map_err(invalid)?;
+            if let Some(native) = &native {
+                native
+                    .validate_logic_continuation(&logic)
+                    .map_err(invalid)?;
+            }
+            Ok(Decoded { logic, native })
         })
         .transpose()
 }
@@ -150,13 +154,21 @@ pub(crate) fn write_native_camera_continuation(
     bytes: &mut Vec<u8>,
     native: &[u8],
 ) -> SaveLoadResult<()> {
-    CnCGameEngine::decode_camera_continuation(native).map_err(invalid)?;
+    let native_state = CnCGameEngine::decode_camera_continuation(native).map_err(invalid)?;
     let record = record(bytes)?.ok_or_else(|| invalid("missing logic record"))?;
-    GameLogic::decode_camera_continuation(&record.logic).map_err(invalid)?;
+    let logic = GameLogic::decode_camera_continuation(&record.logic).map_err(invalid)?;
+    native_state
+        .validate_logic_continuation(&logic)
+        .map_err(invalid)?;
     let replacement = frame(&record.logic, Some(native))?;
     bytes.splice(record.start..record.end, replacement);
     Ok(())
 }
+/// No persisted flag is needed: the decoded versioned owner record is canonical.
+pub(crate) fn read_owned_session_camera(bytes: &[u8]) -> SaveLoadResult<bool> {
+    Ok(decode(bytes)?.is_some_and(|state| state.logic.owned_camera_state().is_some()))
+}
+
 pub(crate) fn read_native_camera_continuation(
     bytes: &[u8],
 ) -> SaveLoadResult<Option<NativeCameraContinuation>> {

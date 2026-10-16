@@ -46,28 +46,26 @@ fn authored(
     let _ = run(owner, engine(Arc::clone(foreign), list));
 }
 fn assert_path(owner: &GameLogic, x: f32, yaw: f32, start: Vec3) {
-    let path = owner
-        .session_view
-        .scripted
-        .script_camera_path
-        .as_ref()
-        .expect("actual authored camera path must use the receiving terrain");
-    assert_eq!(
-        path.points[1], start,
-        "path starts at the expected receiving ordered logical focus"
+    let path = &owner.session_view.scripted.motion;
+    assert!(path.active, "authored camera path uses receiving terrain");
+    assert_eq!(path.points[1].world(), start);
+    assert_eq!(path.angles[0], yaw);
+    assert!(
+        path.angles[1..=path.num_waypoints]
+            .iter()
+            .all(|angle| *angle == yaw)
     );
-    assert_eq!(
-        path.start_angle, yaw,
-        "freeze-angle start is the receiving native camera yaw"
+    assert!(
+        path.points
+            .iter()
+            .any(|point| point.world() == Vec3::new(x, 37.5, x + 20.))
     );
-    assert!(path.freeze_angle);
-    assert!(path.frozen_to_start_angle);
-    // Camera paths intentionally follow the original ground plane (Y-up Z=0
-    // becomes Main Y=0), rather than inheriting map waypoint terrain height.
-    assert!(path.points.contains(&Vec3::new(x, 0., x + 20.)));
-    assert!(path.points.contains(&Vec3::new(x + 40., 0., x + 60.)));
-    assert_eq!(path.total_time_seconds, 8.);
-    assert!(path.frozen_start_look_toward(Vec3::ZERO).is_some());
+    assert!(
+        path.points
+            .iter()
+            .any(|point| point.world() == Vec3::new(x + 40., 37.5, x + 60.))
+    );
+    assert_eq!(path.total_time_ms, 8000);
 }
 
 #[test]
@@ -85,8 +83,6 @@ fn authored_camera_path_owns_receiving_chain_and_yaw_through_peer_reset_and_enco
             *b.world_services.terrain().write().unwrap() = terrain_chain("SameCameraPath", 411.);
             a.session_view.target = Vec3::new(10., 0., 20.);
             b.session_view.target = Vec3::new(70., 0., 80.);
-            a.session_view.scripted.script_camera_focus_estimate = a.session_view.target;
-            b.session_view.scripted.script_camera_focus_estimate = b.session_view.target;
             a.session_view.camera.camera_yaw_radians = 0.35;
             b.session_view.camera.camera_yaw_radians = -0.8;
             let b_before = b.capture_camera_continuation().unwrap();
@@ -125,20 +121,17 @@ fn authored_camera_path_owns_receiving_chain_and_yaw_through_peer_reset_and_enco
             );
             assert_path(&restored, 111., 0.35, Vec3::new(10., 0., 20.));
             assert_eq!(
-                restored.session_view.camera.camera_yaw_radians, 2.1,
-                "script-only decode must not replace current native pose"
+                restored.session_view.camera.camera_yaw_radians, 0.35,
+                "owned continuation restores the same canonical native pose"
             );
-            for dt in [0., 0.25, 0.5, 1., 2.] {
-                a.update_script_camera(dt);
-                restored.update_script_camera(dt);
+            for _ in 0..114 {
+                a.headless_camera_view_offer(33);
+                restored.headless_camera_view_offer(33);
                 assert_eq!(
                     a.capture_camera_continuation().unwrap(),
                     restored.capture_camera_continuation().unwrap()
                 );
-                assert_eq!(
-                    a.peek_pending_camera_focus(),
-                    restored.peek_pending_camera_focus()
-                );
+                assert_eq!(a.session_view.target, restored.session_view.target);
             }
             assert_camera_queues_empty(&a.mission_scripts);
             assert_camera_queues_empty(&b.mission_scripts);
@@ -225,12 +218,9 @@ fn authored_missing_camera_path_keeps_idle_completion_and_armed_modifiers() {
             *peer.world_services.terrain().write().unwrap() =
                 terrain_chain("MissingCameraPath", 411.);
             *owner.world_services.terrain().write().unwrap() = TerrainLogic::new();
-            owner.session_view.scripted.script_camera_freeze_time_armed = true;
-            owner.session_view.scripted.script_camera_freeze_angle_armed = true;
-            owner
-                .session_view
-                .scripted
-                .script_camera_pending_final_speed_multiplier = Some(2.);
+            owner.session_view.scripted.script_camera_freeze_time = true;
+            owner.apply_script_camera_mod_freeze_angle();
+            owner.visual_speed_multiplier = 2.;
             let baseline = owner.capture_camera_continuation().unwrap();
             control.admit_camera_continuation(
                 GameLogic::decode_camera_continuation(&baseline).unwrap(),

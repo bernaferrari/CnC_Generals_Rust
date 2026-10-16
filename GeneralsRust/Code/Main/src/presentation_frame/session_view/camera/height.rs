@@ -124,6 +124,8 @@ fn normalize_angle(mut angle: f32) -> f32 {
 pub(crate) struct CameraHeight {
     basis: CameraBasis,
     desired: f32,
+    basis_pitch_degrees: f32,
+    basis_yaw_degrees: f32,
     adjustment_enabled: bool,
     zoom_limited: bool,
 }
@@ -188,16 +190,45 @@ impl CameraHeight {
         self.adjustment_enabled = state.enabled;
         self.zoom_limited = state.limited;
     }
+    pub(crate) fn basis_pitch_degrees(&self) -> f32 {
+        self.basis_pitch_degrees
+    }
+    pub(crate) fn basis_yaw_degrees(&self) -> f32 {
+        self.basis_yaw_degrees
+    }
+    pub(crate) fn admit_owned_continuation(
+        &mut self,
+        state: CameraHeightContinuation,
+        pitch: f32,
+        yaw: f32,
+    ) {
+        self.admit_continuation(state);
+        self.basis_pitch_degrees = pitch;
+        self.basis_yaw_degrees = yaw;
+    }
+    /// Direct source path update: preserve offset Z, desired HAG and policy flags.
+    pub(crate) fn path_parts(&mut self) -> (&mut f32, &mut Vec3, f32, f32) {
+        (
+            &mut self.basis.ground_level,
+            &mut self.basis.offset,
+            self.basis_pitch_degrees,
+            self.basis_yaw_degrees,
+        )
+    }
     pub(crate) fn new(height: f32, pitch: f32, yaw: f32) -> Self {
         Self {
             basis: CameraBasis::from_height(10.0, height, pitch, yaw),
             desired: 0.0,
+            basis_pitch_degrees: pitch,
+            basis_yaw_degrees: yaw,
             adjustment_enabled: false,
             zoom_limited: true,
         }
     }
     pub(crate) fn initialize_map(&mut self, ground: f32, height: f32, pitch: f32, yaw: f32) {
         self.basis = CameraBasis::for_map(ground, height, pitch, yaw);
+        self.basis_pitch_degrees = pitch;
+        self.basis_yaw_degrees = yaw;
     }
     pub(crate) fn set_adjustment_enabled(&mut self, enabled: bool) {
         self.adjustment_enabled = enabled;

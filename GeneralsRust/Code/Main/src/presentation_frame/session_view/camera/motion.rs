@@ -11,7 +11,7 @@ pub(crate) struct MotionAdmission {
 }
 
 impl MotionAdmission {
-    fn advances(self) -> bool {
+    pub(crate) fn advances(self) -> bool {
         self.fast_camera_only || (self.update_views && !self.paused && !self.debug_frozen)
     }
 }

@@ -117,10 +117,7 @@ fn authored_main_camera_mods_and_repeated_rotates_keep_action_order_in_nested_ca
                 2.0,
                 "nested same-family repetition must survive intervening freeze"
             );
-            assert_eq!(
-                world.session_view.scripted.script_camera_rotate_remaining,
-                3.0
-            );
+            assert_eq!(world.session_view.camera.camera_yaw_duration, 3.0);
             assert_eq!(world.mission_script_counter, 1);
         },
     );
@@ -288,10 +285,7 @@ fn poisoned_main_script_callback_queue_preserves_nested_action_order() {
                 true,
             );
             assert_eq!(world.pending_camera_rotate.as_ref().unwrap().rotations, 2.0);
-            assert_eq!(
-                world.session_view.scripted.script_camera_rotate_remaining,
-                3.0
-            );
+            assert_eq!(world.session_view.camera.camera_yaw_duration, 3.0);
             assert_eq!(world.new_script_messages.len(), 1);
             assert!(world.new_script_messages[0].contains("retained-before-interruption"));
             world.apply_script_action_requests();

@@ -26,15 +26,15 @@
 
 //! Wave 957: host_object/host_objects authority dual-read seal.
 use crate::game_logic::script_loader::{find_map_file, load_map_scripts};
-use crate::game_logic::victory_conditions::{victory_rules_for_map, VictoryType};
+use crate::game_logic::victory_conditions::{VictoryType, victory_rules_for_map};
 use crate::game_logic::{GameLogic, GameMode, Resources};
 use crate::map_frame_scenario::resolve_first_map;
+use crate::save_load::SaveLoadManager;
 use crate::save_load::campaign::{
     CampaignId, CampaignManager, MissionCompletionData, MissionDifficulty, MissionInfo,
     MissionObjective, MissionStatus, ObjectiveReward, ObjectiveTarget, ObjectiveType,
 };
 use crate::save_load::game_state::with_global_campaign_manager;
-use crate::save_load::SaveLoadManager;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -453,6 +453,7 @@ pub fn run_golden_campaign_ex(
     let frame_before = logic.get_frame();
     for _ in 0..frames {
         logic.update();
+        logic.headless_camera_view_offer(33);
     }
     let frame_after = logic.get_frame();
     let frames_advanced = frame_after.saturating_sub(frame_before);

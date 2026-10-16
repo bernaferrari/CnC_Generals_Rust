@@ -102,5 +102,5 @@ pub const PRESENTATION_FRAME_SRC: &str = concat!(
 
 mod session_view;
 pub(crate) use session_view::{
-    SessionView, SessionViewImpulse, SessionViewState, camera, scripted,
+    SessionView, SessionViewImpulse, SessionViewState, camera, scripted, waypoint,
 };

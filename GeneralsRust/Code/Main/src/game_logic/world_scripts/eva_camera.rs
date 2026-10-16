@@ -7,35 +7,29 @@ use super::super::*;
 /// Bounded cancellation borrow used by an immediate native postRender LookAt.
 /// The filter and logical target remain separately borrowed canonical fields.
 pub(crate) struct PlayerCameraLookAtCancellation<'a> {
-    move_to: &'a mut Option<ScriptCameraMoveTo>,
-    path: &'a mut Option<ScriptCameraPathMove>,
+    motion: &'a mut crate::presentation_frame::waypoint::WaypointMotion,
     look_toward: &'a mut Option<CameraLookTowardWaypointRequest>,
     look_object: &'a mut Option<u32>,
-    look_hold: &'a mut f32,
+    tracking: &'a mut Option<crate::presentation_frame::scripted::CameraObjectTracking>,
     focus: &'a mut Option<Vec3>,
     focus_origin: &'a mut Option<Vec3>,
     rotate: &'a mut Option<CameraRotateRequest>,
-    rotate_remaining: &'a mut f32,
-    zoom_remaining: &'a f32,
-    pitch_remaining: &'a f32,
+    independent_axis_active: bool,
     hooks: &'a MissionScriptHooks,
 }
 impl PlayerCameraLookAtCancellation<'_> {
     pub(crate) fn cancel(&mut self) {
-        *self.move_to = None;
-        *self.path = None;
+        self.motion.active = false;
         *self.look_toward = None;
         *self.look_object = None;
-        *self.look_hold = 0.;
+        *self.tracking = None;
         *self.focus = None;
         *self.focus_origin = None;
         *self.rotate = None;
-        *self.rotate_remaining = 0.;
         // W3DView::lookAt cancels rotate/path/lock, not independent zoom or
         // pitch. Keep their clocks and the stored movement-freeze flag intact.
-        self.hooks.set_camera_movement_finished(
-            !(*self.zoom_remaining > 0. || *self.pitch_remaining > 0.),
-        );
+        self.hooks
+            .set_camera_movement_finished(!self.independent_axis_active);
     }
 }
 
@@ -584,18 +578,29 @@ impl GameLogic {
     }
 
     pub fn request_camera_focus(&mut self, position: Vec3) {
-        static DEBUG_CAMERA_FOCUS_LOGS: std::sync::atomic::AtomicUsize =
-            std::sync::atomic::AtomicUsize::new(0);
-        if DEBUG_CAMERA_FOCUS_LOGS.fetch_add(1, std::sync::atomic::Ordering::Relaxed) < 24 {
-            log::trace!("DEBUG_SHELL_CAMERA_BRIDGE: request_camera_focus position={position:?}");
-        }
+        let bounds = self.world_bounds();
+        let owner = self.world_services.terrain();
+        let admitted = match owner.read() {
+            Ok(terrain) => self
+                .session_view
+                .receiving_look_at(position, bounds, &terrain),
+            Err(_) => Err("receiving LookAt terrain poisoned".into()),
+        };
+        let position = match admitted {
+            Ok(position) => position,
+            Err(error) => {
+                log::error!("camera LookAt admission: {error}");
+                return;
+            }
+        };
+        self.cancel_scripted_camera_from_player_look_at();
         self.session_view.pending_focus_previous_target = None;
         self.pending_camera_focus = Some(position);
-        self.session_view.scripted.script_camera_focus_estimate = position;
     }
 
     /// Source waypoint movement saves the old logical View position before
     /// changing it. Preserve origin with the pending focus, including completion.
+    #[cfg(test)]
     pub(crate) fn request_path_camera_focus(&mut self, position: Vec3) {
         let previous = self.session_view.target;
         self.request_camera_focus(position);
@@ -620,22 +625,21 @@ impl GameLogic {
 
     /// C++ `W3DView::lookAt`: drop rotate + waypoint path + scripted lock.
     pub fn cancel_scripted_camera_from_player_look_at(&mut self) {
+        self.session_view.camera.camera_yaw_target = None;
         self.player_camera_look_at_cancellation().cancel();
     }
 
     fn player_camera_look_at_cancellation(&mut self) -> PlayerCameraLookAtCancellation<'_> {
         PlayerCameraLookAtCancellation {
-            move_to: &mut self.session_view.scripted.script_camera_move_to,
-            path: &mut self.session_view.scripted.script_camera_path,
+            motion: &mut self.session_view.scripted.motion,
             look_toward: &mut self.pending_camera_look_toward,
             look_object: &mut self.session_view.scripted.script_look_toward_object_id,
-            look_hold: &mut self.session_view.scripted.script_look_toward_hold_seconds,
+            tracking: &mut self.session_view.scripted.object_tracking,
             focus: &mut self.pending_camera_focus,
             focus_origin: &mut self.session_view.pending_focus_previous_target,
             rotate: &mut self.pending_camera_rotate,
-            rotate_remaining: &mut self.session_view.scripted.script_camera_rotate_remaining,
-            zoom_remaining: &self.session_view.scripted.script_camera_zoom_remaining,
-            pitch_remaining: &self.session_view.scripted.script_camera_pitch_remaining,
+            independent_axis_active: self.session_view.camera.camera_zoom_target.is_some()
+                || self.session_view.camera.camera_pitch_target.is_some(),
             hooks: &self.mission_scripts,
         }
     }
@@ -657,17 +661,15 @@ impl GameLogic {
             &mut self.session_view.target,
             self.session_view.impulse.offset,
             PlayerCameraLookAtCancellation {
-                move_to: &mut self.session_view.scripted.script_camera_move_to,
-                path: &mut self.session_view.scripted.script_camera_path,
+                motion: &mut self.session_view.scripted.motion,
                 look_toward: &mut self.pending_camera_look_toward,
                 look_object: &mut self.session_view.scripted.script_look_toward_object_id,
-                look_hold: &mut self.session_view.scripted.script_look_toward_hold_seconds,
+                tracking: &mut self.session_view.scripted.object_tracking,
                 focus: &mut self.pending_camera_focus,
                 focus_origin: &mut self.session_view.pending_focus_previous_target,
                 rotate: &mut self.pending_camera_rotate,
-                rotate_remaining: &mut self.session_view.scripted.script_camera_rotate_remaining,
-                zoom_remaining: &self.session_view.scripted.script_camera_zoom_remaining,
-                pitch_remaining: &self.session_view.scripted.script_camera_pitch_remaining,
+                independent_axis_active: self.session_view.camera.camera_zoom_target.is_some()
+                    || self.session_view.camera.camera_pitch_target.is_some(),
                 hooks: &self.mission_scripts,
             },
             &self.host_physics_visuals,
@@ -682,11 +684,10 @@ impl GameLogic {
     }
 
     fn clear_in_flight_scripted_camera_move(&mut self) {
-        self.session_view.scripted.script_camera_move_to = None;
-        self.session_view.scripted.script_camera_path = None;
+        self.session_view.scripted.motion.active = false;
         self.pending_camera_look_toward = None;
         self.session_view.scripted.script_look_toward_object_id = None;
-        self.session_view.scripted.script_look_toward_hold_seconds = 0.0;
+        self.session_view.scripted.object_tracking = None;
         self.pending_camera_focus = None;
         self.session_view.pending_focus_previous_target = None;
         self.mission_scripts.set_camera_movement_finished(true);

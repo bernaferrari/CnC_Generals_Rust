@@ -62,10 +62,6 @@ pub(self) use script_camera::{
     mission_objective_to_display,
 };
 
-pub(self) use crate::presentation_frame::scripted::path::{
-    ParabolicEase, ScriptCameraMoveTo, ScriptCameraPathMove,
-};
-
 // Split `impl GameLogic` chunks as real child modules (type-checked separately).
 // Combat lives in world_combat/*.rs (#[path] because this file is a directory).
 // Sibling private methods use pub(super) / pub(in super::super).

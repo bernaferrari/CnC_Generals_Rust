@@ -268,6 +268,7 @@ fn install_templates(logic: &mut GameLogic) {
 fn run_frames(logic: &mut GameLogic, frames: usize) {
     for _ in 0..frames {
         logic.update();
+        logic.headless_camera_view_offer(33);
     }
 }
 
@@ -295,6 +296,7 @@ where
             return (i, true);
         }
         logic.update();
+        logic.headless_camera_view_offer(33);
     }
     (max_frames, cond(logic))
 }
@@ -1608,6 +1610,7 @@ fn run_synthetic_host_skirmish(
     let _ = march_unit_near(logic, dozer, Vec3::new(75.0, 0.0, 0.0), 180);
     for _ in 0..3 {
         logic.update();
+        logic.headless_camera_view_offer(33);
     }
     logic.queue_command(command(
         2,
@@ -1956,6 +1959,7 @@ fn run_map_world_skirmish(
     // are CELLSHROUD_CLEAR (LBC_SHROUD otherwise blocks DozerConstruct).
     for _ in 0..3 {
         logic.update();
+        logic.headless_camera_view_offer(33);
     }
 
     // Move dozer via production Move command.
@@ -1991,10 +1995,12 @@ fn run_map_world_skirmish(
         // Wave 829: FOW + LBC_OK pad per template (edge/shroud residual).
         for _ in 0..3 {
             logic.update();
+            logic.headless_camera_view_offer(33);
         }
         let barracks_pos = find_legal_build_site_near(logic, base, bname, Some(dozer));
         let _ = march_unit_near(logic, dozer, barracks_pos + Vec3::new(-5.0, 0.0, 0.0), 240);
         logic.update();
+        logic.headless_camera_view_offer(33);
         logic.queue_command(command(
             2 + attempt as u32,
             0,
@@ -2263,6 +2269,7 @@ fn run_map_world_skirmish(
                 }
                 for _ in 0..2 {
                     logic.update();
+                    logic.headless_camera_view_offer(33);
                 }
             }
         }
@@ -2377,6 +2384,7 @@ fn run_map_world_skirmish(
                     }
                     for _ in 0..2 {
                         logic.update();
+                        logic.headless_camera_view_offer(33);
                     }
                 }
             }
@@ -2715,7 +2723,7 @@ mod tests {
     #[test]
 
     fn host_construct_after_load_map_residual() {
-            let (map_identity, map_exists) = resolve_map(None);
+        let (map_identity, map_exists) = resolve_map(None);
         if !map_exists {
             return;
         }
@@ -2734,16 +2742,19 @@ mod tests {
             .unwrap_or(Vec3::ZERO);
         let dozer = ensure_dozer(&mut logic, base).expect("dozer");
         logic.update();
+        logic.headless_camera_view_offer(33);
         let bname =
             first_present_template(&logic, &["USA_Barracks", "AmericaBarracks", "Barracks"])
                 .unwrap_or_else(|| "Barracks".into());
         // Wave 829: reveal FOW then pick an LBC_OK pad (edge margin + shroud).
         for _ in 0..5 {
             logic.update();
+            logic.headless_camera_view_offer(33);
         }
         let site = find_legal_build_site_near(&logic, base, &bname, Some(dozer));
         let _ = march_unit_near(&mut logic, dozer, site + Vec3::new(-5.0, 0.0, 0.0), 240);
         logic.update();
+        logic.headless_camera_view_offer(33);
         // Simulate host construct: create under construction via legal path.
         let id = logic.create_object_under_construction(&bname, Team::USA, site);
         assert!(
@@ -2755,7 +2766,7 @@ mod tests {
 
     #[test]
     fn load_map_start_vision_allows_build_residual() {
-            let (map_identity, map_exists) = resolve_map(None);
+        let (map_identity, map_exists) = resolve_map(None);
         if !map_exists {
             eprintln!("retail map absent — skip start vision residual");
             return;
@@ -2779,16 +2790,19 @@ mod tests {
             let p = d.get_position();
             d.set_position(p); // keep
         }
-        logic.update(); // apply vision for post-load spawned dozer
+        logic.update();
+        logic.headless_camera_view_offer(33); // apply vision for post-load spawned dozer
         let bname =
             first_present_template(&logic, &["USA_Barracks", "AmericaBarracks", "Barracks"])
                 .unwrap_or_else(|| "Barracks".into());
         for _ in 0..5 {
             logic.update();
+            logic.headless_camera_view_offer(33);
         }
         let site = find_legal_build_site_near(&logic, base, &bname, Some(dozer));
         let _ = march_unit_near(&mut logic, dozer, site + Vec3::new(-5.0, 0.0, 0.0), 240);
         logic.update();
+        logic.headless_camera_view_offer(33);
         let legal =
             logic.is_location_legal_to_build_for_builder(Team::USA, site, &bname, Some(dozer));
         assert!(

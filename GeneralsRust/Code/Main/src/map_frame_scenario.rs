@@ -152,6 +152,7 @@ pub fn run_map_frame_scenario(map_name: Option<&str>, frames: u32) -> MapFrameSc
     let frame_before = logic.get_frame();
     for _ in 0..frames {
         logic.update();
+        logic.headless_camera_view_offer(33);
     }
     let frame_after = logic.get_frame();
     let frames_advanced = frame_after.saturating_sub(frame_before);

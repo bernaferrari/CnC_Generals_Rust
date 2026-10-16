@@ -1,0 +1,230 @@
+//! Immediate W3DView::lookAt geometry against the receiving terrain.
+use super::SessionView;
+use gamelogic::terrain::TerrainLogic;
+use glam::{Mat4, Vec3, Vec4};
+
+fn unproject(view: Mat4, projection: Mat4, x: f32, y: f32) -> Option<(Vec3, Vec3)> {
+    let inverse = (projection * view).inverse();
+    let point = |depth| {
+        let p = inverse * Vec4::new(x, y, depth, 1.);
+        (p.w.abs() > 1e-7).then(|| p.truncate() / p.w)
+    };
+    let near = point(0.)?;
+    let far = point(1.)?;
+    (near.is_finite() && far.is_finite()).then_some((near, far))
+}
+fn at_height(ray: (Vec3, Vec3), height: f32) -> Option<Vec3> {
+    let direction = ray.1 - ray.0;
+    if direction.y.abs() < 1e-7 {
+        return None;
+    }
+    let t = (height - ray.0.y) / direction.y;
+    t.is_finite().then_some(ray.0 + direction * t)
+}
+fn inset(view: Mat4, projection: Mat4, ground: f32) -> f32 {
+    // Pixel center and 95%-height normalize to these NDC coordinates for
+    // every viewport. No window/presentation owner is required for admission.
+    let points = unproject(view, projection, 0., 0.)
+        .and_then(|a| at_height(a, ground))
+        .zip(unproject(view, projection, 0., -0.9).and_then(|b| at_height(b, ground)));
+    points.map_or(0., |(a, b)| {
+        ((a.x - b.x).powi(2) + (a.z - b.z).powi(2)).sqrt()
+    })
+}
+fn constrain(
+    mut p: Vec3,
+    min: Vec3,
+    max: Vec3,
+    inset: f32,
+    widen: Option<(f32, f32, f32, f32)>,
+) -> Vec3 {
+    let (mut x0, mut x1, mut z0, mut z1) =
+        (min.x + inset, max.x - inset, min.z + inset, max.z - inset);
+    if let Some((a, b, c, d)) = widen {
+        x0 = x0.min(a);
+        x1 = x1.max(b);
+        z0 = z0.min(c);
+        z1 = z1.max(d);
+    }
+    p.x = p.x.max(x0).min(x1);
+    p.z = p.z.max(z0).min(z1);
+    p.y = 0.;
+    p
+}
+
+/// Ray/height intersection split at all cell edges and the source mesh's
+/// (0,0)→(1,1) diagonals. The height surface is linear within each interval;
+/// this avoids skipping a narrow ridge with a coarse marching step.
+fn terrain_hit(start: Vec3, direction: Vec3, terrain: &TerrainLogic) -> Option<Vec3> {
+    let cell = gamelogic::common::MAP_XY_FACTOR;
+    let (width, height) = terrain.logic_height_map_extents();
+    let bytes = terrain.logic_height_map_bytes();
+    if width <= 0 || height <= 0 || bytes.len() < (width as usize * height as usize) {
+        return None;
+    }
+    let border = -terrain.get_extent_including_border().lo.x / cell;
+    let overhang = 64. + border;
+    let min = Vec3::new(-overhang * cell, 0., -overhang * cell);
+    let max = Vec3::new(
+        (width as f32 + overhang) * cell,
+        0.,
+        (height as f32 + overhang) * cell,
+    );
+    // Cast_Ray uses clipped samples even at the edge; get_ground_height's
+    // outside-interior nearest-sample branch is not the collision surface.
+    let surface = |x: f32, z: f32| {
+        let x = x / cell + border;
+        let z = z / cell + border;
+        let ix = x.floor() as i32;
+        let iz = z.floor() as i32;
+        let fx = x - x.floor();
+        let fz = z - z.floor();
+        let sample = |x: i32, z: i32| {
+            bytes[(z.clamp(0, height - 1) * width + x.clamp(0, width - 1)) as usize] as f32
+        };
+        let p0 = sample(ix, iz);
+        let p2 = sample(ix + 1, iz + 1);
+        let h = if fz > fx {
+            let p3 = sample(ix, iz + 1);
+            p3 + (1. - fz) * (p0 - p3) + fx * (p2 - p3)
+        } else {
+            let p1 = sample(ix + 1, iz);
+            p1 + fz * (p2 - p1) + (1. - fx) * (p0 - p1)
+        };
+        h * gamelogic::common::MAP_HEIGHT_SCALE
+    };
+    let mut enter = 0_f32;
+    let mut exit = 1_f32;
+    for (origin, delta, lo, hi) in [
+        (start.x, direction.x, min.x, max.x),
+        (start.z, direction.z, min.z, max.z),
+    ] {
+        if delta.abs() < 1e-7 {
+            if origin < lo || origin > hi {
+                return None;
+            }
+        } else {
+            let a = (lo - origin) / delta;
+            let b = (hi - origin) / delta;
+            enter = enter.max(a.min(b));
+            exit = exit.min(a.max(b));
+        }
+    }
+    if enter > exit || exit < 0. || enter > 1. {
+        return None;
+    }
+    enter = enter.max(0.);
+    exit = exit.min(1.);
+    let mut cuts = vec![enter, exit];
+    for (origin, delta, lo, hi) in [
+        (start.x, direction.x, min.x, max.x),
+        (start.z, direction.z, min.z, max.z),
+        (
+            start.x - start.z,
+            direction.x - direction.z,
+            min.x - max.z,
+            max.x - min.z,
+        ),
+    ] {
+        if delta.abs() < 1e-7 {
+            continue;
+        }
+        for index in ((lo / cell).floor() as i32)..=((hi / cell).ceil() as i32) {
+            let t = (index as f32 * cell - origin) / delta;
+            if t > enter && t < exit {
+                cuts.push(t);
+            }
+        }
+    }
+    cuts.sort_by(f32::total_cmp);
+    cuts.dedup();
+    for span in cuts.windows(2) {
+        let a = start + direction * span[0];
+        let b = start + direction * span[1];
+        let da = a.y - surface(a.x, a.z);
+        let db = b.y - surface(b.x, b.z);
+        if !da.is_finite() || !db.is_finite() {
+            return None;
+        }
+        if da >= 0. && db <= 0. {
+            let fraction = if da == db { 0. } else { da / (da - db) };
+            return Some(a + (b - a) * fraction);
+        }
+    }
+    None
+}
+
+impl SessionView {
+    pub(crate) fn receiving_look_at(
+        &mut self,
+        requested: Vec3,
+        bounds: (Vec3, Vec3),
+        terrain: &TerrainLogic,
+    ) -> Result<Vec3, String> {
+        if !requested.is_finite() || !bounds.0.is_finite() || !bounds.1.is_finite() {
+            return Err("nonfinite receiving LookAt position/bounds".into());
+        }
+        let inset = inset(
+            self.camera.view_matrix,
+            self.camera.projection_matrix,
+            self.camera.native_camera.basis().ground_level(),
+        );
+        let ground = terrain.get_ground_height(requested.x, requested.z, None);
+        if !ground.is_finite() {
+            return Err("nonfinite receiving LookAt terrain".into());
+        }
+        let mut target = requested;
+        if requested.y > 10. + ground {
+            if let Some((near, far)) = unproject(
+                self.camera.view_matrix,
+                self.camera.projection_matrix,
+                0.,
+                0.,
+            ) {
+                let direction = (far - near).try_normalize().unwrap_or(-Vec3::Y);
+                let eye = self
+                    .camera
+                    .view_matrix
+                    .inverse()
+                    .transform_point3(Vec3::ZERO);
+                let depth = (far - eye).length();
+                if depth.is_finite() && depth > 0. {
+                    if let Some(hit) = terrain_hit(requested, direction * depth, terrain) {
+                        target.x = hit.x;
+                        target.z = hit.z;
+                    }
+                }
+            }
+        }
+        // Ordinary LookAt preserves an existing widened constraint but never
+        // expands it. Only authored movement updates that union.
+        self.target = constrain(
+            target,
+            bounds.0,
+            bounds.1,
+            inset,
+            self.camera.scripted_camera_constraint_widen,
+        );
+        self.commit_orbit_pose();
+        Ok(self.target)
+    }
+
+    /// Rebuild the completed pose only. No HAG/scalar/filter frame advances.
+    pub(crate) fn commit_orbit_pose(&mut self) {
+        if self.camera.camera_slave_mode.is_some() {
+            return;
+        }
+        let (eye, look) = super::camera::pose::camera_orbit_pose(
+            &self.camera.native_camera,
+            self.target,
+            self.impulse.offset,
+            self.camera.camera_zoom,
+            self.camera.camera_pitch_radians,
+            self.camera.camera_yaw_radians,
+            self.camera.camera_fx_pitch,
+        );
+        self.camera.camera_position = eye;
+        self.camera.view_matrix =
+            super::camera::pose::camera_orbit_view(eye, look, self.camera.camera_shake_rotation);
+    }
+}

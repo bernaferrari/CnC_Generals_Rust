@@ -42,12 +42,9 @@ fn receiving_camera_completion_and_look_at_match_original_cpp_component() {
         assert_eq!(row.len(), 8);
         let [mask, filter, mode, before, after, rotate, pitch, zoom]: [usize; 8] =
             row.try_into().unwrap();
-        world.session_view.scripted.script_camera_rotate_remaining =
-            if mask & 1 != 0 { 1. } else { 0. };
-        world.session_view.scripted.script_camera_pitch_remaining =
-            if mask & 2 != 0 { 1. } else { 0. };
-        world.session_view.scripted.script_camera_zoom_remaining =
-            if mask & 4 != 0 { 1. } else { 0. };
+        world.session_view.camera.camera_yaw_target = (mask & 1 != 0).then_some(1.);
+        world.session_view.camera.camera_pitch_target = (mask & 2 != 0).then_some(1.);
+        world.session_view.camera.camera_zoom_target = (mask & 4 != 0).then_some(1.);
         world.session_view.scripted.script_camera_freeze_time = true;
         world.session_view.filter.set_filter(filters[filter]);
         world.session_view.filter.set_mode(modes[mode]);
@@ -73,17 +70,17 @@ fn receiving_camera_completion_and_look_at_match_original_cpp_component() {
             "LookAt does not disarm freeze {line}"
         );
         assert_eq!(
-            world.session_view.scripted.script_camera_rotate_remaining > 0.,
+            world.session_view.camera.camera_yaw_target.is_some(),
             rotate != 0,
             "rotate {line}"
         );
         assert_eq!(
-            world.session_view.scripted.script_camera_pitch_remaining > 0.,
+            world.session_view.camera.camera_pitch_target.is_some(),
             pitch != 0,
             "pitch {line}"
         );
         assert_eq!(
-            world.session_view.scripted.script_camera_zoom_remaining > 0.,
+            world.session_view.camera.camera_zoom_target.is_some(),
             zoom != 0,
             "zoom {line}"
         );

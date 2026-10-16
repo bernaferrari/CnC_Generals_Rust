@@ -384,6 +384,8 @@ fn actual_main_nested_tether_then_home_is_flushed_before_parent_continues() {
             let (mut first, id, home) = world(110.0);
             let (mut second, second_id, second_home) = world(210.0);
             assert_eq!(id, second_id);
+            first.override_world_size(1024., 1024.);
+            second.override_world_size(1024., 1024.);
             let mut list = ScriptList::new();
             let mut sub = script(
                 "CameraSub",
@@ -491,6 +493,21 @@ fn actual_main_camera_movement_finished_queries_the_driving_world() {
             first.frame = 105;
             let first_engine = run_with_dt(&mut first, first_engine, 3.5);
             assert!(first.new_script_messages.is_empty());
+            assert_eq!(
+                first.session_view.scripted.motion.elapsed_ms, 0,
+                "logic dt does not drive the view"
+            );
+            let peer_before = second.capture_camera_continuation().unwrap();
+            for _ in 0..90 {
+                first.headless_camera_view_offer(33);
+            }
+            assert!(
+                first.session_view.scripted.motion.active,
+                "2970ms is before source3000ms deadline"
+            );
+            first.headless_camera_view_offer(33);
+            assert!(!first.session_view.scripted.motion.active);
+            assert_eq!(second.capture_camera_continuation().unwrap(), peer_before);
             first.frame = 106;
             let _ = run(&mut first, first_engine);
             assert_eq!(
@@ -628,13 +645,12 @@ fn assert_remaining_effect(world: &GameLogic, kind: ScriptActionType, id: Object
             assert_eq!(world.session_view.scripted.camera_tether_play, None);
         }
         ResetCamera => {
-            let r = world
-                .session_view
-                .scripted
-                .script_camera_move_to
-                .as_ref()
-                .unwrap();
-            assert_eq!((r.target, r.total_time_seconds), (camera_point, 2.5));
+            let r = &world.session_view.scripted.motion;
+            assert!(r.active);
+            assert_eq!(
+                (r.points[r.num_waypoints].world(), r.total_time_ms),
+                (camera_point, 2500)
+            );
             assert_eq!(
                 (
                     world.pending_camera_zoom_reset_duration,
@@ -643,18 +659,17 @@ fn assert_remaining_effect(world: &GameLogic, kind: ScriptActionType, id: Object
                 ),
                 (2.5, 0.25, 0.75)
             );
+            assert_eq!(r.angles[2], 0.);
+            assert_eq!(world.session_view.camera.camera_pitch_target, Some(1.));
         }
         SetupCamera => {
-            assert_eq!(world.peek_pending_camera_focus(), Some(camera_point));
-            assert_eq!(
-                world.pending_camera_zoom.as_ref().unwrap().zoom,
-                0.8 * ((320.0 + 300.0) / 320.0)
-            );
-            assert_eq!(world.pending_camera_pitch.as_ref().unwrap().pitch, 0.6);
-            assert_eq!(
-                world.pending_camera_look_toward.as_ref().unwrap().position,
-                look_point
-            );
+            let motion = &world.session_view.scripted.motion;
+            assert!(motion.active);
+            assert_eq!(motion.total_time_ms, 0);
+            assert_eq!(motion.points[2].world(), camera_point);
+            assert_eq!(world.session_view.camera.camera_pitch_target, Some(0.6));
+            assert!(world.session_view.camera.camera_zoom_target.is_some());
+            assert!(world.pending_camera_look_toward.is_none());
         }
         CameraLookTowardObject => {
             let r = world.pending_camera_look_toward.as_ref().unwrap();
@@ -666,9 +681,15 @@ fn assert_remaining_effect(world: &GameLogic, kind: ScriptActionType, id: Object
             assert_eq!(
                 (
                     world.session_view.scripted.script_look_toward_object_id,
-                    world.session_view.scripted.script_look_toward_hold_seconds
+                    world
+                        .session_view
+                        .scripted
+                        .object_tracking
+                        .as_ref()
+                        .unwrap()
+                        .hold_frames
                 ),
-                (Some(id.0), 2.0)
+                (Some(id.0), 60)
             );
         }
         CameraLookTowardWaypoint => {
@@ -684,10 +705,30 @@ fn assert_remaining_effect(world: &GameLogic, kind: ScriptActionType, id: Object
                 (look_point, 1.1, 0.2, 0.3, true)
             );
         }
-        CameraModLookToward | CameraModFinalLookToward => assert_eq!(
-            world.pending_camera_look_toward.as_ref().unwrap().position,
-            look_point
-        ),
+        CameraModLookToward | CameraModFinalLookToward => {
+            let motion = &world.session_view.scripted.motion;
+            assert!(motion.active);
+            assert!(world.pending_camera_look_toward.is_none());
+            let end = motion.points[motion.num_waypoints].world();
+            let direction = look_point - end;
+            let length =
+                f64::from(direction.x * direction.x + direction.z * direction.z).sqrt() as f32;
+            let mut angle = f64::from(direction.x / length).acos() as f32;
+            if direction.z < 0. {
+                angle = -angle;
+            }
+            angle -= std::f32::consts::FRAC_PI_2;
+            while angle < -std::f32::consts::PI {
+                angle += std::f32::consts::TAU;
+            }
+            while angle > std::f32::consts::PI {
+                angle -= std::f32::consts::TAU;
+            }
+            assert_eq!(
+                motion.angles[motion.num_waypoints].to_bits(),
+                angle.to_bits()
+            );
+        }
         CameraSetDefault => assert_eq!(
             (
                 world.session_view.scripted.script_default_camera_pitch,
@@ -872,7 +913,7 @@ fn missing_camera_targets_are_no_ops_on_both_worlds() {
                 ),
                 (Some(id), Some(4.0))
             );
-            assert!(first.session_view.scripted.script_camera_move_to.is_none());
+            assert!(!first.session_view.scripted.motion.active);
             assert!(first.pending_camera_look_toward.is_none());
             assert!(first.pending_camera_zoom.is_none());
             assert!(first.pending_camera_pitch.is_none());
@@ -990,3 +1031,9 @@ mod waypoint_action_owner_tests;
 
 #[path = "path_constructor_owner_tests.rs"]
 mod path_constructor_owner_tests;
+
+#[path = "receiving_look_at_tests.rs"]
+mod receiving_look_at_tests;
+
+#[path = "receiving_tracking_tests.rs"]
+mod receiving_tracking_tests;

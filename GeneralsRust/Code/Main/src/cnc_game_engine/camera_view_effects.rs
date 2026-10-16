@@ -54,11 +54,7 @@ impl CnCGameEngine {
                 .writable
                 .disable_camera_movement,
         };
-        did_scripted_movement |= self
-            .game_logic
-            .session_view
-            .camera
-            .advance_scalar_movements(admission, self.game_logic.session_view.target);
+        did_scripted_movement |= self.game_logic.advance_camera_view(admission, 33);
         if decision.update_views {
             // Full view only. Fast's early camera-only branch never reaches
             // shake, height adjustment, slave pose or matrix commitment.

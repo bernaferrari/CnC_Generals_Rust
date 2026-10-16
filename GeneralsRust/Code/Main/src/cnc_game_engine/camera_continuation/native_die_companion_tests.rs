@@ -105,6 +105,11 @@ fn native_die_camera_companion_archive_restores_view_height_and_receipts_without
             state.screen_shake_angle_cos = view.cosine;
             state.screen_shake_angle_sin = view.sine;
             state.camera_shake_offset = view.offset;
+            fixture_on_owner(&mut state, &mut source);
+            let expected_camera =
+                crate::presentation_frame::camera::continuation::SessionCameraState::capture(
+                    &source.session_view.camera,
+                );
             let expected_height = codec().serialize(&state.height).unwrap();
             let expected_view = view;
             let directory = tempfile::tempdir().unwrap();
@@ -147,6 +152,24 @@ fn native_die_camera_companion_archive_restores_view_height_and_receipts_without
             SnapshotBuilder::new()
                 .restore_from_snapshot(&snapshot, &mut receiving)
                 .unwrap();
+            assert_eq!(
+                codec().serialize(&crate::presentation_frame::camera::continuation::SessionCameraState::capture(
+                    &receiving.session_view.camera)).unwrap(),
+                codec().serialize(&expected_camera).unwrap(),
+                "the real world snapshot restores its complete owned camera without a native window"
+            );
+            assert_eq!(
+                codec()
+                    .serialize(
+                        &receiving
+                            .session_view
+                            .camera
+                            .native_camera
+                            .capture_continuation()
+                    )
+                    .unwrap(),
+                expected_height
+            );
             // Same explicit owner admissions as the Engine native contract;
             // no claim that the full Engine wrapper was constructed here.
             let saved = native.0;

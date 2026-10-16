@@ -482,50 +482,8 @@ pub(super) fn center_camera_target(
     Vec3::new(look.x, 0., look.z)
 }
 
-/// Current map basis and existing shake/FX; no clock advances during redraw.
-pub(super) fn camera_orbit_pose(
-    native_camera: &super::camera_height::CameraHeight,
-    target: Vec3,
-    impulse: Vec3,
-    zoom: f32,
-    pitch: f32,
-    yaw: f32,
-    fx_pitch: f32,
-) -> (Vec3, Vec3) {
-    let (eye, look) = native_camera.basis().pose(target, zoom, pitch, yaw);
-    camera_fx_pose(eye + impulse, look, fx_pitch)
-}
-
-fn camera_fx_pose(source: Vec3, look: Vec3, fx_pitch: f32) -> (Vec3, Vec3) {
-    let fx = if fx_pitch.is_finite() { fx_pitch } else { 1. };
-    if (fx - 1.).abs() < 1.0e-6 {
-        (source, look)
-    } else if fx <= 1. {
-        let height = (source.y - look.y) * fx;
-        (source, Vec3::new(look.x, source.y - height, look.z))
-    } else {
-        (
-            Vec3::new(
-                look.x + (source.x - look.x) / fx,
-                source.y,
-                look.z + (source.z - look.z) / fx,
-            ),
-            look,
-        )
-    }
-}
-
-pub(super) fn camera_orbit_view(source: Vec3, look: Vec3, shake: Vec3) -> Mat4 {
-    if shake.length_squared() > 1.0e-8 {
-        let forward = (look - source).try_normalize().unwrap_or(Vec3::NEG_Z);
-        let rot = glam::Quat::from_rotation_y(shake.y)
-            * glam::Quat::from_rotation_x(shake.x)
-            * glam::Quat::from_rotation_z(shake.z);
-        Mat4::look_at_rh(source, source + rot * forward, rot * Vec3::Y)
-    } else {
-        Mat4::look_at_rh(source, look, Vec3::Y)
-    }
-}
+use crate::presentation_frame::camera::pose::camera_fx_pose;
+pub(super) use crate::presentation_frame::camera::pose::{camera_orbit_pose, camera_orbit_view};
 
 impl CnCGameEngine {
     pub(super) fn play_ui_sound_effect(&mut self, path: String) {
@@ -1529,30 +1487,24 @@ impl CnCGameEngine {
     }
 
     pub(super) fn apply_script_camera_pitch_request(&mut self, request: CameraPitchRequest) {
-        // C++ pitchCamera lerps m_FXPitch (W3DView.cpp:2520-2531 / 3049-3068).
-        let target = Self::script_pitch_is_fx_pitch(request.pitch);
-
-        self.game_logic.session_view.camera.camera_pitch_start =
-            self.game_logic.session_view.camera.camera_fx_pitch;
-        self.game_logic.session_view.camera.camera_pitch_target = Some(target);
-        self.game_logic.session_view.camera.camera_pitch_duration = request.duration_seconds;
-        self.game_logic.session_view.camera.camera_pitch_frame = 0;
-        self.game_logic.session_view.camera.camera_pitch_ease_in = request.ease_in_seconds.max(0.0);
-        self.game_logic.session_view.camera.camera_pitch_ease_out =
-            request.ease_out_seconds.max(0.0);
+        self.game_logic.session_view.camera.install_pitch(
+            request.pitch,
+            request.duration_seconds,
+            request.ease_in_seconds,
+            request.ease_out_seconds,
+        );
     }
 
     pub(super) fn apply_script_camera_rotate_request(&mut self, request: CameraRotateRequest) {
-        let target_yaw =
-            self.game_logic.session_view.camera.camera_yaw_radians + request.rotations * TAU;
-
-        self.game_logic.session_view.camera.camera_yaw_start =
-            self.game_logic.session_view.camera.camera_yaw_radians;
-        self.game_logic.session_view.camera.camera_yaw_target = Some(target_yaw);
-        self.game_logic.session_view.camera.camera_yaw_duration = request.duration_seconds;
-        self.game_logic.session_view.camera.camera_yaw_frame = 0;
-        self.game_logic.session_view.camera.camera_yaw_ease_in = request.ease_in_seconds.max(0.0);
-        self.game_logic.session_view.camera.camera_yaw_ease_out = request.ease_out_seconds.max(0.0);
+        self.game_logic.session_view.scripted.object_tracking = None;
+        self.game_logic.session_view.scripted.motion.active = false;
+        self.game_logic.session_view.scripted.path_arrived = false;
+        self.game_logic.session_view.camera.install_rotate(
+            request.rotations,
+            request.duration_seconds,
+            request.ease_in_seconds,
+            request.ease_out_seconds,
+        );
     }
 
     /// Wave 568: InGame script FPS residual — prefer presentation freeze, always drain
@@ -1778,48 +1730,18 @@ impl CnCGameEngine {
         &mut self,
         request: CameraLookTowardWaypointRequest,
     ) {
-        let to_target = request.position - self.game_logic.session_view.target;
-        let horiz = Vec2::new(to_target.x, to_target.z);
-        if horiz.length_squared() <= f32::EPSILON {
-            return;
+        if self.game_logic.session_view.camera.install_look_toward(
+            self.game_logic.session_view.target,
+            request.position,
+            request.duration_seconds,
+            request.ease_in_seconds,
+            request.ease_out_seconds,
+            request.reverse_rotation,
+        ) {
+            self.game_logic.session_view.scripted.object_tracking = None;
+            self.game_logic.session_view.scripted.motion.active = false;
+            self.game_logic.session_view.scripted.path_arrived = false;
         }
-
-        let target_yaw = to_target.x.atan2(to_target.z);
-        let mut delta = Self::normalize_signed_angle(
-            target_yaw - self.game_logic.session_view.camera.camera_yaw_radians,
-        );
-        if request.reverse_rotation {
-            if delta >= 0.0 {
-                delta -= TAU;
-            } else {
-                delta += TAU;
-            }
-        }
-        let target_yaw = self.game_logic.session_view.camera.camera_yaw_radians + delta;
-
-        if request.duration_seconds > 0.0
-            && self
-                .game_logic
-                .session_view
-                .camera
-                .camera_yaw_target
-                .is_some()
-            && self.game_logic.session_view.camera.camera_yaw_duration > 0.0
-        {
-            self.game_logic.session_view.camera.camera_yaw_target = Some(target_yaw);
-            self.game_logic.session_view.camera.camera_yaw_duration = request
-                .duration_seconds
-                .max(self.game_logic.session_view.camera.camera_yaw_duration);
-            return;
-        }
-
-        self.game_logic.session_view.camera.camera_yaw_start =
-            self.game_logic.session_view.camera.camera_yaw_radians;
-        self.game_logic.session_view.camera.camera_yaw_target = Some(target_yaw);
-        self.game_logic.session_view.camera.camera_yaw_duration = request.duration_seconds;
-        self.game_logic.session_view.camera.camera_yaw_frame = 0;
-        self.game_logic.session_view.camera.camera_yaw_ease_in = request.ease_in_seconds.max(0.0);
-        self.game_logic.session_view.camera.camera_yaw_ease_out = request.ease_out_seconds.max(0.0);
     }
 
     /// Wave 611: via `host_center_camera_on`.
@@ -2772,17 +2694,34 @@ End
             .map(|offset| request_start + offset)
             .unwrap();
         let request: String = src[request_start..request_end].split_whitespace().collect();
-        assert!(
-            request.contains("self.game_logic.session_view.camera.camera_pitch_start=self.game_logic.session_view.camera.camera_fx_pitch")
-                && request.contains("self.game_logic.session_view.camera.camera_pitch_target=Some(target)")
-        );
-        assert!(
-            !request.contains("self.game_logic.session_view.camera.camera_fx_pitch=target")
-                && !request.contains("duration<=0"),
-            "request intake retains a target even for zero-duration movement"
-        );
+        assert!(request.contains("self.game_logic.session_view.camera.install_pitch("));
+        assert!(!request.contains("camera_pitch_radians="));
+        let commands = include_str!("../presentation_frame/session_view/camera/commands.rs");
+        let pitch_start = commands.find("pub(crate) fn install_pitch(").unwrap();
+        let pitch_end = commands[pitch_start..]
+            .find("pub(crate) fn install_rotate(")
+            .unwrap()
+            + pitch_start;
+        let pitch: String = commands[pitch_start..pitch_end]
+            .split_whitespace()
+            .collect();
+        assert!(pitch.contains("self.camera_pitch_start=self.camera_fx_pitch"));
+        assert!(pitch.contains("self.camera_pitch_target=Some("));
+        assert!(!pitch.contains("self.camera_pitch_radians="));
+        assert!(!pitch.contains("self.camera_fx_pitch="));
+        let mut camera = crate::presentation_frame::camera::SessionCamera::default();
+        camera.camera_pitch_radians = 0.73;
+        camera.camera_fx_pitch = 1.25;
+        camera.camera_pitch_frame = 17;
+        camera.install_pitch(2., 0., 0., 0.);
+        assert_eq!(camera.camera_pitch_radians, 0.73);
+        assert_eq!(camera.camera_fx_pitch, 1.25);
+        assert_eq!(camera.camera_pitch_start, 1.25);
+        assert_eq!(camera.camera_pitch_target, Some(2.));
+        assert_eq!(camera.camera_pitch_frame, 0);
+        assert_eq!(camera.camera_pitch_duration, 0.001);
         let view = include_str!("camera_view_effects.rs");
-        assert!(view.contains("advance_scalar_movements("));
+        assert!(view.contains("advance_camera_view("));
         let owner = include_str!("../presentation_frame/session_view/camera.rs");
         assert!(
             owner.contains("value: &mut self.camera_fx_pitch")

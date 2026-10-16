@@ -1,7 +1,10 @@
 //! Logical view state owned by the session, independent of a window or GPU.
 //! The native camera writes this target directly; FX observes the same value.
 pub(crate) mod camera;
+mod look_at;
+mod motion;
 pub(crate) mod scripted;
+pub(crate) mod waypoint;
 
 use game_engine::common::global_data::GlobalData;
 use game_engine::common::ini::ini_fx_list::CameraShakeType;
@@ -246,3 +249,6 @@ impl SessionView {
         filter_commands::admit_motion_blur(&mut self.filter, request)
     }
 }
+
+#[cfg(test)]
+mod motion_tests;

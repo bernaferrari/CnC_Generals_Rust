@@ -1,6 +1,6 @@
 //! Wave 550 residual peels: visual speed residual is centralized through
-//! `presentation_or_boot_visual_speed` — presentation freeze owns the multiplier
-//! when installed; boot residual without freeze uses host GameLogic probe.
+//! `presentation_or_boot_visual_speed` reads the canonical receiving multiplier.
+//! A waypoint admission may change it before the next presentation freeze.
 //! Call sites: `update_internal`, render time delta, `apply_script_frame_limit`.
 //! Never flips shell `playable_claim`.
 //!
@@ -127,16 +127,16 @@ pub fn honesty_visual_speed_presentation_helper_source_markers_residual_wave550(
         residual_action_store(ResidualVisualSpeedPresentationHelperAction::SourceMarkers);
         return false;
     };
-    let helper_ok = body.contains("Wave 550")
-        && body.contains("pres.visual_speed_multiplier")
-        && body.contains("host_match_visual_speed");
+    let helper_ok = body.contains("self.game_logic.visual_speed_multiplier()")
+        && !body.contains("last_presentation_frame")
+        && !body.contains("host_match_visual_speed");
     // Call sites must use helper (at least 3).
     let calls = eng.matches("presentation_or_boot_visual_speed()").count();
-    // Only one raw dual-read remains — inside the helper.
+    // The one mutable owner is read only at this shared driving boundary.
     let raw = eng
         .matches("self.game_logic.visual_speed_multiplier()")
         .count();
-    let ok = helper_ok && calls >= 3 && raw == 0 && !eng.contains("playable_claim = true");
+    let ok = helper_ok && calls >= 3 && raw == 1 && !eng.contains("playable_claim = true");
     residual_action_store(ResidualVisualSpeedPresentationHelperAction::SourceMarkers);
     ok
 }
@@ -157,8 +157,7 @@ pub fn honesty_visual_speed_presentation_helper_nav_commands_residual_wave550() 
 
 pub fn simulate_visual_speed_presentation_helper_collect_source() -> bool {
     let eng = eng_source();
-    let ok = eng.contains("Wave 550")
-        && eng.contains("fn presentation_or_boot_visual_speed")
+    let ok = eng.contains("fn presentation_or_boot_visual_speed")
         && eng.contains("presentation_or_boot_visual_speed()");
     residual_action_store(ResidualVisualSpeedPresentationHelperAction::CollectSource);
     ok
@@ -170,9 +169,9 @@ pub fn simulate_visual_speed_presentation_helper_dispatch_source() -> bool {
         residual_action_store(ResidualVisualSpeedPresentationHelperAction::DispatchSource);
         return false;
     };
-    let ok = body.contains("Wave 550")
-        && body.contains("pres.visual_speed_multiplier")
-        && body.contains("host_match_visual_speed")
+    let ok = body.contains("self.game_logic.visual_speed_multiplier()")
+        && !body.contains("last_presentation_frame")
+        && !body.contains("host_match_visual_speed")
         && eng.matches("presentation_or_boot_visual_speed()").count() >= 3;
     residual_action_store(ResidualVisualSpeedPresentationHelperAction::DispatchSource);
     ok

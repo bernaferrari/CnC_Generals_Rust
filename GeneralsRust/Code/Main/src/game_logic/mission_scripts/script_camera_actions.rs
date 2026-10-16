@@ -24,10 +24,6 @@ impl MissionScriptHooks {
                         "DEBUG_SHELL_CAMERA_ACTION: move_camera_to raw=({x:.3}, {y:.3}, {z:.3}) world={position:?} seconds={seconds:.3}"
                     );
                 }
-                if seconds <= 0.0 {
-                    self.push_camera_move(position);
-                    return Ok(());
-                }
                 self.push_camera_move_to(CameraMoveToRequest {
                     position,
                     seconds,

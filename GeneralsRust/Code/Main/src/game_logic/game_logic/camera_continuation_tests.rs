@@ -9,12 +9,27 @@ fn moving_world() -> GameLogic {
         ease_in_seconds: 0.25,
         ease_out_seconds: 0.5,
     };
-    let mut movement = ScriptCameraMoveTo::new(Vec3::new(1.0, 2.0, 3.0), &request);
-    movement.set_freeze_time(true);
-    movement.set_look_toward(Vec3::new(13.0, 14.0, 15.0));
-    movement.set_final_speed_multiplier(0.75);
-    world.session_view.scripted.script_camera_move_to = Some(movement);
-    world.session_view.scripted.script_camera_zoom_remaining = 2.0;
+    use crate::presentation_frame::waypoint::{Point, WaypointMotion};
+    world.session_view.target = Vec3::new(1., 2., 3.);
+    let mut movement = WaypointMotion::move_to(
+        Point::from_world(request.position),
+        Point::from_world(world.session_view.target),
+        0.,
+        0.,
+        0.,
+        1,
+        3000,
+        true,
+        250.,
+        500.,
+    );
+    movement.current_shutter = 3;
+    movement.shutter = 3;
+    movement.final_time_multiplier(2, &mut world.visual_speed_multiplier);
+    world.session_view.scripted.motion = movement;
+    world.session_view.scripted.script_camera_freeze_time = true;
+    world.session_view.camera.camera_zoom_target = Some(0.8);
+    world.session_view.camera.camera_zoom_duration = 2.;
     world.session_view.scripted.camera_tether_play = Some(12.0);
     world.native_view_guardband = [3.0, 4.0];
     world
@@ -24,33 +39,22 @@ fn moving_world() -> GameLogic {
 fn logic_camera_continuation_retains_future_move_and_shutter_steps() {
     let mut uninterrupted = moving_world();
     for _ in 0..7 {
-        uninterrupted
-            .session_view
-            .scripted
-            .script_camera_move_to
-            .as_mut()
-            .unwrap()
-            .advance(1.0 / 30.0);
+        uninterrupted.headless_camera_view_offer(33);
     }
     let bytes = uninterrupted.capture_camera_continuation().unwrap();
     let mut restored = GameLogic::new();
     restored.admit_camera_continuation(GameLogic::decode_camera_continuation(&bytes).unwrap());
     for _ in 0..50 {
-        let expected = uninterrupted
-            .session_view
-            .scripted
-            .script_camera_move_to
-            .as_mut()
-            .unwrap()
-            .advance(1.0 / 30.0);
-        let actual = restored
-            .session_view
-            .scripted
-            .script_camera_move_to
-            .as_mut()
-            .unwrap()
-            .advance(1.0 / 30.0);
-        assert_eq!(actual, expected);
+        uninterrupted.headless_camera_view_offer(33);
+        restored.headless_camera_view_offer(33);
+        assert_eq!(
+            restored.session_view.target,
+            uninterrupted.session_view.target
+        );
+        assert_eq!(
+            restored.session_view.camera.camera_yaw_radians,
+            uninterrupted.session_view.camera.camera_yaw_radians
+        );
         assert_eq!(
             restored.capture_camera_continuation().unwrap(),
             uninterrupted.capture_camera_continuation().unwrap()
@@ -118,20 +122,33 @@ fn logic_camera_continuation_peer_reset_and_malformed_candidates_leave_owner_unc
 #[test]
 fn logic_camera_continuation_retains_path_segments_rolling_and_pending_admission() {
     let mut world = moving_world();
-    let mut path = ScriptCameraPathMove::from_points_for_test(
-        vec![
-            Vec3::ZERO,
-            Vec3::X,
-            Vec3::new(2.0, 0.0, 1.0),
-            Vec3::new(3.0, 0.0, 1.0),
-            Vec3::new(4.0, 0.0, 2.0),
-        ],
-        3.0,
+    use crate::presentation_frame::waypoint::{Point, WaypointMotion};
+    let points = [
+        Vec3::ZERO,
+        Vec3::X * 20.,
+        Vec3::new(40., 0., 20.),
+        Vec3::new(60., 0., 20.),
+        Vec3::new(80., 0., 40.),
+    ]
+    .map(Point::from_world);
+    let mut path = WaypointMotion::along_chain(
+        &points,
+        Point::default(),
+        0.,
+        0.,
+        0.,
+        1,
+        3000,
+        33,
+        33,
+        true,
+        0.,
+        0.,
+        1.,
     );
-    path.rolling_average_frames = 7;
-    path.smoothed_focus = Some(Vec3::new(1.0, 0.0, 0.25));
-    path.freeze_angle = true;
-    world.session_view.scripted.script_camera_path = Some(path);
+    path.rolling_average(7);
+    path.freeze_angle();
+    world.session_view.scripted.motion = path;
     world.pending_camera_pitch = Some(CameraPitchRequest {
         pitch: 0.75,
         duration_seconds: 3.0,
@@ -143,35 +160,18 @@ fn logic_camera_continuation_retains_path_segments_rolling_and_pending_admission
     restored.admit_camera_continuation(GameLogic::decode_camera_continuation(&bytes).unwrap());
     assert_eq!(restored.capture_camera_continuation().unwrap(), bytes);
     for _ in 0..3 {
-        assert_eq!(
-            restored
-                .session_view
-                .scripted
-                .script_camera_path
-                .as_mut()
-                .unwrap()
-                .advance(1.0 / 30.0),
-            world
-                .session_view
-                .scripted
-                .script_camera_path
-                .as_mut()
-                .unwrap()
-                .advance(1.0 / 30.0)
-        );
+        restored.headless_camera_view_offer(33);
+        world.headless_camera_view_offer(33);
+        assert_eq!(restored.session_view.target, world.session_view.target);
     }
     assert_eq!(
         restored.capture_camera_continuation().unwrap(),
         world.capture_camera_continuation().unwrap()
     );
     let mut broken = GameLogic::decode_camera_continuation(&bytes).unwrap();
-    broken
-        .script_camera_path
-        .as_mut()
-        .unwrap()
-        .segment_length
-        .clear();
-    assert!(GameLogic::decode_camera_continuation(&codec().serialize(&broken).unwrap()).is_err());
+    broken.owned_extras.motion.segment = usize::MAX;
+    let malformed = owned_envelope::encode(&broken).unwrap();
+    assert!(GameLogic::decode_camera_continuation(&malformed).is_err());
 }
 
 #[path = "session_view_ownership_tests.rs"]

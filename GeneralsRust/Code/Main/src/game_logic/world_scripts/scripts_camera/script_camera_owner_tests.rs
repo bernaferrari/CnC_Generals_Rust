@@ -144,22 +144,24 @@ fn actual_main_camera_move_keeps_engine_axes_and_zero_duration_without_a_handler
                     .set_script_list_for_player(0, Some(Box::new(list)))
                     .unwrap();
                 let _ = walk(&mut world, engine);
-                if seconds <= 0.0 {
-                    assert!(world.session_view.scripted.script_camera_move_to.is_none());
+                let request = &world.session_view.scripted.motion;
+                assert!(request.active);
+                assert_eq!(
+                    request.points[request.num_waypoints].world(),
+                    Vec3::new(120., 35., 240.)
+                );
+                if seconds <= 0. {
                     assert_eq!(
-                        world.peek_pending_camera_focus(),
-                        Some(Vec3::new(120.0, 35.0, 240.0))
+                        request.total_time_ms, 0,
+                        "instant command crosses path but defers final pose"
                     );
+                    assert!(world.peek_pending_camera_focus().is_none());
+                    world.headless_camera_view_offer(33);
+                    assert_eq!(world.session_view.target, Vec3::new(120., 0., 240.));
+                    assert!(!world.session_view.scripted.motion.active);
                 } else {
-                    let request = world
-                        .session_view
-                        .scripted
-                        .script_camera_move_to
-                        .as_ref()
-                        .expect("owned timed move");
-                    assert_eq!(request.target, Vec3::new(120.0, 35.0, 240.0));
-                    assert_eq!(request.total_time_seconds, 3.0);
-                    assert_eq!(request.shutter_frames, 15);
+                    assert_eq!(request.total_time_ms, 3000);
+                    assert_eq!(request.shutter, 1, "C++ MoveTo ignores authored shutter");
                 }
             }
         },

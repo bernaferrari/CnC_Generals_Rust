@@ -341,6 +341,8 @@ pub fn run_trace_scenario(game_logic: &mut GameLogic, scenario: &TraceScenario) 
         }
 
         game_logic.update();
+
+        game_logic.headless_camera_view_offer(33);
         trace.push(FrameTrace::from_game_logic(
             game_logic,
             scenario.rng_seed,

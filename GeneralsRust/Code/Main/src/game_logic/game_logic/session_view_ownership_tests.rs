@@ -54,8 +54,9 @@ fn session_view_peer_reset_and_script_decode_leave_actual_native_and_script_owne
     // Construction has no publication side effect on the already-running owner.
     let mut b = moving_world();
     configure_native(&mut b, -1., 1.7, 55., 410.);
-    b.session_view.scripted.script_camera_zoom_remaining = 9.;
-    b.session_view.scripted.script_camera_pitch_remaining = 12.;
+    b.session_view.camera.camera_zoom_duration = 9.;
+    b.session_view.camera.camera_pitch_target = Some(0.75);
+    b.session_view.camera.camera_pitch_duration = 12.;
     assert_eq!(a.capture_camera_continuation().unwrap(), a_script);
     assert_eq!(native_receipt(&a), a_native);
     assert_ne!(native_receipt(&b), a_native);
@@ -72,23 +73,22 @@ fn session_view_peer_reset_and_script_decode_leave_actual_native_and_script_owne
     assert_eq!(native_receipt(&b), b_native);
     b.admit_camera_continuation(candidate);
     assert_eq!(b.capture_camera_continuation().unwrap(), a_script);
-    assert_eq!(b.session_view.scripted.script_camera_zoom_remaining, 2.);
-    assert!(b.session_view.scripted.script_camera_move_to.is_some());
+    assert!(b.session_view.scripted.motion.active);
     assert_eq!(
         native_receipt(&b),
-        b_native,
-        "LogicCameraContinuation restores scripted state without replacing native pose/HAG"
+        a_native,
+        "V2 restores one complete camera/HAG owner, not a script-only mirror"
     );
     assert_eq!(a.capture_camera_continuation().unwrap(), a_script);
     assert_eq!(native_receipt(&a), a_native);
     assert_eq!(a.session_view.camera.native_camera.desired(), 260.);
-    assert_eq!(b.session_view.camera.native_camera.desired(), 390.);
+    assert_eq!(b.session_view.camera.native_camera.desired(), 260.);
     assert_eq!(
         a.session_view.camera.native_camera.basis().ground_level(),
         20.
     );
     assert_eq!(
         b.session_view.camera.native_camera.basis().ground_level(),
-        65.
+        20.
     );
 }

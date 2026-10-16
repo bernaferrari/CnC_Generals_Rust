@@ -24,14 +24,8 @@ fn independent_axes(world: &mut GameLogic, foreign: &Arc<MissionScriptHooks>) {
             Box::new(ScriptAction::new(ScriptActionType::CameraModFreezeTime)),
         ],
     );
-    assert_eq!(
-        world.session_view.scripted.script_camera_zoom_remaining,
-        3.0
-    );
-    assert_eq!(
-        world.session_view.scripted.script_camera_pitch_remaining,
-        4.0
-    );
+    assert_eq!(remaining_frames(world, true), 90);
+    assert_eq!(remaining_frames(world, false), 121);
     assert!(world.is_script_camera_time_frozen());
 }
 
@@ -59,21 +53,45 @@ fn observer(world: &mut GameLogic, foreign: &Arc<MissionScriptHooks>) -> bool {
         .any(|message| message == "Transmission: owned axes finished")
 }
 
-fn assert_axes(world: &GameLogic, zoom: f32, pitch: f32) {
+fn offer_frames(world: &mut GameLogic, frames: u32) {
+    for _ in 0..frames {
+        world.headless_camera_view_offer(33);
+    }
+}
+fn remaining_frames(world: &GameLogic, zoom: bool) -> u32 {
+    let c = &world.session_view.camera;
+    let (target, duration, frame) = if zoom {
+        (
+            c.camera_zoom_target,
+            c.camera_zoom_duration,
+            c.camera_zoom_frame,
+        )
+    } else {
+        (
+            c.camera_pitch_target,
+            c.camera_pitch_duration,
+            c.camera_pitch_frame,
+        )
+    };
+    if target.is_none() {
+        0
+    } else {
+        (((duration * 1000.) as i32).max(1) / 33).max(1) as u32 - frame
+    }
+}
+fn assert_axes(world: &GameLogic, zoom: u32, pitch: u32) {
     assert_eq!(
-        world.session_view.scripted.script_camera_zoom_remaining, zoom,
-        "LookAt must preserve independent zoom"
+        remaining_frames(world, true),
+        zoom,
+        "LookAt must preserve independent zoom clock"
     );
     assert_eq!(
-        world.session_view.scripted.script_camera_pitch_remaining, pitch,
-        "LookAt must preserve independent pitch"
+        remaining_frames(world, false),
+        pitch,
+        "LookAt must preserve independent pitch clock"
     );
-    assert!(world.session_view.scripted.script_camera_move_to.is_none());
-    assert!(world.session_view.scripted.script_camera_path.is_none());
-    assert_eq!(
-        world.session_view.scripted.script_camera_rotate_remaining,
-        0.0
-    );
+    assert!(!world.session_view.scripted.motion.active);
+    assert!(world.session_view.camera.camera_yaw_target.is_none());
     assert!(world.pending_camera_rotate.is_none());
 }
 
@@ -93,7 +111,7 @@ fn actual_look_at_preserves_independent_zoom_pitch_and_unfinished_condition() {
             let peer_before = peer.capture_camera_continuation().unwrap();
             independent_axes(&mut owner, &peer.mission_scripts);
             owner.request_player_camera_look_at(Vec3::new(400.0, 0.0, 500.0));
-            assert_axes(&owner, 3.0, 4.0);
+            assert_axes(&owner, 90, 121);
             assert!(owner.pending_camera_zoom.is_some());
             assert!(owner.pending_camera_pitch.is_some());
             assert!(
@@ -102,15 +120,15 @@ fn actual_look_at_preserves_independent_zoom_pitch_and_unfinished_condition() {
             );
             assert!(owner.is_script_camera_time_frozen());
             assert!(!observer(&mut owner, &peer.mission_scripts));
-            owner.update_script_camera(3.0);
-            assert_axes(&owner, 0.0, 1.0);
+            offer_frames(&mut owner, 90);
+            assert_axes(&owner, 0, 31);
             assert!(
                 owner.is_script_camera_time_frozen(),
                 "pitch still blocks after zoom finishes"
             );
             assert!(!observer(&mut owner, &peer.mission_scripts));
-            owner.update_script_camera(1.0);
-            assert_axes(&owner, 0.0, 0.0);
+            offer_frames(&mut owner, 31);
+            assert_axes(&owner, 0, 0);
             assert!(!owner.is_script_camera_time_frozen());
             assert!(observer(&mut owner, &peer.mission_scripts));
             assert_eq!(peer.capture_camera_continuation().unwrap(), peer_before);
@@ -181,7 +199,7 @@ fn actual_motion_blur_completion_exception_does_not_erase_independent_axes() {
                     observer(&mut owner, &peer.mission_scripts),
                     "original six-mode query exception: {mode:?}"
                 );
-                assert_axes(&owner, 3.0, 4.0);
+                assert_axes(&owner, 90, 121);
                 assert!(
                     owner.session_view.scripted.script_camera_freeze_time,
                     "query override must not erase stored freeze"
@@ -203,7 +221,7 @@ fn actual_motion_blur_completion_exception_does_not_erase_independent_axes() {
                     !observer(&mut owner, &peer.mission_scripts),
                     "BW must reveal the same unfinished axes after {mode:?}"
                 );
-                assert_axes(&owner, 3.0, 4.0);
+                assert_axes(&owner, 90, 121);
                 assert!(owner.is_script_camera_time_frozen());
                 // There is no authored direct Null opcode. Admit the original BW
                 // end command and one real filter fade tick instead of inventing one.
@@ -215,7 +233,7 @@ fn actual_motion_blur_completion_exception_does_not_erase_independent_axes() {
                 owner.session_view.filter.tick_fade();
                 assert_eq!(owner.session_view.filter.filter(), FilterType::Null);
                 assert!(!observer(&mut owner, &peer.mission_scripts));
-                assert_axes(&owner, 3.0, 4.0);
+                assert_axes(&owner, 90, 121);
                 assert!(owner.is_script_camera_time_frozen());
             }
             authored(
@@ -229,7 +247,7 @@ fn actual_motion_blur_completion_exception_does_not_erase_independent_axes() {
                 "pan is outside the original six exceptions"
             );
             assert!(owner.is_script_camera_time_frozen());
-            assert_axes(&owner, 3.0, 4.0);
+            assert_axes(&owner, 90, 121);
             assert_eq!(peer.capture_camera_continuation().unwrap(), peer_before);
             assert!(peer.new_script_messages.is_empty());
             assert_camera_queues_empty(&peer.mission_scripts);
@@ -250,20 +268,18 @@ fn actual_look_at_encoded_camera_continuation_retains_axes_freeze_and_future_con
             let peer_before = peer.capture_camera_continuation().unwrap();
             independent_axes(&mut owner, &peer.mission_scripts);
             owner.request_player_camera_look_at(Vec3::new(400., 0., 500.));
-            owner.update_script_camera(0.5);
-            assert_axes(&owner, 2.5, 3.5);
+            offer_frames(&mut owner, 15);
+            assert_axes(&owner, 75, 106);
             let encoded = owner.capture_camera_continuation().unwrap();
             restored.admit_camera_continuation(
                 GameLogic::decode_camera_continuation(&encoded).unwrap(),
             );
             assert_eq!(restored.capture_camera_continuation().unwrap(), encoded);
-            for (dt, zoom, pitch, finished) in [
-                (0., 2.5, 3.5, false),
-                (2.5, 0., 1., false),
-                (1., 0., 0., true),
-            ] {
-                owner.update_script_camera(dt);
-                restored.update_script_camera(dt);
+            for (frames, zoom, pitch, finished) in
+                [(0, 75, 106, false), (75, 0, 31, false), (31, 0, 0, true)]
+            {
+                offer_frames(&mut owner, frames);
+                offer_frames(&mut restored, frames);
                 assert_axes(&owner, zoom, pitch);
                 assert_axes(&restored, zoom, pitch);
                 assert_eq!(observer(&mut owner, &peer.mission_scripts), finished);
@@ -392,12 +408,9 @@ fn actual_independent_axis_completion_retains_freeze_for_next_authored_motion_an
                 ],
             );
             assert!(owner.is_script_camera_time_frozen());
-            owner.update_script_camera(4.);
-            assert_eq!(owner.session_view.scripted.script_camera_zoom_remaining, 0.);
-            assert_eq!(
-                owner.session_view.scripted.script_camera_pitch_remaining,
-                0.
-            );
+            offer_frames(&mut owner, 121);
+            assert_eq!(remaining_frames(&owner, true), 0);
+            assert_eq!(remaining_frames(&owner, false), 0);
             assert!(observer(&mut owner, &peer.mission_scripts));
             assert!(
                 !owner.is_script_camera_time_frozen(),
@@ -419,7 +432,7 @@ fn actual_independent_axis_completion_retains_freeze_for_next_authored_motion_an
                     &peer.mission_scripts,
                     vec![reals(ScriptActionType::ZoomCamera, &[0.6, 2., 0., 0.])],
                 );
-                assert_eq!(world.session_view.scripted.script_camera_zoom_remaining, 2.);
+                assert_eq!(remaining_frames(world, true), 60);
                 assert!(world.session_view.scripted.script_camera_freeze_time);
                 assert!(
                     world.is_script_camera_time_frozen(),
@@ -458,16 +471,10 @@ fn actual_rotate_completion_clears_stored_freeze_while_independent_axes_remain_u
                 ],
             );
             assert!(owner.is_script_camera_time_frozen());
-            owner.update_script_camera(1.);
-            assert_eq!(
-                owner.session_view.scripted.script_camera_rotate_remaining,
-                0.
-            );
-            assert_eq!(owner.session_view.scripted.script_camera_zoom_remaining, 2.);
-            assert_eq!(
-                owner.session_view.scripted.script_camera_pitch_remaining,
-                3.
-            );
+            offer_frames(&mut owner, 30);
+            assert_eq!(owner.session_view.camera.camera_yaw_target, None);
+            assert_eq!(remaining_frames(&owner, true), 60);
+            assert_eq!(remaining_frames(&owner, false), 91);
             assert!(
                 !owner.session_view.scripted.script_camera_freeze_time,
                 "CPP rotate terminal branch clears the stored freeze even with independent axes"
@@ -515,18 +522,15 @@ fn actual_simple_move_completion_clears_stored_freeze_while_independent_axes_rem
                     Box::new(ScriptAction::new(ScriptActionType::CameraModFreezeTime)),
                 ],
             );
-            assert!(owner.session_view.scripted.script_camera_move_to.is_some());
+            assert!(owner.session_view.scripted.motion.active);
             assert!(owner.is_script_camera_time_frozen());
-            owner.update_script_camera(1.);
-            // The existing Main path consumes its final focus on the following
-            // admitted phase, so finish that phase without advancing either axis.
-            owner.update_script_camera(0.);
-            assert!(owner.session_view.scripted.script_camera_move_to.is_none());
-            assert_eq!(owner.session_view.scripted.script_camera_zoom_remaining, 2.);
-            assert_eq!(
-                owner.session_view.scripted.script_camera_pitch_remaining,
-                3.
-            );
+            offer_frames(&mut owner, 30);
+            // The next33ms source offer crosses the strict1000ms deadline;
+            // independent scalar axes receive that same admitted offer.
+            offer_frames(&mut owner, 1);
+            assert!(!owner.session_view.scripted.motion.active);
+            assert_eq!(remaining_frames(&owner, true), 59);
+            assert_eq!(remaining_frames(&owner, false), 90);
             assert!(
                 !owner.session_view.scripted.script_camera_freeze_time,
                 "CPP path terminal branch clears stored freeze independently of zoom/pitch"

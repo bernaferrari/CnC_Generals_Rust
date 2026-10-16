@@ -1,8 +1,11 @@
 //! Canonical native camera state belongs to one SessionView, including HAG.
 //! Constructors are inert; the Engine admits its configured boot pose explicitly.
 use glam::{Mat4, Vec3};
+mod commands;
+pub(crate) mod continuation;
 pub(crate) mod height;
 pub(crate) mod motion;
+pub(crate) mod pose;
 mod shaker;
 pub(crate) use shaker::ScriptCameraShaker;
 
@@ -90,12 +93,13 @@ impl Default for SessionCamera {
 }
 
 impl SessionCamera {
-    /// W3DView::updateCameraMovements: zoom, pitch, then rotation. These are
-    /// the canonical fields; a render continuation never advances this clock.
+    /// Object tracking uses the same yaw frame counter with the source's
+    /// current-angle recurrence, rather than the fixed start/end interpolation.
     pub(crate) fn advance_scalar_movements(
         &mut self,
         admission: motion::MotionAdmission,
         logical_target: Vec3,
+        skip_yaw: bool,
     ) -> bool {
         use motion::{AxisKind, AxisMotion, step_axis};
         let zoom = step_axis(
@@ -130,6 +134,9 @@ impl SessionCamera {
                 || (admission.update_views && !admission.paused && !admission.debug_frozen))
         {
             self.native_filter_previous_target = logical_target;
+        }
+        if skip_yaw {
+            return zoom.was_active || pitch.was_active || self.camera_yaw_target.is_some();
         }
         let yaw = step_axis(
             AxisMotion {

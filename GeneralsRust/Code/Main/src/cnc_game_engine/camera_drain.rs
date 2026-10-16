@@ -191,123 +191,11 @@ impl CnCGameEngine {
         pres: &crate::presentation_frame::PresentationFrame,
     ) {
         let admitted = self.game_logic.acknowledge_frozen_camera_requests(pres);
-        let player_cancel = self.look_at_modes.take_scripted_camera_player_cancel();
-        if admitted.focus
-            && let Some(focus) = pres.camera_focus
-        {
-            if !player_cancel.cancels_move() {
-                #[cfg(feature = "game_client")]
-                if let Some(previous) = pres.camera_focus_previous_target {
-                    self.game_logic
-                        .session_view
-                        .camera
-                        .native_filter_previous_target = Vec3::from_array(previous);
-                }
-                self.center_camera_on(Vec3::new(focus[0], focus[1], focus[2]));
-            }
-            // The exact canonical request was acknowledged before side effects;
-            // do not drain a newer request produced during those effects.
-        }
-
-        // C++ ControlBar setDefault/setLow writes TheTacticalView->setHeight.
-        // Rebuild the live frustum so Default bar is the retail 80% rect.
+        // Focus and scalar commands already mutated this session synchronously
+        // in authored action order. This transport acknowledges only; replaying
+        // a frozen request would restart an axis or move a completed path twice.
+        let _ = self.look_at_modes.take_scripted_camera_player_cancel();
         self.rebuild_tactical_projection();
-
-        if admitted.reset {
-            // C++ W3DView::resetCamera: zoom/pitch/heading animate over script duration.
-            let duration = pres.camera_zoom_reset_duration.max(0.0);
-            let (ease_in, ease_out) = pres.camera_zoom_reset_ease;
-            if !player_cancel.cancels_set() {
-                let zoom = self.compute_default_camera_zoom_for_target(
-                    self.game_logic.session_view.target,
-                    self.ui_script_default_camera_max_height(),
-                );
-                self.game_logic.session_view.camera.camera_zoom_start =
-                    self.game_logic.session_view.camera.camera_zoom;
-                self.game_logic.session_view.camera.camera_zoom_target = Some(zoom);
-                self.game_logic.session_view.camera.camera_zoom_duration = duration;
-                self.game_logic.session_view.camera.camera_zoom_frame = 0;
-                self.game_logic.session_view.camera.camera_zoom_ease_in = ease_in;
-                self.game_logic.session_view.camera.camera_zoom_ease_out = ease_out;
-
-                self.apply_script_camera_pitch_request(CameraPitchRequest {
-                    // C++ pitchCamera(1.0, milliseconds, easeIn, easeOut)
-                    pitch: 1.0,
-                    duration_seconds: duration,
-                    ease_in_seconds: ease_in,
-                    ease_out_seconds: ease_out,
-                });
-            }
-            // C++ m_mcwpInfo.cameraAngle[2] = 0.0 — animate heading to default.
-            if !player_cancel.cancels_rotate() {
-                let target_yaw = 0.0;
-                self.game_logic.session_view.camera.camera_yaw_start =
-                    self.game_logic.session_view.camera.camera_yaw_radians;
-                self.game_logic.session_view.camera.camera_yaw_target = Some(target_yaw);
-                self.game_logic.session_view.camera.camera_yaw_duration = duration;
-                self.game_logic.session_view.camera.camera_yaw_frame = 0;
-                self.game_logic.session_view.camera.camera_yaw_ease_in = ease_in;
-                self.game_logic.session_view.camera.camera_yaw_ease_out = ease_out;
-            }
-        }
-
-        if admitted.zoom
-            && let Some((zoom, duration_seconds)) = pres.camera_zoom
-        {
-            if !player_cancel.cancels_set() {
-                let (ease_in, ease_out) = pres.camera_zoom_ease;
-                self.game_logic.session_view.camera.camera_zoom_start =
-                    self.game_logic.session_view.camera.camera_zoom;
-                self.game_logic.session_view.camera.camera_zoom_target = Some(zoom);
-                self.game_logic.session_view.camera.camera_zoom_duration = duration_seconds;
-                self.game_logic.session_view.camera.camera_zoom_frame = 0;
-                self.game_logic.session_view.camera.camera_zoom_ease_in = ease_in;
-                self.game_logic.session_view.camera.camera_zoom_ease_out = ease_out;
-            }
-        }
-
-        if admitted.pitch
-            && let Some((pitch, duration_seconds)) = pres.camera_pitch
-        {
-            if !player_cancel.cancels_set() {
-                let (ease_in, ease_out) = pres.camera_pitch_ease;
-                self.apply_script_camera_pitch_request(CameraPitchRequest {
-                    pitch,
-                    duration_seconds,
-                    ease_in_seconds: ease_in,
-                    ease_out_seconds: ease_out,
-                });
-            }
-        }
-
-        if admitted.rotate
-            && let Some((rotations, duration_seconds)) = pres.camera_rotate
-        {
-            if !player_cancel.cancels_rotate() {
-                let (ease_in, ease_out) = pres.camera_rotate_ease;
-                self.apply_script_camera_rotate_request(CameraRotateRequest {
-                    rotations,
-                    duration_seconds,
-                    ease_in_seconds: ease_in,
-                    ease_out_seconds: ease_out,
-                });
-            }
-        }
-
-        if admitted.look
-            && let Some(look) = pres.camera_look_toward
-        {
-            if !player_cancel.cancels_rotate() {
-                let (ease_in, ease_out) = pres.camera_look_toward_ease;
-                self.apply_camera_look_toward_request(CameraLookTowardWaypointRequest {
-                    position: Vec3::new(look[0], look[1], look[2]),
-                    duration_seconds: pres.camera_look_toward_duration,
-                    ease_in_seconds: ease_in,
-                    ease_out_seconds: ease_out,
-                    reverse_rotation: pres.camera_look_toward_reverse_rotation,
-                });
-            }
-        }
 
         if admitted.slave_enable
             && let Some((thing_template_name, bone_name)) = pres.camera_slave_enable.clone()
@@ -988,15 +876,7 @@ impl CnCGameEngine {
     }
 
     pub(super) fn presentation_or_boot_visual_speed(&self) -> f32 {
-        // Wave 550/844: presentation freeze owns visual speed residual when installed.
-        if let Some(pres) = self.last_presentation_frame.as_ref() {
-            return pres.visual_speed_multiplier;
-        }
-        if let Some(v) = self.host_match_visual_speed {
-            return v;
-        }
-        // Wave 895: fail-closed boot default (no dual-read).
-        1.0
+        self.game_logic.visual_speed_multiplier()
     }
 
     /// Wave 551: presentation freeze owns time-frozen residual when installed.
@@ -3031,21 +2911,16 @@ mod superweapon_countdown_tests {
             .split_once("pub(super) fn apply_camera_follow_or_tether(")
             .expect("next camera method")
             .0;
-        assert!(receiving.contains("admitted.look"));
-        let body = receiving
-            .split_once("self.apply_camera_look_toward_request(")
-            .expect("look-toward application")
-            .1
-            .split_once("if admitted.slave_enable")
-            .expect("end of look-toward application")
-            .0;
         assert!(
-            body.contains("reverse_rotation: pres.camera_look_toward_reverse_rotation"),
-            "LOOK_TOWARD_WAYPOINT reverseRotation must survive presentation drain"
+            !receiving.contains("self.apply_camera_look_toward_request("),
+            "a presentation acknowledgment must not restart an installed rotation"
         );
+        let intake =
+            include_str!("../game_logic/world_scripts/scripts_camera/script_action_effects.rs");
+        assert!(intake.contains("install_look_toward("));
         assert!(
-            !body.contains("reverse_rotation: false"),
-            "must not hardcode reverse_rotation false at presentation drain"
+            intake.contains("last.reverse_rotation"),
+            "reverseRotation reaches the receiving scalar owner at command intake"
         );
     }
 }

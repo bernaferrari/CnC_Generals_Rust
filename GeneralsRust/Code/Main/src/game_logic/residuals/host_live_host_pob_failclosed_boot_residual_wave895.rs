@@ -114,8 +114,8 @@ pub fn honesty_host_pob_failclosed_boot_residual_pack_wave895() -> bool {
         700,
     ));
     let ok = cnc.matches("Wave 895").count() >= 8
-        && speed.contains("1.0")
-        && !speed.contains("visual_speed_multiplier()")
+        && speed.contains("self.game_logic.visual_speed_multiplier()")
+        && !speed.contains("pres.visual_speed_multiplier")
         && !frozen.contains("is_time_frozen_for_simulation()")
         && !frame.contains("get_frame()")
         && steps.contains("(0, false, 0.0)")

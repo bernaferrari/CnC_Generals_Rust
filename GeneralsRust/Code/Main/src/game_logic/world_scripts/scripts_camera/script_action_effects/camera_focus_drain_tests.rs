@@ -179,10 +179,12 @@ fn camera_focus_same_id_public_updates_and_next_flush_stay_on_driving_owner() {
             );
             a.update();
             assert_eq!(a.camera_follow_object_id(), None);
-            assert_eq!(
-                a.take_camera_focus_request(),
-                Some(Vec3::new(400.0, 5.0, 450.0))
-            );
+            assert!(a.take_camera_focus_request().is_none());
+            assert!(a.session_view.scripted.motion.active);
+            assert_eq!(a.session_view.scripted.motion.total_time_ms, 0);
+            a.headless_camera_view_offer(33);
+            assert_eq!(a.session_view.target, Vec3::new(400., 0., 450.));
+            assert!(!a.session_view.scripted.motion.active);
             assert_eq!(b.camera_follow_object_id(), Some(b_id));
             assert!(b.take_camera_focus_request().is_none());
             a.reset();
@@ -255,8 +257,8 @@ fn camera_focus_external_public_handler_flush_keeps_family_last_and_presence_sem
             world.update();
             assert_eq!(
                 world.take_camera_focus_request(),
-                Some(Vec3::new(30.0, 5.0, 40.0)),
-                "moves retain their insertion order within a single final flush"
+                Some(Vec3::new(30.0, 0.0, 40.0)),
+                "moves retain insertion order; source LookAt sets logical height to zero"
             );
             world.update();
             assert!(world.take_camera_focus_request().is_none());

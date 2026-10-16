@@ -155,6 +155,7 @@ pub fn run_host_only_combat_victory() -> (bool, String) {
     ));
     for _ in 0..400u32 {
         logic.update();
+        logic.headless_camera_view_offer(33);
         let still_alive = logic
             .host_object(enemy)
             .map(|o| o.is_alive())
@@ -208,6 +209,7 @@ pub fn run_presentation_consumer_path() -> (bool, String) {
         o.status.selected = true;
     }
     logic.update();
+    logic.headless_camera_view_offer(33);
     let frame = PresentationFrame::build_from_logic(&mut logic, 0);
     let mut ui = GameUIState::default();
     frame.apply_to_ui_state(&mut ui);
@@ -293,6 +295,7 @@ mod tests {
         // 200 HP structure; default weapon needs multi-second fight.
         for _ in 0..400 {
             logic.update();
+            logic.headless_camera_view_offer(33);
             if !logic
                 .host_object(enemy)
                 .map(|o| o.is_alive())

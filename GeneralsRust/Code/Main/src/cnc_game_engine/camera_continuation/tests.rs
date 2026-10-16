@@ -98,6 +98,18 @@ pub(super) fn fixture() -> CameraState {
         rmb_deselect_down_at_age: None,
     }
 }
+/// Admit the authored native fixture onto the same actual owner the world
+/// snapshot captures. Native85 and Logic V2 must never describe two cameras.
+pub(super) fn fixture_on_owner(state: &mut CameraState, world: &mut crate::game_logic::GameLogic) {
+    state.admit_session_camera_fields(&mut world.session_view.camera);
+    world.session_view.target = state.camera_target;
+    world.session_view.camera.view_matrix = state.completed_view();
+    let inverse = world.session_view.camera.view_matrix.inverse();
+    state.completed_eye = inverse.transform_point3(Vec3::ZERO);
+    state.completed_forward = inverse.transform_vector3(Vec3::NEG_Z);
+    state.completed_up = inverse.transform_vector3(Vec3::Y);
+}
+
 fn advance(state: &mut CameraState, full: bool, fast: bool, paused: bool) {
     let result = step_axis(
         AxisMotion {
@@ -316,7 +328,7 @@ fn native_camera_continuation_actual_archives_use_one_canonical_pose() {
         difficulty: GameDifficulty::Medium,
         save_type: SaveFileType::Normal,
     };
-    let world = crate::game_logic::GameLogic::new();
+    let mut world = crate::game_logic::GameLogic::new();
     let mut a = fixture();
     a.camera_zoom_target = Some(0.7);
     a.camera_zoom_duration = 3.0;
@@ -324,7 +336,8 @@ fn native_camera_continuation_actual_archives_use_one_canonical_pose() {
     let mut b = fixture();
     b.camera_target = Vec3::splat(90.0);
     b.camera_yaw_radians = 1.5;
-    for (name, state) in [("native_a", &a), ("native_b", &b)] {
+    for (name, state) in [("native_a", &mut a), ("native_b", &mut b)] {
+        fixture_on_owner(state, &mut world);
         let mut client = game_client::core::game_client::GameClient::new().unwrap();
         saves
             .save_game_with_client_save_state(

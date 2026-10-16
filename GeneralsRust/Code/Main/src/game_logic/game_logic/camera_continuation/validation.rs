@@ -61,6 +61,48 @@ scalar!(bool, u32, i32, usize, (), ObjectId);
 impl ValidateCamera for LogicCameraContinuation {
     fn validate(&self) -> Result<(), String> {
         self.owned_extras.pending_focus_previous_target.validate()?;
+        self.owned_extras.motion.validate()?;
+        if let Some(tracking) = &self.owned_extras.object_tracking {
+            tracking.validate()?;
+        }
+        self.owned_extras.target.validate()?;
+        match (&self.owned_extras.camera, self.owned_extras.target) {
+            (Some(camera), Some(target)) => {
+                camera.validate()?;
+                let projected_hold = self
+                    .owned_extras
+                    .object_tracking
+                    .as_ref()
+                    .map_or(0., |tracking| tracking.hold_frames as f32 * 33. / 1000.);
+                if self.script_look_toward_hold_seconds.to_bits() != projected_hold.to_bits()
+                    || (self.script_look_toward_object_id.is_some()
+                        && self.owned_extras.object_tracking.is_none())
+                    || self.script_camera_move_to.is_some()
+                    || self.script_camera_path.is_some()
+                    || self.script_camera_freeze_time_armed
+                    || self.script_camera_freeze_angle_armed
+                    || self.script_camera_pending_final_speed_multiplier.is_some()
+                    || target.to_array().map(f32::to_bits)
+                        != self
+                            .script_camera_focus_estimate
+                            .to_array()
+                            .map(f32::to_bits)
+                    || camera
+                        .remaining_axis_seconds(self.owned_extras.object_tracking.as_ref())
+                        .map(f32::to_bits)
+                        != [
+                            self.script_camera_rotate_remaining,
+                            self.script_camera_zoom_remaining,
+                            self.script_camera_pitch_remaining,
+                        ]
+                        .map(f32::to_bits)
+                {
+                    return Err("ambiguous V2 camera continuation projection".into());
+                }
+            }
+            (None, None) => self.reject_old_active_path()?,
+            _ => return Err("incomplete V2 camera owner continuation".into()),
+        }
         #[cfg(feature = "game_client")]
         self.owned_extras.filter.validate()?;
         self.pending_camera_focus.validate()?;
@@ -148,7 +190,7 @@ impl ValidateCamera for CameraHookContinuation {
         Ok(())
     }
 }
-impl ValidateCamera for ParabolicEase {
+impl ValidateCamera for V1Ease {
     fn validate(&self) -> Result<(), String> {
         if !(0.0..=1.0).contains(&self.in_t) || !(self.in_t..=1.0).contains(&self.out_t) {
             return Err("invalid camera ease interval".into());
@@ -158,7 +200,7 @@ impl ValidateCamera for ParabolicEase {
         Ok(())
     }
 }
-impl ValidateCamera for ScriptCameraMoveTo {
+impl ValidateCamera for V1MoveTo {
     fn validate(&self) -> Result<(), String> {
         validate_active_time(
             self.total_time_seconds,
@@ -184,7 +226,7 @@ impl ValidateCamera for ScriptCameraMoveTo {
         Ok(())
     }
 }
-impl ValidateCamera for ScriptCameraPathMove {
+impl ValidateCamera for V1Path {
     fn validate(&self) -> Result<(), String> {
         validate_active_time(
             self.total_time_seconds,

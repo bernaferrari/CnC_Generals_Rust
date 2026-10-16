@@ -83,16 +83,30 @@ fn camera_mod_final_look_toward_uses_remaining_script_camera_time() {
 
     game_logic.evaluate_and_execute_scripts(0.0);
 
-    let look = game_logic
-        .take_camera_look_toward_request()
-        .expect("mod final look toward should enqueue a look request");
-    assert_eq!(look.position, Vec3::new(300.0, 0.0, 220.0));
-    assert!(
-        (look.duration_seconds - 4.0).abs() < 0.001,
-        "mod final look should use remaining camera movement time"
+    let motion = &game_logic.session_view.scripted.motion;
+    assert!(motion.active);
+    assert_eq!(motion.total_time_ms, 4000);
+    assert_eq!(
+        motion.elapsed_ms, 0,
+        "authored modifier never advances the view clock"
     );
-    assert_eq!(look.ease_in_seconds, 0.0);
-    assert_eq!(look.ease_out_seconds, 0.0);
+    assert_eq!(motion.angles[0].to_bits(), 0.0f32.to_bits());
+    assert_eq!(motion.angles[1].to_bits(), 0.0f32.to_bits());
+    let expected = (f64::from(100.0f32 / f64::from(20000.0f32).sqrt() as f32).acos() as f32)
+        - std::f32::consts::FRAC_PI_2;
+    assert_eq!(
+        motion.angles[2].to_bits(),
+        expected.to_bits(),
+        "final look rewrites the terminal source angle table"
+    );
+    assert!(
+        game_logic.take_camera_look_toward_request().is_none(),
+        "path does not request a second yaw interpolation"
+    );
+    game_logic.headless_camera_view_offer(33);
+    assert_eq!(game_logic.session_view.scripted.motion.elapsed_ms, 33);
+    assert!(game_logic.session_view.camera.camera_yaw_radians < 0.);
+    assert!(game_logic.session_view.camera.camera_yaw_target.is_none());
 }
 
 #[test]
@@ -133,16 +147,31 @@ fn camera_mod_look_toward_applies_during_active_move() {
         });
 
     game_logic.evaluate_and_execute_scripts(0.0);
-    game_logic.update_script_camera(1.0 / 30.0);
+    game_logic.headless_camera_view_offer(33);
 
-    let look = game_logic
-        .peek_pending_camera_look_toward()
-        .cloned()
-        .expect("mod look toward should rewrite the active move look");
-    assert_eq!(look.position, Vec3::new(150.0, 0.0, 50.0));
+    let motion = &game_logic.session_view.scripted.motion;
+    assert!(motion.active);
+    assert_eq!(motion.elapsed_ms, 33);
+    assert_eq!(motion.total_time_ms, 4000);
     assert!(
-        look.duration_seconds > 0.0,
-        "mod look should use remaining camera movement time, not snap"
+        game_logic.peek_pending_camera_look_toward().is_none(),
+        "path mutates its canonical angle table"
+    );
+    let point = motion.points[motion.num_waypoints];
+    let dx = 150. - point.x;
+    let dy = 50. - point.y;
+    let length = f64::from(dx * dx + dy * dy).sqrt() as f32;
+    let mut angle = f64::from(dx / length).acos() as f32;
+    if dy < 0. {
+        angle = -angle;
+    }
+    angle -= std::f32::consts::FRAC_PI_2;
+    while angle < -std::f32::consts::PI {
+        angle += std::f32::consts::TAU;
+    }
+    assert_eq!(
+        motion.angles[motion.num_waypoints].to_bits(),
+        angle.to_bits()
     );
 }
 
@@ -173,8 +202,8 @@ fn camera_mod_freeze_time_applies_to_next_script_camera_move() {
         "freeze time should be active during scripted camera movement"
     );
 
-    for _ in 0..240 {
-        game_logic.update_script_camera(1.0 / 60.0);
+    for _ in 0..91 {
+        game_logic.headless_camera_view_offer(33);
     }
     assert!(
         !game_logic.is_script_camera_time_frozen(),
@@ -236,8 +265,8 @@ fn camera_mod_freeze_time_and_finished_include_rotate_zoom_pitch() {
         "CAMERA_MOVEMENT_FINISHED must be false during rotate"
     );
 
-    for _ in 0..40 {
-        game_logic.update_script_camera(1.0 / 30.0);
+    for _ in 0..30 {
+        game_logic.headless_camera_view_offer(33);
     }
     assert!(
         !game_logic.is_script_camera_time_frozen(),
@@ -258,8 +287,8 @@ fn camera_mod_freeze_time_and_finished_include_rotate_zoom_pitch() {
         !game_logic.mission_scripts.is_camera_movement_finished(),
         "CAMERA_MOVEMENT_FINISHED must be false during zoom"
     );
-    for _ in 0..20 {
-        game_logic.update_script_camera(1.0 / 30.0);
+    for _ in 0..15 {
+        game_logic.headless_camera_view_offer(33);
     }
     assert!(game_logic.mission_scripts.is_camera_movement_finished());
 }
@@ -306,7 +335,7 @@ fn camera_look_toward_cancels_in_flight_move() {
         "look-toward is a rotate and must keep movement unfinished"
     );
 
-    game_logic.update_script_camera(1.0 / 30.0);
+    game_logic.headless_camera_view_offer(33);
     assert!(
         game_logic.script_camera_move_to_target().is_none(),
         "update must not revive the cancelled move"
@@ -349,7 +378,7 @@ fn camera_mod_final_zoom_uses_remaining_rotate_time() {
 
     let remaining = game_logic.script_camera_remaining_seconds();
     assert!(
-        (remaining - 3.0).abs() < 0.001,
+        (remaining - 2.97).abs() < 0.001,
         "standalone ROTATE_CAMERA remaining must be the rotate duration, got {remaining}"
     );
     let zoom = game_logic
@@ -357,7 +386,7 @@ fn camera_mod_final_zoom_uses_remaining_rotate_time() {
         .cloned()
         .expect("mod final zoom should ease, not snap");
     assert!(
-        (zoom.duration_seconds - 3.0).abs() < 0.001,
+        (zoom.duration_seconds - 2.97).abs() < 0.001,
         "CAMERA_MOD_SET_FINAL_ZOOM must use remaining rotate time, got {}",
         zoom.duration_seconds
     );
@@ -366,7 +395,7 @@ fn camera_mod_final_zoom_uses_remaining_rotate_time() {
         .cloned()
         .expect("mod final pitch should ease, not snap");
     assert!(
-        (pitch.duration_seconds - 3.0).abs() < 0.001,
+        (pitch.duration_seconds - 2.97).abs() < 0.001,
         "CAMERA_MOD_SET_FINAL_PITCH must use remaining rotate time, got {}",
         pitch.duration_seconds
     );
@@ -731,21 +760,38 @@ fn camera_mod_freeze_angle_pins_in_flight_rotate() {
             ease_in_seconds: 0.0,
             ease_out_seconds: 0.0,
         });
+    game_logic.evaluate_and_execute_scripts(0.0);
+    for _ in 0..10 {
+        game_logic.headless_camera_view_offer(33);
+    }
+    let pinned = game_logic.session_view.camera.camera_yaw_radians;
+    assert_ne!(pinned.to_bits(), 0.0f32.to_bits());
     game_logic.mission_scripts.push_camera_mod_freeze_angle();
     game_logic.evaluate_and_execute_scripts(0.0);
-
-    let rotate = game_logic
-        .take_camera_rotate_request()
-        .expect("FREEZE_ANGLE must pin the in-flight rotate, not drop it");
-    assert!(
-        rotate.rotations.abs() < f32::EPSILON,
-        "in-flight ROTATE_CAMERA must hold current yaw after FREEZE_ANGLE, got {}",
-        rotate.rotations
+    let camera = &game_logic.session_view.camera;
+    assert_eq!(camera.camera_yaw_start.to_bits(), pinned.to_bits());
+    assert_eq!(camera.camera_yaw_target, Some(pinned));
+    assert_eq!(camera.camera_yaw_duration, 2.);
+    assert_eq!(
+        camera.camera_yaw_frame, 10,
+        "freeze retains the original rotation clock"
     );
-    assert!(
-        (rotate.duration_seconds - 2.0).abs() < 0.001,
-        "pinned rotate must keep remaining time, got {}",
-        rotate.duration_seconds
+    for _ in 0..49 {
+        game_logic.headless_camera_view_offer(33);
+    }
+    assert_eq!(
+        game_logic.session_view.camera.camera_yaw_target,
+        Some(pinned)
+    );
+    assert_eq!(
+        game_logic.session_view.camera.camera_yaw_radians.to_bits(),
+        pinned.to_bits()
+    );
+    game_logic.headless_camera_view_offer(33);
+    assert!(game_logic.session_view.camera.camera_yaw_target.is_none());
+    assert_eq!(
+        game_logic.session_view.camera.camera_yaw_radians.to_bits(),
+        pinned.to_bits()
     );
 }
 
@@ -798,30 +844,22 @@ fn camera_setup_cancels_in_flight_move() {
             look_toward: Vec3::new(30.0, 0.0, 40.0),
         });
     game_logic.evaluate_and_execute_scripts(0.0);
+    let motion = &game_logic.session_view.scripted.motion;
     assert!(
-        game_logic.script_camera_move_to_target().is_none(),
-        "SETUP_CAMERA must cancel the in-flight MOVE_CAMERA_TO"
+        motion.active,
+        "Setup replaces prior path with its instantaneous original motion"
     );
-    assert!(
-        !game_logic.script_camera_path_active(),
-        "SETUP_CAMERA must cancel an in-flight waypoint path"
+    assert_eq!(motion.total_time_ms, 0);
+    assert_eq!(motion.points[2].world(), Vec3::new(10., 0., 20.));
+    assert!(game_logic.peek_pending_camera_look_toward().is_none());
+    assert_eq!(
+        game_logic.session_view.camera.camera_pitch_target,
+        Some(0.4)
     );
-    let look = game_logic
-        .peek_pending_camera_look_toward()
-        .cloned()
-        .expect("setup look-toward must remain queued");
-    assert_eq!(look.position, Vec3::new(30.0, 0.0, 40.0));
-
-    game_logic.update_script_camera(1.0 / 30.0);
-    assert!(
-        game_logic.script_camera_move_to_target().is_none(),
-        "update must not revive the cancelled setup move"
-    );
-    let look = game_logic
-        .peek_pending_camera_look_toward()
-        .cloned()
-        .expect("setup look-toward must not be overwritten by travel look");
-    assert_eq!(look.position, Vec3::new(30.0, 0.0, 40.0));
+    game_logic.headless_camera_view_offer(33);
+    assert!(!game_logic.session_view.scripted.motion.active);
+    assert_eq!(game_logic.session_view.target, Vec3::new(10., 0., 20.));
+    assert!(game_logic.peek_pending_camera_look_toward().is_none());
 }
 
 #[test]
@@ -915,18 +953,31 @@ fn camera_mod_freeze_angle_pins_already_queued_rotate() {
 
     game_logic.mission_scripts.push_camera_mod_freeze_angle();
     game_logic.evaluate_and_execute_scripts(0.0);
-    let rotate = game_logic
-        .peek_pending_camera_rotate()
-        .cloned()
-        .expect("FREEZE_ANGLE must pin the in-flight rotate, not drop it");
-    assert!(
-        rotate.rotations.abs() < f32::EPSILON,
-        "FREEZE_ANGLE must hold current yaw (0 remaining rotations), got {}",
-        rotate.rotations
+    let camera = &game_logic.session_view.camera;
+    assert_eq!(
+        camera.camera_yaw_start.to_bits(),
+        camera.camera_yaw_radians.to_bits()
     );
-    assert!(
-        (rotate.duration_seconds - 2.0).abs() < 0.001,
-        "pinned rotate must keep remaining duration"
+    assert_eq!(camera.camera_yaw_target, Some(camera.camera_yaw_radians));
+    assert_eq!(camera.camera_yaw_duration, 2.);
+    assert_eq!(camera.camera_yaw_frame, 0);
+    let pinned = camera.camera_yaw_radians;
+    for _ in 0..59 {
+        game_logic.headless_camera_view_offer(33);
+    }
+    assert_eq!(
+        game_logic.session_view.camera.camera_yaw_target,
+        Some(pinned)
+    );
+    assert_eq!(
+        game_logic.session_view.camera.camera_yaw_radians.to_bits(),
+        pinned.to_bits()
+    );
+    game_logic.headless_camera_view_offer(33);
+    assert!(game_logic.session_view.camera.camera_yaw_target.is_none());
+    assert_eq!(
+        game_logic.session_view.camera.camera_yaw_radians.to_bits(),
+        pinned.to_bits()
     );
 }
 
@@ -984,8 +1035,8 @@ fn camera_mod_final_speed_multiplier_applies_to_next_script_camera_move() {
             ease_out_seconds: 0.0,
         });
     baseline.evaluate_and_execute_scripts(0.0);
-    for _ in 0..120 {
-        baseline.update_script_camera(1.0 / 60.0);
+    for _ in 0..60 {
+        baseline.headless_camera_view_offer(33);
     }
     let baseline_remaining = baseline.script_camera_remaining_seconds();
 
@@ -1007,15 +1058,17 @@ fn camera_mod_final_speed_multiplier_applies_to_next_script_camera_move() {
             ease_out_seconds: 0.0,
         });
     modified.evaluate_and_execute_scripts(0.0);
-    for _ in 0..120 {
-        modified.update_script_camera(1.0 / 60.0);
+    for _ in 0..60 {
+        modified.headless_camera_view_offer(33);
     }
     let modified_remaining = modified.script_camera_remaining_seconds();
 
-    assert!(
-        modified_remaining + 0.05 < baseline_remaining,
-        "final speed multiplier should accelerate scripted camera progression"
+    assert_eq!(
+        modified_remaining, baseline_remaining,
+        "CPP modifier changes client time multiplier, not path elapsed per admitted view"
     );
+    assert_eq!(modified.visual_speed_multiplier(), 4.);
+    assert_eq!(modified.session_view.scripted.motion.time_multipliers[2], 4);
 }
 
 #[test]
@@ -1096,9 +1149,16 @@ fn visual_speed_multiplier_scales_script_camera_update_rate() {
     let accelerated_remaining = accelerated.script_camera_remaining_seconds();
 
     assert_eq!(accelerated.visual_speed_multiplier(), 3.0);
-    assert!(
-        accelerated_remaining + 0.01 < baseline_remaining,
-        "visual speed multiplier should speed up scripted camera updates"
+    assert_eq!(
+        accelerated_remaining, baseline_remaining,
+        "logic evaluation does not advance any receiving view clock"
+    );
+    baseline.headless_camera_view_offer(33);
+    accelerated.headless_camera_view_offer(33);
+    assert_eq!(
+        accelerated.script_camera_remaining_seconds(),
+        baseline.script_camera_remaining_seconds(),
+        "one view offer advances33ms regardless of multiplier"
     );
 }
 
@@ -1400,6 +1460,9 @@ fn camera_slave_mode_enable_and_disable_requests_are_drained_for_engine() {
 fn camera_move_home_prefers_local_command_center() {
     let mut game_logic = GameLogic::new();
     game_logic.scripts_loaded = true;
+    // The target selection is under test; use real bounds containing both
+    // candidate homes so receiving LookAt constraints do not clip either.
+    game_logic.override_world_size(1024., 1024.);
     ensure_test_player_for_team(&mut game_logic, Team::USA);
     ensure_test_structure_template(&mut game_logic);
     ensure_test_command_center_template(&mut game_logic);
@@ -1418,6 +1481,7 @@ fn camera_move_home_prefers_local_command_center() {
     let focus = game_logic
         .take_camera_focus_request()
         .expect("camera move home should produce focus request");
+    assert_eq!(game_logic.session_view.target, focus);
     assert_eq!(focus, Vec3::new(320.0, 0.0, 410.0));
 }
 
@@ -1425,6 +1489,9 @@ fn camera_move_home_prefers_local_command_center() {
 fn camera_move_home_falls_back_to_local_team_base() {
     let mut game_logic = GameLogic::new();
     game_logic.scripts_loaded = true;
+    // The target selection is under test; use real bounds containing both
+    // candidate homes so receiving LookAt constraints do not clip either.
+    game_logic.override_world_size(1024., 1024.);
     ensure_test_player_for_team(&mut game_logic, Team::USA);
     ensure_test_structure_template(&mut game_logic);
     game_logic.objects.clear();
@@ -1439,6 +1506,7 @@ fn camera_move_home_falls_back_to_local_team_base() {
     let focus = game_logic
         .take_camera_focus_request()
         .expect("camera move home should focus local team base");
+    assert_eq!(game_logic.session_view.target, focus);
     assert_eq!(focus, Vec3::new(190.0, 0.0, 260.0));
 }
 
