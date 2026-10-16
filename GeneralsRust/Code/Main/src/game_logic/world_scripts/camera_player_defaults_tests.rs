@@ -255,8 +255,15 @@ fn actual_mmb_event_routes_defaults_while_hotkey_retains_one_millisecond_motion(
         .split("fn reset_camera_pose_in_place")
         .next()
         .unwrap();
-    assert!(event.contains("lookat_mmb_is_short_click"));
-    assert!(event.contains("restore_short_mmb_camera_defaults"));
+    assert!(
+        event
+            .split_whitespace()
+            .collect::<String>()
+            .contains("input.end_mmb(")
+    );
+    let delivered = include_str!("../../cnc_game_engine/mouse/camera_input_delivery.rs");
+    assert!(delivered.contains("lookat_mmb_is_short_click"));
+    assert!(delivered.contains("world.admit_short_mmb_defaults(effects)"));
     assert!(!event.contains("self.reset_camera_pose_in_place()"));
     let hotkey = include_str!("../../cnc_game_engine/hotkeys.rs");
     assert!(hotkey.contains("self.reset_camera_pose_in_place()"));

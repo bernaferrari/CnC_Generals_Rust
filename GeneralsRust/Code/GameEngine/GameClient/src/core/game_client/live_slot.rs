@@ -597,6 +597,11 @@ pub struct ClientFrameWriter<'a> {
     identity: usize,
 }
 impl ClientFrameWriter<'_> {
+    /// Read the admitted frame from this exact receiving Client loan.
+    pub fn frame(&self) -> u32 {
+        *self.frame
+    }
+
     pub fn set_frame(&mut self, frame: u32) {
         *self.frame = frame;
         publish_client_frame_for_identity(self.identity, frame);

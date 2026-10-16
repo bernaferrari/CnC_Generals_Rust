@@ -84,9 +84,6 @@ impl CnCGameEngine {
             world.commit_native_camera_with_effects(effects)
         })
     }
-    pub(super) fn restore_short_mmb_camera_defaults(&mut self) -> Result<(), String> {
-        self.with_native_camera_effects(|world, effects| world.admit_short_mmb_defaults(effects))
-    }
     pub(super) fn with_native_camera_effects(
         &mut self,
         body: impl FnOnce(
@@ -94,9 +91,25 @@ impl CnCGameEngine {
             &mut crate::game_logic::ScriptPresentationEffects<'_>,
         ) -> Result<(), String>,
     ) -> Result<(), String> {
+        self.with_native_camera_input_effects(|world, effects, _input| body(world, effects))
+    }
+    pub(super) fn with_native_camera_input_effects<R>(
+        &mut self,
+        body: impl FnOnce(
+            &mut crate::game_logic::GameLogic,
+            &mut crate::game_logic::ScriptPresentationEffects<'_>,
+            super::mouse::CameraInputLoan<'_>,
+        ) -> R,
+    ) -> R {
         #[cfg(feature = "game_client")]
         {
-            let (_, _, presence) = self.game_client.split_frame_snow_and_drawable_presence();
+            let (frame, _, presence) = self.game_client.split_frame_snow_and_drawable_presence();
+            let input = super::mouse::CameraInputLoan::new(
+                &mut self.look_at_modes,
+                &mut self.is_mmb_rotating,
+                &mut self.mmb_anchor,
+                frame,
+            );
             let mut view = NativeRendererViewEffects::new(
                 self.render_pipeline.borrow_native_installed_poses(),
                 &mut self.graphics_system,
@@ -110,12 +123,19 @@ impl CnCGameEngine {
                     ui: None,
                     view: Some(&mut view),
                 },
+                input,
             )
         }
         #[cfg(not(feature = "game_client"))]
         body(
             &mut self.game_logic,
             &mut crate::game_logic::ScriptPresentationEffects::default(),
+            super::mouse::CameraInputLoan::new(
+                &mut self.look_at_modes,
+                &mut self.is_mmb_rotating,
+                &mut self.mmb_anchor,
+                self.frame_counter,
+            ),
         )
     }
 }

@@ -60,7 +60,7 @@ impl CnCGameEngine {
 
         // C++ LookAtXlat.cpp:335 stamps m_lastMouseMoveFrame on every wheel.
         self.look_at_modes
-            .lookat_stamp_mouse_activity(self.frame_counter);
+            .lookat_stamp_mouse_activity(self.game_logic.get_current_frame() as u32);
 
         #[cfg(feature = "game_client")]
         self.inject_game_client_mouse_scroll(delta_y);
@@ -78,19 +78,16 @@ impl CnCGameEngine {
 
         // C++ LookAtXlat wheel -> View::zoomIn/Out: HAG +/- 10wu per detent,
         // W3DView clamps to GameData Min/MaxCameraHeight when zoomLimited.
-        let detents = mouse_wheel_detents(delta);
-        if detents.abs() >= 0.5 {
-            self.look_at_modes
-                .note_scripted_camera_player_cancel(ScriptedCameraPlayerCancel::Set);
-            if let Err(error) = self.with_native_camera_effects(|world, effects| {
-                world.admit_player_camera_wheel(detents as i32, effects)
-            }) {
-                log::error!("receiving wheel camera setters: {error}");
-            }
-            if matches!(self.current_state, GameState::InGame | GameState::Paused) {
-                self.update_mouse_world_position();
-                self.sync_context_mouse_cursor();
-            }
+        let (admitted, result) =
+            self.with_native_camera_input_effects(|world, effects, mut input| {
+                input.delivered_wheel(delta, world, effects)
+            });
+        if let Err(error) = result {
+            log::error!("receiving wheel camera setters: {error}");
+        }
+        if admitted && matches!(self.current_state, GameState::InGame | GameState::Paused) {
+            self.update_mouse_world_position();
+            self.sync_context_mouse_cursor();
         }
 
         // C++ LookAtXlat.cpp:333-358 MSG_RAW_MOUSE_WHEEL falls through into
@@ -157,8 +154,10 @@ impl CnCGameEngine {
             )
         };
         const SCROLL_AMT: f32 = 100.0;
-        self.look_at_modes
-            .lookat_note_mouse_moved(self.frame_counter, self.mouse_position);
+        self.look_at_modes.lookat_note_mouse_moved(
+            self.game_logic.get_current_frame() as u32,
+            self.mouse_position,
+        );
         let scroll_dt = dt.max(0.0).min(2.0 / logic_frames_per_second);
         let scroll_step = SCROLL_AMT * keyboard_scroll_factor * scroll_dt * logic_frames_per_second;
         let input_enabled = self.lookat_input_enabled();
@@ -290,7 +289,7 @@ impl CnCGameEngine {
                     }
                     if !self
                         .look_at_modes
-                        .lookat_has_mouse_moved_recently(self.frame_counter)
+                        .lookat_has_mouse_moved_recently(self.game_logic.get_current_frame() as u32)
                     {
                         self.mouse_position = (pose.pixel.0 as f32, pose.pixel.1 as f32);
                         self.mouse_cursor_seen = true;
@@ -339,23 +338,20 @@ impl CnCGameEngine {
             self.camera_zoom_in_held,
             self.camera_zoom_out_held,
         );
-        if left != right || zoom_in != zoom_out {
-            self.look_at_modes
-                .note_scripted_camera_player_cancel(ScriptedCameraPlayerCancel::Set);
-            let zoom_steps = game_engine::common::game_common::LOGICFRAMES_PER_SECOND as f32 * dt;
-            if let Err(error) = self.with_native_camera_effects(|world, effects| {
-                world.admit_player_camera_held_keys(
-                    left,
-                    right,
-                    zoom_in,
-                    zoom_out,
-                    rotate_delta,
-                    zoom_steps,
-                    effects,
-                )
-            }) {
-                log::error!("receiving held camera setters: {error}");
-            }
+        let zoom_steps = game_engine::common::game_common::LOGICFRAMES_PER_SECOND as f32 * dt;
+        if let Err(error) = self.with_native_camera_input_effects(|world, effects, mut input| {
+            input.held_keys(
+                left,
+                right,
+                zoom_in,
+                zoom_out,
+                rotate_delta,
+                zoom_steps,
+                world,
+                effects,
+            )
+        }) {
+            log::error!("receiving held camera setters: {error}");
         }
 
         self.update_camera_tracking_drawable();
@@ -513,7 +509,7 @@ impl CnCGameEngine {
         if crate::command_system::host_recorder_is_playback()
             && !self
                 .look_at_modes
-                .lookat_has_mouse_moved_recently(self.frame_counter)
+                .lookat_has_mouse_moved_recently(self.game_logic.get_current_frame() as u32)
         {
             return;
         }
@@ -534,7 +530,7 @@ impl CnCGameEngine {
         self.game_client.feed_look_at_replay_hover_gate(
             crate::command_system::host_recorder_is_playback(),
             self.look_at_modes
-                .lookat_has_mouse_moved_recently(self.frame_counter),
+                .lookat_has_mouse_moved_recently(self.game_logic.get_current_frame() as u32),
         );
         // C++ SelectionXlat.cpp:429 hardcodes getPickTypesForContext(true).
         let hover = self.host_pick_hover_object_at_cursor();
@@ -950,7 +946,7 @@ impl CnCGameEngine {
     /// C++ `LookAtXlat.cpp:50-62` `setScrolling(SCROLL_RMB)`.
     pub(in crate::cnc_game_engine) fn start_rmb_lookat_scroll(&mut self) {
         self.look_at_modes
-            .lookat_stamp_mouse_activity(self.frame_counter);
+            .lookat_stamp_mouse_activity(self.game_logic.get_current_frame() as u32);
         self.rmb_scroll_anchor = Some(self.mouse_position);
         // C++ :204-206: start only when `!isSelecting() && !m_isScrolling`.
         if self.host_is_selecting() || self.is_rmb_scrolling {
@@ -972,7 +968,7 @@ impl CnCGameEngine {
     /// C++ `LookAtXlat.cpp:65-76` `stopScrolling`.
     pub(in crate::cnc_game_engine) fn stop_rmb_lookat_scroll(&mut self) {
         self.look_at_modes
-            .lookat_stamp_mouse_activity(self.frame_counter);
+            .lookat_stamp_mouse_activity(self.game_logic.get_current_frame() as u32);
         {
             let modes = &mut self.look_at_modes;
             if modes.scroll_type == LookAtScrollType::Rmb {
@@ -1004,72 +1000,31 @@ impl CnCGameEngine {
 
     /// C++ `LookAtXlat.cpp:224-233` middle-button down.
     pub(in crate::cnc_game_engine) fn begin_mmb_lookat_rotate(&mut self) {
-        self.look_at_modes
-            .lookat_stamp_mouse_activity(self.frame_counter);
-        self.is_mmb_rotating = true;
-        self.mmb_anchor = Some(self.mouse_position);
-        let client_frame = self.receiving_camera_client_frame();
-        let modes = &mut self.look_at_modes;
-        modes.mmb_original_anchor = Some(self.mouse_position);
-        modes.mmb_press_frame = client_frame;
+        let position = self.mouse_position;
+        self.with_native_camera_input_effects(|world, _effects, mut input| {
+            input.begin_mmb(position, world)
+        });
     }
-
-    fn receiving_camera_client_frame(&self) -> u32 {
-        #[cfg(feature = "game_client")]
-        {
-            self.game_client.get_frame()
-        }
-        #[cfg(not(feature = "game_client"))]
-        {
-            self.frame_counter
-        }
-    }
-    /// One delivered RAW_MOUSE_POSITION. Equal X still invokes setAngle;
-    /// no-event idle presentation never calls this operation.
+    /// The cursor event is admitted once; idle update_camera never calls this.
     pub(in crate::cnc_game_engine) fn admit_delivered_camera_cursor(&mut self) {
-        if !matches!(self.current_state, GameState::InGame | GameState::Paused)
-            || !self.lookat_input_enabled()
-            || !self.is_mmb_rotating
-        {
-            return;
-        }
-        let Some(anchor) = self.mmb_anchor else {
-            return;
-        };
-        let dx = (self.mouse_position.0 as i32).wrapping_sub(anchor.0 as i32) as f32;
-        self.look_at_modes
-            .note_scripted_camera_player_cancel(ScriptedCameraPlayerCancel::Set);
-        if let Err(error) = self.with_native_camera_effects(|world, effects| {
-            world.admit_player_camera_rotation(dx * LOOKAT_MMB_YAW_FACTOR, effects)
+        let position = self.mouse_position;
+        let in_match = matches!(self.current_state, GameState::InGame | GameState::Paused);
+        let enabled = in_match && self.lookat_input_enabled();
+        if let Err(error) = self.with_native_camera_input_effects(|world, effects, mut input| {
+            input
+                .delivered_cursor(Some(position), in_match, enabled, world, effects)
+                .map(|_| ())
         }) {
             log::error!("receiving cursor angle setter: {error}");
         }
-        self.mmb_anchor = Some(self.mouse_position);
     }
-
-    /// C++ `LookAtXlat.cpp:237-254` short MMB click resets angle/pitch/zoom.
+    /// Source short-MMB two-setter defaults, on the actual receiving Client frame.
     pub(in crate::cnc_game_engine) fn end_mmb_lookat_rotate(&mut self) {
-        self.look_at_modes
-            .lookat_stamp_mouse_activity(self.frame_counter);
-        let (original, press_frame) = {
-            let modes = &mut self.look_at_modes;
-            (modes.mmb_original_anchor.take(), modes.mmb_press_frame)
-        };
-        self.is_mmb_rotating = false;
-        self.mmb_anchor = None;
-        let Some(origin) = original else {
-            return;
-        };
-        let dx = (self.mouse_position.0 as i32).wrapping_sub(origin.0 as i32) as f32;
-        let dy = (self.mouse_position.1 as i32).wrapping_sub(origin.1 as i32) as f32;
-        let frames = self
-            .receiving_camera_client_frame()
-            .wrapping_sub(press_frame);
-        if lookat_mmb_is_short_click(dx, dy, frames) {
-            // LookAtXlat241–254 uses two immediate setters, not InGameUI reset.
-            if let Err(error) = self.restore_short_mmb_camera_defaults() {
-                log::error!("Receiving MMB camera defaults failed: {error}");
-            }
+        let position = self.mouse_position;
+        if let Err(error) = self.with_native_camera_input_effects(|world, effects, mut input| {
+            input.end_mmb(position, world, effects).map(|_| ())
+        }) {
+            log::error!("Receiving MMB camera defaults failed: {error}");
         }
     }
 

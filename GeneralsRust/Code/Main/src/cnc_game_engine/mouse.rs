@@ -1006,6 +1006,7 @@ const MOUSE_SOURCE: &str = concat!(
     include_str!("mouse.rs"),
     include_str!("mouse/selection_input.rs"),
     include_str!("mouse/camera.rs"),
+    include_str!("mouse/camera_input_delivery.rs"),
     include_str!("mouse/ui_dispatch.rs"),
     include_str!("mouse/world_pick.rs"),
 );
@@ -1046,3 +1047,7 @@ mod look_at_continuation_tests;
 #[cfg(test)]
 #[path = "mouse/camera_input_admission_tests.rs"]
 mod camera_input_admission_tests;
+
+#[path = "mouse/camera_input_delivery.rs"]
+mod camera_input_delivery;
+pub(super) use camera_input_delivery::CameraInputLoan;

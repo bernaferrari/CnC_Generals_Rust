@@ -169,14 +169,17 @@ fn delivered_cursor_boundaries_do_not_reintroduce_idle_rotation_polling() {
         .next()
         .unwrap();
     assert!(!refresh.contains("self.is_mmb_rotating"));
+    let delivered = include_str!("../../cnc_game_engine/mouse/camera_input_delivery.rs");
     let begin = mouse
         .split("fn begin_mmb_lookat_rotate(")
         .nth(1)
         .unwrap()
-        .split("fn receiving_camera_client_frame")
+        .split("fn admit_delivered_camera_cursor")
         .next()
         .unwrap();
-    assert!(begin.contains("self.receiving_camera_client_frame()"));
+    assert!(begin.contains("input.begin_mmb("));
+    assert!(delivered.contains("self.modes.mmb_press_frame = self.receiving_frame()"));
+    assert!(delivered.contains("self.frame.frame()"));
     let end = mouse
         .split("fn end_mmb_lookat_rotate(")
         .nth(1)
@@ -184,7 +187,12 @@ fn delivered_cursor_boundaries_do_not_reintroduce_idle_rotation_polling() {
         .split("fn reset_camera_pose_in_place")
         .next()
         .unwrap();
-    assert!(end.contains("wrapping_sub(press_frame)"));
+    assert!(
+        end.split_whitespace()
+            .collect::<String>()
+            .contains("input.end_mmb(")
+    );
+    assert!(delivered.contains("self.receiving_frame().wrapping_sub(press_frame)"));
 }
 
 #[test]

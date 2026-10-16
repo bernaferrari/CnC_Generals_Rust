@@ -160154,7 +160154,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "2f2d0214e442d8b8ac1fce273410b200af754b28559ee00e4fc8b3fec40b6899",
+  "input_digest": "51715009170ae72baa87617d40af04e764450834c07b7394f48d980086907c4d",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -166315,11 +166315,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 677,
+        "end_line": 682,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/live_slot.rs",
-      "sha256": "67a1a1907dac0d187b0944a8b9961357c25c87fbd5b2da8214c7dbc20098c887",
+      "sha256": "bc59cd2ed0c265e9963c744289f4e4923c524670bc99b17c901e4a1edd41dcc9",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },

@@ -78,7 +78,7 @@ fn zero_vertical_wheel_does_not_reach_lookat_side_effects() {
     for side_effect in [
         "lookat_stamp_mouse_activity",
         "inject_game_client_mouse_scroll",
-        "admit_player_camera_wheel",
+        "input.delivered_wheel",
         "stop_rmb_lookat_scroll",
         "wheel_stopped_scroll = true",
     ] {
@@ -947,7 +947,7 @@ fn wheel_zoom_stops_scroll_and_lmb_resets_group_tap() {
         "OS cursor must hide under cinematic letterbox bars"
     );
     assert!(
-        src.contains("lookat_stamp_mouse_activity(self.frame_counter)")
+        src.contains("lookat_stamp_mouse_activity(self.game_logic.get_current_frame() as u32)")
             && src.contains("fn start_rmb_lookat_scroll")
             && src.contains("fn begin_mmb_lookat_rotate"),
         "RMB/MMB/wheel must stamp hasMouseMovedRecently"
@@ -1003,7 +1003,9 @@ fn update_camera_does_not_gate_arrows_on_modifiers() {
         "airborne follow and the source set-transform operation must remain connected to the native view"
     );
     assert!(
-        body.contains("world.admit_player_camera_held_keys(")
+        body.contains("input.held_keys(")
+            && include_str!("camera_input_delivery.rs")
+                .contains("world.admit_player_camera_held_keys(")
             && include_str!("../../game_logic/world_scripts/camera_player_input.rs")
                 .contains("self.cancel_scripted_camera_from_player_set()")
             && body.contains("cancel_scripted_camera_from_player_scroll"),
