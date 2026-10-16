@@ -28,7 +28,11 @@ fn installed_draw_with_owner_write_guard_does_not_reenter_drawable() {
         "render child: before actual Drawable::draw; first base owner lookup is owner_should_animate"
     );
     let mut drawable_guard = drawable.write().expect("fixture Drawable write guard");
-    crate::drawable::Drawable::draw(&mut *drawable_guard, None);
+    crate::drawable::Drawable::draw(
+        &mut *drawable_guard,
+        None,
+        &crate::helpers::DrawTimeObservation::new(None, false, false, true),
+    );
     drop(drawable_guard);
 
     // This inert installed module has no active model/render object. CPP
@@ -112,7 +116,11 @@ fn installed_empty_model_transition_preserves_owner_pause_and_pending_state() {
         model.next_state = Some(0);
     });
     eprintln!("render child: before installed empty-model pending transition");
-    crate::drawable::Drawable::draw(&mut *drawable.write().unwrap(), None);
+    crate::drawable::Drawable::draw(
+        &mut *drawable.write().unwrap(),
+        None,
+        &crate::helpers::DrawTimeObservation::new(None, false, false, true),
+    );
     entry.with_module(|module| {
         let model = (module as &mut dyn std::any::Any)
             .downcast_mut::<W3DModelDraw>()
@@ -125,7 +133,11 @@ fn installed_empty_model_transition_preserves_owner_pause_and_pending_state() {
         assert_eq!(*model.attach_offset_cache.lock().unwrap(), None);
     });
     // The following draw samples the current Object again rather than retaining a decision.
-    crate::drawable::Drawable::draw(&mut *drawable.write().unwrap(), None);
+    crate::drawable::Drawable::draw(
+        &mut *drawable.write().unwrap(),
+        None,
+        &crate::helpers::DrawTimeObservation::new(None, false, false, true),
+    );
     entry.with_module(|module| {
         let model = (module as &mut dyn std::any::Any)
             .downcast_mut::<W3DModelDraw>()

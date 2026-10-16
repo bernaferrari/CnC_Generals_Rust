@@ -71,7 +71,11 @@ fn installed_named_state_attachment_queries_current_and_siblings_in_order() {
         let _registered = Registered([id]);
 
         eprintln!("render child: before installed named-state cold attachment, case {case}");
-        crate::drawable::Drawable::draw(&mut *drawable.write().unwrap(), None);
+        crate::drawable::Drawable::draw(
+            &mut *drawable.write().unwrap(),
+            None,
+            &crate::helpers::DrawTimeObservation::new(None, false, false, true),
+        );
         entries[1].with_module(|module| {
             let model = (module as &mut dyn std::any::Any)
                 .downcast_mut::<W3DModelDraw>()
@@ -92,7 +96,11 @@ fn installed_named_state_attachment_queries_current_and_siblings_in_order() {
                 }
             });
         }
-        crate::drawable::Drawable::draw(&mut *drawable.write().unwrap(), None);
+        crate::drawable::Drawable::draw(
+            &mut *drawable.write().unwrap(),
+            None,
+            &crate::helpers::DrawTimeObservation::new(None, false, false, true),
+        );
         entries[1].with_module(|module| {
             let model = (module as &mut dyn std::any::Any)
                 .downcast_mut::<W3DModelDraw>()
@@ -139,7 +147,11 @@ fn same_id_render_callbacks_use_their_exact_driving_drawable() {
         (&second, &second_entry, second_offset),
         (&first, &first_entry, first_offset),
     ] {
-        crate::drawable::Drawable::draw(&mut *drawable.write().unwrap(), None);
+        crate::drawable::Drawable::draw(
+            &mut *drawable.write().unwrap(),
+            None,
+            &crate::helpers::DrawTimeObservation::new(None, false, false, true),
+        );
         let actual = entry.with_module(|module| {
             let model = (module as &mut dyn std::any::Any)
                 .downcast_mut::<W3DModelDraw>()

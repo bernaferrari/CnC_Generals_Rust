@@ -312,9 +312,11 @@ pub fn reset() -> GameLogicResult<()> {
 /// Update all game logic systems for one frame
 ///
 /// This function should be called once per game frame to update all subsystems.
-pub fn update() -> GameLogicResult<()> {
+pub fn update(
+    observe_camera: impl FnOnce() -> Option<crate::helpers::CameraTimeObservation>,
+) -> GameLogicResult<()> {
     // Update core GameLogic system (this handles the main game loop)
-    update_game_logic().map_err(|e| {
+    update_game_logic(observe_camera).map_err(|e| {
         GameLogicError::SystemNotInitialized(format!("GameLogic update failed: {}", e))
     })?;
 

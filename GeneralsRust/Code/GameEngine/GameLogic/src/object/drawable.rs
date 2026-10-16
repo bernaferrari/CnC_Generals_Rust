@@ -1863,20 +1863,29 @@ mod draw_schedule_tests {
         assert!(tank.contains("draw_overlord_rider"));
         assert!(truck.contains("draw_overlord_rider"));
         assert!(air.contains("draw_overlord_rider"));
-        assert!(rider.contains("rider_guard.draw(None)"));
+        assert!(rider.contains("rider_guard.draw(None, time)"));
 
         let mut parent = Drawable::new(10, INVALID_ID, "Overlord".into(), DrawableType::Static);
         let mut rider = Drawable::new(11, INVALID_ID, "Helix".into(), DrawableType::Static);
         let _ = draw_call_log::take();
-        parent.draw(None);
-        rider.draw(None);
+        parent.draw(
+            None,
+            &crate::helpers::DrawTimeObservation::new(None, false, false, true),
+        );
+        rider.draw(
+            None,
+            &crate::helpers::DrawTimeObservation::new(None, false, false, true),
+        );
         let log = draw_call_log::take();
         assert_eq!(log, vec![(10, 1), (11, 1)]);
 
         let _ = draw_call_log::take();
         {
             let _outer = draw_call_log::enter(10);
-            rider.draw(None);
+            rider.draw(
+                None,
+                &crate::helpers::DrawTimeObservation::new(None, false, false, true),
+            );
         }
         let nested = draw_call_log::take();
         assert_eq!(nested, vec![(10, 1), (11, 2)]);
@@ -1886,8 +1895,14 @@ mod draw_schedule_tests {
     fn physics_seam_runs_once_per_drawable_draw() {
         let mut drawable = Drawable::new(21, INVALID_ID, "Tank".into(), DrawableType::Static);
         let _ = draw_call_log::take();
-        drawable.draw(None);
-        drawable.draw(None);
+        drawable.draw(
+            None,
+            &crate::helpers::DrawTimeObservation::new(None, false, false, true),
+        );
+        drawable.draw(
+            None,
+            &crate::helpers::DrawTimeObservation::new(None, false, false, true),
+        );
         let log = draw_call_log::take();
         assert_eq!(log, vec![(21, 1), (21, 1)]);
     }

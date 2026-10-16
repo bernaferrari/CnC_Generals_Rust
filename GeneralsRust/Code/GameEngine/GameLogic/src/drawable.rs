@@ -18,7 +18,7 @@ use crate::common::*;
 pub trait Drawable {
     /// Render the drawable at a specific position and rotation
     /// Note: This is typically called by the GameClient rendering system
-    fn draw(&mut self, transform: Option<&Matrix3D>);
+    fn draw(&mut self, transform: Option<&Matrix3D>, time: &crate::helpers::DrawTimeObservation);
 
     /// Check if the drawable is currently visible
     fn is_visible(&self) -> bool;

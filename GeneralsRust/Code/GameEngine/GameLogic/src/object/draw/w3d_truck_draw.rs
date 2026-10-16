@@ -843,17 +843,27 @@ impl DrawModule for W3DTruckDraw {
         handled
     }
 
-    fn do_draw_module(&mut self, transform_mtx: &Matrix3D) {
-        self.do_draw_module_for_owner(transform_mtx, None);
+    fn do_draw_module(
+        &mut self,
+        transform_mtx: &Matrix3D,
+        time: &crate::helpers::DrawTimeObservation,
+    ) {
+        self.do_draw_module_for_owner(transform_mtx, None, time);
     }
 
     fn do_draw_module_for_owner(
         &mut self,
         transform_mtx: &Matrix3D,
         driver: Option<&crate::object::drawable::DrawableRenderOwner<'_>>,
+        time: &crate::helpers::DrawTimeObservation,
     ) {
+        // CPP365: base Draw precedes both the client-physics and freeze gates.
+        self.base
+            .do_draw_module_for_owner(transform_mtx, driver, time);
+        if !time.client_physics_active() {
+            return;
+        }
         let Some(owner_id) = self.base.owner_id() else {
-            self.base.do_draw_module_for_owner(transform_mtx, driver);
             return;
         };
         let mut speed = 0.0;
@@ -892,10 +902,6 @@ impl DrawModule for W3DTruckDraw {
             .and_then(|client| client.get_object_wheel_info(owner_id))
             .map(|info| info.frames_airborne)
             .unwrap_or(0);
-        self.base.do_draw_module_for_owner(transform_mtx, driver);
-        if !truck_client_physics_active() {
-            return;
-        }
         // C++ spins wheels from last-frame powerslide, then refreshes emitters.
         let signed_speed = if backwards { -speed } else { speed };
         let signed_addition = if backwards {
@@ -991,24 +997,6 @@ impl Snapshotable for W3DTruckDraw {
     }
 }
 
-fn truck_client_physics_active() -> bool {
-    let show = game_engine::common::ini::get_global_data()
-        .map(|data| data.read().show_client_physics)
-        .unwrap_or(true);
-    if !show {
-        return false;
-    }
-    let camera_frozen = crate::helpers::get_camera_view_bridge()
-        .is_some_and(|view| view.is_time_frozen() && !view.is_camera_movement_finished());
-    if camera_frozen
-        || crate::helpers::TheScriptEngine::is_time_frozen_debug()
-        || crate::helpers::TheScriptEngine::is_time_frozen_script()
-    {
-        return false;
-    }
-    true
-}
-
 fn relative_angle_2d(from: Coord3D, facing: Real, to: Coord3D) -> Real {
     let dx = to.x - from.x;
     let dy = to.y - from.y;
@@ -1028,6 +1016,53 @@ fn relative_angle_2d(from: Coord3D, facing: Real, to: Coord3D) -> Real {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn actual_truck_base_animation_runs_before_camera_and_client_physics_gates() {
+        use crate::helpers::{CameraTimeObservation, DrawTimeObservation};
+        let frozen = DrawTimeObservation::new(
+            Some(CameraTimeObservation {
+                time_frozen: true,
+                movement_finished: false,
+            }),
+            false,
+            false,
+            true,
+        );
+        let hidden_physics = DrawTimeObservation::new(None, false, false, false);
+        let condition = ModelConditionFlags::MOVING;
+        let mut state = ModelConditionInfo::new();
+        state.conditions_yes.push(condition);
+        state.anim_mode = AnimMode::Once;
+        let mut clip = W3DAnimationInfo::new("TruckPhase".into(), false, 0.);
+        clip.natural_duration_ms = 100.;
+        state.animations.push(clip);
+        let mut data = W3DTruckDrawModuleData::default();
+        data.base.condition_states.push(state);
+        let mut first = W3DTruckDraw::new(data.clone());
+        let mut peer = W3DTruckDraw::new(data);
+        for truck in [&mut first, &mut peer] {
+            truck.base.update_model_condition_state(condition);
+            assert!(truck.base.has_bound_animation());
+            let last = truck.base.anim_frame_count() - 1;
+            truck.base.set_animation_frame(last);
+            assert!(!truck.base.current_animation_complete());
+        }
+        first.do_draw_module(&Matrix3D::IDENTITY, &frozen);
+        assert!(
+            first.base.current_animation_complete(),
+            "CPP base Draw executes before camera freeze"
+        );
+        assert!(
+            !peer.base.current_animation_complete(),
+            "peer state is not advanced"
+        );
+        peer.do_draw_module(&Matrix3D::IDENTITY, &hidden_physics);
+        assert!(
+            peer.base.current_animation_complete(),
+            "CPP base Draw also precedes ShowClientPhysics=false"
+        );
+    }
 
     #[test]
     fn module_name_key_is_truck_draw() {

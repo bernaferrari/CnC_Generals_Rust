@@ -90,7 +90,7 @@ use crate::common::{
     AsciiString, Bool, Color, Coord3D, DisabledMaskType, INVALID_ID, Int, KindOf, ObjectID,
     ObjectStatusMaskType, ObjectStatusTypes, PlayerMaskType, Real, UnsignedInt, UnsignedShort,
 };
-use crate::helpers::{TheGameClient, get_camera_view_bridge};
+use crate::helpers::TheGameClient;
 use crate::modules::{SleepyUpdatePhase, UpdateModulePtr, UpdateSleepTime};
 use crate::object::collide::collision_geometry::GeometryInfo as CollisionGeometryInfo;
 use crate::object::collide::collision_response::{CollisionResponseConfig, CollisionResponseType};

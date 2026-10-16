@@ -376,13 +376,15 @@ pub fn reset_game_logic() -> Result<(), String> {
 }
 
 /// Step the GameLogic singleton
-pub fn update_game_logic() -> Result<(), String> {
+pub fn update_game_logic(
+    observe_camera: impl FnOnce() -> Option<crate::helpers::CameraTimeObservation>,
+) -> Result<(), String> {
     let mut guard = game_logic_mutex()
         .lock()
         .map_err(|_| "GameLogic mutex poisoned".to_string())?;
     let frame = guard.get_frame();
     guard
-        .update(frame)
+        .update(frame, observe_camera)
         .map_err(|e| format!("GameLogic update failed: {}", e))?;
     if guard.last_update_was_empty_noop() {
         debug!(

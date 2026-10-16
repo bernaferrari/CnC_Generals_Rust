@@ -738,7 +738,11 @@ impl W3DLaserDraw {
 }
 
 impl DrawModule for W3DLaserDraw {
-    fn do_draw_module(&mut self, _transform_mtx: &Matrix3D) {
+    fn do_draw_module(
+        &mut self,
+        _transform_mtx: &Matrix3D,
+        time: &crate::helpers::DrawTimeObservation,
+    ) {
         // Laser draw requires its owner's LaserUpdate, as in C++. Drawable::draw
         // supplies that input explicitly through draw_from_update. An isolated
         // module has no sibling and follows the C++ missing-update early return.

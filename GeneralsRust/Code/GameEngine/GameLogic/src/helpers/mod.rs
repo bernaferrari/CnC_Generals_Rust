@@ -107,3 +107,6 @@ pub const HELPERS_SRC: &str = concat!(
     include_str!("particles.rs"),
     include_str!("random.rs"),
 );
+
+mod camera_time;
+pub use camera_time::{CameraTimeObservation, DrawTimeObservation};

@@ -129,12 +129,28 @@ pub fn run_dual_world_cpu_phases() {
     #[cfg(test)]
     phases.push(ClientDrawPhase::SyncTime);
 
-    let region = with_tactical_view_ref(view_aabb_from_tactical);
+    let (region, time) = with_tactical_view_ref(|view| {
+        (
+            view_aabb_from_tactical(view),
+            gamelogic::helpers::DrawTimeObservation::new(
+                Some(gamelogic::helpers::CameraTimeObservation {
+                    time_frozen: view.is_time_frozen(),
+                    movement_finished: view.is_camera_movement_finished(),
+                }),
+                TheScriptEngine::is_time_frozen_debug(),
+                TheScriptEngine::is_time_frozen_script(),
+                game_engine::common::ini::get_global_data()
+                    .map(|data| data.read().show_client_physics)
+                    .unwrap_or(true),
+            ),
+        )
+    });
     #[cfg(test)]
     let mut drawn = Vec::new();
     if should_draw_drawables(frame_time) {
         draw_logic_drawables_in_region(
             region,
+            &time,
             #[cfg(test)]
             &mut drawn,
         );
@@ -167,7 +183,11 @@ fn update_particles_after_transforms() {
     }
 }
 
-fn draw_logic_drawables_in_region(region: ViewAabb, #[cfg(test)] drawn: &mut Vec<u32>) {
+fn draw_logic_drawables_in_region(
+    region: ViewAabb,
+    time: &gamelogic::helpers::DrawTimeObservation,
+    #[cfg(test)] drawn: &mut Vec<u32>,
+) {
     use gamelogic::drawable::Drawable as LogicDrawable;
 
     for object in OBJECT_REGISTRY.get_all_objects() {
@@ -183,7 +203,7 @@ fn draw_logic_drawables_in_region(region: ViewAabb, #[cfg(test)] drawn: &mut Vec
         }
         #[cfg(test)]
         let id = guard.get_drawable_id();
-        guard.draw(None);
+        guard.draw(None, time);
         #[cfg(test)]
         drawn.push(id);
     }

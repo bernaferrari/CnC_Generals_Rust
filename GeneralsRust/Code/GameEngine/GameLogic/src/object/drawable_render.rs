@@ -8,7 +8,7 @@ use super::*;
 impl crate::drawable::Drawable for Drawable {
     /// Draw the drawable at a specific position
     /// Reference: C++ Drawable.cpp - rendering is delegated to draw modules
-    fn draw(&mut self, transform: Option<&Matrix3D>) {
+    fn draw(&mut self, transform: Option<&Matrix3D>, time: &crate::helpers::DrawTimeObservation) {
         #[cfg(test)]
         let _draw_depth = super::draw_call_log::enter(self.drawable_id);
 
@@ -85,6 +85,7 @@ impl crate::drawable::Drawable for Drawable {
                     draw => draw.into_draw_module().do_draw_module_for_owner(
                         &transform_mtx,
                         Some(&DrawableRenderOwner::new(self, entry)),
+                        time,
                     ),
                 });
             });

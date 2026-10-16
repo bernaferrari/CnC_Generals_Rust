@@ -309,7 +309,7 @@ mod tests {
         assert!(!logic.last_update_was_empty_noop());
         assert_eq!(logic.empty_world_tick_count(), 0);
         logic
-            .update(0)
+            .update(0, || None)
             .expect("empty world still returns Ok so host frame loop continues");
         assert!(
             !logic.last_update_was_empty_noop(),
@@ -321,7 +321,9 @@ mod tests {
             1,
             "empty-world tick must still increment C++ m_frame"
         );
-        logic.update(1).expect("second empty tick still Ok");
+        logic
+            .update(1, || None)
+            .expect("second empty tick still Ok");
         assert!(!logic.last_update_was_empty_noop());
         assert_eq!(logic.empty_world_tick_count(), 0);
         assert_eq!(logic.get_frame(), 2);
@@ -338,9 +340,9 @@ mod tests {
         let _lock = test_state_lock();
         OBJECT_REGISTRY.clear();
         let mut logic = GameLogic::new();
-        logic.update(0).expect("first empty tick");
+        logic.update(0, || None).expect("first empty tick");
         assert_eq!(logic.get_frame(), 1);
-        logic.update(1).expect("second empty tick");
+        logic.update(1, || None).expect("second empty tick");
         assert!(!logic.last_update_was_empty_noop());
         assert_eq!(logic.empty_world_tick_count(), 0);
         assert_eq!(logic.get_frame(), 2);
@@ -351,14 +353,16 @@ mod tests {
         let _lock = test_state_lock();
         OBJECT_REGISTRY.clear();
         let mut logic = GameLogic::new();
-        logic.update(0).expect("empty world still returns Ok");
+        logic
+            .update(0, || None)
+            .expect("empty world still returns Ok");
         assert!(!logic.last_update_was_empty_noop());
         assert_eq!(logic.empty_world_tick_count(), 0);
 
         let dummy = Arc::new(RwLock::new(Object::new_test(42, 100.0)));
         logic.objects.insert(42, dummy);
         logic.set_game_paused(true, false);
-        logic.update(1).expect("non-empty update still Ok");
+        logic.update(1, || None).expect("non-empty update still Ok");
         assert!(
             !logic.last_update_was_empty_noop(),
             "paused non-empty update is still not an empty-world no-op"
@@ -813,12 +817,12 @@ mod tests {
 
         // Should not allow re-entrant calls
         logic.is_in_update = true;
-        let result = logic.update(0);
+        let result = logic.update(0, || None);
         assert!(result.is_err());
 
         // Normal update should succeed
         logic.is_in_update = false;
-        let result = logic.update(0);
+        let result = logic.update(0, || None);
         assert!(result.is_ok());
         assert_eq!(
             logic.frame, 1,
@@ -1432,7 +1436,7 @@ mod tests {
         let mut logic = GameLogic::new();
 
         for frame in 0..100 {
-            let result = logic.update(frame);
+            let result = logic.update(frame, || None);
             assert!(result.is_ok());
             assert_eq!(logic.get_frame(), frame + 1, "C++ increments at tick end");
         }
@@ -1447,7 +1451,7 @@ mod tests {
         // Game time tracks the start time of the current frame: `time = frame * dt`.
         // At frame 30 (30 FPS), time should be 1 second.
         for frame in 0..=30 {
-            let _ = logic.update(frame);
+            let _ = logic.update(frame, || None);
         }
 
         assert!((logic.get_game_time() - 1.0).abs() < 0.001);
@@ -1531,7 +1535,7 @@ mod tests {
 
         assert!(logic.is_loading_map());
 
-        assert!(logic.update(0).is_ok());
+        assert!(logic.update(0, || None).is_ok());
         assert!(crate::helpers::TheGameLogic::is_start_new_game_requested());
         assert!(logic.is_loading_map());
 
@@ -1753,7 +1757,7 @@ mod tests {
         logic.is_in_update = true;
 
         // Attempt update should fail
-        let result = logic.update(0);
+        let result = logic.update(0, || None);
         assert!(result.is_err());
 
         match result.unwrap_err() {
@@ -2044,7 +2048,7 @@ mod tests {
         let mut logic = GameLogic::new();
 
         for frame in 0..10 {
-            let result = logic.update(frame);
+            let result = logic.update(frame, || None);
             assert!(result.is_ok(), "Frame {} update failed", frame);
             assert_eq!(logic.get_frame(), frame + 1, "C++ increments at tick end");
         }
@@ -2056,7 +2060,7 @@ mod tests {
         let mut logic = GameLogic::new();
 
         for frame in 0..60 {
-            let _ = logic.update(frame);
+            let _ = logic.update(frame, || None);
             let expected_time = frame as f32 * FIXED_DELTA_TIME;
             assert!(
                 (logic.get_game_time() - expected_time).abs() < 0.0001,

@@ -263,7 +263,11 @@ impl Module for W3DProjectileStreamDraw {
 }
 
 impl DrawModule for W3DProjectileStreamDraw {
-    fn do_draw_module(&mut self, _transform_mtx: &Matrix3D) {
+    fn do_draw_module(
+        &mut self,
+        _transform_mtx: &Matrix3D,
+        time: &crate::helpers::DrawTimeObservation,
+    ) {
         let Some(owner_id) = self.owner_id else {
             return;
         };

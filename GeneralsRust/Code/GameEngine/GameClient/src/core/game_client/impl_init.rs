@@ -291,9 +291,6 @@ impl GameClient {
         log::debug!("Initializing core subsystems");
         self.init_draw_group_info()?;
 
-        let bridge = crate::helpers::TacticalViewBridge::new();
-        gamelogic::helpers::register_camera_view_bridge(std::sync::Arc::new(bridge));
-
         Ok(())
     }
 

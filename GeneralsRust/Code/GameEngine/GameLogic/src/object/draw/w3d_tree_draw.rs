@@ -470,7 +470,11 @@ impl Module for W3DTreeDraw {
 }
 
 impl DrawModule for W3DTreeDraw {
-    fn do_draw_module(&mut self, transform_mtx: &Matrix3D) {
+    fn do_draw_module(
+        &mut self,
+        transform_mtx: &Matrix3D,
+        time: &crate::helpers::DrawTimeObservation,
+    ) {
         // C++ `doDrawModule` returns immediately. If react never ran, register
         // from the drawable pose (`getScale` == instance scale). Do not use the
         // matrix basis scale; instance scale is no longer in that matrix.
@@ -637,7 +641,10 @@ mod tests {
         draw.bind_drawable_id(drawable_id);
 
         let transform = Matrix3D::from_translation(glam::Vec3::new(11.0, 22.0, 3.0));
-        draw.do_draw_module(&transform);
+        draw.do_draw_module(
+            &transform,
+            &crate::helpers::DrawTimeObservation::new(None, false, false, true),
+        );
 
         assert!(draw.is_tree_added());
         assert!(client.get_registered_tree(drawable_id).is_some());

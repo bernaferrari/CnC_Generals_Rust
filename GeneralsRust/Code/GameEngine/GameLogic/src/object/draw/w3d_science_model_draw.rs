@@ -158,21 +158,27 @@ impl DrawModule for W3DScienceModelDraw {
         handled
     }
 
-    fn do_draw_module(&mut self, transform_mtx: &Matrix3D) {
-        self.do_draw_module_for_owner(transform_mtx, None);
+    fn do_draw_module(
+        &mut self,
+        transform_mtx: &Matrix3D,
+        time: &crate::helpers::DrawTimeObservation,
+    ) {
+        self.do_draw_module_for_owner(transform_mtx, None, time);
     }
 
     fn do_draw_module_for_owner(
         &mut self,
         transform_mtx: &Matrix3D,
         driver: Option<&crate::object::drawable::DrawableRenderOwner<'_>>,
+        time: &crate::helpers::DrawTimeObservation,
     ) {
         if leftover_science_model_should_hide(self.data.required_science) {
             DrawModule::set_hidden(self, true);
             return;
         }
         DrawModule::set_hidden(self, false);
-        self.base.do_draw_module_for_owner(transform_mtx, driver);
+        self.base
+            .do_draw_module_for_owner(transform_mtx, driver, time);
     }
     fn set_shadows_enabled(&mut self, enable: bool) {
         self.base.set_shadows_enabled(enable);
@@ -281,7 +287,12 @@ pub fn tick_live_host_science_model_hide(
         .unwrap_or_else(W3DScienceModelDrawModuleData::new);
     let hide = leftover_science_model_should_hide(module_data.required_science);
     let mut draw = W3DScienceModelDraw::new(module_data);
-    draw.do_draw_module(&Matrix3D::IDENTITY);
+    // This unbound hide probe has no receiving View. Science/model draws do
+    // not consume camera freeze; vehicle draw entrypoints require real facts.
+    draw.do_draw_module(
+        &Matrix3D::IDENTITY,
+        &crate::helpers::DrawTimeObservation::new(None, false, false, true),
+    );
     hide
 }
 
@@ -314,7 +325,10 @@ mod tests {
     fn invalid_required_science_hides_like_cpp() {
         assert!(leftover_science_model_should_hide(SCIENCE_INVALID));
         let mut draw = W3DScienceModelDraw::new(W3DScienceModelDrawModuleData::new());
-        draw.do_draw_module(&Matrix3D::IDENTITY);
+        draw.do_draw_module(
+            &Matrix3D::IDENTITY,
+            &crate::helpers::DrawTimeObservation::new(None, false, false, true),
+        );
         assert!(!draw.is_visible());
     }
 }

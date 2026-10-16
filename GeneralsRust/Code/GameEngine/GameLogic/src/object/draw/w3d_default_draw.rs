@@ -127,7 +127,11 @@ impl Module for W3DDefaultDraw {
 }
 
 impl DrawModule for W3DDefaultDraw {
-    fn do_draw_module(&mut self, _transform_mtx: &Matrix3D) {
+    fn do_draw_module(
+        &mut self,
+        _transform_mtx: &Matrix3D,
+        time: &crate::helpers::DrawTimeObservation,
+    ) {
         // Normal C++ builds compile out LOAD_TEST_ASSETS, so this returns.
     }
     fn set_shadows_enabled(&mut self, enable: bool) {
@@ -207,7 +211,10 @@ mod tests {
     fn production_draw_hooks_are_noops_except_shadow_flags() {
         let mut draw = W3DDefaultDraw::new(W3DDefaultDrawModuleData::new());
 
-        draw.do_draw_module(&Matrix3D::IDENTITY);
+        draw.do_draw_module(
+            &Matrix3D::IDENTITY,
+            &crate::helpers::DrawTimeObservation::new(None, false, false, true),
+        );
         draw.react_to_transform_change(&Matrix3D::IDENTITY, &Coord3D::new(10.0, 20.0, 30.0), 1.0);
         draw.react_to_geometry_change();
         draw.set_hidden(true);

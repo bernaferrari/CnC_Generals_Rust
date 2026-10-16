@@ -335,7 +335,10 @@ pub fn spawn_tracer_drawable_like_cpp(
         );
         draw.set_tracer_parms(speed, length, width, &rgb, 1.0);
         draw.set_expiration_date(expire);
-        draw.do_draw_module(&xform);
+        draw.do_draw_module(
+            &xform,
+            &gamelogic::helpers::DrawTimeObservation::new(None, false, false, true),
+        );
         tracer_parms_applied = true;
         let start = draw.line_start();
         let end = draw.line_end();

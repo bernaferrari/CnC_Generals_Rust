@@ -699,22 +699,22 @@ impl DrawModule for W3DTankDraw {
         handled
     }
 
-    fn do_draw_module(&mut self, transform_mtx: &Matrix3D) {
-        self.do_draw_module_for_owner(transform_mtx, None);
+    fn do_draw_module(
+        &mut self,
+        transform_mtx: &Matrix3D,
+        time: &crate::helpers::DrawTimeObservation,
+    ) {
+        self.do_draw_module_for_owner(transform_mtx, None, time);
     }
 
     fn do_draw_module_for_owner(
         &mut self,
         transform_mtx: &Matrix3D,
         driver: Option<&crate::object::drawable::DrawableRenderOwner<'_>>,
+        time: &crate::helpers::DrawTimeObservation,
     ) {
         // C++ W3DTankDraw.cpp:288-291 — frozen tactical view or script time skips the whole draw.
-        let camera_frozen = crate::helpers::get_camera_view_bridge()
-            .is_some_and(|view| view.is_time_frozen() && !view.is_camera_movement_finished());
-        if camera_frozen
-            || crate::helpers::TheScriptEngine::is_time_frozen_debug()
-            || crate::helpers::TheScriptEngine::is_time_frozen_script()
-        {
+        if time.is_frozen() {
             return;
         }
         self.update_tread_objects();
@@ -766,7 +766,8 @@ impl DrawModule for W3DTankDraw {
         self.update_move_debris(self.current_velocity * self.current_velocity);
 
         // Draw base model (includes turret positioning and recoil)
-        self.base.do_draw_module_for_owner(transform_mtx, driver);
+        self.base
+            .do_draw_module_for_owner(transform_mtx, driver, time);
         self.publish_tread_uv_overrides();
 
         // When render object system is implemented:
@@ -865,6 +866,51 @@ fn wrap_uv_offset(offset: Real) -> Real {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn actual_tank_draw_obeys_its_operation_observation_before_mutating_tread_state() {
+        use crate::helpers::{CameraTimeObservation, DrawTimeObservation};
+        let frozen = DrawTimeObservation::new(
+            Some(CameraTimeObservation {
+                time_frozen: true,
+                movement_finished: false,
+            }),
+            false,
+            false,
+            true,
+        );
+        let running = DrawTimeObservation::new(
+            Some(CameraTimeObservation {
+                time_frozen: true,
+                movement_finished: true,
+            }),
+            false,
+            false,
+            true,
+        );
+        let mut first = W3DTankDraw::new(W3DTankDrawModuleData::default());
+        let mut peer = W3DTankDraw::new(W3DTankDrawModuleData::default());
+        first.treads.push(TreadObjectInfo::new(TreadType::Left));
+        peer.treads.push(TreadObjectInfo::new(TreadType::Left));
+        first.do_draw_module(&Matrix3D::IDENTITY, &frozen);
+        assert_eq!(
+            first.treads.len(),
+            1,
+            "source freeze returns before tread discovery"
+        );
+        peer.do_draw_module(&Matrix3D::IDENTITY, &running);
+        assert!(
+            peer.treads.is_empty(),
+            "actual running draw discovers no authored meshes"
+        );
+        assert_eq!(
+            first.treads.len(),
+            1,
+            "interleaving another observation cannot select this owner's freeze"
+        );
+        first.do_draw_module(&Matrix3D::IDENTITY, &running);
+        assert!(first.treads.is_empty());
+    }
 
     #[test]
     fn update_tread_objects_does_not_fabricate_treads_without_render_subobjects() {

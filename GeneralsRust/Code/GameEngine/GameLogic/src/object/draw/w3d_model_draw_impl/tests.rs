@@ -731,7 +731,11 @@ mod tests {
         draw.fully_obscured_by_shroud = true;
         draw.current_anim_speed_factor = 1.0;
         draw.anim_frame_accumulator = 0.0;
-        DrawModule::do_draw_module(&mut draw, &Matrix3D::IDENTITY);
+        DrawModule::do_draw_module(
+            &mut draw,
+            &Matrix3D::IDENTITY,
+            &crate::helpers::DrawTimeObservation::new(None, false, false, true),
+        );
         assert_eq!(draw.current_anim_frame, 1);
     }
 

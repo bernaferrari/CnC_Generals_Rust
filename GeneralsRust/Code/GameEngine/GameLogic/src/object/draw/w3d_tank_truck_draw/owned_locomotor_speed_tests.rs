@@ -33,7 +33,10 @@ fn admitted_cached_ai_supplies_body_condition_tread_speed() {
                     Some(expected_id),
                     "actual factory binds this exact Draw to its driving owner"
                 );
-                draw.do_draw_module(&Matrix3D::IDENTITY);
+                draw.do_draw_module(
+                    &Matrix3D::IDENTITY,
+                    &crate::helpers::DrawTimeObservation::new(None, false, false, true),
+                );
                 assert_eq!(
                     draw.tread_uv_offsets.len(),
                     2,

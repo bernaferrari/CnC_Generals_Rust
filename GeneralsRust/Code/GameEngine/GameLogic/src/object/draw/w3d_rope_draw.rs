@@ -6,8 +6,8 @@
 //! C++ parity note: rope segment state is runtime-only and is rebuilt after load.
 
 use super::draw_module::*;
-use crate::common::*;
 use crate::GameClientRandomValueReal;
+use crate::common::*;
 use crate::helpers::{remove_scene_line, submit_scene_line, update_scene_line};
 use game_engine::common::system::{SceneLineDesc, SceneLineId, Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::{Module, ModuleData};
@@ -177,7 +177,11 @@ impl Module for W3DRopeDraw {
 }
 
 impl DrawModule for W3DRopeDraw {
-    fn do_draw_module(&mut self, transform_mtx: &Matrix3D) {
+    fn do_draw_module(
+        &mut self,
+        transform_mtx: &Matrix3D,
+        time: &crate::helpers::DrawTimeObservation,
+    ) {
         if self.segments.is_empty() {
             self.build_segments();
         }
@@ -215,10 +219,7 @@ impl DrawModule for W3DRopeDraw {
                 let end = game_engine::common::system::geometry::Coord3D::new(
                     seg.end.x, seg.end.y, seg.end.z,
                 );
-                let lines = [
-                    (self.width * 0.5, 1.0, i * 2),
-                    (self.width, 0.5, i * 2 + 1),
-                ];
+                let lines = [(self.width * 0.5, 1.0, i * 2), (self.width, 0.5, i * 2 + 1)];
                 for (width, opacity, slot) in lines {
                     let desc = SceneLineDesc {
                         start,

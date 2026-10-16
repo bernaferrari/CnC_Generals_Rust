@@ -393,3 +393,42 @@ fn zoom_limit_toggles_and_letterbox_transitions_belong_to_the_view() {
     assert!(a.zoom_limited() && b.zoom_limited());
     assert_eq!(b.desired(), 50.);
 }
+
+#[test]
+fn receiving_hag_matches_executed_original_cpp_update_block() {
+    // W3DView.cpp:1308-1348, SHA256 0a62e7572862b8a3f75cb5d3427f19550f02dbf5d8920f55ced2ab98b11736ff.
+    // The extracted original block produced identical bits at clang -O0/-O2,
+    // with FP contraction disabled. POD providers supply terrain=100 and the
+    // explicit flags below; this is component evidence, not a full-game oracle.
+    let mut cases = 0;
+    for row in include_str!("fixtures/camera_hag_cpp.csv").lines() {
+        let fields: Vec<_> = row.split(',').collect();
+        assert_eq!(fields.len(), 5);
+        let scenario: usize = fields[0].parse().unwrap();
+        let flags: u32 = fields[1].parse().unwrap();
+        let expected_zoom = u32::from_str_radix(fields[2], 16).unwrap();
+        let expected_goal = u32::from_str_radix(fields[3], 16).unwrap();
+        let mut height = owner();
+        height.set_adjustment_enabled(flags & 1 != 0);
+        let mut zoom = if scenario == 3 { 1.2 } else { 0.8 };
+        let mut config = rules();
+        config.adjust_speed = [0.3, -1.0, 4.0, 0.0][scenario];
+        let changed = height.advance(
+            &mut zoom,
+            HeightStep {
+                paused: flags & 2 != 0,
+                replay_camera: flags & 4 != 0 && flags & 8 != 0,
+                scrolling: flags & 16 != 0,
+                scripted: flags & 32 != 0,
+                scroll_amount: if scenario == 0 { 0.0 } else { 100.0 },
+                rules: config,
+                ..step()
+            },
+        );
+        assert_eq!(zoom.to_bits(), expected_zoom, "zoom: {row}");
+        assert_eq!(height.desired().to_bits(), expected_goal, "goal: {row}");
+        assert_eq!(changed, fields[4] == "1", "rebuild: {row}");
+        cases += 1;
+    }
+    assert_eq!(cases, 256, "empty or incomplete original-C++ fixture");
+}

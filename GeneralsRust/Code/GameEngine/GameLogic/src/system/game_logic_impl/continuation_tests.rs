@@ -11,7 +11,7 @@ mod continuation_tests {
     //! `update_game_logic()` is NOT used here: stepping the process-wide
     //! singleton can block on the_ai / script globals (see the note in
     //! tests.rs — every update test in this crate drives a LOCAL
-    //! `GameLogic::new()` + `logic.update(frame)` instead, mirroring
+    //! `GameLogic::new()` + `logic.update(frame, ||None)` instead, mirroring
     //! `update_game_logic`'s own `get_frame() -> update()` pattern).
     //! Both branches therefore run on local instances; the singleton is
     //! touched only as the container the GameState snapshot blocks serialize
@@ -195,7 +195,7 @@ mod continuation_tests {
     /// holding the singleton (which can block on the_ai / script globals).
     fn step_one_frame(logic: &mut GameLogic, rel: usize) -> FrameTrace {
         let frame = logic.get_frame();
-        logic.update(frame).expect("local GameLogic tick");
+        logic.update(frame, || None).expect("local GameLogic tick");
 
         // Guaranteed logic-RNG consumer: the save format does not carry the
         // seed words, so this draw makes the RNG stream provably part of the
@@ -580,7 +580,7 @@ mod continuation_tests {
             logic.all_objects.push(id);
         }
         for f in 0..3 {
-            logic.update(f).expect("tick");
+            logic.update(f, || None).expect("tick");
         }
     }
 }

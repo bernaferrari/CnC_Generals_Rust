@@ -102,20 +102,32 @@ fn driving_drawable_uses_own_laser_update_with_same_ids_and_held_owner() {
 
     // The production caller already holds this Drawable's write borrow. No
     // owner lookup or relock may occur inside the canonical laser draw module.
-    a.write().unwrap().draw(None);
+    a.write().unwrap().draw(
+        None,
+        &crate::helpers::DrawTimeObservation::new(None, false, false, true),
+    );
     assert_eq!(segments(&draw_a), vec![(start_a, end_a, 4.0)]);
     assert!(!is_dirty(&update_a));
     assert!(is_dirty(&update_b));
-    b.write().unwrap().draw(None);
+    b.write().unwrap().draw(
+        None,
+        &crate::helpers::DrawTimeObservation::new(None, false, false, true),
+    );
     assert_eq!(segments(&draw_b), vec![(start_b, end_b, 4.0)]);
     assert!(!is_dirty(&update_b));
 
     set_segment(&update_a, end_a, start_a, true);
-    a.write().unwrap().draw(None);
+    a.write().unwrap().draw(
+        None,
+        &crate::helpers::DrawTimeObservation::new(None, false, false, true),
+    );
     assert_eq!(segments(&draw_a), vec![(end_a, start_a, 4.0)]);
     assert_eq!(segments(&draw_b), vec![(start_b, end_b, 4.0)]);
     a.write().unwrap().clear_modules();
-    b.write().unwrap().draw(None);
+    b.write().unwrap().draw(
+        None,
+        &crate::helpers::DrawTimeObservation::new(None, false, false, true),
+    );
     assert_eq!(segments(&draw_b), vec![(start_b, end_b, 4.0)]);
     b.write().unwrap().clear_modules();
 }
@@ -137,14 +149,20 @@ fn laser_dirty_consumption_follows_draw_ordinal_and_self_dirty() {
     );
     let first = add_draw(&mut owner, "FirstLaser");
     let second = add_draw(&mut owner, "SecondLaser");
-    owner.draw(None);
+    owner.draw(
+        None,
+        &crate::helpers::DrawTimeObservation::new(None, false, false, true),
+    );
     assert_eq!(segments(&first), vec![(start, end, 4.0)]);
     assert_eq!(segments(&second), vec![(start, end, 4.0)]);
 
     // CPP clears update dirty at the first DRAW. The second has no selfDirty,
     // so it retains its existing line rather than consuming a frame snapshot.
     set_segment(&update, start, changed, true);
-    owner.draw(None);
+    owner.draw(
+        None,
+        &crate::helpers::DrawTimeObservation::new(None, false, false, true),
+    );
     assert!(!is_dirty(&update));
     assert_eq!(segments(&first), vec![(start, changed, 4.0)]);
     assert_eq!(segments(&second), vec![(start, end, 4.0)]);
@@ -153,12 +171,18 @@ fn laser_dirty_consumption_follows_draw_ordinal_and_self_dirty() {
             Snapshotable::load_post_process(draw).unwrap();
         })
         .unwrap();
-    owner.draw(None);
+    owner.draw(
+        None,
+        &crate::helpers::DrawTimeObservation::new(None, false, false, true),
+    );
     assert_eq!(segments(&second), vec![(start, changed, 4.0)]);
 
     // A clean sibling does not reset points on repeated draws.
     set_segment(&update, end, start, false);
-    owner.draw(None);
+    owner.draw(
+        None,
+        &crate::helpers::DrawTimeObservation::new(None, false, false, true),
+    );
     assert_eq!(segments(&first), vec![(start, changed, 4.0)]);
     assert_eq!(segments(&second), vec![(start, changed, 4.0)]);
     owner.clear_modules();
@@ -204,7 +228,10 @@ fn laser_lookup_uses_named_client_update_bucket() {
         Box::new(module),
     );
     let draw = add_draw(&mut owner, "Laser");
-    owner.draw(None);
+    owner.draw(
+        None,
+        &crate::helpers::DrawTimeObservation::new(None, false, false, true),
+    );
     assert_eq!(segments(&draw), vec![(start, end, 4.0)]);
     assert!(!is_dirty(&expected));
     assert!(is_dirty(&wrong_name));
@@ -236,13 +263,19 @@ fn first_named_laser_update_stops_lookup_even_when_clean() {
         true,
     );
     let draw = add_draw(&mut owner, "Laser");
-    owner.draw(None);
+    owner.draw(
+        None,
+        &crate::helpers::DrawTimeObservation::new(None, false, false, true),
+    );
     assert_eq!(segments(&draw), vec![(start, end, 4.0)]);
     assert!(!is_dirty(&first));
     assert!(is_dirty(&later));
     // With selfDirty cleared, the first match declines a reset. It still wins
     // discovery; a later dirty module with the same key must not be consumed.
-    owner.draw(None);
+    owner.draw(
+        None,
+        &crate::helpers::DrawTimeObservation::new(None, false, false, true),
+    );
     assert_eq!(segments(&draw), vec![(start, end, 4.0)]);
     assert!(is_dirty(&later));
     owner.clear_modules();
@@ -262,7 +295,10 @@ fn missing_named_laser_update_returns_without_consuming_other_interfaces() {
         true,
     );
     let draw = add_draw(&mut owner, "Laser");
-    owner.draw(None);
+    owner.draw(
+        None,
+        &crate::helpers::DrawTimeObservation::new(None, false, false, true),
+    );
     assert!(segments(&draw).is_empty());
     assert!(is_dirty(&unrelated));
     owner.clear_modules();
@@ -290,7 +326,10 @@ fn laser_width_reset_consumes_current_canonical_update_width() {
                 .init_laser(None, None, Some(&start), Some(&end), String::new(), 10);
         })
         .unwrap();
-    owner.draw(None);
+    owner.draw(
+        None,
+        &crate::helpers::DrawTimeObservation::new(None, false, false, true),
+    );
     assert_eq!(segments(&draw), vec![(start, end, 0.0)]);
     assert!(!is_dirty(&update));
     // Negative duration starts decay at full width and marks the real update
@@ -307,10 +346,16 @@ fn laser_width_reset_consumes_current_canonical_update_width() {
             );
         })
         .unwrap();
-    owner.draw(None);
+    owner.draw(
+        None,
+        &crate::helpers::DrawTimeObservation::new(None, false, false, true),
+    );
     assert_eq!(segments(&draw), vec![(start, end, 4.0)]);
     assert!(!is_dirty(&update));
-    owner.draw(None);
+    owner.draw(
+        None,
+        &crate::helpers::DrawTimeObservation::new(None, false, false, true),
+    );
     assert_eq!(segments(&draw), vec![(start, end, 4.0)]);
     owner.clear_modules();
 }
@@ -330,7 +375,10 @@ fn laser_xfer_keeps_runtime_input_out_of_draw_payload_and_resets_after_load() {
         true,
     );
     let draw = add_draw(&mut owner, "Laser");
-    owner.draw(None);
+    owner.draw(
+        None,
+        &crate::helpers::DrawTimeObservation::new(None, false, false, true),
+    );
     let mut bytes = Vec::new();
     draw.with_module(|module| {
         let mut save = XferSave::new(Cursor::new(&mut bytes), 1);
@@ -352,7 +400,10 @@ fn laser_xfer_keeps_runtime_input_out_of_draw_payload_and_resets_after_load() {
     });
     let changed = Coord3D::new(40.0, 50.0, 60.0);
     set_segment(&update, start, changed, false);
-    owner.draw(None);
+    owner.draw(
+        None,
+        &crate::helpers::DrawTimeObservation::new(None, false, false, true),
+    );
     assert_eq!(segments(&draw), vec![(start, changed, 4.0)]);
     assert!(!is_dirty(&update));
     owner.clear_modules();

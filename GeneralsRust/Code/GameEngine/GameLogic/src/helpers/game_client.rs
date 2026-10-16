@@ -458,84 +458,6 @@ pub fn scene_point_lights() -> Vec<ScenePointLight> {
         .unwrap_or_default()
 }
 
-/// Bridge trait for camera view operations.
-///
-/// Implemented by GameClient to forward calls to the real `View` struct
-/// (which lives in GameClient and cannot be imported by GameLogic).
-///
-/// All methods use `&self` because the implementation uses interior mutability
-/// (the real View is accessed via `with_tactical_view` which uses a thread-local
-/// `RefCell`).
-///
-/// Integer types are used for enums (`CameraLockType`, `FilterType`, `FilterMode`)
-/// so that GameLogic does not need to import GameClient enum types. Values must
-/// match the C++ enum ordering exactly.
-pub trait CameraViewBridge: Send + Sync {
-    fn set_camera_lock(&self, id: Option<u32>);
-    fn set_snap_mode(&self, lock_type: i32, distance: f32);
-    fn snap_to_camera_lock(&self);
-    fn move_camera_to(
-        &self,
-        x: f32,
-        y: f32,
-        z: f32,
-        ms: i32,
-        shutter: i32,
-        enabled: bool,
-        ease_in: f32,
-        ease_out: f32,
-    );
-    fn zoom_camera(&self, zoom: f32, ms: i32, ease_in: f32, ease_out: f32);
-    fn pitch_camera(&self, pitch: f32, ms: i32, ease_in: f32, ease_out: f32);
-    fn rotate_camera(&self, rotations: f32, ms: i32, ease_in: f32, ease_out: f32);
-    fn camera_mod_look_toward(&self, x: f32, y: f32, z: f32);
-    fn camera_mod_final_look_toward(&self, x: f32, y: f32, z: f32);
-    fn camera_mod_final_pitch(&self, pitch: f32, ease_in: f32, ease_out: f32);
-    fn camera_mod_final_zoom(&self, zoom: f32, ease_in: f32, ease_out: f32);
-    fn camera_mod_freeze_time(&self);
-    fn camera_mod_freeze_angle(&self);
-    fn is_time_frozen(&self) -> bool {
-        false
-    }
-    fn is_camera_movement_finished(&self) -> bool {
-        true
-    }
-    fn set_default_view(&self, pitch: f32, angle: f32, max_height: f32);
-    fn reset_camera(&self, x: f32, y: f32, z: f32, ms: i32, ease_in: f32, ease_out: f32);
-    fn look_at(&self, x: f32, y: f32, z: f32);
-    fn set_view_filter(&self, filter_type: i32) -> bool;
-    fn set_view_filter_mode(&self, mode: i32) -> bool;
-    fn set_view_filter_pos(&self, x: f32, y: f32, z: f32);
-    fn rotate_camera_toward_object(
-        &self,
-        object_id: u32,
-        milliseconds: i32,
-        hold_milliseconds: i32,
-        ease_in: f32,
-        ease_out: f32,
-    );
-    fn rotate_camera_toward_position(
-        &self,
-        x: f32,
-        y: f32,
-        z: f32,
-        milliseconds: i32,
-        ease_in: f32,
-        ease_out: f32,
-        reverse: bool,
-    );
-}
-
-static CAMERA_VIEW_BRIDGE: OnceLock<Arc<dyn CameraViewBridge>> = OnceLock::new();
-
-pub fn register_camera_view_bridge(bridge: Arc<dyn CameraViewBridge>) -> bool {
-    CAMERA_VIEW_BRIDGE.set(bridge).is_ok()
-}
-
-pub fn get_camera_view_bridge() -> Option<&'static Arc<dyn CameraViewBridge>> {
-    CAMERA_VIEW_BRIDGE.get()
-}
-
 /// Game client bridge for drawables/scorch marks and visual effects
 pub struct TheGameClient;
 
@@ -543,14 +465,6 @@ impl TheGameClient {
     pub fn get() -> Option<&'static Self> {
         static CLIENT: OnceLock<TheGameClient> = OnceLock::new();
         Some(CLIENT.get_or_init(|| TheGameClient))
-    }
-
-    pub fn register_camera_view_bridge(bridge: Arc<dyn CameraViewBridge>) -> bool {
-        register_camera_view_bridge(bridge)
-    }
-
-    pub fn get_camera_view_bridge() -> Option<&'static Arc<dyn CameraViewBridge>> {
-        get_camera_view_bridge()
     }
 
     /// Synchronize the client frame counter with the logic frame.

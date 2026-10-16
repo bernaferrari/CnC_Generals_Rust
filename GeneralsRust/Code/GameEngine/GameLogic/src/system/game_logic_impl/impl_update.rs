@@ -87,22 +87,28 @@ impl GameLogic {
     /// processDestroyList / `m_frame++` even with zero objects (shell maps).
     /// Empty dual-world registry + empty `objects` is therefore a full tick,
     /// not an early `Ok(())`.
-    pub fn update(&mut self, frame: u32) -> Result<(), GameLogicError> {
-        self.update_with_optional_upgrade_services(frame, None)
+    pub fn update(
+        &mut self,
+        frame: u32,
+        observe_camera: impl FnOnce() -> Option<crate::helpers::CameraTimeObservation>,
+    ) -> Result<(), GameLogicError> {
+        self.update_with_optional_upgrade_services(frame, None, observe_camera)
     }
 
     pub fn update_with_upgrade_services(
         &mut self,
         frame: u32,
         services: &mut dyn UpgradeCompletionServices,
+        observe_camera: impl FnOnce() -> Option<crate::helpers::CameraTimeObservation>,
     ) -> Result<(), GameLogicError> {
-        self.update_with_optional_upgrade_services(frame, Some(services))
+        self.update_with_optional_upgrade_services(frame, Some(services), observe_camera)
     }
 
     fn update_with_optional_upgrade_services(
         &mut self,
         frame: u32,
         mut services: Option<&mut dyn UpgradeCompletionServices>,
+        observe_camera: impl FnOnce() -> Option<crate::helpers::CameraTimeObservation>,
     ) -> Result<(), GameLogicError> {
         self.last_update_was_empty_noop = false;
 
@@ -165,7 +171,7 @@ impl GameLogic {
         // -----------------------------------------------------------------------
         // C++: Bool freezeTime = TheTacticalView->isTimeFrozen() && !TheTacticalView->isCameraMovementFinished()
         // C++: if (freezeTime) { ... return; }
-        if self.is_time_frozen() {
+        if self.is_time_frozen(observe_camera()) {
             // C++ GameLogic.cpp:3606-3613 — a pending MSG_CLEAR_GAME_DATA
             // force-unfreezes and FALLS THROUGH to the full update so the
             // clear-game dispatch can run on this frame.
@@ -1332,20 +1338,10 @@ impl GameLogic {
     /// pending MSG_CLEAR_GAME_DATA (C++ GameLogic.cpp:3606-3613), in which
     /// case `update()` clears the script freeze term and falls through to
     /// the full update. This predicate only reports the freeze state.
-    fn is_time_frozen(&self) -> bool {
-        if get_camera_view_bridge()
-            .map(|view| {
-                should_freeze_time(
-                    view.is_time_frozen(),
-                    view.is_camera_movement_finished(),
-                    false,
-                )
-            })
-            .unwrap_or(false)
-        {
+    fn is_time_frozen(&self, camera: Option<crate::helpers::CameraTimeObservation>) -> bool {
+        if camera.is_some_and(crate::helpers::CameraTimeObservation::freezes_time) {
             return true;
         }
-
         // Check script engine freeze state
         if let Ok(engine_guard) = get_script_engine().read() {
             if let Some(engine) = engine_guard.as_ref() {
@@ -1673,7 +1669,7 @@ mod empty_world_tick_tests {
         assert!(logic.objects.is_empty());
         assert!(OBJECT_REGISTRY.store_is_empty());
         logic
-            .update(0)
+            .update(0, || None)
             .expect("empty world still returns Ok so the host frame loop continues");
         assert!(
             !logic.last_update_was_empty_noop(),
@@ -1713,8 +1709,8 @@ mod clear_game_data_freeze_escape_tests {
         stream.append_message(GameMessageType::ClearGameData);
     }
 
-    /// Freeze the process-global script engine — the only freeze source
-    /// observable without a registered camera-view bridge.
+    /// Freeze the retained standalone script engine. Camera observations are
+    /// supplied explicitly by each synchronous update operation.
     fn freeze_global_script_time() {
         let _ = initialize_script_engine();
         let engine = get_script_engine();
@@ -1752,8 +1748,13 @@ mod clear_game_data_freeze_escape_tests {
 
         OBJECT_REGISTRY.clear();
         let mut logic = GameLogic::new();
-        assert!(logic.is_time_frozen(), "script freeze must be observable");
-        logic.update(0).expect("frozen frame still returns Ok");
+        assert!(
+            logic.is_time_frozen(None),
+            "script freeze must be observable"
+        );
+        logic
+            .update(0, || None)
+            .expect("frozen frame still returns Ok");
         assert_eq!(
             logic.get_frame(),
             0,
@@ -1778,7 +1779,9 @@ mod clear_game_data_freeze_escape_tests {
 
         OBJECT_REGISTRY.clear();
         let mut logic = GameLogic::new();
-        logic.update(0).expect("clear-game escape still returns Ok");
+        logic
+            .update(0, || None)
+            .expect("clear-game escape still returns Ok");
 
         assert_eq!(
             logic.get_frame(),
@@ -1797,6 +1800,52 @@ mod clear_game_data_freeze_escape_tests {
         );
         drop(stream);
         // Leave the shared stream clean for other suites.
+        drop_pending_clear_game_data();
+    }
+    #[test]
+    fn receiving_camera_update_observations_are_sampled_once_and_keep_clear_game_escape() {
+        use crate::helpers::CameraTimeObservation;
+        let _serial = STREAM_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        drop_pending_clear_game_data();
+        unfreeze_global_script_time();
+        let frozen = CameraTimeObservation {
+            time_frozen: true,
+            movement_finished: false,
+        };
+        let finished = CameraTimeObservation {
+            time_frozen: true,
+            movement_finished: true,
+        };
+        let mut first = GameLogic::new();
+        let mut peer = GameLogic::new();
+        let mut first_samples = 0;
+        let mut peer_samples = 0;
+        first
+            .update(0, || {
+                first_samples += 1;
+                Some(frozen)
+            })
+            .unwrap();
+        assert_eq!(first.get_frame(), 0);
+        peer.update(0, || {
+            peer_samples += 1;
+            Some(finished)
+        })
+        .unwrap();
+        assert_eq!(peer.get_frame(), 1);
+        assert_eq!(first.get_frame(), 0);
+        assert_eq!((first_samples, peer_samples), (1, 1));
+        post_clear_game_data();
+        first.update(0, || Some(frozen)).unwrap();
+        assert_eq!(
+            first.get_frame(),
+            1,
+            "clear-game message bypasses camera freeze, preserving source escape"
+        );
+        assert!(
+            frozen.freezes_time(),
+            "clear-game does not overwrite the receiving camera"
+        );
         drop_pending_clear_game_data();
     }
 }

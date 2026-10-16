@@ -202,20 +202,25 @@ impl DrawModule for W3DDependencyModelDraw {
         handled
     }
 
-    fn do_draw_module(&mut self, transform_mtx: &Matrix3D) {
-        self.do_draw_module_for_owner(transform_mtx, None);
+    fn do_draw_module(
+        &mut self,
+        transform_mtx: &Matrix3D,
+        time: &crate::helpers::DrawTimeObservation,
+    ) {
+        self.do_draw_module_for_owner(transform_mtx, None, time);
     }
 
     fn do_draw_module_for_owner(
         &mut self,
         transform_mtx: &Matrix3D,
         driver: Option<&crate::object::drawable::DrawableRenderOwner<'_>>,
+        time: &crate::helpers::DrawTimeObservation,
     ) {
         if !self.dependency_cleared {
             return;
         }
         let adjusted = self.adjusted_transform(transform_mtx);
-        self.base.do_draw_module_for_owner(&adjusted, driver);
+        self.base.do_draw_module_for_owner(&adjusted, driver, time);
         self.dependency_cleared = false;
         if let Some(owner) = self.base.owner_id().and_then(find_object) {
             if let Ok(owner_guard) = owner.read() {

@@ -77,7 +77,7 @@ fn republish_rider_on_container(owner_id: ObjectID, rider_id: ObjectID) {
 
 /// C++ `riderDraw->setColorTintEnvelope(*getDrawable()->getColorTintEnvelope())`
 /// then `notifyDrawableDependencyCleared()` + `draw(NULL)`.
-pub fn draw_overlord_rider(owner_id: ObjectID) {
+pub fn draw_overlord_rider(owner_id: ObjectID, time: &crate::helpers::DrawTimeObservation) {
     let Some(rider_id) = rider_id_of(owner_id) else {
         return;
     };
@@ -110,7 +110,7 @@ pub fn draw_overlord_rider(owner_id: ObjectID) {
     // the rider drawable for stealth / bone attach; holding write here deadlocks
     // std::sync::RwLock and makes the live path a no-op.
     if let Ok(mut rider_guard) = rider_drawable.write() {
-        rider_guard.draw(None);
+        rider_guard.draw(None, time);
     }
 
     if let (Ok(owner_guard), Ok(mut rider_guard)) = (owner_drawable.read(), rider_drawable.write())
@@ -137,7 +137,10 @@ mod tests {
 
     #[test]
     fn missing_owner_is_noop() {
-        draw_overlord_rider(INVALID_ID);
+        draw_overlord_rider(
+            INVALID_ID,
+            &crate::helpers::DrawTimeObservation::new(None, false, false, true),
+        );
         set_overlord_rider_hidden(INVALID_ID, true);
     }
 }

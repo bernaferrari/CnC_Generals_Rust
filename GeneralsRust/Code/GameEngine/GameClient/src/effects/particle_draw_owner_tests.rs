@@ -251,7 +251,10 @@ fn factory_admitted_microwave_draw_creates_real_attached_particle_rows() {
     eprintln!("PARTICLE_DRAW_OWNER_STAGE before ordinary Drawable::draw");
     {
         let mut draw = drawable.write().expect("owning Drawable write guard");
-        draw.draw(None);
+        draw.draw(
+            None,
+            &gamelogic::helpers::DrawTimeObservation::new(None, false, false, true),
+        );
     }
 
     let (first_ids, first_systems) = {
@@ -305,7 +308,10 @@ fn factory_admitted_microwave_draw_creates_real_attached_particle_rows() {
     // A second ordinary callback must not recalculate/recreate the state rows.
     {
         let mut draw = drawable.write().expect("owning Drawable write guard");
-        draw.draw(None);
+        draw.draw(
+            None,
+            &gamelogic::helpers::DrawTimeObservation::new(None, false, false, true),
+        );
     }
     let second_ids = {
         let manager_guard = get_particle_system_manager().expect("particle manager read");
@@ -356,7 +362,10 @@ fn system_ids() -> Vec<ParticleSystemId> {
 }
 
 fn ordinary_draw(drawable: &LogicDrawableHandle) {
-    drawable.write().unwrap().draw(None);
+    drawable.write().unwrap().draw(
+        None,
+        &gamelogic::helpers::DrawTimeObservation::new(None, false, false, true),
+    );
 }
 
 fn assert_created_rows(drawable: &LogicDrawableHandle, stopped: bool) -> Vec<ParticleSystemId> {

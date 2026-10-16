@@ -128,18 +128,24 @@ impl DrawModule for W3DOverlordTruckDraw {
         handled
     }
 
-    fn do_draw_module(&mut self, transform_mtx: &Matrix3D) {
-        self.do_draw_module_for_owner(transform_mtx, None);
+    fn do_draw_module(
+        &mut self,
+        transform_mtx: &Matrix3D,
+        time: &crate::helpers::DrawTimeObservation,
+    ) {
+        self.do_draw_module_for_owner(transform_mtx, None, time);
     }
 
     fn do_draw_module_for_owner(
         &mut self,
         transform_mtx: &Matrix3D,
         driver: Option<&crate::object::drawable::DrawableRenderOwner<'_>>,
+        time: &crate::helpers::DrawTimeObservation,
     ) {
-        self.base.do_draw_module_for_owner(transform_mtx, driver);
+        self.base
+            .do_draw_module_for_owner(transform_mtx, driver, time);
         if let Some(owner_id) = self.owner_id() {
-            super::overlord_rider::draw_overlord_rider(owner_id);
+            super::overlord_rider::draw_overlord_rider(owner_id, time);
         }
     }
 
@@ -225,7 +231,10 @@ mod tests {
     fn do_draw_module_invokes_rider_path_from_container_draw() {
         let mut draw = W3DOverlordTruckDraw::new(W3DOverlordTruckDrawModuleData::new());
         draw.bind_owner_id(88);
-        draw.do_draw_module(&Matrix3D::IDENTITY);
+        draw.do_draw_module(
+            &Matrix3D::IDENTITY,
+            &crate::helpers::DrawTimeObservation::new(None, false, false, true),
+        );
         draw.set_hidden(true);
     }
     #[test]

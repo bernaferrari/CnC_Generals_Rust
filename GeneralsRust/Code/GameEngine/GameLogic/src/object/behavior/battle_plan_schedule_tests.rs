@@ -152,13 +152,13 @@ fn authored_normal_battle_plan_controls_registered_detector_before_next_callback
         .owner
         .register_normal_update_module(fixture.id, battle_proxy);
 
-    fixture.owner.update(5).unwrap();
+    fixture.owner.update(5, || None).unwrap();
     assert!(!fixture.with_detector(|detector| detector.is_enabled()));
     assert_eq!(
         fixture.owner.sleepy_entry_for(&detector).unwrap().1,
         0x3fff_ffff
     );
-    fixture.owner.update(6).unwrap();
+    fixture.owner.update(6, || None).unwrap();
     assert!(fixture.with_detector(|detector| detector.is_enabled()));
     assert_eq!(
         fixture.owner.sleepy_entry_for(&detector),
@@ -177,7 +177,7 @@ fn authored_normal_battle_plan_controls_registered_detector_before_next_callback
         1
     );
 
-    fixture.owner.update(7).unwrap();
+    fixture.owner.update(7, || None).unwrap();
     assert_eq!(
         fixture.owner.sleepy_entry_for(&detector).unwrap().1,
         17,
@@ -188,7 +188,7 @@ fn authored_normal_battle_plan_controls_registered_detector_before_next_callback
             module.behavior.desired_plan = BattlePlanStatus::None;
         })
         .unwrap();
-    fixture.owner.update(8).unwrap();
+    fixture.owner.update(8, || None).unwrap();
     assert!(!fixture.with_detector(|detector| detector.is_enabled()));
     assert_eq!(
         fixture.owner.sleepy_entry_for(&detector).unwrap().1,

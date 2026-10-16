@@ -256,7 +256,7 @@ impl W3DDebrisDraw {
                     scale = drawable_guard.get_instance_scale();
                 }
             }
-            });
+        });
         let world_transform = if (scale - 1.0).abs() < f32::EPSILON {
             *transform_mtx
         } else {
@@ -319,7 +319,11 @@ impl Module for W3DDebrisDraw {
 }
 
 impl DrawModule for W3DDebrisDraw {
-    fn do_draw_module(&mut self, transform_mtx: &Matrix3D) {
+    fn do_draw_module(
+        &mut self,
+        transform_mtx: &Matrix3D,
+        time: &crate::helpers::DrawTimeObservation,
+    ) {
         if !self.model_created {
             return;
         }
@@ -384,7 +388,7 @@ impl DrawModule for W3DDebrisDraw {
                     self.submit_mesh(&transform);
                 }
             }
-            });
+        });
     }
     fn react_to_geometry_change(&mut self) {}
 

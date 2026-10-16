@@ -250,14 +250,19 @@ impl DrawModule for W3DProjectileDraw {
         handled
     }
 
-    fn do_draw_module(&mut self, transform_mtx: &Matrix3D) {
-        self.do_draw_module_for_owner(transform_mtx, None);
+    fn do_draw_module(
+        &mut self,
+        transform_mtx: &Matrix3D,
+        time: &crate::helpers::DrawTimeObservation,
+    ) {
+        self.do_draw_module_for_owner(transform_mtx, None, time);
     }
 
     fn do_draw_module_for_owner(
         &mut self,
         transform_mtx: &Matrix3D,
         driver: Option<&crate::object::drawable::DrawableRenderOwner<'_>>,
+        time: &crate::helpers::DrawTimeObservation,
     ) {
         let mut adjusted_transform = *transform_mtx;
 
@@ -273,7 +278,7 @@ impl DrawModule for W3DProjectileDraw {
 
         // Draw model
         self.base
-            .do_draw_module_for_owner(&adjusted_transform, driver);
+            .do_draw_module_for_owner(&adjusted_transform, driver, time);
     }
 
     fn set_shadows_enabled(&mut self, enable: bool) {

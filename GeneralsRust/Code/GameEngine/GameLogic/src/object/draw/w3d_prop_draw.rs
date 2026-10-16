@@ -150,7 +150,10 @@ mod tests {
         let mut draw = W3DPropDraw::new(module_data("Tree01"));
         draw.bind_owner_id(42);
 
-        draw.do_draw_module(&Matrix3D::IDENTITY);
+        draw.do_draw_module(
+            &Matrix3D::IDENTITY,
+            &crate::helpers::DrawTimeObservation::new(None, false, false, true),
+        );
 
         assert!(!draw.prop_added());
         assert_eq!(draw.take_pending_prop_add(), None);
@@ -262,7 +265,11 @@ impl Module for W3DPropDraw {
     }
 }
 impl DrawModule for W3DPropDraw {
-    fn do_draw_module(&mut self, _transform_mtx: &Matrix3D) {
+    fn do_draw_module(
+        &mut self,
+        _transform_mtx: &Matrix3D,
+        time: &crate::helpers::DrawTimeObservation,
+    ) {
         // C++ W3DPropDraw::doDrawModule returns immediately.  The terrain prop is
         // inserted once from reactToTransformChange instead.
     }

@@ -22,7 +22,6 @@ use serde::{Deserialize, Serialize};
 
 #[path = "actions/mod.rs"]
 pub mod actions;
-pub mod camera_actions;
 pub mod chunk_codec;
 pub mod conditions;
 pub mod core;

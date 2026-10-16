@@ -253,7 +253,11 @@ impl Module for W3DTracerDraw {
 }
 
 impl DrawModule for W3DTracerDraw {
-    fn do_draw_module(&mut self, transform_mtx: &Matrix3D) {
+    fn do_draw_module(
+        &mut self,
+        transform_mtx: &Matrix3D,
+        time: &crate::helpers::DrawTimeObservation,
+    ) {
         // C++ creates Line3D once with local (0,0,0)→(length,0,0) and
         // `Set_Transform(*transformMtx)`. Later draws only mutate that Line3D
         // transform (not the incoming drawable matrix).
@@ -433,7 +437,10 @@ mod tests {
         draw.set_tracer_parms(5.0, 10.0, 0.5, &color, 1.0);
 
         let origin = Matrix3D::from_translation(glam::Vec3::new(10.0, 20.0, 30.0));
-        draw.do_draw_module(&origin);
+        draw.do_draw_module(
+            &origin,
+            &crate::helpers::DrawTimeObservation::new(None, false, false, true),
+        );
         // First draw: create at drawable mtx, then Translate(speed,0,0).
         assert!((draw.line_start().x - 15.0).abs() < 1.0e-5);
         assert!((draw.line_start().y - 20.0).abs() < 1.0e-5);
@@ -443,7 +450,10 @@ mod tests {
         assert!((draw.line_end().z - 30.0).abs() < 1.0e-5);
 
         // Second draw still receives the unmoved drawable mtx; Line3D accumulates.
-        draw.do_draw_module(&origin);
+        draw.do_draw_module(
+            &origin,
+            &crate::helpers::DrawTimeObservation::new(None, false, false, true),
+        );
         assert!((draw.line_start().x - 20.0).abs() < 1.0e-5);
         assert!((draw.line_end().x - 30.0).abs() < 1.0e-5);
         assert!((draw.line_start().y - 20.0).abs() < 1.0e-5);
@@ -459,9 +469,15 @@ mod tests {
 
         // current_frame() is 0 in unit tests without GameLogic init, so remaining
         // stays expDate (4). C++ `opacity -= opacity / (expDate - frame)`.
-        draw.do_draw_module(&Matrix3D::IDENTITY);
+        draw.do_draw_module(
+            &Matrix3D::IDENTITY,
+            &crate::helpers::DrawTimeObservation::new(None, false, false, true),
+        );
         assert!((draw.opacity() - 0.75).abs() < 1.0e-5);
-        draw.do_draw_module(&Matrix3D::IDENTITY);
+        draw.do_draw_module(
+            &Matrix3D::IDENTITY,
+            &crate::helpers::DrawTimeObservation::new(None, false, false, true),
+        );
         assert!((draw.opacity() - 0.5625).abs() < 1.0e-5);
 
         // When the logic frame advances, remaining shrinks: 1, 1-1/3, 0.5-0.5/2.
@@ -478,11 +494,17 @@ mod tests {
         let color = RGBColor::new(229, 204, 178);
         draw.set_tracer_parms(5.0, 10.0, 0.5, &color, 1.0);
         let first = Matrix3D::from_translation(glam::Vec3::new(10.0, 20.0, 30.0));
-        draw.do_draw_module(&first);
+        draw.do_draw_module(
+            &first,
+            &crate::helpers::DrawTimeObservation::new(None, false, false, true),
+        );
         draw.react_to_transform_change(&first, &Coord3D::new(10.0, 20.0, 30.0), 0.0);
 
         let moved = Matrix3D::from_translation(glam::Vec3::new(100.0, 0.0, 0.0));
-        draw.do_draw_module(&moved);
+        draw.do_draw_module(
+            &moved,
+            &crate::helpers::DrawTimeObservation::new(None, false, false, true),
+        );
         assert!((draw.line_start().x - 105.0).abs() < 1.0e-5);
         assert!((draw.line_end().x - 115.0).abs() < 1.0e-5);
     }

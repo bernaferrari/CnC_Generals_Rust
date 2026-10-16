@@ -35,7 +35,11 @@ fn installed_supply_draw_forwards_the_driving_drawable() {
     let _registered = Registered([ID]);
 
     eprintln!("render child: before actual installed W3DSupplyDraw under Drawable writer");
-    crate::drawable::Drawable::draw(&mut *drawable.write().unwrap(), None);
+    crate::drawable::Drawable::draw(
+        &mut *drawable.write().unwrap(),
+        None,
+        &crate::helpers::DrawTimeObservation::new(None, false, false, true),
+    );
     entry.with_module(|module| {
         let supply = (module as &mut dyn std::any::Any)
             .downcast_mut::<W3DSupplyDraw>()
