@@ -110,9 +110,7 @@ fn actual_no_draw_and_failed_prefix_return_before_display_clock_and_device_poll(
     let body = &source[source
         .find("pub(super) fn complete_native_display_step(")
         .unwrap()..];
-    let clock = body
-        .find("self.native_display.admit(DisplayInputs")
-        .unwrap();
+    let clock = body.find(".admit_receiving(").unwrap();
     let no_draw = body.find("!pending.step.display_requested()").unwrap();
     let failed = body
         .find("self.native_display.check_shell_before_display()?")
@@ -120,4 +118,95 @@ fn actual_no_draw_and_failed_prefix_return_before_display_clock_and_device_poll(
     let poll = body.find(".poll(wgpu::PollType::Poll)").unwrap();
     assert!(failed < no_draw && no_draw < poll && poll < clock);
     assert!(body[..clock].contains("return self"));
+}
+
+#[test]
+fn receiving_debug_freeze_precedes_actual_fast_display_admission() {
+    let mut owner = GameLogic::new();
+    let peer = GameLogic::new();
+    let mut debug = gamelogic::scripting::engine::ScriptEngine::new().unwrap();
+    debug.set_time_frozen_debug(true);
+    owner.install_owned_script_engine(debug);
+    for world in [&mut owner] {
+        world.session_view.camera.camera_zoom_start = 1.;
+        world.session_view.camera.camera_zoom_target = Some(2.);
+        world.session_view.camera.camera_zoom_duration = 1.;
+    }
+    let mut display = NativeDisplayState::new();
+    for frame in [17, 17, 18] {
+        let decision = display
+            .admit_receiving(&owner, false, |frozen| DisplayInputs {
+                frozen,
+                time_fast: true,
+                ..input(frame)
+            })
+            .unwrap();
+        assert!(decision.update_views);
+        assert!(!decision.fast_camera_only);
+        owner
+            .advance_receiving_camera_view(
+                decision.update_views,
+                decision.fast_camera_only,
+                false,
+                false,
+                33,
+                None,
+            )
+            .unwrap();
+        assert_eq!(owner.session_view.camera.camera_zoom_frame, 0);
+    }
+    let mut peer_display = NativeDisplayState::new();
+    let decision = peer_display
+        .admit_receiving(&peer, false, |frozen| DisplayInputs {
+            frozen,
+            time_fast: true,
+            ..input(17)
+        })
+        .unwrap();
+    assert!(decision.fast_camera_only && !decision.update_views);
+    let native = include_str!("native_display.rs");
+    let production = native
+        .split("pub(super) fn complete_native_display_step(")
+        .nth(1)
+        .unwrap();
+    let compact: String = production.split_whitespace().collect();
+    assert!(compact.contains(".admit_receiving(&self.game_logic,paused,"));
+}
+
+#[test]
+fn unavailable_receiving_debug_owner_does_not_consume_actual_display_clock() {
+    let mut world = GameLogic::new();
+    world
+        .with_owned_script_engine(|_, world| {
+            let mut display = NativeDisplayState::new();
+            let before = serde_json::to_value(display.capture_continuation(71).unwrap()).unwrap();
+            let mut constructed = false;
+            assert!(
+                display
+                    .admit_receiving(world, false, |frozen| {
+                        constructed = true;
+                        DisplayInputs {
+                            frozen,
+                            ..input(71)
+                        }
+                    })
+                    .is_err()
+            );
+            assert!(!constructed);
+            assert_eq!(
+                serde_json::to_value(display.capture_continuation(71).unwrap()).unwrap(),
+                before
+            );
+            world.session_view.scripted.script_camera_freeze_time = true;
+            world.session_view.camera.camera_zoom_target = Some(2.);
+            let decision = display
+                .admit_receiving(world, false, |frozen| DisplayInputs {
+                    frozen,
+                    time_fast: true,
+                    ..input(71)
+                })
+                .unwrap();
+            assert!(!decision.fast_camera_only && decision.update_views);
+        })
+        .unwrap();
 }

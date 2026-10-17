@@ -302,7 +302,7 @@ fn production_camera_phase_precedes_native_region_and_fast_subset_never_commits_
     let build = include_str!("../presentation_frame/session_view/camera/build.rs");
     assert!(build.contains("self.advance_transform_shakers("));
     assert!(phase.contains("set_native_camera_transform()"));
-    assert!(live.contains("advance_camera_view("));
+    assert!(live.contains("advance_receiving_camera_view("));
     let owner = include_str!("../presentation_frame/session_view/camera.rs");
     assert!(owner.contains("AxisKind::ZoomPitch") && owner.contains("AxisKind::Yaw"));
 }
@@ -374,9 +374,10 @@ fn owning_logic_pause_is_distinct_from_script_freeze_and_keeps_full_view_shake()
     let start = source.find("fn native_view_is_paused(").unwrap();
     let end = source[start..].find("/// Invoked once").unwrap() + start;
     assert!(source[start..end].contains("self.game_logic.is_paused()"));
-    assert!(source.contains("!self.native_view_is_paused()"));
+    assert!(source.contains("self.native_view_is_paused()"));
     assert!(
-        include_str!("camera_view_effects.rs").contains("paused: self.native_view_is_paused()")
+        include_str!("camera_view_effects.rs")
+            .contains("let paused = self.native_view_is_paused()")
     );
 }
 

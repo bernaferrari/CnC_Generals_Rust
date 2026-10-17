@@ -111,6 +111,20 @@ impl NativeDisplayState {
         self.completed = Some(decision);
         decision
     }
+    /// Observe the receiving source freeze terms before offering the actual
+    /// Display clock. The input constructor receives that fact, never a default.
+    pub(super) fn admit_receiving(
+        &mut self,
+        logic: &GameLogic,
+        paused: bool,
+        inputs: impl FnOnce(bool) -> DisplayInputs,
+    ) -> Result<DisplayAdmission, String> {
+        let frozen = logic
+            .simulation_frozen_with_script_engine(None)
+            .map_err(|error| error.to_string())?
+            || paused;
+        Ok(self.admit(inputs(frozen)))
+    }
     pub(super) fn should_present(&self) -> bool {
         self.completed.is_some_and(|completed| completed.draw_gpu)
     }
@@ -237,7 +251,6 @@ impl CnCGameEngine {
                 )
                 .map_err(|error| error.to_string());
         }
-        let frozen = self.presentation_or_boot_time_frozen() || self.native_view_is_paused();
         let tivo = game_engine::common::global_data::read_safe()
             .map_err(|error| format!("display configuration unavailable: {error}"))?
             .tivo_fast_mode;
@@ -253,17 +266,22 @@ impl CnCGameEngine {
             .device()
             .poll(wgpu::PollType::Poll)
             .is_ok();
-        let decision = self.native_display.admit(DisplayInputs {
-            client_frame,
-            frozen,
-            time_fast: self.script_time_fast(),
-            multiplier: self.presentation_or_boot_visual_speed().max(1.) as i32,
-            device_ready,
-            tivo_replay: tivo
-                && self.presentation_or_boot_in_replay_game()
-                && !self.native_view_is_paused(),
-            replay_frame: self.game_logic.frame,
-        });
+        let time_fast = self.script_time_fast();
+        let multiplier = self.presentation_or_boot_visual_speed().max(1.) as i32;
+        let paused = self.native_view_is_paused();
+        let tivo_replay = tivo && self.presentation_or_boot_in_replay_game() && !paused;
+        let replay_frame = self.game_logic.frame;
+        let decision = self
+            .native_display
+            .admit_receiving(&self.game_logic, paused, |frozen| DisplayInputs {
+                client_frame,
+                frozen,
+                time_fast,
+                multiplier,
+                device_ready,
+                tivo_replay,
+                replay_frame,
+            })?;
         if decision.sync {
             WW3D::sync(decision.sync_time_ms);
             self.render_pipeline
@@ -295,7 +313,7 @@ impl CnCGameEngine {
         }
         // Command intake has finished. Only this admitted view operation may
         // advance scripted camera axes, follow, shake and terrain-height ease.
-        self.advance_native_camera_view(decision, camera_scroll);
+        self.advance_native_camera_view(decision, camera_scroll)?;
         if decision.update_views && !self.script_time_fast() {
             self.finalize_native_view_camera()?;
         }

@@ -404,3 +404,5 @@ mod camera_completion_cpp_tests;
 
 #[cfg(test)]
 mod camera_admission_cpp_tests;
+
+mod debug_freeze;

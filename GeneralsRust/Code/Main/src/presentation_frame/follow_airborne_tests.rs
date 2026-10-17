@@ -151,3 +151,7 @@ fn actual_follow_freeze_uses_water_only_above_ground_and_keeps_peer_surface_owne
     assert_eq!(freeze(&peer).unwrap().airborne_orientation, None);
     assert_eq!(freeze(&a).unwrap().airborne_orientation, Some(heading));
 }
+
+#[cfg(feature = "game_client")]
+#[path = "follow_debug_owner_tests.rs"]
+mod debug_owner;

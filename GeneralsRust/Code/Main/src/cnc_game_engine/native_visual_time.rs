@@ -7,21 +7,41 @@ pub(super) fn simulation_frozen(logic: &GameLogic, paused: bool) -> bool {
     logic.is_time_frozen_for_simulation() || paused
 }
 
-pub(super) fn observe(
+pub(super) fn observe_receiving(
+    logic: &GameLogic,
+    paused: bool,
+    interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+) -> Result<NativeVisualTime, String> {
+    try_observe(logic, paused, || {
+        logic
+            .script_debug_frozen(interpreter)
+            .map_err(|error| error.to_string())
+    })
+}
+fn try_observe(
+    logic: &GameLogic,
+    paused: bool,
+    debug_frozen: impl FnOnce() -> Result<bool, String>,
+) -> Result<NativeVisualTime, String> {
+    // Camera first: never query an absent/debug owner on the branch that
+    // original GameClient.cpp621-624 already short-circuited.
+    let frozen = logic.is_script_camera_time_frozen()
+        || debug_frozen()?
+        || logic.is_script_time_frozen()
+        || paused;
+    Ok(NativeVisualTime {
+        frozen,
+        visual_speed: logic.visual_speed_multiplier(),
+    })
+}
+#[cfg(test)]
+fn observe(
     logic: &GameLogic,
     paused: bool,
     debug_frozen: impl FnOnce() -> bool,
 ) -> NativeVisualTime {
-    // GameClient.cpp621-624: camera first; an active camera freeze skips the
-    // potentially observable debug-control query. Script and pause follow it.
-    let frozen = logic.is_script_camera_time_frozen()
-        || debug_frozen()
-        || logic.is_script_time_frozen()
-        || paused;
-    NativeVisualTime {
-        frozen,
-        visual_speed: logic.visual_speed_multiplier(),
-    }
+    try_observe(logic, paused, || Ok(debug_frozen()))
+        .expect("infallible supplied fixture observation")
 }
 
 #[cfg(test)]
@@ -168,6 +188,35 @@ mod tests {
     }
 
     #[test]
+    fn late_native_visual_time_reads_receiving_debug_owner_and_preserves_short_circuit() {
+        let mut owner = GameLogic::new();
+        let peer = GameLogic::new();
+        let mut engine = gamelogic::scripting::engine::ScriptEngine::new().unwrap();
+        engine.set_time_frozen_debug(true);
+        owner.install_owned_script_engine(engine);
+        assert!(observe_receiving(&owner, false, None).unwrap().frozen);
+        assert!(!observe_receiving(&peer, false, None).unwrap().frozen);
+        owner
+            .with_owned_script_engine(|engine, owner| {
+                assert!(observe_receiving(owner, false, None).is_err());
+                assert!(
+                    observe_receiving(owner, false, Some(engine))
+                        .unwrap()
+                        .frozen
+                );
+                owner.session_view.scripted.script_camera_freeze_time = true;
+                owner.session_view.camera.camera_zoom_target = Some(2.);
+                assert!(observe_receiving(owner, false, None).unwrap().frozen);
+                owner.session_view.camera.camera_zoom_target = None;
+                owner.set_script_time_frozen_for_test(true);
+                assert!(observe_receiving(owner, false, None).is_err());
+                owner.set_script_time_frozen_for_test(false);
+                assert!(observe_receiving(owner, true, None).is_err());
+            })
+            .unwrap();
+    }
+
+    #[test]
     fn native_prefix_borrows_the_session_and_observes_debug_only_at_the_late_boundary() {
         let source = include_str!("camera_drain.rs");
         let prefix = source
@@ -183,8 +232,8 @@ mod tests {
             "begin_presentation_shell_",
             "with_owned_visual_time("
         )));
-        assert!(prefix.contains("native_visual_time::observe("));
-        assert!(prefix.contains("TheScriptEngine::is_time_frozen_debug"));
+        assert!(prefix.contains("native_visual_time::observe_receiving("));
+        assert!(!prefix.contains("TheScriptEngine::is_time_frozen_debug"));
         assert!(!prefix.contains("presentation_or_boot_time_frozen()"));
     }
 }

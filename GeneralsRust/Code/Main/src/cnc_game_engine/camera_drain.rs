@@ -214,27 +214,21 @@ impl CnCGameEngine {
         &mut self,
         observed_id: Option<crate::game_logic::ObjectId>,
         facts: Option<crate::presentation_frame::follow::FollowTargetFacts>,
-        record_previous: bool,
-    ) -> bool {
+        paused: bool,
+    ) -> Result<bool, String> {
         use crate::presentation_frame::follow::FollowAdmission;
         let cell = game_engine::common::global_data::read().partition_cell_size;
-        let result = self.game_logic.session_view.admit_camera_follow(
-            observed_id,
-            facts,
-            cell,
-            record_previous,
-        );
+        let result = self
+            .game_logic
+            .admit_receiving_camera_follow(observed_id, facts, cell, paused, None)
+            .map_err(|error| error.to_string())?;
         match result {
-            Ok(FollowAdmission::TargetGone) => {
+            FollowAdmission::TargetGone => {
                 self.host_set_camera_follow_object(None);
-                false
+                Ok(false)
             }
-            Ok(FollowAdmission::Followed) => true,
-            Ok(_) => false,
-            Err(error) => {
-                log::error!("receiving camera follow admission: {error}");
-                false
-            }
+            FollowAdmission::Followed => Ok(true),
+            _ => Ok(false),
         }
     }
 
@@ -2708,19 +2702,15 @@ impl CnCGameEngine {
         let paused = self.game_paused;
         match self
             .game_client
-            .begin_presentation_shell_with_owned_visual_time(
+            .try_begin_presentation_shell_with_owned_visual_time(
                 visual_delta,
                 frames,
                 &material_observations,
                 || {
-                    // Preserve the original observation after pre-draw UI. The
-                    // debug DLL/control owner is still unmigrated (hq-pem9z);
-                    // keep that dependency explicit instead of inventing false.
-                    native_visual_time::observe(
-                        logic,
-                        paused,
-                        gamelogic::helpers::TheScriptEngine::is_time_frozen_debug,
-                    )
+                    // Preserve the original observation after pre-draw UI;
+                    // the actual receiving interpreter is restored by then.
+                    native_visual_time::observe_receiving(logic, paused, None)
+                        .map_err(game_client::core::GameClientError::InvalidOperation)
                 },
             ) {
             Ok(step) => {

@@ -407,3 +407,54 @@ fn native_prefix_preserves_foreign_core_tracking_and_standalone_still_follows() 
         "standalone empty selection retains original clear"
     );
 }
+
+#[test]
+fn fallible_native_observation_rejects_at_late_boundary_without_consuming_visual_frame() {
+    if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
+        module_path!(),
+        "fallible_native_observation_rejects_at_late_boundary_without_consuming_visual_frame",
+    ) {
+        return;
+    }
+    get_shell().init().unwrap();
+    let mut receiver = client(191);
+    let mut peer = client(191);
+    let before = receiver.last_visual_time_frame;
+    let peer_before = peer.last_visual_time_frame;
+    let mut calls = 0;
+    let result = receiver.try_begin_presentation_shell_with_owned_visual_time(
+        1. / 30.,
+        frames(191),
+        &[],
+        || {
+            calls += 1;
+            Err(GameClientError::InvalidOperation(
+                "missing receiving debug owner".into(),
+            ))
+        },
+    );
+    assert!(
+        matches!(result, Err(GameClientError::InvalidOperation(ref reason)) if reason == "missing receiving debug owner")
+    );
+    assert_eq!(calls, 1);
+    assert_eq!(receiver.last_visual_time_frame, before);
+    assert_eq!(peer.last_visual_time_frame, peer_before);
+    let step = receiver
+        .try_begin_presentation_shell_with_owned_visual_time(1. / 30., frames(191), &[], || {
+            Ok(NativeVisualTime {
+                frozen: false,
+                visual_speed: 1.,
+            })
+        })
+        .unwrap();
+    assert!(!step.frozen);
+    let step = peer
+        .try_begin_presentation_shell_with_owned_visual_time(1. / 30., frames(191), &[], || {
+            Ok(NativeVisualTime {
+                frozen: true,
+                visual_speed: 1.,
+            })
+        })
+        .unwrap();
+    assert!(step.frozen);
+}

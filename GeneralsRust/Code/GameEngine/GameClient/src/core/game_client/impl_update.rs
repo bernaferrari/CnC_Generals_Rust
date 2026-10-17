@@ -1659,6 +1659,21 @@ impl GameClient {
         materials: &[NativeMaterialObservation],
         observe: impl FnOnce() -> NativeVisualTime,
     ) -> GameClientResult<PreparedPresentationShell> {
+        self.try_begin_presentation_shell_with_owned_visual_time(
+            delta_time,
+            particle_frames,
+            materials,
+            || Ok(observe()),
+        )
+    }
+    /// Same late source observation point, with explicit owner failure.
+    pub fn try_begin_presentation_shell_with_owned_visual_time(
+        &mut self,
+        delta_time: f32,
+        particle_frames: NativeParticleFrames,
+        materials: &[NativeMaterialObservation],
+        observe: impl FnOnce() -> GameClientResult<NativeVisualTime>,
+    ) -> GameClientResult<PreparedPresentationShell> {
         self.validate_material_observations(materials)?;
         self.begin_presentation_shell_observing(delta_time, particle_frames, observe)
     }
@@ -1668,18 +1683,16 @@ impl GameClient {
         delta_time: f32,
         particle_frames: NativeParticleFrames,
     ) -> GameClientResult<PreparedPresentationShell> {
-        self.begin_presentation_shell_observing(
-            delta_time,
-            particle_frames,
-            legacy_visual_time_observation,
-        )
+        self.begin_presentation_shell_observing(delta_time, particle_frames, || {
+            Ok(legacy_visual_time_observation())
+        })
     }
 
     fn begin_presentation_shell_observing(
         &mut self,
         delta_time: f32,
         particle_frames: NativeParticleFrames,
-        observe: impl FnOnce() -> NativeVisualTime,
+        observe: impl FnOnce() -> GameClientResult<NativeVisualTime>,
     ) -> GameClientResult<PreparedPresentationShell> {
         if particle_frames.client_frame != self.frame {
             return Err(GameClientError::InvalidOperation(
@@ -1777,7 +1790,7 @@ impl GameClient {
         // Device state is shared THE_MOUSE/THE_KEYBOARD (Main inject; no second OS poll).
         // C++ GameClient.cpp621-630 observes after pre-draw UI, including
         // synchronous camera/script changes made by those callbacks.
-        let (freeze_time, visual_speed) = self.admit_visual_time(observe())?;
+        let (freeze_time, visual_speed) = self.admit_visual_time(observe()?)?;
         let visual_delta = if freeze_time || visual_speed <= 0. {
             0.
         } else {

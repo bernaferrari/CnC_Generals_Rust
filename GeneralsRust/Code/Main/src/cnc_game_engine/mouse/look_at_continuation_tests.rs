@@ -107,5 +107,5 @@ fn historical_broken_lock_observation_is_ignored_without_blocking_canonical_relo
     assert!(!world.session_view.camera.camera_follow_snap_immediate);
     let native = include_str!("../camera_view_effects.rs");
     assert!(!native.contains("look_at_player_broke_camera_lock"));
-    assert!(native.contains("self.apply_camera_follow_or_tether(id, facts, record_previous)"));
+    assert!(native.contains("self.apply_camera_follow_or_tether(id, facts, paused)"));
 }

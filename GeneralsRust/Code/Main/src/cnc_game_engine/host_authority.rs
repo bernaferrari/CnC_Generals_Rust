@@ -47,6 +47,47 @@ impl HostLoadFailure {
     }
 }
 
+/// Transfer only after staged restore preflight. The receiving window's
+/// viewport is captured before moving its old SessionView out of the world.
+/// Saved cameras and legacy pose-only saves both retain that same viewport.
+fn admit_staged_session_view(
+    receiver: &mut crate::presentation_frame::SessionView,
+    candidate: &mut crate::presentation_frame::SessionView,
+    owns_session_camera: bool,
+) {
+    let receiving_viewport = receiver.camera.viewport;
+    if !owns_session_camera {
+        let candidate_focus_previous = candidate.pending_focus_previous_target;
+        let candidate_camera_settings = candidate.camera.settings;
+        let candidate_camera_clip = candidate.camera.clip_policy;
+        let candidate_camera_shake = candidate.camera.shake_policy;
+        let candidate_scripted = std::mem::take(&mut candidate.scripted);
+        // Map actions already applied to the candidate's receiving filter.
+        #[cfg(feature = "game_client")]
+        let candidate_filter = std::mem::take(&mut candidate.filter);
+        *candidate = std::mem::take(receiver);
+        candidate.pending_focus_previous_target = candidate_focus_previous;
+        candidate.camera.settings = candidate_camera_settings;
+        candidate.camera.clip_policy = candidate_camera_clip;
+        candidate.camera.shake_policy = candidate_camera_shake;
+        candidate.scripted = candidate_scripted;
+        #[cfg(feature = "game_client")]
+        {
+            candidate.filter = candidate_filter;
+        }
+    }
+    // View dimensions belong to the receiving window, never to a saved world.
+    // V2 may replace the complete camera continuation but not its viewport.
+    candidate.pending_letterbox_visibility.clear();
+    candidate.letterbox_visibility_delivered_since_present = false;
+    candidate.camera.viewport = receiving_viewport;
+    candidate.camera.rebuild_projection();
+}
+
+#[cfg(test)]
+#[path = "host_authority/restore_viewport_owner_tests.rs"]
+mod restore_viewport_owner_tests;
+
 impl CnCGameEngine {
     /// Begin a new transient direct-visual world identity.
     ///
@@ -1274,34 +1315,11 @@ impl CnCGameEngine {
         self.render_pipeline.invalidate_world_visual_state();
 
         let native_commit = runtime_world.install_globals();
-        if !owns_session_camera {
-            let candidate_focus_previous = logic.session_view.pending_focus_previous_target;
-            let candidate_camera_settings = logic.session_view.camera.settings;
-            let candidate_camera_clip = logic.session_view.camera.clip_policy;
-            let candidate_camera_shake = logic.session_view.camera.shake_policy;
-            let candidate_scripted = std::mem::take(&mut logic.session_view.scripted);
-            // Map actions already applied to the candidate's receiving filter.
-            #[cfg(feature = "game_client")]
-            let candidate_filter = std::mem::take(&mut logic.session_view.filter);
-            logic.session_view = std::mem::take(&mut self.game_logic.session_view);
-            logic.session_view.pending_focus_previous_target = candidate_focus_previous;
-            logic.session_view.camera.settings = candidate_camera_settings;
-            logic.session_view.camera.clip_policy = candidate_camera_clip;
-            logic.session_view.camera.shake_policy = candidate_camera_shake;
-            logic.session_view.scripted = candidate_scripted;
-            #[cfg(feature = "game_client")]
-            {
-                logic.session_view.filter = candidate_filter;
-            }
-        }
-        // View dimensions belong to the receiving window, never to a saved world.
-        // V2 may replace the complete camera continuation but not its viewport.
-        logic.session_view.pending_letterbox_visibility.clear();
-        logic
-            .session_view
-            .letterbox_visibility_delivered_since_present = false;
-        logic.session_view.camera.viewport = self.game_logic.session_view.camera.viewport;
-        logic.session_view.camera.rebuild_projection();
+        admit_staged_session_view(
+            &mut self.game_logic.session_view,
+            &mut logic.session_view,
+            owns_session_camera,
+        );
         let old_logic = std::mem::replace(&mut self.game_logic, logic);
         self.host_admit_snow_for_world();
         #[cfg(feature = "game_client")]

@@ -2556,7 +2556,7 @@ End
         assert_eq!(camera.camera_pitch_frame, 0);
         assert_eq!(camera.camera_pitch_duration, 0.001);
         let view = include_str!("camera_view_effects.rs");
-        assert!(view.contains("advance_camera_view("));
+        assert!(view.contains("advance_receiving_camera_view("));
         let owner = include_str!("../presentation_frame/session_view/camera.rs");
         assert!(
             owner.contains("value: &mut self.camera_fx_pitch")
@@ -2710,7 +2710,7 @@ End
             AxisKind, AxisMotion, MotionAdmission, step_axis,
         };
         let view = include_str!("camera_view_effects.rs");
-        assert!(view.contains("paused: self.native_view_is_paused()"));
+        assert!(view.contains("let paused = self.native_view_is_paused()"));
         let owner = include_str!("native_display.rs");
         assert!(
             owner.contains("self.game_logic.is_paused()") && owner.contains("GameState::Paused")

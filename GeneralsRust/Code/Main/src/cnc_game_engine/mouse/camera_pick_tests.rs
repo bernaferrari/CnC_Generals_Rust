@@ -997,7 +997,7 @@ fn update_camera_does_not_gate_arrows_on_modifiers() {
     let view = include_str!("../camera_view_effects.rs");
     let display = include_str!("../native_display.rs");
     assert!(
-        view.contains("self.apply_camera_follow_or_tether(id, facts, record_previous)")
+        view.contains("self.apply_camera_follow_or_tether(id, facts, paused)")
             && display.contains("self.advance_native_camera_view(decision, camera_scroll)")
             && display.contains("self.set_native_camera_transform()?"),
         "airborne follow and the source set-transform operation must remain connected to the native view"

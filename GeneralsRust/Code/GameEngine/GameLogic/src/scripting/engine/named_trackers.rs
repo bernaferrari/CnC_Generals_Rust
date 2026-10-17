@@ -1448,7 +1448,11 @@ impl ScriptEngine {
     }
 
     // PARITY_NOTE: C++ ScriptEngine::forceUnfreezeTime
-    pub fn force_unfreeze_time(&mut self) {}
+    pub fn force_unfreeze_time(&self) {
+        // Original calls the debug control's ForceAppContinue. Script and
+        // tactical-camera freeze are separate owners and remain unchanged.
+        self.lock_inner_mut().freeze_by_debug = false;
+    }
 
     // PARITY_NOTE: C++ ScriptEngine::clearFlag
     pub fn clear_flag(&self, name: &str) {

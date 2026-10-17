@@ -6,46 +6,51 @@ use super::start_game::script_camera_shaker_rotations;
 use super::*;
 
 impl CnCGameEngine {
-    pub(super) fn advance_native_camera_view(&mut self, decision: DisplayAdmission, scroll: f32) {
+    pub(super) fn advance_native_camera_view(
+        &mut self,
+        decision: DisplayAdmission,
+        scroll: f32,
+    ) -> Result<(), String> {
         if !decision.update_views && !decision.fast_camera_only {
-            return;
+            return Ok(());
         }
         let mut did_scripted_movement = false;
         if decision.update_views {
             // Follow precedes the pause-gated scalar movements. Position/yaw
             // use the exact frozen receiving lock identity, never nearest art.
-            let follow = self.last_presentation_frame.as_ref().map(|frame| {
-                (
-                    frame.camera_follow_object_id,
-                    frame.camera_follow_facts,
-                    frame.script_time_frozen,
-                )
-            });
-            if let Some((id, facts, script_frozen)) = follow {
-                let record_previous = !script_frozen && !self.native_view_is_paused();
-                did_scripted_movement |=
-                    self.apply_camera_follow_or_tether(id, facts, record_previous);
+            let follow = self
+                .last_presentation_frame
+                .as_ref()
+                .map(|frame| (frame.camera_follow_object_id, frame.camera_follow_facts));
+            if let Some((id, facts)) = follow {
+                let paused = self.native_view_is_paused();
+                did_scripted_movement |= self.apply_camera_follow_or_tether(id, facts, paused)?;
             }
         }
 
-        let admission = MotionAdmission {
-            update_views: decision.update_views,
-            fast_camera_only: decision.fast_camera_only,
-            paused: self.native_view_is_paused(),
-            // Main has no debug-freeze command owner yet (hq-pem9z). Script
-            // freeze intentionally does not gate W3DView camera movements.
-            debug_frozen: false,
-            disable_camera_movement: game_engine::common::global_data::read()
-                .writable
-                .disable_camera_movement,
-        };
-        did_scripted_movement |= self.game_logic.advance_camera_view(admission, 33);
+        // Read the receiving debug owner at W3DView's movement gate,
+        // after follow. Script freeze deliberately does not gate this phase.
+        let paused = self.native_view_is_paused();
+        did_scripted_movement |= self
+            .game_logic
+            .advance_receiving_camera_view(
+                decision.update_views,
+                decision.fast_camera_only,
+                paused,
+                game_engine::common::global_data::read()
+                    .writable
+                    .disable_camera_movement,
+                33,
+                None,
+            )
+            .map_err(|error| error.to_string())?;
         if decision.update_views {
             // Full view only. Fast's early camera-only branch never reaches
             // shake, height adjustment, slave pose or matrix commitment.
             self.update_script_camera_shake();
             self.ease_camera_height_above_ground(scroll, did_scripted_movement);
         }
+        Ok(())
     }
 }
 
