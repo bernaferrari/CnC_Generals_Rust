@@ -82,6 +82,7 @@ impl GameLogic {
         self.finish_all_building_sounds();
         self.objects.clear();
         self.physics_definitions.effective = self.physics_definitions.base;
+        self.reset_ocl_map_definitions();
         self.named_unit_history.clear();
         self.construction_events.reset();
         self.map_name = map_name.to_string();
@@ -139,6 +140,10 @@ impl GameLogic {
                         .into_iter()
                         .map(|(_, text)| text)
                         .collect();
+                if let Err(error) = self.apply_receiving_ocl_overrides(&weapon_overrides) {
+                    log::error!("Cannot admit receiving map OCL overrides: {error}");
+                    return false;
+                }
                 if let Err(error) = self.apply_receiving_weapon_overrides(&weapon_overrides) {
                     log::error!("Cannot admit map weapon overrides: {error}");
                     return false;

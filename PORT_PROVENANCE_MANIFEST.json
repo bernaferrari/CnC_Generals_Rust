@@ -30973,6 +30973,13 @@
           },
           {
             "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object_creation_list/owned_content_tests.rs"
+          },
+          {
+            "cargo_reachable": true,
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
@@ -64636,6 +64643,13 @@
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object_creation_list/nuggets.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object_creation_list/owned_content_tests.rs"
           },
           {
             "cargo_reachable": true,
@@ -160175,7 +160189,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "a94bc30131d800a5bddd6fdf515db1c83c6b9c93a0388054a8047a2dbdf997d2",
+  "input_digest": "2f6ab4d8ed05bd7b7002d3f098454241504a264ed453c5b6ee45ef8ef68f248c",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -209477,13 +209491,25 @@
     },
     {
       "cargo_reachable": true,
+      "classification": "test",
+      "file_range": {
+        "end_line": 53,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object_creation_list/owned_content_tests.rs",
+      "sha256": "faa956ce2751290d1290c94cd3864ce2eef9a2cfecea6161ebc9fa34bd1a4def",
+      "symbol_index_status": "awaiting_mapping_review",
+      "symbols": []
+    },
+    {
+      "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1908,
+        "end_line": 1973,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object_creation_list/store.rs",
-      "sha256": "0016f9b4ee88ceb2e8d3e974b5926ed5bcfb08260f8f8e087e3c3bdf69f30156",
+      "sha256": "05c0e7bdb642ae6673e93e2bfbbdc4fe5dd755d40cd4c5d89fb593b2096b6a49",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },

@@ -773,6 +773,7 @@ impl GameLogic {
         self.ai_definitions.reset();
         self.production_energy.effective = self.production_energy.base;
         self.physics_definitions.effective = self.physics_definitions.base;
+        self.reset_ocl_map_definitions();
         self.apply_aidata_enable_repulsors();
         self.refresh_pathfinding_ai_definitions();
         Self::register_leftover_object_create_overrides_overlay();

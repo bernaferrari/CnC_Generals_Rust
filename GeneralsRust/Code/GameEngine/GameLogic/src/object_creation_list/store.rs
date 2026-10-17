@@ -427,14 +427,14 @@ pub fn init_object_creation_list_store() {
 }
 
 /// Get reference to global store
-pub fn get_object_creation_list_store(
-) -> std::sync::RwLockReadGuard<'static, Option<ObjectCreationListStore>> {
+pub fn get_object_creation_list_store()
+-> std::sync::RwLockReadGuard<'static, Option<ObjectCreationListStore>> {
     GLOBAL_STORE.read().unwrap()
 }
 
 /// Get mutable reference to global store
-pub fn get_object_creation_list_store_mut(
-) -> std::sync::RwLockWriteGuard<'static, Option<ObjectCreationListStore>> {
+pub fn get_object_creation_list_store_mut()
+-> std::sync::RwLockWriteGuard<'static, Option<ObjectCreationListStore>> {
     GLOBAL_STORE.write().unwrap()
 }
 
@@ -1279,7 +1279,9 @@ impl NuggetBuilder {
     }
 }
 
-pub fn load_object_creation_lists_from_str(content: &str) -> Result<usize, String> {
+pub fn parse_object_creation_lists_from_str(
+    content: &str,
+) -> Result<Vec<(String, ObjectCreationList)>, String> {
     let mut parsed: Vec<(String, ObjectCreationList)> = Vec::new();
     let mut current_name: Option<String> = None;
     let mut current_ocl: Option<ObjectCreationList> = None;
@@ -1423,6 +1425,13 @@ pub fn load_object_creation_lists_from_str(content: &str) -> Result<usize, Strin
         return Err(format!("Unterminated ObjectCreationList block '{}'", name));
     }
 
+    Ok(parsed)
+}
+
+/// Legacy publisher keeps its original global store adapter; private receivers
+/// consume the exact same typed parser without publishing any active catalog.
+pub fn load_object_creation_lists_from_str(content: &str) -> Result<usize, String> {
+    let parsed = parse_object_creation_lists_from_str(content)?;
     if parsed.is_empty() {
         return Ok(0);
     }
@@ -1905,3 +1914,59 @@ End
         );
     }
 }
+
+/// Collect only actual ObjectCreationList blocks from a mixed Map/Solo INI.
+/// Common owns token/physical-line handling; the same existing OCL parser
+/// below owns every nugget field/default. No store or random owner is touched.
+pub fn parse_object_creation_lists_from_ini(
+    content: &str,
+) -> Result<Vec<(String, ObjectCreationList)>, String> {
+    let lines: Vec<_> = content.lines().collect();
+    let mut selected = String::new();
+    let mut depth = 0usize;
+    let mut ini = game_engine::common::ini::INI::new();
+    ini.with_inline_source(content, |ini| {
+        loop {
+            ini.read_line()?;
+            if ini.is_eof() {
+                break;
+            }
+            let tokens = ini.get_line_tokens();
+            let Some(first) = tokens.first() else {
+                continue;
+            };
+            if depth == 0 && !first.eq_ignore_ascii_case("ObjectCreationList") {
+                continue;
+            }
+            if let Some(raw) = lines.get(ini.get_line_num().saturating_sub(1) as usize) {
+                selected.push_str(raw);
+                selected.push('\n');
+            }
+            if first.eq_ignore_ascii_case("ObjectCreationList")
+                || [
+                    "CreateObject",
+                    "CreateDebris",
+                    "DeliverPayload",
+                    "FireWeapon",
+                    "Attack",
+                    "ApplyRandomForce",
+                    "DeliveryDecal",
+                ]
+                .iter()
+                .any(|key| first.eq_ignore_ascii_case(key))
+            {
+                depth += 1;
+            }
+            if first.eq_ignore_ascii_case("End") {
+                depth = depth.saturating_sub(1);
+            }
+        }
+        Ok(())
+    })
+    .map_err(|error| error.to_string())?;
+    parse_object_creation_lists_from_str(&selected)
+}
+
+#[cfg(test)]
+#[path = "owned_content_tests.rs"]
+mod owned_content_tests;

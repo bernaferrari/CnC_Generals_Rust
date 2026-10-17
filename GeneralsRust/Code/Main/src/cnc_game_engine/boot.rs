@@ -300,7 +300,13 @@ impl CnCGameEngine {
             Self::load_camera_rules_baseline()
                 .await
                 .map_err(anyhow::Error::msg)?;
+        let ocl_sources = Self::load_ocl_application_sources()
+            .await
+            .map_err(anyhow::Error::msg)?;
         let mut game_logic = GameLogic::initialize();
+        game_logic
+            .admit_ocl_application_sources(&ocl_sources)
+            .map_err(anyhow::Error::msg)?;
         game_logic.admit_camera_application_clip(camera_clip_base);
         game_logic
             .admit_camera_application_shake(camera_shake_base)
@@ -412,6 +418,7 @@ impl CnCGameEngine {
                 camera_rule_base,
                 camera_clip_base,
                 camera_shake_base,
+                game_logic.ocl_application_definitions(),
             )
         };
 
@@ -1897,3 +1904,6 @@ mod tests {
         );
     }
 }
+
+#[path = "boot/ocl_content.rs"]
+mod ocl_content;

@@ -1638,6 +1638,9 @@ impl CnCGameEngine {
             std::collections::HashMap<String, Arc<gamelogic::weapon::WeaponTemplate>>,
         >,
         projectile_definitions: &crate::game_logic::projectile_definitions::ProjectileDefinitions,
+        ocl_application_base: &Arc<
+            std::collections::HashMap<String, gamelogic::effects::ObjectCreationList>,
+        >,
         ai_definition_base: &game_engine::common::ini::AIData,
         production_energy_base: game_engine::common::ini::ini_game_data::ProductionEnergyRules,
         physics_rules_base: game_engine::common::ini::ini_game_data::PhysicsContentRules,
@@ -1662,6 +1665,7 @@ impl CnCGameEngine {
             template_catalog,
             weapon_catalog,
             projectile_definitions,
+            ocl_application_base,
             ai_definition_base,
             production_energy_base,
             physics_rules_base,
@@ -1694,6 +1698,9 @@ impl CnCGameEngine {
             std::collections::HashMap<String, Arc<gamelogic::weapon::WeaponTemplate>>,
         >,
         projectile_definitions: &crate::game_logic::projectile_definitions::ProjectileDefinitions,
+        ocl_application_base: &Arc<
+            std::collections::HashMap<String, gamelogic::effects::ObjectCreationList>,
+        >,
         ai_definition_base: &game_engine::common::ini::AIData,
         production_energy_base: game_engine::common::ini::ini_game_data::ProductionEnergyRules,
         physics_rules_base: game_engine::common::ini::ini_game_data::PhysicsContentRules,
@@ -1763,6 +1770,7 @@ impl CnCGameEngine {
         let runtime_stage =
             gamelogic::runtime_world_transaction::HostRuntimeWorldStage::begin(live_services);
         let mut staged = crate::game_logic::GameLogic::new();
+        staged.seed_ocl_application_definitions(Arc::clone(ocl_application_base));
         staged.set_ai_definition_base(ai_definition_base.clone());
         staged.admit_production_energy_base(production_energy_base);
         staged.admit_physics_rules_base(physics_rules_base)?;
@@ -1862,6 +1870,7 @@ impl CnCGameEngine {
             &template_catalog,
             &self.game_logic.weapon_definition_base,
             &self.game_logic.projectile_definitions,
+            &self.game_logic.ocl_application_definitions(),
             self.game_logic.ai_definitions.baseline(),
             self.game_logic.production_energy_baseline(),
             self.game_logic.physics_rules_baseline(),
@@ -2420,6 +2429,7 @@ mod staged_restore_tests {
             &catalog,
             &source.weapon_definition_base,
             &source.projectile_definitions,
+            &source.ocl_application_definitions(),
             source.ai_definitions.baseline(),
             source.production_energy_baseline(),
             source.physics_rules_baseline(),
@@ -2462,6 +2472,7 @@ mod staged_restore_tests {
                     &catalog,
                     &logic.weapon_definition_base,
                     &logic.projectile_definitions,
+                    &logic.ocl_application_definitions(),
                     logic.ai_definitions.baseline(),
                     logic.production_energy_baseline(),
                     logic.physics_rules_baseline(),
@@ -2570,6 +2581,7 @@ mod staged_restore_tests {
                     &catalog,
                     &source.weapon_definition_base,
                     &source.projectile_definitions,
+                    &source.ocl_application_definitions(),
                     source.ai_definitions.baseline(),
                     source.production_energy_baseline(),
                     source.physics_rules_baseline(),
@@ -2827,6 +2839,7 @@ mod staged_restore_tests {
                     &catalog,
                     &source.weapon_definition_base,
                     &source.projectile_definitions,
+                    &source.ocl_application_definitions(),
                     source.ai_definitions.baseline(),
                     source.production_energy_baseline(),
                     source.physics_rules_baseline(),
@@ -3111,6 +3124,7 @@ mod staged_restore_tests {
                             &catalog,
                             &source.weapon_definition_base,
                             &source.projectile_definitions,
+                            &source.ocl_application_definitions(),
                             source.ai_definitions.baseline(),
                             source.production_energy_baseline(),
                             source.physics_rules_baseline(),
@@ -3361,6 +3375,7 @@ mod staged_restore_tests {
                     &catalog,
                     &source.weapon_definition_base,
                     &source.projectile_definitions,
+                    &source.ocl_application_definitions(),
                     source.ai_definitions.baseline(),
                     source.production_energy_baseline(),
                     source.physics_rules_baseline(),
@@ -3628,6 +3643,7 @@ mod staged_restore_tests {
                         &catalog,
                         &source.weapon_definition_base,
                         &source.projectile_definitions,
+                        &source.ocl_application_definitions(),
                         source.ai_definitions.baseline(),
                         source.production_energy_baseline(),
                         source.physics_rules_baseline(),
@@ -3669,6 +3685,7 @@ mod staged_restore_tests {
                         &catalog,
                         &source.weapon_definition_base,
                         &source.projectile_definitions,
+                        &source.ocl_application_definitions(),
                         source.ai_definitions.baseline(),
                         source.production_energy_baseline(),
                         source.physics_rules_baseline(),
@@ -3751,3 +3768,7 @@ mod camera_rule_stage_tests;
 #[cfg(test)]
 #[path = "camera_startup_handoff_tests.rs"]
 mod camera_startup_handoff_tests;
+
+#[cfg(test)]
+#[path = "host_authority/ocl_stage_tests.rs"]
+mod ocl_stage_tests;

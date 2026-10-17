@@ -1111,6 +1111,9 @@ impl CnCGameEngine {
         camera_rule_base: game_engine::common::ini::ini_game_data::CameraContentRules,
         camera_clip_base: game_engine::common::ini::ini_game_data::CameraClipRules,
         camera_shake_base: game_engine::common::ini::ini_game_data::CameraShakeRules,
+        ocl_application_base: Arc<
+            std::collections::HashMap<String, gamelogic::effects::ObjectCreationList>,
+        >,
     ) -> StartupLoadState {
         let (sender, receiver) = mpsc::channel();
         let worker_gen = startup_worker_generation();
@@ -1713,6 +1716,7 @@ impl CnCGameEngine {
                     worker_stop_if_abandoned()?;
                     Self::emit_startup_load_progress(&sender, 0.18, "Creating game session");
                     let mut game_logic = GameLogic::initialize();
+                    game_logic.seed_ocl_application_definitions(ocl_application_base);
                     game_logic.admit_camera_application_clip(camera_clip_base);
                     game_logic.admit_camera_application_shake(camera_shake_base)?;
                     game_logic.admit_camera_application_rules(camera_rule_base)?;

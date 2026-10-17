@@ -107,6 +107,7 @@ fn legacy_camera_restore_uses_saved_map_rules_not_active_or_application_maximum(
                 &source.templates,
                 &source.weapon_definition_base,
                 &source.projectile_definitions,
+                &source.ocl_application_definitions(),
                 source.ai_definitions.baseline(),
                 source.production_energy_baseline(),
                 source.physics_rules_baseline(),
