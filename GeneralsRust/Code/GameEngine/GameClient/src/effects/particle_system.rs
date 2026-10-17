@@ -1392,6 +1392,21 @@ impl ParticleSystem {
         current_frame: u32,
         drawable_pose: Option<&dyn Fn(DrawableId) -> Option<DrawableParticlePose>>,
     ) -> FrameEmitPhase {
+        self.prepare_frame_emit_with_object_liveness(
+            local_player_index,
+            current_frame,
+            drawable_pose,
+            None,
+        )
+    }
+
+    pub(crate) fn prepare_frame_emit_with_object_liveness(
+        &mut self,
+        local_player_index: i32,
+        current_frame: u32,
+        drawable_pose: Option<&dyn Fn(DrawableId) -> Option<DrawableParticlePose>>,
+        object_is_live: Option<&dyn Fn(u32) -> bool>,
+    ) -> FrameEmitPhase {
         // C++ ParticleSys.cpp: initial delay also delays lifetime (early return).
         if self.delay_left > 0 {
             self.delay_left -= 1;
@@ -1404,7 +1419,11 @@ impl ParticleSystem {
         // C++1846 advances wind before attachment resolution, even if an
         // empty destroyed system retires at the end of this preparation.
         self.update_wind_motion();
-        self.resolve_attached_parent_with_drawable_poses(local_player_index, drawable_pose);
+        self.resolve_attached_parent_with_object_liveness(
+            local_player_index,
+            drawable_pose,
+            object_is_live,
+        );
         self.update_transform_from_parent();
         self.apply_control_particle_origin();
 

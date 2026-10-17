@@ -238,9 +238,15 @@ impl CnCGameEngine {
             }
             // GameClient returned before Display::draw. Do not offer the
             // clock, Sync, device poll, camera update or GPU attempt.
+            let pending_commands = &mut self.game_logic.replay_pending;
+            let mut receive = |messages| {
+                pending_commands
+                    .receive_client_messages(messages)
+                    .map_err(game_client::core::GameClientError::InvalidOperation)
+            };
             return self
                 .game_client
-                .finish_presentation_shell_with_native_views(
+                .finish_presentation_shell_with_receiving_commands(
                     pending.step,
                     &pending.facts,
                     &[],
@@ -248,6 +254,7 @@ impl CnCGameEngine {
                         draw_drawables: false,
                         update_particles: false,
                     },
+                    &mut receive,
                 )
                 .map_err(|error| error.to_string());
         }
@@ -358,30 +365,62 @@ impl CnCGameEngine {
             let phase = NativeDisplayState::cpu_phase(decision);
             let pending = self.native_display.pending.take();
             if let Some(pending) = pending {
-                self.game_client
-                    .finish_presentation_shell_with_native_views(
-                        pending.step,
-                        &pending.facts,
-                        &views,
-                        phase,
-                    )
-                    .map_err(|error| error.to_string())?;
+                self.with_native_particle_object_lifecycle(
+                    |client, lifecycle, pending_commands| {
+                        let mut receive = |messages| {
+                            pending_commands
+                                .receive_client_messages(messages)
+                                .map_err(game_client::core::GameClientError::InvalidOperation)
+                        };
+                        client
+                            .finish_presentation_shell_with_receiving_commands_and_object_lifecycle(
+                                pending.step,
+                                &pending.facts,
+                                &views,
+                                phase,
+                                &mut receive,
+                                lifecycle,
+                            )
+                    },
+                )
+                .map_err(|error| error.to_string())?;
             } else {
                 let facts = self.host_prepare_presentation_materials()?;
-                self.game_client
-                    .draw_native_views_with_frames(
-                        NativeParticleFrames {
-                            logic_frame: self.game_logic.frame,
-                            client_frame: current_frame,
-                        },
-                        &facts,
-                        &views,
-                        phase,
-                    )
-                    .map_err(|error| error.to_string())?;
+                let frames = NativeParticleFrames {
+                    logic_frame: self.game_logic.frame,
+                    client_frame: current_frame,
+                };
+                self.with_native_particle_object_lifecycle(
+                    |client, lifecycle, _pending_commands| {
+                        client.draw_native_views_with_object_lifecycle(
+                            frames,
+                            &facts,
+                            &views,
+                            phase,
+                            Some(lifecycle),
+                        )
+                    },
+                )
+                .map_err(|error| error.to_string())?;
             }
         }
         Ok(())
+    }
+
+    #[cfg(feature = "game_client")]
+    fn with_native_particle_object_lifecycle<R>(
+        &mut self,
+        operation: impl FnOnce(
+            &mut game_client::core::game_client::GameClient,
+            &mut game_client::effects::particle_manager::NativeParticleObjectLifecycle<'_>,
+            &mut crate::command_system::ReplayPendingState,
+        ) -> R,
+    ) -> R {
+        let client = &mut self.game_client;
+        self.game_logic
+            .with_native_particle_object_lifecycle(|lifecycle, pending_commands| {
+                operation(client, lifecycle, pending_commands)
+            })
     }
 
     /// Shared final camera commitment. Rendering consumes these exact matrices.

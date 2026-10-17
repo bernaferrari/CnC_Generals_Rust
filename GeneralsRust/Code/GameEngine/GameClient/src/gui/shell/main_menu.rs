@@ -29,17 +29,18 @@
 //! This is a faithful port of /GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/MainMenu.cpp
 //! All constants, state transitions, and callbacks match the original C++ implementation.
 
+use crate::gui::WindowMsgData;
 use crate::gui::callbacks::download_menu::download_menu_update;
 use crate::gui::callbacks::message_box::{
-    ex_message_box_ok_cancel, message_box_ok, message_box_ok_cancel, quit_message_box_yes_no,
     ExtendedMessageBoxFunc, MessageBoxFunc, MessageBoxReturnType as ExMessageBoxReturnType,
+    ex_message_box_ok_cancel, message_box_ok, message_box_ok_cancel, quit_message_box_yes_no,
 };
 use crate::gui::campaign_launch_host_bridge::{
-    publish_host_campaign_launch, HostCampaignLaunchDescriptor,
+    HostCampaignLaunchDescriptor, publish_host_campaign_launch,
 };
-use crate::gui::campaign_manager::{get_campaign_manager, GameDifficulty as CampaignDifficulty};
+use crate::gui::campaign_manager::{GameDifficulty as CampaignDifficulty, get_campaign_manager};
 use crate::gui::challenge_generals::{
-    get_challenge_generals_mut, GameDifficulty as ChallengeGameDifficulty,
+    GameDifficulty as ChallengeGameDifficulty, get_challenge_generals_mut,
 };
 use crate::gui::header_template::get_header_template_manager;
 use crate::gui::menu_flags::get_dont_show_main_menu;
@@ -49,15 +50,14 @@ use crate::gui::shell::{
     try_with_shell_mut, with_shell_ref,
 };
 use crate::gui::window_manager::{
-    queue_window_manager_op, queue_window_manager_op_deferred, window_manager_try_borrow_free,
-    with_window_manager, with_window_manager_ref, WindowLayout as ManagerWindowLayout,
+    WindowLayout as ManagerWindowLayout, queue_window_manager_op, queue_window_manager_op_deferred,
+    window_manager_try_borrow_free, with_window_manager, with_window_manager_ref,
 };
 use crate::gui::write_input_focus_response;
-use crate::gui::WindowMsgData;
 use crate::helpers::set_mouse_cursor_visibility;
 use crate::helpers::{TheControlBar, TheInGameUI};
 use crate::map_util::get_map_cache_manager;
-use crate::message_stream::{get_message_stream, GameMessageType};
+use crate::message_stream::{GameMessageType, get_message_stream};
 use crate::shell_hooks::{
     SHELL_SCRIPT_HOOK_MAIN_MENU_EXIT_SELECTED, SHELL_SCRIPT_HOOK_MAIN_MENU_NETWORK_SELECTED,
     SHELL_SCRIPT_HOOK_MAIN_MENU_ONLINE_SELECTED, SHELL_SCRIPT_HOOK_MAIN_MENU_OPTIONS_SELECTED,
@@ -1053,6 +1053,29 @@ impl MainMenu {
         data1: WindowMsgData,
         data2: WindowMsgData,
     ) -> bool {
+        self.system_with_camera_input(window, msg, data1, data2, None)
+    }
+    pub(crate) fn select_options_with_camera_input(
+        &mut self,
+        window: u32,
+        observation: crate::gui::callbacks::OptionsCameraInputObservation,
+    ) -> bool {
+        self.system_with_camera_input(
+            window,
+            GBM_SELECTED,
+            build_window_ids().options_id as WindowMsgData,
+            0,
+            Some(observation),
+        )
+    }
+    fn system_with_camera_input(
+        &mut self,
+        window: u32,
+        msg: u32,
+        data1: WindowMsgData,
+        data2: WindowMsgData,
+        camera_input: Option<crate::gui::callbacks::OptionsCameraInputObservation>,
+    ) -> bool {
         let mut state = self.state.write().unwrap_or_else(|e| e.into_inner());
         let mut pending_actions = Vec::new();
 
@@ -1106,7 +1129,7 @@ impl MainMenu {
                 self.handle_mouse_entering(&mut state, control_id);
                 pending_actions.append(&mut state.pending_actions);
                 drop(state);
-                self.execute_pending_actions(pending_actions);
+                self.execute_pending_actions_with_camera_input(pending_actions, camera_input);
                 return true;
             }
 
@@ -1116,7 +1139,7 @@ impl MainMenu {
                 self.handle_mouse_leaving(&mut state, control_id);
                 pending_actions.append(&mut state.pending_actions);
                 drop(state);
-                self.execute_pending_actions(pending_actions);
+                self.execute_pending_actions_with_camera_input(pending_actions, camera_input);
                 return true;
             }
 
@@ -1139,7 +1162,7 @@ impl MainMenu {
                 }
                 pending_actions.append(&mut state.pending_actions);
                 drop(state);
-                self.execute_pending_actions(pending_actions);
+                self.execute_pending_actions_with_camera_input(pending_actions, camera_input);
                 return true;
             }
 
@@ -1174,6 +1197,13 @@ impl MainMenu {
     }
 
     fn execute_pending_actions(&self, actions: Vec<PendingMainMenuAction>) {
+        self.execute_pending_actions_with_camera_input(actions, None);
+    }
+    fn execute_pending_actions_with_camera_input(
+        &self,
+        actions: Vec<PendingMainMenuAction>,
+        camera_input: Option<crate::gui::callbacks::OptionsCameraInputObservation>,
+    ) {
         for action in actions {
             match action {
                 PendingMainMenuAction::PushShellScreen(screen) => {
@@ -1188,9 +1218,13 @@ impl MainMenu {
                     self.transition_reverse(group);
                 }
                 PendingMainMenuAction::ShowOptionsLayout => {
-                    queue_shell_operation(|shell| {
+                    queue_shell_operation(move |shell| {
                         if let Some(layout) = shell.get_options_layout(true) {
-                            if let Err(err) = layout.run_init(None) {
+                            if let Err(err) = layout.run_init(
+                                camera_input
+                                    .as_ref()
+                                    .map(|value| value as &dyn std::any::Any),
+                            ) {
                                 log::warn!("Options layout init failed: {}", err);
                             }
                             layout.hide(false);
@@ -2960,11 +2994,7 @@ pub fn os_wnd_widget_under_cursor_name(x: i32, y: i32) -> Option<String> {
             }
         }
         let name = guard.get_name().to_string();
-        if name.is_empty() {
-            None
-        } else {
-            Some(name)
-        }
+        if name.is_empty() { None } else { Some(name) }
     })
 }
 

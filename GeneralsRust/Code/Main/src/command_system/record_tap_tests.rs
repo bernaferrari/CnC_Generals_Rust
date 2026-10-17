@@ -973,3 +973,177 @@ fn slow_client_pump_records_each_logic_crc_exactly_once() {
         },
     );
 }
+
+#[test]
+#[cfg(all(feature = "game_client", not(target_arch = "wasm32")))]
+fn native_client_stream_routes_once_to_receiving_world_without_core_player_queue() {
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "native_client_stream_routes_once_to_receiving_world_without_core_player_queue",
+        || {
+            let client = game_client::core::GameClient::new().unwrap();
+            let mut owner = GameLogic::new();
+            let mut peer = GameLogic::new();
+            let ambient_calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+            let callback_calls = Arc::clone(&ambient_calls);
+            game_client::message_stream::command_router::set_host_command_authority(Some(
+                Arc::new(move |_| {
+                    callback_calls.fetch_add(1, Ordering::SeqCst);
+                }),
+            ));
+            let first =
+                GameMessage::with_player(GameMessageType::DoMoveTo(Coord3D::new(12., 0., 4.)), 0);
+            let second = GameMessage::with_player(GameMessageType::DoStop, 3);
+            append_game_message_to_stream(&first);
+            append_game_message_to_stream(&second);
+            let mut deliveries = 0;
+            client
+                .pump_message_stream_to_receiving_owner(&mut |messages| {
+                    deliveries += 1;
+                    owner
+                        .replay_pending
+                        .receive_client_messages(messages)
+                        .map_err(game_client::core::GameClientError::InvalidOperation)
+                })
+                .unwrap();
+            assert_eq!(deliveries, 1);
+            assert_eq!(
+                ambient_calls.load(Ordering::SeqCst),
+                0,
+                "explicit native handoff must not select the ambient host callback"
+            );
+            let batch = owner.replay_pending.take_incoming();
+            assert_eq!(batch.len(), 2);
+            assert_eq!(batch[0].get_player_index(), 0);
+            assert!(matches!(batch[0].get_type(), GameMessageType::DoMoveTo(_)));
+            assert_eq!(batch[1].get_player_index(), 3);
+            assert!(matches!(batch[1].get_type(), GameMessageType::DoStop));
+            assert!(peer.replay_pending.take_incoming().is_empty());
+            client
+                .pump_message_stream_to_receiving_owner(&mut |_| {
+                    panic!("empty second pump must not redeliver the batch")
+                })
+                .unwrap();
+            owner.replay_pending.clear();
+            append_game_message_to_stream(&second);
+            client
+                .pump_message_stream_to_receiving_owner(&mut |messages| {
+                    owner
+                        .replay_pending
+                        .receive_client_messages(messages)
+                        .map_err(game_client::core::GameClientError::InvalidOperation)
+                })
+                .unwrap();
+            assert_eq!(owner.replay_pending.take_incoming().len(), 1);
+            assert!(peer.replay_pending.take_incoming().is_empty());
+            append_game_message_to_stream(&first);
+            let error = client
+                .pump_message_stream_to_receiving_owner(&mut |_| {
+                    Err(game_client::core::GameClientError::InvalidOperation(
+                        "receiving rejection".into(),
+                    ))
+                })
+                .unwrap_err();
+            assert!(error.to_string().contains("receiving rejection"));
+            game_client::message_stream::command_router::set_host_command_authority(None);
+            let legacy_error =
+                game_client::message_stream::command_router::route_commands_to_gamelogic(
+                    vec![first],
+                    7,
+                )
+                .unwrap_err();
+            assert!(
+                legacy_error
+                    .to_string()
+                    .contains("Player 0 not initialized"),
+                "control premise: standalone Core has no initialized player queue"
+            );
+        },
+    );
+}
+
+#[test]
+#[cfg(all(feature = "game_client", not(target_arch = "wasm32")))]
+fn native_world_bind_reset_preserves_foreign_core_callback_and_explicit_command_owner() {
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "native_world_bind_reset_preserves_foreign_core_callback_and_explicit_command_owner",
+        || {
+            let foreign_seen = Arc::new(Mutex::new(Vec::new()));
+            let callback_seen = Arc::clone(&foreign_seen);
+            game_client::message_stream::command_router::set_host_command_authority(Some(
+                Arc::new(move |messages| {
+                    callback_seen
+                        .lock()
+                        .unwrap()
+                        .extend(messages.iter().map(|message| message.get_player_index()));
+                }),
+            ));
+            let client = game_client::core::GameClient::new().unwrap();
+            let mut first = GameLogic::new();
+            let mut second = GameLogic::new();
+            // Both constructors, binds and actual resets must preserve the
+            // foreign standalone callback rather than replace or clear it.
+            bind_host_replay_authority(&first.replay_pending);
+            bind_host_replay_authority(&second.replay_pending);
+            first.reset();
+            bind_host_replay_authority(&first.replay_pending);
+            second.reset();
+            bind_host_replay_authority(&second.replay_pending);
+            let foreign = GameMessage::with_player(GameMessageType::DoStop, 0);
+            let error = game_client::message_stream::command_router::route_commands_to_gamelogic(
+                vec![foreign],
+                7,
+            )
+            .unwrap_err();
+            assert!(error.to_string().contains("Player 0 not initialized"));
+            assert_eq!(
+                *foreign_seen.lock().unwrap(),
+                vec![0],
+                "Main activation must neither overwrite nor clear foreign Core callback"
+            );
+            assert!(first.replay_pending.take_incoming().is_empty());
+            assert!(second.replay_pending.take_incoming().is_empty());
+            let native_first = GameMessage::with_player(GameMessageType::DoStop, 3);
+            append_game_message_to_stream(&native_first);
+            client
+                .pump_message_stream_to_receiving_owner(&mut |messages| {
+                    first
+                        .replay_pending
+                        .receive_client_messages(messages)
+                        .map_err(game_client::core::GameClientError::InvalidOperation)
+                })
+                .unwrap();
+            let first_batch = first.replay_pending.take_incoming();
+            assert_eq!(first_batch.len(), 1);
+            assert_eq!(first_batch[0].get_player_index(), 3);
+            assert!(second.replay_pending.take_incoming().is_empty());
+            let native_second = GameMessage::with_player(GameMessageType::DoStop, 4);
+            append_game_message_to_stream(&native_second);
+            client
+                .pump_message_stream_to_receiving_owner(&mut |messages| {
+                    second
+                        .replay_pending
+                        .receive_client_messages(messages)
+                        .map_err(game_client::core::GameClientError::InvalidOperation)
+                })
+                .unwrap();
+            let second_batch = second.replay_pending.take_incoming();
+            assert_eq!(second_batch.len(), 1);
+            assert_eq!(second_batch[0].get_player_index(), 4);
+            assert!(first.replay_pending.take_incoming().is_empty());
+            client
+                .pump_message_stream_to_receiving_owner(&mut |_| {
+                    panic!("native batch delivered twice")
+                })
+                .unwrap();
+            assert_eq!(
+                *foreign_seen.lock().unwrap(),
+                vec![0],
+                "native deliveries must not invoke foreign Core callback"
+            );
+            // No clear: the process-isolated test retains the foreign callback
+            // through completion, just as production preserves its ownership.
+        },
+    );
+}

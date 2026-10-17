@@ -4,8 +4,8 @@ use crate::game_text::GameText;
 use crate::gui::control_bar::{CommandButton as LiveCommandButton, MAX_BUILD_QUEUE_BUTTONS};
 use crate::gui::{
     AnimateWindowManager, AnimationType, GWS_PUSH_BUTTON, GWS_STATIC_TEXT, GWS_USER_WINDOW,
-    GameFont, GameWindow, WindowLayout, WindowMsgHandled, get_display_string_manager,
-    with_window_manager,
+    GameFont, GameWindow, WindowLayout, WindowManager, WindowMsgHandled,
+    get_display_string_manager, with_window_manager,
 };
 use crate::helpers::TheInGameUI;
 use crate::message_stream::place_event_confirm::can_make_unit_for_place;
@@ -31,7 +31,7 @@ use std::time::{Duration, Instant};
 const TOOLTIP_LAYOUT_NAME: &str = "ControlBarPopupDescription.wnd";
 
 #[derive(Default)]
-struct TooltipState {
+pub(crate) struct TooltipState {
     layout: Option<Rc<RefCell<WindowLayout>>>,
     animate_manager: Option<AnimateWindowManager>,
     prev_window_id: Option<i32>,
@@ -113,20 +113,21 @@ fn resolve_command_button(window: &GameWindow) -> Option<(IniCommandButton, Opti
     None
 }
 
-fn ensure_layout(state: &mut TooltipState) -> Option<Rc<RefCell<WindowLayout>>> {
+fn ensure_layout(
+    state: &mut TooltipState,
+    manager: &mut WindowManager,
+) -> Option<Rc<RefCell<WindowLayout>>> {
     if let Some(layout) = &state.layout {
         return Some(layout.clone());
     }
 
-    with_window_manager(|manager| {
-        let info = manager
-            .create_windows_from_script(TOOLTIP_LAYOUT_NAME)
-            .ok()?;
-        let layout = info.windows.first()?.borrow().get_layout()?;
-        layout.borrow_mut().hide(true);
-        state.layout = Some(layout.clone());
-        Some(layout)
-    })
+    let info = manager
+        .create_windows_from_script(TOOLTIP_LAYOUT_NAME)
+        .ok()?;
+    let layout = info.windows.first()?.borrow().get_layout()?;
+    layout.borrow_mut().hide(true);
+    state.layout = Some(layout.clone());
+    Some(layout)
 }
 
 fn update_animation(state: &mut TooltipState) {
@@ -157,11 +158,12 @@ fn update_description_window(
     layout: &Rc<RefCell<WindowLayout>>,
     description: &str,
     state: &mut TooltipState,
+    manager: &mut WindowManager,
 ) {
     let description_id =
         NameKeyGenerator::name_to_key("ControlBarPopupDescription.wnd:StaticTextDescription")
             as i32;
-    let win = with_window_manager(|manager| manager.get_window_by_id(description_id));
+    let win = manager.get_window_by_id(description_id);
     let Some(win) = win else {
         return;
     };
@@ -199,7 +201,7 @@ fn update_description_window(
         .ok();
 
     let marker_id = NameKeyGenerator::name_to_key("ControlBar.wnd:BackgroundMarker") as i32;
-    if let Some(marker) = with_window_manager(|manager| manager.get_window_by_id(marker_id)) {
+    if let Some(marker) = manager.get_window_by_id(marker_id) {
         let (cur_x, cur_y) = marker.borrow().get_screen_position();
         let base = state.base_marker_pos.get_or_insert((cur_x, cur_y));
         let offset = (cur_x - base.0, cur_y - base.1);
@@ -442,6 +444,8 @@ fn populate_layout_for_command(
     layout: &Rc<RefCell<WindowLayout>>,
     command_button: &IniCommandButton,
     presentation_can_make_status: Option<u32>,
+    state: &mut TooltipState,
+    manager: &mut WindowManager,
 ) {
     let mut name = String::new();
     let mut cost = String::new();
@@ -608,7 +612,7 @@ fn populate_layout_for_command(
     let cost_id =
         NameKeyGenerator::name_to_key("ControlBarPopupDescription.wnd:StaticTextCost") as i32;
 
-    with_window_manager(|manager| {
+    {
         if let Some(win) = manager.get_window_by_id(name_id) {
             let _ = win.borrow_mut().set_text(&name);
         }
@@ -620,12 +624,17 @@ fn populate_layout_for_command(
                 let _ = win.borrow_mut().hide(true);
             }
         }
-    });
+    }
 
-    with_popup_state(|state| update_description_window(layout, &description, state));
+    update_description_window(layout, &description, state, manager);
 }
 
-fn populate_layout_for_window(layout: &Rc<RefCell<WindowLayout>>, tooltip_window: &GameWindow) {
+fn populate_layout_for_window(
+    layout: &Rc<RefCell<WindowLayout>>,
+    tooltip_window: &GameWindow,
+    state: &mut TooltipState,
+    manager: &mut WindowManager,
+) {
     let mut name = String::new();
     let mut description = String::new();
 
@@ -661,106 +670,123 @@ fn populate_layout_for_window(layout: &Rc<RefCell<WindowLayout>>, tooltip_window
     let cost_id =
         NameKeyGenerator::name_to_key("ControlBarPopupDescription.wnd:StaticTextCost") as i32;
 
-    with_window_manager(|manager| {
+    {
         if let Some(win) = manager.get_window_by_id(name_id) {
             let _ = win.borrow_mut().set_text(&name);
         }
         if let Some(win) = manager.get_window_by_id(cost_id) {
             let _ = win.borrow_mut().hide(true);
         }
-    });
+    }
 
-    with_popup_state(|state| update_description_window(layout, &description, state));
+    update_description_window(layout, &description, state, manager);
 }
 
 pub fn show_build_tooltip_layout(cmd_button: Rc<RefCell<GameWindow>>) -> WindowMsgHandled {
     if TheInGameUI::are_tooltips_disabled() {
         return WindowMsgHandled::Ignored;
     }
+    // This C++ void operation returns only Handled/Ignored in the shared kernel.
+    // Keep the existing standalone WM adapter's supported bool return protocol;
+    // the native path lends its receiving manager directly to the owned method.
+    let handled = with_popup_state(|state| {
+        with_window_manager(|manager| {
+            show_build_tooltip_layout_owned(state, manager, cmd_button).is_handled()
+        })
+    });
+    if handled {
+        WindowMsgHandled::Handled
+    } else {
+        WindowMsgHandled::Ignored
+    }
+}
 
-    with_popup_state(|state| {
-        let layout = match ensure_layout(state) {
-            Some(layout) => layout,
-            None => return WindowMsgHandled::Ignored,
-        };
+pub(crate) fn show_build_tooltip_layout_owned(
+    state: &mut TooltipState,
+    manager: &mut WindowManager,
+    cmd_button: Rc<RefCell<GameWindow>>,
+) -> WindowMsgHandled {
+    let layout = match ensure_layout(state, manager) {
+        Some(layout) => layout,
+        None => return WindowMsgHandled::Ignored,
+    };
 
-        let window_id = cmd_button.borrow().get_id();
-        let delay_ms = cmd_button.borrow().get_tooltip_delay().max(0) as u64;
-        if state.prev_window_id == Some(window_id) {
-            state.show_layout = true;
-            if !state.wait_initialized {
-                if let Some(start) = state.wait_start {
-                    if start.elapsed() >= Duration::from_millis(delay_ms) {
-                        state.wait_initialized = true;
-                    } else {
-                        return WindowMsgHandled::Ignored;
-                    }
+    let window_id = cmd_button.borrow().get_id();
+    let delay_ms = cmd_button.borrow().get_tooltip_delay().max(0) as u64;
+    if state.prev_window_id == Some(window_id) {
+        state.show_layout = true;
+        if !state.wait_initialized {
+            if let Some(start) = state.wait_start {
+                if start.elapsed() >= Duration::from_millis(delay_ms) {
+                    state.wait_initialized = true;
                 } else {
-                    state.wait_start = Some(Instant::now());
                     return WindowMsgHandled::Ignored;
                 }
+            } else {
+                state.wait_start = Some(Instant::now());
+                return WindowMsgHandled::Ignored;
             }
-        } else if let Some(layout) = state.layout.as_ref() {
-            if !layout.borrow().is_hidden() {
-                if let Some(manager) = state.animate_manager.as_mut() {
-                    if !manager.is_reversed() {
-                        manager.reverse_animate_window();
-                        return WindowMsgHandled::Handled;
-                    }
+        }
+    } else if let Some(layout) = state.layout.as_ref() {
+        if !layout.borrow().is_hidden() {
+            if let Some(manager) = state.animate_manager.as_mut() {
+                if !manager.is_reversed() {
+                    manager.reverse_animate_window();
+                    return WindowMsgHandled::Handled;
                 }
-                layout.borrow_mut().hide(true);
-                state.prev_window_id = None;
-                return WindowMsgHandled::Handled;
             }
-            // C++ first hover of a new window starts the wait and returns.
-            state.prev_window_id = Some(window_id);
-            state.wait_start = Some(Instant::now());
-            state.wait_initialized = false;
-            state.show_layout = true;
-            return WindowMsgHandled::Ignored;
-        } else {
-            state.prev_window_id = Some(window_id);
-            state.wait_start = Some(Instant::now());
-            state.wait_initialized = false;
-            state.show_layout = true;
-            return WindowMsgHandled::Ignored;
+            layout.borrow_mut().hide(true);
+            state.prev_window_id = None;
+            return WindowMsgHandled::Handled;
         }
-
-        state.show_layout = true;
+        // C++ first hover of a new window starts the wait and returns.
         state.prev_window_id = Some(window_id);
+        state.wait_start = Some(Instant::now());
+        state.wait_initialized = false;
+        state.show_layout = true;
+        return WindowMsgHandled::Ignored;
+    } else {
+        state.prev_window_id = Some(window_id);
+        state.wait_start = Some(Instant::now());
+        state.wait_initialized = false;
+        state.show_layout = true;
+        return WindowMsgHandled::Ignored;
+    }
 
-        let is_button = (cmd_button.borrow().get_style() & GWS_PUSH_BUTTON) != 0;
-        if is_button {
-            if let Some((command_button, status)) = resolve_command_button(&cmd_button.borrow()) {
-                populate_layout_for_command(&layout, &command_button, status);
-            }
-        } else if (cmd_button.borrow().get_style() & (GWS_USER_WINDOW | GWS_STATIC_TEXT)) != 0 {
-            populate_layout_for_window(&layout, &cmd_button.borrow());
-        } else {
-            return WindowMsgHandled::Ignored;
+    state.show_layout = true;
+    state.prev_window_id = Some(window_id);
+
+    let is_button = (cmd_button.borrow().get_style() & GWS_PUSH_BUTTON) != 0;
+    if is_button {
+        if let Some((command_button, status)) = resolve_command_button(&cmd_button.borrow()) {
+            populate_layout_for_command(&layout, &command_button, status, state, manager);
         }
+    } else if (cmd_button.borrow().get_style() & (GWS_USER_WINDOW | GWS_STATIC_TEXT)) != 0 {
+        populate_layout_for_window(&layout, &cmd_button.borrow(), state, manager);
+    } else {
+        return WindowMsgHandled::Ignored;
+    }
 
-        layout.borrow_mut().hide(false);
+    layout.borrow_mut().hide(false);
 
-        let animate = get_global_data()
-            .map(|data| data.read().animate_windows)
-            .unwrap_or(true);
-        if state.use_animation && animate {
-            let mut manager = AnimateWindowManager::new();
-            manager.reset();
-            if let Some(window) = layout.borrow().get_first_window() {
-                manager.register_window(window, AnimationType::SlideRightFast, true, 200, 0);
-            }
-            state.animate_manager = Some(manager);
+    let animate = get_global_data()
+        .map(|data| data.read().animate_windows)
+        .unwrap_or(true);
+    if state.use_animation && animate {
+        let mut manager = AnimateWindowManager::new();
+        manager.reset();
+        if let Some(window) = layout.borrow().get_first_window() {
+            manager.register_window(window, AnimationType::SlideRightFast, true, 200, 0);
         }
+        state.animate_manager = Some(manager);
+    }
 
-        WindowMsgHandled::Handled
-    })
+    WindowMsgHandled::Handled
 }
 
 pub fn repopulate_build_tooltip_layout() -> WindowMsgHandled {
     with_popup_state(|state| {
-        let Some(layout) = state.layout.as_ref() else {
+        let Some(layout) = state.layout.clone() else {
             return WindowMsgHandled::Ignored;
         };
         let Some(prev_id) = state.prev_window_id else {
@@ -774,7 +800,9 @@ pub fn repopulate_build_tooltip_layout() -> WindowMsgHandled {
             return WindowMsgHandled::Ignored;
         }
         if let Some((command_button, status)) = resolve_command_button(&prev_window.borrow()) {
-            populate_layout_for_command(layout, &command_button, status);
+            with_window_manager(|manager| {
+                populate_layout_for_command(&layout, &command_button, status, state, manager)
+            });
             return WindowMsgHandled::Handled;
         }
         WindowMsgHandled::Ignored
@@ -782,34 +810,69 @@ pub fn repopulate_build_tooltip_layout() -> WindowMsgHandled {
 }
 
 pub fn hide_build_tooltip_layout() -> WindowMsgHandled {
-    with_popup_state(|state| {
-        state.show_layout = false;
-        if let Some(manager) = state.animate_manager.as_mut() {
-            if manager.is_reversed() {
-                return WindowMsgHandled::Handled;
-            }
-            manager.reverse_animate_window();
+    with_popup_state(hide_build_tooltip_layout_owned)
+}
+fn hide_build_tooltip_layout_owned(state: &mut TooltipState) -> WindowMsgHandled {
+    state.show_layout = false;
+    if let Some(manager) = state.animate_manager.as_mut() {
+        if manager.is_reversed() {
             return WindowMsgHandled::Handled;
         }
-        if let Some(layout) = state.layout.as_ref() {
-            layout.borrow_mut().hide(true);
-        }
-        state.prev_window_id = None;
-        state.animate_manager = None;
-        WindowMsgHandled::Handled
-    })
+        manager.reverse_animate_window();
+        return WindowMsgHandled::Handled;
+    }
+    if let Some(layout) = state.layout.as_ref() {
+        layout.borrow_mut().hide(true);
+    }
+    state.prev_window_id = None;
+    state.animate_manager = None;
+    WindowMsgHandled::Handled
 }
 
 pub fn delete_build_tooltip_layout() -> WindowMsgHandled {
-    with_popup_state(|state| {
-        state.show_layout = false;
-        state.prev_window_id = None;
-        if let Some(layout) = state.layout.as_ref() {
-            layout.borrow_mut().hide(true);
-        }
-        state.animate_manager = None;
-        WindowMsgHandled::Handled
-    })
+    with_popup_state(delete_build_tooltip_layout_owned)
+}
+pub(crate) fn delete_build_tooltip_layout_owned(state: &mut TooltipState) -> WindowMsgHandled {
+    state.show_layout = false;
+    state.prev_window_id = None;
+    if let Some(layout) = state.layout.as_ref() {
+        layout.borrow_mut().hide(true);
+    }
+    state.animate_manager = None;
+    WindowMsgHandled::Handled
+}
+
+/// ControlBar.cpp1286-1288 hides the layout and clears its show flag.
+/// The separate tooltip animator and wait/window identity remain unchanged.
+pub(crate) fn reset_build_tooltip_layout_owned(state: &mut TooltipState) {
+    if let Some(layout) = state.layout.as_ref() {
+        layout.borrow_mut().hide(true);
+    }
+    state.show_layout = false;
+}
+
+/// ControlBar.cpp1398 runs the retained layout callback only while visible,
+/// then clears the per-update hover observation. No detached/global owner.
+pub(crate) fn update_build_tooltip_layout_owned(state: &mut TooltipState, game_ending: bool) {
+    if !state
+        .layout
+        .as_ref()
+        .is_some_and(|layout| !layout.borrow().is_hidden())
+    {
+        return;
+    }
+    if game_ending {
+        hide_build_tooltip_layout_owned(state);
+    }
+    let animate = get_global_data()
+        .map(|data| data.read().animate_windows)
+        .unwrap_or(true);
+    if !state.show_layout && (!animate || !state.use_animation) {
+        delete_build_tooltip_layout_owned(state);
+    } else {
+        update_animation(state);
+    }
+    state.show_layout = false;
 }
 
 pub fn update_build_tooltip_layout() -> WindowMsgHandled {
@@ -915,7 +978,15 @@ mod presentation_can_make_popup_tests {
                 ..LiveCommandButton::default()
             });
             let (command, frozen_status) = resolve_command_button(&command_window).unwrap();
-            populate_layout_for_command(&layout, &command, frozen_status);
+            with_window_manager(|manager| {
+                populate_layout_for_command(
+                    &layout,
+                    &command,
+                    frozen_status,
+                    &mut TooltipState::default(),
+                    manager,
+                )
+            });
             let text = description.borrow().get_text().to_owned();
             if let Some(key) = key {
                 assert!(
@@ -928,3 +999,7 @@ mod presentation_can_make_popup_tests {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "control_bar_popup_description/owner_tests.rs"]
+mod owner_tests;

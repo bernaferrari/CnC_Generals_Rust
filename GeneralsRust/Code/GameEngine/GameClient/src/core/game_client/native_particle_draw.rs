@@ -148,6 +148,26 @@ impl GameClient {
         draw_models: bool,
         advance_particles: bool,
     ) -> GameClientResult<()> {
+        self.run_native_draw_particle_phase_with_object_lifecycle(
+            particles,
+            assets,
+            public_bones,
+            frames,
+            draw_models,
+            advance_particles,
+            None,
+        )
+    }
+    fn run_native_draw_particle_phase_with_object_lifecycle(
+        &mut self,
+        particles: &mut crate::effects::particle_manager::ParticleSystemManager,
+        assets: Option<&ww3d_assets::AssetManager>,
+        public_bones: &[String],
+        frames: NativeParticleFrames,
+        draw_models: bool,
+        advance_particles: bool,
+        lifecycle: Option<&mut crate::effects::particle_manager::NativeParticleObjectLifecycle<'_>>,
+    ) -> GameClientResult<()> {
         if frames.client_frame != self.frame {
             return Err(GameClientError::InvalidOperation(
                 "native particle phase Client clock does not match receiving owner".into(),
@@ -188,12 +208,22 @@ impl GameClient {
                     is_shrouded: drawable.fully_obscured_by_shroud()?,
                 })
             };
-            particles.update_with_receiving_drawables(
-                self.local_player_id as i32,
-                frames.logic_frame,
-                frames.client_frame,
-                &resolve,
-            );
+            if let Some(lifecycle) = lifecycle {
+                particles.update_with_receiving_drawables_and_objects(
+                    self.local_player_id as i32,
+                    frames.logic_frame,
+                    frames.client_frame,
+                    &resolve,
+                    lifecycle,
+                );
+            } else {
+                particles.update_with_receiving_drawables(
+                    self.local_player_id as i32,
+                    frames.logic_frame,
+                    frames.client_frame,
+                    &resolve,
+                );
+            }
         }
         Ok(())
     }

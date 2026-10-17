@@ -4,17 +4,20 @@
 //! between different UI components like menus, HUD, and dialogs.
 
 use super::{
-    animations, sound_files, FactionSelectionScreen, GameHUD, Interactive, KeyCode, MainMenu,
-    MouseButton, PauseMenu, SaveLoadMenu, SaveLoadMode, Screen, SkirmishMenu, VictoryScreen,
+    FactionSelectionScreen, GameHUD, Interactive, KeyCode, MainMenu, MouseButton, PauseMenu,
+    SaveLoadMenu, SaveLoadMode, Screen, SkirmishMenu, VictoryScreen, animations, sound_files,
 };
 use crate::{
-    game_logic::{victory::VictorySummary, GameMode},
+    game_logic::{GameMode, victory::VictorySummary},
     localization,
     subsystem_manager::initialize_shell_ui_schemes,
 };
 use log::info;
 use std::collections::HashMap;
 use std::time::Duration;
+#[cfg(test)]
+#[path = "camera_input_preferences_tests.rs"]
+mod camera_input_preferences_tests;
 
 /// Current UI state
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -150,6 +153,33 @@ pub struct UIManager {
 }
 
 impl UIManager {
+    pub(crate) fn admit_options_preferences(
+        &mut self,
+        preferences: game_engine::common::user_preferences::UserPreferences,
+    ) {
+        self.options_menu.admit_preferences(preferences);
+    }
+    pub(crate) fn camera_keyboard_scroll_factor(
+        &self,
+        rules: game_engine::common::ini::ini_game_data::CameraInputRules,
+    ) -> f32 {
+        rules.keyboard_scroll_factor(self.options_menu.preferences())
+    }
+    pub(crate) fn options_preferences_mut(
+        &mut self,
+    ) -> &mut game_engine::common::user_preferences::UserPreferences {
+        self.options_menu.preferences_mut()
+    }
+    pub(crate) fn admit_camera_input_defaults(
+        &mut self,
+        rules: game_engine::common::ini::ini_game_data::CameraInputRules,
+    ) {
+        self.options_menu.admit_camera_input_defaults(rules);
+    }
+    pub(crate) fn reload_options_preferences(&mut self) {
+        self.options_menu.reload_preferences();
+    }
+
     /// Create new UI manager
     pub fn new(screen_width: u32, screen_height: u32) -> Self {
         Self {
@@ -647,6 +677,9 @@ impl UIManager {
 
     /// Transition to a new screen
     pub(crate) fn transition_to_screen(&mut self, screen: Screen) {
+        if screen == Screen::Options && self.current_screen != Some(screen) {
+            self.options_menu.refresh_options_controls();
+        }
         if Some(screen) != self.current_screen {
             let previous_screen = self.current_screen;
             self.current_screen = Some(screen);

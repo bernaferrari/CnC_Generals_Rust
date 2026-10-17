@@ -312,9 +312,11 @@ pub fn dispatch_os_mouse_to_window_manager_with_control_bar(
         y,
         facts,
         |msg, x, y, data| {
-            with_window_manager(|manager| {
+            let handled = with_window_manager(|manager| {
                 manager.process_mouse_event_with_control_bar(msg, x, y, data, context)
-            })
+            });
+            context.complete_options_accept();
+            handled
         },
         || crate::gui::shell::get_shell().is_shell_active(),
     )
@@ -361,6 +363,7 @@ pub fn dispatch_os_key_to_window_manager_with_control_bar(
     let rc = with_window_manager(|manager| {
         manager.process_key_event_with_control_bar(key, state, context)
     });
+    context.complete_options_accept();
     if crate::gui::shell::get_shell().is_shell_active() {
         WindowInputReturnCode::Used
     } else {

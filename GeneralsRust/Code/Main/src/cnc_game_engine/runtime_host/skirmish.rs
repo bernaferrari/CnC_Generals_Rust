@@ -606,8 +606,8 @@ impl CnCGameEngine {
         } else {
             warn!("Runtime host failed to lock message stream for NewGame");
         }
-        // Peek + host start. With game_client, pump so crate GameLogic sees
-        // MSG_NEW_GAME (C++ logicMessageDispatcher). Then drop leftovers.
+        // Peek + host start, then deliver all surviving client messages to
+        // the newly installed Main owner before dropping NewGame leftovers.
         if let Some(request) = self.take_pending_new_game_start_request() {
             info!(
                 "Runtime host NewGame drain: mode={:?} faction={} map={}",
@@ -617,7 +617,12 @@ impl CnCGameEngine {
             self.start_game_from_ui(request);
             #[cfg(feature = "game_client")]
             {
-                let _ = self.game_client.pump_message_stream();
+                if let Err(error) = Self::pump_receiving_client_commands(
+                    &self.game_client,
+                    &mut self.game_logic.replay_pending,
+                ) {
+                    error!("Runtime host receiving command routing failed: {error}");
+                }
             }
             let _ = Self::take_new_game_dispatch_from_common_stream();
         } else {

@@ -62,6 +62,8 @@ impl CnCGameEngine {
             game_engine::common::ini::ini_game_data::CameraClipRules,
             game_engine::common::ini::ini_game_data::CameraShakeRules,
             game_engine::common::ini::ini_game_data::CameraMovementRules,
+            game_engine::common::ini::ini_game_data::CameraInputRules,
+            std::path::PathBuf,
         ),
         String,
     > {
@@ -69,7 +71,17 @@ impl CnCGameEngine {
         let mut clip = game_engine::common::ini::ini_game_data::CameraClipRules::default();
         let mut shake = game_engine::common::ini::ini_game_data::CameraShakeRules::default();
         let mut movement = game_engine::common::ini::ini_game_data::CameraMovementRules::default();
-        for (path, text) in Self::load_startup_game_data_texts().await? {
+        let mut input = game_engine::common::ini::ini_game_data::CameraInputRules::default();
+        let sources = Self::load_startup_game_data_texts().await?;
+        let options_path = crate::config::GlobalData::user_data_path_from_texts(
+            &sources
+                .iter()
+                .map(|(_, text)| text.clone())
+                .collect::<Vec<_>>(),
+        )
+        .map_err(|e| e.to_string())?
+        .join("Options.ini");
+        for (path, text) in sources {
             rules = rules
                 .overlay_ini_text(&text)
                 .map_err(|err| format!("{path}: {err}"))?;
@@ -79,11 +91,21 @@ impl CnCGameEngine {
             shake = shake
                 .overlay_ini_text(&text)
                 .map_err(|err| format!("{path}: {err}"))?;
+            input = input
+                .overlay_ini_text(&text)
+                .map_err(|err| format!("{path}: {err}"))?;
             movement = movement
                 .overlay_ini_text(&text)
                 .map_err(|err| format!("{path}: {err}"))?;
         }
-        Ok((rules.validate()?, clip, shake.validate()?, movement))
+        Ok((
+            rules.validate()?,
+            clip,
+            shake.validate()?,
+            movement,
+            input,
+            options_path,
+        ))
     }
 
     pub(super) fn admit_camera_movement_startup_switches(
@@ -318,16 +340,29 @@ impl CnCGameEngine {
 
         // Initialize game systems.
         // CombatSystem + PathfindingSystem live on GameLogic (sole host authority).
-        let (camera_rule_base, camera_clip_base, camera_shake_base, mut camera_movement_base) =
-            Self::load_camera_rules_baseline()
-                .await
-                .map_err(anyhow::Error::msg)?;
+        let (
+            camera_rule_base,
+            camera_clip_base,
+            camera_shake_base,
+            mut camera_movement_base,
+            camera_input_base,
+            camera_options_path,
+        ) = Self::load_camera_rules_baseline()
+            .await
+            .map_err(anyhow::Error::msg)?;
         // C++ GameEngine.cpp339 then357: application INI before CLI.
         // Reuse the actual ordered CLI decoder; never copy late GlobalData.
         camera_movement_base = Self::admit_camera_movement_startup_switches(
             camera_movement_base,
             &command_line.raw_args,
             Self::allow_debug_startup_flags(),
+        );
+        // Actual application Options owner is loaded once before worker handoff.
+        let mut camera_options = game_engine::common::user_preferences::UserPreferences::new();
+        let _ = camera_options.load(
+            camera_options_path
+                .to_str()
+                .ok_or_else(|| anyhow::anyhow!("Options path is not UTF-8"))?,
         );
         let ocl_sources = Self::load_ocl_application_sources()
             .await
@@ -338,6 +373,7 @@ impl CnCGameEngine {
             .map_err(anyhow::Error::msg)?;
         game_logic.admit_camera_application_clip(camera_clip_base);
         game_logic.admit_camera_application_movement(camera_movement_base);
+        game_logic.admit_camera_application_input(camera_input_base);
         game_logic
             .admit_camera_application_shake(camera_shake_base)
             .map_err(anyhow::Error::msg)?;
@@ -449,6 +485,7 @@ impl CnCGameEngine {
                 camera_clip_base,
                 camera_shake_base,
                 camera_movement_base,
+                camera_input_base,
                 game_logic.ocl_application_definitions(),
             )
         };
@@ -480,12 +517,14 @@ impl CnCGameEngine {
         };
 
         let mut ui_manager = UIManager::new(size.width, size.height);
+        ui_manager.admit_options_preferences(camera_options);
         if command_line.quick_start {
             ui_manager.enable_quick_start();
         }
         ui_manager
             .initialize()
             .map_err(|err| anyhow::anyhow!("failed to initialize startup UI: {err}"))?;
+        ui_manager.admit_camera_input_defaults(game_logic.camera_input_rules());
         // C++ parity: loading visuals are GameClient .wnd load screens
         // (ShellGameLoadScreen/SinglePlayerLoadScreen/etc.), not Main/src/ui.
         ui_manager.suspend_for_shell_overlay();
@@ -496,11 +535,13 @@ impl CnCGameEngine {
         let camera_clip_policy = game_logic.session_view.camera.clip_policy;
         let camera_shake_policy = game_logic.session_view.camera.shake_policy;
         let camera_movement_policy = game_logic.session_view.camera.movement_policy;
+        let camera_input_policy = game_logic.session_view.camera.input_policy;
         game_logic.session_view.camera = crate::presentation_frame::camera::SessionCamera {
             settings: camera_settings,
             clip_policy: camera_clip_policy,
             shake_policy: camera_shake_policy,
             movement_policy: camera_movement_policy,
+            input_policy: camera_input_policy,
             viewport: crate::presentation_frame::camera::viewport::TacticalViewport::for_display(
                 surface_w, surface_h,
             )

@@ -45,6 +45,16 @@ impl GameClient {
         views: &[NativeDrawView],
         phase: NativeDrawPhase,
     ) -> GameClientResult<()> {
+        self.draw_native_views_with_object_lifecycle(frames, materials, views, phase, None)
+    }
+    pub fn draw_native_views_with_object_lifecycle(
+        &mut self,
+        frames: NativeParticleFrames,
+        materials: &[NativeMaterialObservation],
+        views: &[NativeDrawView],
+        phase: NativeDrawPhase,
+        lifecycle: Option<&mut crate::effects::particle_manager::NativeParticleObjectLifecycle<'_>>,
+    ) -> GameClientResult<()> {
         if frames.client_frame != self.frame {
             return Err(GameClientError::InvalidOperation(
                 "native view Client frame mismatch".into(),
@@ -73,7 +83,7 @@ impl GameClient {
         let manager = manager_guard.as_mut().ok_or_else(|| {
             GameClientError::SubsystemError("native view particle owner absent".into())
         })?;
-        self.run_native_views_with_services(
+        self.run_native_views_with_object_lifecycle(
             manager,
             assets.as_ref().map(|bridge| bridge.asset_manager()),
             &public_bones,
@@ -81,6 +91,7 @@ impl GameClient {
             materials,
             views,
             phase,
+            lifecycle,
         )?;
         // FX retirement can reenter drawable teardown and its particle owner.
         // Preserve the prior boundary: no service guard crosses those callbacks.
@@ -100,6 +111,28 @@ impl GameClient {
         materials: &[NativeMaterialObservation],
         views: &[NativeDrawView],
         phase: NativeDrawPhase,
+    ) -> GameClientResult<()> {
+        self.run_native_views_with_object_lifecycle(
+            particles,
+            assets,
+            public_bones,
+            frames,
+            materials,
+            views,
+            phase,
+            None,
+        )
+    }
+    fn run_native_views_with_object_lifecycle(
+        &mut self,
+        particles: &mut crate::effects::particle_manager::ParticleSystemManager,
+        assets: Option<&ww3d_assets::AssetManager>,
+        public_bones: &[String],
+        frames: NativeParticleFrames,
+        materials: &[NativeMaterialObservation],
+        views: &[NativeDrawView],
+        phase: NativeDrawPhase,
+        lifecycle: Option<&mut crate::effects::particle_manager::NativeParticleObjectLifecycle<'_>>,
     ) -> GameClientResult<()> {
         if frames.client_frame != self.frame {
             return Err(GameClientError::InvalidOperation(
@@ -129,13 +162,18 @@ impl GameClient {
             }
         }
         // The receiving particle owner advances once, after ALL view work.
-        self.run_native_draw_particle_phase_with_services(
+        self.run_native_draw_particle_phase_with_object_lifecycle(
             particles,
             assets,
             public_bones,
             frames,
             false,
             phase.update_particles,
+            lifecycle,
         )
     }
 }
+
+#[cfg(test)]
+#[path = "native_particle_owner_lifecycle_tests.rs"]
+mod particle_owner_lifecycle_tests;

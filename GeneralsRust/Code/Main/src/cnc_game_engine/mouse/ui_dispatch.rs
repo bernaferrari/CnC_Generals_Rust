@@ -224,11 +224,21 @@ impl CnCGameEngine {
                 crate::game_logic::GameMode::Replay
             );
             let game_ending = self.game_logic.owned_script_game_ending();
+            let tooltips_disabled = self.receiving_tooltips_disabled();
+            let cursor_mouse = self.game_client.input_mouse_handle();
             let mut context = game_client::gui::window_manager::ControlBarInputContext {
+                camera_options: Some(
+                    game_client::gui::window_manager::CameraOptionsInputContext::new(
+                        self.ui_manager.options_preferences_mut(),
+                        self.game_logic.camera_input_rules(),
+                    ),
+                ),
                 control_bar: &mut self.control_bar,
                 viewport: &mut self.game_logic.session_view.camera,
                 replay,
                 game_ending,
+                tooltips_disabled,
+                cursor_mouse: cursor_mouse.as_ref(),
             };
             game_client::gui::window_manager::dispatch_os_key_to_window_manager_with_control_bar(
                 vk,
@@ -358,6 +368,56 @@ impl CnCGameEngine {
         }
     }
 
+    #[cfg(feature = "game_client")]
+    fn receiving_tooltips_disabled(&self) -> bool {
+        self.game_client
+            .in_game_ui_subsystem()
+            .and_then(|ui| {
+                ui.lock()
+                    .ok()
+                    .map(|ui| ui.tooltips_disabled_at(self.game_logic.frame))
+            })
+            .unwrap_or(true)
+    }
+
+    #[cfg(feature = "game_client")]
+    fn dispatch_native_window_mouse_with_bar(
+        &mut self,
+        msg: game_client::gui::game_window::WindowMessage,
+        x: i32,
+        y: i32,
+        facts: game_client::gui::WindowMouseFacts,
+    ) -> game_client::gui::game_window::WindowInputReturnCode {
+        let replay = matches!(
+            self.game_logic.game_mode(),
+            crate::game_logic::GameMode::Replay
+        );
+        let game_ending = self.game_logic.owned_script_game_ending();
+        let tooltips_disabled = self.receiving_tooltips_disabled();
+        let cursor_mouse = self.game_client.input_mouse_handle();
+        let mut context = game_client::gui::window_manager::ControlBarInputContext {
+            camera_options: Some(
+                game_client::gui::window_manager::CameraOptionsInputContext::new(
+                    self.ui_manager.options_preferences_mut(),
+                    self.game_logic.camera_input_rules(),
+                ),
+            ),
+            control_bar: &mut self.control_bar,
+            viewport: &mut self.game_logic.session_view.camera,
+            replay,
+            game_ending,
+            tooltips_disabled,
+            cursor_mouse: cursor_mouse.as_ref(),
+        };
+        game_client::gui::window_manager::dispatch_os_mouse_to_window_manager_with_control_bar(
+            msg,
+            x,
+            y,
+            facts,
+            &mut context,
+        )
+    }
+
     pub(in crate::cnc_game_engine) fn dispatch_os_mouse_to_window_manager(
         &mut self,
         button: MouseButton,
@@ -392,19 +452,9 @@ impl CnCGameEngine {
                 MouseInputOrigin::Injected => HostControlBarInputProvenance::InjectedOrUnknown,
             };
             let facts = self.native_window_mouse_facts();
-            let replay = matches!(
-                self.game_logic.game_mode(),
-                crate::game_logic::GameMode::Replay
-            );
-            let game_ending = self.game_logic.owned_script_game_ending();
-            let mut context = game_client::gui::window_manager::ControlBarInputContext {
-                control_bar: &mut self.control_bar,
-                viewport: &mut self.game_logic.session_view.camera,
-                replay,
-                game_ending,
-            };
             with_host_control_bar_input_provenance(provenance, || {
-                game_client::gui::window_manager::dispatch_os_mouse_to_window_manager_with_control_bar(msg,x,y,facts,&mut context)==WindowInputReturnCode::Used
+                self.dispatch_native_window_mouse_with_bar(msg, x, y, facts)
+                    == WindowInputReturnCode::Used
             })
         }
         #[cfg(not(feature = "game_client"))]
@@ -414,11 +464,11 @@ impl CnCGameEngine {
         }
     }
 
-    pub(in crate::cnc_game_engine) fn dispatch_os_mouse_move(&self, x: i32, y: i32) -> bool {
+    pub(in crate::cnc_game_engine) fn dispatch_os_mouse_move(&mut self, x: i32, y: i32) -> bool {
         #[cfg(feature = "game_client")]
         {
             use game_client::gui::game_window::{WindowInputReturnCode, WindowMessage};
-            game_client::gui::dispatch_os_mouse_to_window_manager_with_facts(
+            self.dispatch_native_window_mouse_with_bar(
                 WindowMessage::MousePos,
                 x,
                 y,
@@ -433,7 +483,7 @@ impl CnCGameEngine {
     }
 
     pub(in crate::cnc_game_engine) fn dispatch_os_mouse_wheel(
-        &self,
+        &mut self,
         delta: &winit::event::MouseScrollDelta,
         x: i32,
         y: i32,
@@ -444,12 +494,8 @@ impl CnCGameEngine {
             let Some(msg) = window_message_for_mouse_wheel(delta) else {
                 return false;
             };
-            game_client::gui::dispatch_os_mouse_to_window_manager_with_facts(
-                msg,
-                x,
-                y,
-                self.native_window_mouse_facts(),
-            ) == WindowInputReturnCode::Used
+            self.dispatch_native_window_mouse_with_bar(msg, x, y, self.native_window_mouse_facts())
+                == WindowInputReturnCode::Used
         }
         #[cfg(not(feature = "game_client"))]
         {

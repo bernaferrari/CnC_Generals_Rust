@@ -13,6 +13,14 @@ impl ParticleSystem {
         local_player_index: i32,
         drawable_pose: Option<&dyn Fn(DrawableId) -> Option<DrawableParticlePose>>,
     ) {
+        self.resolve_attached_parent_with_object_liveness(local_player_index, drawable_pose, None);
+    }
+    pub(super) fn resolve_attached_parent_with_object_liveness(
+        &mut self,
+        local_player_index: i32,
+        drawable_pose: Option<&dyn Fn(DrawableId) -> Option<DrawableParticlePose>>,
+        object_is_live: Option<&dyn Fn(u32) -> bool>,
+    ) {
         if self.attached_drawable_id.is_valid() {
             if let Some(resolve) = drawable_pose {
                 if let Some(pose) = resolve(self.attached_drawable_id) {
@@ -63,6 +71,13 @@ impl ParticleSystem {
         }
 
         if self.attached_object_id != 0 {
+            // Native existence comes from the driving World, not a peer's
+            // published pose or compatibility registry. Delay/wind already ran.
+            if object_is_live.is_some_and(|exists| !exists(self.attached_object_id)) {
+                self.attached_object_id = 0;
+                self.destroy();
+                return;
+            }
             // Live host IDs are not leftover OBJECT_REGISTRY entries.
             // C++ ParticleSys.cpp:1880-1905 follows TheGameLogic object; on
             // the production host path that is the published host pose / live

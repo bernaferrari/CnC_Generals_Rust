@@ -2618,7 +2618,10 @@ pub use camera_clip_rules::CameraClipRules;
 mod camera_shake_rules;
 pub use camera_shake_rules::CameraShakeRules;
 
+#[path = "ini_game_data/camera_input_rules.rs"]
+mod camera_input_rules;
 mod camera_movement_rules;
+pub use camera_input_rules::CameraInputRules;
 pub use camera_movement_rules::CameraMovementRules;
 
 #[cfg(any(debug_assertions, feature = "internal"))]

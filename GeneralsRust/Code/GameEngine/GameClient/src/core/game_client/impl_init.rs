@@ -794,7 +794,7 @@ impl GameClient {
         Ok(())
     }
 
-    pub fn pump_message_stream(&self) -> GameClientResult<()> {
+    fn take_completed_client_messages(&self) -> GameClientResult<Vec<GameMessage>> {
         let mut completed_messages = {
             let mut stream = THE_MESSAGE_STREAM.write().map_err(|_| {
                 GameClientError::SubsystemError("Message stream lock poisoned".into())
@@ -816,18 +816,32 @@ impl GameClient {
             });
         }
 
+        Ok(completed_messages)
+    }
+
+    pub fn pump_message_stream(&self) -> GameClientResult<()> {
+        let completed_messages = self.take_completed_client_messages()?;
         if completed_messages.is_empty() {
             return Ok(());
         }
-
-        // Main owns direct host orders already. Route only messages produced by
-        // this client stream; its host callback carries an ordered copy to
-        // GameLogic's recorder tick before the commands execute there.
+        // Standalone Core retains its original command queue route.
         route_commands_to_gamelogic(completed_messages, self.frame).map_err(|err| {
             GameClientError::SubsystemError(format!("Failed to route commands: {err}"))
         })?;
-
         Ok(())
+    }
+
+    /// Native Main lends the receiving command owner for this operation only.
+    /// Do not also publish this batch to Core's independent player queues.
+    pub fn pump_message_stream_to_receiving_owner(
+        &self,
+        receive: &mut dyn FnMut(Vec<GameMessage>) -> GameClientResult<()>,
+    ) -> GameClientResult<()> {
+        let completed_messages = self.take_completed_client_messages()?;
+        if completed_messages.is_empty() {
+            return Ok(());
+        }
+        receive(completed_messages)
     }
 
     pub fn init_recorder_bridge(&self) {

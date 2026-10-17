@@ -21,6 +21,9 @@ impl SubsystemInterface for ControlBar {
 
     fn reset(&mut self) -> Result<(), Box<dyn Error>> {
         log::info!("Resetting Control Bar");
+        crate::gui::gui_callbacks::control_bar_popup_description::reset_build_tooltip_layout_owned(
+            &mut self.tooltip,
+        );
 
         if let Ok(mut context) = self.context.write() {
             *context = ControlBarContext::default();

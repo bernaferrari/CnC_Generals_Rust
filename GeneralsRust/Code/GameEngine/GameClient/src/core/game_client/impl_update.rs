@@ -1166,6 +1166,11 @@ impl GameClient {
         self.subsystem_manager.in_game_ui = Some(ui);
     }
 
+    /// Borrow the already installed receiving mouse service; never selects the singleton.
+    pub fn input_mouse_handle(&self) -> Option<crate::core::subsystems::MouseHandle> {
+        self.subsystem_manager.input_mouse.clone()
+    }
+
     /// The installed InGameUI subsystem, if any.
     pub fn in_game_ui_subsystem(
         &self,
@@ -1843,6 +1848,57 @@ impl GameClient {
         views: &[NativeDrawView],
         phase: NativeDrawPhase,
     ) -> GameClientResult<()> {
+        self.finish_presentation_shell_with_native_views_routed(
+            prepared, materials, views, phase, None, None,
+        )
+    }
+
+    pub fn finish_presentation_shell_with_receiving_commands(
+        &mut self,
+        prepared: PreparedPresentationShell,
+        materials: &[NativeMaterialObservation],
+        views: &[NativeDrawView],
+        phase: NativeDrawPhase,
+        receive: &mut dyn FnMut(Vec<GameMessage>) -> GameClientResult<()>,
+    ) -> GameClientResult<()> {
+        self.finish_presentation_shell_with_native_views_routed(
+            prepared,
+            materials,
+            views,
+            phase,
+            Some(receive),
+            None,
+        )
+    }
+
+    pub fn finish_presentation_shell_with_receiving_commands_and_object_lifecycle(
+        &mut self,
+        prepared: PreparedPresentationShell,
+        materials: &[NativeMaterialObservation],
+        views: &[NativeDrawView],
+        phase: NativeDrawPhase,
+        receive: &mut dyn FnMut(Vec<GameMessage>) -> GameClientResult<()>,
+        lifecycle: &mut crate::effects::particle_manager::NativeParticleObjectLifecycle<'_>,
+    ) -> GameClientResult<()> {
+        self.finish_presentation_shell_with_native_views_routed(
+            prepared,
+            materials,
+            views,
+            phase,
+            Some(receive),
+            Some(lifecycle),
+        )
+    }
+
+    fn finish_presentation_shell_with_native_views_routed(
+        &mut self,
+        prepared: PreparedPresentationShell,
+        materials: &[NativeMaterialObservation],
+        views: &[NativeDrawView],
+        phase: NativeDrawPhase,
+        receive: Option<&mut dyn FnMut(Vec<GameMessage>) -> GameClientResult<()>>,
+        lifecycle: Option<&mut crate::effects::particle_manager::NativeParticleObjectLifecycle<'_>>,
+    ) -> GameClientResult<()> {
         if !std::sync::Arc::ptr_eq(&prepared.owner, &self.presentation_shell_owner)
             || prepared.generation != self.presentation_shell_generation
             || prepared.frames.client_frame != self.frame
@@ -1852,14 +1908,28 @@ impl GameClient {
             ));
         }
         if !prepared.skip_draw {
-            self.draw_native_views_with_frames(prepared.frames, materials, views, phase)?;
+            self.draw_native_views_with_object_lifecycle(
+                prepared.frames,
+                materials,
+                views,
+                phase,
+                lifecycle,
+            )?;
         }
-        self.finish_presentation_shell(prepared)
+        self.finish_presentation_shell_routed(prepared, receive)
     }
 
     fn finish_presentation_shell(
         &mut self,
         prepared: PreparedPresentationShell,
+    ) -> GameClientResult<()> {
+        self.finish_presentation_shell_routed(prepared, None)
+    }
+
+    fn finish_presentation_shell_routed(
+        &mut self,
+        prepared: PreparedPresentationShell,
+        receive: Option<&mut dyn FnMut(Vec<GameMessage>) -> GameClientResult<()>>,
     ) -> GameClientResult<()> {
         if prepared.skip_draw {
             return Ok(());
@@ -1880,7 +1950,11 @@ impl GameClient {
 
         self.update_post_draw_ui()?;
         self.process_beacon_notifications()?;
-        self.pump_message_stream()?;
+        if let Some(receive) = receive {
+            self.pump_message_stream_to_receiving_owner(receive)?;
+        } else {
+            self.pump_message_stream()?;
+        }
 
         self.rendered_object_count = 0;
         // Wave 876: Main owns frame pacing — no shell dual-sleep.

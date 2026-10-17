@@ -1112,6 +1112,7 @@ impl CnCGameEngine {
         camera_clip_base: game_engine::common::ini::ini_game_data::CameraClipRules,
         camera_shake_base: game_engine::common::ini::ini_game_data::CameraShakeRules,
         camera_movement_base: game_engine::common::ini::ini_game_data::CameraMovementRules,
+        camera_input_base: game_engine::common::ini::ini_game_data::CameraInputRules,
         ocl_application_base: Arc<
             std::collections::HashMap<String, gamelogic::effects::ObjectCreationList>,
         >,
@@ -1720,6 +1721,7 @@ impl CnCGameEngine {
                     game_logic.seed_ocl_application_definitions(ocl_application_base);
                     game_logic.admit_camera_application_clip(camera_clip_base);
                     game_logic.admit_camera_application_movement(camera_movement_base);
+                    game_logic.admit_camera_application_input(camera_input_base);
                     game_logic.admit_camera_application_shake(camera_shake_base)?;
                     game_logic.admit_camera_application_rules(camera_rule_base)?;
                     game_logic.admit_physics_rules_base(runtime.block_on(Self::load_physics_rules_baseline())?)?;

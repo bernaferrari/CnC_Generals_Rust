@@ -11,16 +11,24 @@ impl GameWindow {
         data2: WindowMsgData,
     ) -> WindowMsgHandled {
         let mut notification = None;
-        self.handle_widget_input_phase(msg, data1, data2, false, &mut notification)
+        self.handle_widget_input_phase(msg, data1, data2, false, false, &mut notification)
     }
     pub(crate) fn handle_widget_input_with_control_bar_notification(
         &mut self,
         msg: WindowMessage,
         data1: WindowMsgData,
         data2: WindowMsgData,
+        owned_options: bool,
     ) -> (WindowMsgHandled, Option<ControlBarNotification>) {
         let mut notification = None;
-        let result = self.handle_widget_input_phase(msg, data1, data2, true, &mut notification);
+        let result = self.handle_widget_input_phase(
+            msg,
+            data1,
+            data2,
+            true,
+            owned_options,
+            &mut notification,
+        );
         (result, notification)
     }
     fn handle_widget_input_phase(
@@ -29,6 +37,7 @@ impl GameWindow {
         data1: WindowMsgData,
         data2: WindowMsgData,
         owned_control_bar: bool,
+        owned_options: bool,
         notification: &mut Option<ControlBarNotification>,
     ) -> WindowMsgHandled {
         self.sync_listbox_content_top_inset();
@@ -427,11 +436,52 @@ impl GameWindow {
             {
                 *notification = Some(ControlBarNotification {
                     owner: owner.clone(),
+                    action: SelectedOwnerAction::ControlBarToggle,
+                    control_id: self.id as WindowMsgData,
                 });
                 // This is the sole message. Only the consumed-input handled
                 // flag follows the original owner callback; no widget work is
                 // moved across the synchronous notification boundary.
                 return WindowMsgHandled::Handled;
+            }
+            if single_push_button_notification
+                && owned_options
+                && msg == WindowMessage::GadgetSelected
+                && let Some(owner) = target_owner.as_ref()
+            {
+                let callbacks = &owner.borrow().callbacks;
+                let key = game_engine::common::name_key_generator::NameKeyGenerator::name_to_key;
+                let action = if callbacks.options_menu_system
+                    && data1 as u32 == key("OptionsMenu.wnd:ButtonAccept")
+                {
+                    Some(SelectedOwnerAction::OptionsAccept)
+                } else if callbacks.options_menu_system
+                    && data1 as u32 == key("OptionsMenu.wnd:ButtonDefaults")
+                {
+                    Some(SelectedOwnerAction::OptionsDefaults)
+                } else if callbacks.main_menu_system
+                    && data1 as u32 == key("MainMenu.wnd:ButtonOptions")
+                {
+                    Some(SelectedOwnerAction::ShowOptions)
+                } else if callbacks.quit_menu_system
+                    && [
+                        key("QuitMenu.wnd:ButtonOptions"),
+                        key("QuitNoSave.wnd:ButtonOptions"),
+                    ]
+                    .contains(&(data1 as u32))
+                {
+                    Some(SelectedOwnerAction::ShowQuitOptions)
+                } else {
+                    None
+                };
+                if let Some(action) = action {
+                    *notification = Some(ControlBarNotification {
+                        owner: owner.clone(),
+                        action,
+                        control_id: data1,
+                    });
+                    return WindowMsgHandled::Handled;
+                }
             }
             let result = if let Some(ref owner) = target_owner {
                 owner.borrow_mut().send_system_message(msg, data1, data2)

@@ -23,12 +23,12 @@ fn legacy_camera_restore_uses_saved_map_rules_not_active_or_application_maximum(
             std::fs::write(&path, map.into_ckmp_bytes()).unwrap();
             std::fs::write(
                 temp.path().join("Map.ini"),
-                "GameData\n MinCameraHeight = 200\n MaxCameraHeight = 600\n DisableCameraMovements = Yes\n End\n",
+                "GameData\n MinCameraHeight = 200\n MaxCameraHeight = 600\n KeyboardDefaultScrollSpeedFactor = 0.675\n DisableCameraMovements = Yes\n End\n",
             )
             .unwrap();
             std::fs::write(
                 temp.path().join("Solo.ini"),
-                "GameData\n DisableCameraMovements = No\n End\n",
+                "GameData\n DisableCameraMovements = No\n KeyboardDefaultScrollSpeedFactor = 0.375\n End\n",
             )
             .unwrap();
             let rules = crate::presentation_frame::camera::settings::CameraContentRules {
@@ -50,6 +50,17 @@ fn legacy_camera_restore_uses_saved_map_rules_not_active_or_application_maximum(
                         ..rules
                     },
                 )
+                .unwrap();
+            active.admit_camera_application_input(
+                game_engine::common::ini::ini_game_data::CameraInputRules {
+                    keyboard_default_scroll_factor: 0.25,
+                    ..Default::default()
+                },
+            );
+            active
+                .apply_camera_input_overrides(&[
+                    "GameData\n KeyboardDefaultScrollSpeedFactor = 0.9\nEnd\n".into(),
+                ])
                 .unwrap();
             let peer = GameLogic::new();
             let before = active.capture_camera_continuation().unwrap();
@@ -110,13 +121,13 @@ fn legacy_camera_restore_uses_saved_map_rules_not_active_or_application_maximum(
             };
             for (map_text, solo_text, expected_disable) in [
                 (
-                    "GameData\n MinCameraHeight = 200\n MaxCameraHeight = 600\n DisableCameraMovements = Yes\n End\n",
-                    "GameData\n DisableCameraMovements = No\n End\n",
+                    "GameData\n MinCameraHeight = 200\n MaxCameraHeight = 600\n KeyboardDefaultScrollSpeedFactor = 0.675\n DisableCameraMovements = Yes\n End\n",
+                    "GameData\n DisableCameraMovements = No\n KeyboardDefaultScrollSpeedFactor = 0.375\n End\n",
                     false,
                 ),
                 (
-                    "GameData\n MinCameraHeight = 200\n MaxCameraHeight = 600\n End\n",
-                    "GameData\n MaxCameraHeight = 600\n End\n",
+                    "GameData\n MinCameraHeight = 200\n MaxCameraHeight = 600\n KeyboardDefaultScrollSpeedFactor = 0.675\n End\n",
+                    "GameData\n MaxCameraHeight = 600\n KeyboardDefaultScrollSpeedFactor = 0.375\n End\n",
                     true,
                 ),
             ] {
@@ -139,8 +150,10 @@ fn legacy_camera_restore_uses_saved_map_rules_not_active_or_application_maximum(
                 active.session_view.camera.clip_policy,
                 active.session_view.camera.shake_policy,
                 active.session_view.camera.movement_policy,
+                active.session_view.camera.input_policy,
                 &active.world_services,
                 |snapshot, candidate| {
+                    assert_eq!(candidate.camera_input_rules().keyboard_default_scroll_factor,0.375);
                     assert_eq!(candidate.camera_movement_disabled(),expected_disable,
                         "saved map overrides or preserves receiving application policy in source order");
                     assert_eq!(
@@ -159,6 +172,7 @@ fn legacy_camera_restore_uses_saved_map_rules_not_active_or_application_maximum(
                     builder
                         .restore_from_snapshot(snapshot, candidate)
                         .map_err(|e| e.to_string())?;
+                    assert_eq!(candidate.camera_input_rules().keyboard_default_scroll_factor,0.375);
                     assert_eq!(candidate.camera_movement_disabled(),expected_disable,
                         "camera pose admission must not overwrite receiving map configuration");
                     assert_eq!(
@@ -173,7 +187,22 @@ fn legacy_camera_restore_uses_saved_map_rules_not_active_or_application_maximum(
                     staged.logic.session_view.camera.settings.bounds(),
                     (100., 450.)
                 );
+                assert_eq!(
+                    staged
+                        .logic
+                        .camera_input_rules()
+                        .keyboard_default_scroll_factor,
+                    0.375
+                );
                 drop(staged);
+                assert_eq!(
+                    active.camera_input_rules().keyboard_default_scroll_factor,
+                    0.9
+                );
+                assert_eq!(
+                    peer.camera_input_rules().keyboard_default_scroll_factor,
+                    0.5
+                );
                 assert!(active.camera_movement_disabled());
                 assert!(!peer.camera_movement_disabled());
                 assert_eq!(before, active.capture_camera_continuation().unwrap());

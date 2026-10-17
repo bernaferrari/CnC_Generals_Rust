@@ -586,7 +586,7 @@ impl ControlBar {
                 || !cmd.sciences_ids.is_empty()
                 || !cmd.sciences.is_empty()
             {
-                window.set_tooltip_callback(leftover_command_button_tooltip);
+                window.set_control_bar_tooltip_callback(leftover_command_button_tooltip);
             }
             if let Some(overlay) = cmd.overlay_image.as_deref() {
                 if let Some(crate::gui::game_window::WindowWidget::PushButton(button)) =

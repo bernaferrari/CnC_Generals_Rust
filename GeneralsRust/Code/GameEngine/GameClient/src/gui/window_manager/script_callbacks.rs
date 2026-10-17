@@ -121,11 +121,16 @@ impl WindowManager {
                         warn!("Single player menu init failed: {}", err);
                     }
                 })),
-                "OptionsMenuInit" => Some(Box::new(|layout, _| {
-                    if let Err(err) = with_options_menu(|menu| menu.init(layout, None)) {
-                        warn!("Options menu init failed: {}", err);
-                    }
-                })),
+                "OptionsMenuInit" => {
+                    Some(Box::new(|layout, data| {
+                        let camera=data.and_then(|data|data.downcast_ref::<crate::gui::callbacks::OptionsCameraInputObservation>());
+                        if let Err(err) =
+                            with_options_menu(|menu| menu.init_with_camera_input(layout, camera))
+                        {
+                            warn!("Options menu init failed: {}", err);
+                        }
+                    }))
+                }
                 "MapSelectMenuInit" => Some(Box::new(|layout, _| {
                     if let Err(err) = with_map_select_menu(|menu| menu.init(layout, None)) {
                         warn!("Map select menu init failed: {}", err);
@@ -658,6 +663,7 @@ impl WindowManager {
                             WindowMsgHandled::Ignored
                         }
                     });
+                    window.mark_main_menu_system_callback();
                 }
                 "SinglePlayerMenuSystem" => {
                     window.set_system_callback(|window, msg, data1, data2| {
@@ -668,6 +674,7 @@ impl WindowManager {
                     window.set_system_callback(|window, msg, data1, data2| {
                         with_options_menu(|menu| menu.system(window, msg, data1, data2))
                     });
+                    window.mark_options_menu_system_callback();
                 }
                 "MapSelectMenuSystem" => {
                     window.set_system_callback(|window, msg, data1, data2| {
@@ -741,6 +748,7 @@ impl WindowManager {
                     window.set_system_callback(|window, msg, data1, data2| {
                         quit_menu_system(window, msg, data1, data2)
                     });
+                    window.mark_quit_menu_system_callback();
                 }
                 "SaveLoadMenuSystem" => {
                     window.set_system_callback(|window, msg, data1, data2| {

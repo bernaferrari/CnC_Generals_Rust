@@ -10028,6 +10028,16 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_game_data/camera_input_rules.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_game_data/camera_input_rules_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_game_data/camera_movement_rules.rs"
             },
             {
@@ -21275,6 +21285,11 @@
             },
             {
               "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/native_particle_owner_lifecycle_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/native_presentation.rs"
             },
@@ -26196,6 +26211,11 @@
               "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/gui_callbacks/control_bar_popup_description.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/gui_callbacks/control_bar_popup_description/owner_tests.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/GUICallbacks/ControlBarPopupDescription.cpp",
@@ -189870,7 +189890,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "a39d5c8949191c5f0da8c42982051ad2a5e1f52acb9bc73e139682ee0ae34847",
+  "provenance_input_digest": "44f9aa3d8737bc99630a5ccc031549c78437f1b9257decc82502c136960ef712",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,

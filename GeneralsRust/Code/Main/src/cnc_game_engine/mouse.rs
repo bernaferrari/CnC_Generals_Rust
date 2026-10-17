@@ -5,6 +5,11 @@ use super::selection_hud::{
 };
 use super::*;
 
+#[cfg(feature = "game_client")]
+mod cinematic_input;
+#[cfg(feature = "game_client")]
+pub(super) use cinematic_input::CinematicInputLoan;
+
 /// C++ `LookAtXlat.cpp:241-254` short middle-click home-orientation thresholds.
 const LOOKAT_MMB_CLICK_DURATION_FRAMES: u32 = 5;
 const LOOKAT_MMB_CLICK_PIXEL_OFFSET: f32 = 5.0;
@@ -276,6 +281,22 @@ impl LookAtHostModes {
         self.mmb_press_frame = 0;
         self.scroll_type = LookAtScrollType::None;
     }
+}
+
+/// Shared source resetModes state admission for world reset and cinematic input.
+fn reset_look_at_translator_fields(
+    modes: &mut LookAtHostModes,
+    rotating: &mut bool,
+    rotate_anchor: &mut Option<(f32, f32)>,
+    scrolling: &mut bool,
+    scroll_anchor: &mut Option<(f32, f32)>,
+) {
+    modes.reset_modes();
+    modes.mouse_locked = false;
+    *rotating = false;
+    *rotate_anchor = None;
+    *scrolling = false;
+    *scroll_anchor = None;
 }
 
 fn clamp_w3d_zoom(zoom: f32) -> f32 {

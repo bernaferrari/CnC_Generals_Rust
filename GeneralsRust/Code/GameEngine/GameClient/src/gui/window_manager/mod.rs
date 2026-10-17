@@ -133,7 +133,7 @@ mod script_callbacks;
 mod types;
 mod wnd_parse;
 
-pub use control_bar_dispatch::ControlBarInputContext;
+pub use control_bar_dispatch::{CameraOptionsInputContext, ControlBarInputContext};
 pub use layout::{WindowLayout, WindowLayoutInfo};
 pub use reentry::{
     ReentryFallback, WindowMouseFacts, dispatch_os_key_to_window_manager,

@@ -21,6 +21,14 @@ use game_engine::common::system::xfer_save::XferSave as CommonXferSave;
 use game_engine::{Xfer, XferStatus};
 use std::io::Cursor;
 
+/// Borrowed capabilities for one receiving ParticleSystem update; never stored.
+/// Object existence belongs to the driving world, retirement receipts to its
+/// existing host registry. The actual manager retains destruction/drain clocks.
+pub struct NativeParticleObjectLifecycle<'a> {
+    pub object_is_live: &'a dyn Fn(u32) -> bool,
+    pub attached_object_lost: &'a mut dyn FnMut(&ParticleSystemOwner, u32, u32),
+}
+
 // Authored primitives are owned by a renderer-independent crate. Runtime,
 // snapshot adapters, and definition catalogs remain on this GameClient owner.
 pub use generals_particles::{
@@ -702,6 +710,7 @@ impl ParticleSystemManager {
             &mut AmbientParticleLod,
             current_frame,
             None,
+            None,
         );
     }
 
@@ -713,7 +722,14 @@ impl ParticleSystemManager {
         current_frame: u32,
         lod: &mut game_engine::common::ini::GameLODManager,
     ) {
-        self.update_with_particle_lod(local_player_index, current_frame, lod, current_frame, None);
+        self.update_with_particle_lod(
+            local_player_index,
+            current_frame,
+            lod,
+            current_frame,
+            None,
+            None,
+        );
     }
 
     pub(crate) fn update_with_receiving_drawables(
@@ -732,6 +748,45 @@ impl ParticleSystemManager {
             &mut AmbientParticleLod,
             client_frame,
             Some(drawable_pose),
+            None,
+        );
+    }
+
+    /// Same production manager kernel, with explicit receiving Object lifetime.
+    pub fn update_with_object_lifecycle(
+        &mut self,
+        local_player_index: i32,
+        logic_frame: u32,
+        client_frame: u32,
+        lifecycle: &mut NativeParticleObjectLifecycle<'_>,
+    ) {
+        self.update_with_particle_lod(
+            local_player_index,
+            logic_frame,
+            &mut AmbientParticleLod,
+            client_frame,
+            None,
+            Some(lifecycle),
+        );
+    }
+    pub(crate) fn update_with_receiving_drawables_and_objects(
+        &mut self,
+        local_player_index: i32,
+        logic_frame: u32,
+        client_frame: u32,
+        drawable_pose: &dyn Fn(
+            DrawableId,
+        )
+            -> Option<crate::effects::particle_system::DrawableParticlePose>,
+        lifecycle: &mut NativeParticleObjectLifecycle<'_>,
+    ) {
+        self.update_with_particle_lod(
+            local_player_index,
+            logic_frame,
+            &mut AmbientParticleLod,
+            client_frame,
+            Some(drawable_pose),
+            Some(lifecycle),
         );
     }
 
@@ -744,6 +799,7 @@ impl ParticleSystemManager {
         drawable_pose: Option<
             &dyn Fn(DrawableId) -> Option<crate::effects::particle_system::DrawableParticlePose>,
         >,
+        mut lifecycle: Option<&mut NativeParticleObjectLifecycle<'_>>,
     ) {
         // CPP ParticleSys2906-2911 deduplicates the actual GameLogic clock.
         // Individual systems/particles observe the separate Client clock.
@@ -753,6 +809,7 @@ impl ParticleSystemManager {
         self.last_logic_frame_update = logic_frame;
         self.local_player_index = local_player_index;
 
+        let runtime_owner = self.runtime_owner();
         // C++ per system: emit/createParticle then update those particles same frame.
         let mut next_system = 0;
         while next_system < self.active_system_order.len() {
@@ -762,11 +819,29 @@ impl ParticleSystemManager {
                     .active_systems
                     .get_mut(&id)
                     .expect("particle admission order references a registered system");
-                system.prepare_frame_emit_with_drawable_poses(
-                    local_player_index,
-                    client_frame,
-                    drawable_pose,
-                )
+                let attached_before = system.attached_object();
+                let phase = if let Some(owner) = lifecycle.as_deref() {
+                    system.prepare_frame_emit_with_object_liveness(
+                        local_player_index,
+                        client_frame,
+                        drawable_pose,
+                        Some(owner.object_is_live),
+                    )
+                } else {
+                    system.prepare_frame_emit_with_drawable_poses(
+                        local_player_index,
+                        client_frame,
+                        drawable_pose,
+                    )
+                };
+                if let Some(object) = attached_before
+                    .filter(|_| system.attached_object().is_none() && system.is_destroyed())
+                {
+                    if let Some(owner) = lifecycle.as_deref_mut() {
+                        (owner.attached_object_lost)(&runtime_owner, id, object);
+                    }
+                }
+                phase
             };
             // Attachment resolution and direct module destruction can mark the
             // current system without borrowing its descendants. Apply the

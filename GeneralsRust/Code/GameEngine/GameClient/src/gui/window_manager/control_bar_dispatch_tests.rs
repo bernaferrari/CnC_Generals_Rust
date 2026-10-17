@@ -1,4 +1,6 @@
 //! Actual WND callback binding + hit-tested gadget input, with borrowed owners.
+#[path = "camera_options_input_tests.rs"]
+mod camera_options_input_tests;
 use super::*;
 use crate::gui::callbacks::control_bar_callbacks::ControlBarViewport;
 use crate::gui::control_bar::{ControlBar, ControlBarStage};
@@ -73,10 +75,13 @@ fn click(
     let (x, y) = (x + 5, y + 5);
     let data = (((y as u32) << 16) | ((x as u32) & 0xffff)) as WindowMsgData;
     let mut context = ControlBarInputContext {
+        camera_options: None,
         control_bar: bar,
         viewport,
         replay: false,
         game_ending: false,
+        tooltips_disabled: false,
+        cursor_mouse: None,
     };
     for message in [WindowMessage::LeftDown, WindowMessage::LeftUp] {
         assert_eq!(
@@ -144,10 +149,13 @@ fn wnd_large_button_keyboard_and_ending_replay_guards_use_receiving_context() {
     manager.set_focus(Some(&button)).unwrap();
     {
         let mut context = ControlBarInputContext {
+            camera_options: None,
             control_bar: &mut bar,
             viewport: &mut viewport,
             replay: false,
             game_ending: true,
+            tooltips_disabled: false,
+            cursor_mouse: None,
         };
         for state in [0x02, 0x01] {
             let _ = manager.process_key_event_with_control_bar(0x20, state, &mut context);
@@ -157,10 +165,13 @@ fn wnd_large_button_keyboard_and_ending_replay_guards_use_receiving_context() {
     assert_eq!(bar.get_control_bar_stage(), ControlBarStage::Default);
     {
         let mut context = ControlBarInputContext {
+            camera_options: None,
             control_bar: &mut bar,
             viewport: &mut viewport,
             replay: true,
             game_ending: false,
+            tooltips_disabled: false,
+            cursor_mouse: None,
         };
         for state in [0x02, 0x01] {
             let _ = manager.process_key_event_with_control_bar(0x20, state, &mut context);
@@ -169,10 +180,13 @@ fn wnd_large_button_keyboard_and_ending_replay_guards_use_receiving_context() {
     assert!(viewport.writes.is_empty());
     {
         let mut context = ControlBarInputContext {
+            camera_options: None,
             control_bar: &mut bar,
             viewport: &mut viewport,
             replay: false,
             game_ending: false,
+            tooltips_disabled: false,
+            cursor_mouse: None,
         };
         for state in [0x02, 0x01] {
             let _ = manager.process_key_event_with_control_bar(0x20, state, &mut context);

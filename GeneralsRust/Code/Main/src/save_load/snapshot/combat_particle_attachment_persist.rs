@@ -1,5 +1,9 @@
 //! Native continuation for host particle attachment descriptors. The historical
 //! positional registry entry stays unchanged; no client manager token is saved.
+//! Original ParticleSys.cpp2395 transfers the raw attachment ObjectID. An owner
+//! physically removed since the preceding particle update remains a valid pending
+//! descriptor until the NEXT admitted update detaches/destroys it (1877-1904).
+//! Capture is immutable and never performs that lifecycle update early.
 use super::WorldSnapshot;
 use crate::game_logic::combat_particles::CombatParticleAttachment;
 use crate::game_logic::{GameLogic, ObjectId};
@@ -29,11 +33,22 @@ pub(super) fn append(bytes: &mut Vec<u8>, world: &GameLogic) -> SaveLoadResult<(
     for entry in records {
         let value = entry.attachment.as_ref().unwrap();
         if entry.id == 0
-            || world.host_object(value.owner).is_none()
+            || value.owner.0 == 0
+            || entry.source_object != Some(value.owner)
             || !value.local_offset.is_finite()
             || !value.local_z_rotation.is_finite()
         {
-            return Err(invalid());
+            return Err(SaveLoadError::Corrupted(format!(
+                "invalid CPAT particle attachments: live particle={} kind={:?} template={:?} owner={} present={} offset={:?} rotation={} active={}",
+                entry.id,
+                entry.kind,
+                entry.template_name,
+                value.owner.0,
+                world.host_object(value.owner).is_some(),
+                value.local_offset,
+                value.local_z_rotation,
+                entry.active,
+            )));
         }
         for word in [
             entry.id,
@@ -114,7 +129,11 @@ pub(super) fn decode_and_validate(
         let local_z_rotation = f32::from_bits(read(offset + 28));
         if !ids.contains(&id)
             || owner.0 == 0
-            || !snapshot.objects.contains_key(&owner)
+            || !snapshot
+                .combat_particles
+                .systems
+                .iter()
+                .any(|entry| entry.id == id && entry.source_object == Some(owner))
             || !snapshot
                 .combat_particles
                 .systems
@@ -143,3 +162,7 @@ pub(super) fn decode_and_validate(
 #[cfg(test)]
 #[path = "combat_particle_attachment_persist_tests.rs"]
 mod tests;
+
+#[cfg(all(test, feature = "game_client"))]
+#[path = "combat_particle_attachment_owner_tests.rs"]
+mod owner_lifecycle_tests;

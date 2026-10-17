@@ -371,3 +371,37 @@ impl CombatParticleRegistry {
         Ok(adopted)
     }
 }
+
+#[cfg(feature = "game_client")]
+impl CombatParticleRegistry {
+    /// Receipt from actual per-system attachment resolution, after initial delay
+    /// and wind. This stops host emission observations, never deletes/drains the
+    /// Client system early; its manager retains the exact source lifetime.
+    pub(crate) fn admit_client_object_attachment_lost(
+        &mut self,
+        manager: &game_client::effects::particle_manager::ParticleSystemOwner,
+        client_id: u32,
+        object_id: u32,
+    ) -> bool {
+        let Some(host_id) = self.client_bindings.iter().find_map(|(id, binding)| {
+            (binding.id == client_id && &binding.owner == manager).then_some(*id)
+        }) else {
+            return false;
+        };
+        let Some(entry) = self.systems.get_mut(&host_id) else {
+            return false;
+        };
+        if !entry
+            .attachment
+            .as_ref()
+            .is_some_and(|value| value.owner.0 == object_id)
+        {
+            return false;
+        }
+        entry.attachment = None;
+        entry.active = false;
+        // Retain the namespace receipt while Client particles drain; clear/reset
+        // still owns that real resource and cannot acquire a peer's numeric ID.
+        true
+    }
+}

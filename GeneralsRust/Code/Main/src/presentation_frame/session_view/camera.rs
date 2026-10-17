@@ -7,6 +7,7 @@ mod commands;
 pub(crate) mod constraints;
 pub(crate) mod continuation;
 pub(crate) mod height;
+pub(crate) mod input_rules;
 pub(crate) mod motion;
 pub(crate) mod movement_rules;
 pub(crate) mod pose;
@@ -21,6 +22,7 @@ pub(crate) use shaker::ScriptCameraShaker;
 pub(crate) struct SessionCamera {
     pub(crate) settings: settings::CameraSettings,
     pub(crate) movement_policy: movement_rules::CameraMovementPolicy,
+    pub(crate) input_policy: input_rules::CameraInputPolicy,
     pub(crate) clip_policy: clip::CameraClipPolicy,
     pub(crate) shake_policy: shake_rules::CameraShakePolicy,
     pub(crate) constraints: constraints::CameraConstraints,
@@ -70,6 +72,7 @@ impl Default for SessionCamera {
         Self {
             settings: Default::default(),
             movement_policy: Default::default(),
+            input_policy: Default::default(),
             clip_policy: Default::default(),
             shake_policy: Default::default(),
             constraints: Default::default(),

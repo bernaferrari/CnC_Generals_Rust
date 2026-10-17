@@ -1377,6 +1377,31 @@ pub struct InGameUISubsystem {
 }
 
 impl InGameUISubsystem {
+    pub fn tooltips_disabled_at(&self, frame: u32) -> bool {
+        frame < self.tooltips_disabled_until
+    }
+    /// Source InGameUI::setInputEnabled edge, using the receiving logical flag.
+    /// No second input-enabled authority is stored in this UI subsystem.
+    pub fn apply_cinematic_input_edge(&mut self, was_enabled: bool, enabled: bool) {
+        if was_enabled && !enabled {
+            self.force_attack_mode = false;
+            self.force_move_to_mode = false;
+            self.waypoint_mode = false;
+            self.prefer_selection_mode = false;
+            self.camera_rotating_left = false;
+            self.camera_rotating_right = false;
+            self.camera_zooming_in = false;
+            self.camera_zooming_out = false;
+        }
+    }
+    pub fn clear_cinematic_selection_and_modes(&mut self) {
+        self.presentation_selected.clear();
+        self.attack_move_to_mode = false;
+        self.waypoint_mode = false;
+        self.pending_command = None;
+        self.pending_special_power = None;
+    }
+
     fn map_cant_build_message(message: &str) -> String {
         crate::helpers::map_cant_build_message(message)
     }

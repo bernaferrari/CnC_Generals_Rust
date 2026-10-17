@@ -1219,10 +1219,26 @@ impl CnCGameEngine {
         snow_anim2d_client_only_dt(&mut self.host_snow_client_only_last_tick, now())
     }
 
+    /// Route surviving client messages into the driving world's existing queue.
+    /// Menu and runtime-host start paths share the native receiving boundary.
+    #[cfg(feature = "game_client")]
+    pub(super) fn pump_receiving_client_commands(
+        client: &game_client::core::GameClient,
+        pending: &mut crate::command_system::ReplayPendingState,
+    ) -> Result<(), String> {
+        client
+            .pump_message_stream_to_receiving_owner(&mut |messages| {
+                pending
+                    .receive_client_messages(messages)
+                    .map_err(game_client::core::GameClientError::InvalidOperation)
+            })
+            .map_err(|error| error.to_string())
+    }
+
     /// Wave 588: Menu GameClient shell tick + NewGame drain residual.
     ///
     /// Advances Main-injected device state, shell/pre/post UI, then drains
-    /// MSG_NEW_GAME *before* `pump_message_stream` so WND Start reaches InGame.
+    /// MSG_NEW_GAME before receiving command propagation so WND Start reaches InGame.
     /// Returns `true` when a match start was applied (caller should `return`).
     ///
     /// Distinct from InGame `host_tick_game_client_presentation_shell` (no FOW/pose;
@@ -1286,9 +1302,8 @@ impl CnCGameEngine {
             let _ = (t1, t2, t3);
         }
 
-        // Peek MSG_NEW_GAME before pump so WND Start reaches InGame, then let
-        // `pump_message_stream` deliver the same message to crate GameLogic
-        // (`GameLogic::logicMessageDispatcher` / MSG_NEW_GAME).
+        // Peek MSG_NEW_GAME before pump so WND Start reaches InGame, then
+        // deliver survivors to the current Main command owner exactly once.
         let t4 = std::time::Instant::now();
         if let Some(request) = self.take_pending_new_game_start_request() {
             if matches!(request.mode, GameMode::Shell) {
@@ -1308,9 +1323,14 @@ impl CnCGameEngine {
                 {
                     let gc = &mut self.game_client;
                     if early_menu_frame {
-                        debug!("Menu update_internal: calling gc.pump_message_stream");
+                        debug!("Menu update_internal: receiving client command pump");
                     }
-                    let _ = gc.pump_message_stream();
+                    if let Err(error) = Self::pump_receiving_client_commands(
+                        gc,
+                        &mut self.game_logic.replay_pending,
+                    ) {
+                        error!("Menu receiving command routing failed: {error}");
+                    }
                 }
                 let _ = Self::take_new_game_dispatch_from_common_stream();
                 gamelogic::helpers::TheGameLogic::clear_start_new_game_request();
@@ -1321,9 +1341,13 @@ impl CnCGameEngine {
         {
             let gc = &mut self.game_client;
             if early_menu_frame {
-                debug!("Menu update_internal: calling gc.pump_message_stream");
+                debug!("Menu update_internal: receiving client command pump");
             }
-            let _ = gc.pump_message_stream();
+            if let Err(error) =
+                Self::pump_receiving_client_commands(gc, &mut self.game_logic.replay_pending)
+            {
+                error!("Menu receiving command routing failed: {error}");
+            }
         }
 
         // Secondary path: crate helpers may flag start after pump.
@@ -2230,14 +2254,45 @@ impl CnCGameEngine {
             let tracked_carriers = &self.physical_gather_carrier_ids;
             let playability = &mut self.interactive_playability;
             #[cfg(feature = "game_client")]
+            let cinematic_ui = self.game_client.in_game_ui_subsystem();
+            #[cfg(feature = "game_client")]
             let (mut client_frame, snow, presence) =
                 self.game_client.split_frame_snow_and_drawable_presence();
+            #[cfg(feature = "game_client")]
+            let cinematic_window = &self.window;
+            #[cfg(feature = "game_client")]
+            let mut cinematic_cursor = |visible| cinematic_window.set_cursor_visible(visible);
+            #[cfg(feature = "game_client")]
+            let cinematic_input = super::mouse::CinematicInputLoan {
+                ui: cinematic_ui,
+                local_player: self.current_player_id,
+                modes: &mut self.look_at_modes,
+                selected: &mut self.selected_objects,
+                selected_receipt: &mut self.host_match_selected_ids,
+                presentation: &mut self.last_presentation_frame,
+                rotating: &mut self.is_mmb_rotating,
+                rotate_anchor: &mut self.mmb_anchor,
+                scrolling: &mut self.is_rmb_scrolling,
+                scroll_anchor: &mut self.rmb_scroll_anchor,
+                held: [
+                    &mut self.camera_rotate_left_held,
+                    &mut self.camera_rotate_right_held,
+                    &mut self.camera_zoom_in_held,
+                    &mut self.camera_zoom_out_held,
+                ],
+                waypoint: &mut self.sticky_waypoint_mode,
+                dragging: &mut self.is_dragging,
+                selection_start: &mut self.selection_start,
+                selection_screen: &mut self.selection_start_screen,
+                cursor_visible: &mut cinematic_cursor,
+            };
             #[cfg(feature = "game_client")]
             let mut ui = super::control_bar_viewport::NativeScriptUi::new(
                 snow,
                 &mut self.control_bar,
                 &mut self.control_bar_callbacks,
-            );
+            )
+            .with_cinematic_input(cinematic_input);
             #[cfg(feature = "game_client")]
             let mut view = super::native_view_effects::NativeRendererViewEffects::new(
                 self.render_pipeline.borrow_native_installed_poses(),

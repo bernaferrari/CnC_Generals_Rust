@@ -1305,13 +1305,28 @@ fn menu_shell_pumps_new_game_after_host_start() {
         .find("start_game_from_ui(request)")
         .expect("host start");
     let pump = body[start_ui..]
-        .find("pump_message_stream")
+        .find("Self::pump_receiving_client_commands(")
         .map(|offset| start_ui + offset)
-        .expect("pump after host start");
+        .expect("receiving command owner pump after host start");
     assert!(
         peek < start_ui && start_ui < pump,
-        "host start must peek NewGame, then pump so crate GameLogic sees MSG_NEW_GAME"
+        "host start must peek NewGame, then pump survivors to receiving Main command owner"
     );
+    let menu = &body[..body.find("// Secondary path:").expect("menu pump boundary")];
+    assert_eq!(
+        menu.matches("Self::pump_receiving_client_commands(")
+            .count(),
+        2
+    );
+    assert!(!menu.contains(".pump_message_stream("));
+    let runtime = include_str!("runtime_host/skirmish.rs");
+    assert_eq!(
+        runtime
+            .matches("Self::pump_receiving_client_commands(")
+            .count(),
+        1
+    );
+    assert!(!runtime.contains(".pump_message_stream("));
 }
 
 #[test]
@@ -1823,4 +1838,103 @@ fn command_line_update_images_alias_is_case_insensitive() {
         let global = game_engine::common::global_data::read();
         assert!(global.writable.should_update_tga_to_dds);
     });
+}
+
+#[test]
+#[cfg(all(feature = "game_client", not(target_arch = "wasm32")))]
+fn menu_client_survivors_use_actual_receiving_command_owner_without_core_queue() {
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "menu_client_survivors_use_actual_receiving_command_owner_without_core_queue",
+        || {
+            use crate::command_system::{
+                flush_recorder_and_replay_authority, stamp_host_logic_frame,
+            };
+            use game_engine::common::message_stream::{
+                Coord3D, GameMessage, GameMessageType, get_message_stream,
+            };
+            use std::sync::{
+                Arc,
+                atomic::{AtomicUsize, Ordering},
+            };
+            let calls = Arc::new(AtomicUsize::new(0));
+            let foreign = Arc::clone(&calls);
+            game_client::message_stream::command_router::set_host_command_authority(Some(
+                Arc::new(move |_| {
+                    foreign.fetch_add(1, Ordering::SeqCst);
+                }),
+            ));
+            let client = game_client::core::GameClient::new().unwrap();
+            let mut owner = crate::game_logic::GameLogic::new();
+            let mut peer = crate::game_logic::GameLogic::new();
+            game_client::message_stream::command_list::get_command_list()
+                .write()
+                .unwrap()
+                .retain_messages(|_| false);
+            {
+                let stream = get_message_stream();
+                let mut stream = stream.write().unwrap();
+                stream.clear_messages();
+                let first = stream.append_message(GameMessageType::DoStop);
+                first.set_player_index(0);
+                let second =
+                    stream.append_message(GameMessageType::DoMoveTo(Coord3D::new(12., 0., 4.)));
+                second.set_player_index(3);
+            }
+            // This is the same production helper used by both Menu branches
+            // and runtime-host start after NewGame interception. These ordinary
+            // survivors must not depend on Core's absent player0 queue.
+            CnCGameEngine::pump_receiving_client_commands(&client, &mut owner.replay_pending)
+                .unwrap();
+            assert_eq!(calls.load(Ordering::SeqCst), 0);
+            stamp_host_logic_frame(&mut owner.replay_pending, 7);
+            stamp_host_logic_frame(&mut peer.replay_pending, 7);
+            flush_recorder_and_replay_authority(
+                &mut owner.replay_pending,
+                &mut owner.command_queue,
+                0,
+            );
+            flush_recorder_and_replay_authority(
+                &mut peer.replay_pending,
+                &mut peer.command_queue,
+                0,
+            );
+            assert_eq!(owner.command_queue.len(), 2);
+            assert_eq!(owner.command_queue[0].player_id, 0);
+            assert!(matches!(
+                owner.command_queue[0].command_type,
+                crate::command_system::CommandType::Stop
+            ));
+            assert_eq!(owner.command_queue[1].player_id, 3);
+            assert!(matches!(
+                owner.command_queue[1].command_type,
+                crate::command_system::CommandType::MoveTo { .. }
+            ));
+            assert!(peer.command_queue.is_empty());
+            CnCGameEngine::pump_receiving_client_commands(&client, &mut owner.replay_pending)
+                .unwrap();
+            flush_recorder_and_replay_authority(
+                &mut owner.replay_pending,
+                &mut owner.command_queue,
+                0,
+            );
+            assert_eq!(
+                owner.command_queue.len(),
+                2,
+                "menu survivors queue once, not once per pump"
+            );
+            assert_eq!(calls.load(Ordering::SeqCst), 0);
+            let error = game_client::message_stream::command_router::route_commands_to_gamelogic(
+                vec![GameMessage::with_player(GameMessageType::DoStop, 0)],
+                7,
+            )
+            .unwrap_err();
+            assert!(error.to_string().contains("Player 0 not initialized"));
+            assert_eq!(
+                calls.load(Ordering::SeqCst),
+                1,
+                "foreign standalone callback remains owned by Core"
+            );
+        },
+    );
 }

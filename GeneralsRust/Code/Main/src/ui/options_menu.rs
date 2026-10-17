@@ -5,7 +5,7 @@
 //! Provides tabs for Video, Audio, Controls, and Game settings.
 
 use super::{
-    utils, ClickSpring, Interactive, KeyCode, MouseButton, Renderable, UIEvent, UIRenderContext,
+    ClickSpring, Interactive, KeyCode, MouseButton, Renderable, UIEvent, UIRenderContext, utils,
 };
 use crate::localization;
 use log::info;
@@ -201,6 +201,7 @@ impl ActionBtn {
 
 /// Options Menu implementation (from C++ OptionsMenu.cpp)
 pub struct OptionsMenu {
+    preferences: game_engine::common::user_preferences::UserPreferences,
     /// Current active tab
     current_tab: OptionsTab,
     /// Tab buttons
@@ -236,6 +237,7 @@ impl OptionsMenu {
     pub fn new() -> Self {
         Self {
             current_tab: OptionsTab::Video,
+            preferences: game_engine::common::user_preferences::UserPreferences::new(),
             tab_buttons: Vec::new(),
             action_buttons: Vec::new(),
             options: HashMap::new(),
@@ -244,6 +246,73 @@ impl OptionsMenu {
             screen_size: (1024, 768),
             settings_modified: false,
             animation_progress: 0.0,
+        }
+    }
+
+    pub(crate) fn admit_camera_input_defaults(
+        &mut self,
+        rules: game_engine::common::ini::ini_game_data::CameraInputRules,
+    ) {
+        // GadgetSliderSetPosition truncates then enforces its authored0..100 range.
+        let default =
+            ((rules.keyboard_default_scroll_factor * 100.0) as i32).clamp(0, 100) as f32 / 100.0;
+        self.default_values
+            .insert("controls.scroll_speed".into(), OptionValue::Float(default));
+        if !self.settings_modified {
+            self.refresh_options_controls();
+        }
+    }
+    pub(crate) fn admit_preferences(
+        &mut self,
+        preferences: game_engine::common::user_preferences::UserPreferences,
+    ) {
+        self.preferences = preferences;
+    }
+    fn camera_scroll_view(&self) -> OptionValue {
+        let default = match self.default_values.get("controls.scroll_speed") {
+            Some(OptionValue::Float(value)) => *value,
+            _ => {
+                game_engine::common::ini::ini_game_data::CameraInputRules::default()
+                    .keyboard_default_scroll_factor
+            }
+        };
+        // The absent-preference default is already the source's single integer-slider
+        // projection. Multiplying that quantized f32 again can lose another unit.
+        if self.preferences.get_string("ScrollFactor").is_none() {
+            return OptionValue::Float(default);
+        }
+        let rules = game_engine::common::ini::ini_game_data::CameraInputRules {
+            keyboard_default_scroll_factor: default,
+            ..Default::default()
+        };
+        let factor = rules.keyboard_scroll_factor(&self.preferences);
+        // A widget projection only; the runtime operation still reads raw effective factor.
+        OptionValue::Float(((factor * 100.0) as i32).clamp(0, 100) as f32 / 100.0)
+    }
+    pub(crate) fn refresh_options_controls(&mut self) {
+        let value = self.camera_scroll_view();
+        for control in self.iter_controls_mut() {
+            if control.key == "controls.scroll_speed" {
+                control.value = value.clone();
+            }
+        }
+        self.original_values
+            .insert("controls.scroll_speed".into(), value);
+    }
+    pub(crate) fn preferences(&self) -> &game_engine::common::user_preferences::UserPreferences {
+        &self.preferences
+    }
+    pub(crate) fn preferences_mut(
+        &mut self,
+    ) -> &mut game_engine::common::user_preferences::UserPreferences {
+        &mut self.preferences
+    }
+    pub(crate) fn reload_preferences(&mut self) {
+        if let Some(path) = self.preferences.configured_path().map(|p| p.to_path_buf()) {
+            // The path was resolved by this application's startup admission.
+            if let Some(path) = path.to_str() {
+                let _ = self.preferences.load(path);
+            }
         }
     }
 
@@ -729,12 +798,14 @@ impl OptionsMenu {
             Self::text("options.log.load_settings", "Loading current settings...")
         );
 
-        let flat = Self::options_ini_path()
+        let flat = self
+            .options_ini_path()
             .filter(|path| path.exists())
             .and_then(|path| std::fs::read_to_string(path).ok())
             .map(|text| Self::parse_flat_options_ini(&text))
             .unwrap_or_default();
 
+        let scroll_view = self.camera_scroll_view();
         for control in self.iter_controls_mut() {
             match control.key.as_str() {
                 "video.resolution" => {
@@ -777,9 +848,7 @@ impl OptionsMenu {
                     }
                 }
                 "controls.scroll_speed" => {
-                    if let Some(v) = flat.get("ScrollFactor").and_then(|s| s.parse::<f32>().ok()) {
-                        control.value = OptionValue::Float((v / 100.0).clamp(0.0, 1.0));
-                    }
+                    control.value = scroll_view.clone();
                 }
                 "controls.alternate_mouse" => {
                     if let Some(v) = flat.get("UseAlternateMouse") {
@@ -973,10 +1042,17 @@ impl OptionsMenu {
         // C++ OptionsMenu.cpp:1168 live-apply via WND saveOptions, not a stub.
         #[cfg(feature = "game_client")]
         {
-            let _ = game_client::gui::callbacks::apply_options_from_host(self.host_apply_values());
+            let apply = self.host_apply_values();
+            let _ = game_client::gui::callbacks::apply_options_from_host_with_preferences(
+                apply,
+                &mut self.preferences,
+            );
         }
 
-        if let Some(path) = Self::options_ini_path() {
+        for (key, value) in self.cpp_option_pairs() {
+            self.preferences.set_string(&key, value);
+        }
+        if let Some(path) = self.options_ini_path() {
             if let Some(parent) = path.parent() {
                 let _ = std::fs::create_dir_all(parent);
             }
@@ -1200,15 +1276,8 @@ impl OptionsMenu {
         self.settings_modified = true;
     }
 
-    fn options_ini_path() -> Option<PathBuf> {
-        let user_data_dir = game_engine::common::global_data::read()
-            .get_user_data_dir()
-            .to_string();
-        if user_data_dir.trim().is_empty() {
-            None
-        } else {
-            Some(PathBuf::from(user_data_dir).join("Options.ini"))
-        }
+    fn options_ini_path(&self) -> Option<PathBuf> {
+        self.preferences.configured_path().map(PathBuf::from)
     }
 
     fn iter_controls(&self) -> impl Iterator<Item = &OptionControl> {
@@ -1390,6 +1459,10 @@ impl Renderable for OptionsMenu {
 }
 
 #[cfg(test)]
+#[path = "options_camera_apply_tests.rs"]
+mod options_camera_apply_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -1533,9 +1606,10 @@ mod tests {
         assert!(!OptionsMenu::parse_yes_no(
             flat.get("SaveCameraInReplays").unwrap()
         ));
-        assert!(flat
-            .get("UseDoubleClickAttackMove")
-            .unwrap()
-            .eq_ignore_ascii_case("yes"));
+        assert!(
+            flat.get("UseDoubleClickAttackMove")
+                .unwrap()
+                .eq_ignore_ascii_case("yes")
+        );
     }
 }

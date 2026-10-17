@@ -3541,3 +3541,27 @@ mod garrison_evac_door_tests {
         );
     }
 }
+
+#[cfg(feature = "game_client")]
+impl crate::game_logic::GameLogic {
+    pub(crate) fn with_native_particle_object_lifecycle<R>(
+        &mut self,
+        operation: impl FnOnce(
+            &mut game_client::effects::particle_manager::NativeParticleObjectLifecycle<'_>,
+            &mut crate::command_system::ReplayPendingState,
+        ) -> R,
+    ) -> R {
+        let objects = &self.objects;
+        let particles = &mut self.combat_particles;
+        let exists = |id| objects.contains_key(&ObjectId(id));
+        let mut lost =
+            |manager: &game_client::effects::particle_manager::ParticleSystemOwner, id, object| {
+                particles.admit_client_object_attachment_lost(manager, id, object);
+            };
+        let mut lifecycle = game_client::effects::particle_manager::NativeParticleObjectLifecycle {
+            object_is_live: &exists,
+            attached_object_lost: &mut lost,
+        };
+        operation(&mut lifecycle, &mut self.replay_pending)
+    }
+}

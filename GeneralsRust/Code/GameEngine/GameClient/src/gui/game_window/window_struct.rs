@@ -47,7 +47,11 @@ pub struct WindowCallbacks {
     pub input: Option<InputCallback>,
     pub system: Option<SystemCallback>,
     pub(crate) control_bar_system: bool,
+    pub(crate) options_menu_system: bool,
+    pub(crate) main_menu_system: bool,
+    pub(crate) quit_menu_system: bool,
     pub(crate) owned_radar_draw: bool,
+    pub(crate) owned_control_bar_tooltip: bool,
 }
 
 /// Main GameWindow struct representing a UI window or control
@@ -169,6 +173,16 @@ impl Default for GameWindow {
 
 /// Bounded notification from one selected gadget input. The caller releases
 /// the sender borrow before delivering it synchronously to its actual owner.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SelectedOwnerAction {
+    ControlBarToggle,
+    OptionsAccept,
+    OptionsDefaults,
+    ShowOptions,
+    ShowQuitOptions,
+}
 pub(crate) struct ControlBarNotification {
     pub(crate) owner: Rc<RefCell<GameWindow>>,
+    pub(crate) action: SelectedOwnerAction,
+    pub(crate) control_id: WindowMsgData,
 }

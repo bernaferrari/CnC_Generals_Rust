@@ -62,6 +62,7 @@ fn admit_staged_session_view(
         let candidate_camera_clip = candidate.camera.clip_policy;
         let candidate_camera_shake = candidate.camera.shake_policy;
         let candidate_camera_movement = candidate.camera.movement_policy;
+        let candidate_camera_input = candidate.camera.input_policy;
         let candidate_scripted = std::mem::take(&mut candidate.scripted);
         // Map actions already applied to the candidate's receiving filter.
         #[cfg(feature = "game_client")]
@@ -72,6 +73,7 @@ fn admit_staged_session_view(
         candidate.camera.clip_policy = candidate_camera_clip;
         candidate.camera.shake_policy = candidate_camera_shake;
         candidate.camera.movement_policy = candidate_camera_movement;
+        candidate.camera.input_policy = candidate_camera_input;
         candidate.scripted = candidate_scripted;
         #[cfg(feature = "game_client")]
         {
@@ -240,14 +242,45 @@ impl CnCGameEngine {
         // Shell scripts use the same receiving client phase as match scripts.
         // Keep the existing bounded fixed-step kernel and pause decision.
         #[cfg(feature = "game_client")]
+        let cinematic_ui = self.game_client.in_game_ui_subsystem();
+        #[cfg(feature = "game_client")]
         let (mut client_frame, snow, presence) =
             self.game_client.split_frame_snow_and_drawable_presence();
+        #[cfg(feature = "game_client")]
+        let cinematic_window = &self.window;
+        #[cfg(feature = "game_client")]
+        let mut cinematic_cursor = |visible| cinematic_window.set_cursor_visible(visible);
+        #[cfg(feature = "game_client")]
+        let cinematic_input = super::mouse::CinematicInputLoan {
+            ui: cinematic_ui,
+            local_player: self.current_player_id,
+            modes: &mut self.look_at_modes,
+            selected: &mut self.selected_objects,
+            selected_receipt: &mut self.host_match_selected_ids,
+            presentation: &mut self.last_presentation_frame,
+            rotating: &mut self.is_mmb_rotating,
+            rotate_anchor: &mut self.mmb_anchor,
+            scrolling: &mut self.is_rmb_scrolling,
+            scroll_anchor: &mut self.rmb_scroll_anchor,
+            held: [
+                &mut self.camera_rotate_left_held,
+                &mut self.camera_rotate_right_held,
+                &mut self.camera_zoom_in_held,
+                &mut self.camera_zoom_out_held,
+            ],
+            waypoint: &mut self.sticky_waypoint_mode,
+            dragging: &mut self.is_dragging,
+            selection_start: &mut self.selection_start,
+            selection_screen: &mut self.selection_start_screen,
+            cursor_visible: &mut cinematic_cursor,
+        };
         #[cfg(feature = "game_client")]
         let mut ui = super::control_bar_viewport::NativeScriptUi::new(
             snow,
             &mut self.control_bar,
             &mut self.control_bar_callbacks,
-        );
+        )
+        .with_cinematic_input(cinematic_input);
         #[cfg(feature = "game_client")]
         let mut view = super::native_view_effects::NativeRendererViewEffects::new(
             self.render_pipeline.borrow_native_installed_poses(),
@@ -1199,6 +1232,7 @@ impl CnCGameEngine {
         let candidate_camera_clip = candidate.camera.clip_policy;
         let candidate_camera_shake = candidate.camera.shake_policy;
         let candidate_camera_movement = candidate.camera.movement_policy;
+        let candidate_camera_input = candidate.camera.input_policy;
         let candidate_scripted = std::mem::take(&mut candidate.scripted);
         // Map actions already applied to the candidate's receiving filter.
         #[cfg(feature = "game_client")]
@@ -1211,6 +1245,7 @@ impl CnCGameEngine {
         candidate.camera.clip_policy = candidate_camera_clip;
         candidate.camera.shake_policy = candidate_camera_shake;
         candidate.camera.movement_policy = candidate_camera_movement;
+        candidate.camera.input_policy = candidate_camera_input;
         candidate.scripted = candidate_scripted;
         #[cfg(feature = "game_client")]
         {
@@ -1221,6 +1256,14 @@ impl CnCGameEngine {
     /// Wave 935: intentional full GameLogic replace boundary (map-load install).
     #[inline]
     pub(super) fn host_replace_game_logic(&mut self, mut logic: crate::game_logic::GameLogic) {
+        if logic
+            .session_view
+            .camera
+            .input_policy
+            .map_parsed_game_data()
+        {
+            self.ui_manager.reload_options_preferences();
+        }
         // Do this before replacing GameLogic so the old world's active token,
         // frozen residual, modal WND, and popup-owned pause all disappear as
         // one boundary. Process-lifetime popup tokens then reject any late
@@ -1235,6 +1278,8 @@ impl CnCGameEngine {
             &mut logic.session_view,
         );
         self.game_logic = logic;
+        self.ui_manager
+            .admit_camera_input_defaults(self.game_logic.camera_input_rules());
         self.host_admit_snow_for_world();
         crate::command_system::bind_host_replay_authority(&self.game_logic.replay_pending);
         if let Some(shadow) = self.gameworld_shadow.as_mut() {
@@ -1495,6 +1540,17 @@ impl CnCGameEngine {
         } else {
             self.control_groups.clear();
         }
+        if self
+            .game_logic
+            .session_view
+            .camera
+            .input_policy
+            .map_parsed_game_data()
+        {
+            self.ui_manager.reload_options_preferences();
+        }
+        self.ui_manager
+            .admit_camera_input_defaults(self.game_logic.camera_input_rules());
         Ok(())
     }
 
@@ -1670,6 +1726,7 @@ impl CnCGameEngine {
         camera_clip_policy: crate::presentation_frame::camera::clip::CameraClipPolicy,
         camera_shake_policy: crate::presentation_frame::camera::shake_rules::CameraShakePolicy,
         camera_movement_policy: crate::presentation_frame::camera::movement_rules::CameraMovementPolicy,
+        camera_input_policy: crate::presentation_frame::camera::input_rules::CameraInputPolicy,
         live_services: &Arc<gamelogic::system::engine_stores::WorldServices>,
     ) -> Result<StagedRestoreWorld, String> {
         // A previous aborted decode cannot lend its client chunk to this save.
@@ -1696,6 +1753,7 @@ impl CnCGameEngine {
             camera_clip_policy,
             camera_shake_policy,
             camera_movement_policy,
+            camera_input_policy,
             live_services,
             |snapshot, staged| {
                 save_file_manager
@@ -1732,6 +1790,7 @@ impl CnCGameEngine {
         camera_clip_policy: crate::presentation_frame::camera::clip::CameraClipPolicy,
         camera_shake_policy: crate::presentation_frame::camera::shake_rules::CameraShakePolicy,
         camera_movement_policy: crate::presentation_frame::camera::movement_rules::CameraMovementPolicy,
+        camera_input_policy: crate::presentation_frame::camera::input_rules::CameraInputPolicy,
         live_services: &Arc<gamelogic::system::engine_stores::WorldServices>,
         restore_snapshot: F,
     ) -> Result<StagedRestoreWorld, String>
@@ -1805,6 +1864,7 @@ impl CnCGameEngine {
         staged.session_view.camera.clip_policy = camera_clip_policy.reset_seed();
         staged.session_view.camera.shake_policy = camera_shake_policy.reset_seed();
         staged.session_view.camera.movement_policy = camera_movement_policy.reset_seed();
+        staged.session_view.camera.input_policy = camera_input_policy.reset_seed();
         // Map object restoration needs the live INI/template catalog.  Keep
         // custom/mod templates from the source match while retaining the fresh
         // world's standard startup catalog.
@@ -1904,6 +1964,7 @@ impl CnCGameEngine {
             self.game_logic.session_view.camera.clip_policy,
             self.game_logic.session_view.camera.shake_policy,
             self.game_logic.session_view.camera.movement_policy,
+            self.game_logic.session_view.camera.input_policy,
             &self.game_logic.world_services,
         ) {
             Ok(staged) => staged,
@@ -2464,6 +2525,7 @@ mod staged_restore_tests {
             source.session_view.camera.clip_policy,
             source.session_view.camera.shake_policy,
             source.session_view.camera.movement_policy,
+            source.session_view.camera.input_policy,
             &source.world_services,
         ) {
             Ok(_) => panic!("missing saved map must reject before a false InGame restore"),
@@ -2508,6 +2570,7 @@ mod staged_restore_tests {
                     logic.session_view.camera.clip_policy,
                     logic.session_view.camera.shake_policy,
                     logic.session_view.camera.movement_policy,
+                    logic.session_view.camera.input_policy,
                     &logic.world_services,
                     |_snapshot, _staged| {
                         panic!("invalid client chunk must fail before stage restore")
@@ -2618,6 +2681,7 @@ mod staged_restore_tests {
                     source.session_view.camera.clip_policy,
                     source.session_view.camera.shake_policy,
                     source.session_view.camera.movement_policy,
+                    source.session_view.camera.input_policy,
                     &source.world_services,
                 )
                 .expect("saved map should load before restore");
@@ -2877,6 +2941,7 @@ mod staged_restore_tests {
                     source.session_view.camera.clip_policy,
                     source.session_view.camera.shake_policy,
                     source.session_view.camera.movement_policy,
+                    source.session_view.camera.input_policy,
                     &source.world_services,
                     |_snapshot, staged| {
                         assert!(staged.isInGame(), "failure is injected after map load");
@@ -3163,6 +3228,7 @@ mod staged_restore_tests {
                             source.session_view.camera.clip_policy,
                             source.session_view.camera.shake_policy,
                             source.session_view.camera.movement_policy,
+                            source.session_view.camera.input_policy,
                             &source.world_services,
                             |snapshot, candidate| {
                                 saves
@@ -3415,6 +3481,7 @@ mod staged_restore_tests {
                     source.session_view.camera.clip_policy,
                     source.session_view.camera.shake_policy,
                     source.session_view.camera.movement_policy,
+                    source.session_view.camera.input_policy,
                     &source.world_services,
                 )
                 .expect("stage RNG continuation save");
@@ -3684,6 +3751,7 @@ mod staged_restore_tests {
                         source.session_view.camera.clip_policy,
                         source.session_view.camera.shake_policy,
                         source.session_view.camera.movement_policy,
+                        source.session_view.camera.input_policy,
                         &source.world_services,
                         |_, candidate| {
                             assert!(candidate.isInGame());
@@ -3727,6 +3795,7 @@ mod staged_restore_tests {
                         source.session_view.camera.clip_policy,
                         source.session_view.camera.shake_policy,
                         source.session_view.camera.movement_policy,
+                        source.session_view.camera.input_policy,
                         &source.world_services,
                     )
                     .expect("successful native owned-service staging");

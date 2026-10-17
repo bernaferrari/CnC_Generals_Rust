@@ -1656,6 +1656,26 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
             }
             _ => {}
         }
+        if let ScriptWorldRequest::Input { enabled } = request {
+            if let Some(ui) = self.ui.ui.as_mut() {
+                if !ui.has_cinematic_input() {
+                    return Some(Err(gamelogic::GameLogicError::Configuration(
+                        "native presentation lacks receiving cinematic input capability".into(),
+                    )));
+                }
+                let was_enabled = self.world.script_input_enabled();
+                self.world.set_script_input_enabled(enabled);
+                let world = &mut self.world;
+                return Some(ui.cinematic_input(enabled, was_enabled, &mut |player| {
+                    world.select_objects_no_sound(player, Vec::new());
+                }));
+            }
+            if self.ui.view.is_some() {
+                return Some(Err(gamelogic::GameLogicError::Configuration(
+                    "native view operation cannot fall back to ambient cinematic input".into(),
+                )));
+            }
+        }
         let handler = self
             .interpreter
             .or(self.world.owned_script_engine.as_ref())

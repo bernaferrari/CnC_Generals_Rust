@@ -3,6 +3,7 @@
 impl ControlBar {
     pub fn new() -> Self {
         Self {
+            tooltip: Default::default(),
             context: Arc::new(RwLock::new(ControlBarContext::default())),
             window_manager: None,
             current_window: None,
@@ -913,5 +914,21 @@ impl ControlBar {
         *guard = context;
 
         Ok(())
+    }
+}
+
+impl ControlBar {
+    pub fn update_build_tooltip_layout_owned(&mut self, game_ending: bool) {
+        crate::gui::gui_callbacks::control_bar_popup_description::update_build_tooltip_layout_owned(
+            &mut self.tooltip,
+            game_ending,
+        );
+    }
+
+    /// Delete exactly this bar's retained layout/animation, never a TLS peer.
+    pub fn delete_build_tooltip_layout_owned(&mut self) {
+        crate::gui::gui_callbacks::control_bar_popup_description::delete_build_tooltip_layout_owned(
+            &mut self.tooltip,
+        );
     }
 }

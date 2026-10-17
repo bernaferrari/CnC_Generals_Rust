@@ -594,6 +594,19 @@ pub fn quit_menu_system(
     data1: WindowMsgData,
     _data2: WindowMsgData,
 ) -> WindowMsgHandled {
+    quit_menu_system_with_camera_input(msg, data1, None)
+}
+pub(crate) fn select_quit_options_with_camera_input(
+    control_id: WindowMsgData,
+    observation: crate::gui::callbacks::OptionsCameraInputObservation,
+) -> WindowMsgHandled {
+    quit_menu_system_with_camera_input(WindowMessage::GadgetSelected, control_id, Some(observation))
+}
+fn quit_menu_system_with_camera_input(
+    msg: WindowMessage,
+    data1: WindowMsgData,
+    camera_input: Option<crate::gui::callbacks::OptionsCameraInputObservation>,
+) -> WindowMsgHandled {
     match msg {
         WindowMessage::Create => WindowMsgHandled::Handled,
         WindowMessage::Destroy => WindowMsgHandled::Handled,
@@ -653,9 +666,13 @@ pub fn quit_menu_system(
                 toggle_quit_menu();
                 return WindowMsgHandled::Handled;
             } else if control_id == state.button_options {
-                queue_shell_operation(|shell| {
+                queue_shell_operation(move |shell| {
                     if let Some(layout) = shell.get_options_layout(true) {
-                        let _ = layout.run_init(None);
+                        let _ = layout.run_init(
+                            camera_input
+                                .as_ref()
+                                .map(|value| value as &dyn std::any::Any),
+                        );
                         layout.hide(false);
                         layout.bring_forward();
                     }

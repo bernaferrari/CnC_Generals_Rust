@@ -119,6 +119,7 @@ impl CnCGameEngine {
             self.game_logic.session_view.camera.clip_policy,
             self.game_logic.session_view.camera.shake_policy,
             self.game_logic.session_view.camera.movement_policy,
+            self.game_logic.session_view.camera.input_policy,
             &self.game_logic.world_services,
         )
     }

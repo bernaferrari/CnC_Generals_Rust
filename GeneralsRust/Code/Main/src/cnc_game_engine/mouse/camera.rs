@@ -126,12 +126,6 @@ impl CnCGameEngine {
     }
 
     pub(in crate::cnc_game_engine) fn update_camera(&mut self, dt: f32) {
-        // C++ ScriptActions.cpp:3188 doDisableInput → LookAtTranslator::resetModes.
-        // Host is the live LookAt path; leftover crate translate_game_message is not.
-        #[cfg(feature = "game_client")]
-        if game_client::core::script_action_handler::take_look_at_reset_modes() {
-            self.apply_look_at_reset_modes();
-        }
         self.sync_letterbox_os_cursor_visibility();
         if !self.lookat_input_enabled() {
             // C++ LookAtXlat.cpp:270-274: input disabled stops any scroll.
@@ -145,14 +139,10 @@ impl CnCGameEngine {
         // near the top of update_camera for ENGINE_SRC residual scans.
         let logic_frames_per_second =
             game_engine::common::game_common::LOGICFRAMES_PER_SECOND as f32;
-        let (horizontal_scroll_speed_factor, vertical_scroll_speed_factor, keyboard_scroll_factor) = {
-            let global_data = game_engine::common::global_data::read();
-            (
-                global_data.horizontal_scroll_speed_factor,
-                global_data.vertical_scroll_speed_factor,
-                global_data.keyboard_scroll_factor,
-            )
-        };
+        let input_rules = self.game_logic.camera_input_rules();
+        let horizontal_scroll_speed_factor = input_rules.horizontal_scroll_speed_factor;
+        let vertical_scroll_speed_factor = input_rules.vertical_scroll_speed_factor;
+        let keyboard_scroll_factor = self.ui_manager.camera_keyboard_scroll_factor(input_rules);
         const SCROLL_AMT: f32 = 100.0;
         self.look_at_modes.lookat_note_mouse_moved(
             self.game_logic.get_current_frame() as u32,
@@ -328,7 +318,7 @@ impl CnCGameEngine {
         }
         // C++ InGameUI.cpp:1836 TheGlobalData->m_keyboardCameraRotateSpeed per frame.
         let rotate_delta = lookat_keyboard_rotate_delta(
-            game_engine::common::global_data::read().keyboard_camera_rotate_speed,
+            input_rules.keyboard_camera_rotate_speed,
             dt,
             logic_frames_per_second,
         );
@@ -836,8 +826,9 @@ impl CnCGameEngine {
     pub(in crate::cnc_game_engine) fn lookat_input_enabled(&self) -> bool {
         #[cfg(feature = "game_client")]
         {
+            // The receiving logical flag is the native UI input authority.
+            // Core's standalone UI/logic mirrors must never choose this engine.
             self.game_logic.script_input_enabled()
-                && game_client::helpers::TheInGameUI::get_input_enabled()
         }
         #[cfg(not(feature = "game_client"))]
         {
@@ -989,13 +980,17 @@ impl CnCGameEngine {
         // Live host also unlocks KEY/SCREENEDGE so WindowXlat cannot stay
         // suppressed after doDisableInput (C++ resetModes only clears flags).
         self.set_lookat_scroll_mouse_lock(false);
-        self.is_mmb_rotating = false;
-        self.mmb_anchor = None;
         self.camera_rotate_left_held = false;
         self.camera_rotate_right_held = false;
         self.camera_zoom_in_held = false;
         self.camera_zoom_out_held = false;
-        self.look_at_modes.reset_modes();
+        reset_look_at_translator_fields(
+            &mut self.look_at_modes,
+            &mut self.is_mmb_rotating,
+            &mut self.mmb_anchor,
+            &mut self.is_rmb_scrolling,
+            &mut self.rmb_scroll_anchor,
+        );
     }
 
     /// C++ `LookAtXlat.cpp:224-233` middle-button down.

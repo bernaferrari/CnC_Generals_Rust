@@ -113,7 +113,7 @@ impl WindowManager {
         const GGM_LEFT_DRAG: u32 = 16384;
         const GGM_CLOSE: u32 = GGM_LEFT_DRAG + 5;
         let old_lone = self.lone_window.as_ref().and_then(|w| w.upgrade());
-        self.update_cursor_tooltip_for_mouse_event(x, y);
+        self.update_cursor_tooltip_for_mouse_event_owned(x, y, context.as_deref_mut());
         // Find window under cursor or use capture
         let capture_window = self.get_capture();
         let target_window = if let Some(capture) = capture_window.as_ref() {
@@ -413,6 +413,68 @@ impl WindowManager {
         new_x = high_x - width;
         new_y = high_y - height;
         let _ = grab_window.borrow_mut().set_position(new_x, new_y);
+    }
+
+    /// Native per-frame hover observation shares the same hit-test and formatter
+    /// as delivered input, without delivering another gadget input event.
+    pub fn refresh_control_bar_tooltip(
+        &mut self,
+        x: i32,
+        y: i32,
+        context: &mut super::ControlBarInputContext<'_>,
+    ) {
+        self.update_cursor_tooltip_for_mouse_event_owned(x, y, Some(context));
+    }
+
+    fn update_cursor_tooltip_for_mouse_event_owned(
+        &mut self,
+        x: i32,
+        y: i32,
+        context: Option<&mut super::ControlBarInputContext<'_>>,
+    ) {
+        let Some(context) = context else {
+            return self.update_cursor_tooltip_for_mouse_event(x, y);
+        };
+        // The source clears the previous generic tooltip before hit-testing,
+        // including capture, disabled tooltips and an owned command callback.
+        if let Some(mouse) = context.cursor_mouse {
+            mouse
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .set_cursor_tooltip(String::new(), None, None, None);
+        }
+        if self.get_capture().is_some() || self.get_grab_window().is_some() {
+            return;
+        }
+        let Some(window) = self.find_tooltip_window_at_point(x, y) else {
+            return;
+        };
+        if window.borrow().has_owned_control_bar_tooltip() {
+            // Release the child before layout creation/population uses its manager.
+            if !context.tooltips_disabled && !context.game_ending {
+                crate::gui::gui_callbacks::control_bar_popup_description::show_build_tooltip_layout_owned(
+                    &mut context.control_bar.tooltip, self, window,
+                );
+            }
+            return;
+        }
+        let packed = ((y as u32) << 16) | ((x as u32) & 0xffff);
+        let window = window.borrow();
+        if let Some(callback) = window.get_tooltip_callback() {
+            callback(&window, window.instance_data(), packed);
+        } else if !window.get_tooltip().is_empty() {
+            if let Some(mouse) = context.cursor_mouse {
+                mouse
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .set_cursor_tooltip(
+                        window.get_tooltip().to_string(),
+                        Some(window.get_tooltip_delay()),
+                        None,
+                        None,
+                    );
+            }
+        }
     }
 
     pub(crate) fn update_cursor_tooltip_for_mouse_event(&self, x: i32, y: i32) {

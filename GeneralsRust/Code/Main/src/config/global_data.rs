@@ -287,6 +287,23 @@ impl GlobalData {
         hasher.finalize()
     }
 
+    /// Resolve the same startup Paths input without publishing configuration.
+    pub(crate) fn user_data_path_from_texts(texts: &[String]) -> Result<PathBuf> {
+        let mut draft = Self::new();
+        for text in texts {
+            draft
+                .ini_parser
+                .load_from_string(text, LoadMode::MultiFile)?;
+            draft.load_settings_from_ini();
+        }
+        let path = draft.user_data_path;
+        Ok(if path.is_absolute() {
+            path
+        } else {
+            std::env::current_dir()?.join(path)
+        })
+    }
+
     /// Get user data path
     pub fn get_path_user_data(&self) -> &Path {
         &self.user_data_path

@@ -159,6 +159,15 @@ impl Default for ReplayPendingState {
 }
 
 impl ReplayPendingState {
+    /// Client stream handoff into this receiving world; reset disconnects old loans.
+    pub(crate) fn receive_client_messages(
+        &mut self,
+        messages: Vec<GameMessage>,
+    ) -> Result<(), String> {
+        self.sender
+            .send(messages)
+            .map_err(|error| format!("receiving command handoff disconnected: {error}"))
+    }
     pub fn clear(&mut self) {
         // Disconnect a callback that captured the previous world/session's
         // sender, so a late delivery cannot enter the reset game.
@@ -365,25 +374,14 @@ pub fn install_host_replay_bridges() {
     });
 }
 
-/// Bind the GameClient command-router callback to the active world's queue.
-/// The closure retains only a sender: dropping a world disconnects its queue.
+/// Bind Recorder frame observation to the receiving world's logical clock.
+/// Native client commands use an explicit operation loan, never Core's callback.
 pub fn bind_host_replay_authority(state: &ReplayPendingState) {
     install_host_replay_bridges();
     let host_frame = Arc::clone(&state.host_logic_frame);
     let _ = with_recorder_mut(|recorder| {
         recorder.set_frame_provider(Some(Arc::new(move || host_frame.load(Ordering::Relaxed))));
     });
-    #[cfg(feature = "game_client")]
-    {
-        let sender = state.sender.clone();
-        game_client::message_stream::command_router::set_host_command_authority(Some(Arc::new(
-            move |messages| {
-                let _ = sender.send(messages.to_vec());
-            },
-        )));
-    }
-    #[cfg(not(feature = "game_client"))]
-    let _ = state;
 }
 
 /// Convert a live host order into a `GameMessage` and append it to

@@ -365,6 +365,41 @@ impl MenuCallbacks for SinglePlayerMenu {
     }
 }
 
+/// Immutable observation at native ShowOptions, never a mutable input authority.
+#[derive(Clone, Copy, Debug)]
+pub struct OptionsCameraInputObservation {
+    pub scroll_factor: f32,
+    pub default_scroll_factor: f32,
+}
+impl OptionsCameraInputObservation {
+    pub fn observe(
+        rules: game_engine::common::ini::ini_game_data::CameraInputRules,
+        preferences: &UserPreferences,
+    ) -> Self {
+        Self {
+            scroll_factor: rules.keyboard_scroll_factor(preferences),
+            default_scroll_factor: rules.keyboard_default_scroll_factor,
+        }
+    }
+}
+/// Apply only to windows from the actual admitted receiving layout.
+fn set_owned_options_scroll(layout: &WindowLayout, value: f32, range: bool) {
+    let id = game_engine::common::name_key_generator::NameKeyGenerator::name_to_key(
+        "OptionsMenu.wnd:SliderScrollSpeed",
+    ) as i32;
+    if let Some(window) = layout
+        .windows()
+        .iter()
+        .find(|window| window.borrow().get_id() == id)
+    {
+        if let Some(slider) = window.borrow_mut().horizontal_slider_mut() {
+            if range {
+                slider.set_range(0, 100);
+            }
+            slider.set_value((value * 100.0) as i32);
+        }
+    }
+}
 /// Options Menu implementation
 pub struct OptionsMenu {
     initialized: bool,
@@ -722,6 +757,12 @@ impl OptionsMenu {
     }
 
     fn populate_controls(&mut self) {
+        self.populate_controls_with_camera_input(None);
+    }
+    fn populate_controls_with_camera_input(
+        &mut self,
+        owned: Option<(&WindowLayout, &OptionsCameraInputObservation)>,
+    ) {
         self.load_resolution_modes();
 
         let mut pref = UserPreferences::new();
@@ -760,13 +801,20 @@ impl OptionsMenu {
             .get_int("VoiceVolume")
             .unwrap_or((global.voice_volume_factor * 100.0) as i32);
         let gamma = pref.get_int_or("Gamma", 50);
-        let scroll_speed = pref.get_int_or(
-            "ScrollFactor",
-            (global.keyboard_default_scroll_factor * 100.0) as i32,
-        );
+        let scroll_speed = if owned.is_none() {
+            Some(pref.get_int_or(
+                "ScrollFactor",
+                (global.keyboard_default_scroll_factor * 100.0) as i32,
+            ))
+        } else {
+            None
+        };
         let anti_aliasing = pref
             .get_int_or("AntiAliasing", global.anti_alias_box_value)
             .clamp(0, 2) as usize;
+        // First-open LOD applies settings through the same runtime owner.
+        // End the observation before that mutation, then observe its results.
+        drop(global);
         // C++ OptionsMenu first-open: if static LOD is UNKNOWN, find+set.
         game_engine::common::game_lod::ensure_static_lod_applied();
         let detail_name = pref.get_string_or(
@@ -781,6 +829,7 @@ impl OptionsMenu {
         let detail_index = Self::detail_index_from_name(&detail_name);
         self.initial_detail_index = detail_index;
 
+        let global = runtime_global_data::read();
         let texture_reduction = pref
             .get_int("TextureReduction")
             .unwrap_or(global.texture_reduction_factor)
@@ -885,7 +934,11 @@ impl OptionsMenu {
         Self::set_checkbox(self.check_building_occlusion_id, building_occlusion);
         Self::set_checkbox(self.check_props_id, show_props);
 
-        Self::set_slider_range_and_value(self.slider_scroll_speed_id, 0, 100, scroll_speed);
+        if let Some((layout, observation)) = owned {
+            set_owned_options_scroll(layout, observation.scroll_factor, true);
+        } else if let Some(scroll_speed) = scroll_speed {
+            Self::set_slider_range_and_value(self.slider_scroll_speed_id, 0, 100, scroll_speed);
+        }
         Self::set_slider_range_and_value(self.slider_music_volume_id, 0, 100, music_volume);
         Self::set_slider_range_and_value(self.slider_sfx_volume_id, 0, 100, sfx_volume);
         Self::set_slider_range_and_value(self.slider_voice_volume_id, 0, 100, voice_volume);
@@ -902,6 +955,12 @@ impl OptionsMenu {
     }
 
     fn apply_default_controls(&mut self) {
+        self.apply_default_controls_with_scroll(None);
+    }
+    fn apply_default_controls_with_scroll(
+        &mut self,
+        owned: Option<(Option<Rc<RefCell<GameWindow>>>, f32)>,
+    ) {
         Self::set_checkbox(self.check_language_filter_id, true);
         Self::set_checkbox(self.check_send_delay_id, false);
         Self::set_checkbox(self.check_alternate_mouse_id, false);
@@ -909,9 +968,17 @@ impl OptionsMenu {
         Self::set_checkbox(self.check_double_click_attack_move_id, false);
         // C++ setDefaults never touches replay-camera or RMB-anchor checkboxes.
 
-        let default_scroll =
-            (runtime_global_data::read().keyboard_default_scroll_factor * 100.0).round() as i32;
-        Self::set_slider_value(self.slider_scroll_speed_id, default_scroll);
+        if let Some((slider, default)) = owned {
+            if let Some(slider) = slider {
+                if let Some(slider) = slider.borrow_mut().horizontal_slider_mut() {
+                    slider.set_value((default * 100.0) as i32);
+                }
+            }
+        } else {
+            let default_scroll =
+                (runtime_global_data::read().keyboard_default_scroll_factor * 100.0).round() as i32;
+            Self::set_slider_value(self.slider_scroll_speed_id, default_scroll);
+        }
         Self::set_slider_value(self.slider_music_volume_id, 60);
         Self::set_slider_value(self.slider_sfx_volume_id, 55);
         Self::set_slider_value(self.slider_voice_volume_id, 70);
@@ -944,10 +1011,19 @@ impl OptionsMenu {
     }
 
     fn apply_options(&mut self) -> bool {
-        crate::display::display_fx::install_default_display_gamma_hook();
         let host = take_host_options_apply();
-        let mut pref = UserPreferences::new();
-        let _ = pref.load("Options.ini");
+        let mut preferences = UserPreferences::new();
+        let _ = preferences.load("Options.ini");
+        self.apply_options_with_preferences(host, &mut preferences, None)
+    }
+    fn apply_options_with_preferences(
+        &mut self,
+        host: Option<HostOptionsApply>,
+        pref: &mut UserPreferences,
+        owned_scroll: Option<Option<i32>>,
+    ) -> bool {
+        crate::display::display_fx::install_default_display_gamma_hook();
+        let owns_camera_preferences = owned_scroll.is_some();
         let (
             old_resolution,
             windowed,
@@ -961,7 +1037,7 @@ impl OptionsMenu {
             (
                 (global.writable.x_resolution, global.writable.y_resolution),
                 global.writable.windowed,
-                (global.keyboard_scroll_factor * 100.0) as i32,
+                (!owns_camera_preferences).then(|| (global.keyboard_scroll_factor * 100.0) as i32),
                 (global.music_volume_factor * 100.0) as i32,
                 (global.sfx_volume_factor * 100.0) as i32,
                 (global.voice_volume_factor * 100.0) as i32,
@@ -1092,10 +1168,14 @@ impl OptionsMenu {
         drop(current);
 
         // C++ OptionsMenu.cpp:1168-1241 `if (val != -1)` — missing slider keeps pref.
-        let scroll_speed = Self::slider_value_opt(self.slider_scroll_speed_id)
-            .or_else(|| host.as_ref().map(|h| h.scroll_speed))
-            .unwrap_or_else(|| pref.get_int_or("ScrollFactor", default_scroll))
-            .clamp(0, 100);
+        let scroll_speed = match owned_scroll {
+            Some(value) => value,
+            None => Self::slider_value_opt(self.slider_scroll_speed_id)
+                .or_else(|| host.as_ref().map(|h| h.scroll_speed))
+                .or_else(|| pref.get_int("ScrollFactor"))
+                .or(default_scroll)
+                .map(|value| value.clamp(0, 100)),
+        };
         let music_volume = Self::slider_value_opt(self.slider_music_volume_id)
             .or_else(|| host.as_ref().map(|h| h.music_volume))
             .unwrap_or_else(|| pref.get_int_or("MusicVolume", default_music))
@@ -1140,7 +1220,9 @@ impl OptionsMenu {
         pref.set_string("Resolution", format!("{} {}", resolution.0, resolution.1));
         pref.set_int("AntiAliasing", anti_aliasing);
         pref.set_string("StaticGameLOD", detail_name.to_string());
-        pref.set_int("ScrollFactor", scroll_speed);
+        if let Some(scroll_speed) = scroll_speed {
+            pref.set_int("ScrollFactor", scroll_speed);
+        }
         pref.set_int("MusicVolume", music_volume);
         pref.set_int("SFXVolume", sfx_2d_volume);
         pref.set_int("SFX3DVolume", sfx_3d_volume);
@@ -1150,34 +1232,30 @@ impl OptionsMenu {
             "LanguageFilter",
             if language_filter { "true" } else { "false" }.to_string(),
         );
-        Self::set_yes_no(&mut pref, "SendDelay", send_delay);
-        Self::set_yes_no(&mut pref, "UseAlternateMouse", alternate_mouse);
-        Self::set_yes_no(&mut pref, "Retaliation", retaliation);
-        Self::set_yes_no(
-            &mut pref,
-            "UseDoubleClickAttackMove",
-            double_click_attack_move,
-        );
-        Self::set_yes_no(&mut pref, "SaveCameraInReplays", save_camera);
-        Self::set_yes_no(&mut pref, "UseCameraInReplays", use_camera);
-        Self::set_yes_no_title(&mut pref, "DrawScrollAnchor", draw_anchor);
-        Self::set_yes_no_title(&mut pref, "MoveScrollAnchor", move_anchor);
+        Self::set_yes_no(pref, "SendDelay", send_delay);
+        Self::set_yes_no(pref, "UseAlternateMouse", alternate_mouse);
+        Self::set_yes_no(pref, "Retaliation", retaliation);
+        Self::set_yes_no(pref, "UseDoubleClickAttackMove", double_click_attack_move);
+        Self::set_yes_no(pref, "SaveCameraInReplays", save_camera);
+        Self::set_yes_no(pref, "UseCameraInReplays", use_camera);
+        Self::set_yes_no_title(pref, "DrawScrollAnchor", draw_anchor);
+        Self::set_yes_no_title(pref, "MoveScrollAnchor", move_anchor);
         // C++ saveOptions writes advanced LOD only when Detail == CUSTOMDETAIL.
         // FPSLimit is never written (`//Never write this out`).
         const CUSTOMDETAIL: usize = 3;
         if detail_index == CUSTOMDETAIL {
             pref.set_int("TextureReduction", texture_reduction);
             pref.set_int("MaxParticleCount", particle_cap);
-            Self::set_yes_no(&mut pref, "UseShadowVolumes", use_shadow_volumes);
-            Self::set_yes_no(&mut pref, "UseShadowDecals", use_shadow_decals);
-            Self::set_yes_no(&mut pref, "UseCloudMap", use_cloud_map);
-            Self::set_yes_no(&mut pref, "UseLightMap", use_light_map);
-            Self::set_yes_no(&mut pref, "ShowSoftWaterEdge", show_soft_water_edge);
-            Self::set_yes_no(&mut pref, "ExtraAnimations", extra_animations);
-            Self::set_yes_no(&mut pref, "DynamicLOD", !no_dynamic_lod);
-            Self::set_yes_no(&mut pref, "HeatEffects", heat_effects);
-            Self::set_yes_no(&mut pref, "BuildingOcclusion", building_occlusion);
-            Self::set_yes_no(&mut pref, "ShowTrees", show_props);
+            Self::set_yes_no(pref, "UseShadowVolumes", use_shadow_volumes);
+            Self::set_yes_no(pref, "UseShadowDecals", use_shadow_decals);
+            Self::set_yes_no(pref, "UseCloudMap", use_cloud_map);
+            Self::set_yes_no(pref, "UseLightMap", use_light_map);
+            Self::set_yes_no(pref, "ShowSoftWaterEdge", show_soft_water_edge);
+            Self::set_yes_no(pref, "ExtraAnimations", extra_animations);
+            Self::set_yes_no(pref, "DynamicLOD", !no_dynamic_lod);
+            Self::set_yes_no(pref, "HeatEffects", heat_effects);
+            Self::set_yes_no(pref, "BuildingOcclusion", building_occlusion);
+            Self::set_yes_no(pref, "ShowTrees", show_props);
         }
         if let Some(firewall_behavior) = self.firewall_behavior_override {
             pref.set_string("FirewallBehavior", firewall_behavior.to_string());
@@ -1202,7 +1280,11 @@ impl OptionsMenu {
             global.use_camera_in_replay = use_camera;
             global.display_gamma = display_gamma;
             global.anti_alias_box_value = anti_aliasing;
-            global.keyboard_scroll_factor = scroll_speed as f32 / 100.0;
+            if !owns_camera_preferences {
+                if let Some(scroll_speed) = scroll_speed {
+                    global.keyboard_scroll_factor = scroll_speed as f32 / 100.0;
+                }
+            }
             global.music_volume_factor = music_volume as f32 / 100.0;
             global.sfx_volume_factor = sfx_volume as f32 / 100.0;
             global.voice_volume_factor = voice_volume as f32 / 100.0;
@@ -1310,6 +1392,58 @@ impl OptionsMenu {
         self.initialized = false;
     }
 
+    fn accept_options(&mut self, owned: Option<(&mut UserPreferences, Option<i32>)>) {
+        let resolution_changed = match owned {
+            Some((pref, scroll)) => self.apply_options_with_preferences(None, pref, Some(scroll)),
+            None => self.apply_options(),
+        };
+        let options_overlay_open = options_overlay_is_open();
+        if !TheGameLogic::is_in_game() || TheGameLogic::get_game_mode() == GAME_SHELL {
+            destroy_quit_menu();
+        }
+        self.close_menu();
+        if resolution_changed && !options_overlay_open {
+            get_main_menu().do_resolution_dialog();
+        }
+    }
+
+    pub(crate) fn init_with_camera_input(
+        &mut self,
+        layout: &WindowLayout,
+        observation: Option<&OptionsCameraInputObservation>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        self.init_ids();
+        self.ignore_selected = true;
+        with_window_manager(|manager| {
+            self.parent = manager.get_window_by_id(self.parent_id);
+            // Modal bookkeeping dispatches no messages — safe inline. Focus is
+            // deferred (see SinglePlayerMenu::init): an inline set_focus would
+            // re-enter the menu borrow held by this init dispatch.
+            if let Some(parent) = self.parent.as_ref() {
+                let _ = manager.set_modal(parent.clone());
+            }
+            if let Some(parent) = self.parent.clone() {
+                queue_window_manager_op_deferred(move |manager| {
+                    let _ = manager.set_focus(Some(&parent));
+                });
+            }
+        });
+        self.populate_controls_with_camera_input(observation.map(|value| (layout, value)));
+        let in_game_locked =
+            TheGameLogic::is_in_game() && TheGameLogic::get_game_mode() != GAME_SHELL;
+        if in_game_locked || options_overlay_is_open() {
+            Self::set_window_enabled(self.combo_lan_ip_id, false);
+            Self::set_window_enabled(self.combo_online_ip_id, false);
+            Self::set_window_enabled(self.combo_detail_id, false);
+            Self::set_window_enabled(self.combo_resolution_id, false);
+            Self::set_window_enabled(self.check_send_delay_id, false);
+            Self::set_window_enabled(self.button_firewall_refresh_id, false);
+        }
+        layout.hide(false);
+        self.ignore_selected = false;
+        self.initialized = true;
+        Ok(())
+    }
     fn init_ids(&mut self) {
         self.parent_id = Self::name_to_id("OptionsMenu.wnd:OptionsMenuParent");
         self.button_back_id = Self::name_to_id("OptionsMenu.wnd:ButtonBack");
@@ -1368,37 +1502,7 @@ impl MenuCallbacks for OptionsMenu {
         layout: &WindowLayout,
         _user_data: Option<&mut dyn std::any::Any>,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        self.init_ids();
-        self.ignore_selected = true;
-        with_window_manager(|manager| {
-            self.parent = manager.get_window_by_id(self.parent_id);
-            // Modal bookkeeping dispatches no messages — safe inline. Focus is
-            // deferred (see SinglePlayerMenu::init): an inline set_focus would
-            // re-enter the menu borrow held by this init dispatch.
-            if let Some(parent) = self.parent.as_ref() {
-                let _ = manager.set_modal(parent.clone());
-            }
-            if let Some(parent) = self.parent.clone() {
-                queue_window_manager_op_deferred(move |manager| {
-                    let _ = manager.set_focus(Some(&parent));
-                });
-            }
-        });
-        self.populate_controls();
-        let in_game_locked =
-            TheGameLogic::is_in_game() && TheGameLogic::get_game_mode() != GAME_SHELL;
-        if in_game_locked || options_overlay_is_open() {
-            Self::set_window_enabled(self.combo_lan_ip_id, false);
-            Self::set_window_enabled(self.combo_online_ip_id, false);
-            Self::set_window_enabled(self.combo_detail_id, false);
-            Self::set_window_enabled(self.combo_resolution_id, false);
-            Self::set_window_enabled(self.check_send_delay_id, false);
-            Self::set_window_enabled(self.button_firewall_refresh_id, false);
-        }
-        layout.hide(false);
-        self.ignore_selected = false;
-        self.initialized = true;
-        Ok(())
+        self.init_with_camera_input(layout, None)
     }
 
     fn update(
@@ -1458,15 +1562,7 @@ impl MenuCallbacks for OptionsMenu {
                 if control_id == self.button_back_id {
                     self.close_menu();
                 } else if control_id == self.button_accept_id {
-                    let resolution_changed = self.apply_options();
-                    let options_overlay_open = options_overlay_is_open();
-                    if !TheGameLogic::is_in_game() || TheGameLogic::get_game_mode() == GAME_SHELL {
-                        destroy_quit_menu();
-                    }
-                    self.close_menu();
-                    if resolution_changed && !options_overlay_open {
-                        get_main_menu().do_resolution_dialog();
-                    }
+                    self.accept_options(None);
                 } else if control_id == self.button_defaults_id {
                     self.apply_default_controls();
                 } else if control_id == self.button_firewall_refresh_id {
@@ -2453,6 +2549,46 @@ pub fn apply_options_from_host(apply: HostOptionsApply) -> bool {
         *slot.borrow_mut() = Some(apply);
     });
     apply_options_menu_like_cpp()
+}
+
+/// Actual host Options Apply; the same kernel mutates this application's store.
+pub fn apply_options_from_host_with_preferences(
+    apply: HostOptionsApply,
+    preferences: &mut UserPreferences,
+) -> bool {
+    let scroll = apply.scroll_speed;
+    with_options_menu_mut(|menu| {
+        if !menu.initialized {
+            menu.init_ids();
+            menu.ignore_selected = false;
+            menu.initialized = true;
+        }
+        residual_options_action_store(ResidualOptionsMenuAction::Accept);
+        let _ = menu.apply_options_with_preferences(Some(apply), preferences, Some(Some(scroll)));
+        true
+    })
+}
+/// Complete the single native Accept after sender and receiving WM loans end.
+pub(crate) fn complete_options_accept_with_preferences(
+    preferences: &mut UserPreferences,
+    scroll: Option<i32>,
+) {
+    with_options_menu_mut(|menu| {
+        if !menu.ignore_selected {
+            menu.accept_options(Some((preferences, scroll)));
+        }
+    });
+}
+
+pub(crate) fn complete_options_defaults_with_preferences(
+    slider: Option<Rc<RefCell<GameWindow>>>,
+    default: f32,
+) {
+    with_options_menu_mut(|menu| {
+        if !menu.ignore_selected {
+            menu.apply_default_controls_with_scroll(Some((slider, default)));
+        }
+    });
 }
 
 fn with_options_menu_mut<R>(f: impl FnOnce(&mut OptionsMenu) -> R) -> R {
@@ -3696,7 +3832,9 @@ mod menu_callbacks_shell_borrow_residual_tests {
             concat!("get_shell", "().reverse_animate_window()"),
         ];
         assert!(
-            direct_shell_calls.iter().all(|needle| !src.contains(needle)),
+            direct_shell_calls
+                .iter()
+                .all(|needle| !src.contains(needle)),
             "menu_callbacks must not call get_shell() for push/pop/reverse during nested shell"
         );
     }

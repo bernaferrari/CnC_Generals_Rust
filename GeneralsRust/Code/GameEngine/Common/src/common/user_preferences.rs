@@ -23,6 +23,10 @@ pub struct UserPreferences {
 }
 
 impl UserPreferences {
+    pub fn configured_path(&self) -> Option<&Path> {
+        self.filename.as_deref()
+    }
+
     pub fn new() -> Self {
         Self::default()
     }

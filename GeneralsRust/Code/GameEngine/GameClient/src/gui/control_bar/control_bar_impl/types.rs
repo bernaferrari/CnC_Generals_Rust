@@ -212,6 +212,7 @@ pub fn clear_host_production_pause_requests() {
 }
 
 pub struct ControlBar {
+    pub(crate) tooltip: crate::gui::gui_callbacks::control_bar_popup_description::TooltipState,
     context: Arc<RwLock<ControlBarContext>>,
     window_manager: Option<Arc<WindowManager>>,
     current_window: Option<Arc<GameWindow>>,

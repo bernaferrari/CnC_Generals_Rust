@@ -29,7 +29,11 @@ impl GameWindow {
                 input: Some(Box::new(default_input_callback)),
                 system: Some(Box::new(default_system_callback)),
                 control_bar_system: false,
+                options_menu_system: false,
+                main_menu_system: false,
+                quit_menu_system: false,
                 owned_radar_draw: false,
+                owned_control_bar_tooltip: false,
             },
             widget: None,
             combobox_links: None,
@@ -1721,6 +1725,9 @@ impl GameWindow {
     {
         self.callbacks.system = Some(Box::new(callback));
         self.callbacks.control_bar_system = false;
+        self.callbacks.options_menu_system = false;
+        self.callbacks.main_menu_system = false;
+        self.callbacks.quit_menu_system = false;
     }
 
     /// Get system callback.
@@ -1735,6 +1742,9 @@ impl GameWindow {
     pub fn reset_system_callback(&mut self) {
         self.callbacks.system = Some(Box::new(default_system_callback));
         self.callbacks.control_bar_system = false;
+        self.callbacks.options_menu_system = false;
+        self.callbacks.main_menu_system = false;
+        self.callbacks.quit_menu_system = false;
     }
 
     /// Set tooltip callback
@@ -1742,7 +1752,20 @@ impl GameWindow {
     where
         F: Fn(&GameWindow, &WindowInstanceData, u32) + 'static,
     {
+        self.callbacks.owned_control_bar_tooltip = false;
         self.callbacks.tooltip = Some(Box::new(callback));
+    }
+
+    /// Typed role for the receiving ControlBar's command tooltip.
+    pub fn set_control_bar_tooltip_callback<F>(&mut self, callback: F)
+    where
+        F: Fn(&GameWindow, &WindowInstanceData, u32) + 'static,
+    {
+        self.set_tooltip_callback(callback);
+        self.callbacks.owned_control_bar_tooltip = true;
+    }
+    pub(crate) fn has_owned_control_bar_tooltip(&self) -> bool {
+        self.callbacks.owned_control_bar_tooltip
     }
 
     /// Get tooltip callback.
@@ -1752,6 +1775,7 @@ impl GameWindow {
 
     /// Clear tooltip callback.
     pub fn clear_tooltip_callback(&mut self) {
+        self.callbacks.owned_control_bar_tooltip = false;
         self.callbacks.tooltip = None;
     }
 
@@ -1765,6 +1789,7 @@ impl GameWindow {
         self.callbacks.input = input.or_else(|| Some(Box::new(default_input_callback)));
         self.callbacks.owned_radar_draw = false;
         self.callbacks.draw = draw.or_else(|| Some(Box::new(legacy_default_draw_callback)));
+        self.callbacks.owned_control_bar_tooltip = false;
         self.callbacks.tooltip = tooltip;
     }
 
@@ -1811,6 +1836,7 @@ impl GameWindow {
         msg: WindowMessage,
         data1: WindowMsgData,
         data2: WindowMsgData,
+        owned_options: bool,
     ) -> (WindowMsgHandled, Option<ControlBarNotification>) {
         if msg != WindowMessage::Destroy && self.status.contains(WindowStatus::DESTROYED) {
             return (WindowMsgHandled::Ignored, None);
@@ -1821,7 +1847,16 @@ impl GameWindow {
                 return (result, None);
             }
         }
-        self.handle_widget_input_with_control_bar_notification(msg, data1, data2)
+        self.handle_widget_input_with_control_bar_notification(msg, data1, data2, owned_options)
+    }
+    pub(crate) fn mark_quit_menu_system_callback(&mut self) {
+        self.callbacks.quit_menu_system = true;
+    }
+    pub(crate) fn mark_main_menu_system_callback(&mut self) {
+        self.callbacks.main_menu_system = true;
+    }
+    pub(crate) fn mark_options_menu_system_callback(&mut self) {
+        self.callbacks.options_menu_system = true;
     }
     pub(crate) fn mark_control_bar_system_callback(&mut self) {
         self.callbacks.control_bar_system = true;

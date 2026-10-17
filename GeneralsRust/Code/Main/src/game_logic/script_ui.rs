@@ -4,6 +4,20 @@
 //! driving application lends this interface during execution instead of storing
 //! window resources or selecting another session's UI inside GameLogic.
 pub(crate) trait ScriptUiEffects {
+    fn has_cinematic_input(&self) -> bool {
+        false
+    }
+    fn cinematic_input(
+        &mut self,
+        _enabled: bool,
+        _was_enabled: bool,
+        _deselect: &mut dyn FnMut(u32),
+    ) -> gamelogic::GameLogicResult<()> {
+        Err(gamelogic::GameLogicError::Configuration(
+            "receiving cinematic input service unavailable".into(),
+        ))
+    }
+
     /// Immediate visual weather delivery to the receiving Client.
     fn weather_visible(&mut self, visible: bool);
 

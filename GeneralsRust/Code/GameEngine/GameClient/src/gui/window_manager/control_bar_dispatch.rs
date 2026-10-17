@@ -1,19 +1,88 @@
-//! Bounded native ButtonLarge notification; never published or deferred a frame.
+//! Selected native button callbacks use borrowed owners and complete within the OS operation.
 use super::WindowManager;
 use crate::gui::callbacks::control_bar_callbacks::ControlBarViewport;
 use crate::gui::control_bar::{ControlBar, ControlBarStage};
 use crate::gui::game_window::{
-    GameWindow, WindowMessage, WindowMsgData, WindowMsgHandled, WindowStatus,
+    GameWindow, SelectedOwnerAction, WindowMessage, WindowMsgData, WindowMsgHandled, WindowStatus,
 };
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use std::cell::RefCell;
 use std::rc::Rc;
 
+enum PendingCameraOptions {
+    Accept(Option<i32>),
+    Defaults(Option<Rc<RefCell<GameWindow>>>),
+    Open(Rc<RefCell<GameWindow>>),
+    OpenQuit(WindowMsgData),
+}
+pub struct CameraOptionsInputContext<'a> {
+    preferences: &'a mut game_engine::common::user_preferences::UserPreferences,
+    rules: game_engine::common::ini::ini_game_data::CameraInputRules,
+    pending: Option<PendingCameraOptions>,
+}
+impl<'a> CameraOptionsInputContext<'a> {
+    pub fn new(
+        preferences: &'a mut game_engine::common::user_preferences::UserPreferences,
+        rules: game_engine::common::ini::ini_game_data::CameraInputRules,
+    ) -> Self {
+        Self {
+            preferences,
+            rules,
+            pending: None,
+        }
+    }
+    fn complete(&mut self) {
+        match self.pending.take() {
+            Some(PendingCameraOptions::Accept(scroll)) => {
+                crate::gui::callbacks::menu_callbacks::complete_options_accept_with_preferences(
+                    self.preferences,
+                    scroll,
+                )
+            }
+            Some(PendingCameraOptions::Defaults(slider)) => {
+                crate::gui::callbacks::menu_callbacks::complete_options_defaults_with_preferences(
+                    slider,
+                    self.rules.keyboard_default_scroll_factor,
+                )
+            }
+            Some(PendingCameraOptions::Open(window)) => {
+                let observation = crate::gui::callbacks::OptionsCameraInputObservation::observe(
+                    self.rules,
+                    self.preferences,
+                );
+                let window_id = window.borrow().get_id() as u32;
+                let _ = crate::gui::shell::main_menu::get_main_menu()
+                    .select_options_with_camera_input(window_id, observation);
+            }
+            Some(PendingCameraOptions::OpenQuit(control_id)) => {
+                let observation = crate::gui::callbacks::OptionsCameraInputObservation::observe(
+                    self.rules,
+                    self.preferences,
+                );
+                let _ = crate::gui::callbacks::quit_menu::select_quit_options_with_camera_input(
+                    control_id,
+                    observation,
+                );
+            }
+            None => {}
+        }
+    }
+}
 pub struct ControlBarInputContext<'a> {
+    pub camera_options: Option<CameraOptionsInputContext<'a>>,
     pub control_bar: &'a mut ControlBar,
     pub viewport: &'a mut dyn ControlBarViewport,
     pub replay: bool,
     pub game_ending: bool,
+    pub tooltips_disabled: bool,
+    pub cursor_mouse: Option<&'a crate::core::subsystems::MouseHandle>,
+}
+impl ControlBarInputContext<'_> {
+    pub(super) fn complete_options_accept(&mut self) {
+        if let Some(options) = self.camera_options.as_mut() {
+            options.complete();
+        }
+    }
 }
 impl WindowManager {
     pub(super) fn send_input_selected(
@@ -37,9 +106,54 @@ impl WindowManager {
         let (handled, notification) = {
             window
                 .borrow_mut()
-                .send_input_with_control_bar_notification(msg, data1, data2)
+                .send_input_with_control_bar_notification(
+                    msg,
+                    data1,
+                    data2,
+                    context.camera_options.is_some(),
+                )
         };
         if let Some(notification) = notification {
+            if notification.action != SelectedOwnerAction::ControlBarToggle {
+                if !notification
+                    .owner
+                    .borrow()
+                    .get_status()
+                    .contains(WindowStatus::DESTROYED)
+                {
+                    let slider_id =
+                        NameKeyGenerator::name_to_key("OptionsMenu.wnd:SliderScrollSpeed") as i32;
+                    let scroll = self.get_window_by_id(slider_id).and_then(|slider| {
+                        let slider = slider.borrow();
+                        match slider.widget() {
+                            Some(crate::gui::game_window::WindowWidget::HorizontalSlider(
+                                value,
+                            )) => Some(value.value()),
+                            _ => None,
+                        }
+                    });
+                    if let Some(options) = context.camera_options.as_mut() {
+                        options.pending = match notification.action {
+                            SelectedOwnerAction::OptionsAccept => {
+                                Some(PendingCameraOptions::Accept(scroll))
+                            }
+                            SelectedOwnerAction::OptionsDefaults => Some(
+                                PendingCameraOptions::Defaults(self.get_window_by_id(slider_id)),
+                            ),
+                            SelectedOwnerAction::ShowOptions => {
+                                Some(PendingCameraOptions::Open(notification.owner.clone()))
+                            }
+                            SelectedOwnerAction::ShowQuitOptions => {
+                                Some(PendingCameraOptions::OpenQuit(notification.control_id))
+                            }
+                            SelectedOwnerAction::ControlBarToggle => None,
+                        };
+                    }
+                }
+                // The push button is the sole message. Outer OS dispatch drops
+                // this manager loan, then completes Accept before returning.
+                return handled;
+            }
             // Both lookup and completion use this receiving manager. Neither
             // re-enters the singleton while its outer RefMut is live.
             let owner_destroyed = notification
