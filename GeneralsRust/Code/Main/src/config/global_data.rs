@@ -288,7 +288,7 @@ impl GlobalData {
     }
 
     /// Resolve the same startup Paths input without publishing configuration.
-    pub(crate) fn user_data_path_from_texts(texts: &[String]) -> Result<PathBuf> {
+    pub(crate) fn camera_startup_options_from_texts(texts: &[String]) -> Result<(PathBuf, bool)> {
         let mut draft = Self::new();
         for text in texts {
             draft
@@ -296,12 +296,16 @@ impl GlobalData {
                 .load_from_string(text, LoadMode::MultiFile)?;
             draft.load_settings_from_ini();
         }
+        let tivo = draft.tivo_fast_mode;
         let path = draft.user_data_path;
-        Ok(if path.is_absolute() {
-            path
-        } else {
-            std::env::current_dir()?.join(path)
-        })
+        Ok((
+            if path.is_absolute() {
+                path
+            } else {
+                std::env::current_dir()?.join(path)
+            },
+            tivo,
+        ))
     }
 
     /// Get user data path

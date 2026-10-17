@@ -1065,7 +1065,7 @@ impl CnCGameEngine {
         if visual_speed > 1.0 || self.script_time_fast() {
             return None;
         }
-        if global.tivo_fast_mode && self.presentation_or_boot_in_replay_game() {
+        if self.replay_fast_forward && self.presentation_or_boot_in_replay_game() {
             return None;
         }
         let max_fps = if global.writable.frames_per_second_limit > 0 {

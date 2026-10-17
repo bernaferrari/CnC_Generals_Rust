@@ -341,11 +341,22 @@ impl CnCGameEngine {
         let mut temporary = SaveFileManager::with_save_directory(directory.join("Save"));
         temporary.init().map_err(|error| error.to_string())?;
         let previous_manager = std::mem::replace(&mut self.save_file_manager, temporary);
+        // Keep completed evidence even when a later archive/restore phase fails.
+        // These are observations from the existing trace, never a second run.
+        let mut partial_evidence = json!({});
+        let mut phase = "seed_hag";
+        let previous_fast_forward = self.replay_fast_forward;
+        let previous_foreign_tivo = game_engine::common::global_data::read().tivo_fast_mode;
+        // Deliberately disagree with standalone Core. This gate is non-replay:
+        // it proves full/fast/rejected HAG admission, not TiVO's replay GPU gate.
+        self.replay_fast_forward = true;
+        game_engine::common::global_data::write().tivo_fast_mode = false;
         let result = (|| -> Result<Value, String> {
             let slot = "camera_owner_new";
             let save_path = self.save_file_manager.get_save_path(slot);
             require(!save_path.exists(), "acceptance archive must not preexist")?;
             let hag_seed = self.camera_gate_seed_hag()?;
+            partial_evidence["hag_seed"] = hag_seed.clone();
             let frame = self.game_logic.frame;
             // Same canonical source algorithm as the synchronous ScriptAction;
             // dispatcher same-walk ordering is separately covered by CPU tests.
@@ -365,13 +376,28 @@ impl CnCGameEngine {
                 "Fresh actual Engine continuation",
                 SaveFileType::Normal,
             );
+            phase = "save_archive";
             self.host_save_game_authority(slot, &info)?;
             require(
                 save_path.is_file(),
                 "successful actual save did not create its fresh archive",
             )?;
             let saved_file = file_observation(&save_path)?;
+            partial_evidence["saved_archive"] = saved_file.clone();
+            phase = "reference_display_trace";
             let reference = self.camera_gate_trace(frame)?;
+            partial_evidence["reference_display"] = json!({
+                "status":"pass",
+                "scope":"existing real Engine/window full/fast/rejected native Display and active wheel-seeded HAG; bounded supplied frame/multiplier inputs",
+                "trace":reference.clone(),
+                "saved_owner":saved_owner.clone(),
+                "map":file_observation(&map)?,
+                "engine_replay_fast_forward":self.replay_fast_forward,
+                "foreign_core_tivo_fast_mode":game_engine::common::global_data::read().tivo_fast_mode,
+                "in_replay_game":self.presentation_or_boot_in_replay_game(),
+                "limitations":["Non-replay match: opposite TiVO flags do not exercise replay-specific GPU gating", "No archive restore, peer isolation, live-playthrough or120Hz success follows from this partial observation"]
+            });
+            phase = "first_restore";
             self.host_load_game_authority(slot)
                 .map_err(HostLoadFailure::into_message)?;
             require(
@@ -379,6 +405,7 @@ impl CnCGameEngine {
                 "actual Engine commit lost saved camera/active impulse",
             )?;
             let before_peer = logic_camera(&self.game_logic)?;
+            phase = "stage_peer";
             let mut peer = self.camera_gate_stage_peer(slot)?;
             let shared = self
                 .game_logic
@@ -398,13 +425,16 @@ impl CnCGameEngine {
                 logic_camera(&self.game_logic)? == before_peer,
                 "same-thread staged peer mutated receiving camera",
             )?;
+            phase = "interleaved_display_trace";
             let interleaved = self.camera_gate_trace(frame)?;
             require(
                 interleaved == reference,
                 "first camera/display divergence after same-thread staged peer",
             )?;
+            phase = "second_restore";
             self.host_load_game_authority(slot)
                 .map_err(HostLoadFailure::into_message)?;
+            phase = "resumed_display_trace";
             let resumed = self.camera_gate_trace(frame)?;
             require(
                 resumed == reference,
@@ -420,14 +450,19 @@ impl CnCGameEngine {
             )
         })();
         self.save_file_manager = previous_manager;
+        self.replay_fast_forward = previous_fast_forward;
+        game_engine::common::global_data::write().tivo_fast_mode = previous_foreign_tivo;
         let report = match &result {
             Ok(evidence) => {
                 json!({"status":"pass","scope":"real Engine/window; bounded source-frame/multiplier injection; staged peer is world isolation, not second Engine","evidence":evidence,
                 "request":request_value,"pid":std::process::id(),"nonce":request.nonce,
+                "completed_partial_observations":partial_evidence,
                 "provenance_scope":"request links parent build receipt and external SHA256 pins; runtime metadata is not intrinsic compiled-source proof",
                 "limitations":["No live-playthrough or120Hz claim","No second Engine GPU ownership proof","Canonical shake ingress complements separate authored ScriptAction walk tests"]})
             }
-            Err(error) => json!({"status":"fail","first_error":error,"report":report_path,
+            Err(error) => json!({"status":"fail","first_error":error,"failed_phase":phase,
+                "completed_partial_observations":partial_evidence,"report":report_path,
+                "provenance_scope":"request links parent build receipt and external SHA256 pins; runtime metadata is not intrinsic compiled-source proof",
                 "request":request_value,"pid":std::process::id(),"nonce":request.nonce}),
         };
         report_file

@@ -26,6 +26,7 @@ fn receiving_movement_rule_controls_actual_headless_view_despite_foreign_global_
             assert_eq!(owner_id, peer_id);
             owner.admit_camera_application_movement(CameraMovementRules {
                 disable_camera_movement: true,
+                ..Default::default()
             });
             peer.admit_camera_application_movement(CameraMovementRules::default());
             owner.session_view.camera.install_zoom(2., 0.066, 0., 0.);
@@ -69,6 +70,7 @@ fn movement_configuration_is_not_saved_pose_and_receiving_policy_survives_admiss
     let ordinary = source.capture_camera_continuation().unwrap();
     source.admit_camera_application_movement(CameraMovementRules {
         disable_camera_movement: true,
+        ..Default::default()
     });
     assert_eq!(
         source.capture_camera_continuation().unwrap(),
@@ -95,6 +97,7 @@ fn private_map_solo_overrides_are_ordered_atomic_and_reset_to_receiving_applicat
     let peer = GameLogic::new();
     owner.admit_camera_application_movement(CameraMovementRules {
         disable_camera_movement: true,
+        ..Default::default()
     });
     owner
         .apply_camera_movement_overrides(&["GameData\n DisableCameraMovements = No\n End\n".into()])
@@ -131,6 +134,7 @@ fn disabled_set_camera_lock_still_allows_clear_and_later_script_snap_mode() {
     owner.set_camera_follow_object(Some(id));
     owner.admit_camera_application_movement(CameraMovementRules {
         disable_camera_movement: true,
+        ..Default::default()
     });
     owner.set_camera_follow_object(Some(ObjectId(8)));
     assert_eq!(owner.camera_follow_object_id(), Some(id));
@@ -141,4 +145,103 @@ fn disabled_set_camera_lock_still_allows_clear_and_later_script_snap_mode() {
     assert_eq!(owner.session_view.scripted.camera_tether_play, Some(4.));
     assert!(owner.session_view.camera.camera_follow_snap_immediate);
     assert_eq!(owner.session_view.target, Vec3::ZERO);
+}
+
+#[test]
+#[cfg(not(target_arch = "wasm32"))]
+fn receiving_partition_follow_same_id_worlds_ignore_foreign_global_and_preserve_restore_policy() {
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "receiving_partition_follow_same_id_worlds_ignore_foreign_global_and_preserve_restore_policy",
+        || {
+            use crate::presentation_frame::follow::{FollowAdmission, FollowTargetFacts};
+            let mut owner = GameLogic::new();
+            let mut peer = GameLogic::new();
+            for world in [&mut owner, &mut peer] {
+                world.add_player(Player::new(0, Team::USA, "PartitionOwner", true));
+                world.templates.insert(
+                    "PartitionOwner".into(),
+                    ThingTemplate::new("PartitionOwner"),
+                );
+            }
+            let id = owner
+                .create_object_for_player("PartitionOwner", 0, Vec3::new(100., 0., 0.))
+                .unwrap();
+            let peer_id = peer
+                .create_object_for_player("PartitionOwner", 0, Vec3::new(100., 0., 0.))
+                .unwrap();
+            assert_eq!(id, peer_id);
+            for (world, cell) in [(&mut owner, 40.), (&mut peer, 80.)] {
+                world.admit_camera_application_movement(CameraMovementRules {
+                    partition_cell_size: cell,
+                    ..Default::default()
+                });
+                world.session_view.target = Vec3::ZERO;
+                world.session_view.set_camera_tether(id, false, 1.);
+            }
+            let saved = owner.capture_camera_continuation().unwrap();
+            let facts = FollowTargetFacts {
+                id,
+                position: Vec3::new(100., 0., 0.),
+                airborne_orientation: None,
+            };
+            let old_global = game_engine::common::global_data::read().partition_cell_size;
+            game_engine::common::global_data::write().partition_cell_size = 1.;
+            assert_eq!(
+                owner
+                    .admit_receiving_camera_follow_with_policy(Some(id), Some(facts), false, None)
+                    .unwrap(),
+                FollowAdmission::Followed
+            );
+            assert_eq!(
+                owner.session_view.target.x.to_bits(),
+                (100_f32 * (1. - 1600. / 10000.) * 0.5).to_bits()
+            );
+            game_engine::common::global_data::write().partition_cell_size = 900.;
+            assert_eq!(
+                peer.admit_receiving_camera_follow_with_policy(Some(id), Some(facts), false, None)
+                    .unwrap(),
+                FollowAdmission::Followed
+            );
+            assert_eq!(
+                peer.session_view.target.x.to_bits(),
+                (100_f32 * (1. - 6400. / 10000.) * 0.5).to_bits()
+            );
+            let owner_after = owner.capture_camera_continuation().unwrap();
+            peer.reset();
+            assert_eq!(owner.capture_camera_continuation().unwrap(), owner_after);
+            owner
+                .apply_camera_movement_overrides(&[
+                    "GameData\n PartitionCellSize = 20\n End\n".into(),
+                    "GameData\n PartitionCellSize = 60\n End\n".into(),
+                ])
+                .unwrap();
+            assert_eq!(owner.camera_follow_partition_cell_size(), 60.);
+            assert!(
+                owner
+                    .apply_camera_movement_overrides(&[
+                        "GameData\n PartitionCellSize = 70\n End\n".into(),
+                        "GameData\n UnknownReceivingPartitionField = 1\n End\n".into()
+                    ])
+                    .is_err()
+            );
+            assert_eq!(owner.camera_follow_partition_cell_size(), 60.);
+            owner
+                .admit_camera_continuation(GameLogic::decode_camera_continuation(&saved).unwrap())
+                .unwrap();
+            assert_eq!(
+                owner.camera_follow_partition_cell_size(),
+                60.,
+                "camera bytes never replace receiving config"
+            );
+            owner.reset();
+            assert_eq!(owner.camera_follow_partition_cell_size(), 40.);
+            game_engine::common::global_data::write().partition_cell_size = old_global;
+            let native = include_str!("../../../cnc_game_engine/camera_drain.rs");
+            assert!(native.contains(
+                ".admit_receiving_camera_follow_with_policy(observed_id, facts, paused, None)"
+            ));
+            assert!(!native.contains("global_data::read().partition_cell_size"));
+        },
+    );
 }

@@ -160252,7 +160252,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "44f9aa3d8737bc99630a5ccc031549c78437f1b9257decc82502c136960ef712",
+  "input_digest": "b32eb8dc117e23f6d952b3467508c443f16cdb389c4f4698977672da98b617e5",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -164205,11 +164205,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 57,
+        "end_line": 93,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_game_data/camera_movement_rules.rs",
-      "sha256": "5be833f5c0172ea552dade31e673208ae2d1c33e67e1f8929f16006f238aa05a",
+      "sha256": "273feb45ae9c698566a4b701b271b8f7692afcd922eef943bb83d65edead825e",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },

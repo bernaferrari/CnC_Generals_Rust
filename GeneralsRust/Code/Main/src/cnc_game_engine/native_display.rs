@@ -258,9 +258,7 @@ impl CnCGameEngine {
                 )
                 .map_err(|error| error.to_string());
         }
-        let tivo = game_engine::common::global_data::read_safe()
-            .map_err(|error| format!("display configuration unavailable: {error}"))?
-            .tivo_fast_mode;
+        let tivo = self.replay_fast_forward;
         #[cfg(feature = "game_client")]
         let client_frame = self.game_client.get_frame();
         #[cfg(not(feature = "game_client"))]

@@ -1351,6 +1351,10 @@ impl CnCGameEngine {
             logic_rng_seed_words,
         } = staged;
         let runtime_world = runtime_world.preflight_native()?;
+        // Failed staging/preflight leaves the current Engine untouched. An
+        // admitted candidate starts a new game, then its saved Native state
+        // (when present) restores the replay flag below, in source order.
+        self.reset_replay_pacing_for_new_game();
         #[cfg(feature = "game_client")]
         self.host_invalidate_active_popup_for_world_boundary();
         crate::game_logic::staged_world_effects::discard_live_for_world_replace();

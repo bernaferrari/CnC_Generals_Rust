@@ -1286,9 +1286,6 @@ impl CnCGameEngine {
             return;
         }
         self.replay_fast_forward = !self.replay_fast_forward;
-        if let Ok(mut global) = game_engine::common::global_data::write_safe() {
-            global.tivo_fast_mode = self.replay_fast_forward;
-        }
         let key = if self.replay_fast_forward {
             "GUI:FF_ON"
         } else {

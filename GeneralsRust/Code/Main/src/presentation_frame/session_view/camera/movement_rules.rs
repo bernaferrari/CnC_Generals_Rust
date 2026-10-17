@@ -1,7 +1,7 @@
 //! Effective receiving GameData policy, not mutable user preference or saved pose.
 //! C++ GlobalData defaults/INI -> CLI -> map overrides; Xfer omits this rule.
 pub(crate) use game_engine::common::ini::ini_game_data::CameraMovementRules;
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub(crate) struct CameraMovementPolicy {
     base: CameraMovementRules,
     current: CameraMovementRules,
@@ -24,6 +24,13 @@ impl CameraMovementPolicy {
     }
 }
 impl crate::game_logic::GameLogic {
+    pub(crate) fn camera_follow_partition_cell_size(&self) -> f32 {
+        self.session_view
+            .camera
+            .movement_policy
+            .current()
+            .partition_cell_size
+    }
     pub(crate) fn camera_movement_disabled(&self) -> bool {
         self.session_view
             .camera

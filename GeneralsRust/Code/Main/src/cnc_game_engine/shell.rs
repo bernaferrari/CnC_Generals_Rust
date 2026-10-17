@@ -2023,6 +2023,8 @@ impl CnCGameEngine {
         // Wave 610: host residual helper.
         self.update_shell_loading_progress(0.995, Some("Finalizing startup"));
         self.default_starting_cash = result.default_starting_cash;
+        // Admit the detached worker's actual start_new_game reset only now.
+        self.reset_replay_pacing_for_new_game();
         self.host_replace_game_logic(result.game_logic);
         // The boot presentation frame describes the pre-load, terrain-less
         // GameLogic instance.  Rebuild it after the worker handoff so WGPU sees

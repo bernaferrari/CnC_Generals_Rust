@@ -41,6 +41,7 @@ fn legacy_camera_restore_uses_saved_map_rules_not_active_or_application_maximum(
             active.admit_camera_application_movement(
                 game_engine::common::ini::ini_game_data::CameraMovementRules {
                     disable_camera_movement: true,
+                    ..Default::default()
                 },
             );
             active

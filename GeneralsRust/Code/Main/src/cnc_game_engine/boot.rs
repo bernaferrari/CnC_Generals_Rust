@@ -64,6 +64,7 @@ impl CnCGameEngine {
             game_engine::common::ini::ini_game_data::CameraMovementRules,
             game_engine::common::ini::ini_game_data::CameraInputRules,
             std::path::PathBuf,
+            bool,
         ),
         String,
     > {
@@ -73,14 +74,15 @@ impl CnCGameEngine {
         let mut movement = game_engine::common::ini::ini_game_data::CameraMovementRules::default();
         let mut input = game_engine::common::ini::ini_game_data::CameraInputRules::default();
         let sources = Self::load_startup_game_data_texts().await?;
-        let options_path = crate::config::GlobalData::user_data_path_from_texts(
-            &sources
-                .iter()
-                .map(|(_, text)| text.clone())
-                .collect::<Vec<_>>(),
-        )
-        .map_err(|e| e.to_string())?
-        .join("Options.ini");
+        let (options_root, replay_fast_forward) =
+            crate::config::GlobalData::camera_startup_options_from_texts(
+                &sources
+                    .iter()
+                    .map(|(_, text)| text.clone())
+                    .collect::<Vec<_>>(),
+            )
+            .map_err(|e| e.to_string())?;
+        let options_path = options_root.join("Options.ini");
         for (path, text) in sources {
             rules = rules
                 .overlay_ini_text(&text)
@@ -105,6 +107,7 @@ impl CnCGameEngine {
             movement,
             input,
             options_path,
+            replay_fast_forward,
         ))
     }
 
@@ -347,6 +350,7 @@ impl CnCGameEngine {
             mut camera_movement_base,
             camera_input_base,
             camera_options_path,
+            replay_fast_forward,
         ) = Self::load_camera_rules_baseline()
             .await
             .map_err(anyhow::Error::msg)?;
@@ -752,7 +756,7 @@ impl CnCGameEngine {
             camera_zoom_in_held: false,
             camera_zoom_out_held: false,
             camera_tracking_selection: false,
-            replay_fast_forward: false,
+            replay_fast_forward,
             diplomacy_panel: crate::ui::DiplomacyPanel::new(),
             chat_panel: crate::ui::ChatPanel::new(),
             current_player_id: 0,

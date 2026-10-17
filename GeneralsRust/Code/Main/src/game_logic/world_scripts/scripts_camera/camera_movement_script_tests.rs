@@ -12,6 +12,7 @@ fn authored_camera_actions_use_receiving_movement_rule_under_foreign_global_publ
             first.admit_camera_application_movement(
                 game_engine::common::ini::ini_game_data::CameraMovementRules {
                     disable_camera_movement: true,
+                    ..Default::default()
                 },
             );
             let first_engine = authored(0.75, second.mission_scripts.clone());

@@ -391,6 +391,13 @@ use crate::presentation_frame::camera::pose::camera_fx_pose;
 pub(super) use crate::presentation_frame::camera::pose::{camera_orbit_pose, camera_orbit_view};
 
 impl CnCGameEngine {
+    /// GameLogic.cpp1143: each admitted new game disables TiVO. Detached
+    /// startup/restore candidates cannot write the receiving Engine; their
+    /// reset is admitted at commit, before any saved Native continuation.
+    pub(super) fn reset_replay_pacing_for_new_game(&mut self) {
+        self.replay_fast_forward = false;
+    }
+
     pub(super) fn play_ui_sound_effect(&mut self, path: String) {
         let Some(bytes) = self.ui_sound_cache.get(&path).cloned() else {
             return;
@@ -605,6 +612,7 @@ impl CnCGameEngine {
         // the selected mode is stamped only after that boundary succeeds.
         // C++ GameLogicDispatch.cpp:256 TheGameEngine->reset() before startNewGame.
         self.host_game_engine_reset();
+        self.reset_replay_pacing_for_new_game();
         // Wave 843/844/871: clear prior match residuals until load completes.
         self.host_clear_match_residuals();
         info!("host_start_game_from_ui: match residuals cleared");
@@ -1493,7 +1501,7 @@ impl CnCGameEngine {
             global_data.writable.use_fps_limit,
             global_data.writable.frames_per_second_limit,
             visual_speed,
-            global_data.tivo_fast_mode,
+            self.replay_fast_forward,
             in_replay,
         );
         drop(global_data);

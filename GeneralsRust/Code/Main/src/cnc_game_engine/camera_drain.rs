@@ -217,10 +217,9 @@ impl CnCGameEngine {
         paused: bool,
     ) -> Result<bool, String> {
         use crate::presentation_frame::follow::FollowAdmission;
-        let cell = game_engine::common::global_data::read().partition_cell_size;
         let result = self
             .game_logic
-            .admit_receiving_camera_follow(observed_id, facts, cell, paused, None)
+            .admit_receiving_camera_follow_with_policy(observed_id, facts, paused, None)
             .map_err(|error| error.to_string())?;
         match result {
             FollowAdmission::TargetGone => {
@@ -2828,6 +2827,26 @@ mod replay_fast_forward_probe {
         Ok((event_loop, engine))
     }
 
+    fn replay_factory_template() -> ThingTemplate {
+        let mut factory = ThingTemplate::new("ReplayFastForwardFactory");
+        factory.set_health(500.0);
+        factory.add_kind_of(KindOf::Structure);
+        factory.add_kind_of(KindOf::FSBarracks);
+        // QueueProductionExitUpdate.cpp:196-206 advances integer delay only
+        // for an Object that actually declares this update module.
+        factory.production_exit_metadata = Some(crate::game_logic::ProductionExitMetadata {
+            style: crate::game_logic::ProductionExitStyle::Queue,
+            unit_create_point: [0.0; 3],
+            natural_rally_point: [0.0; 3],
+            exit_delay_frames: 9,
+            allow_airborne_creation: false,
+            initial_burst: 0,
+            use_spawn_rally_point: false,
+            grant_temporary_stealth_frames: 0,
+        });
+        factory
+    }
+
     fn install_replay_factory(engine: &mut CnCGameEngine) -> ObjectId {
         engine.game_logic = GameLogic::new();
         engine.gameworld_shadow = Some(GameWorldShadow::new(64));
@@ -2836,10 +2855,7 @@ mod replay_fast_forward_probe {
         engine.host_match_time_frozen = None;
         engine.game_paused = false;
 
-        let mut factory = ThingTemplate::new("ReplayFastForwardFactory");
-        factory.set_health(500.0);
-        factory.add_kind_of(KindOf::Structure);
-        factory.add_kind_of(KindOf::FSBarracks);
+        let factory = replay_factory_template();
         engine
             .game_logic
             .templates
@@ -2917,6 +2933,41 @@ mod replay_fast_forward_probe {
     pub(super) fn run_replay_fast_forward_engine_probe() -> anyhow::Result<()> {
         let (_event_loop, mut engine) = replay_fixture_engine()?;
         install_replay_factory(&mut engine);
+        // Actual Engine startup/hotkey/native continuation, executed only by
+        // the existing process-main-thread probe. This is not a unit mock.
+        let old_replay = engine.host_match_in_replay;
+        engine.host_match_in_replay = Some(true);
+        let old_global = game_engine::common::global_data::read().tivo_fast_mode;
+        game_engine::common::global_data::write().tivo_fast_mode = false;
+        engine.replay_fast_forward = false;
+        engine.toggle_replay_fast_forward_hotkey();
+        assert!(engine.replay_fast_forward);
+        assert!(
+            !game_engine::common::global_data::read().tivo_fast_mode,
+            "native hotkey must not publish into standalone Core configuration"
+        );
+        let saved = engine
+            .capture_camera_continuation()
+            .map_err(anyhow::Error::msg)?;
+        engine.reset_replay_pacing_for_new_game();
+        assert!(
+            !engine.replay_fast_forward,
+            "actual receiving new-game reset clears TiVO"
+        );
+        game_engine::common::global_data::write().tivo_fast_mode = true;
+        engine.admit_camera_continuation(
+            CnCGameEngine::decode_camera_continuation(&saved).map_err(anyhow::Error::msg)?,
+        );
+        assert!(engine.replay_fast_forward);
+        assert!(game_engine::common::global_data::read().tivo_fast_mode);
+        engine.toggle_replay_fast_forward_hotkey();
+        assert!(!engine.replay_fast_forward);
+        assert!(
+            game_engine::common::global_data::read().tivo_fast_mode,
+            "restored owner toggles without clearing a foreign Core flag"
+        );
+        game_engine::common::global_data::write().tivo_fast_mode = old_global;
+        engine.host_match_in_replay = old_replay;
 
         let normal_30 = run_engine_replay_batch(&mut engine, false, 1.0 / 30.0, 1);
         assert_eq!(
@@ -2947,6 +2998,25 @@ mod replay_fast_forward_probe {
             "four TiVO 60 Hz offers must advance owner queues only for the two completed fixed steps"
         );
         Ok(())
+    }
+
+    #[cfg(test)]
+    #[test]
+    fn replay_factory_declares_queue_exit_before_counting_integer_delay() {
+        let template = replay_factory_template();
+        let metadata = template
+            .production_exit_metadata
+            .expect("authored Queue exit module");
+        assert!(metadata.is_queue());
+        assert_eq!(metadata.exit_delay_frames, 9);
+        assert_eq!(metadata.initial_burst, 0);
+        let mut building = BuildingData::new(BuildingType::Barracks);
+        building.exit_delay_remaining_frames = 9;
+        building.exit_burst_remaining = 0;
+        building.queue_exit_state_initialized = true;
+        building.exit_delay_remaining = 9.0 / 30.0;
+        building.tick_production_exit(Some(&metadata), 1.0 / 30.0);
+        assert_eq!(building.exit_delay_remaining_frames, 8);
     }
 
     #[cfg(test)]

@@ -62,6 +62,16 @@ impl GameLogic {
     }
     /// Only a matching, successfully resolved lock object reaches the source
     /// history gate. Inactive, stale and missing facts never query debug control.
+    pub(crate) fn admit_receiving_camera_follow_with_policy(
+        &mut self,
+        observed_id: Option<ObjectId>,
+        facts: Option<crate::presentation_frame::follow::FollowTargetFacts>,
+        paused: bool,
+        interpreter: Option<&ScriptEngine>,
+    ) -> gamelogic::GameLogicResult<crate::presentation_frame::follow::FollowAdmission> {
+        let cell = self.camera_follow_partition_cell_size();
+        self.admit_receiving_camera_follow(observed_id, facts, cell, paused, interpreter)
+    }
     pub(crate) fn admit_receiving_camera_follow(
         &mut self,
         observed_id: Option<ObjectId>,
