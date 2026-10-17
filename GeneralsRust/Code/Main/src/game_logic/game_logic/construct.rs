@@ -766,6 +766,7 @@ impl GameLogic {
         self.session_view.camera.settings.clear_map_rules();
         self.session_view.camera.clip_policy = self.session_view.camera.clip_policy.reset_seed();
         self.session_view.camera.shake_policy.clear_map_rules();
+        self.session_view.camera.movement_policy.clear_map_rules();
         self.map_definition_source = None;
         self.weather_definition_updates.clear();
         self.w3d_ghosts = Default::default();

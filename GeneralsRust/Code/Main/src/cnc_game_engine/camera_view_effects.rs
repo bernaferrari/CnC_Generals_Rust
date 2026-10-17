@@ -31,15 +31,14 @@ impl CnCGameEngine {
         // Read the receiving debug owner at W3DView's movement gate,
         // after follow. Script freeze deliberately does not gate this phase.
         let paused = self.native_view_is_paused();
+        let disable_camera_movement = self.game_logic.camera_movement_disabled();
         did_scripted_movement |= self
             .game_logic
             .advance_receiving_camera_view(
                 decision.update_views,
                 decision.fast_camera_only,
                 paused,
-                game_engine::common::global_data::read()
-                    .writable
-                    .disable_camera_movement,
+                disable_camera_movement,
                 33,
                 None,
             )

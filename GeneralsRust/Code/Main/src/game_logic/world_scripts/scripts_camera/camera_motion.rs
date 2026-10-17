@@ -9,11 +9,6 @@ const CAMERA_FRAME_MS: i32 = 33;
 fn camera_milliseconds(seconds: f32) -> i32 {
     (seconds * 1000.0) as i32
 }
-fn movement_disabled() -> bool {
-    game_engine::common::global_data::read()
-        .writable
-        .disable_camera_movement
-}
 
 impl GameLogic {
     pub(in crate::game_logic::game_logic) fn start_camera_path_move(
@@ -62,11 +57,12 @@ impl GameLogic {
         self.pending_camera_rotate = None;
         self.pending_camera_look_toward = None;
         self.session_view.scripted.script_look_toward_object_id = None;
+        let disable_camera_movement = self.camera_movement_disabled();
         self.session_view.install_motion(
             motion,
             false,
             &mut self.visual_speed_multiplier,
-            movement_disabled(),
+            disable_camera_movement,
         );
         self.mark_script_camera_movement_maybe_finished();
     }
@@ -119,11 +115,12 @@ impl GameLogic {
         self.pending_camera_rotate = None;
         self.pending_camera_look_toward = None;
         self.session_view.scripted.script_look_toward_object_id = None;
+        let disable_camera_movement = self.camera_movement_disabled();
         self.session_view.install_motion(
             motion,
             true,
             &mut self.visual_speed_multiplier,
-            movement_disabled(),
+            disable_camera_movement,
         );
         self.mark_script_camera_movement_maybe_finished();
     }
@@ -236,11 +233,12 @@ impl GameLogic {
         position: Vec3,
         final_look: bool,
     ) {
+        let disable_camera_movement = self.camera_movement_disabled();
         self.session_view.modify_path_look(
             Point::from_world(position),
             final_look,
             &mut self.visual_speed_multiplier,
-            movement_disabled(),
+            disable_camera_movement,
         );
         self.mark_script_camera_movement_maybe_finished();
     }
@@ -268,10 +266,7 @@ impl GameLogic {
             .motion
             .rolling_average(request.frames);
     }
-    pub(in crate::game_logic::game_logic) fn apply_visual_speed_multiplier(
-        &mut self,
-        request: &VisualSpeedMultiplierRequest,
-    ) {
+    pub(crate) fn apply_visual_speed_multiplier(&mut self, request: &VisualSpeedMultiplierRequest) {
         self.visual_speed_multiplier = request.multiplier.max(1) as f32;
     }
     pub(in crate::game_logic::game_logic) fn apply_set_fps_limit(
@@ -303,7 +298,7 @@ impl GameLogic {
                 fast_camera_only: false,
                 paused: self.is_paused(),
                 debug_frozen: false,
-                disable_camera_movement: movement_disabled(),
+                disable_camera_movement: self.camera_movement_disabled(),
             },
             frame_ms,
         )

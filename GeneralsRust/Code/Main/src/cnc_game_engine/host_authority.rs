@@ -61,6 +61,7 @@ fn admit_staged_session_view(
         let candidate_camera_settings = candidate.camera.settings;
         let candidate_camera_clip = candidate.camera.clip_policy;
         let candidate_camera_shake = candidate.camera.shake_policy;
+        let candidate_camera_movement = candidate.camera.movement_policy;
         let candidate_scripted = std::mem::take(&mut candidate.scripted);
         // Map actions already applied to the candidate's receiving filter.
         #[cfg(feature = "game_client")]
@@ -70,6 +71,7 @@ fn admit_staged_session_view(
         candidate.camera.settings = candidate_camera_settings;
         candidate.camera.clip_policy = candidate_camera_clip;
         candidate.camera.shake_policy = candidate_camera_shake;
+        candidate.camera.movement_policy = candidate_camera_movement;
         candidate.scripted = candidate_scripted;
         #[cfg(feature = "game_client")]
         {
@@ -1196,6 +1198,7 @@ impl CnCGameEngine {
         let candidate_camera_settings = candidate.camera.settings;
         let candidate_camera_clip = candidate.camera.clip_policy;
         let candidate_camera_shake = candidate.camera.shake_policy;
+        let candidate_camera_movement = candidate.camera.movement_policy;
         let candidate_scripted = std::mem::take(&mut candidate.scripted);
         // Map actions already applied to the candidate's receiving filter.
         #[cfg(feature = "game_client")]
@@ -1207,6 +1210,7 @@ impl CnCGameEngine {
         candidate.camera.settings = candidate_camera_settings;
         candidate.camera.clip_policy = candidate_camera_clip;
         candidate.camera.shake_policy = candidate_camera_shake;
+        candidate.camera.movement_policy = candidate_camera_movement;
         candidate.scripted = candidate_scripted;
         #[cfg(feature = "game_client")]
         {
@@ -1665,6 +1669,7 @@ impl CnCGameEngine {
         camera_settings: crate::presentation_frame::camera::settings::CameraSettings,
         camera_clip_policy: crate::presentation_frame::camera::clip::CameraClipPolicy,
         camera_shake_policy: crate::presentation_frame::camera::shake_rules::CameraShakePolicy,
+        camera_movement_policy: crate::presentation_frame::camera::movement_rules::CameraMovementPolicy,
         live_services: &Arc<gamelogic::system::engine_stores::WorldServices>,
     ) -> Result<StagedRestoreWorld, String> {
         // A previous aborted decode cannot lend its client chunk to this save.
@@ -1690,6 +1695,7 @@ impl CnCGameEngine {
             camera_settings,
             camera_clip_policy,
             camera_shake_policy,
+            camera_movement_policy,
             live_services,
             |snapshot, staged| {
                 save_file_manager
@@ -1725,6 +1731,7 @@ impl CnCGameEngine {
         camera_settings: crate::presentation_frame::camera::settings::CameraSettings,
         camera_clip_policy: crate::presentation_frame::camera::clip::CameraClipPolicy,
         camera_shake_policy: crate::presentation_frame::camera::shake_rules::CameraShakePolicy,
+        camera_movement_policy: crate::presentation_frame::camera::movement_rules::CameraMovementPolicy,
         live_services: &Arc<gamelogic::system::engine_stores::WorldServices>,
         restore_snapshot: F,
     ) -> Result<StagedRestoreWorld, String>
@@ -1797,6 +1804,7 @@ impl CnCGameEngine {
         staged.session_view.camera.settings = camera_settings.reset_seed();
         staged.session_view.camera.clip_policy = camera_clip_policy.reset_seed();
         staged.session_view.camera.shake_policy = camera_shake_policy.reset_seed();
+        staged.session_view.camera.movement_policy = camera_movement_policy.reset_seed();
         // Map object restoration needs the live INI/template catalog.  Keep
         // custom/mod templates from the source match while retaining the fresh
         // world's standard startup catalog.
@@ -1895,6 +1903,7 @@ impl CnCGameEngine {
             self.game_logic.session_view.camera.settings,
             self.game_logic.session_view.camera.clip_policy,
             self.game_logic.session_view.camera.shake_policy,
+            self.game_logic.session_view.camera.movement_policy,
             &self.game_logic.world_services,
         ) {
             Ok(staged) => staged,
@@ -2454,6 +2463,7 @@ mod staged_restore_tests {
             source.session_view.camera.settings,
             source.session_view.camera.clip_policy,
             source.session_view.camera.shake_policy,
+            source.session_view.camera.movement_policy,
             &source.world_services,
         ) {
             Ok(_) => panic!("missing saved map must reject before a false InGame restore"),
@@ -2497,6 +2507,7 @@ mod staged_restore_tests {
                     logic.session_view.camera.settings,
                     logic.session_view.camera.clip_policy,
                     logic.session_view.camera.shake_policy,
+                    logic.session_view.camera.movement_policy,
                     &logic.world_services,
                     |_snapshot, _staged| {
                         panic!("invalid client chunk must fail before stage restore")
@@ -2606,6 +2617,7 @@ mod staged_restore_tests {
                     source.session_view.camera.settings,
                     source.session_view.camera.clip_policy,
                     source.session_view.camera.shake_policy,
+                    source.session_view.camera.movement_policy,
                     &source.world_services,
                 )
                 .expect("saved map should load before restore");
@@ -2864,6 +2876,7 @@ mod staged_restore_tests {
                     source.session_view.camera.settings,
                     source.session_view.camera.clip_policy,
                     source.session_view.camera.shake_policy,
+                    source.session_view.camera.movement_policy,
                     &source.world_services,
                     |_snapshot, staged| {
                         assert!(staged.isInGame(), "failure is injected after map load");
@@ -3149,6 +3162,7 @@ mod staged_restore_tests {
                             source.session_view.camera.settings,
                             source.session_view.camera.clip_policy,
                             source.session_view.camera.shake_policy,
+                            source.session_view.camera.movement_policy,
                             &source.world_services,
                             |snapshot, candidate| {
                                 saves
@@ -3400,6 +3414,7 @@ mod staged_restore_tests {
                     source.session_view.camera.settings,
                     source.session_view.camera.clip_policy,
                     source.session_view.camera.shake_policy,
+                    source.session_view.camera.movement_policy,
                     &source.world_services,
                 )
                 .expect("stage RNG continuation save");
@@ -3668,6 +3683,7 @@ mod staged_restore_tests {
                         source.session_view.camera.settings,
                         source.session_view.camera.clip_policy,
                         source.session_view.camera.shake_policy,
+                        source.session_view.camera.movement_policy,
                         &source.world_services,
                         |_, candidate| {
                             assert!(candidate.isInGame());
@@ -3710,6 +3726,7 @@ mod staged_restore_tests {
                         source.session_view.camera.settings,
                         source.session_view.camera.clip_policy,
                         source.session_view.camera.shake_policy,
+                        source.session_view.camera.movement_policy,
                         &source.world_services,
                     )
                     .expect("successful native owned-service staging");
@@ -3790,3 +3807,8 @@ mod camera_startup_handoff_tests;
 #[cfg(test)]
 #[path = "host_authority/ocl_stage_tests.rs"]
 mod ocl_stage_tests;
+
+// Opt-in RuntimeHostBridge acceptance on the actual live Engine/window.
+#[cfg(feature = "game_client")]
+#[path = "host_authority/camera_window_gate.rs"]
+mod camera_window_gate;

@@ -1754,7 +1754,13 @@ fn parse_game_data_block(ini: &mut INI, data: &mut GlobalData) -> INIResult<()> 
             "GETHEALEDANIMATIONZRISE" => {
                 data.get_healed_animation_z_rise_per_second = parse_real(&args)?;
             }
-            _ => return Err(INIError::UnknownToken),
+            _ => {
+                #[cfg(any(debug_assertions, feature = "internal"))]
+                if debug_fields::parse_field(key, &args, data)? {
+                    continue;
+                }
+                return Err(INIError::UnknownToken);
+            }
         }
     }
     let _ = data.set_time_of_day(data.time_of_day);
@@ -2611,3 +2617,9 @@ pub use camera_clip_rules::CameraClipRules;
 
 mod camera_shake_rules;
 pub use camera_shake_rules::CameraShakeRules;
+
+mod camera_movement_rules;
+pub use camera_movement_rules::CameraMovementRules;
+
+#[cfg(any(debug_assertions, feature = "internal"))]
+mod debug_fields;

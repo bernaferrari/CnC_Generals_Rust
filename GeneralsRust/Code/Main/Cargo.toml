@@ -25,7 +25,7 @@ debug-physics = ["dev-tools"]
 profiling = []
 
 # Internal development flags
-internal = []
+internal = ["game_engine/internal"]
 allow_anim_inquiries = []
 load_test_assets = []
 allow_surrender = []

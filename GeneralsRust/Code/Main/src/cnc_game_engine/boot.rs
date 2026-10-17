@@ -61,12 +61,14 @@ impl CnCGameEngine {
             game_engine::common::ini::ini_game_data::CameraContentRules,
             game_engine::common::ini::ini_game_data::CameraClipRules,
             game_engine::common::ini::ini_game_data::CameraShakeRules,
+            game_engine::common::ini::ini_game_data::CameraMovementRules,
         ),
         String,
     > {
         let mut rules = game_engine::common::ini::ini_game_data::CameraContentRules::default();
         let mut clip = game_engine::common::ini::ini_game_data::CameraClipRules::default();
         let mut shake = game_engine::common::ini::ini_game_data::CameraShakeRules::default();
+        let mut movement = game_engine::common::ini::ini_game_data::CameraMovementRules::default();
         for (path, text) in Self::load_startup_game_data_texts().await? {
             rules = rules
                 .overlay_ini_text(&text)
@@ -77,8 +79,28 @@ impl CnCGameEngine {
             shake = shake
                 .overlay_ini_text(&text)
                 .map_err(|err| format!("{path}: {err}"))?;
+            movement = movement
+                .overlay_ini_text(&text)
+                .map_err(|err| format!("{path}: {err}"))?;
         }
-        Ok((rules.validate()?, clip, shake.validate()?))
+        Ok((rules.validate()?, clip, shake.validate()?, movement))
+    }
+
+    pub(super) fn admit_camera_movement_startup_switches(
+        mut rules: game_engine::common::ini::ini_game_data::CameraMovementRules,
+        raw_args: &[String],
+        allow_debug_flags: bool,
+    ) -> game_engine::common::ini::ini_game_data::CameraMovementRules {
+        let mut camera_cli = game_engine::common::command_line::WritableGlobalData::default();
+        Self::apply_ordered_startup_overrides_from_raw_args(
+            raw_args,
+            &mut camera_cli,
+            allow_debug_flags,
+        );
+        if camera_cli.disable_camera_movement {
+            rules.disable_camera_movement = true;
+        }
+        rules
     }
 
     pub async fn new(window: Arc<Window>, command_line: Arc<CommandLineArgs>) -> Result<Self> {
@@ -296,10 +318,17 @@ impl CnCGameEngine {
 
         // Initialize game systems.
         // CombatSystem + PathfindingSystem live on GameLogic (sole host authority).
-        let (camera_rule_base, camera_clip_base, camera_shake_base) =
+        let (camera_rule_base, camera_clip_base, camera_shake_base, mut camera_movement_base) =
             Self::load_camera_rules_baseline()
                 .await
                 .map_err(anyhow::Error::msg)?;
+        // C++ GameEngine.cpp339 then357: application INI before CLI.
+        // Reuse the actual ordered CLI decoder; never copy late GlobalData.
+        camera_movement_base = Self::admit_camera_movement_startup_switches(
+            camera_movement_base,
+            &command_line.raw_args,
+            Self::allow_debug_startup_flags(),
+        );
         let ocl_sources = Self::load_ocl_application_sources()
             .await
             .map_err(anyhow::Error::msg)?;
@@ -308,6 +337,7 @@ impl CnCGameEngine {
             .admit_ocl_application_sources(&ocl_sources)
             .map_err(anyhow::Error::msg)?;
         game_logic.admit_camera_application_clip(camera_clip_base);
+        game_logic.admit_camera_application_movement(camera_movement_base);
         game_logic
             .admit_camera_application_shake(camera_shake_base)
             .map_err(anyhow::Error::msg)?;
@@ -418,6 +448,7 @@ impl CnCGameEngine {
                 camera_rule_base,
                 camera_clip_base,
                 camera_shake_base,
+                camera_movement_base,
                 game_logic.ocl_application_definitions(),
             )
         };
@@ -464,10 +495,12 @@ impl CnCGameEngine {
         let camera_settings = game_logic.session_view.camera.settings;
         let camera_clip_policy = game_logic.session_view.camera.clip_policy;
         let camera_shake_policy = game_logic.session_view.camera.shake_policy;
+        let camera_movement_policy = game_logic.session_view.camera.movement_policy;
         game_logic.session_view.camera = crate::presentation_frame::camera::SessionCamera {
             settings: camera_settings,
             clip_policy: camera_clip_policy,
             shake_policy: camera_shake_policy,
+            movement_policy: camera_movement_policy,
             viewport: crate::presentation_frame::camera::viewport::TacticalViewport::for_display(
                 surface_w, surface_h,
             )
@@ -1907,3 +1940,7 @@ mod tests {
 
 #[path = "boot/ocl_content.rs"]
 mod ocl_content;
+
+#[cfg(test)]
+#[path = "camera_movement_boot_tests.rs"]
+mod camera_movement_rules_tests;

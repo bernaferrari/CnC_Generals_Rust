@@ -87,6 +87,7 @@ fn actual_saved_map_ocl_candidate_uses_own_base_and_solo_without_mutating_active
                 active.session_view.camera.settings,
                 active.session_view.camera.clip_policy,
                 active.session_view.camera.shake_policy,
+                active.session_view.camera.movement_policy,
                 &active.world_services,
                 |_, candidate| {
                     assert_eq!(selected(candidate), "SavedSolo");
@@ -117,6 +118,7 @@ fn actual_saved_map_ocl_candidate_uses_own_base_and_solo_without_mutating_active
                 active.session_view.camera.settings,
                 active.session_view.camera.clip_policy,
                 active.session_view.camera.shake_policy,
+                active.session_view.camera.movement_policy,
                 &active.world_services,
                 |snapshot, candidate| {
                     assert_eq!(selected(candidate), "SavedSolo");

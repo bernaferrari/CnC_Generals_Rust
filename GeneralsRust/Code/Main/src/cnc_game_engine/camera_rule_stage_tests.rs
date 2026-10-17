@@ -23,7 +23,12 @@ fn legacy_camera_restore_uses_saved_map_rules_not_active_or_application_maximum(
             std::fs::write(&path, map.into_ckmp_bytes()).unwrap();
             std::fs::write(
                 temp.path().join("Map.ini"),
-                "GameData\n MinCameraHeight = 200\n MaxCameraHeight = 600\n End\n",
+                "GameData\n MinCameraHeight = 200\n MaxCameraHeight = 600\n DisableCameraMovements = Yes\n End\n",
+            )
+            .unwrap();
+            std::fs::write(
+                temp.path().join("Solo.ini"),
+                "GameData\n DisableCameraMovements = No\n End\n",
             )
             .unwrap();
             let rules = crate::presentation_frame::camera::settings::CameraContentRules {
@@ -33,6 +38,11 @@ fn legacy_camera_restore_uses_saved_map_rules_not_active_or_application_maximum(
             };
             let mut active = GameLogic::new();
             active.admit_camera_application_rules(rules).unwrap();
+            active.admit_camera_application_movement(
+                game_engine::common::ini::ini_game_data::CameraMovementRules {
+                    disable_camera_movement: true,
+                },
+            );
             active
                 .admit_camera_map_rules(
                     crate::presentation_frame::camera::settings::CameraContentRules {
@@ -98,9 +108,23 @@ fn legacy_camera_restore_uses_saved_map_rules_not_active_or_application_maximum(
                 difficulty: GameDifficulty::Medium,
                 save_type: SaveFileType::Normal,
             };
-            let staged = CnCGameEngine::stage_decoded_saved_world_for_restore(
+            for (map_text, solo_text, expected_disable) in [
+                (
+                    "GameData\n MinCameraHeight = 200\n MaxCameraHeight = 600\n DisableCameraMovements = Yes\n End\n",
+                    "GameData\n DisableCameraMovements = No\n End\n",
+                    false,
+                ),
+                (
+                    "GameData\n MinCameraHeight = 200\n MaxCameraHeight = 600\n End\n",
+                    "GameData\n MaxCameraHeight = 600\n End\n",
+                    true,
+                ),
+            ] {
+                std::fs::write(temp.path().join("Map.ini"), map_text).unwrap();
+                std::fs::write(temp.path().join("Solo.ini"), solo_text).unwrap();
+                let staged = CnCGameEngine::stage_decoded_saved_world_for_restore(
                 &snapshot,
-                info,
+                info.clone(),
                 None,
                 "camera",
                 crate::game_logic::GameMode::Skirmish,
@@ -114,8 +138,11 @@ fn legacy_camera_restore_uses_saved_map_rules_not_active_or_application_maximum(
                 active.session_view.camera.settings,
                 active.session_view.camera.clip_policy,
                 active.session_view.camera.shake_policy,
+                active.session_view.camera.movement_policy,
                 &active.world_services,
                 |snapshot, candidate| {
+                    assert_eq!(candidate.camera_movement_disabled(),expected_disable,
+                        "saved map overrides or preserves receiving application policy in source order");
                     assert_eq!(
                         candidate
                             .session_view
@@ -132,6 +159,8 @@ fn legacy_camera_restore_uses_saved_map_rules_not_active_or_application_maximum(
                     builder
                         .restore_from_snapshot(snapshot, candidate)
                         .map_err(|e| e.to_string())?;
+                    assert_eq!(candidate.camera_movement_disabled(),expected_disable,
+                        "camera pose admission must not overwrite receiving map configuration");
                     assert_eq!(
                         candidate.session_view.camera.settings.bounds(),
                         (100., 450.)
@@ -140,13 +169,16 @@ fn legacy_camera_restore_uses_saved_map_rules_not_active_or_application_maximum(
                 },
             )
             .unwrap();
-            assert_eq!(
-                staged.logic.session_view.camera.settings.bounds(),
-                (100., 450.)
-            );
-            drop(staged);
-            assert_eq!(before, active.capture_camera_continuation().unwrap());
-            assert_eq!(peer_before, peer.capture_camera_continuation().unwrap());
+                assert_eq!(
+                    staged.logic.session_view.camera.settings.bounds(),
+                    (100., 450.)
+                );
+                drop(staged);
+                assert!(active.camera_movement_disabled());
+                assert!(!peer.camera_movement_disabled());
+                assert_eq!(before, active.capture_camera_continuation().unwrap());
+                assert_eq!(peer_before, peer.capture_camera_continuation().unwrap());
+            }
         },
     );
 }

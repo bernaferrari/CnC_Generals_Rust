@@ -167,3 +167,6 @@ fn actual_main_camera_move_keeps_engine_axes_and_zero_duration_without_a_handler
         },
     );
 }
+
+#[path = "camera_movement_script_tests.rs"]
+mod receiving_movement_rule;

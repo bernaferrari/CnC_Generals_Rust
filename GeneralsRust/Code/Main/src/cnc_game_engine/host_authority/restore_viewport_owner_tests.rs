@@ -147,6 +147,7 @@ fn unavailable_map_staging_preserves_actual_receiver_and_peer_viewports() {
                 receiver.session_view.camera.settings,
                 receiver.session_view.camera.clip_policy,
                 receiver.session_view.camera.shake_policy,
+                receiver.session_view.camera.movement_policy,
                 &receiver.world_services,
             );
             assert!(matches!(result, Err(ref error) if error.contains("not available on disk")));

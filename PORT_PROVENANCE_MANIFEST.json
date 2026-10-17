@@ -37012,6 +37012,13 @@
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_game_data/camera_movement_rules.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_game_data/camera_rules.rs"
           },
           {
@@ -37027,6 +37034,20 @@
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_game_data/camera_shake_rules_tests.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_game_data/debug_fields.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_game_data/debug_fields_tests.rs"
           },
           {
             "cargo_reachable": true,
@@ -160189,7 +160210,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "b84e050c3abed15ba891b723f5981e5ace2a7542018d70812cdcdc707a641ebf",
+  "input_digest": "a39d5c8949191c5f0da8c42982051ad2a5e1f52acb9bc73e139682ee0ae34847",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -164118,6 +164139,18 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
+        "end_line": 57,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_game_data/camera_movement_rules.rs",
+      "sha256": "5be833f5c0172ea552dade31e673208ae2d1c33e67e1f8929f16006f238aa05a",
+      "symbol_index_status": "awaiting_mapping_review",
+      "symbols": []
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "implementation",
+      "file_range": {
         "end_line": 106,
         "start_line": 1
       },
@@ -164154,6 +164187,30 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
+        "end_line": 40,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_game_data/debug_fields.rs",
+      "sha256": "e0abd8310d56e7c36b921563038e553777a0365d98fd803fbd6c7ca54b2ccbbb",
+      "symbol_index_status": "awaiting_mapping_review",
+      "symbols": []
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "test",
+      "file_range": {
+        "end_line": 115,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_game_data/debug_fields_tests.rs",
+      "sha256": "65b1218bea1890bf147568c5e63cedaef891e5b6b30d79268925be85b0ab4fb4",
+      "symbol_index_status": "awaiting_mapping_review",
+      "symbols": []
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "implementation",
+      "file_range": {
         "end_line": 59,
         "start_line": 1
       },
@@ -164166,11 +164223,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 2614,
+        "end_line": 2626,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_game_data.rs",
-      "sha256": "d763621826b9b8bf55caa1b24eefe61211a3b68b88be6b8ecbb9176c2e61ad80",
+      "sha256": "516cbd45330848c56eed9d09ef19abe088f5400cb54989abb799c800e13fdbff",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },

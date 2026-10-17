@@ -8,6 +8,7 @@ pub(crate) mod constraints;
 pub(crate) mod continuation;
 pub(crate) mod height;
 pub(crate) mod motion;
+pub(crate) mod movement_rules;
 pub(crate) mod pose;
 pub(crate) mod projection;
 pub(crate) mod settings;
@@ -19,6 +20,7 @@ pub(crate) use shaker::ScriptCameraShaker;
 #[derive(Debug)]
 pub(crate) struct SessionCamera {
     pub(crate) settings: settings::CameraSettings,
+    pub(crate) movement_policy: movement_rules::CameraMovementPolicy,
     pub(crate) clip_policy: clip::CameraClipPolicy,
     pub(crate) shake_policy: shake_rules::CameraShakePolicy,
     pub(crate) constraints: constraints::CameraConstraints,
@@ -67,6 +69,7 @@ impl Default for SessionCamera {
         let (position, look) = native_camera.basis().pose(Vec3::ZERO, 1., 0., 0.);
         Self {
             settings: Default::default(),
+            movement_policy: Default::default(),
             clip_policy: Default::default(),
             shake_policy: Default::default(),
             constraints: Default::default(),

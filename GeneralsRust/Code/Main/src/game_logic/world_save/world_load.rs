@@ -140,6 +140,10 @@ impl GameLogic {
                         .into_iter()
                         .map(|(_, text)| text)
                         .collect();
+                if let Err(error) = self.apply_camera_movement_overrides(&weapon_overrides) {
+                    log::error!("Cannot admit receiving map camera movement rule: {error}");
+                    return false;
+                }
                 if let Err(error) = self.apply_receiving_ocl_overrides(&weapon_overrides) {
                     log::error!("Cannot admit receiving map OCL overrides: {error}");
                     return false;

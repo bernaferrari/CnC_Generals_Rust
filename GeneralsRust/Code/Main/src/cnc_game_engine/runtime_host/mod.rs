@@ -42,6 +42,13 @@ impl CnCGameEngine {
         }
 
         match command.as_str() {
+            #[cfg(feature = "game_client")]
+            "camera_shake_save_continuation_gate" => {
+                self.runtime_host_last_gameplay_cmd = match self.run_camera_window_continuation_gate() {
+                    Ok(report) => format!("camera_owner_gate_ok:{}", report.display()),
+                    Err(reason) => format!("camera_owner_gate_fail:{reason}"),
+                };
+            }
             "exit" => self.runtime_host_cmd_exit(&args),
             "menu" | "quit_to_menu" | "exit_to_menu" => self.runtime_host_cmd_menu(&args),
             "toggle_pause" | "pause" => self.runtime_host_cmd_toggle_pause(&args),

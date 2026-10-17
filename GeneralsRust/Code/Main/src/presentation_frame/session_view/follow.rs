@@ -35,11 +35,22 @@ impl SessionView {
     /// Raw setCameraLock resets Follow style/distance without LookAt.
     /// It never clears the source snapImmediate latch.
     pub(crate) fn set_camera_follow(&mut self, id: Option<ObjectId>) {
+        if id.is_some()
+            && self
+                .camera
+                .movement_policy
+                .current()
+                .disable_camera_movement
+        {
+            return;
+        }
         self.scripted.camera_follow_target = id;
         self.scripted.camera_tether_play = None;
     }
     pub(crate) fn set_camera_tether(&mut self, id: ObjectId, snap: bool, play: f32) {
-        self.scripted.camera_follow_target = Some(id);
+        // ScriptActions calls setCameraLock, then snap/setSnapMode even if
+        // W3DView refused a new valid lock while movements are disabled.
+        self.set_camera_follow(Some(id));
         self.scripted.camera_tether_play = Some(play);
         if snap {
             self.camera.camera_follow_snap_immediate = true;
