@@ -2546,6 +2546,100 @@ End
     }
 
     #[test]
+    fn retail_comanche_scatter_targets_admit_from_ini_in_authored_order() {
+        use crate::common::ini::ini_weapon::{WeaponStore, WeaponTemplate};
+        let source = r#"Weapon ComancheRocketPodWeapon
+  PrimaryDamage = 30.0
+  ScatterTargetScalar = 50
+  ScatterTarget           = X: 0.000 Y: 0.133
+  ScatterTarget           = X: 0.133 Y:-0.200
+  ScatterTarget           = X:-0.067 Y: 0.667
+  ScatterTarget           = X: 0.300 Y: 0.300
+  ScatterTarget           = X: 0.767 Y: 0.000
+  ScatterTarget           = X: 0.500 Y:-0.567
+  ScatterTarget           = X:-0.333 Y:-0.800
+  ScatterTarget           = X:-0.600 Y:-0.1333
+  ScatterTarget           = X:-0.567 Y: 0.433
+  ScatterTarget           = X: 0.000 Y: 0.133
+  ScatterTarget           = X: 0.133 Y:-0.200
+  ScatterTarget           = X:-0.067 Y: 0.667
+  ScatterTarget           = X: 0.300 Y: 0.300
+  ScatterTarget           = X: 0.767 Y: 0.000
+  ScatterTarget           = X: 0.500 Y:-0.567
+  ScatterTarget           = X:-0.333 Y:-0.800
+  ScatterTarget           = X:-0.600 Y:-0.1333
+  ScatterTarget           = X:-0.567 Y: 0.433
+  ScatterTarget           = X: 0.000 Y: 0.133
+  ScatterTarget           = X: 0.133 Y:-0.200
+End
+"#;
+        let mut ini = INI::new();
+        let (name, properties) = ini
+            .with_inline_source(source, |ini| {
+                ini.read_line()?;
+                parse_weapon_property_block(ini)
+            })
+            .expect("actual retail weapon INI/property reader");
+        assert_eq!(name, "ComancheRocketPodWeapon");
+        assert_eq!(
+            properties.get("ScatterTarget").unwrap(),
+            "X: 0.000 Y: 0.133"
+        );
+        assert_eq!(
+            properties.get("ScatterTarget#19").unwrap(),
+            "X: 0.133 Y:-0.200"
+        );
+        let defaults = WeaponTemplate::new(AsciiString::from("UnspecifiedScatter"));
+        assert!(defaults.scatter_targets.is_empty());
+        assert_eq!(defaults.scatter_target_scalar, 0.);
+        let mut store = WeaponStore::new();
+        let name = AsciiString::from(name.as_str());
+        store
+            .register_definition(name.clone(), &properties, INILoadType::Overwrite)
+            .expect("retail ScatterTarget whitespace must not reject the weapon");
+        let expected = vec![
+            (0., 0.133),
+            (0.133, -0.200),
+            (-0.067, 0.667),
+            (0.300, 0.300),
+            (0.767, 0.),
+            (0.500, -0.567),
+            (-0.333, -0.800),
+            (-0.600, -0.1333),
+            (-0.567, 0.433),
+            (0., 0.133),
+            (0.133, -0.200),
+            (-0.067, 0.667),
+            (0.300, 0.300),
+            (0.767, 0.),
+            (0.500, -0.567),
+            (-0.333, -0.800),
+            (-0.600, -0.1333),
+            (-0.567, 0.433),
+            (0., 0.133),
+            (0.133, -0.200),
+        ];
+        let template = store.find_template(&name).unwrap();
+        assert_eq!(
+            template.scatter_targets, expected,
+            "duplicates and #10+ order must survive"
+        );
+        assert_eq!(template.scatter_target_scalar, 50.);
+        assert_eq!(template.primary_damage, 30.);
+        // C++ newOverride copies the template before repeated lines append.
+        let mut extension = HashMap::new();
+        extension.insert("ScatterTarget".into(), "X: -0.25 Y: 0.75".into());
+        store
+            .register_definition(name.clone(), &extension, INILoadType::CreateOverrides)
+            .expect("override retains existing target order");
+        let template = store.find_template(&name).unwrap();
+        assert_eq!(&template.scatter_targets[..20], expected.as_slice());
+        assert_eq!(template.scatter_targets[20], (-0.25, 0.75));
+        assert_eq!(template.scatter_targets.len(), 21);
+        assert_eq!(template.scatter_target_scalar, 50.);
+    }
+
+    #[test]
     fn ini_line_crc_uses_raw_buffer_bytes_not_ascii_string() {
         let impl_src = include_str!("ini.rs")
             .split("#[cfg(test)]")

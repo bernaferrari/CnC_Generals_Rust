@@ -1137,36 +1137,28 @@ const WEAPON_BONUS_CONDITIONS: &[&str] = &[
 const WEAPON_BONUS_FIELDS: &[&str] = &["DAMAGE", "RADIUS", "RANGE", "RATE_OF_FIRE", "PRE_ATTACK"];
 
 fn parse_scatter_coord(value: &str) -> WeaponResult<(f32, f32)> {
-    let mut x = None;
-    let mut y = None;
-    for token in value.split_whitespace() {
-        let Some((label, number)) = token.split_once(':') else {
+    // Weapon.cpp338–348 delegates to INI::parseCoord2D. Its getNextSubToken
+    // uses m_sepsColon (" \n\r\t=:") for both the label and its number,
+    // so retail "X: 0.000 Y: 0.133" and compact "X:0 Y:0" are equivalent.
+    let mut tokens = value
+        .split([' ', '\n', '\r', '\t', '=', ':'])
+        .filter(|token| !token.is_empty());
+    let mut coordinate = |label: &str| -> WeaponResult<f32> {
+        if !tokens
+            .next()
+            .is_some_and(|token| token.eq_ignore_ascii_case(label))
+        {
             return Err(WeaponError::ParseError(format!(
-                "Invalid ScatterTarget '{}'",
-                value
+                "Invalid ScatterTarget '{}': expected {}",
+                value, label,
             )));
-        };
-        let number = number.parse::<f32>().map_err(|_| {
-            WeaponError::ParseError(format!("Invalid ScatterTarget '{}'", value))
-        })?;
-        match label.to_ascii_uppercase().as_str() {
-            "X" => x = Some(number),
-            "Y" => y = Some(number),
-            _ => {
-                return Err(WeaponError::ParseError(format!(
-                    "Invalid ScatterTarget '{}'",
-                    value
-                )))
-            }
         }
-    }
-    match (x, y) {
-        (Some(x), Some(y)) => Ok((x, y)),
-        _ => Err(WeaponError::ParseError(format!(
-            "Invalid ScatterTarget '{}': expected X: and Y:",
-            value
-        ))),
-    }
+        tokens
+            .next()
+            .and_then(|token| token.parse::<f32>().ok())
+            .ok_or_else(|| WeaponError::ParseError(format!("Invalid ScatterTarget '{}'", value)))
+    };
+    Ok((coordinate("X")?, coordinate("Y")?))
 }
 
 const DAMAGE_TYPE_NAMES: &[&str] = &[
@@ -1699,6 +1691,32 @@ mod tests {
         assert_eq!(template.weapon_bonus[6][0], 2.0);
         assert_eq!(template.weapon_bonus[0][0], 1.0);
         assert_eq!(template.scatter_targets, vec![(0.0, 0.0), (1.0, 0.5)]);
+    }
+
+    #[test]
+    fn scatter_coordinates_use_cpp_label_and_number_separators() {
+        for value in [
+            "X:1.25 Y:-2.5",
+            "X: 1.25 Y: -2.5",
+            "X : 1.25 Y : -2.5",
+            "x:1.25\ty:-2.5",
+            "X=1.25 Y=-2.5",
+        ] {
+            assert_eq!(parse_scatter_coord(value).unwrap(), (1.25, -2.5), "{value}");
+        }
+        for value in [
+            "",
+            "1.25 -2.5",
+            "Y:-2.5 X:1.25",
+            "X:1.25",
+            "X:bad Y:-2.5",
+            "X:1.25 Z:-2.5",
+        ] {
+            assert!(
+                parse_scatter_coord(value).is_err(),
+                "C++ requires ordered X/Y: {value}"
+            );
+        }
     }
 
     #[test]
