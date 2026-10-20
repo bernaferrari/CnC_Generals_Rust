@@ -41,7 +41,8 @@ impl Cullable for TestCullable {
 mod tests {
     use super::TestCullable;
     use crate::culling::{
-        CollisionMath, CullCollection, CullStats, CullType, Cullable, GridCullSystem, OverlapType,
+        CollisionMath, CullCollection, CullStats, CullSystem, CullType, Cullable, GridCullSystem,
+        OverlapType,
     };
     use crate::{AABox, Frustum, Matrix3D, Sphere, Vector2, Vector3};
     use std::sync::Arc;
@@ -84,12 +85,12 @@ mod tests {
         assert!(collection.is_empty());
         assert_eq!(collection.len(), 0);
 
-        let obj1 = Arc::new(TestCullable::new(
+        let obj1: Arc<dyn Cullable> = Arc::new(TestCullable::new(
             1,
             Vector3::ZERO,
             Vector3::new(1.0, 1.0, 1.0),
         ));
-        let obj2 = Arc::new(TestCullable::new(
+        let obj2: Arc<dyn Cullable> = Arc::new(TestCullable::new(
             2,
             Vector3::new(2.0, 2.0, 2.0),
             Vector3::new(1.0, 1.0, 1.0),
@@ -114,7 +115,7 @@ mod tests {
     #[test]
     fn test_cull_collection_peek() {
         let mut collection = CullCollection::new();
-        let obj = Arc::new(TestCullable::new(
+        let obj: Arc<dyn Cullable> = Arc::new(TestCullable::new(
             42,
             Vector3::ZERO,
             Vector3::new(1.0, 1.0, 1.0),
@@ -132,7 +133,7 @@ mod tests {
     #[test]
     fn test_cull_collection_clear() {
         let mut collection = CullCollection::new();
-        let obj = Arc::new(TestCullable::new(
+        let obj: Arc<dyn Cullable> = Arc::new(TestCullable::new(
             1,
             Vector3::ZERO,
             Vector3::new(1.0, 1.0, 1.0),
@@ -241,12 +242,12 @@ mod tests {
     fn test_grid_cull_system_add_remove() {
         let mut grid = GridCullSystem::new();
 
-        let obj1 = Arc::new(TestCullable::new(
+        let obj1: Arc<dyn Cullable> = Arc::new(TestCullable::new(
             1,
             Vector3::ZERO,
             Vector3::new(1.0, 1.0, 1.0),
         ));
-        let obj2 = Arc::new(TestCullable::new(
+        let obj2: Arc<dyn Cullable> = Arc::new(TestCullable::new(
             2,
             Vector3::new(10.0, 10.0, 10.0),
             Vector3::new(1.0, 1.0, 1.0),
@@ -269,12 +270,12 @@ mod tests {
     fn test_grid_cull_system_point_collection() {
         let mut grid = GridCullSystem::new();
 
-        let obj_at_origin = Arc::new(TestCullable::new(
+        let obj_at_origin: Arc<dyn Cullable> = Arc::new(TestCullable::new(
             1,
             Vector3::ZERO,
             Vector3::new(2.0, 2.0, 2.0),
         ));
-        let obj_far_away = Arc::new(TestCullable::new(
+        let obj_far_away: Arc<dyn Cullable> = Arc::new(TestCullable::new(
             2,
             Vector3::new(50.0, 50.0, 50.0),
             Vector3::new(1.0, 1.0, 1.0),
@@ -298,7 +299,7 @@ mod tests {
     fn test_grid_cull_system_box_collection() {
         let mut grid = GridCullSystem::new();
 
-        let obj = Arc::new(TestCullable::new(
+        let obj: Arc<dyn Cullable> = Arc::new(TestCullable::new(
             1,
             Vector3::ZERO,
             Vector3::new(1.0, 1.0, 1.0),
@@ -318,12 +319,12 @@ mod tests {
     fn test_grid_cull_system_frustum_collection() {
         let mut grid = GridCullSystem::new();
 
-        let obj_in_view = Arc::new(TestCullable::new(
+        let obj_in_view: Arc<dyn Cullable> = Arc::new(TestCullable::new(
             1,
             Vector3::new(0.0, 0.0, -5.0),
             Vector3::new(0.5, 0.5, 0.5),
         ));
-        let obj_out_of_view = Arc::new(TestCullable::new(
+        let obj_out_of_view: Arc<dyn Cullable> = Arc::new(TestCullable::new(
             2,
             Vector3::new(100.0, 100.0, -5.0),
             Vector3::new(1.0, 1.0, 1.0),
@@ -349,7 +350,7 @@ mod tests {
     fn test_grid_cull_system_update_culling() {
         let mut grid = GridCullSystem::new();
 
-        let obj = Arc::new(TestCullable::new(
+        let obj: Arc<dyn Cullable> = Arc::new(TestCullable::new(
             1,
             Vector3::ZERO,
             Vector3::new(1.0, 1.0, 1.0),
@@ -370,7 +371,7 @@ mod tests {
 
         // Add some objects first
         for i in 0..5 {
-            let obj = Arc::new(TestCullable::new(
+            let obj: Arc<dyn Cullable> = Arc::new(TestCullable::new(
                 i as u64,
                 Vector3::new(i as f32 * 5.0, 0.0, 0.0),
                 Vector3::new(1.0, 1.0, 1.0),
@@ -400,7 +401,7 @@ mod tests {
         assert_eq!(stats.nodes_accepted, 0);
 
         // Add object and perform collection to generate statistics
-        let obj = Arc::new(TestCullable::new(
+        let obj: Arc<dyn Cullable> = Arc::new(TestCullable::new(
             1,
             Vector3::ZERO,
             Vector3::new(1.0, 1.0, 1.0),

@@ -414,6 +414,7 @@ impl Curve1D for TcbSpline1D {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Vec3Extensions;
 
     #[test]
     fn test_tcb_spline_3d_default() {

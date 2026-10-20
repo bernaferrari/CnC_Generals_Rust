@@ -196,3 +196,7 @@ fn get_far_extent(normal: &Vector3, extent: &Vector3) -> Vector3 {
         if normal.z >= 0.0 { extent.z } else { -extent.z },
     )
 }
+
+#[cfg(test)]
+#[path = "collision/source_line_tests.rs"]
+mod source_line_tests;

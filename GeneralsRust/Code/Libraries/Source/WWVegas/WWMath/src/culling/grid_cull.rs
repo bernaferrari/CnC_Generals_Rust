@@ -714,12 +714,12 @@ mod tests {
     fn test_grid_add_remove_objects() {
         let mut grid = GridCullSystem::new();
 
-        let obj1 = Arc::new(TestObject::new(
+        let obj1: Arc<dyn Cullable> = Arc::new(TestObject::new(
             1,
             Vector3::ZERO,
             Vector3::new(1.0, 1.0, 1.0),
         ));
-        let obj2 = Arc::new(TestObject::new(
+        let obj2: Arc<dyn Cullable> = Arc::new(TestObject::new(
             2,
             Vector3::new(10.0, 10.0, 10.0),
             Vector3::new(1.0, 1.0, 1.0),
@@ -741,12 +741,12 @@ mod tests {
     fn test_grid_collect_objects_point() {
         let mut grid = GridCullSystem::new();
 
-        let obj1 = Arc::new(TestObject::new(
+        let obj1: Arc<dyn Cullable> = Arc::new(TestObject::new(
             1,
             Vector3::ZERO,
             Vector3::new(2.0, 2.0, 2.0),
         ));
-        let obj2 = Arc::new(TestObject::new(
+        let obj2: Arc<dyn Cullable> = Arc::new(TestObject::new(
             2,
             Vector3::new(10.0, 10.0, 10.0),
             Vector3::new(1.0, 1.0, 1.0),
@@ -768,12 +768,12 @@ mod tests {
     fn test_grid_collect_objects_box() {
         let mut grid = GridCullSystem::new();
 
-        let obj1 = Arc::new(TestObject::new(
+        let obj1: Arc<dyn Cullable> = Arc::new(TestObject::new(
             1,
             Vector3::ZERO,
             Vector3::new(1.0, 1.0, 1.0),
         ));
-        let obj2 = Arc::new(TestObject::new(
+        let obj2: Arc<dyn Cullable> = Arc::new(TestObject::new(
             2,
             Vector3::new(10.0, 10.0, 10.0),
             Vector3::new(1.0, 1.0, 1.0),
@@ -796,7 +796,7 @@ mod tests {
         let initial_cells = grid.total_cell_count();
 
         // Add some objects first
-        let obj = Arc::new(TestObject::new(
+        let obj: Arc<dyn Cullable> = Arc::new(TestObject::new(
             1,
             Vector3::ZERO,
             Vector3::new(1.0, 1.0, 1.0),
@@ -822,7 +822,7 @@ mod tests {
     fn test_grid_update_culling() {
         let mut grid = GridCullSystem::new();
 
-        let obj = Arc::new(TestObject::new(
+        let obj: Arc<dyn Cullable> = Arc::new(TestObject::new(
             1,
             Vector3::ZERO,
             Vector3::new(1.0, 1.0, 1.0),

@@ -713,6 +713,8 @@ mod geometry;
 mod map_height;
 mod query;
 mod terrain_ops;
+mod terrain_ray;
+pub use terrain_ray::{TerrainHeightSamples, TerrainRayCast};
 #[cfg(test)]
 mod tests;
 mod water;

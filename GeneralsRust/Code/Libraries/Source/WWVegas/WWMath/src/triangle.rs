@@ -48,7 +48,15 @@ impl Triangle {
     pub fn compute_normal(&mut self) {
         let edge1 = self.vertices[1] - self.vertices[0];
         let edge2 = self.vertices[2] - self.vertices[0];
-        self.normal = edge1.cross(edge2).normalize();
+        let normal = edge1.cross(edge2);
+        let squared = (normal.x * normal.x + normal.y * normal.y) + normal.z * normal.z;
+        // Vector3::Normalize leaves a zero normal unchanged. This is the
+        // original portable Inv_Sqrt branch, not the unrelated Quake helper.
+        self.normal = if squared != 0.0 {
+            normal * (1.0 / (f64::from(squared).sqrt() as f32))
+        } else {
+            normal
+        };
     }
 
     /// Test if a point is contained within the triangle
@@ -70,20 +78,21 @@ impl Triangle {
             self.normal.z.abs(),
         );
 
-        if abs_normal.x > abs_normal.y {
-            if abs_normal.x > abs_normal.z {
-                // X is dominant - use Y and Z axes
-                (1, 2)
-            } else {
-                // Z is dominant - use X and Y axes
-                (0, 1)
-            }
-        } else if abs_normal.y > abs_normal.z {
-            // Y is dominant - use X and Z axes
-            (0, 2)
-        } else {
-            // Z is dominant - use X and Y axes
-            (0, 1)
+        // tri.cpp uses strict greater-than updates starting with X, so
+        // equal magnitudes preserve X before Y before Z.
+        let mut dominant = 0;
+        let mut value = abs_normal.x;
+        if abs_normal.y > value {
+            dominant = 1;
+            value = abs_normal.y;
+        }
+        if abs_normal.z > value {
+            dominant = 2;
+        }
+        match dominant {
+            0 => (1, 2),
+            1 => (0, 2),
+            _ => (0, 1),
         }
     }
 

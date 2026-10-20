@@ -22,6 +22,7 @@ game_pathfinding = { path = "../Pathfinding" }
 game_network = { path = "../GameNetwork", optional = true }
 
 # Math and geometry
+math_utilities = { path = "../../Libraries/Source/WWVegas/WWMath" }
 glam = {workspace = true, features = ["serde"]}
 cgmath = {workspace = true}
 

@@ -3,103 +3,23 @@ use super::SessionView;
 use gamelogic::terrain::TerrainLogic;
 use glam::Vec3;
 
-fn terrain_hit(start: Vec3, direction: Vec3, terrain: &TerrainLogic) -> Option<Vec3> {
-    let cell = gamelogic::common::MAP_XY_FACTOR;
-    let (width, height) = terrain.logic_height_map_extents();
-    let bytes = terrain.logic_height_map_bytes();
-    if width <= 0 || height <= 0 || bytes.len() < (width as usize * height as usize) {
-        return None;
-    }
-    let border = -terrain.get_extent_including_border().lo.x / cell;
-    let overhang = 64. + border;
-    let min = Vec3::new(-overhang * cell, 0., -overhang * cell);
-    let max = Vec3::new(
-        (width as f32 + overhang) * cell,
-        0.,
-        (height as f32 + overhang) * cell,
-    );
-    // Cast_Ray uses clipped samples even at the edge; get_ground_height's
-    // outside-interior nearest-sample branch is not the collision surface.
-    let surface = |x: f32, z: f32| {
-        let x = x / cell + border;
-        let z = z / cell + border;
-        let ix = x.floor() as i32;
-        let iz = z.floor() as i32;
-        let fx = x - x.floor();
-        let fz = z - z.floor();
-        let sample = |x: i32, z: i32| {
-            bytes[(z.clamp(0, height - 1) * width + x.clamp(0, width - 1)) as usize] as f32
-        };
-        let p0 = sample(ix, iz);
-        let p2 = sample(ix + 1, iz + 1);
-        let h = if fz > fx {
-            let p3 = sample(ix, iz + 1);
-            p3 + (1. - fz) * (p0 - p3) + fx * (p2 - p3)
-        } else {
-            let p1 = sample(ix + 1, iz);
-            p1 + fz * (p2 - p1) + (1. - fx) * (p0 - p1)
-        };
-        h * gamelogic::common::MAP_HEIGHT_SCALE
-    };
-    let mut enter = 0_f32;
-    let mut exit = 1_f32;
-    for (origin, delta, lo, hi) in [
-        (start.x, direction.x, min.x, max.x),
-        (start.z, direction.z, min.z, max.z),
-    ] {
-        if delta.abs() < 1e-7 {
-            if origin < lo || origin > hi {
-                return None;
-            }
-        } else {
-            let a = (lo - origin) / delta;
-            let b = (hi - origin) / delta;
-            enter = enter.max(a.min(b));
-            exit = exit.min(a.max(b));
-        }
-    }
-    if enter > exit || exit < 0. || enter > 1. {
-        return None;
-    }
-    enter = enter.max(0.);
-    exit = exit.min(1.);
-    let mut cuts = vec![enter, exit];
-    for (origin, delta, lo, hi) in [
-        (start.x, direction.x, min.x, max.x),
-        (start.z, direction.z, min.z, max.z),
-        (
-            start.x - start.z,
-            direction.x - direction.z,
-            min.x - max.z,
-            max.x - min.z,
-        ),
-    ] {
-        if delta.abs() < 1e-7 {
-            continue;
-        }
-        for index in ((lo / cell).floor() as i32)..=((hi / cell).ceil() as i32) {
-            let t = (index as f32 * cell - origin) / delta;
-            if t > enter && t < exit {
-                cuts.push(t);
-            }
-        }
-    }
-    cuts.sort_by(f32::total_cmp);
-    cuts.dedup();
-    for span in cuts.windows(2) {
-        let a = start + direction * span[0];
-        let b = start + direction * span[1];
-        let da = a.y - surface(a.x, a.z);
-        let db = b.y - surface(b.x, b.z);
-        if !da.is_finite() || !db.is_finite() {
-            return None;
-        }
-        if da >= 0. && db <= 0. {
-            let fraction = if da == db { 0. } else { da / (da - db) };
-            return Some(a + (b - a) * fraction);
-        }
-    }
-    None
+#[cfg(test)]
+#[path = "terrain_ray_tests.rs"]
+mod terrain_ray_tests;
+
+fn terrain_hit(
+    start: Vec3,
+    direction: Vec3,
+    terrain: &TerrainLogic,
+) -> Result<Option<Vec3>, String> {
+    // The collision component uses original XYZ (height Z). Main's completed
+    // camera uses Y-up; convert once at this receiving-owner boundary.
+    let source = |point: Vec3| Vec3::new(point.x, point.z, point.y);
+    let cast = terrain.cast_terrain_ray(source(start), source(start + direction))?;
+    Ok(cast.hit.then(|| {
+        let point = cast.result.contact_point;
+        Vec3::new(point.x, point.z, point.y)
+    }))
 }
 
 /// Shared immediate source lookAt geometry, no clamp, state mutation or clock.
@@ -128,7 +48,7 @@ pub(crate) fn receiving_look_at_target(
             let eye = camera.view_matrix.inverse().transform_point3(Vec3::ZERO);
             let depth = (far - eye).length();
             if depth.is_finite() && depth > 0. {
-                if let Some(hit) = terrain_hit(requested, direction * depth, terrain) {
+                if let Some(hit) = terrain_hit(requested, direction * depth, terrain)? {
                     target.x = hit.x;
                     target.z = hit.z;
                 }

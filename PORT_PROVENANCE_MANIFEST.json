@@ -160352,7 +160352,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "7bbdd4fe699ae96a71dc5e2aee2bac3faf32c4935d9aac9c5def4794930b17b6",
+  "input_digest": "3f4675c32d3442ad23f3953640aa479cb9a38bb51a74f425fd477d02cac62a2e",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -217684,11 +217684,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 480,
+        "end_line": 481,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WWMath/src/cardinal_spline.rs",
-      "sha256": "63faf210c37fabb930bdfe0b5cdd6727471c833a246b997036a7a5da74287ee7",
+      "sha256": "aa47d7711d19baab54a16d62468e30536881007718fa51ff26f79be3832a9308",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -217708,11 +217708,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 470,
+        "end_line": 471,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WWMath/src/catmull_rom_spline.rs",
-      "sha256": "0850051844d3e3b7974335b453516598b2b8b858c3bab4784cefd10825caa32e",
+      "sha256": "5acca1854b94746d8f1144614d1c74b8bf958272033e5915d101d19ba0db7d55",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -217856,7 +217856,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WWMath/src/culling/aab_tree_cull.rs",
-      "sha256": "4dca15e0656f73d80d8dec2249d0bcb45f9cddd159b99d3021ba7f9b6c138abf",
+      "sha256": "ce97e7afd4dfe7585fc702993c17d1193089e1ecf58c56348b96fb0bb3dc4fb5",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -217868,7 +217868,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WWMath/src/culling/grid_cull.rs",
-      "sha256": "69add2af1fab9d318ea99a1b85a6d3237ab1ba913bf5d281bf4e833531c42dbf",
+      "sha256": "15bacdd9bcc5d1c4d3f837700f00688e2a9a702412e30a58eac7c350c23b9c0c",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -218044,11 +218044,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 564,
+        "end_line": 565,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WWMath/src/tcb_spline.rs",
-      "sha256": "51724aad60a105ba95394d56d1ebee062dbd18ffc37dbcdf05922ff8071e0967",
+      "sha256": "67bf451a9d7819930a7a4d56b40a8a83a603f161a80b32f498e964b7f5e01b53",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -218108,7 +218108,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WWMath/src/vector3i.rs",
-      "sha256": "52793544977506213cba199b5c48b7178d3925e69689b57ded26e3e728273468",
+      "sha256": "46580eee2d9dae00453a2fd42e04355ec0e7949fd0428d726eb0c198c72ce07c",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -218120,7 +218120,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WWMath/src/vector4.rs",
-      "sha256": "1b20cb8f205da076765d82600184ed7ef7a7a735bf64762394e11b9f1bcbd03e",
+      "sha256": "e03875e09c38a666b83272412d48b3fd1c4318869ea81c5f0dc8a12e51ec342e",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -218128,11 +218128,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 578,
+        "end_line": 579,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WWMath/src/vehicle_curve.rs",
-      "sha256": "b5bbec52c941cca203f69b642576551ef2202ac30c92bdac6f2af13cf9991232",
+      "sha256": "648c21c2024e48896ef91b5afb521af9f1ef7241703eb071c7d36af90d3d7888",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },

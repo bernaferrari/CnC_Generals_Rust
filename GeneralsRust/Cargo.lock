@@ -4426,6 +4426,7 @@ dependencies = [
  "kdtree",
  "lazy_static",
  "log",
+ "math_utilities",
  "num_cpus",
  "num_enum 0.7.6",
  "once_cell",

@@ -86,7 +86,7 @@ mod tests {
     #[test]
     fn vector3i_from_and_to_array() {
         let arr = [1, 2, 3];
-        let v = Vector3i::from_array(&arr);
+        let v = <Vector3i as Vector3iExt>::from_array(&arr);
         assert_eq!(v, Vector3i::new(1, 2, 3));
         assert_eq!(v.to_array(), arr);
     }

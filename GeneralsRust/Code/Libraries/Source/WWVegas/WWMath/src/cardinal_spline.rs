@@ -411,6 +411,7 @@ impl Curve1D for CardinalSpline1D {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Vec3Extensions;
 
     #[test]
     fn test_cardinal_spline_3d() {

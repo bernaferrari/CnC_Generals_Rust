@@ -761,7 +761,7 @@ mod tests {
     #[test]
     fn test_aab_tree_node() {
         let mut node = AABTreeNode::new();
-        let obj = Arc::new(TestObject::new(
+        let obj: Arc<dyn Cullable> = Arc::new(TestObject::new(
             1,
             Vector3::ZERO,
             Vector3::new(1.0, 1.0, 1.0),
@@ -794,12 +794,12 @@ mod tests {
     fn test_aab_tree_add_remove_objects() {
         let mut tree = AABTreeCullSystem::new();
 
-        let obj1 = Arc::new(TestObject::new(
+        let obj1: Arc<dyn Cullable> = Arc::new(TestObject::new(
             1,
             Vector3::ZERO,
             Vector3::new(1.0, 1.0, 1.0),
         ));
-        let obj2 = Arc::new(TestObject::new(
+        let obj2: Arc<dyn Cullable> = Arc::new(TestObject::new(
             2,
             Vector3::new(10.0, 10.0, 10.0),
             Vector3::new(1.0, 1.0, 1.0),
@@ -821,12 +821,12 @@ mod tests {
     fn test_aab_tree_collect_objects_point() {
         let mut tree = AABTreeCullSystem::new();
 
-        let obj1 = Arc::new(TestObject::new(
+        let obj1: Arc<dyn Cullable> = Arc::new(TestObject::new(
             1,
             Vector3::ZERO,
             Vector3::new(2.0, 2.0, 2.0),
         ));
-        let obj2 = Arc::new(TestObject::new(
+        let obj2: Arc<dyn Cullable> = Arc::new(TestObject::new(
             2,
             Vector3::new(10.0, 10.0, 10.0),
             Vector3::new(1.0, 1.0, 1.0),
@@ -848,12 +848,12 @@ mod tests {
     fn test_aab_tree_collect_objects_box() {
         let mut tree = AABTreeCullSystem::new();
 
-        let obj1 = Arc::new(TestObject::new(
+        let obj1: Arc<dyn Cullable> = Arc::new(TestObject::new(
             1,
             Vector3::ZERO,
             Vector3::new(1.0, 1.0, 1.0),
         ));
-        let obj2 = Arc::new(TestObject::new(
+        let obj2: Arc<dyn Cullable> = Arc::new(TestObject::new(
             2,
             Vector3::new(10.0, 10.0, 10.0),
             Vector3::new(1.0, 1.0, 1.0),
@@ -874,12 +874,12 @@ mod tests {
     fn test_aab_tree_collect_objects_frustum() {
         let mut tree = AABTreeCullSystem::new();
 
-        let obj1 = Arc::new(TestObject::new(
+        let obj1: Arc<dyn Cullable> = Arc::new(TestObject::new(
             1,
             Vector3::new(0.0, 0.0, -5.0),
             Vector3::new(0.5, 0.5, 0.5),
         ));
-        let obj2 = Arc::new(TestObject::new(
+        let obj2: Arc<dyn Cullable> = Arc::new(TestObject::new(
             2,
             Vector3::new(100.0, 100.0, -5.0),
             Vector3::new(1.0, 1.0, 1.0),
@@ -907,7 +907,7 @@ mod tests {
 
         // Add several objects
         for i in 0..10 {
-            let obj = Arc::new(TestObject::new(
+            let obj: Arc<dyn Cullable> = Arc::new(TestObject::new(
                 i as u64,
                 Vector3::new(i as f32 * 2.0, i as f32 * 2.0, 0.0),
                 Vector3::new(1.0, 1.0, 1.0),
@@ -928,7 +928,7 @@ mod tests {
     fn test_aab_tree_bounding_box() {
         let mut tree = AABTreeCullSystem::new();
 
-        let obj = Arc::new(TestObject::new(
+        let obj: Arc<dyn Cullable> = Arc::new(TestObject::new(
             1,
             Vector3::new(5.0, 5.0, 5.0),
             Vector3::new(1.0, 1.0, 1.0),
@@ -943,7 +943,7 @@ mod tests {
     fn test_aab_tree_update_culling() {
         let mut tree = AABTreeCullSystem::new();
 
-        let obj = Arc::new(TestObject::new(
+        let obj: Arc<dyn Cullable> = Arc::new(TestObject::new(
             1,
             Vector3::ZERO,
             Vector3::new(1.0, 1.0, 1.0),
@@ -973,7 +973,7 @@ mod tests {
 
         // Add objects to create a tree structure
         for i in 0..8 {
-            let obj = Arc::new(TestObject::new(
+            let obj: Arc<dyn Cullable> = Arc::new(TestObject::new(
                 i as u64,
                 Vector3::new(i as f32 * 10.0, 0.0, 0.0),
                 Vector3::new(1.0, 1.0, 1.0),

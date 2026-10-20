@@ -465,6 +465,7 @@ impl Curve3D for VehicleCurve {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Vec3Extensions;
 
     #[test]
     fn test_vehicle_curve_basic() {

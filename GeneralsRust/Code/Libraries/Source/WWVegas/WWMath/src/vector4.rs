@@ -77,7 +77,7 @@ mod tests {
         let mut result = Vector4::ZERO;
         let a = Vector4::ZERO;
         let b = Vector4::new(10.0, 20.0, 30.0, 40.0);
-        Vector4Ext::lerp_into(&mut result, a, b, 0.5);
+        <Vector4 as Vector4Ext>::lerp_into(&mut result, a, b, 0.5);
         assert_eq!(result, Vector4::new(5.0, 10.0, 15.0, 20.0));
     }
 }

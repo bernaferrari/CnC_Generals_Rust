@@ -348,6 +348,7 @@ impl Curve1D for CatmullRomSpline1D {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Vec3Extensions;
 
     #[test]
     fn test_catmull_rom_spline_3d() {

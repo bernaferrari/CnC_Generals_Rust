@@ -94,32 +94,23 @@ impl CollisionMath {
         tri: &Triangle,
         result: &mut CastResult,
     ) -> bool {
-        // Compute triangle normal and plane
-        let edge1 = tri.vertices[1] - tri.vertices[0];
-        let edge2 = tri.vertices[2] - tri.vertices[0];
-        let normal = edge1.cross(edge2).normalize();
-        let plane_d = normal.dot(tri.vertices[0]);
-        let plane = Plane::new(normal, plane_d);
-
-        // First check intersection with triangle plane
-        let dir = line.end() - line.start();
-        let den = plane.normal.dot(dir);
-
-        if den.abs() < EPSILON {
+        // colmathline.cpp155-205 uses the supplied TriClass normal. A
+        // non-unit normal is valid; PlaneClass does not normalize it.
+        let normal = tri.normal;
+        let dot = |a: Vector3, b: Vector3| (a.x * b.x + a.y * b.y) + a.z * b.z;
+        let plane = Plane::new(normal, dot(normal, tri.vertices[0]));
+        let dir = line.get_dp();
+        let den = dot(plane.normal, dir);
+        if den == 0.0 {
             return false;
         }
-
-        let num = plane.dist - plane.normal.dot(line.start());
+        let num = -(dot(plane.normal, line.get_p0()) - plane.dist);
         let t = num / den;
-
-        if !(0.0..=1.0).contains(&t) {
+        if t < 0.0 || t > 1.0 {
             return false;
         }
-
-        let intersection_point = line.start() + t * dir;
-
-        // Check if intersection point is inside triangle using barycentric coordinates
-        if !Self::point_in_triangle(&intersection_point, tri) {
+        let intersection_point = line.get_p0() + t * dir;
+        if !tri.contains_point(intersection_point) {
             return false;
         }
 
@@ -311,8 +302,9 @@ impl CollisionMath {
             return false;
         }
         if test.inside {
+            // Source marks StartBad only, retaining the caller's fraction,
+            // contact and normal for the enclosing clipping continuation.
             result.start_bad = true;
-            result.fraction = 0.0;
             return true;
         }
         if test.fraction < result.fraction {
@@ -344,8 +336,8 @@ impl CollisionMath {
             return false;
         }
         if test.inside {
+            // colmathline.cpp290: preserve the caller's remaining result.
             result.start_bad = true;
-            result.fraction = 0.0;
             return true;
         }
         if test.fraction < result.fraction {
