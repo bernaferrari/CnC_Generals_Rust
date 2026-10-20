@@ -72,7 +72,8 @@ fn actual_archive_preserves_immediate_shake_active_native_state_and_next_logic_a
                     },
                 )
                 .unwrap();
-            let (snapshot, _) = saves.load_game_snapshot("immediate_shake").unwrap();
+            let crate::save_load::DecodedGameSave { snapshot, .. } =
+                saves.load_game_snapshot("immediate_shake").unwrap();
             let native = crate::save_load::snapshot::read_native_camera_continuation(
                 &snapshot.lifecycle_tail,
             )

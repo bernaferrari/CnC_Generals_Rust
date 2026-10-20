@@ -18,8 +18,12 @@ fn camera_continuation_actual_archives_keep_pending_requests_with_each_candidate
     saves
         .save_game("camera_b", &b, &fixture_save_info())
         .unwrap();
-    let (b_save, _) = saves.load_game_snapshot("camera_b").unwrap();
-    let (a_save, _) = saves.load_game_snapshot("camera_a").unwrap();
+    let crate::save_load::DecodedGameSave {
+        snapshot: b_save, ..
+    } = saves.load_game_snapshot("camera_b").unwrap();
+    let crate::save_load::DecodedGameSave {
+        snapshot: a_save, ..
+    } = saves.load_game_snapshot("camera_a").unwrap();
     b.reset();
     assert_eq!(a.capture_camera_continuation().unwrap(), a_camera);
     let mut restored = GameLogic::new();

@@ -41,8 +41,12 @@ fn camera_owned_save_manager_interleaved_archives_preserve_full_native_pose() {
             )
             .unwrap();
     }
-    let (loaded_b, _) = saves.load_game_snapshot("camera_b").unwrap();
-    let (loaded_a, _) = saves.load_game_snapshot("camera_a").unwrap();
+    let crate::save_load::DecodedGameSave {
+        snapshot: loaded_b, ..
+    } = saves.load_game_snapshot("camera_b").unwrap();
+    let crate::save_load::DecodedGameSave {
+        snapshot: loaded_a, ..
+    } = saves.load_game_snapshot("camera_a").unwrap();
     for (loaded, expected, source_position) in [
         (&loaded_a, camera_a, [10.0, 20.0, 30.0]),
         (&loaded_b, camera_b, [-10.0, 70.0, 50.0]),
@@ -100,7 +104,7 @@ fn camera_owned_save_manager_interleaved_archives_preserve_full_native_pose() {
             saves
                 .load_game_snapshot("camera_a")
                 .unwrap()
-                .0
+                .snapshot
                 .persist_v18
                 .camera(),
             Some(camera_a)
@@ -109,7 +113,7 @@ fn camera_owned_save_manager_interleaved_archives_preserve_full_native_pose() {
             saves
                 .load_game_snapshot("camera_b")
                 .unwrap()
-                .0
+                .snapshot
                 .persist_v18
                 .camera(),
             Some(camera_b)

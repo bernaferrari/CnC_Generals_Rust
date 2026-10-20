@@ -47,9 +47,15 @@ fn owned_control_groups_actual_archives_keep_empty_and_peer_groups_detached() {
             )
             .unwrap();
     }
-    let (loaded_b, _) = saves.load_game_snapshot("groups_b").unwrap();
-    let (loaded_a, _) = saves.load_game_snapshot("groups_a").unwrap();
-    let (empty, _) = saves.load_game_snapshot("groups_empty").unwrap();
+    let crate::save_load::DecodedGameSave {
+        snapshot: loaded_b, ..
+    } = saves.load_game_snapshot("groups_b").unwrap();
+    let crate::save_load::DecodedGameSave {
+        snapshot: loaded_a, ..
+    } = saves.load_game_snapshot("groups_a").unwrap();
+    let crate::save_load::DecodedGameSave {
+        snapshot: empty, ..
+    } = saves.load_game_snapshot("groups_empty").unwrap();
     assert_eq!(loaded_a.persist_v18.camera().unwrap().angle, 0.25);
     assert_eq!(loaded_b.persist_v18.camera().unwrap().angle, 1.5);
     assert_eq!(
@@ -146,7 +152,9 @@ fn owned_control_groups_new_record_preserves_terminal_player_team_capsule() {
                     },
                 )
                 .unwrap();
-            let (loaded, _) = saves.load_game_snapshot("owned_capsule").unwrap();
+            let crate::save_load::DecodedGameSave {
+                snapshot: loaded, ..
+            } = saves.load_game_snapshot("owned_capsule").unwrap();
             assert!(loaded.lifecycle_tail.ends_with(b"PTSC"));
             assert_eq!(player_team_chunks_from_world(&loaded).unwrap(), expected);
             assert_eq!(

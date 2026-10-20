@@ -246,7 +246,11 @@ fn native_saved_map_reconstructs_layers_and_keeps_scaffold_continuation() {
             let ai = foreign.ai();
             let held = ai.write().unwrap();
             gamelogic::system::engine_stores::with_active_stores(&foreign, || {
-                let (snapshot, info) = saves.load_game_snapshot("bridge_owner").unwrap();
+                let crate::save_load::DecodedGameSave {
+                    snapshot,
+                    save_info: info,
+                    ..
+                } = saves.load_game_snapshot("bridge_owner").unwrap();
                 assert_eq!(
                     std::fs::read(&info.map_name).unwrap(),
                     map_bytes(50.0, &[21.0, 55.0])
@@ -362,7 +366,11 @@ fn native_bridge_body_callbacks_continue_through_damage_and_direct_healing() {
                     },
                 )
                 .unwrap();
-            let (snapshot, info) = saves.load_game_snapshot("bridge_body").unwrap();
+            let crate::save_load::DecodedGameSave {
+                snapshot,
+                save_info: info,
+                ..
+            } = saves.load_game_snapshot("bridge_body").unwrap();
             let mut restored = load(Path::new(&info.map_name));
             restored.templates = source.templates.clone();
             SnapshotBuilder::new()

@@ -704,7 +704,9 @@ fn saved_power_process() {
     } else {
         // Decode evidence only; load_game below repeats the public decode and
         // clears/re-stages its compatibility companions normally.
-        let (decoded, _) = manager.load_game_snapshot("power").unwrap();
+        let generals_main::save_load::DecodedGameSave {
+            snapshot: decoded, ..
+        } = manager.load_game_snapshot("power").unwrap();
         let producer = &decoded.objects[&ObjectId(1)];
         write_json(
             &dir.join("reader-decoded.json"),

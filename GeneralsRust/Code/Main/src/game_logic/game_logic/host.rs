@@ -69,6 +69,9 @@ pub struct GameLogic {
     /// this match. C++ exposes this through `TheTeamFactory`; Rust keeps the
     /// mutable simulation data on the owning host world.
     pub(crate) team_factory: gamelogic::team::TeamFactoryHandle,
+    /// Prepared map definitions in authored order, owned by this match. Runtime
+    /// script state belongs to owned_script_engine; no ambient SidesList.
+    pub(crate) prepared_map_sides: gamelogic::sides_list::SidesList,
     /// Named AttackPriorityInfo residual map (script sets).
     pub attack_priority_sets: std::collections::HashMap<String, AttackPriorityInfo>,
     /// C++ `Team::m_commonAttackTarget` residual, keyed by team instance name.

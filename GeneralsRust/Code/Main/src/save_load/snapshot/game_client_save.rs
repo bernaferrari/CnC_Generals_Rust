@@ -8,11 +8,8 @@
 use crate::save_load::{SaveLoadError, SaveLoadResult};
 use std::collections::HashSet;
 use std::io::{Cursor, Read};
-use std::sync::Mutex;
 
 pub const CHUNK_GAME_CLIENT: &str = "CHUNK_GameClient";
-
-static PENDING_GAME_CLIENT_XFER: Mutex<Option<Vec<u8>>> = Mutex::new(None);
 
 pub fn capture_game_client_xfer_bytes(
     client: &mut game_client::core::game_client::GameClient,
@@ -20,19 +17,6 @@ pub fn capture_game_client_xfer_bytes(
     client
         .capture_xfer_bytes()
         .map_err(SaveLoadError::Serialization)
-}
-
-pub fn stash_loaded_game_client_xfer(bytes: Vec<u8>) {
-    if let Ok(mut slot) = PENDING_GAME_CLIENT_XFER.lock() {
-        *slot = Some(bytes);
-    }
-}
-
-pub fn take_loaded_game_client_xfer() -> Option<Vec<u8>> {
-    PENDING_GAME_CLIENT_XFER
-        .lock()
-        .ok()
-        .and_then(|mut slot| slot.take())
 }
 
 /// Check the C++ v3 GameClient envelope before a staged world can commit.

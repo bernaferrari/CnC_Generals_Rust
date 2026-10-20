@@ -113,9 +113,15 @@ fn two_decoded_saves_keep_their_own_ghost_companion_through_interleaved_restore(
     b.w3d_ghosts = ghost_owner("GhostB", Some(42), 1);
     saves.save_game("a", &a, &info("a")).unwrap();
     saves.save_game("b", &b, &info("b")).unwrap();
-    let (snapshot_a, _) = saves.load_game_snapshot("a").unwrap();
+    let crate::save_load::DecodedGameSave {
+        snapshot: snapshot_a,
+        ..
+    } = saves.load_game_snapshot("a").unwrap();
     let bytes_a = snapshot_a.w3d_ghost_companion.as_ref().unwrap().clone();
-    let (snapshot_b, _) = saves.load_game_snapshot("b").unwrap();
+    let crate::save_load::DecodedGameSave {
+        snapshot: snapshot_b,
+        ..
+    } = saves.load_game_snapshot("b").unwrap();
     assert_ne!(bytes_a, *snapshot_b.w3d_ghost_companion.as_ref().unwrap());
     assert_eq!(snapshot_a.w3d_ghost_companion.as_ref().unwrap(), &bytes_a);
     a.w3d_ghosts = Default::default();
@@ -143,7 +149,8 @@ fn unrelated_restore_does_not_consume_a_decoded_ghost_companion() {
     saves
         .save_game("waiting", &source, &info("waiting"))
         .unwrap();
-    let (snapshot, _) = saves.load_game_snapshot("waiting").unwrap();
+    let crate::save_load::DecodedGameSave { snapshot, .. } =
+        saves.load_game_snapshot("waiting").unwrap();
     let builder = SnapshotBuilder::new();
     let mut unrelated = GameLogic::new();
     unrelated.w3d_ghosts = ghost_owner("Unrelated", Some(42), 0);

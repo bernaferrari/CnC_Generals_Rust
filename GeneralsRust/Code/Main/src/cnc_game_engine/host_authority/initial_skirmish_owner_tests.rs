@@ -195,7 +195,8 @@ fn direct_config_archive_rebuilds_saved_initial_foundation_before_strict_map_cov
             let mut saves = SaveFileManager::with_save_directory(dir.path());
             saves.init().unwrap();
             save(&mut saves, "direct", &source);
-            let (snapshot, _) = saves.load_game_snapshot("direct").unwrap();
+            let crate::save_load::DecodedGameSave { snapshot, .. } =
+                saves.load_game_snapshot("direct").unwrap();
             assert_eq!(
                 crate::save_load::snapshot::initial_skirmish::read(&snapshot)
                     .unwrap()
@@ -385,7 +386,9 @@ fn actual_client_game_info_capture_survives_foreign_setup_and_original_archive_r
             // retains the genuine initial logical map rather than recapturing
             // it from that scratch path or silently dropping the source record.
             save(&mut saves, "client_resaved", &restored.logic);
-            let (resaved, _) = saves.load_game_snapshot("client_resaved").unwrap();
+            let crate::save_load::DecodedGameSave {
+                snapshot: resaved, ..
+            } = saves.load_game_snapshot("client_resaved").unwrap();
             let resaved_initial = crate::save_load::snapshot::initial_skirmish::read(&resaved)
                 .unwrap()
                 .unwrap();
@@ -407,7 +410,10 @@ fn actual_client_game_info_capture_survives_foreign_setup_and_original_archive_r
                 w.lifecycle_tail.truncate(end - 8 - n);
                 w.version = 28;
             });
-            let (original_snapshot, _) = saves.load_game_snapshot("source_only").unwrap();
+            let crate::save_load::DecodedGameSave {
+                snapshot: original_snapshot,
+                ..
+            } = saves.load_game_snapshot("source_only").unwrap();
             assert!(
                 crate::save_load::snapshot::initial_skirmish::read(&original_snapshot)
                     .unwrap()
@@ -601,7 +607,8 @@ fn actual_random_color_client_input_keeps_native_archive_and_nonfirst_local_auth
                 }
             }
             assert_eq!(remaining_original, Some(0));
-            let (snapshot, _) = saves.load_game_snapshot("random_color").unwrap();
+            let crate::save_load::DecodedGameSave { snapshot, .. } =
+                saves.load_game_snapshot("random_color").unwrap();
             assert!(
                 crate::save_load::snapshot::initial_skirmish::read(&snapshot)
                     .unwrap()

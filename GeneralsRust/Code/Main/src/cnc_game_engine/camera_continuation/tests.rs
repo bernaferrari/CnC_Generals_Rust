@@ -355,8 +355,11 @@ fn native_camera_continuation_actual_archives_use_one_canonical_pose() {
             )
             .unwrap();
     }
-    let (peer, _) = saves.load_game_snapshot("native_b").unwrap();
-    let (saved, _) = saves.load_game_snapshot("native_a").unwrap();
+    let crate::save_load::DecodedGameSave { snapshot: peer, .. } =
+        saves.load_game_snapshot("native_b").unwrap();
+    let crate::save_load::DecodedGameSave {
+        snapshot: saved, ..
+    } = saves.load_game_snapshot("native_a").unwrap();
     let saved_native =
         crate::save_load::snapshot::read_native_camera_continuation(&saved.lifecycle_tail)
             .unwrap()

@@ -1,4 +1,5 @@
 //! Main save staging isolates only the remaining shared metadata systems.
+//! Main prepared SidesList definitions already belong to its GameLogic.
 //! Terrain, shroud, visuals and AI already belong to their driving world and
 //! are never taken or swapped here. Existing global metadata still requires
 //! the process transaction mutex and the original deferred callback order.
@@ -7,7 +8,6 @@ use crate::system::engine_stores::WorldServices;
 struct HostRuntimeGlobals {
     players: PlayerList,
     teams: TeamFactory,
-    sides: SidesList,
     script_engine: Option<ScriptEngine>,
     named_objects: NamedObjectTrackerState,
     areas: AreaTrackerState,
@@ -20,10 +20,9 @@ impl HostRuntimeGlobals {
     /// than surfacing a fallible half-take: failure handling must always be
     /// able to restore a coherent active world.
     ///
-    /// Every service-owned compatibility reader resolves through the
-    /// explicit `bundle` handle — pinned via
-    /// [`engine_stores::with_world_services`] for the duration of the swap —
-    /// so the transaction never depends on the global active-slot state.
+    /// The metadata below is still process-global. The explicit service scope
+    /// pins only transitive terrain/shroud/visual readers; it does not provide
+    /// a separate PlayerList, TeamFactory, or script/tracker store.
     fn take_from_singletons(bundle: &Arc<WorldServices>) -> Self {
         // Keep this order stable.  We never hold two locks at once, but a
         // deterministic order makes future extensions auditable.
@@ -35,13 +34,6 @@ impl HostRuntimeGlobals {
                 std::mem::replace(&mut *guard, PlayerList::new())
             };
             let teams = get_team_factory().replace_for_world_boundary(TeamFactory::new());
-            let sides = {
-                let sides_list = get_sides_list();
-                let mut guard = sides_list
-                    .write()
-                    .unwrap_or_else(|poisoned| poisoned.into_inner());
-                std::mem::replace(&mut *guard, SidesList::new())
-            };
             let script_engine = {
                 let handle = get_script_engine();
                 let mut guard = handle
@@ -56,7 +48,6 @@ impl HostRuntimeGlobals {
             Self {
                 players,
                 teams,
-                sides,
                 script_engine,
                 named_objects,
                 areas,
@@ -68,15 +59,13 @@ impl HostRuntimeGlobals {
     /// Install this bundle into the stable singleton wrappers and return the
     /// bundle it replaced.  No normal TeamFactory guard is created here, so no
     /// create-action callback can run while values are only half installed.
-    /// Non-AI legacy singletons resolve through the
-    /// explicit `bundle` handle, pinned via
-    /// [`engine_stores::with_world_services`] for the duration of the swap.
+    /// The service scope pins transitive readers while these remaining global
+    /// metadata values are installed. It does not select their ownership.
     fn install_into_singletons(self, bundle: &Arc<WorldServices>) -> Self {
         engine_stores::with_world_services(bundle, move || {
             let Self {
                 players,
                 teams,
-                sides,
                 script_engine,
                 named_objects,
                 areas,
@@ -90,13 +79,6 @@ impl HostRuntimeGlobals {
                 std::mem::replace(&mut *guard, players)
             };
             let old_teams = get_team_factory().replace_for_world_boundary(teams);
-            let old_sides = {
-                let sides_list = get_sides_list();
-                let mut guard = sides_list
-                    .write()
-                    .unwrap_or_else(|poisoned| poisoned.into_inner());
-                std::mem::replace(&mut *guard, sides)
-            };
             let old_script_engine = {
                 let handle = get_script_engine();
                 let mut guard = handle
@@ -113,7 +95,6 @@ impl HostRuntimeGlobals {
             Self {
                 players: old_players,
                 teams: old_teams,
-                sides: old_sides,
                 script_engine: old_script_engine,
                 named_objects: old_named_objects,
                 areas: old_areas,

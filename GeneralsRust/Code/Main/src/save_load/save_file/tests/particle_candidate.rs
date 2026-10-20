@@ -45,7 +45,7 @@ fn archive(companion: Option<Vec<u8>>) -> Vec<u8> {
 fn parsed(bytes: &[u8]) -> WorldSnapshot {
     SaveFileManager::read_common_sav_chunks(bytes, Path::new(""))
         .unwrap()
-        .0
+        .snapshot
 }
 fn repack(blocks: Vec<(String, Vec<u8>)>) -> Vec<u8> {
     let mut bytes = Vec::new();
@@ -251,10 +251,14 @@ mod particle_companion_runtime_control {
                 .unwrap();
                 let archive_a = archive_with_raw_particle_chunk(payload_a);
                 let archive_b = archive_with_raw_particle_chunk(payload_b);
-                let (candidate_a, _) =
-                    SaveFileManager::read_common_sav_chunks(&archive_a, Path::new("")).unwrap();
-                let (_candidate_b, _) =
-                    SaveFileManager::read_common_sav_chunks(&archive_b, Path::new("")).unwrap();
+                let crate::save_load::DecodedGameSave {
+                    snapshot: candidate_a,
+                    ..
+                } = SaveFileManager::read_common_sav_chunks(&archive_a, Path::new("")).unwrap();
+                let crate::save_load::DecodedGameSave {
+                    snapshot: _candidate_b,
+                    ..
+                } = SaveFileManager::read_common_sav_chunks(&archive_b, Path::new("")).unwrap();
                 // OLD407's shared pending slot now contains B. Restoring A must use
                 // A's actual native archive, irrespective of later candidate parsing.
                 let mut receiving_world = GameLogic::new();

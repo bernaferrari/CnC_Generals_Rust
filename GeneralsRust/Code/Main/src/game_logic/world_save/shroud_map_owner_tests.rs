@@ -196,7 +196,11 @@ fn native_offset_map_restores_shroud_origin_and_pending_expiry() {
                 )
                 .unwrap();
             std::fs::remove_file(&path).unwrap();
-            let (saved, info) = saves.load_game_snapshot("offset").unwrap();
+            let crate::save_load::DecodedGameSave {
+                snapshot: saved,
+                save_info: info,
+                ..
+            } = saves.load_game_snapshot("offset").unwrap();
             assert_eq!(std::fs::read(&info.map_name).unwrap(), bytes);
             let mut restored = load(Path::new(&info.map_name));
             SnapshotBuilder::new()

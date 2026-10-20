@@ -90,7 +90,8 @@ fn round_trip(thresholds: [f32; 3], initial_xp: f32, level: VeterancyLevel, cont
     manager
         .save_game("experience", &source, &save_info())
         .unwrap();
-    let (snapshot, _) = manager.load_game_snapshot("experience").unwrap();
+    let generals_main::save_load::DecodedGameSave { snapshot, .. } =
+        manager.load_game_snapshot("experience").unwrap();
     let saved = &snapshot.objects[&id];
     assert_eq!(
         (saved.experience.current, saved.experience.level),

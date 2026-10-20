@@ -442,7 +442,8 @@ fn inspect_historical(dir: &Path) {
     let mut manager = SaveFileManager::with_save_directory(dir.join("saves"));
     manager.init().unwrap();
     fs::write(manager.get_save_path("genuine_v23"), HISTORICAL_V23).unwrap();
-    let (snapshot, _) = manager.load_game_snapshot("genuine_v23").unwrap();
+    let generals_main::save_load::DecodedGameSave { snapshot, .. } =
+        manager.load_game_snapshot("genuine_v23").unwrap();
     write_json(
         &dir.join("historical-v23.json"),
         &json!({
@@ -504,7 +505,9 @@ fn ai_roster_save_process() {
     if role == "reader" {
         // Decode only in the reader: even file decoding stages compatibility
         // companions, so it must not perturb the untouched writer continuation.
-        let (decoded, _) = manager.load_game_snapshot("roster").unwrap();
+        let generals_main::save_load::DecodedGameSave {
+            snapshot: decoded, ..
+        } = manager.load_game_snapshot("roster").unwrap();
         write_json(
             &dir.join("reader-decoded.json"),
             &json!({

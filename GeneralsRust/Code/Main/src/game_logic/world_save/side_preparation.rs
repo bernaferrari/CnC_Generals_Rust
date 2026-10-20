@@ -1,7 +1,11 @@
-//! C++ SidesList preparation and host admission before compatibility publication.
+//! C++ SidesList preparation and host admission on the receiving map owner.
 use super::*;
 
 impl GameLogic {
+    pub(crate) fn prepared_map_sides(&self) -> &gamelogic::sides_list::SidesList {
+        &self.prepared_map_sides
+    }
+
     fn prepare_map_sides(
         &self,
         side_dicts: &[Dict],
@@ -155,13 +159,7 @@ impl GameLogic {
                     .map(|team| team.get_dict().clone())
             })
             .collect();
-        let adapter = get_sides_list();
-        match adapter.try_write() {
-            Ok(mut sides) => *sides = prepared,
-            Err(_) => log::warn!(
-                "Fast legacy runtime sync skipped SidesList publication (THE_SIDES_LIST busy)"
-            ),
-        }
+        self.prepared_map_sides = prepared;
         team_definitions
     }
 }

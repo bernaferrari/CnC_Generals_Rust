@@ -423,7 +423,8 @@ impl GameLogic {
         d.set_ascii_string(key_player_enemies(), String::new());
         d.set_int(key_multiplayer_start_index(), 0);
 
-        if let Ok(mut sides) = get_sides_list().write() {
+        {
+            let sides = &mut self.prepared_map_sides;
             if sides.find_side_info("ReplayObserver").is_none() {
                 sides.add_side(&d);
             }
@@ -512,7 +513,8 @@ impl GameLogic {
         if next.is_none() {
             return;
         }
-        if let Ok(mut sides) = get_sides_list().write() {
+        {
+            let sides = &mut self.prepared_map_sides;
             if let Some(side) = sides.get_side_info_mut(0) {
                 let mut dest = side
                     .get_script_list()

@@ -432,7 +432,9 @@ fn authored_aircraft_save_load_continues_owned_goal_changes() {
     manager
         .quick_save(&source)
         .expect("actual Common named-chunk writer");
-    let (decoded, _) = manager
+    let crate::save_load::DecodedGameSave {
+        snapshot: decoded, ..
+    } = manager
         .load_game_snapshot("quicksave")
         .expect("actual save decoder");
     let mut restored = GameLogic::new();

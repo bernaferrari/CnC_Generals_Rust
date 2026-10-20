@@ -12,8 +12,11 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+#[path = "save_file/decoded.rs"]
+mod decoded;
 #[path = "save_file/map_admission.rs"]
 mod map_admission;
+pub use decoded::DecodedGameSave;
 
 /// Same tokens as C++ `GameState::xferSaveData` (`GameState.cpp:1313-1458`)
 /// and System `TheGameState` (`SAVELOAD_BLOCK_NAMES`).
@@ -1036,7 +1039,11 @@ impl SaveFileManager {
         game_logic: &mut GameLogic,
     ) -> SaveLoadResult<SaveGameInfo> {
         let prior_campaign = capture_live_campaign_state();
-        let (world_snapshot, save_info) = match self.load_game_snapshot(filename) {
+        let DecodedGameSave {
+            snapshot: world_snapshot,
+            save_info,
+            ..
+        } = match self.load_game_snapshot(filename) {
             Ok(decoded) => decoded,
             Err(err) => {
                 rollback_campaign_after_failed_load(prior_campaign);
@@ -1061,10 +1068,7 @@ impl SaveFileManager {
     /// before it restores the snapshot.  Keeping the decode separate from the
     /// restore means a bad/missing map or corrupted snapshot cannot partially
     /// overwrite the currently playable match.
-    pub fn load_game_snapshot(
-        &self,
-        filename: &str,
-    ) -> SaveLoadResult<(WorldSnapshot, SaveGameInfo)> {
+    pub fn load_game_snapshot(&self, filename: &str) -> SaveLoadResult<DecodedGameSave> {
         let save_path = self.get_save_path(filename);
         if !save_path.exists() {
             return Err(SaveLoadError::FileNotFound(filename.to_string()));
@@ -1244,7 +1248,7 @@ impl SaveFileManager {
     }
 
     /// Load the current named-chunk `.sav` container.
-    fn load_from_file(&self, path: &Path) -> SaveLoadResult<(WorldSnapshot, SaveGameInfo)> {
+    fn load_from_file(&self, path: &Path) -> SaveLoadResult<DecodedGameSave> {
         // C++ GameState::loadGame (GameState.cpp:648) clears scratch-pad maps
         // before opening the save. Leftover GameStateMap already matches
         // clearScratchPadMaps (delete every `.map` in the Save directory).
@@ -1524,10 +1528,7 @@ impl SaveFileManager {
         ))
     }
 
-    fn read_common_sav_chunks(
-        data: &[u8],
-        save_dir: &Path,
-    ) -> SaveLoadResult<(WorldSnapshot, SaveGameInfo)> {
+    fn read_common_sav_chunks(data: &[u8], save_dir: &Path) -> SaveLoadResult<DecodedGameSave> {
         discard_stashed_campaign_state();
         store_loaded_game_state_map_mode(None);
         let blocks = walk_named_chunks(data)?;
@@ -1546,6 +1547,7 @@ impl SaveFileManager {
             save_type: SaveFileType::Normal,
         };
         let mut logic_data: Option<Vec<u8>> = None;
+        let mut game_client_xfer = None;
         let mut saw_game_state = false;
         let mut ingame_ui_payload: Option<Vec<u8>> = None;
         let mut tactical_view_payload: Option<Vec<u8>> = None;
@@ -1596,7 +1598,7 @@ impl SaveFileManager {
                 // NullSnapshot is a lone version-1 byte. Leftover GameClient::xfer
                 // starts at version 3 and recreates objectless drawables.
                 if payload.first().copied() != Some(1) || payload.len() > 1 {
-                    stash_loaded_game_client_xfer(payload);
+                    game_client_xfer = Some(payload);
                 }
             } else if token.eq_ignore_ascii_case(CHUNK_PARTICLE_SYSTEM) {
                 // NullSnapshot is a lone version-1 byte. Manager xfer is
@@ -1687,7 +1689,11 @@ impl SaveFileManager {
             terrain_logic_payload.as_deref(),
             radar_payload.as_deref(),
         );
-        Ok((world_snapshot, save_info))
+        Ok(DecodedGameSave {
+            snapshot: world_snapshot,
+            save_info,
+            game_client_xfer,
+        })
     }
 
     /// Host `CHUNK_GameLogic` is positional `WorldSnapshot` bincode, optionally

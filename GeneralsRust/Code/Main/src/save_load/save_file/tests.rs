@@ -2,6 +2,7 @@
 
 mod camera_continuation;
 mod camera_ownership;
+mod client_candidate;
 mod control_group_ownership;
 mod historical_player_cash;
 mod particle_candidate;
@@ -205,7 +206,11 @@ fn host_lists_cpp_game_state_version_2_without_rejecting() {
     assert_eq!(info.map_name, "Maps\\Alpine Assault.map");
     // C++ mission files have no world restore payload. Host lists them
     // and loadGame restarts the mission instead of decoding GameLogic.
-    let (snapshot, listed) = SaveFileManager::read_common_sav_chunks(&bytes, Path::new(""))
+    let crate::save_load::DecodedGameSave {
+        snapshot,
+        save_info: listed,
+        ..
+    } = SaveFileManager::read_common_sav_chunks(&bytes, Path::new(""))
         .expect("mission header-only is a thin restart file");
     assert_eq!(listed.save_type, SaveFileType::Mission);
     assert!(
@@ -390,8 +395,11 @@ fn mission_save_writes_only_game_state_and_campaign_chunks() {
     let listed = SaveFileManager::read_named_chunk_save_info(&bytes).expect("list mission");
     assert_eq!(listed.save_type, SaveFileType::Mission);
     assert_eq!(listed.map_name, "Maps\\Alpine Assault.map");
-    let (world, info) =
-        SaveFileManager::read_common_sav_chunks(&bytes, Path::new("")).expect("read mission");
+    let crate::save_load::DecodedGameSave {
+        snapshot: world,
+        save_info: info,
+        ..
+    } = SaveFileManager::read_common_sav_chunks(&bytes, Path::new("")).expect("read mission");
     assert_eq!(info.save_type, SaveFileType::Mission);
     assert!(world.objects.is_empty());
 }
@@ -542,7 +550,9 @@ fn load_prefers_embedded_scratch_over_installed_same_named_map() {
     bytes.push(SAVE_FILE_EOF.len() as u8);
     bytes.extend_from_slice(SAVE_FILE_EOF.as_bytes());
 
-    let (_, listed) = SaveFileManager::read_common_sav_chunks(&bytes, &save_dir)
+    let crate::save_load::DecodedGameSave {
+        save_info: listed, ..
+    } = SaveFileManager::read_common_sav_chunks(&bytes, &save_dir)
         .expect("mission + GameStateMap must load");
     let extracted = save_dir.join(leaf);
     assert_eq!(

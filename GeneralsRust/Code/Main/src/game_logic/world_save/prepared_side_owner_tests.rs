@@ -40,7 +40,7 @@ fn map_rows(named: &str, include_neutral: bool) -> (Vec<Dict>, Vec<ScriptList>) 
     (rows, scripts)
 }
 
-fn prepare(world: &mut GameLogic, name: &str, include_neutral: bool) {
+fn prepare(world: &mut GameLogic, name: &str, include_neutral: bool) -> Vec<Dict> {
     let (rows, scripts) = map_rows(name, include_neutral);
     let source_index = if include_neutral { 2 } else { 1 };
     let builds = [super::script_loader::SideBuildEntry {
@@ -57,7 +57,15 @@ fn prepare(world: &mut GameLogic, name: &str, include_neutral: bool) {
         unsellable: Some(true),
         repairable: Some(true),
     }];
-    world.sync_legacy_sides_list_from_dicts(&rows, &[], &builds, &scripts);
+    world.sync_legacy_sides_list_from_dicts(&rows, &[], &builds, &scripts)
+}
+
+// The direct snapshot API receives an already-loaded map foundation, exactly
+// as the production stage admits saved initial slots then loads map definitions.
+fn prepare_restore_foundation(world: &mut GameLogic) {
+    world.install_owned_script_engine(gamelogic::scripting::engine::ScriptEngine::new().unwrap());
+    let definitions = prepare(world, "PlyrCivilian", false);
+    assert!(world.sync_legacy_team_factory_from_team_dicts(&definitions));
 }
 
 fn retained(world: &GameLogic, name: &str) -> u32 {
@@ -76,8 +84,7 @@ fn prepared_map_adapter_calibration_preserves_source_order_and_scripts() {
         || {
             let mut world = configured();
             prepare(&mut world, "PlyrCivilian", false);
-            let adapter = get_sides_list();
-            let sides = adapter.read().unwrap();
+            let sides = world.prepared_map_sides();
             let names: Vec<_> = (0..sides.get_num_sides())
                 .map(|i| {
                     sides
@@ -218,7 +225,7 @@ fn prepared_admission_roles_survive_encoded_snapshot_restore() {
         "prepared_admission_roles_survive_encoded_snapshot_restore",
         || {
             let mut source = configured();
-            prepare(&mut source, "PlyrCivilian", false);
+            prepare_restore_foundation(&mut source);
             let civilian = retained(&source, "PlyrCivilian");
             let neutral = retained(&source, "");
             let builder = SnapshotBuilder::new();
@@ -229,6 +236,13 @@ fn prepared_admission_roles_survive_encoded_snapshot_restore() {
             prepare(&mut foreign, "ForeignCivilian", true);
             foreign.reset();
             let mut restored = GameLogic::new();
+            restored.start_new_game_for_restore(GameMode::Skirmish);
+            crate::save_load::snapshot::initial_skirmish::read_for_restore(&decoded)
+                .unwrap()
+                .expect("resolved initial admission")
+                .admit(&mut restored)
+                .unwrap();
+            prepare_restore_foundation(&mut restored);
             builder
                 .restore_from_snapshot(&decoded, &mut restored)
                 .unwrap();
@@ -321,8 +335,7 @@ fn retry_with_different_map_retires_previous_authored_owners() {
                 "retired team override does not attach to reused identity"
             );
             assert!(world.players[&0].team_instance_player_relations.is_empty());
-            let adapter = get_sides_list();
-            let sides = adapter.read().unwrap();
+            let sides = world.prepared_map_sides();
             assert!(
                 sides.find_side_info("FirstCivilian").is_none(),
                 "old map owner must not be emitted as a lobby slot"
@@ -330,6 +343,94 @@ fn retry_with_different_map_retires_previous_authored_owners() {
             assert!(sides.find_team_info("teamFirstCivilian").is_none());
             assert!(sides.find_side_info("SecondCivilian").is_some());
             assert_eq!(world.players[&3].map_side.map_player_name, "player3");
+        },
+    );
+}
+
+#[test]
+fn receiving_prepared_sides_survive_peer_reset_restore_and_busy_global_adapter() {
+    isolated(
+        "receiving_prepared_sides_survive_peer_reset_restore_and_busy_global_adapter",
+        || {
+            crate::skirmish_config::lobby_definition_tests::admit_slot_definitions();
+            let adapter = get_sides_list();
+            let mut foreign = adapter.write().unwrap();
+            foreign.reset();
+            let mut marker = Dict::new();
+            marker.set_ascii_string(key_player_name(), "UnrelatedGlobalSide");
+            foreign.add_side(&marker);
+            let mut inert = GameLogic::new();
+            assert_eq!(inert.prepared_map_sides().get_num_sides(), 0);
+            inert.reset();
+            assert!(foreign.find_side_info("UnrelatedGlobalSide").is_some());
+
+            let mut receiving = configured();
+            prepare_restore_foundation(&mut receiving);
+            let original_rows: Vec<_> = (0..receiving.prepared_map_sides().get_num_sides())
+                .map(|i| {
+                    receiving
+                        .prepared_map_sides()
+                        .get_side_info(i)
+                        .unwrap()
+                        .get_dict()
+                        .get_ascii_string(key_player_name())
+                })
+                .collect();
+            assert_eq!(
+                original_rows,
+                ["PlyrCivilian", "player0", "player3", "ReplayObserver", ""],
+                "receiving world must retain actual prepared source rows"
+            );
+            let owner = retained(&receiving, "PlyrCivilian");
+            let mut peer = configured();
+            prepare(&mut peer, "PeerCivilian", false);
+            assert_eq!(retained(&peer, "PeerCivilian"), owner);
+            peer.reset();
+            assert_eq!(peer.prepared_map_sides().get_num_sides(), 0);
+            drop(peer);
+            assert_eq!(
+                (0..receiving.prepared_map_sides().get_num_sides())
+                    .map(|i| receiving
+                        .prepared_map_sides()
+                        .get_side_info(i)
+                        .unwrap()
+                        .get_dict()
+                        .get_ascii_string(key_player_name()))
+                    .collect::<Vec<_>>(),
+                original_rows
+            );
+            assert!(foreign.find_side_info("PlyrCivilian").is_none());
+            let builder = SnapshotBuilder::new();
+            let snapshot = builder.create_world_snapshot(&receiving).unwrap();
+            let encoded = bincode_legacy::serialize(&snapshot).unwrap();
+            let decoded = decode_bincode_world_snapshot(&encoded).unwrap();
+            let mut restored = GameLogic::new();
+            restored.start_new_game_for_restore(GameMode::Skirmish);
+            crate::save_load::snapshot::initial_skirmish::read_for_restore(&decoded)
+                .unwrap()
+                .expect("resolved initial admission")
+                .admit(&mut restored)
+                .unwrap();
+            prepare_restore_foundation(&mut restored);
+            builder
+                .restore_from_snapshot(&decoded, &mut restored)
+                .unwrap();
+            assert_eq!(retained(&restored, "PlyrCivilian"), owner);
+            assert_eq!(
+                (0..restored.prepared_map_sides().get_num_sides())
+                    .map(|i| restored
+                        .prepared_map_sides()
+                        .get_side_info(i)
+                        .unwrap()
+                        .get_dict()
+                        .get_ascii_string(key_player_name()))
+                    .collect::<Vec<_>>(),
+                original_rows
+            );
+            restored.reset();
+            assert_eq!(restored.prepared_map_sides().get_num_sides(), 0);
+            assert!(foreign.find_side_info("UnrelatedGlobalSide").is_some());
+            assert_eq!(foreign.get_num_sides(), 1);
         },
     );
 }

@@ -325,7 +325,9 @@ fn pending_combat_snapshot_common_save_load_continues_both_real_queues() {
     manager
         .save_game("both_queues", &source, &save_info("both_queues"))
         .expect("actual Common named-chunk writer");
-    let (decoded, _) = manager
+    let crate::save_load::DecodedGameSave {
+        snapshot: decoded, ..
+    } = manager
         .load_game_snapshot("both_queues")
         .expect("actual current decoder");
     let mut restored = new_owned_world();

@@ -252,12 +252,9 @@ impl GameLogic {
         report_progress(0.45, "Fast sync sides write");
 
         // The fast parser owns its decoded side/team dictionaries instead of
-        // going through LogicMapLoader's global SidesList callback.  Publish
-        // the same map-owned SidesList before deriving PlayerList/TeamFactory,
-        // otherwise a staged restore would commit an empty (or stale) side
-        // singleton even though its player/team globals came from this map.
-        // Abandoned boot workers can still hold these globals after generation
-        // bump; fail-open so load_map returns and host objects still spawn.
+        // going through LogicMapLoader's global SidesList callback. Retain the
+        // prepared value on this world before deriving players and teams;
+        // observer and script setup consume these same ordered map rows.
         if !self.admit_map_script_definitions(&map_path.to_string_lossy(), Some(chunky)) {
             return false;
         }
@@ -521,11 +518,8 @@ impl GameLogic {
         }
     }
 
-    pub(in super::super) fn transfer_side_build_lists_to_players(&self) {
-        let sides_list = get_sides_list();
-        let Ok(mut sides) = sides_list.try_write() else {
-            return;
-        };
+    pub(in super::super) fn transfer_side_build_lists_to_players(&mut self) {
+        let sides = &mut self.prepared_map_sides;
         let player_list = ThePlayerList();
         let Ok(mut players) = player_list.try_write() else {
             return;
@@ -558,10 +552,7 @@ impl GameLogic {
         &mut self,
         replace_default_money: bool,
     ) {
-        let sides_list = get_sides_list();
-        let Ok(sides_guard) = sides_list.try_read() else {
-            return;
-        };
+        let sides_guard = &self.prepared_map_sides;
         let side_dicts: Vec<Dict> = (0..sides_guard.get_num_sides())
             .filter_map(|index| {
                 sides_guard
@@ -569,7 +560,6 @@ impl GameLogic {
                     .map(|side| side.get_dict().clone())
             })
             .collect();
-        drop(sides_guard);
         self.apply_host_players_from_side_dicts(&side_dicts, replace_default_money);
     }
 
@@ -798,11 +788,7 @@ impl GameLogic {
     }
 
     pub(in super::super) fn sync_legacy_player_list_from_sides(&self) {
-        let sides_list = get_sides_list();
-        let Ok(sides_guard) = sides_list.try_read() else {
-            log::warn!("Fast legacy runtime sync skipped PlayerList derive (THE_SIDES_LIST busy)");
-            return;
-        };
+        let sides_guard = &self.prepared_map_sides;
 
         let side_dicts: Vec<Dict> = (0..sides_guard.get_num_sides())
             .filter_map(|index| {

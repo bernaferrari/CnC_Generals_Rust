@@ -753,7 +753,8 @@ fn historical_players_rows_keep_their_own_layout_and_defaults() {
         .unwrap();
         // The original fixture is genuine outer v23; only the sibling Players
         // layout varies here. Its explicit empty AI vector remains authoritative.
-        let (snapshot, _) = manager.load_game_snapshot("legacy").unwrap();
+        let generals_main::save_load::DecodedGameSave { snapshot, .. } =
+            manager.load_game_snapshot("legacy").unwrap();
         assert_eq!(snapshot.version, 23);
         assert!(snapshot.ai_players.is_empty());
         let mut decoded = world();
@@ -845,7 +846,8 @@ fn world_versions_23_and_24_keep_nonempty_direct_and_bincode_alignment() {
     let mut manager = SaveFileManager::with_save_directory(directory.path());
     manager.init().unwrap();
     std::fs::write(manager.get_save_path("original"), original).unwrap();
-    let (mut snapshot, _) = manager.load_game_snapshot("original").unwrap();
+    let generals_main::save_load::DecodedGameSave { mut snapshot, .. } =
+        manager.load_game_snapshot("original").unwrap();
     assert_eq!(snapshot.players.len(), 2);
     assert_eq!(snapshot.objects.len(), 2);
     for version in [23, 24] {
@@ -882,7 +884,9 @@ fn world_versions_23_and_24_keep_nonempty_direct_and_bincode_alignment() {
             );
         }
         std::fs::write(manager.get_save_path("version"), &bundle).unwrap();
-        let (decoded, _) = manager.load_game_snapshot("version").unwrap();
+        let generals_main::save_load::DecodedGameSave {
+            snapshot: decoded, ..
+        } = manager.load_game_snapshot("version").unwrap();
         assert_eq!(decoded.version, version);
         // The named sibling chunks now belong to the returned snapshot. This
         // bundle deliberately changes Players, so expect the new capsule while
@@ -1294,8 +1298,10 @@ fn retained_decoded_files_restore_their_own_players_and_teams_in_either_order() 
     }
     // Both public decodes complete before either candidate is restored. This
     // OLD-compatible sequence exposes B replacing A's sibling chunk metadata.
-    let (a, _) = manager.load_game_snapshot("retained_a").unwrap();
-    let (b, _) = manager.load_game_snapshot("retained_b").unwrap();
+    let generals_main::save_load::DecodedGameSave { snapshot: a, .. } =
+        manager.load_game_snapshot("retained_a").unwrap();
+    let generals_main::save_load::DecodedGameSave { snapshot: b, .. } =
+        manager.load_game_snapshot("retained_b").unwrap();
     assert!(
         manager
             .load_game_snapshot("missing_retained_candidate")

@@ -78,6 +78,7 @@ impl GameLogic {
             world_services: gamelogic::system::engine_stores::new_world_services(),
             host_trigger_world,
             team_factory: team_factory.clone(),
+            prepared_map_sides: gamelogic::sides_list::SidesList::new(),
             #[cfg(feature = "game_client")]
             host_physics_visuals: Default::default(),
             drawable_tint_envelopes: crate::game_logic::DrawableTintEnvelopes::default(),
@@ -838,6 +839,7 @@ impl GameLogic {
             crate::game_logic::host_rank_ui_residual::RANK_LEVEL_LIMIT_DEFAULT_RESIDUAL;
         self.player_template_bindings.clear();
         self.initial_skirmish_admission = None;
+        self.prepared_map_sides.reset();
         self.next_object_id = ObjectId(1);
         self.next_formation_id = 1;
         self.frame = 0;

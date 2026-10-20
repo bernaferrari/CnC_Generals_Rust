@@ -62,7 +62,9 @@ fn native_world_v26_players_v6_restores_pinned_cash_and_spent_wallet() {
             );
 
             let bytes = named_save(&snapshot, &players);
-            let (decoded, _) = SaveFileManager::read_common_sav_chunks(&bytes, Path::new(""))
+            let crate::save_load::DecodedGameSave {
+                snapshot: decoded, ..
+            } = SaveFileManager::read_common_sav_chunks(&bytes, Path::new(""))
                 .expect("previous World26/Players6 native save stays readable");
             assert_eq!(decoded.version, 26);
             let migrated = player_team_chunks_from_world(&decoded).unwrap();

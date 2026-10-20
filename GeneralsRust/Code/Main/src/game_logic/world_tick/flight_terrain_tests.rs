@@ -259,7 +259,9 @@ fn native_save_restores_authored_smooth_flight_and_continues_owned_wall_lift() {
             let mut manager = crate::save_load::SaveFileManager::with_save_directory(dir.path());
             manager.init().unwrap();
             manager.quick_save(&source).unwrap();
-            let (decoded, _) = manager.load_game_snapshot("quicksave").unwrap();
+            let crate::save_load::DecodedGameSave {
+                snapshot: decoded, ..
+            } = manager.load_game_snapshot("quicksave").unwrap();
             // Native runtime loads into the already authored map candidate.
             let (mut restored, restored_id) = world(55.0, 7.0);
             assert_eq!(restored_id, id);

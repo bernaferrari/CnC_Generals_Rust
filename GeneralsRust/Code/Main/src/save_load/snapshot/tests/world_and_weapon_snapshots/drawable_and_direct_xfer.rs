@@ -236,7 +236,11 @@ fn companion_aware_save_preserves_client_drawable_snapshot() {
             &save_info,
         )
         .expect("save companion");
-    let (snapshot, loaded_info) = manager
+    let crate::save_load::DecodedGameSave {
+        snapshot,
+        save_info: loaded_info,
+        ..
+    } = manager
         .load_game_snapshot("client_drawable_companion")
         .expect("decode companion");
     assert_eq!(loaded_info.map_name, "CompanionMap");

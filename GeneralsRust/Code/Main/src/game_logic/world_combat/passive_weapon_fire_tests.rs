@@ -220,7 +220,9 @@ fn normal_encoded_save_restores_selected_passive_slot_and_delayed_damage_once() 
         save_type: crate::save_load::SaveFileType::Normal,
     };
     manager.save_game("passive_owner", &game, &info).unwrap();
-    let (decoded, _) = manager.load_game_snapshot("passive_owner").unwrap();
+    let crate::save_load::DecodedGameSave {
+        snapshot: decoded, ..
+    } = manager.load_game_snapshot("passive_owner").unwrap();
     let mut restored = GameLogic::new();
     restored.templates = game.templates.clone();
     restored.add_player(Player::new(0, Team::USA, "local", true));

@@ -143,7 +143,8 @@ fn native_die_camera_companion_archive_restores_view_height_and_receipts_without
                     },
                 )
                 .unwrap();
-            let (snapshot, _) = saves.load_game_snapshot("native_die").unwrap();
+            let crate::save_load::DecodedGameSave { snapshot, .. } =
+                saves.load_game_snapshot("native_die").unwrap();
             let native = crate::save_load::snapshot::read_native_camera_continuation(
                 &snapshot.lifecycle_tail,
             )

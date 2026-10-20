@@ -131,7 +131,7 @@ fn companion_save_round_trips_mid_recoil_animation_and_discharge_sequence() {
             &save_info,
         )
         .expect("save mid-recoil");
-    let (snapshot, _) = manager
+    let crate::save_load::DecodedGameSave { snapshot, .. } = manager
         .load_game_snapshot("mid_recoil")
         .expect("load mid-recoil");
     assert_eq!(snapshot.client_drawables, client_drawables);
@@ -236,7 +236,8 @@ fn companion_save_round_trips_w3d_ghost_snapshots() {
 
     source.w3d_ghosts = Default::default();
 
-    let (snapshot, _) = manager.load_game_snapshot("ghosts").expect("decode ghosts");
+    let crate::save_load::DecodedGameSave { snapshot, .. } =
+        manager.load_game_snapshot("ghosts").expect("decode ghosts");
     let mut restored = GameLogic::new();
     SnapshotBuilder::new()
         .restore_from_snapshot(&snapshot, &mut restored)

@@ -183,7 +183,9 @@ fn normal_encoded_save_preserves_exact_repair_wait_and_resumed_body_healing() {
         save_type: crate::save_load::SaveFileType::Normal,
     };
     manager.save_game("slave_owner", &game, &info).unwrap();
-    let (decoded, _) = manager.load_game_snapshot("slave_owner").unwrap();
+    let crate::save_load::DecodedGameSave {
+        snapshot: decoded, ..
+    } = manager.load_game_snapshot("slave_owner").unwrap();
     let mut restored = GameLogic::new();
     // Load the same receiving player/default-team definitions before applying
     // the saved roster, just as map admission does in the production path.
@@ -220,7 +222,9 @@ fn normal_encoded_save_preserves_exact_repair_wait_and_resumed_body_healing() {
     game.unlink_leftover_team_host_member(master, &team_name);
     game.objects.remove(&master);
     manager.save_game("slave_missing", &game, &info).unwrap();
-    let (missing, _) = manager.load_game_snapshot("slave_missing").unwrap();
+    let crate::save_load::DecodedGameSave {
+        snapshot: missing, ..
+    } = manager.load_game_snapshot("slave_missing").unwrap();
     let mut lost = GameLogic::new();
     lost.add_player(Player::new(0, Team::USA, "owner", true));
     lost.templates = game.templates.clone();
