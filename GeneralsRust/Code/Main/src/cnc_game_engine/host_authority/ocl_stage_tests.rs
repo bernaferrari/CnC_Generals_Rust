@@ -41,7 +41,9 @@ fn actual_saved_map_ocl_candidate_uses_own_base_and_solo_without_mutating_active
             source
                 .admit_ocl_application_sources(&[list("Application")])
                 .unwrap();
-            source.start_new_game(GameMode::Skirmish);
+            crate::skirmish_config::lobby_definition_tests::admit_slot_definitions();
+            let config = crate::skirmish_config::golden_skirmish_config(path.to_str().unwrap());
+            crate::skirmish_config::apply_skirmish_config(&mut source, &config).unwrap();
             assert!(source.load_map(path.to_str().unwrap()));
             assert_eq!(selected(&source), "SavedSolo");
             let builder = crate::save_load::snapshot::SnapshotBuilder::new();
@@ -75,6 +77,7 @@ fn actual_saved_map_ocl_candidate_uses_own_base_and_solo_without_mutating_active
                 &snapshot,
                 info(),
                 None,
+                None,
                 "ocl",
                 GameMode::Skirmish,
                 &source.templates,
@@ -106,6 +109,7 @@ fn actual_saved_map_ocl_candidate_uses_own_base_and_solo_without_mutating_active
             let mut staged = CnCGameEngine::stage_decoded_saved_world_for_restore(
                 &snapshot,
                 info(),
+                None,
                 None,
                 "ocl",
                 GameMode::Skirmish,

@@ -157,21 +157,20 @@ fn load_failure_surfaces_gui_error_loading_game() {
 
 #[test]
 fn offline_restore_prefers_saved_skirmish_over_live_campaign() {
-    crate::save_load::store_loaded_game_state_map_mode_for_test(Some(2));
     let mode = CnCGameEngine::offline_restore_mode_for_save(
         GameMode::SinglePlayer,
         &save_info("slot", "Maps\\Alpine.map".into()),
+        Some(2),
     )
     .expect("saved skirmish must restore");
     assert_eq!(mode, GameMode::Skirmish);
-    crate::save_load::store_loaded_game_state_map_mode_for_test(Some(0));
     let mode = CnCGameEngine::offline_restore_mode_for_save(
         GameMode::Skirmish,
         &save_info("slot", "Maps\\Alpine.map".into()),
+        Some(0),
     )
     .expect("saved campaign must restore");
     assert_eq!(mode, GameMode::SinglePlayer);
-    crate::save_load::store_loaded_game_state_map_mode_for_test(None);
 }
 
 #[test]
@@ -245,6 +244,7 @@ fn malformed_client_chunk_rejects_candidate_before_touching_live_client() {
             let err = CnCGameEngine::stage_decoded_saved_world_for_restore(
                 &crate::save_load::WorldSnapshot::default(),
                 save_info("corrupt_client", "Not A Retail Map".to_string()),
+                None,
                 Some(invalid_chunk),
                 "corrupt_client",
                 GameMode::SinglePlayer,
@@ -485,6 +485,7 @@ fn forced_post_restore_failure_restores_globals_and_tls_effect_queues() {
             let crate::save_load::DecodedGameSave {
                 snapshot,
                 save_info: info,
+                saved_game_mode,
                 ..
             } = saves
                 .load_game_snapshot("forced_stage_failure")
@@ -606,6 +607,7 @@ fn forced_post_restore_failure_restores_globals_and_tls_effect_queues() {
             let err = match CnCGameEngine::stage_decoded_saved_world_for_restore(
                 &snapshot,
                 info,
+                saved_game_mode,
                 staged_client_bytes,
                 "forced_stage_failure",
                 GameMode::Skirmish,
@@ -874,6 +876,7 @@ fn embedded_saved_map_restores_original_ai_companions_without_replacing_geometry
                     let crate::save_load::DecodedGameSave {
                         snapshot,
                         save_info: info,
+                        saved_game_mode,
                         ..
                     } = saves.load_game_snapshot("owned_companions").unwrap();
                     let extracted = std::path::Path::new(&info.map_name);
@@ -892,6 +895,7 @@ fn embedded_saved_map_restores_original_ai_companions_without_replacing_geometry
                     let mut staged = CnCGameEngine::stage_decoded_saved_world_for_restore(
                         &snapshot,
                         info,
+                        saved_game_mode,
                         None,
                         "owned_companions",
                         GameMode::Skirmish,
@@ -1406,11 +1410,13 @@ fn main_services_start_and_stage_leave_foreign_core_ai_installed() {
                 let crate::save_load::DecodedGameSave {
                     snapshot,
                     save_info: info,
+                    saved_game_mode,
                     ..
                 } = saves.load_game_snapshot("owned_services").unwrap();
                 let failure = CnCGameEngine::stage_decoded_saved_world_for_restore(
                     &snapshot,
                     info,
+                    saved_game_mode,
                     None,
                     "owned_services",
                     GameMode::Skirmish,

@@ -64,9 +64,6 @@ const CPP_GAME_SHELL: i32 = 4;
 const CPP_GAME_INTERNET: i32 = 5;
 const CPP_GAME_NONE: i32 = 6;
 
-static PENDING_SAVE_GAME_MODE: Mutex<Option<i32>> = Mutex::new(None);
-static LOADED_GAME_STATE_MAP_MODE: Mutex<Option<i32>> = Mutex::new(None);
-
 fn cpp_game_mode_from_live(mode: crate::game_logic::GameMode) -> i32 {
     use crate::game_logic::GameMode;
     match mode {
@@ -92,39 +89,6 @@ pub fn live_game_mode_from_cpp(mode: i32) -> Option<crate::game_logic::GameMode>
         CPP_GAME_NONE => Some(GameMode::None),
         _ => None,
     }
-}
-
-fn set_pending_save_game_mode(mode: Option<i32>) {
-    if let Ok(mut slot) = PENDING_SAVE_GAME_MODE.lock() {
-        *slot = mode;
-    }
-}
-
-fn pending_save_game_mode() -> i32 {
-    PENDING_SAVE_GAME_MODE
-        .lock()
-        .ok()
-        .and_then(|slot| *slot)
-        .unwrap_or(0)
-}
-
-fn store_loaded_game_state_map_mode(mode: Option<i32>) {
-    if let Ok(mut slot) = LOADED_GAME_STATE_MAP_MODE.lock() {
-        *slot = mode;
-    }
-}
-
-/// Take the `GameStateMap` v2 game-mode last decoded from a save.
-pub fn take_loaded_game_state_map_mode() -> Option<i32> {
-    LOADED_GAME_STATE_MAP_MODE
-        .lock()
-        .ok()
-        .and_then(|mut slot| slot.take())
-}
-
-#[cfg(test)]
-pub fn store_loaded_game_state_map_mode_for_test(mode: Option<i32>) {
-    store_loaded_game_state_map_mode(mode);
 }
 
 /// C++ `GameState::xfer` writes `GetLocalTime` fields (`GameState.cpp:1562-1582`).
@@ -610,7 +574,7 @@ fn write_game_state_map_block<W: Write + Seek>(
     save_info: &SaveGameInfo,
     save_directory: &Path,
     source: Option<&game_engine::common::system::skirmish_game_info::SkirmishGameInfo>,
-    native_initial: bool,
+    mut game_mode: i32,
 ) -> SaveLoadResult<()> {
     let mut version = 2u8;
     xfer.xfer_version(&mut version, 2)
@@ -626,11 +590,6 @@ fn write_game_state_map_block<W: Write + Seek>(
         .to_string();
     let pristine = super::map_paths::to_portable(pristine_source, save_directory, &user_data);
     write_ascii(xfer, &pristine)?;
-    let mut game_mode = if native_initial || source.is_some() {
-        CPP_GAME_SKIRMISH
-    } else {
-        pending_save_game_mode()
-    };
     xfer.xfer_int(&mut game_mode)
         .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
 
@@ -687,7 +646,6 @@ fn extract_embedded_map(
     if version >= 2 {
         let mut game_mode = 0i32;
         xfer.xfer_int(&mut game_mode).ok()?;
-        store_loaded_game_state_map_mode(Some(game_mode));
     }
     let data_size = xfer.begin_block().ok()?;
     if data_size <= 0 {
@@ -1000,7 +958,6 @@ impl SaveFileManager {
         } else {
             Some(capture_particle_system_xfer_bytes()?)
         };
-        set_pending_save_game_mode(Some(cpp_game_mode_from_live(game_logic.game_mode())));
 
         // C++ GameState::saveGame (GameState.cpp:534) makes sure the save
         // directory exists at save time; our atomic flow writes into
@@ -1017,8 +974,8 @@ impl SaveFileManager {
             &world_snapshot,
             &effective_info,
             &client_xfer_bytes,
+            cpp_game_mode_from_live(game_logic.game_mode()),
         );
-        set_pending_save_game_mode(None);
         write_result?;
 
         // Atomically move temp file to final location
@@ -1229,6 +1186,7 @@ impl SaveFileManager {
         world_snapshot: &WorldSnapshot,
         save_info: &SaveGameInfo,
         client_xfer_bytes: &[u8],
+        supplied_game_mode: i32,
     ) -> SaveLoadResult<()> {
         let file = OpenOptions::new()
             .create(true)
@@ -1241,6 +1199,7 @@ impl SaveFileManager {
             save_info,
             client_xfer_bytes,
             &self.save_directory,
+            supplied_game_mode,
         )?;
         writer.write_all(&encoded)?;
         writer.flush()?;
@@ -1286,12 +1245,14 @@ impl SaveFileManager {
     fn write_common_sav_chunks(
         world_snapshot: &WorldSnapshot,
         save_info: &SaveGameInfo,
+        supplied_game_mode: i32,
     ) -> SaveLoadResult<Vec<u8>> {
         Self::write_common_sav_chunks_with_client_bytes(
             world_snapshot,
             save_info,
             &[],
             Path::new("Save"),
+            supplied_game_mode,
         )
     }
 
@@ -1300,6 +1261,7 @@ impl SaveFileManager {
         save_info: &SaveGameInfo,
         client_xfer_bytes: &[u8],
         save_directory: &Path,
+        supplied_game_mode: i32,
     ) -> SaveLoadResult<Vec<u8>> {
         validate_direct_world_snapshot_version(world_snapshot.version)?;
         let logic_payload = bincode_legacy::serialize(world_snapshot)
@@ -1310,6 +1272,7 @@ impl SaveFileManager {
             logic_payload,
             client_xfer_bytes,
             save_directory,
+            supplied_game_mode,
         )
     }
 
@@ -1321,6 +1284,7 @@ impl SaveFileManager {
         save_info: &SaveGameInfo,
         logic_payload: Vec<u8>,
         save_directory: &Path,
+        supplied_game_mode: i32,
     ) -> SaveLoadResult<Vec<u8>> {
         Self::write_common_sav_chunks_with_payload_and_client(
             world_snapshot,
@@ -1328,6 +1292,7 @@ impl SaveFileManager {
             logic_payload,
             &[],
             save_directory,
+            supplied_game_mode,
         )
     }
 
@@ -1337,6 +1302,7 @@ impl SaveFileManager {
         logic_payload: Vec<u8>,
         game_client_bytes: &[u8],
         save_directory: &Path,
+        supplied_game_mode: i32,
     ) -> SaveLoadResult<Vec<u8>> {
         let initial = crate::save_load::snapshot::initial_skirmish::read(world_snapshot)?;
         let source_game_info =
@@ -1344,7 +1310,7 @@ impl SaveFileManager {
         let mode = if initial.is_some() || source_game_info.is_some() {
             CPP_GAME_SKIRMISH
         } else {
-            pending_save_game_mode()
+            supplied_game_mode
         };
         if save_info.save_type != SaveFileType::Mission {
             map_admission::validate_native(
@@ -1396,7 +1362,7 @@ impl SaveFileManager {
                         save_info,
                         save_directory,
                         source_game_info.as_ref(),
-                        initial.is_some(),
+                        mode,
                     ),
                     CHUNK_GHOST_OBJECT => {
                         write_null_snapshot_version(xfer)?;
@@ -1530,7 +1496,6 @@ impl SaveFileManager {
 
     fn read_common_sav_chunks(data: &[u8], save_dir: &Path) -> SaveLoadResult<DecodedGameSave> {
         discard_stashed_campaign_state();
-        store_loaded_game_state_map_mode(None);
         let blocks = walk_named_chunks(data)?;
         let mut save_info = SaveGameInfo {
             pristine_map_name: None,
@@ -1671,6 +1636,13 @@ impl SaveFileManager {
                 super::map_paths::to_portable(map, save_dir, &user_data)
             })?;
         }
+        // C++ GameStateMap.cpp324–329 changes mode only for version 2.
+        // Retain the already-decoded header with this archive even when its
+        // map block is empty. Extraction must not publish match selection.
+        let saved_game_mode = match (map_payload.as_deref(), &map_admission) {
+            (Some([2, ..]), Some((mode, _))) => Some(*mode),
+            _ => None,
+        };
         if let Some(payload) = map_payload {
             if let Some((extracted, pristine)) =
                 extract_embedded_map(&payload, save_dir, &user_data)
@@ -1693,6 +1665,7 @@ impl SaveFileManager {
             snapshot: world_snapshot,
             save_info,
             game_client_xfer,
+            saved_game_mode,
         })
     }
 

@@ -187,7 +187,7 @@ mod tests {
             &info,
             Path::new("Save"),
             Some(source),
-            true,
+            CPP_GAME_SKIRMISH,
         )
         .unwrap();
         let (mode, observed) = read_source(bytes.get_ref()).unwrap();

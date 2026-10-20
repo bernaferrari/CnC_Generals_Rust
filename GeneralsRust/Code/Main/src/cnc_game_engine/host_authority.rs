@@ -1669,6 +1669,7 @@ impl CnCGameEngine {
     fn offline_restore_mode_for_save(
         active_mode: crate::game_logic::GameMode,
         save_info: &SaveGameInfo,
+        saved_game_mode: Option<i32>,
     ) -> Result<crate::game_logic::GameMode, String> {
         use crate::game_logic::GameMode;
 
@@ -1679,9 +1680,7 @@ impl CnCGameEngine {
             return Err("network and replay save restore is deferred".to_string());
         }
 
-        if let Some(saved) = crate::save_load::take_loaded_game_state_map_mode()
-            .and_then(crate::save_load::live_game_mode_from_cpp)
-        {
+        if let Some(saved) = saved_game_mode.and_then(crate::save_load::live_game_mode_from_cpp) {
             return match saved {
                 GameMode::SinglePlayer | GameMode::Skirmish => Ok(saved),
                 GameMode::Multiplayer | GameMode::Internet | GameMode::Lan | GameMode::Replay => {
@@ -1747,6 +1746,7 @@ impl CnCGameEngine {
             snapshot,
             save_info,
             game_client_xfer: game_client_xfer_bytes,
+            saved_game_mode,
         } = save_file_manager
             .load_game_snapshot(slot)
             .map_err(|err| format!("{err}"))?;
@@ -1754,6 +1754,7 @@ impl CnCGameEngine {
         Self::stage_decoded_saved_world_for_restore(
             &snapshot,
             save_info,
+            saved_game_mode,
             game_client_xfer_bytes,
             slot,
             active_mode,
@@ -1787,6 +1788,7 @@ impl CnCGameEngine {
     fn stage_decoded_saved_world_for_restore<F>(
         snapshot: &crate::save_load::WorldSnapshot,
         save_info: SaveGameInfo,
+        saved_game_mode: Option<i32>,
         game_client_xfer_bytes: Option<Vec<u8>>,
         slot: &str,
         active_mode: crate::game_logic::GameMode,
@@ -1815,7 +1817,7 @@ impl CnCGameEngine {
             &mut crate::game_logic::GameLogic,
         ) -> Result<(), String>,
     {
-        let mode = Self::offline_restore_mode_for_save(active_mode, &save_info)?;
+        let mode = Self::offline_restore_mode_for_save(active_mode, &save_info, saved_game_mode)?;
         if mode != crate::game_logic::GameMode::Skirmish
             && (crate::save_load::snapshot::initial_skirmish::read(snapshot)
                 .map_err(|error| error.to_string())?
@@ -2453,3 +2455,7 @@ mod camera_window_gate;
 #[cfg(test)]
 #[path = "host_authority/initial_skirmish_owner_tests.rs"]
 mod initial_skirmish_owner_tests;
+
+#[cfg(test)]
+#[path = "host_authority/saved_mode_owner_tests.rs"]
+mod saved_mode_owner_tests;

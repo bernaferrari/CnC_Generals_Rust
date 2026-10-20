@@ -40,7 +40,12 @@ fn local_manager(names: &[&str]) -> ParticleSystemManager {
 fn archive(companion: Option<Vec<u8>>) -> Vec<u8> {
     let mut snapshot = WorldSnapshot::default();
     snapshot.particle_system_companion = companion;
-    SaveFileManager::write_common_sav_chunks(&snapshot, &fixture_save_info()).unwrap()
+    SaveFileManager::write_common_sav_chunks(
+        &snapshot,
+        &fixture_save_info(),
+        CPP_GAME_SINGLE_PLAYER,
+    )
+    .unwrap()
 }
 fn parsed(bytes: &[u8]) -> WorldSnapshot {
     SaveFileManager::read_common_sav_chunks(bytes, Path::new(""))
@@ -113,8 +118,12 @@ fn particle_candidate_resave_uses_exact_owned_bytes_and_missing_stays_missing() 
         Vec3::splat(99.0),
     ))));
     for (snapshot, expected) in [(&a, payload.as_slice()), (&absent, &[1][..])] {
-        let bytes =
-            SaveFileManager::write_common_sav_chunks(snapshot, &fixture_save_info()).unwrap();
+        let bytes = SaveFileManager::write_common_sav_chunks(
+            snapshot,
+            &fixture_save_info(),
+            CPP_GAME_SINGLE_PLAYER,
+        )
+        .unwrap();
         let blocks = walk_named_chunks(&bytes).unwrap();
         let actual = &blocks
             .iter()
@@ -210,6 +219,7 @@ mod particle_companion_runtime_control {
         let bytes = SaveFileManager::write_common_sav_chunks(
             &WorldSnapshot::default(),
             &fixture_save_info(),
+            CPP_GAME_SINGLE_PLAYER,
         )
         .unwrap();
         let mut blocks = walk_named_chunks(&bytes).unwrap();

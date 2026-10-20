@@ -83,8 +83,9 @@ fn host_pause_save_writes_cpp_17_named_chunks_and_v2_header() {
     // Rust-invented CommonGameState schema (version 1).
     let snapshot = WorldSnapshot::default();
     let save_info = fixture_save_info();
-    let bytes = SaveFileManager::write_common_sav_chunks(&snapshot, &save_info)
-        .expect("write 17-block sav");
+    let bytes =
+        SaveFileManager::write_common_sav_chunks(&snapshot, &save_info, CPP_GAME_SINGLE_PLAYER)
+            .expect("write 17-block sav");
     let text = String::from_utf8_lossy(&bytes);
     for name in SAVELOAD_BLOCK_NAMES {
         assert!(
@@ -128,8 +129,9 @@ fn host_pause_save_persists_terrain_scorches_and_particle_systems() {
         particle_candidate::local_particle_bytes("SavedFxFixture", Vec3::new(4.0, 5.0, 6.0));
     snapshot.particle_system_companion = Some(particle_bytes.clone());
     let save_info = fixture_save_info();
-    let bytes = SaveFileManager::write_common_sav_chunks(&snapshot, &save_info)
-        .expect("write sav with FX chunks");
+    let bytes =
+        SaveFileManager::write_common_sav_chunks(&snapshot, &save_info, CPP_GAME_SINGLE_PLAYER)
+            .expect("write sav with FX chunks");
     let blocks = walk_named_chunks(&bytes).expect("walk host chunks");
 
     let terrain = blocks
@@ -388,7 +390,8 @@ fn mission_save_writes_only_game_state_and_campaign_chunks() {
     save_info.map_name = "Maps\\Alpine Assault.map".into();
     save_info.description = "MissionSave".into();
     let bytes =
-        SaveFileManager::write_common_sav_chunks(&snapshot, &save_info).expect("write mission sav");
+        SaveFileManager::write_common_sav_chunks(&snapshot, &save_info, CPP_GAME_SINGLE_PLAYER)
+            .expect("write mission sav");
     let blocks = walk_named_chunks(&bytes).expect("walk mission chunks");
     let names: Vec<&str> = blocks.iter().map(|(name, _)| name.as_str()).collect();
     assert_eq!(names, vec![CHUNK_GAME_STATE, CHUNK_CAMPAIGN]);
@@ -462,8 +465,12 @@ fn campaign_block_writes_runtime_difficulty_and_challenge() {
             let mut save_info = fixture_save_info();
             save_info.save_type = SaveFileType::Mission;
             save_info.map_name = "Maps\\GLA02.map".into();
-            let bytes = SaveFileManager::write_common_sav_chunks(&snapshot, &save_info)
-                .expect("write mission");
+            let bytes = SaveFileManager::write_common_sav_chunks(
+                &snapshot,
+                &save_info,
+                CPP_GAME_SINGLE_PLAYER,
+            )
+            .expect("write mission");
             let listed = SaveFileManager::read_named_chunk_save_info(&bytes).expect("list");
             assert_eq!(listed.difficulty, GameDifficulty::Hard);
             let blocks = walk_named_chunks(&bytes).expect("walk");
@@ -570,43 +577,34 @@ fn load_prefers_embedded_scratch_over_installed_same_named_map() {
 
 #[test]
 fn game_state_map_round_trips_live_game_mode() {
-    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
-        module_path!(),
-        "game_state_map_round_trips_live_game_mode",
-        || {
-            set_pending_save_game_mode(Some(CPP_GAME_SKIRMISH));
-            let mut payload = Vec::new();
-            {
-                let mut cursor = Cursor::new(&mut payload);
-                let mut xfer = CommonXferSave::new(&mut cursor, SAVE_FILE_VERSION);
-                let info = SaveGameInfo {
-                    pristine_map_name: None,
-                    filename: "mode".into(),
-                    display_name: "Mode".into(),
-                    description: "mode".into(),
-                    map_name: String::new(),
-                    campaign_side: None,
-                    mission_number: None,
-                    save_date: UNIX_EPOCH,
-                    game_version: "test".into(),
-                    play_time: std::time::Duration::from_secs(0),
-                    difficulty: GameDifficulty::Medium,
-                    save_type: SaveFileType::Normal,
-                };
-                write_game_state_map_block(&mut xfer, &info, Path::new("Save"), None, false)
-                    .expect("write map");
-            }
-            set_pending_save_game_mode(None);
-            store_loaded_game_state_map_mode(None);
-            let dest = unique_fixture_directory();
-            let _ = extract_embedded_map(&payload, &dest, "");
-            assert_eq!(
-                take_loaded_game_state_map_mode(),
-                Some(CPP_GAME_SKIRMISH),
-                "CHUNK_GameStateMap v2 must persist TheGameLogic game mode"
-            );
-            let _ = std::fs::remove_dir_all(dest);
-        },
+    let mut payload = Vec::new();
+    {
+        let mut cursor = Cursor::new(&mut payload);
+        let mut xfer = CommonXferSave::new(&mut cursor, SAVE_FILE_VERSION);
+        let info = SaveGameInfo {
+            pristine_map_name: None,
+            filename: "mode".into(),
+            display_name: "Mode".into(),
+            description: "mode".into(),
+            map_name: String::new(),
+            campaign_side: None,
+            mission_number: None,
+            save_date: UNIX_EPOCH,
+            game_version: "test".into(),
+            play_time: std::time::Duration::from_secs(0),
+            difficulty: GameDifficulty::Medium,
+            save_type: SaveFileType::Normal,
+        };
+        write_game_state_map_block(&mut xfer, &info, Path::new("Save"), None, CPP_GAME_SKIRMISH)
+            .expect("write map");
+    }
+    let mode = map_admission::read_source(&payload)
+        .map(|(mode, _)| mode)
+        .ok();
+    assert_eq!(
+        mode,
+        Some(CPP_GAME_SKIRMISH),
+        "CHUNK_GameStateMap v2 must persist TheGameLogic game mode"
     );
 }
 
@@ -728,8 +726,12 @@ fn failed_load_does_not_apply_chunk_campaign_to_live_match() {
             let snapshot = WorldSnapshot::default();
             let mut save_info = fixture_save_info();
             save_info.save_type = SaveFileType::Mission;
-            let mission_bytes = SaveFileManager::write_common_sav_chunks(&snapshot, &save_info)
-                .expect("write mission sav");
+            let mission_bytes = SaveFileManager::write_common_sav_chunks(
+                &snapshot,
+                &save_info,
+                CPP_GAME_SINGLE_PLAYER,
+            )
+            .expect("write mission sav");
             let _ = SaveFileManager::read_common_sav_chunks(&mission_bytes, Path::new(""))
                 .expect("mission decode");
             let after_stash = capture_live_campaign_state();

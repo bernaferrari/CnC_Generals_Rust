@@ -18,9 +18,12 @@ mod particle_capture_failure_control {
                 // XferSave.cpp's ASCII length is one byte, not a lossy null companion.
                 with_client_particle_manager(|manager| manager.reset().unwrap()).unwrap();
                 let save_info = fixture_save_info();
-                let prior_archive =
-                    SaveFileManager::write_common_sav_chunks(&WorldSnapshot::default(), &save_info)
-                        .unwrap();
+                let prior_archive = SaveFileManager::write_common_sav_chunks(
+                    &WorldSnapshot::default(),
+                    &save_info,
+                    CPP_GAME_SINGLE_PLAYER,
+                )
+                .unwrap();
                 let directory = tempfile::tempdir().unwrap();
                 let mut saves = SaveFileManager::with_save_directory(directory.path());
                 let filename = "particle_capture_failure";
