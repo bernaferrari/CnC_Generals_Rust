@@ -52,6 +52,7 @@ impl GameLogic {
         );
         if let Err(error) = motion.validate() {
             log::error!("receiving camera path invalid: {error}");
+            self.mark_script_camera_movement_maybe_finished();
             return;
         }
         self.pending_camera_rotate = None;
@@ -79,18 +80,20 @@ impl GameLogic {
     ) {
         if !request.position.is_finite() {
             log::error!("non-finite camera destination");
+            self.mark_script_camera_movement_maybe_finished();
             return;
         }
         let final_ground = {
             let owner = self.world_services.terrain();
-            let terrain = match owner.read() {
-                Ok(terrain) => terrain,
-                Err(_) => {
-                    log::error!("receiving camera terrain poisoned");
-                    return;
-                }
-            };
-            terrain.get_ground_height(request.position.x, request.position.z, None)
+            owner.read().ok().map(|terrain| {
+                terrain.get_ground_height(request.position.x, request.position.z, None)
+            })
+        };
+        let Some(final_ground) = final_ground else {
+            log::error!("receiving camera terrain poisoned");
+            // Release the terrain loan before refreshing the derived hook.
+            self.mark_script_camera_movement_maybe_finished();
+            return;
         };
         let motion = WaypointMotion::move_to(
             Point::from_world(request.position),
@@ -110,6 +113,7 @@ impl GameLogic {
         );
         if let Err(error) = motion.validate() {
             log::error!("receiving camera destination invalid: {error}");
+            self.mark_script_camera_movement_maybe_finished();
             return;
         }
         self.pending_camera_rotate = None;
@@ -460,3 +464,7 @@ fn normalize_tracking_angle(angle: &mut f32) {
 #[cfg(test)]
 #[path = "headless_debug_tests.rs"]
 mod headless_debug_tests;
+
+#[cfg(test)]
+#[path = "rejected_camera_completion_tests.rs"]
+mod rejected_camera_completion_tests;
