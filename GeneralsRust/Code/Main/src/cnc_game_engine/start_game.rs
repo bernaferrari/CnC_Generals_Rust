@@ -479,6 +479,14 @@ impl CnCGameEngine {
 
     /// Restart the simulation with UI-selected parameters and refresh view/minimap.
     pub(super) fn host_start_game_from_ui(&mut self, request: HostStartRequest) {
+        let _ = self.park_host_start_request(request, false);
+    }
+
+    pub(super) fn host_start_game_from_command_phase(&mut self, request: HostStartRequest) -> bool {
+        self.park_host_start_request(request, true)
+    }
+
+    fn park_host_start_request(&mut self, request: HostStartRequest, source_command: bool) -> bool {
         let HostStartRequest {
             mode,
             faction,
@@ -493,9 +501,9 @@ impl CnCGameEngine {
         // C++ MSG_NEW_GAME GAME_SHELL is Shell::showShellMap, not a match start.
         // Loading/headless/runtime-host drains that treat it as UI start load
         // Defcon6 and abandon the ShellMapMD worker.
-        if matches!(mode, GameMode::Shell) {
+        if matches!(mode, GameMode::Shell) && !source_command {
             info!("host_start_game_from_ui: ignore GAME_SHELL (shell map, not a match)");
-            return;
+            return false;
         }
 
         // A typed shell descriptor is only meaningful for C++ single-player
@@ -506,7 +514,7 @@ impl CnCGameEngine {
                 "Rejecting PlayerTemplate identity on non-single-player start mode {:?}",
                 mode
             );
-            return;
+            return false;
         }
 
         let faction_team = Self::team_from_faction(&faction);
@@ -516,7 +524,7 @@ impl CnCGameEngine {
                     "Rejecting PlayerTemplate '{}' whose exact base side no longer matches requested team {:?}",
                     player_template.template_name, faction_team
                 );
-                return;
+                return false;
             }
         }
 
@@ -537,12 +545,23 @@ impl CnCGameEngine {
         // Mark MainMenu as starting a match so shutdown skips reverse-animate
         // (windowed host start was SIGSEGV'ing mid MainMenuShutdown / hide_shell).
         #[cfg(feature = "game_client")]
-        game_client::gui::mark_host_match_start();
+        if mode != GameMode::Shell {
+            game_client::gui::mark_host_match_start();
+        }
+        if source_command && mode == GameMode::SinglePlayer {
+            self.destroy_source_new_game_background();
+        }
         // Show loading screen before starting map load (matches C++ loading screen flow)
         #[cfg(feature = "game_client")]
         self.prepare_cpp_load_screen_for_mode(mode, false);
         info!("host_start_game_from_ui: load screen prepared");
-        self.transition_to_state(GameState::Loading);
+        if mode == GameMode::Shell {
+            // Source shell preparation retains MainMenu and does not hideShell.
+            // Only the application loading pump is selected for the parked map.
+            self.current_state = GameState::Loading;
+        } else {
+            self.transition_to_state(GameState::Loading);
+        }
         info!("host_start_game_from_ui: state=Loading");
         // Prelude playback is advanced by subsequent Loading ticks, allowing
         // winit to deliver focus/close events before the next decoder step.
@@ -573,6 +592,7 @@ impl CnCGameEngine {
             prelude_retry_at: std::time::Instant::now(),
         });
         info!("host_start_game_from_ui: parked match start for next Loading tick");
+        true
     }
 
     /// Finish a parked UI start: `host_load_map_or_default` then InGame.
@@ -611,6 +631,8 @@ impl CnCGameEngine {
 
         if replay_inputs.is_some() {
             self.host_reset_for_admitted_replay_start();
+        } else if mode == GameMode::Shell {
+            self.host_reset_for_clear_game_data();
         } else {
             self.host_game_engine_reset();
         }
@@ -628,13 +650,17 @@ impl CnCGameEngine {
 
         // Wave 169/840: empty UI map → DEFAULT_SKIRMISH_MAP (Defcon6) before
         // shell-residual rejection. Matches C++ startNewGame default map residual.
-        let map = if map.trim().is_empty() {
+        let map = if map.trim().is_empty() && mode != GameMode::Shell {
             DEFAULT_SKIRMISH_MAP.to_string()
         } else {
             map
         };
         // Wave 840: never start skirmish on boot ShellMapMD residual when a real map exists.
-        let map_name = Self::resolve_skirmish_start_map_name(mode, map);
+        let map_name = if mode == GameMode::Shell {
+            map
+        } else {
+            Self::resolve_skirmish_start_map_name(mode, map)
+        };
 
         info!(
             "UI requested start: mode={:?}, faction={}, map={}, skirmish_slots={}",
@@ -744,9 +770,11 @@ impl CnCGameEngine {
             }
         }
         if let Some(code) = difficulty_code {
-            self.host_game_logic_mut().admit_session_difficulty(code);
+            self.host_game_logic_mut()
+                .prepare_native_command_difficulty(code);
         }
-        if mode != GameMode::Replay {
+        self.destroy_source_new_game_background();
+        if !matches!(mode, GameMode::Replay | GameMode::Shell) {
             let seed = self.game_logic.logic_base_seed;
             self.game_logic
                 .replay_pending
@@ -810,6 +838,10 @@ impl CnCGameEngine {
             self.return_to_main_menu_after_match();
             return;
         };
+        if mode == GameMode::SinglePlayer {
+            let points = recorder_dispatch.map_or(0, |dispatch| dispatch.rank_points);
+            self.game_logic.admit_native_initial_rank_points(points);
+        }
         info!(
             "host_start_game_from_ui: map load done (requested='{}', loaded='{}')",
             map_name, loaded_map_name
@@ -841,9 +873,18 @@ impl CnCGameEngine {
         // stuck in Loading because terrain visual never returned.
         info!("host_start_game_from_ui: seeding presentation");
         self.seed_presentation_after_match_start();
-        self.snap_camera_to_local_units_if_needed();
-        info!("host_start_game_from_ui: transition to InGame");
-        self.transition_to_state(GameState::InGame);
+        if mode != GameMode::Shell {
+            self.snap_camera_to_local_units_if_needed();
+        }
+        info!(
+            "host_start_game_from_ui: transition to loaded mode {:?}",
+            mode
+        );
+        self.transition_to_state(if mode == GameMode::Shell {
+            GameState::Menu
+        } else {
+            GameState::InGame
+        });
         info!(
             "host_start_game_from_ui: pre-note menu_click={} was_menu={} offline={}",
             self.interactive_playability.menu_wnd_click, interactive_start_from_menu, offline_mode
@@ -2155,6 +2196,7 @@ impl CnCGameEngine {
 
     pub(super) fn reset_match_state_after_engine_reset(&mut self) {
         self.pending_match_start = None;
+        self.destroy_source_new_game_background();
         self.drain_renderer_attachments();
 
         self.host_reset_game_logic();

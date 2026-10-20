@@ -879,6 +879,21 @@ fn startup_new_game_dispatch_applies_script_side_effects() {
         assert_eq!(owner.get_difficulty(), crate::ai::AIDifficulty::Hard);
         assert_eq!(peer.get_difficulty(), crate::ai::AIDifficulty::Medium);
         assert_eq!(
+            owner
+                .owned_script_engine
+                .as_ref()
+                .unwrap()
+                .get_global_difficulty(),
+            gamelogic::player::GameDifficulty::Hard
+        );
+        assert_eq!(
+            peer.owned_script_engine
+                .as_ref()
+                .unwrap()
+                .get_global_difficulty(),
+            gamelogic::player::GameDifficulty::Normal
+        );
+        assert_eq!(
             gamelogic::helpers::TheGameLogic::get_rank_points_to_add_at_game_start(),
             77
         );

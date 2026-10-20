@@ -59,18 +59,48 @@ impl GameLogic {
     where
         F: FnMut(f32, &str),
     {
+        let difficulty = self
+            .owned_script_engine
+            .as_ref()
+            .map(|engine| engine.get_global_difficulty());
+        self.load_map_with_script_difficulty_and_progress(map_name, difficulty, report_progress)
+    }
+
+    fn load_map_with_script_difficulty_and_progress<F>(
+        &mut self,
+        map_name: &str,
+        difficulty: Option<gamelogic::player::GameDifficulty>,
+        report_progress: F,
+    ) -> bool
+    where
+        F: FnMut(f32, &str),
+    {
         let services = Arc::clone(&self.world_services);
         gamelogic::system::engine_stores::with_world_services(&services, || {
-            self.load_map_with_definition_source_and_progress(map_name, None, report_progress)
+            self.load_map_with_definition_source_and_progress(
+                map_name,
+                None,
+                difficulty,
+                report_progress,
+            )
         })
     }
 
     /// Saved geometry stays on the extracted map; only companion INIs use the
     /// original source, as in C++ GameLogic::loadMapINI saved-directory branch.
     pub(crate) fn load_map_with_definition_source(&mut self, map_name: &str, source: &str) -> bool {
+        let difficulty = self
+            .owned_script_engine
+            .as_ref()
+            .map(|engine| engine.get_global_difficulty());
         let services = Arc::clone(&self.world_services);
         gamelogic::system::engine_stores::with_world_services(&services, || {
-            self.load_map_with_definition_source_and_progress(map_name, Some(source), |_, _| {})
+            self.load_map_with_definition_source_and_progress(
+                map_name,
+                Some(source),
+                difficulty,
+                |_, _| {},
+            )
         })
     }
 
@@ -78,6 +108,7 @@ impl GameLogic {
         &mut self,
         map_name: &str,
         definition_source: Option<&str>,
+        map_script_difficulty: Option<gamelogic::player::GameDifficulty>,
         mut report_progress: F,
     ) -> bool
     where
@@ -110,6 +141,8 @@ impl GameLogic {
             .store(false, Ordering::Release);
         self.script_event_pump_busy_frames = 0;
         self.loaded_script_lists.clear();
+        // The admission retains actual interpreter difficulty even across a
+        // failed selected-map attempt. C++ reset/newMap do not reset it.
         self.owned_script_engine = None;
         self.objects_receive_difficulty_bonus = true;
         self.set_script_input_enabled(true);
@@ -255,9 +288,10 @@ impl GameLogic {
                     report_progress(0.40, "Syncing shell runtime");
                 }
                 let sync_started = Instant::now();
-                if !self.sync_legacy_runtime_from_fast_chunky_with_progress(
+                if !self.sync_legacy_runtime_from_fast_chunky_with_script_difficulty(
                     path,
                     &chunky,
+                    map_script_difficulty,
                     &mut report_progress,
                 ) {
                     return false;
@@ -790,7 +824,11 @@ impl GameLogic {
 
         let scripts_started = Instant::now();
         report_progress(0.92, "Initializing mission scripts");
-        self.initialize_scripts_with_map_data(map_name, decoded_map.as_ref());
+        self.initialize_scripts_with_map_data_and_difficulty(
+            map_name,
+            decoded_map.as_ref(),
+            map_script_difficulty,
+        );
         if matches!(self.game_mode, GameMode::Skirmish | GameMode::Replay) {
             // C++ startNewGame adds ReplayObserver after sides, then installs
             // MultiplayerScripts.scb (numTeams>1) and permanently reveals the map.
@@ -863,8 +901,17 @@ impl GameLogic {
     where
         F: FnMut(f32, &str),
     {
-        if self.load_map_with_progress(map_name, |progress, phase| report_progress(progress, phase))
-            && self.map_loaded
+        // One admission owns both attempts. The first failure may already
+        // have retired its interpreter; never recapture from that dirty world.
+        let difficulty = self
+            .owned_script_engine
+            .as_ref()
+            .map(|engine| engine.get_global_difficulty());
+        if self.load_map_with_script_difficulty_and_progress(
+            map_name,
+            difficulty,
+            |progress, phase| report_progress(progress, phase),
+        ) && self.map_loaded
         {
             return Some(self.map_name.clone());
         }
@@ -873,9 +920,11 @@ impl GameLogic {
         // already was the fallback. More importantly, never report a fallback
         // name unless that attempt really reached the successful load tail.
         if map_name != fallback
-            && self.load_map_with_progress(fallback, |progress, phase| {
-                report_progress(progress, phase)
-            })
+            && self.load_map_with_script_difficulty_and_progress(
+                fallback,
+                difficulty,
+                |progress, phase| report_progress(progress, phase),
+            )
             && self.map_loaded
         {
             return Some(self.map_name.clone());

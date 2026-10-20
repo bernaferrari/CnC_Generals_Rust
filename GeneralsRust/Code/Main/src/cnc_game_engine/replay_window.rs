@@ -77,40 +77,9 @@ impl CnCGameEngine {
             let Some(dispatch) = Self::startup_new_game_dispatch_from_message(&message) else {
                 continue;
             };
-            let recorder = self.game_logic.replay_pending.recorder_owned();
-            let info = recorder.get_game_info().clone();
-            let original_mode = recorder.get_game_mode();
-            let config =
-                match crate::skirmish_config::replay_admission::config_from_recorded_info(&info) {
-                    Ok(config) => config,
-                    Err(error) => {
-                        warn!("Cannot admit recorded slots: {error}");
-                        continue;
-                    }
-                };
-            if config.is_none() && original_mode != 0 {
-                warn!(
-                    "Replay has no participant slots; authored-side-only replay admission remains unsupported (original mode {original_mode})"
-                );
+            let Some(request) = self.receiving_recorded_start_request(dispatch) else {
                 continue;
-            }
-            if info.map.trim().is_empty() {
-                warn!("Rejecting replay without recorded map");
-                continue;
-            }
-            let faction = config
-                .as_ref()
-                .map(crate::skirmish_config::local_faction_from_config)
-                .unwrap_or_else(|| "USA".into());
-            let mut request = HostStartRequest::without_player_template(
-                GameMode::Replay,
-                faction,
-                info.map,
-                config,
-            );
-            request.game_info_starting_cash = Some(info.starting_cash);
-            request.difficulty_code = Some(dispatch.difficulty_code);
-            request.recorder_dispatch = Some(dispatch);
+            };
             self.host_start_game_from_ui(request);
         }
         handled

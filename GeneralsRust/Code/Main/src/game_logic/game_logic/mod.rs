@@ -80,6 +80,9 @@ mod world_scripts;
 mod world_tick;
 pub(crate) use world_tick::FlightTerrainView;
 pub(super) use world_tick::host_object_footprint;
+pub(crate) use world_tick::{
+    NativeCommandAction, NativeCommandCompletion, NativeTickContinuation, NativeTickProgress,
+};
 
 impl GameLogic {
     pub(crate) fn is_scoring_enabled(&self) -> bool {

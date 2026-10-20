@@ -2244,98 +2244,14 @@ impl CnCGameEngine {
         mut owned_observer: Option<&mut crate::gameworld_shadow::GameWorldShadow>,
     ) {
         for _ in 0..ff_steps {
-            let gather_eligible = self.host_physical_gather_evidence_eligible();
-            let local_player_id = self.local_player_id_for_ui();
-            let presentation_entity_count = &mut self.last_gameworld_presentation_entity_count;
-            let tracked_carriers = &self.physical_gather_carrier_ids;
-            let playability = &mut self.interactive_playability;
-            #[cfg(feature = "game_client")]
-            let cinematic_ui = self.game_client.in_game_ui_subsystem();
-            #[cfg(feature = "game_client")]
-            let (mut client_frame, snow, presence) =
-                self.game_client.split_frame_snow_and_drawable_presence();
-            #[cfg(feature = "game_client")]
-            let cinematic_window = &self.window;
-            #[cfg(feature = "game_client")]
-            let mut cinematic_cursor = |visible| cinematic_window.set_cursor_visible(visible);
-            #[cfg(feature = "game_client")]
-            let cinematic_input = super::mouse::CinematicInputLoan {
-                ui: cinematic_ui,
-                local_player: self.current_player_id,
-                modes: &mut self.look_at_modes,
-                selected: &mut self.selected_objects,
-                selected_receipt: &mut self.host_match_selected_ids,
-                presentation: &mut self.last_presentation_frame,
-                rotating: &mut self.is_mmb_rotating,
-                rotate_anchor: &mut self.mmb_anchor,
-                scrolling: &mut self.is_rmb_scrolling,
-                scroll_anchor: &mut self.rmb_scroll_anchor,
-                held: [
-                    &mut self.camera_rotate_left_held,
-                    &mut self.camera_rotate_right_held,
-                    &mut self.camera_zoom_in_held,
-                    &mut self.camera_zoom_out_held,
-                ],
-                waypoint: &mut self.sticky_waypoint_mode,
-                dragging: &mut self.is_dragging,
-                selection_start: &mut self.selection_start,
-                selection_screen: &mut self.selection_start_screen,
-                cursor_visible: &mut cinematic_cursor,
-            };
-            #[cfg(feature = "game_client")]
-            let mut ui = super::control_bar_viewport::NativeScriptUi::new(
-                snow,
-                &mut self.control_bar,
-                &mut self.control_bar_callbacks,
-            )
-            .with_cinematic_input(cinematic_input);
-            #[cfg(feature = "game_client")]
-            let mut view = super::native_view_effects::NativeRendererViewEffects::new(
-                self.render_pipeline.borrow_native_installed_poses(),
-                &mut self.graphics_system,
-                presence,
-                self.host_direct_visual_world_epoch,
-                self.current_player_id,
-            );
-            #[cfg(feature = "game_client")]
-            let effects = crate::game_logic::ScriptPresentationEffects {
-                ui: Some(&mut ui),
-                view: Some(&mut view),
-            };
-            #[cfg(not(feature = "game_client"))]
-            let effects = crate::game_logic::ScriptPresentationEffects::default();
-            let snap = Self::host_update_logic_frame_with_script_effects(
-                &mut self.game_logic,
-                self.game_paused,
+            let (_, interrupted) = self.drive_native_command_phase(
                 dt,
-                self.last_frame_timing.as_ref(),
                 headless_step_budget,
-                effects,
-                |frame| {
-                    #[cfg(feature = "game_client")]
-                    client_frame.set_frame(frame);
-                    #[cfg(not(feature = "game_client"))]
-                    let _ = frame;
-                },
-                |logic| {
-                    Self::host_drain_physical_gather_dropoffs(
-                        logic,
-                        gather_eligible,
-                        local_player_id,
-                        tracked_carriers,
-                        playability,
-                    );
-                    // Wave 682/925: post-logic host→GameWorld residual batch.
-                    // The callback borrows this driving GameLogic after each
-                    // completed step; all eager channels retain their order.
-                    *presentation_entity_count = crate::gameworld_shadow::run_owned_host_boundary(
-                        owned_observer.as_deref_mut(),
-                        logic,
-                    );
-                },
+                false,
+                owned_observer.as_deref_mut(),
             );
-            if !self.game_paused {
-                self.host_stamp_sim_timing_from_snapshot(snap);
+            if interrupted {
+                break;
             }
         }
     }
@@ -2927,7 +2843,471 @@ mod replay_fast_forward_probe {
         )
     }
 
+    #[cfg(feature = "game_client")]
+    fn source_command_phase_engine_witness(engine: &mut CnCGameEngine) {
+        use crate::cnc_game_engine::GameState;
+        use crate::game_logic::GameMode;
+        use game_engine::common::message_stream::{GameMessage, GameMessageType};
+        let directory = std::env::temp_dir().join(format!(
+            "generals-command-phase-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&directory).expect("owned source command inputs");
+        let inputs = game_engine::common::recorder::RecorderOwnerInputs {
+            map: "Maps/SourcePhaseOutgoing".into(),
+            seed: 37,
+            replay_directory: directory.join("Replays"),
+            exe_crc: 0,
+            ini_crc: 0,
+            save_stats: false,
+            stats_directory: directory.join("Stats"),
+        };
+        // Rejected Replay admission is not a successful prepared start and must
+        // not publish mode/difficulty/FPS or consume a pending map into the world.
+        engine.replay_fast_forward = false;
+        install_replay_factory(engine);
+        engine
+            .game_logic
+            .prepare_native_command_mode(GameMode::Skirmish);
+        engine.game_logic.prepare_native_command_difficulty(0);
+        engine.game_logic.frame = 37;
+        engine
+            .game_logic
+            .replay_pending
+            .reset_recorder_owned(inputs.clone());
+        engine.current_state = GameState::InGame;
+        engine.pending_match_start = None;
+        let fps_before = {
+            let mut global = game_engine::common::global_data::write();
+            global.pending_file = "Maps/RejectedReplayInput".into();
+            (
+                global.writable.use_fps_limit,
+                global.writable.frames_per_second_limit,
+            )
+        };
+        let mut rejected = GameMessage::new(GameMessageType::NewGame);
+        for value in [3, 2, 71, 60] {
+            rejected.append_integer_argument(value);
+        }
+        engine
+            .game_logic
+            .replay_pending
+            .receive_client_messages(vec![rejected])
+            .unwrap();
+        engine.host_run_ingame_logic_presentation_frame(4. * (1. / 30.));
+        assert_eq!(
+            engine.game_logic.frame, 41,
+            "rejected admission completes all four original budgeted steps without a prepared-start guard"
+        );
+        assert_eq!(engine.game_logic.game_mode(), GameMode::Skirmish);
+        assert_eq!(
+            engine
+                .game_logic
+                .owned_script_engine
+                .as_ref()
+                .unwrap()
+                .get_global_difficulty(),
+            gamelogic::player::GameDifficulty::Easy
+        );
+        assert!(engine.pending_match_start.is_none());
+        assert!(engine.source_new_game_background.is_none());
+        {
+            let global = game_engine::common::global_data::read();
+            assert_eq!(global.pending_file, "Maps/RejectedReplayInput");
+            assert_eq!(
+                (
+                    global.writable.use_fps_limit,
+                    global.writable.frames_per_second_limit
+                ),
+                fps_before
+            );
+        }
+        install_replay_factory(engine);
+        engine
+            .game_logic
+            .prepare_native_command_mode(GameMode::Skirmish);
+        engine.game_logic.frame = 37;
+        engine
+            .game_logic
+            .replay_pending
+            .reset_recorder_owned(inputs.clone());
+        engine.current_state = GameState::InGame;
+        engine
+            .game_logic
+            .replay_pending
+            .receive_client_messages(vec![GameMessage::new(GameMessageType::ClearGameData)])
+            .unwrap();
+        engine.host_run_ingame_logic_presentation_frame(1. / 30.);
+        let mut score_frame = None;
+        game_client::gui::with_window_manager(|manager| {
+            score_frame = manager.find_window_by_name("ScoreScreen.wnd:ParentScoreScreen")
+                .and_then(|window| window.borrow().get_user_data::<game_client::gui::callbacks::score_screen::ScoreScreenAcademySnapshot>().map(|snapshot| snapshot.end_frame));
+        });
+        assert_eq!(
+            score_frame,
+            Some(37),
+            "actual source ScoreScreen must freeze BEFORE outgoing object callbacks and frame increment"
+        );
+        assert_eq!(engine.game_logic.game_mode(), GameMode::None);
+        assert_eq!(
+            engine.game_logic.frame, 1,
+            "source Clear-only tail advances cleared frame0 once"
+        );
+        assert!(engine.game_logic.host_object(ObjectId(1)).is_none());
+        assert_eq!(engine.gameworld_shadow.as_ref().unwrap().world().frame(), 1);
+
+        // Shell.cpp448–472 legitimately admits [CLEAR, NEW_GAME(SHELL)]. It
+        // must survive subsystem reset and park exact Shell map loading.
+        install_replay_factory(engine);
+        engine
+            .game_logic
+            .prepare_native_command_mode(GameMode::Skirmish);
+        engine.game_logic.frame = 37;
+        engine
+            .game_logic
+            .replay_pending
+            .reset_recorder_owned(inputs.clone());
+        engine.current_state = GameState::InGame;
+        let shell_map = "Maps/SourcePhaseShell/SourcePhaseShell.map";
+        game_engine::common::global_data::write().pending_file = shell_map.into();
+        let mut newgame = GameMessage::new(GameMessageType::NewGame);
+        for value in [4, 2, 71, 60] {
+            newgame.append_integer_argument(value);
+        }
+        engine
+            .game_logic
+            .replay_pending
+            .receive_client_messages(vec![
+                GameMessage::new(GameMessageType::ClearGameData),
+                newgame,
+            ])
+            .unwrap();
+        engine.host_run_ingame_logic_presentation_frame(1. / 30.);
+        assert_eq!(
+            engine.game_logic.frame, 0,
+            "actual prepared NewGame suppresses source frame increment"
+        );
+        assert_eq!(engine.game_logic.game_mode(), GameMode::Shell);
+        let pending = engine
+            .pending_match_start
+            .as_ref()
+            .expect("source Shell load parked, not ignored");
+        assert_eq!(pending.request.mode, GameMode::Shell);
+        assert_eq!(
+            pending.request.map, shell_map,
+            "never replace source Shell map with Defcon6"
+        );
+        assert_eq!(pending.request.recorder_dispatch.unwrap().rank_points, 71);
+        assert_eq!(pending.request.difficulty_code, Some(2));
+        assert_eq!(
+            engine
+                .game_logic
+                .owned_script_engine
+                .as_ref()
+                .unwrap()
+                .get_global_difficulty(),
+            gamelogic::player::GameDifficulty::Hard
+        );
+        assert!(
+            engine.source_new_game_background.is_some(),
+            "source prepare created its actual receiving BlankWindow"
+        );
+        assert!(
+            engine
+                .game_logic
+                .replay_pending
+                .take_lifecycle_messages_owned()
+                .is_empty(),
+            "native source batch was not split into a delayed lifecycle queue"
+        );
+        engine.pending_match_start = None;
+        engine.destroy_source_new_game_background();
+        // Actual receiving manager, deliberately invalid layout only at this
+        // test boundary: no first window may be admitted as a source background.
+        install_replay_factory(engine);
+        engine
+            .game_logic
+            .prepare_native_command_mode(GameMode::Skirmish);
+        engine.game_logic.prepare_native_command_difficulty(0);
+        engine.game_logic.frame = 37;
+        engine
+            .game_logic
+            .replay_pending
+            .reset_recorder_owned(inputs);
+        engine.current_state = GameState::InGame;
+        let mut invalid = None;
+        let mut invalid_weak = None;
+        game_client::gui::with_window_manager(|manager| {
+            let layout = manager.create_layout("<source-empty-background-regression>".into());
+            invalid_weak = Some(std::rc::Rc::downgrade(&layout));
+            invalid = Some(layout);
+        });
+        engine.source_new_game_background = invalid;
+        let fps_before = {
+            let mut global = game_engine::common::global_data::write();
+            global.pending_file = "Maps/BackgroundFailureMustNotConsume".into();
+            (
+                global.writable.use_fps_limit,
+                global.writable.frames_per_second_limit,
+            )
+        };
+        let mut unavailable = GameMessage::new(GameMessageType::NewGame);
+        for value in [4, 2, 71, 60] {
+            unavailable.append_integer_argument(value);
+        }
+        engine
+            .game_logic
+            .replay_pending
+            .receive_client_messages(vec![unavailable])
+            .unwrap();
+        engine.host_run_ingame_logic_presentation_frame(1. / 30.);
+        assert_eq!(engine.game_logic.frame, 38);
+        assert_eq!(engine.game_logic.game_mode(), GameMode::Skirmish);
+        assert_eq!(
+            engine
+                .game_logic
+                .owned_script_engine
+                .as_ref()
+                .unwrap()
+                .get_global_difficulty(),
+            gamelogic::player::GameDifficulty::Easy
+        );
+        assert!(engine.pending_match_start.is_none());
+        assert!(engine.source_new_game_background.is_none());
+        assert!(
+            invalid_weak.unwrap().upgrade().is_none(),
+            "failed actual background removed from receiving manager"
+        );
+        let global = game_engine::common::global_data::read();
+        assert_eq!(global.pending_file, "Maps/BackgroundFailureMustNotConsume");
+        assert_eq!(
+            (
+                global.writable.use_fps_limit,
+                global.writable.frames_per_second_limit
+            ),
+            fps_before
+        );
+        drop(global);
+        std::fs::remove_dir_all(directory).expect("remove owned source command inputs");
+    }
+
+    /// Opt-in licensed-content gate. A requested gate never substitutes a map
+    /// or reports success without traversing the actual parked Loading path.
+    #[cfg(feature = "game_client")]
+    fn source_shell_load_engine_witness(engine: &mut CnCGameEngine) -> anyhow::Result<()> {
+        use crate::cnc_game_engine::GameState;
+        use crate::game_logic::GameMode;
+        use game_engine::common::message_stream::{GameMessage, GameMessageType};
+        if std::env::var_os("GENERALS_SHELL_LOAD_GATE").is_none() {
+            return Ok(());
+        }
+        anyhow::ensure!(
+            std::env::var("GENERALS_SHELL_LOAD_GATE").as_deref() == Ok("1"),
+            "GENERALS_SHELL_LOAD_GATE must be exactly 1 when requested"
+        );
+        let requested = std::env::var_os("GENERALS_SHELL_LOAD_GATE_MAP").ok_or_else(|| {
+            anyhow::anyhow!("Shell load gate requires GENERALS_SHELL_LOAD_GATE_MAP")
+        })?;
+        let requested = std::path::PathBuf::from(requested);
+        anyhow::ensure!(
+            requested.is_absolute(),
+            "Shell gate map must be an absolute licensed .map path"
+        );
+        let path = requested.canonicalize()?;
+        anyhow::ensure!(
+            path.is_file()
+                && path
+                    .extension()
+                    .is_some_and(|extension| extension.eq_ignore_ascii_case("map")),
+            "Shell gate requires an existing licensed .map file"
+        );
+        let map = path
+            .to_str()
+            .ok_or_else(|| anyhow::anyhow!("Shell map path is not UTF-8"))?
+            .to_owned();
+        let decoded = crate::game_logic::script_loader::load_chunky_map(&map)
+            .map_err(|error| anyhow::anyhow!("Cannot decode selected Shell gate map: {error:?}"))?
+            .ok_or_else(|| anyhow::anyhow!("Selected Shell gate map cannot be resolved"))?;
+        assert_eq!(
+            decoded.source, path,
+            "selected absolute map resolves without substitution"
+        );
+        let expected = crate::game_logic::script_loader::parse_heightmap_data_from_chunky(&decoded)
+            .map_err(|error| {
+                anyhow::anyhow!("Cannot decode selected Shell gate terrain: {error:?}")
+            })?
+            .ok_or_else(|| anyhow::anyhow!("Selected Shell gate map has no HeightMapData"))?;
+        anyhow::ensure!(
+            expected.width > 0 && expected.height > 0 && !expected.data.is_empty(),
+            "Selected Shell gate map has no actual heightmap"
+        );
+        // The safe launcher has installed private writable userdata before
+        // constructing this Engine. Do not run this gate through the old wrapper.
+        let private = std::env::var_os("GENERALS_REPLAY_PROBE_PRIVATE_ROOT").ok_or_else(|| {
+            anyhow::anyhow!("Shell gate requires the private-userdata probe launcher")
+        })?;
+        let directory = std::path::PathBuf::from(private).join("shell-load-gate");
+        std::fs::create_dir_all(&directory)?;
+        let inputs = game_engine::common::recorder::RecorderOwnerInputs {
+            map: "Maps/SourcePhaseOutgoing".into(),
+            seed: 37,
+            replay_directory: directory.join("Replays"),
+            exe_crc: 0,
+            ini_crc: 0,
+            save_stats: false,
+            stats_directory: directory.join("Stats"),
+        };
+        install_replay_factory(engine);
+        engine
+            .game_logic
+            .prepare_native_command_mode(GameMode::Skirmish);
+        engine.game_logic.prepare_native_command_difficulty(0);
+        engine.game_logic.frame = 37;
+        engine
+            .game_logic
+            .session_view
+            .camera
+            .native_camera
+            .set_height(12345., 0., 50000.);
+        assert_eq!(
+            engine
+                .game_logic
+                .session_view
+                .camera
+                .native_camera
+                .desired(),
+            12345.
+        );
+        engine
+            .game_logic
+            .replay_pending
+            .reset_recorder_owned(inputs);
+        // Begin at the existing probe's actual outgoing InGame state; from
+        // this notification onward only production admission changes state.
+        assert_eq!(engine.current_state, GameState::InGame);
+        game_engine::common::global_data::write().pending_file = map.clone().into();
+        let mut newgame = GameMessage::new(GameMessageType::NewGame);
+        for value in [4, 2, 71, 60] {
+            newgame.append_integer_argument(value);
+        }
+        engine
+            .game_logic
+            .replay_pending
+            .receive_client_messages(vec![
+                GameMessage::new(GameMessageType::ClearGameData),
+                newgame,
+            ])
+            .map_err(anyhow::Error::msg)?;
+        engine.host_run_ingame_logic_presentation_frame(1. / 30.);
+        assert_eq!(engine.current_state, GameState::Loading);
+        assert_eq!(engine.game_logic.game_mode(), GameMode::Shell);
+        assert_eq!(
+            engine.game_logic.frame, 0,
+            "prepared start suppresses outgoing frame increment"
+        );
+        assert_ne!(
+            engine
+                .game_logic
+                .session_view
+                .camera
+                .native_camera
+                .desired(),
+            12345.,
+            "outgoing HAG goal must be retired by receiving reset"
+        );
+        let pending = engine
+            .pending_match_start
+            .as_ref()
+            .expect("actual parked Shell descriptor");
+        assert_eq!(
+            pending.request.map, map,
+            "no Defcon/default map substitution"
+        );
+        assert_eq!(pending.request.difficulty_code, Some(2));
+        assert!(engine.source_new_game_background.is_some());
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(120);
+        while engine.current_state == GameState::Loading {
+            anyhow::ensure!(
+                std::time::Instant::now() < deadline,
+                "actual Shell Loading did not complete for {map}"
+            );
+            engine.host_tick_loading_client_residuals()?;
+            if engine.current_state == GameState::Loading {
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+        }
+        assert_eq!(engine.current_state, GameState::Menu);
+        assert!(engine.pending_match_start.is_none());
+        assert!(engine.source_new_game_background.is_none());
+        assert_eq!(engine.game_logic.game_mode(), GameMode::Shell);
+        assert!(
+            engine.game_logic.isInGame(),
+            "real selected map must be playable, not merely named"
+        );
+        assert_eq!(engine.game_logic.get_current_map_name(), map);
+        assert_eq!(
+            engine
+                .game_logic
+                .owned_script_engine
+                .as_ref()
+                .unwrap()
+                .get_global_difficulty(),
+            gamelogic::player::GameDifficulty::Hard,
+            "actual map script replacement must retain prepared source difficulty"
+        );
+        assert!(
+            engine.game_logic.scripts_loaded,
+            "real map script foundation completed"
+        );
+        {
+            let terrain = engine
+                .game_logic
+                .world_services
+                .terrain()
+                .read()
+                .map_err(|_| anyhow::anyhow!("receiving Shell terrain poisoned"))?;
+            assert!(terrain.has_height_map());
+            let extent = terrain.get_extent_including_border();
+            assert_eq!(extent.hi.x - extent.lo.x, expected.width as f32 * 10.);
+            assert_eq!(extent.hi.y - extent.lo.y, expected.height as f32 * 10.);
+        }
+        let goal = engine
+            .game_logic
+            .session_view
+            .camera
+            .native_camera
+            .desired();
+        assert!(
+            goal.is_finite() && goal != 12345.,
+            "loaded camera belongs to receiving map"
+        );
+        assert!(engine.game_logic.session_view.target.is_finite());
+        assert_eq!(
+            engine.game_logic.frame, 0,
+            "Loading does not consume a gameplay frame"
+        );
+        engine.host_run_ingame_logic_presentation_frame(1. / 30.);
+        assert_eq!(
+            engine.game_logic.frame, 1,
+            "prepared-start guard is released after real load"
+        );
+        assert!(engine.pending_match_start.is_none());
+        println!(
+            "source_shell_load_engine_witness passed: map={map}, terrain={}x{}, difficulty=Hard, frame=1",
+            expected.width, expected.height
+        );
+        Ok(())
+    }
+
     pub(super) fn run_replay_fast_forward_engine_probe() -> anyhow::Result<()> {
+        anyhow::ensure!(
+            crate::gameworld_shadow::gameworld_shadow_enabled(),
+            "replay fast-forward probe requires shadow enabled at process launch"
+        );
         let (_event_loop, mut engine) = replay_fixture_engine()?;
         #[cfg(feature = "game_client")]
         engine
@@ -2998,6 +3378,10 @@ mod replay_fast_forward_probe {
             (2, 2, 2),
             "four TiVO 60 Hz offers must advance owner queues only for the two completed fixed steps"
         );
+        #[cfg(feature = "game_client")]
+        source_command_phase_engine_witness(&mut engine);
+        #[cfg(feature = "game_client")]
+        source_shell_load_engine_witness(&mut engine)?;
         Ok(())
     }
 

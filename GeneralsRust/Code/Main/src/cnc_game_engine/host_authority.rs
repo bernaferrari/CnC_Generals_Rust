@@ -241,77 +241,7 @@ impl CnCGameEngine {
             let _ = budget;
             return;
         }
-        // Shell scripts use the same receiving client phase as match scripts.
-        // Keep the existing bounded fixed-step kernel and pause decision.
-        #[cfg(feature = "game_client")]
-        let cinematic_ui = self.game_client.in_game_ui_subsystem();
-        #[cfg(feature = "game_client")]
-        let (mut client_frame, snow, presence) =
-            self.game_client.split_frame_snow_and_drawable_presence();
-        #[cfg(feature = "game_client")]
-        let cinematic_window = &self.window;
-        #[cfg(feature = "game_client")]
-        let mut cinematic_cursor = |visible| cinematic_window.set_cursor_visible(visible);
-        #[cfg(feature = "game_client")]
-        let cinematic_input = super::mouse::CinematicInputLoan {
-            ui: cinematic_ui,
-            local_player: self.current_player_id,
-            modes: &mut self.look_at_modes,
-            selected: &mut self.selected_objects,
-            selected_receipt: &mut self.host_match_selected_ids,
-            presentation: &mut self.last_presentation_frame,
-            rotating: &mut self.is_mmb_rotating,
-            rotate_anchor: &mut self.mmb_anchor,
-            scrolling: &mut self.is_rmb_scrolling,
-            scroll_anchor: &mut self.rmb_scroll_anchor,
-            held: [
-                &mut self.camera_rotate_left_held,
-                &mut self.camera_rotate_right_held,
-                &mut self.camera_zoom_in_held,
-                &mut self.camera_zoom_out_held,
-            ],
-            waypoint: &mut self.sticky_waypoint_mode,
-            dragging: &mut self.is_dragging,
-            selection_start: &mut self.selection_start,
-            selection_screen: &mut self.selection_start_screen,
-            cursor_visible: &mut cinematic_cursor,
-        };
-        #[cfg(feature = "game_client")]
-        let mut ui = super::control_bar_viewport::NativeScriptUi::new(
-            snow,
-            &mut self.control_bar,
-            &mut self.control_bar_callbacks,
-        )
-        .with_cinematic_input(cinematic_input);
-        #[cfg(feature = "game_client")]
-        let mut view = super::native_view_effects::NativeRendererViewEffects::new(
-            self.render_pipeline.borrow_native_installed_poses(),
-            &mut self.graphics_system,
-            presence,
-            self.host_direct_visual_world_epoch,
-            self.current_player_id,
-        );
-        #[cfg(feature = "game_client")]
-        let effects = crate::game_logic::ScriptPresentationEffects {
-            ui: Some(&mut ui),
-            view: Some(&mut view),
-        };
-        #[cfg(not(feature = "game_client"))]
-        let effects = crate::game_logic::ScriptPresentationEffects::default();
-        let snap = self.game_logic.tick_logic_frame_with_script_effects(
-            dt,
-            None,
-            Some(budget),
-            effects,
-            |frame| {
-                #[cfg(feature = "game_client")]
-                client_frame.set_frame(frame);
-                #[cfg(not(feature = "game_client"))]
-                let _ = frame;
-            },
-            |_| {},
-        );
-        self.host_stamp_sim_timing_from_snapshot(snap);
+        self.drive_native_command_phase(dt, Some(budget), true, None);
     }
 
     /// Wave 584: host logic-frame tick residual (timing/dt + optional headless budget).
@@ -1273,6 +1203,9 @@ impl CnCGameEngine {
         #[cfg(feature = "game_client")]
         self.host_invalidate_active_popup_for_world_boundary();
 
+        self.pending_match_start = None;
+        self.destroy_source_new_game_background();
+
         // The receiving application keeps its persistent view until map admission
         // resets it. A detached candidate never publishes or replaces this state.
         Self::admit_startup_candidate_view(
@@ -1385,6 +1318,10 @@ impl CnCGameEngine {
         self.render_pipeline.invalidate_world_visual_state();
 
         let native_commit = runtime_world.install_globals();
+        // Only admitted replacement cancels a source prepared start. Failed
+        // staging/preflight above retains its live pending owner and windows.
+        self.pending_match_start = None;
+        self.destroy_source_new_game_background();
         admit_staged_session_view(
             &mut self.game_logic.session_view,
             &mut logic.session_view,

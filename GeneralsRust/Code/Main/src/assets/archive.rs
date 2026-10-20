@@ -234,8 +234,14 @@ impl ArchiveFileSystem {
                 .map(|root| root.join(&relative))
                 .collect()
         };
-        self.live_asset_resolver
-            .first_existing_file_candidate(&candidates)
+        // Match Common's existing loose-INI authority policy: automatically
+        // discovered truncated extracts/BIG directory slices cannot shadow an
+        // intact archive member. Continue through later roots, not just archive.
+        candidates.iter().find_map(|candidate| {
+            self.live_asset_resolver
+                .first_existing_file_candidate(std::slice::from_ref(candidate))
+                .filter(|path| game_engine::common::system::install_layout::ini_loose_override_is_authoritative(path))
+        })
     }
 
     pub fn find_filesystem_w3d(&mut self, model_key: &str) -> Option<PathBuf> {
@@ -1003,6 +1009,62 @@ mod tests {
         file.write_all(data)?;
 
         Ok(())
+    }
+
+    #[test]
+    fn invalid_generated_ini_skips_to_genuine_loose_then_actual_big_member() {
+        let archive_root = tempfile::tempdir().unwrap();
+        let generated_root = tempfile::tempdir().unwrap();
+        let genuine_root = tempfile::tempdir().unwrap();
+        let virtual_path = "Data/INI/Default/OwnedGeneratedShadowProbe.ini";
+        let archive_text = b"ObjectCreationList OwnedArchiveProbe\nEnd\n";
+        let loose_text = b"ObjectCreationList OwnedLooseProbe\nEnd\n";
+        create_single_file_big(
+            &archive_root.path().join("OwnedIniAuthority.big"),
+            virtual_path,
+            archive_text,
+        )
+        .unwrap();
+        let generated = generated_root.path().join(virtual_path);
+        let genuine = genuine_root.path().join(virtual_path);
+        std::fs::create_dir_all(generated.parent().unwrap()).unwrap();
+        std::fs::create_dir_all(genuine.parent().unwrap()).unwrap();
+        std::fs::write(&generated, b".ini\0\0\0\x94Data\\INI\\DirectoryTable.ini").unwrap();
+        std::fs::write(&genuine, loose_text).unwrap();
+        let mut files = ArchiveFileSystem::new();
+        files.add_search_path(archive_root.path());
+        pollster::block_on(files.init()).unwrap();
+        files.set_local_search_roots([
+            generated_root.path().to_owned(),
+            genuine_root.path().to_owned(),
+        ]);
+        assert_eq!(
+            files.resolve_local_file(virtual_path),
+            Some(genuine.clone())
+        );
+        assert_eq!(files.open_file_sync(virtual_path).unwrap(), loose_text);
+        std::fs::remove_file(genuine).unwrap();
+        assert!(files.resolve_local_file(virtual_path).is_none());
+        assert!(files.get_archive_filename_for_file(virtual_path).is_some());
+        assert_eq!(files.open_file_sync(virtual_path).unwrap(), archive_text);
+        assert_eq!(
+            std::fs::read(generated).unwrap(),
+            b".ini\0\0\0\x94Data\\INI\\DirectoryTable.ini"
+        );
+    }
+
+    #[test]
+    fn non_ini_binary_loose_override_keeps_existing_priority() {
+        let root = tempfile::tempdir().unwrap();
+        let virtual_path = "Art/Textures/OwnedBinaryAuthorityProbe.dds";
+        let path = root.path().join(virtual_path);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let bytes = b"DDS \0\xff\x94";
+        std::fs::write(&path, bytes).unwrap();
+        let mut files = ArchiveFileSystem::new();
+        files.set_local_search_roots([root.path().to_owned()]);
+        assert_eq!(files.resolve_local_file(virtual_path), Some(path));
+        assert_eq!(files.open_file_sync(virtual_path).unwrap(), bytes);
     }
 
     #[tokio::test]

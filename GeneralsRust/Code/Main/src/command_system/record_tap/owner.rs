@@ -163,6 +163,8 @@ impl ReplayPendingState {
         interval > 0 && frame > 0 && frame % interval == 0
     }
 
+    /// Complete the current compatibility command phase through the same
+    /// receiving admission kernel. Native suspension consumes the batch itself.
     pub(crate) fn flush_owned(
         &mut self,
         frame: u32,
@@ -171,8 +173,52 @@ impl ReplayPendingState {
         local_player_index: i32,
         local_player_name_key: Option<&str>,
     ) {
-        if self.last_recorder_update_frame == Some(frame) {
+        let Some(mut batch) = self.admit_command_batch_owned(
+            frame,
+            host_queue,
+            state_crc,
+            local_player_index,
+            local_player_name_key,
+        ) else {
             return;
+        };
+        while let Some(command) = batch.pop_front() {
+            match command {
+                AdmittedCommand::Queued(command) => host_queue.push_back(command),
+                AdmittedCommand::Message(message) => {
+                    apply_replay_messages(self, std::slice::from_ref(&message), false);
+                }
+            }
+        }
+        host_queue.extend(std::mem::take(&mut self.commands));
+    }
+
+    /// Dispatch one non-lifecycle source message at the borrowed command cursor.
+    pub(crate) fn dispatch_admitted_message_owned(
+        &mut self,
+        message: &GameMessage,
+    ) -> Vec<GameCommand> {
+        assert!(
+            !matches!(
+                message.get_type(),
+                GameMessageType::ClearGameData | GameMessageType::NewGame
+            ),
+            "lifecycle requires the driving Engine command boundary"
+        );
+        apply_replay_messages(self, std::slice::from_ref(message), false);
+        std::mem::take(&mut self.commands)
+    }
+
+    pub(crate) fn admit_command_batch_owned(
+        &mut self,
+        frame: u32,
+        host_queue: &mut VecDeque<GameCommand>,
+        state_crc: u32,
+        local_player_index: i32,
+        local_player_name_key: Option<&str>,
+    ) -> Option<AdmittedCommandBatch> {
+        if self.last_recorder_update_frame == Some(frame) {
+            return None;
         }
         let routed = self.take_incoming();
         let (crc_taps, mut direct_taps): (Vec<_>, Vec<_>) =
@@ -204,7 +250,7 @@ impl ReplayPendingState {
             direct_taps.retain(keep_command_during_playback);
         }
         self.recorder.update_owned(frame, &direct_taps);
-        if playback {
+        let messages = if playback {
             if let Some(crc) = posted_crc {
                 self.recorder
                     .handle_crc_message_with_name_key(crc, false, local_player_name_key);
@@ -212,14 +258,16 @@ impl ReplayPendingState {
             host_queue.retain(|command| game_command_to_message(command).is_none());
             // Source command list retains allowed live commands before file commands.
             direct_taps.extend(self.recorder.drain_pending_commands());
-            apply_replay_messages(self, &direct_taps, false);
+            direct_taps
         } else {
-            apply_replay_messages(self, &routed, false);
-            let outputs = self.recorder.drain_pending_commands();
-            apply_replay_messages(self, &outputs, false);
-        }
+            let mut messages = routed;
+            messages.extend(self.recorder.drain_pending_commands());
+            messages
+        };
         self.last_recorder_update_frame = Some(frame);
-        host_queue.extend(std::mem::take(&mut self.commands));
+        let mut queued = std::mem::take(host_queue);
+        queued.extend(std::mem::take(&mut self.commands));
+        Some(AdmittedCommandBatch::new(queued, messages))
     }
 }
 

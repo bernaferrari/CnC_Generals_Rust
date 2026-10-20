@@ -362,3 +362,95 @@ fn reset_and_direct_restart_clear_the_previous_cash_source() {
         },
     );
 }
+
+#[test]
+fn failed_selected_map_preserves_actual_difficulty_into_real_fallback_and_saved_definition_load() {
+    isolated(
+        "failed_selected_map_preserves_actual_difficulty_into_real_fallback_and_saved_definition_load",
+        || {
+            use gamelogic::player::GameDifficulty;
+            let dir = tempfile::tempdir().unwrap();
+            let fallback = map(&dir.path().join("fallback"), 700, None, None);
+            let selected = dir.path().join("missing-selected.map");
+            let mut owner = world(None, 17_321);
+            owner.prepare_native_command_difficulty(0);
+            owner
+                .owned_script_engine
+                .as_ref()
+                .unwrap()
+                .set_global_difficulty(GameDifficulty::Hard);
+            let mut peer = world(None, 17_321);
+            peer.prepare_native_command_difficulty(0);
+            let mut starts = 0;
+            let loaded = owner.load_map_or_fallback_with_progress(
+                selected.to_str().unwrap(),
+                fallback.to_str().unwrap(),
+                |_, phase| {
+                    if phase == "Preparing map data" {
+                        starts += 1;
+                    }
+                },
+            );
+            assert_eq!(
+                starts, 2,
+                "the selected failure actually ran before fallback"
+            );
+            assert_eq!(loaded.as_deref(), fallback.to_str());
+            assert_eq!(owner.get_current_map_name(), fallback.to_str().unwrap());
+            assert!(owner.isInGame());
+            assert!(
+                owner.terrain.is_some(),
+                "real fallback HeightMapData admitted"
+            );
+            assert!(
+                owner.scripts_loaded,
+                "actual map script foundation completed"
+            );
+            assert!(
+                owner
+                    .players
+                    .values()
+                    .any(|player| player.map_side.map_player_name == "CashCivilian")
+            );
+            assert_eq!(
+                owner
+                    .owned_script_engine
+                    .as_ref()
+                    .unwrap()
+                    .get_global_difficulty(),
+                GameDifficulty::Hard
+            );
+            assert_eq!(
+                peer.owned_script_engine
+                    .as_ref()
+                    .unwrap()
+                    .get_global_difficulty(),
+                GameDifficulty::Easy
+            );
+            // Snapshot restore geometry and companion-definition identities are
+            // distinct, but retain the same actual receiving interpreter state.
+            let definition_source = map(&dir.path().join("original"), 900, None, None);
+            assert!(owner.load_map_with_definition_source(
+                fallback.to_str().unwrap(),
+                definition_source.to_str().unwrap(),
+            ));
+            assert!(owner.isInGame());
+            assert!(owner.scripts_loaded);
+            assert_eq!(
+                owner
+                    .owned_script_engine
+                    .as_ref()
+                    .unwrap()
+                    .get_global_difficulty(),
+                GameDifficulty::Hard
+            );
+            assert_eq!(
+                peer.owned_script_engine
+                    .as_ref()
+                    .unwrap()
+                    .get_global_difficulty(),
+                GameDifficulty::Easy
+            );
+        },
+    );
+}

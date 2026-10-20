@@ -45,6 +45,28 @@ impl GameLogic {
         &mut self,
         map_path: &Path,
         chunky: &super::script_loader::ChunkyMap,
+        report_progress: F,
+    ) -> bool
+    where
+        F: FnMut(f32, &str),
+    {
+        let difficulty = self
+            .owned_script_engine
+            .as_ref()
+            .map(|engine| engine.get_global_difficulty());
+        self.sync_legacy_runtime_from_fast_chunky_with_script_difficulty(
+            map_path,
+            chunky,
+            difficulty,
+            report_progress,
+        )
+    }
+
+    pub(in super::super) fn sync_legacy_runtime_from_fast_chunky_with_script_difficulty<F>(
+        &mut self,
+        map_path: &Path,
+        chunky: &super::script_loader::ChunkyMap,
+        difficulty: Option<gamelogic::player::GameDifficulty>,
         mut report_progress: F,
     ) -> bool
     where
@@ -255,7 +277,11 @@ impl GameLogic {
         // going through LogicMapLoader's global SidesList callback. Retain the
         // prepared value on this world before deriving players and teams;
         // observer and script setup consume these same ordered map rows.
-        if !self.admit_map_script_definitions(&map_path.to_string_lossy(), Some(chunky)) {
+        if !self.admit_map_script_definitions_with_difficulty(
+            &map_path.to_string_lossy(),
+            Some(chunky),
+            difficulty,
+        ) {
             return false;
         }
         let script_lists = self.loaded_script_lists.clone();

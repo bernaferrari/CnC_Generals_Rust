@@ -31,6 +31,9 @@ mod production;
 mod shock;
 mod sleepy;
 mod step;
+pub(crate) use step::{
+    NativeCommandAction, NativeCommandCompletion, NativeTickContinuation, NativeTickProgress,
+};
 mod water_owner;
 pub(in super::super) use sleepy::{HostSleepyHeap, HostSleepyKind};
 mod team_membership;

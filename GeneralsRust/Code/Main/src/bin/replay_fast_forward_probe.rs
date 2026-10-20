@@ -9,6 +9,10 @@
 
 #[cfg(feature = "internal")]
 const CHILD: &str = "GENERALS_REPLAY_PROBE_CHILD";
+#[cfg(feature = "internal")]
+const PRIVATE_ROOT: &str = "GENERALS_REPLAY_PROBE_PRIVATE_ROOT";
+#[cfg(feature = "internal")]
+const SOURCE_ROOT: &str = "GENERALS_REPLAY_PROBE_SOURCE_ROOT";
 
 #[cfg(feature = "internal")]
 fn probe_child_requested() -> bool {
@@ -16,24 +20,105 @@ fn probe_child_requested() -> bool {
 }
 
 #[cfg(feature = "internal")]
-fn replay_probe_child_command(executable: &std::path::Path) -> std::process::Command {
+fn replay_probe_child_command(
+    executable: &std::path::Path,
+) -> anyhow::Result<std::process::Command> {
+    let original = std::env::current_dir()?.canonicalize()?;
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_nanos();
+    // A wall clock is not a uniqueness guarantee across parallel launchers.
+    let root = create_probe_directory(nonce)?;
+    let root = root.canonicalize()?;
+    for directory in ["cwd", "home", "appdata", "userdata"] {
+        std::fs::create_dir(root.join(directory))?;
+    }
+    eprintln!("replay probe private evidence: {}", root.display());
     let mut command = std::process::Command::new(executable);
+    command
+        .current_dir(root.join("cwd"))
+        .env(PRIVATE_ROOT, &root)
+        .env(SOURCE_ROOT, &original)
+        .env("HOME", root.join("home"))
+        .env("USERPROFILE", root.join("home"))
+        .env("APPDATA", root.join("appdata"))
+        .env("LOCALAPPDATA", root.join("appdata"));
+    // Preserve explicit licensed asset configuration and every other inherited input.
+    if std::env::var_os("GENERALS_ASSETS_DIR").is_none() {
+        command.env("GENERALS_ASSETS_DIR", original);
+    }
     command
         .env(CHILD, "1")
         .env("GENERALS_GAMEWORLD_SHADOW", "1");
-    command
+    Ok(command)
+}
+
+#[cfg(feature = "internal")]
+fn create_probe_directory(nonce: u128) -> std::io::Result<std::path::PathBuf> {
+    for attempt in 0..1024 {
+        let root = std::env::temp_dir().join(format!(
+            "generals-replay-probe-{}-{nonce}-{attempt}",
+            std::process::id()
+        ));
+        // Exclusive creation never adopts an existing directory or symlink.
+        match std::fs::create_dir(&root) {
+            Ok(()) => return Ok(root),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error),
+        }
+    }
+    Err(std::io::Error::new(
+        std::io::ErrorKind::AlreadyExists,
+        "probe could not reserve a private directory",
+    ))
 }
 
 #[cfg(feature = "internal")]
 fn main() -> anyhow::Result<()> {
     if probe_child_requested() {
-        return run_probe_child();
+        let root = std::path::PathBuf::from(
+            std::env::var_os(PRIVATE_ROOT)
+                .ok_or_else(|| anyhow::anyhow!("probe child requires private launch root"))?,
+        );
+        let source = std::path::PathBuf::from(
+            std::env::var_os(SOURCE_ROOT)
+                .ok_or_else(|| anyhow::anyhow!("probe child requires source asset root"))?,
+        );
+        // Synchronous admission precedes #[tokio::main], winit and every Engine.
+        generals_main::cnc_game_engine::prepare_replay_probe_private_paths(&root, &source)?;
+        let result = run_probe_child();
+        eprintln!("replay probe retained private output: {}", root.display());
+        return result;
     }
     // Keep CLI and inherited stdio unchanged. Command owns both overrides;
     // configuring it cannot mutate this parent's environment.
-    let status = replay_probe_child_command(&std::env::current_exe()?)
-        .args(std::env::args_os().skip(1))
-        .status()?;
+    let executable = std::env::current_exe()?;
+    let mut command = replay_probe_child_command(&executable)?;
+    let evidence = command
+        .get_envs()
+        .find(|(key, _)| *key == PRIVATE_ROOT)
+        .and_then(|(_, value)| value)
+        .map(std::path::PathBuf::from)
+        .unwrap();
+    let protected = protected_outputs(&executable)?;
+    let before = output_metadata(&protected)?;
+    std::fs::write(
+        evidence.join("protected-before.txt"),
+        format!("{before:#?}"),
+    )?;
+    let status = command.args(std::env::args_os().skip(1)).status()?;
+    let after = output_metadata(&protected)?;
+    std::fs::write(evidence.join("protected-after.txt"), format!("{after:#?}"))?;
+    anyhow::ensure!(
+        before == after,
+        "protected user/install output changed; see {}",
+        evidence.display()
+    );
+    let actual = output_metadata(&[evidence.clone()])?;
+    std::fs::write(
+        evidence.join("private-output-metadata.txt"),
+        format!("{actual:#?}"),
+    )?;
     if !status.success() {
         // Preserve numeric child failure/panic codes without printing a second
         // copy of the probe error. Signal-only termination has no portable code.
@@ -76,7 +161,7 @@ mod tests {
             }
             return;
         }
-        let mut command = replay_probe_child_command(&std::env::current_exe().unwrap());
+        let mut command = replay_probe_child_command(&std::env::current_exe().unwrap()).unwrap();
         command
             .args(["--exact", test, "--nocapture", "--test-threads=1"])
             .env(TEST, test)
@@ -121,9 +206,30 @@ mod tests {
     }
 
     #[test]
+    fn repeated_clock_value_reserves_distinct_exclusive_directories() {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let first = create_probe_directory(nonce).unwrap();
+        let marker = first.join("owned-marker");
+        std::fs::write(&marker, b"first launch").unwrap();
+        let second = create_probe_directory(nonce).unwrap();
+        assert_ne!(first, second);
+        assert_eq!(std::fs::read(&marker).unwrap(), b"first launch");
+        assert!(!second.join("owned-marker").exists());
+        std::fs::remove_file(marker).unwrap();
+        std::fs::remove_dir(first).unwrap();
+        std::fs::remove_dir(second).unwrap();
+    }
+
+    #[test]
     fn launcher_installs_owned_child_environment_without_parent_mutation() {
         let before_shadow = std::env::var_os("GENERALS_GAMEWORLD_SHADOW");
         let before_child = std::env::var_os(CHILD);
+        let before_home = std::env::var_os("HOME");
+        let before_appdata = std::env::var_os("APPDATA");
+        let before_cwd = std::env::current_dir().unwrap();
         isolated_case(
             "tests::launcher_installs_owned_child_environment_without_parent_mutation",
             "launch",
@@ -138,15 +244,29 @@ mod tests {
                     Some("1".into())
                 );
                 assert!(generals_main::gameworld_shadow::gameworld_shadow_enabled());
+                let root = std::path::PathBuf::from(std::env::var_os(PRIVATE_ROOT).unwrap());
+                assert_eq!(std::env::current_dir().unwrap(), root.join("cwd"));
+                assert_eq!(
+                    std::env::var_os("HOME"),
+                    Some(root.join("home").into_os_string())
+                );
+                assert_eq!(
+                    std::env::var_os("APPDATA"),
+                    Some(root.join("appdata").into_os_string())
+                );
+                assert!(!root.join("userdata/Options.ini").exists());
             },
         );
         assert_eq!(std::env::var_os("GENERALS_GAMEWORLD_SHADOW"), before_shadow);
         assert_eq!(std::env::var_os(CHILD), before_child);
+        assert_eq!(std::env::var_os("HOME"), before_home);
+        assert_eq!(std::env::var_os("APPDATA"), before_appdata);
+        assert_eq!(std::env::current_dir().unwrap(), before_cwd);
     }
 
     #[test]
     fn launcher_preserves_cli_and_rejects_incorrect_child_marker() {
-        let mut command = replay_probe_child_command(std::path::Path::new("replay-probe"));
+        let mut command = replay_probe_child_command(std::path::Path::new("replay-probe")).unwrap();
         command.args(["original-arg", "second-arg"]);
         assert_eq!(
             command.get_args().collect::<Vec<_>>(),
@@ -218,4 +338,59 @@ mod tests {
             },
         );
     }
+}
+
+#[cfg(feature = "internal")]
+fn protected_outputs(executable: &std::path::Path) -> anyhow::Result<Vec<std::path::PathBuf>> {
+    let mut paths = vec![std::env::current_dir()?.join("UserData")];
+    if let Some(home) = std::env::var_os("HOME") {
+        paths.push(std::path::PathBuf::from(home).join(".cnc_generals"));
+    }
+    if let Some(appdata) = std::env::var_os("APPDATA") {
+        paths.push(std::path::PathBuf::from(appdata).join("Command & Conquer Generals Zero Hour"));
+    }
+    if let Some(parent) = executable.parent() {
+        paths.push(parent.join("Replays"));
+    }
+    Ok(paths)
+}
+
+#[cfg(feature = "internal")]
+fn output_metadata(
+    roots: &[std::path::PathBuf],
+) -> anyhow::Result<
+    std::collections::BTreeMap<std::path::PathBuf, (u64, Option<std::time::SystemTime>, bool)>,
+> {
+    fn visit(
+        path: &std::path::Path,
+        entries: &mut std::collections::BTreeMap<
+            std::path::PathBuf,
+            (u64, Option<std::time::SystemTime>, bool),
+        >,
+    ) -> anyhow::Result<()> {
+        let metadata = match std::fs::symlink_metadata(path) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(error) => return Err(error.into()),
+        };
+        entries.insert(
+            path.to_owned(),
+            (
+                metadata.len(),
+                metadata.modified().ok(),
+                metadata.file_type().is_symlink(),
+            ),
+        );
+        if metadata.is_dir() && !metadata.file_type().is_symlink() {
+            for entry in std::fs::read_dir(path)? {
+                visit(&entry?.path(), entries)?;
+            }
+        }
+        Ok(())
+    }
+    let mut entries = std::collections::BTreeMap::new();
+    for root in roots {
+        visit(root, &mut entries)?;
+    }
+    Ok(entries)
 }

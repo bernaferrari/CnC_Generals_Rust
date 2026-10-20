@@ -34,70 +34,108 @@ pub enum RadioButtonRenderCommand {
     },
 }
 
-/// Radio button group for mutual exclusivity
+/// Membership and selection belong to one shared group state. Public group
+/// handles retain their existing Clone + Send + Sync service boundary.
+#[derive(Clone, Default)]
+struct RadioGroupState {
+    selected: Option<GadgetId>,
+    buttons: Vec<GadgetId>,
+}
+
+/// Radio button group for mutual exclusivity.
 #[derive(Clone)]
 pub struct RadioButtonGroup {
     id: RadioGroupId,
-    selected: Arc<Mutex<Option<GadgetId>>>,
-    buttons: Arc<Mutex<Vec<GadgetId>>>,
+    state: Arc<Mutex<RadioGroupState>>,
+}
+
+/// Detached beforeimage for reclaiming a failed layout's radio widgets. This
+/// plain value neither shares ownership nor represents another live group.
+pub(crate) struct RadioButtonGroupBefore {
+    id: RadioGroupId,
+    state: RadioGroupState,
 }
 
 impl RadioButtonGroup {
-    /// Create a new radio button group
+    /// Create a new radio button group.
     pub fn new(id: RadioGroupId) -> Self {
         Self {
             id,
-            selected: Arc::new(Mutex::new(None)),
-            buttons: Arc::new(Mutex::new(Vec::new())),
+            state: Arc::new(Mutex::new(RadioGroupState::default())),
         }
     }
 
-    /// Add a button to the group
+    pub(crate) fn capture_layout_beforeimage(&self) -> RadioButtonGroupBefore {
+        RadioButtonGroupBefore {
+            id: self.id,
+            state: self.state.lock().unwrap_or_else(|e| e.into_inner()).clone(),
+        }
+    }
+
+    /// Restore only after failed candidate RadioButtons have been dropped.
+    /// Their Drop removes by ID, including a reused original member ID.
+    pub(crate) fn restore_layout_beforeimage(&self, before: RadioButtonGroupBefore) {
+        assert_eq!(self.id, before.id, "radio beforeimage belongs to its group");
+        *self.state.lock().unwrap_or_else(|e| e.into_inner()) = before.state;
+    }
+
+    /// Add a button once, preserving first-registration order.
     fn add_button(&self, button_id: GadgetId) {
-        let mut buttons = self.buttons.lock().unwrap_or_else(|e| e.into_inner());
-        if !buttons.contains(&button_id) {
-            buttons.push(button_id);
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        if !state.buttons.contains(&button_id) {
+            state.buttons.push(button_id);
         }
     }
 
-    /// Remove a button from the group
+    /// Remove membership and its selection in the same group operation.
     fn remove_button(&self, button_id: GadgetId) {
-        let mut buttons = self.buttons.lock().unwrap_or_else(|e| e.into_inner());
-        buttons.retain(|&id| id != button_id);
-
-        let mut selected = self.selected.lock().unwrap_or_else(|e| e.into_inner());
-        if *selected == Some(button_id) {
-            *selected = None;
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        state.buttons.retain(|&id| id != button_id);
+        if state.selected == Some(button_id) {
+            state.selected = None;
         }
     }
 
-    /// Set selected button
+    /// Set selected button. Retain the existing API's ID acceptance semantics.
     fn set_selected(&self, button_id: GadgetId) {
-        let mut selected = self.selected.lock().unwrap_or_else(|e| e.into_inner());
-        *selected = Some(button_id);
-    }
-
-    /// Get selected button
-    pub fn get_selected(&self) -> Option<GadgetId> {
-        *self.selected.lock().unwrap_or_else(|e| e.into_inner())
-    }
-
-    /// Get all buttons in group
-    pub fn get_buttons(&self) -> Vec<GadgetId> {
-        self.buttons
+        self.state
             .lock()
             .unwrap_or_else(|e| e.into_inner())
+            .selected = Some(button_id);
+    }
+
+    /// Get selected button.
+    pub fn get_selected(&self) -> Option<GadgetId> {
+        self.state
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .selected
+    }
+
+    /// Get all buttons in original registration order.
+    pub fn get_buttons(&self) -> Vec<GadgetId> {
+        self.state
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .buttons
             .clone()
     }
 
-    /// Check if a button is selected
+    /// Check if a button is selected.
     pub fn is_selected(&self, button_id: GadgetId) -> bool {
-        *self.selected.lock().unwrap_or_else(|e| e.into_inner()) == Some(button_id)
+        self.state
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .selected
+            == Some(button_id)
     }
 
-    /// Clear selection
+    /// Clear selection without changing membership.
     pub fn clear_selection(&self) {
-        *self.selected.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        self.state
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .selected = None;
     }
 }
 
@@ -612,6 +650,52 @@ impl RadioButtonBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cloned_group_keeps_one_shared_send_sync_state_and_ordered_membership() {
+        fn assert_send_sync<T: Send + Sync>() {}
+        assert_send_sync::<RadioButtonGroup>();
+        let group = RadioButtonGroup::new(17);
+        let clone = group.clone();
+        assert!(Arc::ptr_eq(&group.state, &clone.state));
+        assert_eq!(clone.id, 17);
+        let mut selected = RadioButton::new(9, 0, 0, 10, group.clone());
+        let other = RadioButton::new(3, 0, 0, 10, clone.clone());
+        selected.select();
+        assert_eq!(clone.get_buttons(), vec![9, 3]);
+        assert_eq!(clone.get_selected(), Some(9));
+        drop(other);
+        assert_eq!(group.get_buttons(), vec![9]);
+        assert_eq!(group.get_selected(), Some(9));
+        clone.clear_selection();
+        assert_eq!(group.get_buttons(), vec![9]);
+        assert_eq!(group.get_selected(), None);
+        drop(selected);
+        assert!(clone.get_buttons().is_empty());
+    }
+
+    #[test]
+    fn group_beforeimage_restores_members_and_selection_together_after_candidate_drop() {
+        let group = RadioButtonGroup::new(23);
+        let mut original = RadioButton::new(7, 0, 0, 10, group.clone());
+        original.select();
+        let before = group.capture_layout_beforeimage();
+        assert_eq!(before.state.buttons, vec![7]);
+        assert_eq!(before.state.selected, Some(7));
+        let mut candidate = RadioButton::new(8, 0, 0, 10, group.clone());
+        candidate.select();
+        assert_eq!(group.get_buttons(), vec![7, 8]);
+        assert_eq!(group.get_selected(), Some(8));
+        drop(candidate);
+        group.restore_layout_beforeimage(before);
+        let restored = group.capture_layout_beforeimage();
+        assert_eq!(restored.state.buttons, vec![7]);
+        assert_eq!(restored.state.selected, Some(7));
+        drop(original);
+        let empty = group.capture_layout_beforeimage();
+        assert!(empty.state.buttons.is_empty());
+        assert_eq!(empty.state.selected, None);
+    }
 
     #[test]
     fn test_radio_group() {

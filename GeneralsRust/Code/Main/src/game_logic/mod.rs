@@ -130,6 +130,9 @@ pub use combat::*;
 pub use combat_particles::{CombatParticleKind, CombatParticleRegistry, CombatParticleSystemEntry};
 pub(crate) use game_logic::LogicCameraContinuation;
 pub use game_logic::*;
+pub(crate) use game_logic::{
+    NativeCommandAction, NativeCommandCompletion, NativeTickContinuation, NativeTickProgress,
+};
 pub use locomotor_bootstrap::honesty_locomotor_residual_expand_wave92;
 pub use locomotor_bootstrap::honesty_locomotor_residual_expand_wave103;
 pub use locomotor_bootstrap::{

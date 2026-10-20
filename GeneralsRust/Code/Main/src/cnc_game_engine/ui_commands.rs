@@ -1179,7 +1179,11 @@ impl CnCGameEngine {
         #[cfg(feature = "game_client")]
         let mut last_load_screen_progress = None::<(f32, String)>;
 
-        let loaded = if self.game_logic.game_mode() == GameMode::Replay {
+        let loaded = if self.game_logic.game_mode() == GameMode::Shell {
+            self.game_logic
+                .load_map(map_name)
+                .then(|| map_name.to_owned())
+        } else if self.game_logic.game_mode() == GameMode::Replay {
             self.game_logic
                 .load_recorded_map_with_progress(map_name, |progress, phase| {
                     #[cfg(feature = "game_client")]

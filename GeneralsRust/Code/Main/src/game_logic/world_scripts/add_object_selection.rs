@@ -1440,11 +1440,24 @@ impl GameLogic {
         map_name: &str,
         decoded_map: Option<&super::super::script_loader::ChunkyMap>,
     ) {
+        let difficulty = self
+            .owned_script_engine
+            .as_ref()
+            .map(|engine| engine.get_global_difficulty());
+        self.initialize_scripts_with_map_data_and_difficulty(map_name, decoded_map, difficulty);
+    }
+
+    pub(in super::super) fn initialize_scripts_with_map_data_and_difficulty(
+        &mut self,
+        map_name: &str,
+        decoded_map: Option<&super::super::script_loader::ChunkyMap>,
+        difficulty: Option<gamelogic::player::GameDifficulty>,
+    ) {
         if self.scripts_loaded {
             return;
         }
         if self.owned_script_engine.is_none()
-            && !self.admit_map_script_definitions(map_name, decoded_map)
+            && !self.admit_map_script_definitions_with_difficulty(map_name, decoded_map, difficulty)
         {
             return;
         }
@@ -1463,6 +1476,19 @@ impl GameLogic {
         &mut self,
         map_name: &str,
         decoded_map: Option<&super::super::script_loader::ChunkyMap>,
+    ) -> bool {
+        let difficulty = self
+            .owned_script_engine
+            .as_ref()
+            .map(|engine| engine.get_global_difficulty());
+        self.admit_map_script_definitions_with_difficulty(map_name, decoded_map, difficulty)
+    }
+
+    pub(in super::super) fn admit_map_script_definitions_with_difficulty(
+        &mut self,
+        map_name: &str,
+        decoded_map: Option<&super::super::script_loader::ChunkyMap>,
+        difficulty: Option<gamelogic::player::GameDifficulty>,
     ) -> bool {
         let templates = self
             .owned_script_engine
@@ -1490,6 +1516,9 @@ impl GameLogic {
             log::error!("Failed to create map interpreter for '{}'", map_name);
             return false;
         };
+        if let Some(difficulty) = difficulty {
+            engine.set_global_difficulty(difficulty);
+        }
         engine.set_action_handler(Some(Arc::new(MissionScriptActionHandler::new(
             self.mission_scripts.clone(),
         ))));
@@ -1631,5 +1660,82 @@ mod vision_floor_tests {
         assert_eq!(cc.resolved_shroud_clearing_range(), 300.0);
         let stash = logic.templates.get("GLASupplyStash").expect("stash");
         assert_eq!(stash.sight_range, 123.0, "authored vision wins");
+    }
+}
+
+#[cfg(test)]
+mod map_script_difficulty_tests {
+    use super::*;
+
+    #[test]
+    fn map_script_admission_preserves_actual_difficulty_before_foundation() {
+        use gamelogic::player::GameDifficulty;
+        let mut owner = GameLogic::new();
+        owner.prepare_native_command_difficulty(0);
+        owner
+            .owned_script_engine
+            .as_ref()
+            .unwrap()
+            .set_global_difficulty(GameDifficulty::Hard);
+        let mut peer = GameLogic::new();
+        peer.prepare_native_command_difficulty(0);
+        // This is the actual value retained by load_map before replacement;
+        // the session's earlier Easy selection is deliberately different.
+        let difficulty = owner
+            .owned_script_engine
+            .as_ref()
+            .map(|engine| engine.get_global_difficulty());
+        owner.owned_script_engine = None;
+        let map = super::super::super::script_loader::ChunkyMap {
+            source: std::path::PathBuf::from("no-authored-script-lists.map"),
+            toc: std::collections::HashMap::from([(1, "UnrelatedMapData".into())]),
+            body_offset: 0,
+            bytes: [
+                1u32.to_le_bytes().as_slice(),
+                1u16.to_le_bytes().as_slice(),
+                0i32.to_le_bytes().as_slice(),
+            ]
+            .concat(),
+        };
+        assert!(owner.admit_map_script_definitions_with_difficulty(
+            "no-authored-script-lists.map",
+            Some(&map),
+            difficulty,
+        ));
+        assert_eq!(
+            owner
+                .owned_script_engine
+                .as_ref()
+                .unwrap()
+                .get_global_difficulty(),
+            GameDifficulty::Hard
+        );
+        assert!(owner.finish_map_script_foundation());
+        assert_eq!(
+            owner
+                .owned_script_engine
+                .as_ref()
+                .unwrap()
+                .get_global_difficulty(),
+            GameDifficulty::Hard
+        );
+        assert_eq!(
+            peer.owned_script_engine
+                .as_ref()
+                .unwrap()
+                .get_global_difficulty(),
+            GameDifficulty::Easy
+        );
+        // Direct callers keep their own actual interpreter value too.
+        owner.scripts_loaded = false;
+        owner.initialize_scripts_with_map_data("no-authored-script-lists.map", Some(&map));
+        assert_eq!(
+            owner
+                .owned_script_engine
+                .as_ref()
+                .unwrap()
+                .get_global_difficulty(),
+            GameDifficulty::Hard
+        );
     }
 }

@@ -23,6 +23,17 @@ use std::time::Instant;
 
 use super::*;
 
+/// Weak registrations and plain group data captured for one fallible load.
+/// None of these values becomes another mutable UI owner.
+struct LayoutRegistrationBefore {
+    lookup: HashMap<WindowId, Weak<RefCell<GameWindow>>>,
+    tabs: Vec<Weak<RefCell<GameWindow>>>,
+    radio_groups: Vec<(
+        u32,
+        crate::gui::gadgets::radiobutton::RadioButtonGroupBefore,
+    )>,
+}
+
 impl WindowManager {
     /// Load a window layout file and return the first window instance.
     pub fn load_window(&mut self, filename: &str) -> WindowResult<Rc<RefCell<GameWindow>>> {
@@ -61,25 +72,7 @@ impl WindowManager {
             layout_def.windows.len(),
             self.window_count
         );
-        let layout = self.create_layout(filename.to_string());
-        {
-            let mut layout_mut = layout.borrow_mut();
-            layout_mut.default_text_color = layout_def.default_text_color;
-            layout_mut.default_font = layout_def.default_font.clone();
-            self.bind_layout_callbacks(&mut layout_mut, &layout_def);
-        }
-
-        let mut info = WindowLayoutInfo {
-            version: layout_def.version,
-            init_callback_name: layout_def.init_callback.clone(),
-            update_callback_name: layout_def.update_callback.clone(),
-            shutdown_callback_name: layout_def.shutdown_callback.clone(),
-            windows: Vec::new(),
-        };
-
-        for window_def in &layout_def.windows {
-            self.create_window_from_definition(window_def, None, &layout, &layout_def, &mut info)?;
-        }
+        let (layout, info) = self.instantiate_layout_definition(filename, &layout_def)?;
         log::info!(
             "create_layout_with_windows done: {filename} created={} wm_windows_after={}",
             info.windows.len(),
@@ -112,12 +105,93 @@ impl WindowManager {
         let path = resolve_window_script_path(filename)?;
         let layout_def = parse_window_script(&path).map_err(|err| WindowError::GeneralFailure)?;
 
+        self.instantiate_layout_definition(filename, &layout_def)
+            .map(|(_, info)| info)
+    }
+
+    fn capture_layout_registrations(&self) -> LayoutRegistrationBefore {
+        LayoutRegistrationBefore {
+            lookup: self.window_by_id.clone(),
+            tabs: self.tab_list.clone(),
+            radio_groups: self
+                .radio_groups
+                .iter()
+                .map(|(id, group)| (*id, group.capture_layout_beforeimage()))
+                .collect(),
+        }
+    }
+
+    fn rollback_failed_layout(
+        &mut self,
+        layout: Rc<RefCell<WindowLayout>>,
+        info: WindowLayoutInfo,
+        before: LayoutRegistrationBefore,
+    ) {
+        // Isolate unrelated deferred deletion while destroying only the
+        // candidate tree through the ordinary local-manager destruction path.
+        let mut candidate_windows = layout.borrow().windows().to_vec();
+        let mut index = 0;
+        while index < candidate_windows.len() {
+            let children = candidate_windows[index].borrow().children().to_vec();
+            candidate_windows.extend(children);
+            index += 1;
+        }
+        let mut deferred = std::mem::take(&mut self.destroy_queue);
+        self.destroy_layout(&layout);
+        deferred.retain(|window| {
+            !candidate_windows
+                .iter()
+                .any(|candidate| Rc::ptr_eq(window, candidate))
+        });
+        self.destroy_queue.extend(deferred);
+
+        // GWM_DESTROY callbacks have run. Reclaim widgets now, even if a
+        // callback retained an Rc to its already-destroyed candidate window.
+        // RadioButton owns its widget value directly (not through another Rc),
+        // so a later window drop cannot remove a restored original member ID.
+        for window in &candidate_windows {
+            drop(window.borrow_mut().widget.take());
+        }
+        drop(info);
+        drop(candidate_windows);
+        drop(layout);
+
+        self.window_by_id = before.lookup;
+        self.tab_list = before.tabs;
+        self.radio_groups
+            .retain(|id, _| before.radio_groups.iter().any(|(old, _)| old == id));
+        for (id, state) in before.radio_groups {
+            self.radio_groups
+                .get(&id)
+                .expect("existing group survives candidate construction")
+                .restore_layout_beforeimage(state);
+        }
+    }
+
+    /// One creation kernel for both script APIs. Failed Rust construction has
+    /// no returned layout handle, so remove its partial tree before returning.
+    /// Successful window/Create/ScriptCreate order is unchanged.
+    fn instantiate_layout_definition(
+        &mut self,
+        filename: &str,
+        layout_def: &WindowLayoutDefinition,
+    ) -> WindowResult<(Rc<RefCell<WindowLayout>>, WindowLayoutInfo)> {
+        // C++ winCreateFromScript returns no first window for an empty file;
+        // WindowLayout::load then fails without keeping an empty layout.
+        if layout_def.windows.is_empty() {
+            return Err(WindowError::InvalidParameter);
+        }
+        // Detached weak registration observations only. A candidate can reuse
+        // an existing named ID, and normal window destruction removes that ID.
+        // Retain the previous registration rather than losing another layout's
+        // lookup or leaving candidate TABSTOP entries after a failed load.
+        let before = self.capture_layout_registrations();
         let layout = self.create_layout(filename.to_string());
         {
             let mut layout_mut = layout.borrow_mut();
             layout_mut.default_text_color = layout_def.default_text_color;
             layout_mut.default_font = layout_def.default_font.clone();
-            self.bind_layout_callbacks(&mut layout_mut, &layout_def);
+            self.bind_layout_callbacks(&mut layout_mut, layout_def);
         }
         let mut info = WindowLayoutInfo {
             version: layout_def.version,
@@ -126,12 +200,15 @@ impl WindowManager {
             shutdown_callback_name: layout_def.shutdown_callback.clone(),
             windows: Vec::new(),
         };
-
         for window_def in &layout_def.windows {
-            self.create_window_from_definition(window_def, None, &layout, &layout_def, &mut info)?;
+            if let Err(error) =
+                self.create_window_from_definition(window_def, None, &layout, layout_def, &mut info)
+            {
+                self.rollback_failed_layout(layout, info, before);
+                return Err(error);
+            }
         }
-
-        Ok(info)
+        Ok((layout, info))
     }
 
     pub(crate) fn create_window_from_definition(
@@ -399,3 +476,7 @@ impl WindowManager {
         (x, y, width, height)
     }
 }
+
+#[cfg(test)]
+#[path = "layout_rollback_tests.rs"]
+mod layout_rollback_tests;

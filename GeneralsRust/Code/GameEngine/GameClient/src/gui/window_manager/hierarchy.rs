@@ -260,7 +260,19 @@ impl WindowManager {
         if moved && update_layout {
             let layout = window.borrow().get_layout();
             if let Some(layout) = layout {
-                layout.borrow_mut().bring_window_forward(window);
+                // C++ removeWindow + addWindow leaves an existing layout head
+                // in the same position with the same links. Keep the manager
+                // promotion above immediate, but do not take an unnecessary
+                // exclusive layout loan: run_init callbacks may hold its
+                // shared observation while activating that very first root.
+                let already_first = layout
+                    .borrow()
+                    .get_first_window()
+                    .as_ref()
+                    .is_some_and(|first| Rc::ptr_eq(first, window));
+                if !already_first {
+                    layout.borrow_mut().bring_window_forward(window);
+                }
             }
         }
     }
@@ -451,3 +463,7 @@ impl WindowManager {
         false
     }
 }
+
+#[cfg(test)]
+#[path = "layout_head_activation_tests.rs"]
+mod layout_head_activation_tests;

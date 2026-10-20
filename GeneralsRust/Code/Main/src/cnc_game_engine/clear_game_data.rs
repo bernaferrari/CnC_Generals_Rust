@@ -54,6 +54,7 @@ impl CnCGameEngine {
                 .unwrap_or_else(|error| error.into_inner())
                 .set_visibility(true);
         }
+        self.destroy_source_new_game_background();
         true
     }
 }

@@ -4,6 +4,10 @@ use super::super::*;
 #[cfg(test)]
 #[path = "ai_phase_tests.rs"]
 mod ai_phase_tests;
+#[path = "command_phase.rs"]
+mod command_phase;
+#[path = "post_command_update.rs"]
+mod post_command_update;
 #[cfg(all(test, feature = "game_client"))]
 #[path = "recorder_owner_tests.rs"]
 mod recorder_owner_tests;
@@ -32,7 +36,7 @@ impl Drop for HostLogicStep<'_> {
 
 /// Outcome of one `update_simulation` step (one C++ `GameLogic::update` pass,
 /// GameLogic.cpp:3548-3803).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug)]
 pub(in super::super) enum SimulationStepOutcome {
     /// Full update ran; the step loop owns the frame/sim-time advancement
     /// (C++ `m_frame++`, GameLogic.cpp:3795-3803).
@@ -42,6 +46,74 @@ pub(in super::super) enum SimulationStepOutcome {
     /// (GameLogic.cpp:3614-3616). The step loop consumes the timestep but
     /// advances nothing.
     Frozen,
+    CommandBoundary(CommandPhaseYield),
+}
+
+#[derive(Clone, Copy)]
+enum CommandPhaseMode {
+    Completed,
+    BorrowedEngine,
+}
+
+/// Source command operations are completed synchronously by their driving Engine.
+#[derive(Debug)]
+pub(crate) enum NativeCommandAction {
+    ClearGameData,
+    PrepareNewGame(game_engine::common::message_stream::GameMessage),
+}
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum NativeCommandCompletion {
+    Cleared { reset_performed: bool },
+    NewGamePrepared { prepared: bool },
+}
+#[derive(Clone, Copy, Debug)]
+enum CommandActionKind {
+    Clear,
+    NewGame,
+}
+
+/// Private, non-Clone source cursor; no world, UI, renderer or Recorder loan.
+#[derive(Debug)]
+pub(in super::super) struct CommandPhaseYield {
+    action: Option<NativeCommandAction>,
+    kind: CommandActionKind,
+    remaining: crate::command_system::AdmittedCommandBatch,
+    object_ids: Option<Vec<ObjectId>>,
+    source_now: u32,
+    dt: f32,
+}
+
+pub(crate) enum NativeTickProgress {
+    Complete(SimTimingSnapshot),
+    CommandBoundary(NativeTickContinuation),
+}
+
+#[derive(Default)]
+struct FixedStepCounts {
+    advanced: usize,
+    frozen: usize,
+}
+
+/// An in-flight fixed step; constructors and fields stay inside this kernel.
+/// The driving caller must consume the action before resuming this owner once.
+pub(crate) struct NativeTickContinuation {
+    receiving_services: std::sync::Weak<gamelogic::system::engine_stores::WorldServices>,
+    phase: CommandPhaseYield,
+    prior_steps: usize,
+    frozen_steps: usize,
+    max_fixed_steps: Option<usize>,
+    carry: f32,
+    absolute_time: Option<f32>,
+    reset_seen: bool,
+    new_game_pending: bool,
+}
+impl NativeTickContinuation {
+    pub(crate) fn take_action(&mut self) -> NativeCommandAction {
+        self.phase
+            .action
+            .take()
+            .expect("command action is consumed exactly once")
+    }
 }
 
 /// Residual-gate skip counters — test seam only.
@@ -230,15 +302,20 @@ impl GameLogic {
         let (delta_time, absolute_time) = timing
             .map(|timing| (timing.delta_seconds(), Some(timing.total_seconds())))
             .unwrap_or((dt, None));
-        self.step_simulation_with_callbacks(
+        let pending = self.step_simulation_with_callbacks(
             delta_time,
             absolute_time,
             budget.map(|budget| budget.max(1)),
+            None,
             |logic, fixed_dt| {
                 before_step(logic.frame);
                 logic.update_simulation_with_script_effects(fixed_dt, ui.reborrow())
             },
             after_step,
+        );
+        assert!(
+            pending.is_none(),
+            "completed adapter cannot swallow a native command boundary"
         );
         self.sim_timing_snapshot()
     }
@@ -294,12 +371,17 @@ impl GameLogic {
         absolute_time: Option<f32>,
         max_fixed_steps: Option<usize>,
     ) {
-        self.step_simulation_with_callbacks(
+        let pending = self.step_simulation_with_callbacks(
             delta_time,
             absolute_time,
             max_fixed_steps,
+            None,
             |logic, fixed_dt| logic.update_simulation(fixed_dt),
             |_| {},
+        );
+        assert!(
+            pending.is_none(),
+            "completed adapter cannot swallow a native command boundary"
         );
     }
 
@@ -308,19 +390,22 @@ impl GameLogic {
         delta_time: f32,
         absolute_time: Option<f32>,
         max_fixed_steps: Option<usize>,
+        resumed_counts: Option<FixedStepCounts>,
         mut run_step: impl FnMut(&mut Self, f32) -> SimulationStepOutcome,
         mut after_step: impl FnMut(&mut Self),
-    ) {
-        if self.is_paused {
-            return;
+    ) -> Option<NativeTickContinuation> {
+        // An already-started source step is completed even if one of its
+        // commands changed pause. Ordinary entry keeps its original guard.
+        if self.is_paused && resumed_counts.is_none() {
+            return None;
         }
-
+        let counts = resumed_counts.unwrap_or_default();
         self.accumulated_time += delta_time;
 
         const FIXED_TIMESTEP: f32 = LOGIC_FRAME_TIMESTEP;
 
-        let mut steps_run = 0usize;
-        let mut frozen_steps = 0usize;
+        let mut steps_run = counts.advanced;
+        let mut frozen_steps = counts.frozen;
         let mut budget_hit = false;
         // Live frame: C++ GameEngine::update calls TheGameLogic->UPDATE once
         // (GameEngine.cpp:751), then execute presents that frame. A stalled
@@ -338,6 +423,7 @@ impl GameLogic {
         // Safe local handle keeps the canonical field installed throughout
         // callbacks. Nested world steps restore the previous scoped handle.
         let logic_rng = self.logic_random.clone();
+        let mut suspended = None;
         game_engine::common::random_value::with_session_random(&logic_rng, || {
             while self.accumulated_time >= FIXED_TIMESTEP {
                 // Frozen steps still evaluate scripts, so they burn real work
@@ -371,6 +457,20 @@ impl GameLogic {
                         // published through any factory/audio/effect draws.
                         after_step(self);
                     }
+                    SimulationStepOutcome::CommandBoundary(phase) => {
+                        suspended = Some(NativeTickContinuation {
+                            receiving_services: std::sync::Arc::downgrade(&self.world_services),
+                            phase,
+                            prior_steps: steps_run,
+                            frozen_steps,
+                            max_fixed_steps,
+                            carry: self.accumulated_time,
+                            absolute_time,
+                            reset_seen: false,
+                            new_game_pending: false,
+                        });
+                        break;
+                    }
                     SimulationStepOutcome::Frozen => {
                         // C++ GameLogic.cpp:3614-3616 returned early, but the
                         // engine still ticked that frame: a frozen step burns
@@ -383,6 +483,9 @@ impl GameLogic {
             }
         });
 
+        if suspended.is_some() {
+            return suspended;
+        }
         if let Some(total_seconds) = absolute_time {
             // Presentation clock sync must not leak into a batch containing a
             // frozen step: a frozen frame advances no sim time (C++ has no
@@ -402,6 +505,7 @@ impl GameLogic {
 
         // C++ processDestroyList runs inside every GameLogic::update
         // (GameLogic.cpp:3762), not once after the fixed-step catch-up batch.
+        None
     }
 
     /// Execute one simulation step.
@@ -431,8 +535,7 @@ impl GameLogic {
     /// Line 3769: TheVictoryConditions->UPDATE()       [victory]
     /// Line 3783: disabled status check                [re-enable]
     /// Line 3795: if (!m_startNewGame) { m_frame++ }   [increment — the Rust
-    ///           tick has no in-update new-game restart guard yet; follow-up,
-    ///           no outcome variant invented for it]
+    ///           native command continuation preserves the prepared-start guard]
     /// ```
     pub(in super::super) fn update_simulation(&mut self, dt: f32) -> SimulationStepOutcome {
         self.update_simulation_with_script_effects(dt, Default::default())
@@ -442,6 +545,15 @@ impl GameLogic {
         &mut self,
         dt: f32,
         ui: crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> SimulationStepOutcome {
+        self.update_simulation_with_command_phase(dt, ui, CommandPhaseMode::Completed)
+    }
+
+    fn update_simulation_with_command_phase(
+        &mut self,
+        dt: f32,
+        ui: crate::game_logic::ScriptPresentationEffects<'_>,
+        command_phase: CommandPhaseMode,
     ) -> SimulationStepOutcome {
         assert!(
             !self.host_logic_step_active,
@@ -459,8 +571,10 @@ impl GameLogic {
             self.combat_particles.clear_frame_events();
             // The driving world already owns its live Object values.
             // A comparison session never supplies begin-step state.
-            self.with_host_logic_step(|logic| logic.update_simulation_in_step(dt, ui))
-                .expect("a fixed step enters its owner phase once")
+            self.with_host_logic_step(|logic| {
+                logic.update_simulation_in_step(dt, ui, command_phase)
+            })
+            .expect("a fixed step enters its owner phase once")
         })
     }
 
@@ -483,7 +597,9 @@ impl GameLogic {
         &mut self,
         dt: f32,
         mut ui: crate::game_logic::ScriptPresentationEffects<'_>,
+        command_phase: CommandPhaseMode,
     ) -> SimulationStepOutcome {
+        let source_now = self.frame;
         debug_assert!(
             std::sync::Arc::ptr_eq(
                 &gamelogic::system::engine_stores::active_services(),
@@ -561,1755 +677,34 @@ impl GameLogic {
         // C++: processCommandList( TheCommandList );
         // Process queued player commands BEFORE object updates so movement/attack
         // orders are in effect when objects run their updates.
-        self.process_commands_with_effects(&mut ui);
-
-        // -----------------------------------------------------------------------
-        // Phase 6: Object Updates -- Sleepy heap (C++ GameLogic.cpp:3699-3740)
-        // -----------------------------------------------------------------------
-        // C++ ticks UpdateModules via m_sleepyUpdates (wake_frame, phase).
-        // These remaining system obligations share the indexed heap mechanics.
-        // Keep the original entry installed through its callback, then finish
-        // it before inspecting the next due entry. Per-object module admission
-        // and projectile phase dispatch remain tracked in hq-om90a.
-        // C++ clamps registration wake frames to 1, but compares them with
-        // the actual current frame. Clamping the tick repeats frame 1.
-        let now = self.frame;
-        while let Some(token) = self.host_sleepy.next_due(now) {
-            match token.kind {
-                super::HostSleepyKind::Construction => {
-                    self.update_construction_with_effects(&object_ids, dt, &mut ui);
-                }
-                super::HostSleepyKind::SellList => {
-                    self.update_sell_list();
-                }
-                super::HostSleepyKind::DozerBoredRepair => {
-                    self.update_dozer_bored_repair();
-                }
-                super::HostSleepyKind::RebuildHoles => {
-                    self.update_rebuild_holes();
-                }
-                super::HostSleepyKind::Movement => {
-                    // C++ AIUpdate updates the active state before
-                    // AIUpdate::doLocomotor. Panic continuation must therefore
-                    // inspect the path completed by the preceding locomotor
-                    // pass, then install the next waypoint before this pass.
-                    self.tick_host_panic_states(&object_ids);
-                    self.tick_host_guard_states(&object_ids);
-                    self.update_movement(&object_ids, dt);
-                }
-                super::HostSleepyKind::SpecialPowers => {
-                    update_special_powers();
-                }
-            }
-            self.host_sleepy.finish(token, now, 1);
-        }
-
-        // Host superweapon residual: complete queued DaisyCutter / A10 / Scud /
-        // ParticleCannon / NuclearMissile / AnthraxBomb / SpectreGunship /
-        // CarpetBomb / ArtilleryBarrage / CruiseMissile strikes (area / line /
-        // multi-shell / loft-MOAB damage + nuke radiation / anthrax toxin /
-        // spectre orbit). Fail-closed vs full OCL aircraft / NeutronMissileUpdate
-        // / PoisonField stack / B52 DeliverPayload / door loft path.
-        // Wave 827: host-sole unless movement authority live: host system residuals sole-tick after GW writeback.
-        {
-            self.update_special_power_strikes();
-        }
-        // Gate: no radiation field spawned this frame -> the residual is a
-        // pure no-op (its own pending build early-returns empty). Skip the
-        // registry joins entirely.
-        if !self
-            .special_power_strikes
-            .radiation_spawned_this_frame()
-            .is_empty()
-        {
-            self.spawn_nuke_radiation_field_objects_for_new_fields();
-        } else {
-            #[cfg(test)]
-            residual_gate_seam::note(&residual_gate_seam::NUKE_RADIATION_FIELDS);
-        }
-        // Wave 802: host-sole unless movement authority live: field-object lifetime is owned by
-        // GW tick_status_timer_expirations + expire logs.
-        {
-            self.update_nuke_radiation_field_objects();
-        }
-        // Gate: mirror of the radiation gate above, for toxin fields.
-        if !self
-            .special_power_strikes
-            .toxin_spawned_this_frame()
-            .is_empty()
-        {
-            self.spawn_anthrax_toxin_field_objects_for_new_fields();
-        } else {
-            #[cfg(test)]
-            residual_gate_seam::note(&residual_gate_seam::ANTHRAX_TOXIN_FIELDS);
-        }
-        // Wave 802: host-sole unless movement authority live: field-object lifetime is owned by
-        // GW tick_status_timer_expirations + expire logs.
-        {
-            self.update_anthrax_toxin_field_objects();
-        }
-
-        // Host America Paradrop residual: spawn infantry after approach delay.
-        // Fail-closed vs full OCL cargo plane / parachute payload path.
-        // Wave 796: host-sole unless movement authority live: Paradrop cargo flight is owned by
-        // GW tick_status_timer_expirations + drop/ground logs.
-        {
-            self.update_paradrop_cargo_planes();
-        }
-        // Gate: zero paradrop missions -> clear_frame_events/plan_due_drops
-        // are provable no-ops (events are pushed only alongside a mission
-        // insert; the missions map is insert-only). Skip the pass.
-        if self.host_paradrops.mission_count() > 0 {
-            self.update_paradrops();
-        } else {
-            #[cfg(test)]
-            residual_gate_seam::note(&residual_gate_seam::PARADROPS);
-        }
-
-        // Host DeliverPayload cargo residual: DropDelay-staggered spawn of payload
-        // units at location (Supply Drop Zone crates). Fail-closed vs full aircraft.
-        // Gate: zero deliver-payload missions -> frame-event clears, the
-        // cargo-flight tick, and the spawn plan are provable no-ops (all
-        // side queues are populated only alongside a mission insert).
-        if self.host_deliver_payloads.mission_count() > 0 {
-            self.update_deliver_payloads();
-        } else {
-            #[cfg(test)]
-            residual_gate_seam::note(&residual_gate_seam::DELIVER_PAYLOADS);
-        }
-
-        // Host MoneyCrateCollide residual: unit + BuildingPickup cash collect.
-        // Wave 826: host-sole unless movement authority live: combat/field residuals sole-tick after GW writeback.
-        {
-            self.update_money_crate_collides();
-        }
-        // Wave 817: host-sole unless movement authority live: crate lifetime owned by GW expire + logs.
-        {
-            self.update_crate_deletion_updates();
-        }
-
-        // Host GLA Rebel Ambush residual: leftover OCLSpecialPower CreateObject
-        // (science UpgradeOCL) plus FadeIn/DiesOnBadLand after the fire-frame spawn.
-        // Gate: zero ambush missions -> fade-clear drain and spawn plan are
-        // provable no-ops (pending_fade_clears is pushed only after a live
-        // ambush spawn, which requires a mission).
-        if self.host_ambushes.mission_count() > 0 {
-            self.update_ambushes();
-        } else {
-            #[cfg(test)]
-            residual_gate_seam::note(&residual_gate_seam::AMBUSHES);
-        }
-
-        // Host USA Leaflet Drop residual: disable enemy infantry/vehicles after Delay.
-        // Fail-closed vs full OCL B52 / LeafletContainer / LeafletFX particle path.
-        // Wave 795: host-sole unless movement authority live: Leaflet B52 flight is owned by
-        // GW tick_status_timer_expirations + drop/ground logs.
-        {
-            self.update_leaflet_b52_flights();
-        }
-        // Gate: zero leaflet missions -> the per-plan world radius scan never
-        // runs (plan_due_impacts includes Completed missions for walk-in
-        // re-pulse, so mission_count — any phase — is the only safe test).
-        if self.host_leaflet_drops.mission_count() > 0 {
-            self.update_leaflet_drops();
-        } else {
-            #[cfg(test)]
-            residual_gate_seam::note(&residual_gate_seam::LEAFLET_DROPS);
-        }
-
-        // Host GLA Sneak Attack residual: spawn tunnel + shockwave after Lifetime delay.
-        // Fail-closed vs full OCL Start animation / TunnelContain path.
-        // Gate: zero sneak-attack missions -> shockwave drain and spawn plan
-        // are provable no-ops (pending_shockwaves is pushed only alongside a
-        // mission insert).
-        if self.host_sneak_attacks.mission_count() > 0 {
-            self.update_sneak_attacks();
-        } else {
-            #[cfg(test)]
-            residual_gate_seam::note(&residual_gate_seam::SNEAK_ATTACKS);
-        }
-
-        // Host mine / demo-trap residual: proximity trigger + timed detonation.
-        // Fail-closed vs full MinefieldBehavior / DemoTrapUpdate modules.
-        // Wave 826: host-sole unless movement authority live: combat/field residuals sole-tick after GW writeback.
-        {
-            self.update_mines_and_demo_traps();
-        }
-
-        // Host USA Ambulance AutoHeal residual: heal ally infantry in radius.
-        // Fail-closed vs full AutoHealBehavior particle / world-anim pulse FX.
-        self.update_ambulance_auto_heal(dt);
-        self.update_default_auto_heal();
-        // C++ TransportContain::update HealthRegen%PerSec on embarked riders.
-        self.update_transport_health_regen(dt);
-
-        // Host China Propaganda / Speaker Tower residual: heal + ENTHUSIASTIC buff.
-        // Fail-closed vs full PropagandaTowerBehavior sole-benefactor / PulseFX matrix.
-        self.update_propaganda_tower_pulse(dt);
-        self.update_overcharge_drain(dt);
-        // Wave 810: host-sole unless movement authority live: rods completion owned by GW expire + logs.
-        {
-            self.update_power_plant_rods();
-        }
-
-        // Host China vehicle HordeUpdate residual. Vehicles run every frame for
-        // decal size (UPDATE_SLEEP_NONE) but membership is gated on UpdateRate.
-        // Wave 812: host-sole unless movement authority live: horde status owned by GW expire + logs.
-        {
-            self.update_battlemaster_horde_status();
-        }
-
-        // Host China infantry HordeUpdate residual. Infantry UPDATE_SLEEP(UpdateRate).
-        // Wave 813: host-sole unless movement authority live: horde status owned by GW expire + logs.
-
-        {
-            self.update_china_infantry_horde_status();
-        }
-
-        // Host China ECM Tank / jammer residual: jam enemy weapons in radius.
-        // Fail-closed vs full subdual damage accumulate / laser stream / missile scatter.
-        self.update_ecm_jam_field();
-        self.update_ecm_missile_jam();
-
-        // Host America Microwave Tank residual: DISABLE_SUBDUED on cooked structures.
-        // Fail-closed vs full subdual accumulate/heal / laser stream / emitter field.
-        // Wave 825: host-sole unless movement authority live: zone/field damage sole-ticks after GW writeback.
-        {
-            self.update_microwave_disable();
-        }
-        // Wave 825: host-sole unless movement authority live: zone/field damage sole-ticks after GW writeback.
-        {
-            self.update_microwave_emitter_field();
-        }
-
-        // Host PointDefenseLaser residual: Paladin / Avenger / King Raptor intercept missiles.
-        // Fail-closed vs full PointDefenseLaserUpdate velocity prediction / laser FX.
-        // Wave 826: host-sole unless movement authority live: combat/field residuals sole-tick after GW writeback.
-        {
-            self.update_point_defense_intercept();
-        }
-        // Wave 806: host-sole unless movement authority live: lifetime owned by GW expire + logs.
-        {
-            self.update_point_defense_laser_beam_objects();
-        }
-        // Wave 806: host-sole unless movement authority live: lifetime owned by GW expire + logs.
-        {
-            self.update_weapon_laser_beam_objects();
-        }
-        // Wave 804: host-sole unless movement authority live: residual owned by GW expire + logs.
-        {
-            self.update_comanche_rocket_pod_projectiles();
-        }
-        self.update_stealth_jet_missile_projectiles();
-        // Wave 800: host-sole unless movement authority live: cannon shell flight is owned by
-        // GW tick_status_timer_expirations + impact logs.
-        {
-            self.update_scud_launcher_missile_projectiles();
-        }
-        self.update_tomahawk_missile_projectiles();
-        self.update_rocket_buggy_missile_projectiles();
-        // Wave 800: host-sole unless movement authority live: cannon shell flight is owned by
-        // GW tick_status_timer_expirations + impact logs.
-        {
-            self.update_neutron_cannon_shell_projectiles();
-        }
-        // Gate (latched counter): see the technical_rpg gate below.
-        if self.rpg_trooper_missiles_spawned > 0 {
-            self.update_rpg_trooper_missile_projectiles();
-        } else {
-            #[cfg(test)]
-            residual_gate_seam::note(&residual_gate_seam::RPG_TROOPER_MISSILES);
-        }
-        // Gate (latched counter): see the technical_rpg gate below.
-        if self.tank_hunter_missiles_spawned > 0 {
-            self.update_tank_hunter_missile_projectiles();
-        } else {
-            #[cfg(test)]
-            residual_gate_seam::note(&residual_gate_seam::TANK_HUNTER_MISSILES);
-        }
-        // Gate (latched counter): see the technical_rpg gate below.
-        if self.missile_defender_missiles_spawned > 0 {
-            self.update_missile_defender_missile_projectiles();
-        } else {
-            #[cfg(test)]
-            residual_gate_seam::note(&residual_gate_seam::MISSILE_DEFENDER_MISSILES);
-        }
-        // Gate (latched counter): see the technical_rpg gate below.
-        if self.scorpion_shells_spawned > 0 {
-            self.update_scorpion_shell_projectiles();
-        } else {
-            #[cfg(test)]
-            residual_gate_seam::note(&residual_gate_seam::SCORPION_SHELLS);
-        }
-        // Wave 805: host-sole unless movement authority live: residual owned by GW expire + logs.
-        {
-            self.update_scorpion_missile_projectiles();
-        }
-        // Wave 800: host-sole unless movement authority live: cannon shell flight is owned by
-        // GW tick_status_timer_expirations + impact logs.
-        {
-            self.update_nuke_cannon_shell_projectiles();
-        }
-        self.update_usa_tank_shell_projectiles();
-        // Gate (latched counter): see the technical_rpg gate below.
-        if self.battlemaster_shells_spawned > 0 {
-            self.update_battlemaster_shell_projectiles();
-        } else {
-            #[cfg(test)]
-            residual_gate_seam::note(&residual_gate_seam::BATTLEMASTER_SHELLS);
-        }
-        // Gate (latched counter): see the technical_rpg gate below.
-        if self.overlord_shells_spawned > 0 {
-            self.update_overlord_shell_projectiles();
-        } else {
-            #[cfg(test)]
-            residual_gate_seam::note(&residual_gate_seam::OVERLORD_SHELLS);
-        }
-        // Wave 803: host-sole unless movement authority live: residual owned by GW expire + logs.
-        {
-            self.update_inferno_shell_projectiles();
-        }
-        // Gate (latched counter): see the technical_rpg gate below.
-        if self.marauder_shells_spawned > 0 {
-            self.update_marauder_shell_projectiles();
-        } else {
-            #[cfg(test)]
-            residual_gate_seam::note(&residual_gate_seam::MARAUDER_SHELLS);
-        }
-        // Gate (latched counter): see the technical_rpg gate below.
-        if self.fire_base_shells_spawned > 0 {
-            self.update_fire_base_shell_projectiles();
-        } else {
-            #[cfg(test)]
-            residual_gate_seam::note(&residual_gate_seam::FIRE_BASE_SHELLS);
-        }
-        // Gate (latched counter): see the technical_rpg gate below.
-        if self.raptor_missiles_spawned > 0 {
-            self.update_raptor_missile_projectiles();
-        } else {
-            #[cfg(test)]
-            residual_gate_seam::note(&residual_gate_seam::RAPTOR_MISSILES);
-        }
-        // Gate (latched counter): see the technical_rpg gate below.
-        if self.mig_missiles_spawned > 0 {
-            self.update_mig_missile_projectiles();
-        } else {
-            #[cfg(test)]
-            residual_gate_seam::note(&residual_gate_seam::MIG_MISSILES);
-        }
-        // Wave 804: host-sole unless movement authority live: residual owned by GW expire + logs.
-        {
-            self.update_flashbang_grenade_projectiles();
-        }
-        // Gate (latched counter): see the technical_rpg gate below —
-        // counter==0 proves the flag never got set, scan matches nothing.
-        if self.humvee_tow_missiles_spawned > 0 {
-            self.update_humvee_tow_missile_projectiles();
-        } else {
-            #[cfg(test)]
-            residual_gate_seam::note(&residual_gate_seam::HUMVEE_TOW_MISSILES);
-        }
-        // Gate (latched counter): see the technical_rpg gate below.
-        if self.dragon_flame_missiles_spawned > 0 {
-            self.update_dragon_flame_projectiles();
-        } else {
-            #[cfg(test)]
-            residual_gate_seam::note(&residual_gate_seam::DRAGON_FLAME_MISSILES);
-        }
-        // Wave 798: host-sole unless movement authority live: ToxinStream projectile flight is owned by
-        // GW tick_status_timer_expirations + impact/stream logs.
-        {
-            self.update_toxin_stream_projectiles();
-        }
-        // Gate (latched counter): this projectile type exists only after its
-        // first spawn — the spawn fn sets the object flag and bumps the
-        // counter together, and the flag is never persisted, so counter==0
-        // proves the whole-world scan below matches nothing.
-        if self.technical_rpg_missiles_spawned > 0 {
-            self.update_technical_rpg_missile_projectiles();
-        } else {
-            #[cfg(test)]
-            residual_gate_seam::note(&residual_gate_seam::TECHNICAL_RPG_MISSILES);
-        }
-        // Gate (latched counter): see the technical_rpg gate above.
-        if self.technical_cannon_shells_spawned > 0 {
-            self.update_technical_cannon_shell_projectiles();
-        } else {
-            #[cfg(test)]
-            residual_gate_seam::note(&residual_gate_seam::TECHNICAL_CANNON_SHELLS);
-        }
-        // Gate: no queued cleanup order -> take_orders/restore_orders are
-        // provable no-ops and the per-order hazard scan never runs.
-        if !self.cleanup_areas.orders().is_empty() {
-            self.update_cleanup_area_orders();
-        } else {
-            #[cfg(test)]
-            residual_gate_seam::note(&residual_gate_seam::CLEANUP_AREA_ORDERS);
-        }
-        // Gate (latched counter): see the technical_rpg gate above.
-        if self.cleanup_stream_missiles_spawned > 0 {
-            self.update_cleanup_stream_projectiles();
-        } else {
-            #[cfg(test)]
-            residual_gate_seam::note(&residual_gate_seam::CLEANUP_STREAM_MISSILES);
-        }
-        self.update_missile_defender_laser_beam_objects();
-
-        // Host China EMP Pulse residual: DISABLED_EMP timers tick on objects in AI pass.
-        // Activation is event-driven via DoSpecialPower (no continuous field).
-
-        // Host China Frenzy ("Rage") residual: FRENZY weapon-bonus timers tick in AI pass.
-        // Activation is event-driven via DoSpecialPower (no continuous generator field).
-
-        // Host RadarScan residual: expire temporary FOW reveals (undo lookers).
-        // RadarVanPing DeletionUpdate residual + FOW undo.
-        // Wave 809: host-sole unless movement authority live: lifetime owned by GW expire + logs.
-        {
-            self.update_radar_van_pings();
-        }
-        self.update_radar_scans();
-
-        // Host SpySatellite residual: expire temporary FOW reveals (undo lookers).
-        // Fail-closed vs full OCL SpySatellitePing / DynamicShroudClearingRangeUpdate.
-        // Wave 803: host-sole unless movement authority live: residual owned by GW expire + logs.
-        {
-            self.update_spy_satellite_pings();
-        }
-        self.update_spy_satellites();
-        crate::command_executor::tick_live_beacon_client_updates(self);
-
-        // Host CIA Intelligence residual: expire vision-spied marks + FOW undos.
-        // Fail-closed vs full SpyVisionUpdate setUnitsVisionSpied module path.
-        self.update_satellite_hack_spy_vision();
-        self.update_cia_intelligence();
-
-        // Host China FireWall residual: tick fire damage along wall segments.
-        // FireWallSegment object DeletionUpdate residual + zone damage ticks.
-        // Wave 826: host-sole unless movement authority live: combat/field residuals sole-tick after GW writeback.
-        {
-            self.update_firewall_segment_objects();
-        }
-        // Wave 825: host-sole unless movement authority live: zone/field damage sole-ticks after GW writeback.
-        {
-            self.update_firewalls();
-        }
-
-        // Host China Inferno Cannon residual: tick FireFieldSmall DoT at impact zones.
-        // Fail-closed vs full InfernoTankShell projectile / OCL_FireFieldSmall spawn.
-        // Wave 825: host-sole unless movement authority live: zone/field damage sole-ticks after GW writeback.
-        {
-            self.update_inferno_fire_zones();
-        }
-        // Wave 802: host-sole unless movement authority live: field-object lifetime is owned by
-        // GW tick_status_timer_expirations + expire logs.
-        {
-            self.update_inferno_fire_field_objects();
-        }
-
-        // Host China Helix NapalmBomb residual: tick FirestormSmall DoT at drop zones.
-        // Fail-closed vs full SpecialObject NapalmBomb fall / expand animation.
-        // Gate: no active firestorm zone -> advance_geometry, the whole-world
-        // position snapshot, and plan_due_ticks are provable no-ops.
-        if !self.helix_napalm.active_zones().is_empty() {
-            self.update_helix_napalm_firestorms();
-        } else {
-            #[cfg(test)]
-            residual_gate_seam::note(&residual_gate_seam::HELIX_NAPALM_FIRESTORMS);
-        }
-        // Wave 804: host-sole unless movement authority live: residual owned by GW expire + logs.
-        {
-            self.update_helix_napalm_bomb_projectiles();
-        }
-
-        // Host GLA Bomb Truck BioBomb residual: tick MediumPoisonField DoT.
-        // Fail-closed vs full FireWeaponWhenDead exclusive effect matrix.
-        // Gate: no active poison zone -> the object-position snapshot and
-        // plan_due_ticks are provable no-ops (registry iterates only zones).
-        if !self.bomb_truck_detonate.active_poison_zones().is_empty() {
-            self.update_bomb_truck_poison_zones();
-        } else {
-            #[cfg(test)]
-            residual_gate_seam::note(&residual_gate_seam::BOMB_TRUCK_POISON_ZONES);
-        }
-        // Nuclear Tanks SmallRadiationField residual ticks.
-        // Wave 825: host-sole unless movement authority live: zone/field damage sole-ticks after GW writeback.
-        {
-            self.update_nuclear_tanks_radiation_zones();
-        }
-
-        // Host GLA SCUD toxin residual: tick MediumPoisonField DoT at impact zones.
-        // Fail-closed vs full OCL_PoisonFieldMedium object spawn / particle bones.
-        // Wave 825: host-sole unless movement authority live: zone/field damage sole-ticks after GW writeback.
-        {
-            self.update_scud_poison_zones();
-        }
-        self.update_tensile_formations();
-        // Wave 820: host-sole unless movement authority live: fire-spread owned by GW expire + logs.
-        {
-            self.update_fire_spread();
-        }
-        // Wave 780: BaseRegenerateUpdate is host-sole (C++ has one store; the
-        // GW dual-peel heal tick is retired with wave780). Host skips only
-        // while damage authority is live and the shadow session last-writes HP.
-        {
-            self.update_base_regenerate();
-        }
-        self.update_supply_warehouse_crippling();
-
-        // Wave 781: host-sole unless movement authority live: EnemyNearUpdate is owned by
-        // GW tick_status_timer_expirations + writeback.
-        {
-            self.update_enemy_near();
-        }
-        // Wave 784: host-sole unless movement authority live: AnimationSteeringUpdate is owned by
-        // GW tick_status_timer_expirations + writeback.
-        {
-            self.update_animation_steering();
-        }
-        // Wave 783: host-sole unless movement authority live: FloatUpdate is owned by
-        // GW tick_status_timer_expirations + transform writeback.
-        {
-            self.update_float_update();
-        }
-        // Wave 782: host-sole unless movement authority live: ProneUpdate is owned by
-        // GW tick_status_timer_expirations + writeback.
-        {
-            self.update_prone_update();
-        }
-        // Wave 785: host-sole unless movement authority live: RadiusDecalUpdate is owned by
-        // GW tick_status_timer_expirations + writeback.
-        {
-            self.update_radius_decal_update();
-        }
-        // Wave 786: host-sole unless movement authority live: CheckpointUpdate is owned by
-        // GW tick_status_timer_expirations + writeback.
-        {
-            self.update_checkpoint_update();
-        }
-        // Wave 787: host-sole unless movement authority live: SmartBombTargetHomingUpdate is owned by
-        // GW tick_status_timer_expirations + transform writeback.
-        {
-            self.update_smart_bomb_target_homing();
-        }
-        self.update_spectre_gunship_flights();
-        self.update_fuel_air_gas_slow_death();
-        self.update_neutron_missile_flights();
-        self.update_scud_storm_missile_flights();
-        // Wave 794: host-sole unless movement authority live: CarpetBomb flight is owned by
-        // GW tick_status_timer_expirations + drop/detonate logs.
-        {
-            self.update_carpet_bomb_flights();
-        }
-        // Wave 793: host-sole unless movement authority live: ArtilleryBarrage flight is owned by
-        // GW tick_status_timer_expirations + drop/detonate logs.
-        {
-            self.update_artillery_barrage_flights();
-        }
-        // Wave 792: host-sole unless movement authority live: A10 strike flight is owned by
-        // GW tick_status_timer_expirations + drop/detonate logs.
-        {
-            self.update_a10_strike_flights();
-        }
-        // Wave 788: host-sole unless movement authority live: DaisyCutter/MOAB flight is owned by
-        // GW tick_status_timer_expirations + drop/detonate logs.
-        {
-            self.update_daisy_cutter_flights();
-        }
-        // Wave 789: host-sole unless movement authority live: AnthraxBomb flight is owned by
-        // GW tick_status_timer_expirations + drop/detonate logs.
-        {
-            self.update_anthrax_bomb_flights();
-        }
-        // Wave 790: host-sole unless movement authority live: ClusterMines flight is owned by
-        // GW tick_status_timer_expirations + drop/detonate logs.
-        {
-            self.update_cluster_mines_flights();
-        }
-        // Wave 791: host-sole unless movement authority live: EMP Pulse flight + spheroid is owned by
-        // GW tick_status_timer_expirations + drop/detonate/expire logs.
-        {
-            self.update_emp_pulse_spheroids();
-            self.update_emp_pulse_flights();
-        }
-        // Gate: no frenzy marker spawns or due deletes -> the take-drain is a
-        // state-identical no-op (both-empty mem::takes leave both empty).
-        if !(self.frenzies.pending_marker_deletes.is_empty()
-            && self.frenzies.markers_this_frame.is_empty())
-        {
-            self.update_frenzy_invisible_markers();
-        } else {
-            #[cfg(test)]
-            residual_gate_seam::note(&residual_gate_seam::FRENZY_MARKERS);
-        }
-        self.update_gps_scrambler_grow();
-        // Gate: no growing spy-drone activation -> the fn early-returns
-        // before any world work; skip the activation scan entirely.
-        if self.spy_drones.activations_mut().iter().any(|a| a.growing) {
-            self.update_spy_drone_grow();
-        } else {
-            #[cfg(test)]
-            residual_gate_seam::note(&residual_gate_seam::SPY_DRONE_GROW);
-        }
-        // Gate: zero active nuke-cannon radiation zones -> the unconditional
-        // whole-world object-position snapshot, plan_due_ticks, and
-        // prune_expired are provable no-ops on the empty registry.
-        if self.nuke_cannon_residual.active_count() > 0 {
-            self.update_nuke_cannon_radiation_zones();
-        } else {
-            #[cfg(test)]
-            residual_gate_seam::note(&residual_gate_seam::NUKE_CANNON_ZONES);
-        }
-        self.tick_fire_ocl_after_weapon_cooldown();
-        // Wave 825: host-sole unless movement authority live: zone/field damage sole-ticks after GW writeback.
-        {
-            self.update_toxin_tractor_poison_zones();
-        }
-
-        // Host America Aurora dive bomb residual: delayed area damage at target.
-        // AuroraBombLocomotor flight residual + FuelAir gas OCL path.
-        // Wave 826: host-sole unless movement authority live: combat/field residuals sole-tick after GW writeback.
-        {
-            self.update_aurora_bombs();
-        }
-        // Wave 797: host-sole unless movement authority live: AuroraBomb projectile dive is owned by
-        // GW tick_status_timer_expirations + destroy logs.
-        {
-            self.update_aurora_bomb_projectiles();
-        }
-
-        // Host GLA Angry Mob residual: aggregate fire on nearby enemies + expand.
-        // Fail-closed vs full SpawnBehavior member objects / MobMemberSlavedUpdate.
-        self.update_angry_mobs();
-        // Wave 799: host-sole unless movement authority live: AngryMob projectile flight is owned by
-        // GW tick_status_timer_expirations + impact logs.
-        {
-            self.update_angry_mob_projectiles();
-        }
-
-        // Host RailroadBehavior residual: locomotives follow track waypoints,
-        // wait at stations, hitch carriages. Crate RailroadGuideAIUpdate is
-        // gated empty (OBJECT_REGISTRY) so this is the live path.
-        // C++ RailroadBehavior::update (RailroadGuideAIUpdate.cpp:652-832).
-        self.update_railroads();
-        // C++ RailedTransportAIUpdate::update — park at nearest End, open dock
-        // when the current End is reached. Crate leftover is dual-world gated.
-        self.update_railed_transports();
-
-        // Host stealth residual: detector scans + DETECTED expiry.
-        // Fail-closed vs full StealthUpdate/StealthDetectorUpdate modules
-        // (no IR FX, kindof filters, or disguise).
-        self.update_stealth_and_detection();
-
-        // Stinger HiveStructureBody SpawnReplaceDelay residual slave respawns.
-        // Wave 814: host-sole unless movement authority live: hive respawn owned by GW expire + logs.
-        {
-            self.update_stinger_hive_respawns();
-        }
-
-        // -----------------------------------------------------------------------
-        // Phase 7: Combat Resolution (within object updates)
-        // -----------------------------------------------------------------------
-        // Weapon fire and damage application as part of the object update pass.
-        self.update_combat(&object_ids, dt);
-        self.mirror_overlord_addon_damage_after_combat();
-        self.flush_pending_garrison_really_damaged_ejects();
-        self.flush_subdual_passenger_orders();
-        // Nested AttackStateMachine residual (privateAttackObject enter path).
-        let frame = self.frame;
-        let t = frame as f32 * LOGIC_FRAME_TIMESTEP;
-        self.tick_nested_attack_machines(&object_ids, t, frame);
-        self.tick_all_turret_state_machines(&object_ids, t, frame);
-        self.sync_attack_priority_from_script_engine();
-        self.tick_mood_auto_acquire(&object_ids);
-        self.tick_attack_team_persist(&object_ids);
-        self.tick_attack_area_persist(&object_ids);
-        self.tick_out_of_ammo_jet_damage();
-        self.tick_airfield_parking_heal();
-        self.tick_airfield_runway_clear();
-        self.tick_shock_stun_all();
-        // C++ PartitionManager collide residual (broadphase fail-closed O(n²)).
-        self.tick_physics_collisions_all();
-
-        // Admit accepted shots from this session's CombatSystem before flight.
-        // The same owner applies ordered impact damage and body callbacks.
-        crate::game_logic::host_historic_bonus::set_logic_frame(self.frame);
-        {
-            let objects = &self.objects;
-            crate::game_logic::combat::drain_pending_projectiles(
-                &mut self.combat_system,
-                objects,
-                self.frame,
-            );
-        }
-        self.apply_owned_projectileless_delayed_damage();
-
-        // C++ Weapon::fireWeaponTemplate runs FireOCL at shot acceptance,
-        // independently of whether the projectile later finds a target.
-        self.execute_pending_weapon_fire_ocls();
-        // Apply countermeasure diversion within the receiving projectile
-        // operation, before committing damage; never repair health afterward.
-        let projectile_hits = self.update_owned_projectile_impacts(dt);
-        for victim in self.combat_system.take_pending_under_attack() {
-            let _ = self.try_under_attack_from_damage(victim);
-        }
-        for victim in self.combat_system.take_pending_on_die() {
-            let killer = self.objects.get(&victim).and_then(|o| {
-                o.last_damage_source
-                    .and_then(|src| self.objects.get(&src).map(|s| s.team))
-            });
-            self.mark_object_for_destruction(victim, killer);
-        }
-        // Wave 470: countermeasure flare spawn/object residual stays host-owned
-        // even when GameWorld sole-integrates projectile flight.
-        self.flush_countermeasure_flare_spawns();
-        // Wave 806: host-sole unless movement authority live: lifetime owned by GW expire + logs.
-        {
-            self.update_countermeasure_flare_objects();
-        }
-        self.drain_historic_bonus_firestorms();
-
-        if !projectile_hits.is_empty() {
-            // Presentation/audio residual: WeaponFire already queued on shot;
-            // hit SFX is fail-closed via presentation audio events when present.
-            let _ = projectile_hits;
-        }
-        // C++ Weapon.ini ProjectileDetonationFX/OCL residual at real impact
-        // (not fire-time), for either host or GameWorld flight ownership.
-        self.flush_projectile_impact_fx();
-        // C++ Weapon.ini ProjectileExhaust: MissileAI attaches at IGNITION
-        // (`createAttachedParticleSystemID`). Publish leftover host poses so
-        // attached systems follow; world-space sync is the fallback when
-        // leftover attach is unavailable.
-        {
-            let frame = self.frame;
-            let snaps = self.combat_system.projectiles_snapshot();
-            for p in &snaps {
-                p.publish_attached_exhaust_pose();
-            }
-            let mut exhausts: Vec<_> = snaps
-                .into_iter()
-                .map(|p| {
-                    (
-                        p.id,
-                        p.shooter_id,
-                        p.position,
-                        p.live_exhaust_name().to_string(),
-                    )
-                })
-                .collect();
-            // HashMap-backed projectile storage has no stable iteration order;
-            // stable creation order keeps host particle identities deterministic.
-            exhausts.sort_by_key(|(projectile_id, _, _, _)| *projectile_id);
-            self.combat_particles
-                .sync_projectile_exhausts(frame, &exhausts);
-            self.sync_live_state_particles();
-            // C++ ProjectileStreamUpdate residual: track projectile positions for stream draw.
-            // Re-adding every live shot each frame must not flip-flop targets (that
-            // would punch a hole every particle). Lock the stream to the newest
-            // projectile's victim so a retarget inserts one INVALID hole.
-            let mut stream_feeds: Vec<(
-                crate::game_logic::ObjectId,
-                crate::game_logic::ObjectId,
-                String,
-                glam::Vec3,
-                Option<crate::game_logic::ObjectId>,
-                glam::Vec3,
-            )> = self
-                .combat_system
-                .projectiles_snapshot()
-                .into_iter()
-                .filter_map(|p| {
-                    let shooter = self.objects.get(&p.shooter_id);
-                    let firing_name = if !p.historic_weapon_key.is_empty() {
-                        Some(p.historic_weapon_key.as_str())
-                    } else {
-                        shooter.and_then(|o| o.authored_weapon_name_for_slot(o.last_fire_slot))
+        match command_phase {
+            CommandPhaseMode::Completed => self.process_commands_with_effects(&mut ui),
+            CommandPhaseMode::BorrowedEngine => {
+                if let Some(batch) = self.admit_native_command_batch() {
+                    return match self.dispatch_native_command_batch(
+                        batch,
+                        &mut ui,
+                        dt,
+                        source_now,
+                        Some(object_ids),
+                    ) {
+                        Err(phase) => SimulationStepOutcome::CommandBoundary(phase),
+                        Ok(ids) => self.update_simulation_after_commands(
+                            dt,
+                            ui,
+                            ids.expect("ordinary command phase retains its snapshot"),
+                            source_now,
+                            false,
+                        ),
                     };
-                    // C++ Weapon::newProjectileFired never searches another
-                    // WeaponSet slot. Accepted shots retain their own name even
-                    // after the shooter's current selection changes or it dies.
-                    let sname = match &p.stream_binding {
-                        Some(binding) => binding.name.clone(),
-                        None => firing_name
-                            .map(crate::game_logic::weapon_bootstrap::host_projectile_stream_name_for_weapon_name)
-                            .unwrap_or_default(),
-                    };
-                    if sname.is_empty() {
-                        return None;
-                    }
-                    Some((
-                        p.shooter_id,
-                        p.id,
-                        sname,
-                        p.position,
-                        p.target_id,
-                        p.target_position,
-                    ))
-                })
-                .collect();
-            stream_feeds.sort_by_key(|(shooter, pid, _, _, _, _)| (*shooter, *pid));
-            let mut idx = 0;
-            while idx < stream_feeds.len() {
-                let shooter_id = stream_feeds[idx].0;
-                let end = stream_feeds[idx..]
-                    .iter()
-                    .position(|(sid, _, _, _, _, _)| *sid != shooter_id)
-                    .map(|rel| idx + rel)
-                    .unwrap_or(stream_feeds.len());
-                let newest_target = stream_feeds[end - 1].4;
-                let newest_pos = stream_feeds[end - 1].5;
-                let sname = stream_feeds[idx].2.clone();
-                for feed in &stream_feeds[idx..end] {
-                    self.projectile_streams.add_projectile(
-                        shooter_id,
-                        &sname,
-                        feed.3,
-                        newest_target,
-                        Some(newest_pos),
-                        frame,
-                    );
                 }
-                if let Some(owner) = self.objects.get(&shooter_id) {
-                    if owner.is_kind_of(crate::game_logic::KindOf::Vehicle) {
-                        let geom = &owner.thing().template.geometry_info;
-                        self.projectile_streams.apply_vehicle_roof_skim(
-                            shooter_id,
-                            owner.get_position(),
-                            geom.major_radius,
-                            geom.max_height_above_position(),
-                        );
-                    }
-                }
-                idx = end;
-            }
-            self.projectile_streams.cull_idle(frame, 45);
-        }
-
-        // -----------------------------------------------------------------------
-        // Phase 7b: Building Body Damage State Checks (C++ BodyModule update)
-        // -----------------------------------------------------------------------
-        // C++ parity (GarrisonContain::onBodyDamageStateChange): when a garrisoned
-        // building drops to ReallyDamaged health (<= 30%), all occupants are
-        // force-ejected. This runs after combat so the health state is current.
-        self.check_building_damage_states(&object_ids);
-
-        // Object AI is part of the object/module pass, before the system AI
-        // queue drain (C++ GameLogic.cpp:3699-3743). The existing owned host
-        // executes these module families directly.
-        self.update_ai(&object_ids, dt);
-
-        // Phase 8: C++ AI::update — pathfinding, then this match's players.
-        self.update_match_ai_with_effects(&mut ui);
-
-        // Phase 8b: Apply commands queued by AI this frame (C++ CommandList drain
-        // after TheAI->UPDATE). Ensures same-frame set_target/move logs reach
-        // shadow/presentation without a second engine-side process_commands.
-        self.process_commands_with_effects(&mut ui);
-
-        // -----------------------------------------------------------------------
-        // Phase 9: Production / Build Assistant (C++ line 3748)
-        // -----------------------------------------------------------------------
-        // C++: TheBuildAssistant->UPDATE();
-        // Production queues update after AI so build orders issued by AI this
-        // frame can be immediately reflected.
-        // Drain prior-frame upgrade presentation events before research advances.
-        self.host_upgrades.clear_frame_events();
-        self.update_production_with_effects(dt, &mut ui);
-        // Wave 827: host-sole unless movement authority live: host system residuals sole-tick after GW writeback.
-        {
-            self.update_player_upgrades();
-        }
-        // Skip crate BuildAssistant::update on the live tick. Its update() only
-        // walks an in-memory mock sell-list and never resolves host objects
-        // (Common/build_assistant.rs: "Mock object lookup - in real
-        // implementation this would find the object"). Host sell/production
-        // is update_production above. Keep the BuildAssistant type for C++
-        // parity / tests — do not delete it.
-
-        // -----------------------------------------------------------------------
-        // Phase 10: Player Resources
-        // -----------------------------------------------------------------------
-        self.update_player_resources(dt);
-        // GLA Black Market residual cash (AutoDepositUpdate discrete deposits + floating text).
-        // Fail-closed: not full InGameUI GPU / InitialCaptureBonus (retail 0).
-        // Wave 821: host-sole unless movement authority live: AutoDeposit owned by GW expire + logs.
-        {
-            self.update_black_market_deposits();
-        }
-        // Tech Oil Derrick residual cash (AutoDeposit + SupplyLines boost + floating text).
-        // Fail-closed: not full InGameUI GPU / STEALTHED local display gate.
-        // Wave 821: host-sole unless movement authority live: AutoDeposit owned by GW expire + logs.
-        {
-            self.update_oil_derrick_deposits();
-        }
-        // China Hacker / Internet Center residual cash (HackInternetAIUpdate).
-        // Fail-closed: not full unpack/pack state machine / variation factor.
-        // Wave 822: host-sole unless movement authority live: Hacker income owned by GW expire + logs.
-        {
-            self.update_hacker_income();
-        }
-        // America Supply Drop Zone residual: OCL schedules cargo DeliverPayload
-        // residual; cash credits after approach delay + crate spawn.
-        // Fail-closed: not full CreateAtEdge cargo plane / parachute fall path.
-        // Wave 826: host-sole unless movement authority live: combat/field residuals sole-tick after GW writeback.
-        {
-            self.update_supply_drop_zone_drops();
-        }
-        // USA Battle Drone residual master repair: 12-unit weld SM, not instant 48-range.
-        // Fail-closed: not full arm pack/unpack weld FX / RepairMinAltitude matrix.
-        // CommandCenter / RadarVan radar-online residual (Player::hasRadar).
-        // Fail-closed: not full RadarUpgrade grant / power-brownout disable-proof path.
-        // Radar belongs to each controlling Player. Recompute at the ordinary
-        // host phase; a presentation/comparison shadow cannot grant radar.
-        self.update_player_radar();
-        self.drain_masked_object_selection();
-        self.update_power_disabled_state();
-
-        // -----------------------------------------------------------------------
-        // Phase 11: Damage/Physics Resolution
-        // -----------------------------------------------------------------------
-        // Deferred damage and collision resolution after all objects have moved.
-        // (Covered above in update_combat; kept as a documentation marker.)
-
-        // -----------------------------------------------------------------------
-        // Phase 12: Partition Manager Update (C++ line 3753)
-        // -----------------------------------------------------------------------
-        // C++: ThePartitionManager->UPDATE();
-        // Spatial partition updated AFTER all objects moved and BEFORE death
-        // cleanup so spatial queries during cleanup use correct positions.
-        // Note: The gamelogic crate's full update_pipeline also runs its own
-        // partition manager update (tick_gamelogic_crate in cnc_game_engine.rs).
-
-        // -----------------------------------------------------------------------
-        // Phase 13: Death/Cleanup (C++ line 3762)
-        // -----------------------------------------------------------------------
-        // C++: processDestroyList();
-        // Same-frame cascades: iterator re-evaluates end() so objects queued
-        // during deletion are processed this logic frame (GameLogic.cpp:2449-2510).
-        self.fire_temporary_weapons_for_pending_deaths();
-        self.process_destroy_list();
-        // C++ BridgeBehavior/Tower onDamage/onHealing/onDie + scaffold rise tick.
-        // Residual drain is same-frame after object combat/AI/repair and destroy.
-        self.sync_host_bridge_rubble_and_scaffolds();
-
-        // -----------------------------------------------------------------------
-        // Phase 14: Weapon Store Update (C++ line 3767)
-        // -----------------------------------------------------------------------
-        // C++: TheWeaponStore->UPDATE();
-        // Process delayed weapon damage that is now ready.
-        self.apply_owned_projectileless_delayed_damage();
-        match with_weapon_store_mut(|store| store.take_due_delayed_damage()) {
-            Ok(due) => {
-                for info in due {
-                    if let Err(e) = gamelogic::weapon::WeaponStore::apply_delayed_damage(info) {
-                        log::warn!("Delayed weapon damage failed: {}", e);
-                    }
-                }
-            }
-            Err(e) => {
-                let err_str = e.to_string();
-                if !err_str.contains("not initialized") {
-                    log::warn!("Weapon store update failed: {}", e);
-                }
+                self.process_queued_commands_without_recorder(&mut ui);
             }
         }
-
-        // -----------------------------------------------------------------------
-        // Phase 14b: Locomotor Store Update (C++ line 3768)
-        // -----------------------------------------------------------------------
-        // C++: TheLocomotorStore->UPDATE();
-        // The Rust locomotor store is a template registry without per-frame
-        // update logic yet, but we keep the call site for C++ parity.
-        // (Will become a real call once the locomotor store gains an update method.)
-
-        // -----------------------------------------------------------------------
-        // Phase 15: Victory Conditions (C++ line 3769)
-        // -----------------------------------------------------------------------
-        // C++: TheVictoryConditions->UPDATE();
-        // This logic phase owns evaluation; presentation and probes only observe.
-        let _ = self.evaluate_victory_condition();
-
-        // -----------------------------------------------------------------------
-        // Phase 16: Disabled Status Check (C++ lines 3783-3792)
-        // -----------------------------------------------------------------------
-        // C++: for( Object *obj = m_objList; obj; obj = obj->getNextObject() )
-        // C++:   if( obj->isDisabled() ) obj->checkDisabledStatus();
-        self.expire_owned_disabled_statuses();
-        self.check_bridge_disabled_statuses();
-
-        // -----------------------------------------------------------------------
-        // Phase 17: Vision/Shroud Update
-        // -----------------------------------------------------------------------
-        // The gamelogic crate's ShroudManager only sees objects registered in the
-        // gamelogic OBJECT_REGISTRY.  Main-crate objects live in a separate
-        // HashMap, so we feed their vision ranges directly into the shroud grid
-        // here so fog-of-war actually works for the playable game.
-        // C++ parity: TheVision (shroud reveal) runs every logic frame on the
-        // DEFAULT retail path — vision is never gated off.  The GameWorld shadow
-        // has no shroud/looker channel of its own (crush-vision is a value-only
-        // writeback of vision_range / shroud_clearing_range / crushed flags, it
-        // never stamps ShroudManager or partition lookers), so skipping this
-        // pass under coupled dual-tick left the shroud grid and
-        // player_visible_objects unfed on the live path.  Stamping is
-        // idempotent per looker (unchanged position/range/mask short-circuits
-        // in restamp_host_partition_look), so the Wave 827 post-writeback
-        // sole-tick re-run (tick_host_systems_residuals_sole) cannot
-        // double-reveal, and a crush-vision writeback only shifts the value the
-        // next frame's look pass reads (one-frame latency, no ordering hazard).
-        // Wave 827: host-sole unless movement authority live: host system residuals sole-tick after GW writeback.
-        self.update_main_crate_vision();
-        // Presentation FOW consumers fail open only until this first completed
-        // vision pass of the session (boot window); afterwards they derive from
-        // real membership (fow_rendering::shroud_runtime_active).
-
-        // C++ Radar.cpp overlay queries live Object pose/stealth each update.
-        self.host_radar_sync_live_objects();
-
-        // -----------------------------------------------------------------------
-        // Phase 18: Team Events Flush
-        // -----------------------------------------------------------------------
-        // Handled by the gamelogic crate's update_pipeline.
-
-        // -----------------------------------------------------------------------
-        // Post-phase: EVA voice announcements
-        // -----------------------------------------------------------------------
-
-        // -----------------------------------------------------------------------
-        // Post-phase: Audio events
-        // -----------------------------------------------------------------------
-        self.process_audio_events();
-
-        // C++ DozerAIUpdate.cpp:318-348 — PICK_ACTION_POS re-issues the dozer
-        // approach until arrival; run after the follower phase so a re-issued
-        // path installs on the next frame's movement tick.
-        self.reissue_dozer_approaches();
-
-        // C++ GameLogic.cpp:3795-3803: the full update completed, so the step
-        // loop owns the m_frame++ / sim-time advancement.
-        SimulationStepOutcome::Advanced
+        self.update_simulation_after_commands(dt, ui, object_ids, source_now, false)
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use game_engine::common::message_stream::GameMessageType;
-    static RANDOM_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-    /// C++ GameLogic.cpp:3600 + 3614-3616 — scripts run BEFORE the freeze
-    /// return, but terrain/commands/modules never do: frame and sim time stay
-    /// put while the accumulated timestep is still consumed (the host ticked
-    /// a frozen frame).
-    #[test]
-    fn frozen_step_burns_time_advances_nothing_and_still_runs_scripts() {
-        let mut logic = GameLogic::new();
-        logic.scripts_loaded = true;
-        logic.set_script_time_frozen_for_test(true);
-        logic.mission_scripts.push_radar_forced(true);
-
-        logic.step_simulation_with_budget(LOGIC_FRAME_TIMESTEP, None, None);
-
-        assert_eq!(logic.frame, 0, "frozen step must not advance the frame");
-        assert_eq!(
-            logic.sim_time_seconds, 0.0,
-            "frozen step must not advance sim time"
-        );
-        assert_eq!(
-            logic.accumulated_time, 0.0,
-            "frozen step must still consume the accumulated timestep"
-        );
-        let diag = logic.fixed_step_diagnostics();
-        assert_eq!(diag.steps_run, 0);
-        assert_eq!(diag.frozen_steps, 1, "frozen step must be counted");
-        assert!(!diag.budget_hit);
-        // Scripts evaluated before the freeze return (C++ line 3600): the
-        // queued radar-forced action is applied even on the frozen frame.
-        let ui = logic.update_ui_state(0);
-        assert!(
-            ui.radar_forced,
-            "scripts must still evaluate on a frozen frame (GameLogic.cpp:3600)"
-        );
-    }
-
-    fn host_ai_last_update_time(logic: &GameLogic) -> f32 {
-        logic
-            .ai_manager
-            .ai_players
-            .get(&1)
-            .expect("host AI player")
-            .last_update_time
-    }
-
-    fn add_test_host_ai(logic: &mut GameLogic) {
-        logic.add_player(crate::game_logic::Player::new(
-            1,
-            crate::game_logic::Team::USA,
-            "Test AI",
-            false,
-        ));
-        logic.add_ai_opponent(
-            1,
-            crate::game_logic::Team::USA,
-            crate::ai::AIDifficulty::Easy,
-        );
-    }
-
-    #[test]
-    fn host_ai_runs_once_for_each_advanced_fixed_logic_frame() {
-        let mut logic = GameLogic::new();
-        add_test_host_ai(&mut logic);
-
-        for expected_frame in 1..=12 {
-            // C++ calls TheAI->UPDATE before advancing the frame's simulation
-            // clock, so AI observes the time at the beginning of each tick.
-            let tick_time = logic.sim_time_seconds;
-            logic.step_simulation_with_budget(LOGIC_FRAME_TIMESTEP, None, None);
-            assert_eq!(logic.frame, expected_frame);
-            assert_eq!(
-                host_ai_last_update_time(&logic).to_bits(),
-                tick_time.to_bits(),
-                "C++ GameLogic::update calls TheAI->UPDATE once on frame {expected_frame}"
-            );
-        }
-    }
-
-    #[test]
-    fn host_ai_does_not_run_on_frozen_steps_and_resumes_after_unfreeze() {
-        let mut logic = GameLogic::new();
-        add_test_host_ai(&mut logic);
-        let initial_ai_time = host_ai_last_update_time(&logic);
-        logic.set_script_time_frozen_for_test(true);
-        logic.step_simulation_with_budget(LOGIC_FRAME_TIMESTEP, None, None);
-        assert_eq!(logic.frame, 0);
-        assert_eq!(host_ai_last_update_time(&logic), initial_ai_time);
-
-        logic.set_script_time_frozen_for_test(false);
-        let resumed_tick_time = logic.sim_time_seconds;
-        logic.step_simulation_with_budget(LOGIC_FRAME_TIMESTEP, None, None);
-        assert_eq!(logic.frame, 1);
-        assert_eq!(
-            host_ai_last_update_time(&logic).to_bits(),
-            resumed_tick_time.to_bits()
-        );
-    }
-
-    #[test]
-    fn host_ai_catch_up_updates_every_internal_fixed_step() {
-        let mut logic = GameLogic::new();
-        add_test_host_ai(&mut logic);
-        let first_tick_time = logic.sim_time_seconds;
-        logic.step_simulation_with_budget(4.0 * LOGIC_FRAME_TIMESTEP, None, Some(4));
-
-        assert_eq!(logic.frame, 4);
-        let final_ai_tick_time = first_tick_time + 3.0 * LOGIC_FRAME_TIMESTEP;
-        assert_eq!(
-            host_ai_last_update_time(&logic).to_bits(),
-            final_ai_tick_time.to_bits(),
-            "catch-up must call AI for its final advanced logic frame"
-        );
-        assert_eq!(logic.fixed_step_diagnostics().steps_run, 4);
-    }
-
-    /// C++ skips m_frame++ on frozen frames (early return at 3614-3616) and
-    /// resumes the sequence once freezeTime drops — no skipped or repeated
-    /// frame numbers.
-    #[test]
-    fn unfreeze_resumes_on_next_frame_without_skips() {
-        let mut logic = GameLogic::new();
-        logic.set_script_time_frozen_for_test(true);
-        logic.step_simulation_with_budget(LOGIC_FRAME_TIMESTEP, None, None);
-        logic.step_simulation_with_budget(LOGIC_FRAME_TIMESTEP, None, None);
-        assert_eq!(logic.frame, 0, "frozen frames must not advance the frame");
-
-        logic.set_script_time_frozen_for_test(false);
-        logic.step_simulation_with_budget(LOGIC_FRAME_TIMESTEP, None, None);
-        assert_eq!(logic.frame, 1, "unfreeze resumes on the very next frame");
-        logic.step_simulation_with_budget(LOGIC_FRAME_TIMESTEP, None, None);
-        assert_eq!(logic.frame, 2, "no repeated frames after unfreeze");
-        assert!((logic.sim_time_seconds - 2.0 * LOGIC_FRAME_TIMESTEP).abs() < 1e-6);
-    }
-
-    /// GameLogic.cpp3603-3617 and ScriptEngine.cpp8455-8464: actual
-    /// receiving tick clears debug only and falls through once; script/camera
-    /// freeze survive, and the peer's interpreter is untouched.
-    #[test]
-    fn frozen_with_pending_clear_game_data_falls_through() {
-        let mut logic = GameLogic::new();
-        let mut peer = GameLogic::new();
-        logic
-            .owned_script_engine
-            .as_mut()
-            .unwrap()
-            .set_time_frozen_debug(true);
-        peer.owned_script_engine
-            .as_mut()
-            .unwrap()
-            .set_time_frozen_debug(true);
-        logic.set_script_time_frozen_for_test(true);
-        logic.session_view.scripted.script_camera_freeze_time = true;
-        logic.session_view.camera.camera_zoom_target = Some(2.0);
-        logic.session_view.camera.camera_zoom_duration = 1.0;
-        assert!(logic.is_script_camera_time_frozen());
-        logic
-            .replay_pending
-            .receive_client_messages(vec![game_engine::common::message_stream::GameMessage::new(
-                GameMessageType::ClearGameData,
-            )])
-            .unwrap();
-
-        logic.step_simulation_with_budget(LOGIC_FRAME_TIMESTEP, None, Some(1));
-        assert_eq!(
-            logic.frame, 1,
-            "clear escape falls through to the full update"
-        );
-        assert!(!logic.script_debug_frozen(None).unwrap());
-        assert!(
-            logic.is_script_time_frozen(),
-            "debug continue must preserve script freeze"
-        );
-        assert!(logic.is_script_camera_time_frozen());
-        assert!(peer.script_debug_frozen(None).unwrap());
-        let diag = logic.fixed_step_diagnostics();
-        assert_eq!(diag.steps_run, 1);
-        assert_eq!(diag.frozen_steps, 0);
-        let lifecycle = logic.replay_pending.take_lifecycle_messages_owned();
-        assert!(
-            matches!(lifecycle.as_slice(), [message] if matches!(message.get_type(), GameMessageType::ClearGameData)),
-            "peek retains the command until its normal Recorder/command phase"
-        );
-        logic.step_simulation_with_budget(LOGIC_FRAME_TIMESTEP, None, Some(1));
-        assert_eq!(
-            logic.frame, 1,
-            "script/camera freeze still apply on the next frame"
-        );
-    }
-
-    #[test]
-    fn receiving_tick_debug_freeze_and_foreign_clear_are_instance_isolated() {
-        let mut logic = GameLogic::new();
-        let mut peer = GameLogic::new();
-        logic
-            .owned_script_engine
-            .as_mut()
-            .unwrap()
-            .set_time_frozen_debug(true);
-        peer.replay_pending
-            .receive_client_messages(vec![game_engine::common::message_stream::GameMessage::new(
-                GameMessageType::ClearGameData,
-            )])
-            .unwrap();
-        assert!(peer.replay_pending.receiving_clear_command_pending());
-        logic.step_simulation_with_budget(LOGIC_FRAME_TIMESTEP, None, Some(1));
-        assert_eq!(logic.frame, 0, "debug-only freeze stops the actual tick");
-        assert!(logic.script_debug_frozen(None).unwrap());
-        assert!(peer.replay_pending.receiving_clear_command_pending());
-        logic
-            .owned_script_engine
-            .as_mut()
-            .unwrap()
-            .set_time_frozen_debug(false);
-        logic.step_simulation_with_budget(LOGIC_FRAME_TIMESTEP, None, Some(1));
-        assert_eq!(logic.frame, 1);
-    }
-
-    #[test]
-    fn foreign_message_stream_clear_cannot_escape_receiving_tick_freeze() {
-        crate::game_logic::game_logic::pose_owner_tests::isolated_at(
-            module_path!(),
-            "foreign_message_stream_clear_cannot_escape_receiving_tick_freeze",
-            || {
-                let stream = game_engine::common::message_stream::get_message_stream();
-                {
-                    let mut stream = stream.write().unwrap_or_else(|e| e.into_inner());
-                    stream.clear_messages();
-                    stream.append_message(GameMessageType::ClearGameData);
-                }
-                let mut logic = GameLogic::new();
-                logic.set_script_time_frozen_for_test(true);
-                logic.step_simulation_with_budget(LOGIC_FRAME_TIMESTEP, None, Some(1));
-                assert_eq!(
-                    logic.frame, 0,
-                    "foreign MessageStream is not receiving CommandList"
-                );
-                assert!(logic.is_script_time_frozen());
-                assert!(
-                    stream
-                        .read()
-                        .unwrap_or_else(|e| e.into_inner())
-                        .contains_message_of_type(&GameMessageType::ClearGameData)
-                );
-            },
-        );
-    }
-
-    /// The fixed-step batch publishes the driving instance's logic RNG as the
-    /// Common scoped owner: any logic draw the step makes consumes the
-    /// instance, never the process fallback. C++ RandomValue.cpp:150-174
-    /// supplies the range/seed reference; the user-approved Rust sequence is
-    /// session-owned, while standalone boot/Core callers retain the fallback.
-    #[test]
-    fn fixed_step_batch_does_not_consume_the_global_logic_stream() {
-        let _guard = RANDOM_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-
-        game_engine::common::random_value::init_random_with_seed(0x5EED_0F1);
-        let global_words = game_engine::common::random_value::get_game_logic_random_seed_state();
-
-        let mut logic = GameLogic::new();
-        logic.step_simulation_with_budget(LOGIC_FRAME_TIMESTEP, None, None);
-
-        // Whatever the step drew (if anything) went to the driving instance:
-        // the global fallback words stay bit-identical to the fresh seed.
-        assert_eq!(
-            game_engine::common::random_value::get_game_logic_random_seed_state(),
-            global_words,
-            "in-tick logic draws must not consume the global fallback"
-        );
-    }
-
-    /// Match setup and restart change only the selected driving stream.
-    #[test]
-    fn foreign_setup_reset_and_process_reseed_do_not_change_driving_rng() {
-        crate::game_logic::game_logic::pose_owner_tests::isolated_at(
-            module_path!(),
-            "foreign_setup_reset_and_process_reseed_do_not_change_driving_rng",
-            || {
-                use game_engine::common::random_value::{
-                    get_game_logic_random_value, init_game_logic_random,
-                };
-                const SEED: u32 = 0x5EED_0F2;
-                let mut actual = GameLogic::new();
-                let mut reference = GameLogic::new();
-                actual.set_logic_random_seed(SEED);
-                reference.set_logic_random_seed(SEED);
-                for index in 0..8 {
-                    let mut expected = Vec::new();
-                    reference.tick_logic_frame_with_boundary(
-                        LOGIC_FRAME_TIMESTEP,
-                        None,
-                        Some(1),
-                        |_| {
-                            expected.push(get_game_logic_random_value(0, 999));
-                            expected.push(get_game_logic_random_value(0, 999));
-                        },
-                    );
-                    let mut foreign = GameLogic::new();
-                    foreign.set_logic_random_seed(0xB000_0000 + index);
-                    foreign.start_new_game(GameMode::Skirmish);
-                    foreign.tick_logic_frame(LOGIC_FRAME_TIMESTEP, None, Some(1));
-                    foreign.reset();
-                    assert_eq!(foreign.logic_base_seed, 0xB000_0000 + index);
-                    drop(foreign);
-                    // Engine/menu fallback reseeding is independent too. This
-                    // is outside A's scoped operation; it must not be adopted.
-                    init_game_logic_random(0xF000_0000 + index);
-                    let mut got = Vec::new();
-                    actual.tick_logic_frame_with_boundary(
-                        LOGIC_FRAME_TIMESTEP,
-                        None,
-                        Some(1),
-                        |_| {
-                            got.push(get_game_logic_random_value(0, 999));
-                            let mut nested = GameLogic::new();
-                            nested.set_logic_random_seed(0xC000_0000 + index);
-                            nested.reset();
-                            // Another Core initializer within A's published scope
-                            // changes only its process fallback, never A's stream.
-                            init_game_logic_random(0xD000_0000 + index);
-                            drop(nested);
-                            got.push(get_game_logic_random_value(0, 999));
-                        },
-                    );
-                    assert_eq!(got, expected, "first divergence at frame {}", index + 1);
-                    assert_eq!(
-                        actual.logic_random.seed_words(),
-                        reference.logic_random.seed_words()
-                    );
-                    assert_eq!(actual.logic_base_seed, SEED);
-                }
-            },
-        );
-    }
-
-    #[test]
-    fn same_selected_seed_restart_repeats_owned_rng_without_broadcast() {
-        crate::game_logic::game_logic::pose_owner_tests::isolated_at(
-            module_path!(),
-            "same_selected_seed_restart_repeats_owned_rng_without_broadcast",
-            || {
-                use game_engine::common::random_value::{
-                    get_game_logic_random_value, with_session_random,
-                };
-                let mut logic = GameLogic::new();
-                logic.set_logic_random_seed(0x5EED_0F3);
-                let fallback =
-                    game_engine::common::random_value::get_game_logic_random_seed_state();
-                let first = with_session_random(&logic.logic_random, || {
-                    (0..4)
-                        .map(|_| get_game_logic_random_value(0, 999))
-                        .collect::<Vec<_>>()
-                });
-                let first_end = logic.logic_random.seed_words();
-                logic.reset();
-                assert_eq!(logic.logic_base_seed, 0x5EED_0F3);
-                let second = with_session_random(&logic.logic_random, || {
-                    (0..4)
-                        .map(|_| get_game_logic_random_value(0, 999))
-                        .collect::<Vec<_>>()
-                });
-                assert_eq!(first, second);
-                assert_eq!(logic.logic_random.seed_words(), first_end);
-                assert_eq!(
-                    game_engine::common::random_value::get_game_logic_random_seed_state(),
-                    fallback
-                );
-            },
-        );
-    }
-
-    /// C++ parity regression: the shroud looker pass (Phase 17) must run on
-    /// every logic frame even while the GameWorld shadow coupled dual-tick is
-    /// active (production default ON). The GW tick has no shroud/looker
-    /// channel of its own, so gating the pass off left the shroud grid and
-    /// player_visible_objects unfed on the live path. After 2-3 driven InGame
-    /// frames the local looker must appear in the shroud membership, reveal
-    /// real grid cells, and activate the presentation FOW snapshot.
-    #[test]
-    fn vision_feed_runs_on_canonical_owner_frames() {
-        use crate::fow_rendering::FOWRenderingBridge;
-        use gamelogic::system::shroud_manager::ShroudState;
-
-        let mut logic = GameLogic::new();
-        logic.add_player(crate::game_logic::Player::new(
-            1,
-            crate::game_logic::Team::USA,
-            "USA",
-            true,
-        ));
-        let mut tpl = crate::game_logic::ThingTemplate::new("VisionProbeC17");
-        tpl.sight_range = 100.0;
-        tpl.shroud_clearing_range = 240.0;
-        logic.templates.insert("VisionProbeC17".into(), tpl);
-        let _looker = logic
-            .create_object_for_player("VisionProbeC17", 1, glam::Vec3::new(10.0, 0.0, 20.0))
-            .expect("spawn looker");
-        {
-            let shroud = logic.world_services.shroud();
-            let mut mgr = shroud.lock().expect("shroud");
-            mgr.clear_all();
-            mgr.init_shroud_grid(512.0, 512.0);
-        }
-
-        // Drive 3 InGame logic frames through the standard step loop while
-        // the coupled tick is active — Phase 17 must still feed the shroud.
-        for _ in 0..3 {
-            logic.step_simulation_with_budget(LOGIC_FRAME_TIMESTEP, None, None);
-        }
-
-        {
-            let shroud = logic.world_services.shroud();
-            let mut mgr = shroud.lock().expect("shroud");
-            assert!(
-                !mgr.get_visible_objects(1).is_empty(),
-                "own looker must appear in visible membership after coupled frames"
-            );
-            let cells = mgr
-                .snapshot_grid_for_player(1)
-                .expect("shroud grid initialized");
-            assert!(
-                cells.iter().any(|&c| c == ShroudState::Visible as u8),
-                "looker circle must reveal cells on the shroud grid"
-            );
-        }
-        // Freeze the same world after releasing its mutable vision borrow.
-        let grid = FOWRenderingBridge::snapshot_terrain_grid(
-            logic.world_services.shroud().lock().ok().as_deref(),
-            1,
-            false,
-        );
-        assert!(grid.active, "membership present: snapshot must be active");
-        assert!(
-            grid.to_r8_texture().iter().any(|&v| v != 255),
-            "revealed looker circle must darken part of the R8 payload"
-        );
-        // Reset only this fixture's world.
-        {
-            let shroud = logic.world_services.shroud();
-            let mut mgr = shroud.lock().expect("shroud");
-            mgr.clear_all();
-        }
-    }
-
-    /// Live catch-up clamp: with no explicit budget (the live drive_frame
-    /// path), a stall-fed backlog runs one fixed step per call and the
-    /// excess accumulated time is DROPPED instead of carried into later
-    /// frames (C++ GameEngine::update calls GameLogic::UPDATE once).
-    /// Headless callers passing Some(budget) keep the carry-over semantics.
-    #[test]
-    fn live_catchup_runs_one_step_and_drops_excess_backlog() {
-        let mut logic = GameLogic::new();
-        // 20 steps' worth of stall backlog on the live path (budget = None).
-        logic.step_simulation_with_budget(20.0 * LOGIC_FRAME_TIMESTEP, None, None);
-
-        assert_eq!(logic.frame, 1, "C++ live update advances one logic frame");
-        let diag = logic.fixed_step_diagnostics();
-        assert_eq!(diag.steps_run, 1);
-        assert!(diag.budget_hit, "the clamp ceiling reports as budget_hit");
-        assert!(
-            diag.dropped_excess_time,
-            "live clamp must drop the excess accumulated backlog"
-        );
-        assert_eq!(
-            logic.accumulated_time, 0.0,
-            "dropped backlog must not carry into the next drive_frame"
-        );
-
-        // Headless path unchanged: an explicit budget keeps the carry-over.
-        let mut headless = GameLogic::new();
-        headless.step_simulation_with_budget(20.0 * LOGIC_FRAME_TIMESTEP, None, Some(3));
-        assert_eq!(headless.frame, 3);
-        assert!(
-            headless.accumulated_time >= LOGIC_FRAME_TIMESTEP,
-            "headless budget path carries the remaining backlog"
-        );
-        assert!(!headless.fixed_step_diagnostics().dropped_excess_time);
-    }
-
-    /// Perf-gate seam: on a fresh world every residual registry is empty, so
-    /// each gated residual pass must be SKIPPED (counter bumps once per step)
-    /// while the step itself still advances normally — the gates are pure
-    /// performance cuts with no observable behavior when registries are empty.
-    #[test]
-    fn residual_gates_skip_empty_registries() {
-        residual_gate_seam::reset_all();
-
-        let mut logic = GameLogic::new();
-        logic.step_simulation_with_budget(LOGIC_FRAME_TIMESTEP, None, None);
-
-        // Every registry-backed residual pass must have skipped on the empty
-        // world (each gate counter bumped once by this step).
-        residual_gate_seam::assert_each_skipped_at_least_once();
-        assert_eq!(
-            logic.frame, 1,
-            "the gated step must still advance exactly one frame"
-        );
-    }
-    fn seed_boundary_test_owner(logic: &mut GameLogic, seed: u32) {
-        logic.set_logic_random_seed(seed);
-    }
-
-    #[test]
-    fn step_boundary_callback_draws_from_the_driving_instance_in_sequence() {
-        use game_engine::common::random_value::{get_game_logic_random_value, with_session_random};
-
-        const SEED: u32 = 0xB0A7_DA7A;
-        const DT: f32 = LOGIC_FRAME_TIMESTEP;
-        let mut actual = GameLogic::new();
-        let mut reference = GameLogic::new();
-        seed_boundary_test_owner(&mut actual, SEED);
-        seed_boundary_test_owner(&mut reference, SEED);
-        let global_words = game_engine::common::random_value::get_game_logic_random_seed_state();
-        let mut draws = Vec::new();
-        let snapshot = actual.tick_logic_frame_with_boundary(2.0 * DT, None, Some(2), |_| {
-            draws.push(get_game_logic_random_value(0, 999))
-        });
-
-        let _ = reference.update_with_dt_budget(DT, 1);
-        let expected_first = with_session_random(&reference.logic_random, || {
-            get_game_logic_random_value(0, 999)
-        });
-        let _ = reference.update_with_dt_budget(DT, 1);
-        let expected_second = with_session_random(&reference.logic_random, || {
-            get_game_logic_random_value(0, 999)
-        });
-        let actual_next =
-            with_session_random(&actual.logic_random, || get_game_logic_random_value(0, 999));
-        let expected_next = with_session_random(&reference.logic_random, || {
-            get_game_logic_random_value(0, 999)
-        });
-
-        assert_eq!(snapshot.steps_run, 2);
-        assert_eq!(draws, vec![expected_first, expected_second]);
-        assert_eq!(actual_next, expected_next);
-        assert_eq!(
-            game_engine::common::random_value::get_game_logic_random_seed_state(),
-            global_words,
-            "step and callback draws leave the process fallback untouched"
-        );
-    }
-
-    #[test]
-    fn nested_foreign_fixed_step_restores_the_outer_instance_stream() {
-        use game_engine::common::random_value::{get_game_logic_random_value, with_session_random};
-
-        const SEED: u32 = 0xA101_0001;
-        const FOREIGN_SEED: u32 = 0xB202_0002;
-        const DT: f32 = LOGIC_FRAME_TIMESTEP;
-        let mut a = GameLogic::new();
-        let mut a_ref = GameLogic::new();
-        let mut b = GameLogic::new();
-        let mut b_ref = GameLogic::new();
-        seed_boundary_test_owner(&mut a, SEED);
-        seed_boundary_test_owner(&mut a_ref, SEED);
-        b.set_logic_random_seed(FOREIGN_SEED);
-        b_ref.set_logic_random_seed(FOREIGN_SEED);
-
-        let mut got_a = Vec::new();
-        let mut got_b = Vec::new();
-        let _ = a.tick_logic_frame_with_boundary(DT, None, Some(1), |_| {
-            got_a.push(get_game_logic_random_value(0, 999));
-            let _ = b.tick_logic_frame_with_boundary(DT, None, Some(1), |_| {
-                got_b.push(get_game_logic_random_value(0, 999));
-            });
-            got_a.push(get_game_logic_random_value(0, 999));
-        });
-
-        let _ = a_ref.update_with_dt_budget(DT, 1);
-        let expected_a_first =
-            with_session_random(&a_ref.logic_random, || get_game_logic_random_value(0, 999));
-        let _ = b_ref.update_with_dt_budget(DT, 1);
-        let expected_b =
-            with_session_random(&b_ref.logic_random, || get_game_logic_random_value(0, 999));
-        let expected_a_second =
-            with_session_random(&a_ref.logic_random, || get_game_logic_random_value(0, 999));
-
-        assert_eq!(got_a, vec![expected_a_first, expected_a_second]);
-        assert_eq!(got_b, vec![expected_b]);
-        assert_eq!(a.get_frame(), 1);
-        assert_eq!(b.get_frame(), 1);
-    }
-
-    #[test]
-    fn callback_unwind_restores_an_enclosing_logic_rng_owner() {
-        use game_engine::common::random_value::{
-            RandomState, get_game_logic_random_value, with_logic_rng_owner,
-        };
-        use std::panic::{AssertUnwindSafe, catch_unwind};
-
-        let mut driver = GameLogic::new();
-        seed_boundary_test_owner(&mut driver, 0xCA11_BACC);
-        let mut outer = RandomState::default();
-        outer.seed_random(0x0A77_EA01);
-        let mut replay = RandomState::default();
-        replay.seed_random(0x0A77_EA01);
-        let expected_first =
-            with_logic_rng_owner(&mut replay, || get_game_logic_random_value(0, 999));
-        let expected_after =
-            with_logic_rng_owner(&mut replay, || get_game_logic_random_value(0, 999));
-
-        let (first, after) = with_logic_rng_owner(&mut outer, || {
-            let first = get_game_logic_random_value(0, 999);
-            let unwind = catch_unwind(AssertUnwindSafe(|| {
-                let _ = driver.tick_logic_frame_with_boundary(
-                    LOGIC_FRAME_TIMESTEP,
-                    None,
-                    Some(1),
-                    |_| {
-                        let _ = get_game_logic_random_value(0, 999);
-                        panic!("exercise callback unwind after an actual fixed update");
-                    },
-                );
-            }));
-            assert!(unwind.is_err());
-            // The tick's owner guard must have restored this enclosing owner.
-            let after = get_game_logic_random_value(0, 999);
-            (first, after)
-        });
-
-        assert_eq!(first, expected_first);
-        assert_eq!(after, expected_after);
-    }
-    #[test]
-    fn immutable_frame_timing_keeps_the_existing_absolute_clock_rule() {
-        let timing = FrameTiming {
-            frame_number: 300,
-            delta_time: Duration::from_secs_f32(1.0 / 30.0),
-            total_time: Duration::from_secs(10),
-            fps: 30.0,
-            frame_start: Instant::now(),
-            sync_time: 10_000,
-            previous_sync_time: 9967,
-        };
-        let mut logic = GameLogic::new();
-        let mut callbacks = 0;
-        // timing.delta_seconds takes precedence over the dt argument as before.
-        let snap =
-            logic.tick_logic_frame_with_boundary(0.0, Some(&timing), Some(1), |_| callbacks += 1);
-        assert_eq!(callbacks, 1);
-        assert_eq!(snap.frame, 1);
-        assert_eq!(logic.sim_time_seconds, 10.0);
-        let mut frozen = GameLogic::new();
-        frozen.set_script_time_frozen_for_test(true);
-        let snap = frozen.tick_logic_frame_with_boundary(0.0, Some(&timing), Some(1), |_| {
-            panic!("frozen step cannot deliver")
-        });
-        assert_eq!(snap.steps_run, 0);
-        assert_eq!(frozen.sim_time_seconds, 0.0);
-    }
-    #[test]
-    fn host_logic_step_active_phase_restores_after_real_frozen_and_advanced_steps() {
-        let mut logic = GameLogic::new();
-        logic.scripts_loaded = true;
-        logic.set_script_time_frozen_for_test(true);
-        logic.step_simulation_with_budget(LOGIC_FRAME_TIMESTEP, None, None);
-        assert_eq!(logic.frame, 0, "frozen update does not advance frame");
-        assert_eq!(logic.fixed_step_diagnostics().frozen_steps, 1);
-        assert!(
-            logic.with_host_logic_step(|_| ()).is_some(),
-            "real frozen return must drop the owner phase"
-        );
-
-        logic.set_script_time_frozen_for_test(false);
-        logic.step_simulation_with_budget(LOGIC_FRAME_TIMESTEP, None, None);
-        assert_eq!(logic.frame, 1, "advanced update advances one frame");
-        assert_eq!(logic.fixed_step_diagnostics().steps_run, 1);
-        assert!(
-            logic.with_host_logic_step(|_| ()).is_some(),
-            "real advanced return must drop the owner phase"
-        );
-    }
-
-    #[test]
-    fn another_world_step_does_not_replace_the_driving_object_phase() {
-        let mut first = GameLogic::new();
-        first
-            .with_host_logic_step(|first| {
-                // Construction is inert even while a different instance is driving.
-                let mut second = GameLogic::new();
-                assert!(!second.host_logic_step_active);
-                assert!(first.host_logic_step_active);
-                second.step_simulation_with_budget(LOGIC_FRAME_TIMESTEP, None, Some(1));
-                assert_eq!(second.frame, 1);
-                assert!(!second.host_logic_step_active);
-                assert!(first.host_logic_step_active);
-                assert!(first.with_host_logic_step(|_| ()).is_none());
-            })
-            .expect("first owner scope");
-        assert!(!first.host_logic_step_active);
-    }
-    #[test]
-    fn empty_scheduler_clock_boundary_admits_maximum_then_wraps_logic_once() {
-        let mut logic = GameLogic::new();
-        // Isolate UnsignedInt frame arithmetic. C++ sleepy priorities have a
-        // 30-bit wake domain; recurring updates cannot complete at u32::MAX.
-        // This is not a claim that a full match supports that frame value.
-        for kind in super::super::HostSleepyKind::ALL {
-            assert!(logic.host_sleepy.erase(kind));
-        }
-        assert_eq!(logic.host_sleepy.len(), 0);
-        logic.frame = u32::MAX;
-        let mut admitted = Vec::new();
-        let mut completed = Vec::new();
-        let snapshot = logic.tick_logic_frame_with_client_frame(
-            LOGIC_FRAME_TIMESTEP,
-            None,
-            Some(1),
-            |frame| admitted.push(frame),
-            |owner| completed.push(owner.frame),
-        );
-        assert_eq!(admitted, vec![u32::MAX]);
-        assert_eq!(completed, vec![0]);
-        assert_eq!(snapshot.steps_run, 1);
-        assert_eq!(snapshot.frame, 0);
-        assert_eq!(logic.frame, 0);
-    }
-}
+#[path = "step_tests.rs"]
+mod tests;

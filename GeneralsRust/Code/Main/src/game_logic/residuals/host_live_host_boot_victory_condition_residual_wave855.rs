@@ -122,7 +122,7 @@ pub fn honesty_host_boot_victory_condition_residual_pack_wave855() -> bool {
             >= 2
         && victory_phase_source_contract(
             include_str!("../../cnc_game_engine/host_authority.rs"),
-            include_str!("../world_tick/step.rs"),
+            include_str!("../world_tick/post_command_update.rs"),
             include_str!("../../presentation_frame/build.rs"),
         );
     residual_action_store(ResidualHostBootVictoryConditionAction::SourceMarkers);
@@ -154,7 +154,7 @@ mod tests {
     #[test]
     fn victory_source_contract_rejects_observer_mutation_and_missing_owner_phase() {
         let boot = include_str!("../../cnc_game_engine/host_authority.rs");
-        let step = include_str!("../world_tick/step.rs");
+        let step = include_str!("../world_tick/post_command_update.rs");
         let presentation = include_str!("../../presentation_frame/build.rs");
         assert!(victory_phase_source_contract(boot, step, presentation));
         assert!(!victory_phase_source_contract(

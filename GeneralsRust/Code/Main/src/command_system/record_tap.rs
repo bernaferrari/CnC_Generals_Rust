@@ -17,6 +17,9 @@ use game_engine::common::recorder::{init_recorder, with_recorder, with_recorder_
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
+mod admitted_batch;
+pub(crate) use admitted_batch::{AdmittedCommand, AdmittedCommandBatch};
+
 /// Camera pose carried by `MSG_SET_REPLAY_CAMERA`.
 /// C++ `LookAtXlat.cpp:463-467` / `GameLogicDispatch.cpp:1807-1815`.
 #[derive(Debug, Clone, Copy, PartialEq)]

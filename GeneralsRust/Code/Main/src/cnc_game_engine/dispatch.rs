@@ -175,26 +175,38 @@ impl CnCGameEngine {
         dispatch: Option<StartupNewGameDispatch>,
     ) {
         if let Some(dispatch) = dispatch {
-            world.admit_session_difficulty(dispatch.difficulty_code);
+            world.prepare_native_command_difficulty(dispatch.difficulty_code);
         }
     }
 
     pub(super) fn apply_startup_new_game_dispatch(
         dispatch: StartupNewGameDispatch,
     ) -> Option<String> {
-        let mut prepared_map_name = None;
-        let mut global = game_engine::common::global_data::write();
-
         gamelogic::helpers::TheScriptEngine::set_global_difficulty(dispatch.difficulty_code);
         gamelogic::helpers::TheGameLogic::set_rank_points_to_add_at_game_start(
             dispatch.rank_points,
         );
+        Self::apply_application_new_game_dispatch(dispatch)
+    }
 
+    pub(super) fn apply_application_new_game_dispatch(
+        dispatch: StartupNewGameDispatch,
+    ) -> Option<String> {
+        Self::apply_application_new_game_fps(dispatch);
+        Self::take_application_new_game_map()
+    }
+
+    pub(super) fn apply_application_new_game_fps(dispatch: StartupNewGameDispatch) {
         if let Some(max_fps) = dispatch.max_fps {
+            let mut global = game_engine::common::global_data::write();
             global.writable.use_fps_limit = true;
             global.writable.frames_per_second_limit = max_fps;
         }
+    }
 
+    pub(super) fn take_application_new_game_map() -> Option<String> {
+        let mut prepared_map_name = None;
+        let mut global = game_engine::common::global_data::write();
         if !global.pending_file.trim().is_empty() {
             let pending_file = global.pending_file.clone();
             global.writable.map_name = pending_file.clone();
@@ -553,6 +565,14 @@ impl CnCGameEngine {
         &mut self,
         dispatch: Option<StartupNewGameDispatch>,
     ) -> Option<HostStartRequest> {
+        self.build_start_request_from_pending_globals_at_source(dispatch, false)
+    }
+
+    pub(super) fn build_start_request_from_pending_globals_at_source(
+        &mut self,
+        dispatch: Option<StartupNewGameDispatch>,
+        receiving: bool,
+    ) -> Option<HostStartRequest> {
         let dispatch = dispatch.unwrap_or(StartupNewGameDispatch {
             game_mode_code: 2, // GAME_SKIRMISH default when only the helper flag is set
             game_mode: GameMode::Skirmish,
@@ -612,7 +632,11 @@ impl CnCGameEngine {
         // Do not consume pending globals until a typed Challenge selection is
         // known to be valid.  That keeps a rejected/stale descriptor from
         // mutating the next shell launch's map state.
-        let prepared_map = Self::apply_startup_new_game_dispatch(dispatch);
+        let prepared_map = if receiving {
+            Self::take_application_new_game_map()
+        } else {
+            Self::apply_startup_new_game_dispatch(dispatch)
+        };
 
         let mode = dispatch.game_mode;
         let map = campaign_launch_map
@@ -627,7 +651,13 @@ impl CnCGameEngine {
                     None
                 }
             })
-            .unwrap_or_else(|| DEFAULT_SKIRMISH_MAP.to_string());
+            .unwrap_or_else(|| {
+                if mode == GameMode::Shell {
+                    String::new()
+                } else {
+                    DEFAULT_SKIRMISH_MAP.to_string()
+                }
+            });
 
         let skirmish = if matches!(mode, GameMode::Skirmish) {
             #[cfg(feature = "game_client")]

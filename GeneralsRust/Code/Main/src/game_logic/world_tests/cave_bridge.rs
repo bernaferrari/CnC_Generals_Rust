@@ -519,7 +519,7 @@ fn killing_tower_collapses_span_and_span_death_kills_towers() {
 
 #[test]
 fn live_tick_drains_bridge_mirrors_and_death_links() {
-    let step = include_str!("../world_tick/step.rs");
+    let step = include_str!("../world_tick/post_command_update.rs");
     assert!(
         step.contains("sync_host_bridge_rubble_and_scaffolds"),
         "live update_simulation must drain bridge mirrors/death/scaffolds"

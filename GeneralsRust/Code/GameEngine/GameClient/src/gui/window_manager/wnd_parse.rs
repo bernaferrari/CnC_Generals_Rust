@@ -28,7 +28,20 @@ pub(crate) fn is_none_callback_name(name: &str) -> bool {
     name.is_empty() || name.eq_ignore_ascii_case("[none]")
 }
 
-pub(crate) fn resolve_window_script_path(filename: &str) -> WindowResult<PathBuf> {
+const WINDOW_ASSET_ROOT_ENV: [&str; 4] = [
+    "GENERALS_ASSETS_DIR",
+    "GENERALS_INSTALL_PATH",
+    "GENERALS_BASE_INSTALL_PATH",
+    "GENERALS_BASE_DIR",
+];
+
+// Explicit immutable IO inputs; neither a world owner nor an active-manager selector.
+fn window_script_candidates(
+    filename: &str,
+    current_dir: Option<&Path>,
+    configured_roots: &[PathBuf],
+    manifest_dir: &Path,
+) -> Vec<PathBuf> {
     fn push_base_candidates(candidates: &mut Vec<PathBuf>, base: &Path, filename: &str) {
         candidates.push(
             base.join("windows_game/extracted_big_files_v2/WindowZH/Window")
@@ -59,18 +72,45 @@ pub(crate) fn resolve_window_script_path(filename: &str) -> WindowResult<PathBuf
             }
         }
     }
+    fn push_configured_candidates(candidates: &mut Vec<PathBuf>, base: &Path, filename: &str) {
+        // Accept the same repo/extracted layout plus direct extracted or installed
+        // loose Window trees. BIG-only windows remain an archive-loader obligation.
+        push_base_candidates(candidates, base, filename);
+        let normalized = filename.replace('\\', "/");
+        let bare = normalized.rsplit('/').next().unwrap_or(&normalized);
+        for directory in [
+            "",
+            "Window",
+            "Window/Menus",
+            "Data/Window",
+            "Data/Window/Menus",
+            "WindowZH/Window",
+            "WindowZH/Window/Menus",
+            "extracted_big_files_v2/WindowZH/Window",
+            "extracted_big_files_v2/WindowZH/Window/Menus",
+            "extracted_big_files/WindowZH/Window",
+            "extracted_big_files/WindowZH/Window/Menus",
+        ] {
+            candidates.push(base.join(directory).join(&normalized));
+            if bare != normalized {
+                candidates.push(base.join(directory).join(bare));
+            }
+        }
+    }
     let mut candidates = Vec::new();
-    if let Ok(current_dir) = std::env::current_dir() {
+    if let Some(current_dir) = current_dir {
         for base in current_dir.ancestors() {
             push_base_candidates(&mut candidates, base, filename);
         }
     }
-    // C++ TheFileSystem resolves "Menus/*.wnd" through engine-fixed search
-    // paths (FileSystem.cpp:164-178: LocalFileSystem then ArchiveFileSystem),
-    // anchored at the install dir, never the transient process CWD. The
-    // compile-time manifest root is this port's install anchor, so windowed
-    // drives launched from a temp CWD still resolve Menus/MainMenu.wnd.
-    for base in PathBuf::from(env!("CARGO_MANIFEST_DIR")).ancestors() {
+    // Preserve existing CWD extracted-file precedence. Explicit application
+    // asset roots precede the compile-time installation fallback.
+    for root in configured_roots {
+        for base in root.ancestors() {
+            push_configured_candidates(&mut candidates, base, filename);
+        }
+    }
+    for base in manifest_dir.ancestors() {
         push_base_candidates(&mut candidates, base, filename);
     }
     candidates
@@ -82,16 +122,29 @@ pub(crate) fn resolve_window_script_path(filename: &str) -> WindowResult<PathBuf
     candidates
         .push(Path::new("windows_game/extracted_big_files/WindowZH/Window/Menus").join(filename));
     candidates.push(Path::new(filename).to_path_buf());
-    for path in candidates {
-        if path.exists() {
+    candidates
+}
+
+pub(crate) fn resolve_window_script_path(filename: &str) -> WindowResult<PathBuf> {
+    let current_dir = std::env::current_dir().ok();
+    let roots = WINDOW_ASSET_ROOT_ENV
+        .into_iter()
+        .filter_map(std::env::var_os)
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .collect::<Vec<_>>();
+    for path in window_script_candidates(
+        filename,
+        current_dir.as_deref(),
+        &roots,
+        Path::new(env!("CARGO_MANIFEST_DIR")),
+    ) {
+        if path.is_file() {
             return Ok(path);
         }
     }
     log::warn!(
-        "resolve_window_script_path: no candidate for '{filename}' cwd={:?}",
-        std::env::current_dir()
-            .map(|p| p.display().to_string())
-            .unwrap_or_default()
+        "resolve_window_script_path: no loose candidate for '{filename}' cwd={current_dir:?} configured_roots={roots:?}"
     );
     Err(WindowError::InvalidParameter)
 }
@@ -380,6 +433,135 @@ pub(crate) fn apply_window_widget_data(window: &mut GameWindow, window_def: &Win
                 }
             }
             _ => {}
+        }
+    }
+}
+
+#[cfg(test)]
+mod asset_root_tests {
+    use super::*;
+    const NAME: &str = "OwnedWndAssetRootProbe.wnd";
+    const SCRIPT: &str = "FILE_VERSION = 2;\nWINDOW\nWINDOWTYPE = USER;\nNAME = \"OwnedWndAssetRootProbe:Root\";\nEND\n";
+    fn write(path: &Path) {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, SCRIPT).unwrap();
+    }
+    fn first(filename: &str, cwd: &Path, roots: &[PathBuf], manifest: &Path) -> Option<PathBuf> {
+        window_script_candidates(filename, Some(cwd), roots, manifest)
+            .into_iter()
+            .find(|path| path.is_file())
+    }
+    #[test]
+    fn explicit_loose_layouts_resolve_without_cwd_copy() {
+        let private = tempfile::tempdir().unwrap();
+        for layout in [
+            "windows_game/extracted_big_files_v2/WindowZH/Window/Menus",
+            "windows_game/extracted_big_files/WindowZH/Window/Menus",
+            "Window/Menus",
+            "Data/Window/Menus",
+            "WindowZH/Window/Menus",
+            "Menus",
+            "",
+        ] {
+            let assets = tempfile::tempdir().unwrap();
+            let file = assets.path().join(layout).join(NAME);
+            write(&file);
+            assert_eq!(
+                first(
+                    &format!("Menus/{NAME}"),
+                    private.path(),
+                    &[assets.path().to_owned()],
+                    private.path()
+                ),
+                Some(file.clone()),
+                "layout={layout}"
+            );
+            assert_eq!(
+                first(
+                    &format!("Menus\\{NAME}"),
+                    private.path(),
+                    &[assets.path().to_owned()],
+                    private.path()
+                ),
+                Some(file),
+                "Windows separator layout={layout}"
+            );
+            assert!(!private.path().join(NAME).exists());
+        }
+    }
+    #[test]
+    fn existing_cwd_extracted_precedence_and_configured_root_order_are_preserved() {
+        let cwd = tempfile::tempdir().unwrap();
+        let first_root = tempfile::tempdir().unwrap();
+        let second_root = tempfile::tempdir().unwrap();
+        let manifest = tempfile::tempdir().unwrap();
+        let relative = format!("windows_game/extracted_big_files_v2/WindowZH/Window/Menus/{NAME}");
+        let local = cwd.path().join(&relative);
+        write(&local);
+        write(&first_root.path().join(NAME));
+        write(&second_root.path().join(NAME));
+        write(&manifest.path().join(&relative));
+        let roots = [first_root.path().to_owned(), second_root.path().to_owned()];
+        assert_eq!(
+            first(NAME, cwd.path(), &roots, manifest.path()),
+            Some(local.clone())
+        );
+        std::fs::remove_file(local).unwrap();
+        assert_eq!(
+            first(NAME, cwd.path(), &roots, manifest.path()),
+            Some(first_root.path().join(NAME))
+        );
+        assert_eq!(
+            first(NAME, cwd.path(), &[], manifest.path()),
+            Some(manifest.path().join(relative))
+        );
+    }
+    #[test]
+    fn configured_environment_loads_actual_window_in_private_child() {
+        const CHILD: &str = "GENERALS_WND_ASSET_ROOT_TEST_CHILD";
+        if std::env::var_os(CHILD).is_some() {
+            let expected = PathBuf::from(std::env::var_os(CHILD).unwrap());
+            assert_eq!(
+                resolve_window_script_path(&format!("Menus/{NAME}")).unwrap(),
+                expected
+            );
+            let mut manager = WindowManager::new();
+            let actual = manager
+                .create_windows_from_script(&format!("Menus/{NAME}"))
+                .unwrap();
+            assert_eq!(actual.windows.len(), 1);
+            return;
+        }
+        let test = format!(
+            "{}::configured_environment_loads_actual_window_in_private_child",
+            module_path!().split_once("::").unwrap().1
+        );
+        for key in WINDOW_ASSET_ROOT_ENV {
+            let private = tempfile::tempdir().unwrap();
+            let assets = tempfile::tempdir().unwrap();
+            let file = assets.path().join("Data/Window/Menus").join(NAME);
+            write(&file);
+            let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+            command
+                .current_dir(private.path())
+                .args(["--exact", &test, "--nocapture", "--test-threads=1"])
+                .env(CHILD, &file);
+            for inherited in WINDOW_ASSET_ROOT_ENV {
+                command.env_remove(inherited);
+            }
+            command.env(key, assets.path());
+            let output = command.output().unwrap();
+            assert!(
+                output.status.success(),
+                "{key}: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            assert!(
+                stdout.contains("running 1 test") && stdout.contains("1 passed; 0 failed"),
+                "{key}: {stdout}"
+            );
+            assert!(!private.path().join(NAME).exists());
         }
     }
 }

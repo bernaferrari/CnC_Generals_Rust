@@ -788,6 +788,8 @@ impl CnCGameEngine {
             pending_popup_save_display_name: None,
             interactive_playability: InteractivePlayabilityEvidence::default(),
             pending_match_start: None,
+            #[cfg(feature = "game_client")]
+            source_new_game_background: None,
             physical_gather_carrier_ids: HashSet::new(),
             match_damage_applied: 0.0,
             match_kills: 0,
@@ -1098,12 +1100,28 @@ impl CnCGameEngine {
             } else {
                 std::path::Path::new(root).join(&virtual_path)
             };
-            match std::fs::read_to_string(&candidate) {
-                Ok(text) => return Some(text),
-                Err(_) => continue,
+            if let Some(text) = Self::read_startup_ini_candidate(&candidate, root != ".") {
+                return Some(text);
             }
         }
         None
+    }
+
+    /// Direct authored files retain the existing explicit-path behavior (Main
+    /// also accepts [Paths] configuration). Discovered extraction roots follow
+    /// Common's existing authority policy before archive fallback.
+    pub(super) fn read_startup_ini_candidate(
+        candidate: &std::path::Path,
+        discovered: bool,
+    ) -> Option<String> {
+        if discovered
+            && !game_engine::common::system::install_layout::ini_loose_override_is_authoritative(
+                candidate,
+            )
+        {
+            return None;
+        }
+        std::fs::read_to_string(candidate).ok()
     }
 
     pub(super) fn preload_startup_water_weather_inis() {
@@ -1990,3 +2008,31 @@ mod ocl_content;
 #[cfg(test)]
 #[path = "camera_movement_boot_tests.rs"]
 mod camera_movement_rules_tests;
+
+#[cfg(test)]
+mod loose_ini_authority_tests {
+    use super::*;
+    #[test]
+    fn startup_keeps_direct_paths_settings_but_rejects_generated_extraction() {
+        let root = tempfile::tempdir().unwrap();
+        let explicit = root.path().join("GameData.ini");
+        let settings = "[Paths]\nUserDataPath = UserData\n";
+        std::fs::write(&explicit, settings).unwrap();
+        assert_eq!(
+            CnCGameEngine::read_startup_ini_candidate(&explicit, false).as_deref(),
+            Some(settings)
+        );
+        let generated = root.path().join("Generated.ini");
+        std::fs::write(&generated, b".ini\0\0Table\xff").unwrap();
+        assert!(CnCGameEngine::read_startup_ini_candidate(&generated, true).is_none());
+        // Existing direct read_to_string failure still falls through; no lossy decode.
+        assert!(CnCGameEngine::read_startup_ini_candidate(&generated, false).is_none());
+        let genuine = root.path().join("Genuine.ini");
+        let text = "GameData\n MapName = RealMap.map\nEnd\n";
+        std::fs::write(&genuine, text).unwrap();
+        assert_eq!(
+            CnCGameEngine::read_startup_ini_candidate(&genuine, true).as_deref(),
+            Some(text)
+        );
+    }
+}

@@ -102,6 +102,7 @@ mod camera_height;
 mod camera_motion;
 mod camera_view_effects;
 mod clear_game_data;
+mod command_phase;
 #[cfg(feature = "game_client")]
 mod control_bar_bridge;
 mod control_bar_viewport;
@@ -206,6 +207,7 @@ pub const ENGINE_SRC: &str = concat!(
     include_str!("audio.rs"),
     include_str!("boot.rs"),
     include_str!("camera_drain.rs"),
+    include_str!("command_phase.rs"),
     include_str!("control_bar_viewport.rs"),
     include_str!("../presentation_frame/session_view/camera/projection.rs"),
     include_str!("../presentation_frame/session_view/camera/viewport.rs"),
@@ -263,3 +265,8 @@ mod replay_lifecycle;
 
 #[cfg(feature = "game_client")]
 mod replay_window;
+
+#[cfg(all(feature = "internal", not(target_arch = "wasm32")))]
+mod replay_probe_paths;
+#[cfg(all(feature = "internal", not(target_arch = "wasm32")))]
+pub use replay_probe_paths::prepare_replay_probe_private_paths;

@@ -1307,6 +1307,9 @@ pub struct CnCGameEngine {
     pub(crate) interactive_playability: InteractivePlayabilityEvidence,
     /// Parked UI match start waiting for the next Loading tick to call `load_map`.
     pub(crate) pending_match_start: Option<PendingMatchStart>,
+    #[cfg(feature = "game_client")]
+    pub(crate) source_new_game_background:
+        Option<std::rc::Rc<std::cell::RefCell<game_client::gui::window_manager::WindowLayout>>>,
     /// Carrier IDs admitted only from a successful physical right-click Gather
     /// command for the local player. `ReturningResources` drop-off events are
     /// matched against this set before they may latch physical evidence.
