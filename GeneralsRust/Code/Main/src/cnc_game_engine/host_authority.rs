@@ -1375,7 +1375,15 @@ impl CnCGameEngine {
             &mut logic.session_view,
             owns_session_camera,
         );
+        let saved_local = logic
+            .initial_skirmish_admission
+            .as_ref()
+            .and_then(|initial| initial.local_slot);
         let old_logic = std::mem::replace(&mut self.game_logic, logic);
+        if let Some(local) = saved_local {
+            self.current_player_id = local;
+            self.host_match_local_player_id = Some(local);
+        }
         self.host_admit_snow_for_world();
         #[cfg(feature = "game_client")]
         self.game_client
@@ -1806,6 +1814,26 @@ impl CnCGameEngine {
             &mut crate::game_logic::GameLogic,
         ) -> Result<(), String>,
     {
+        let mode = Self::offline_restore_mode_for_save(active_mode, &save_info)?;
+        if mode != crate::game_logic::GameMode::Skirmish
+            && (crate::save_load::snapshot::initial_skirmish::read(snapshot)
+                .map_err(|error| error.to_string())?
+                .is_some()
+                || crate::save_load::snapshot::initial_skirmish::source(snapshot)
+                    .map_err(|error| error.to_string())?
+                    .is_some())
+        {
+            return Err("initial Skirmish admission supplied for another game mode".into());
+        }
+        let initial_skirmish =
+            crate::save_load::snapshot::initial_skirmish::read_for_restore(snapshot)
+                .map_err(|error| error.to_string())?;
+        if mode == crate::game_logic::GameMode::Skirmish {
+            let initial = initial_skirmish.as_ref().ok_or("Missing saved initial SkirmishGameInfo and native resolved admission; cannot reconstruct participant definitions")?;
+            initial.validate_definitions()?;
+        } else if initial_skirmish.is_some() {
+            return Err("initial Skirmish admission supplied for another game mode".into());
+        }
         // Decode all camera owner state before map staging can touch shared services.
         let camera_continuation =
             crate::save_load::snapshot::read_native_camera_continuation(&snapshot.lifecycle_tail)
@@ -1847,8 +1875,6 @@ impl CnCGameEngine {
             .ok_or_else(|| format!("saved map '{saved_map}' has a non-UTF-8 path"))?
             .to_string();
 
-        let mode = Self::offline_restore_mode_for_save(active_mode, &save_info)?;
-
         // Map loading and snapshot restore still write shared metadata (sides,
         // players, teams, scripts and named/area trackers). Terrain, shroud,
         // visuals and Main AI belong to their world and are not swapped.
@@ -1865,6 +1891,9 @@ impl CnCGameEngine {
         staged.admit_production_energy_base(production_energy_base);
         staged.admit_physics_rules_base(physics_rules_base)?;
         staged.start_new_game_for_restore(mode);
+        if let Some(initial) = &initial_skirmish {
+            initial.admit(&mut staged)?;
+        }
         // Detached receiving seed; no live settings change on failed load.
         staged.session_view.camera.settings = camera_settings.reset_seed();
         staged.session_view.camera.clip_policy = camera_clip_policy.reset_seed();
@@ -2074,7 +2103,65 @@ impl CnCGameEngine {
     ) -> Result<(), String> {
         // Wave 928: single skirmish-config authority boundary.
 
-        crate::skirmish_config::apply_skirmish_config(&mut self.game_logic, config)
+        crate::skirmish_config::apply_skirmish_config(&mut self.game_logic, config)?;
+        // GameInfo's explicit local slot may be a later human. Commands and
+        // presentation must use the player admitted by this receiving world.
+        if let Some(local) = self.game_logic.local_player_id() {
+            self.current_player_id = local;
+        }
+        Ok(())
+    }
+
+    #[cfg(all(feature = "internal", feature = "game_client"))]
+    pub(super) fn probe_skirmish_local_command_owner(&mut self) -> Result<(), String> {
+        // Exercise the actual native admission boundary, not a second selector.
+        game_engine::common::ini::ensure_player_templates_loaded();
+        let store = game_engine::common::rts::player_template::get_player_template_store();
+        let usa = store.find_template_index("FactionAmerica").unwrap() as i32;
+        let gla = store.find_template_index("FactionGLA").unwrap() as i32;
+        drop(store);
+        {
+            let mut setup = game_client::gui::get_skirmish_setup();
+            setup.set_selected_map("Lone Eagle".into());
+            let gi = setup.game_info_mut().game_info_mut();
+            gi.reset();
+            gi.set_map("Lone Eagle".into());
+            gi.set_seed(713);
+            gi.set_starting_cash(game_client::Money::new(19000));
+            for (i, tpl, ip) in [(0, usa, 1), (1, gla, 2)] {
+                let slot = gi.get_slot_mut(i).unwrap();
+                slot.set_state(
+                    game_client::SlotState::Player,
+                    format!("Owner Human {i}"),
+                    ip,
+                );
+                slot.set_player_template(tpl);
+                slot.set_start_pos(i as i32);
+                slot.set_team_number(i as i32);
+                slot.set_color(-1);
+                slot.save_off_original_info();
+            }
+            gi.set_local_ip(2);
+            gi.set_in_game();
+            assert_eq!(gi.get_local_slot_num(), 1);
+        }
+        let config = crate::skirmish_config::config_from_client_skirmish_setup(None)
+            .ok_or("actual two-human Client setup did not produce a native configuration")?;
+        self.current_player_id = 0;
+        self.host_apply_skirmish_config_authority(&config)?;
+        assert_eq!(self.game_logic.local_player_id(), Some(1));
+        assert_eq!(
+            self.current_player_id, 1,
+            "Engine command owner follows admitted local slot"
+        );
+        let direct = crate::skirmish_config::golden_skirmish_config("Lone Eagle");
+        self.host_apply_skirmish_config_authority(&direct)?;
+        assert_eq!(self.game_logic.local_player_id(), Some(0));
+        assert_eq!(
+            self.current_player_id, 0,
+            "direct native local admission remains unchanged"
+        );
+        Ok(())
     }
 
     /// Wave 928: runtime-host GameWorld authority probe boundary.
@@ -3887,3 +3974,7 @@ mod ocl_stage_tests;
 #[cfg(feature = "game_client")]
 #[path = "host_authority/camera_window_gate.rs"]
 mod camera_window_gate;
+
+#[cfg(test)]
+#[path = "host_authority/initial_skirmish_owner_tests.rs"]
+mod initial_skirmish_owner_tests;

@@ -83,7 +83,7 @@ pub fn calculate_game_engine_ini_crc(load_text: impl Fn(&str) -> Option<String>)
 
 fn feed_ini_path(ini: &mut INI, path: &str, load_text: &impl Fn(&str) -> Option<String>) {
     if Path::new(path).exists() {
-        match ini.load(path, INILoadType::Overwrite) {
+        match ini.with_file_source(path, INILoadType::Overwrite, INI::consume_remaining_lines) {
             Ok(()) => debug!("XferCRC INI loaded: {path}"),
             Err(err) => debug!("XferCRC INI skipped '{path}': {err}"),
         }
@@ -92,7 +92,7 @@ fn feed_ini_path(ini: &mut INI, path: &str, load_text: &impl Fn(&str) -> Option<
     let Some(text) = load_text(path) else {
         return;
     };
-    match ini.with_inline_source(&text, |ini| ini.parse_current_file()) {
+    match ini.with_inline_source(&text, INI::consume_remaining_lines) {
         Ok(()) => debug!("XferCRC INI loaded from extract: {path}"),
         Err(err) => debug!("XferCRC extract skipped '{path}': {err}"),
     }

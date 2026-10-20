@@ -2929,6 +2929,10 @@ mod replay_fast_forward_probe {
 
     pub(super) fn run_replay_fast_forward_engine_probe() -> anyhow::Result<()> {
         let (_event_loop, mut engine) = replay_fixture_engine()?;
+        #[cfg(feature = "game_client")]
+        engine
+            .probe_skirmish_local_command_owner()
+            .map_err(anyhow::Error::msg)?;
         install_replay_factory(&mut engine);
         // Actual Engine startup/hotkey/native continuation, executed only by
         // the existing process-main-thread probe. This is not a unit mock.

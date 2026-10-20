@@ -97,6 +97,7 @@ impl GameLogic {
             players: HashMap::new(),
             rank_level_limit: crate::game_logic::host_rank_ui_residual::RANK_LEVEL_LIMIT_DEFAULT_RESIDUAL,
             player_template_bindings: HashMap::new(),
+            initial_skirmish_admission: None,
             next_object_id: ObjectId(1), // Start at 1, 0 is invalid
             next_formation_id: 1,
             frame: 0,
@@ -836,6 +837,7 @@ impl GameLogic {
         self.rank_level_limit =
             crate::game_logic::host_rank_ui_residual::RANK_LEVEL_LIMIT_DEFAULT_RESIDUAL;
         self.player_template_bindings.clear();
+        self.initial_skirmish_admission = None;
         self.next_object_id = ObjectId(1);
         self.next_formation_id = 1;
         self.frame = 0;

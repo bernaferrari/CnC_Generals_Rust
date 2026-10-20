@@ -1014,12 +1014,26 @@ pub fn apply_stored_locomotors_to_all_templates() {
 
 /// Initialize the global thing factory
 pub fn init_thing_factory() -> Result<(), String> {
+    init_thing_factory_inner(None)
+}
+
+/// Parse startup content against an explicit native constructor catalog. The
+/// catalog is never published; immutable typed module data belongs to templates.
+pub fn init_thing_factory_with_module_factory(
+    module_factory: &mut crate::common::thing::module_factory::ModuleFactory,
+) -> Result<(), String> {
+    init_thing_factory_inner(Some(module_factory))
+}
+
+fn init_thing_factory_inner(
+    module_factory: Option<&mut crate::common::thing::module_factory::ModuleFactory>,
+) -> Result<(), String> {
     let mut factory = ThingFactory::new();
     factory
         .init()
         .map_err(|e| format!("Failed to initialize thing factory: {:?}", e))?;
 
-    let loaded = load_runtime_object_templates(&mut factory)?;
+    let loaded = load_runtime_object_templates_with_module_factory(&mut factory, module_factory)?;
     if loaded > 0 {
         info!("ThingFactory loaded {} object declarations", loaded);
     } else {
@@ -1154,7 +1168,7 @@ impl ThingFactory {
         self.load_ini_text_inner(content, None)
     }
 
-    pub(super) fn load_ini_text_with_module_factory(
+    pub fn load_ini_text_with_module_factory(
         &mut self,
         content: &str,
         module_factory: &mut crate::common::thing::module_factory::ModuleFactory,
@@ -1304,6 +1318,24 @@ pub fn load_templates_from_ini_text(content: &str, _source_name: &str) -> usize 
     }
 }
 
+/// Compatibility content residence with explicitly supplied parsing authority.
+/// No module catalog is installed globally and no already-parsed data is repaired.
+pub fn load_templates_from_ini_text_with_module_factory(
+    content: &str,
+    _source_name: &str,
+    module_factory: &mut crate::common::thing::module_factory::ModuleFactory,
+) -> usize {
+    if !ensure_thing_factory_exists() {
+        return 0;
+    }
+    let Ok(mut guard) = get_thing_factory() else {
+        return 0;
+    };
+    guard.as_mut().map_or(0, |factory| {
+        factory.load_ini_text_with_module_factory(content, module_factory)
+    })
+}
+
 /// Parse properties from an Object/ObjectReskin block into a HashMap.
 ///
 /// Returns `(properties, end_line_index)` where `end_line_index` is the line
@@ -1414,7 +1446,10 @@ pub(super) fn parse_object_block_properties(
     (properties, index)
 }
 
-fn load_runtime_object_templates(factory: &mut ThingFactory) -> Result<usize, String> {
+fn load_runtime_object_templates_with_module_factory(
+    factory: &mut ThingFactory,
+    mut module_factory: Option<&mut crate::common::thing::module_factory::ModuleFactory>,
+) -> Result<usize, String> {
     let sources = discover_object_ini_sources();
 
     let mut declarations = Vec::new();
@@ -1468,9 +1503,9 @@ fn load_runtime_object_templates(factory: &mut ThingFactory) -> Result<usize, St
     // Name-only shells are not C++ templates. Fill System.ini drawable-only
     // objects (GenericTracer/GenericRope) so FXList newDrawable has W3DTracerDraw.
     if let Some(text) = read_system_ini_text() {
-        loaded += factory.load_ini_text(&text);
+        loaded += factory.load_ini_text_inner(&text, module_factory.as_deref_mut());
     } else {
-        loaded += factory.load_ini_text(SYSTEM_INI_DRAWABLE_ONLY_FALLBACK);
+        loaded += factory.load_ini_text_inner(SYSTEM_INI_DRAWABLE_ONLY_FALLBACK, module_factory);
     }
 
     Ok(loaded)

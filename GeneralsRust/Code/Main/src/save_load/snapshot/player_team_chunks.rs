@@ -158,6 +158,7 @@ pub(crate) fn chunks_from_world(world: &WorldSnapshot) -> SaveLoadResult<PlayerT
 /// The outer Players/teams capsule is appended after every owner continuation.
 /// Validate it before exposing the inner EOF framing to an owner decoder.
 pub(super) fn lifecycle_prefix(bytes: &[u8]) -> SaveLoadResult<&[u8]> {
+    let (bytes, _) = super::initial_skirmish::split(bytes)?;
     let Some(start) = footer_start(bytes)? else {
         return Ok(bytes);
     };
@@ -166,6 +167,7 @@ pub(super) fn lifecycle_prefix(bytes: &[u8]) -> SaveLoadResult<&[u8]> {
 }
 
 fn chunks_from_lifecycle_tail(bytes: &[u8]) -> SaveLoadResult<PlayerTeamChunks> {
+    let (bytes, _) = super::initial_skirmish::split(bytes)?;
     let Some(start) = footer_start(bytes)? else {
         return Ok(PlayerTeamChunks::default());
     };
@@ -279,12 +281,18 @@ pub(crate) fn bind_chunks_to_world(
     }
     let size = u32::try_from(encoded.len())
         .map_err(|_| SaveLoadError::Serialization("Players/teams capsule too large".into()))?;
+    let (prefix, initial) = super::initial_skirmish::split(&world.lifecycle_tail)?;
+    let prefix_len = prefix.len();
+    world.lifecycle_tail.truncate(prefix_len);
     if let Some(start) = footer_start(&world.lifecycle_tail)? {
         world.lifecycle_tail.truncate(start);
     }
     world.lifecycle_tail.extend_from_slice(&encoded);
     world.lifecycle_tail.extend_from_slice(&size.to_le_bytes());
     world.lifecycle_tail.extend_from_slice(MAGIC);
+    if let Some(initial) = initial {
+        super::initial_skirmish::append_record(&mut world.lifecycle_tail, &initial)?;
+    }
     Ok(())
 }
 
@@ -344,9 +352,23 @@ pub(super) fn validate_definitions(
                     || p.prototype_id.is_none_or(|id| !ids.insert(id))
             })
         {
-            return Err(SaveLoadError::Corrupted(
-                "Complete saved roster has invalid prototype coverage".into(),
-            ));
+            let loaded = factory.list_team_prototypes();
+            let mut expected: Vec<_> = saved
+                .prototypes
+                .iter()
+                .map(|p| format!("{}={:?}", p.team_name, p.prototype_id))
+                .collect();
+            let mut actual: Vec<_> = loaded
+                .iter()
+                .map(|p| format!("{}={}", p.get_name(), p.get_id()))
+                .collect();
+            expected.sort();
+            actual.sort(); // display copies only; roster remains canonical
+            return Err(SaveLoadError::Corrupted(format!(
+                "Complete saved roster has invalid prototype coverage: saved_count={} loaded_count={} saved={expected:?} loaded={actual:?}",
+                saved.prototypes.len(),
+                loaded.len()
+            )));
         }
     }
     for definition in &saved.prototypes {

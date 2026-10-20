@@ -131,6 +131,7 @@ mod turret_aim_persist;
 mod warehouse_crippling_persist;
 mod weapon_leech_persist;
 
+pub(crate) mod initial_skirmish;
 mod particle_system_save;
 mod player_team_chunks;
 mod player_team_persist;

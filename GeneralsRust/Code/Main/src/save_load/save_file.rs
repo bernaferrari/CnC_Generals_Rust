@@ -12,6 +12,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+#[path = "save_file/map_admission.rs"]
+mod map_admission;
+
 /// Same tokens as C++ `GameState::xferSaveData` (`GameState.cpp:1313-1458`)
 /// and System `TheGameState` (`SAVELOAD_BLOCK_NAMES`).
 ///
@@ -603,6 +606,8 @@ fn write_game_state_map_block<W: Write + Seek>(
     xfer: &mut CommonXferSave<W>,
     save_info: &SaveGameInfo,
     save_directory: &Path,
+    source: Option<&game_engine::common::system::skirmish_game_info::SkirmishGameInfo>,
+    native_initial: bool,
 ) -> SaveLoadResult<()> {
     let mut version = 2u8;
     xfer.xfer_version(&mut version, 2)
@@ -618,7 +623,11 @@ fn write_game_state_map_block<W: Write + Seek>(
         .to_string();
     let pristine = super::map_paths::to_portable(pristine_source, save_directory, &user_data);
     write_ascii(xfer, &pristine)?;
-    let mut game_mode = pending_save_game_mode();
+    let mut game_mode = if native_initial || source.is_some() {
+        CPP_GAME_SKIRMISH
+    } else {
+        pending_save_game_mode()
+    };
     xfer.xfer_int(&mut game_mode)
         .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
 
@@ -648,19 +657,30 @@ fn write_game_state_map_block<W: Write + Seek>(
         .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
     xfer.xfer_unsigned_int(&mut drawable_id)
         .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
+    if let Some(source) = source {
+        // Xfer::xferMapName wraps this one field in the same explicit map-root
+        // projection as the enclosing GameStateMap (Xfer.cpp151–163).
+        let mut source = source.clone();
+        source.map_name =
+            super::map_paths::to_portable(&source.map_name, save_directory, &user_data);
+        source
+            .write_to_common(xfer)
+            .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
+    }
     Ok(())
 }
 
-fn extract_embedded_map(payload: &[u8], save_dir: &Path) -> Option<(PathBuf, String)> {
+fn extract_embedded_map(
+    payload: &[u8],
+    save_dir: &Path,
+    user_data: &str,
+) -> Option<(PathBuf, String)> {
     let mut xfer = CommonXferLoad::new(Cursor::new(payload), SAVE_FILE_VERSION);
     let mut version = 0u8;
     xfer.xfer_version(&mut version, 2).ok()?;
     let save_game_map = read_ascii(&mut xfer).ok()?;
     let portable_pristine = read_ascii(&mut xfer).ok()?;
-    let user_data = game_engine::common::global_data::read()
-        .get_user_data_dir()
-        .to_string();
-    let pristine = super::map_paths::from_portable(&portable_pristine, save_dir, &user_data);
+    let pristine = super::map_paths::from_portable(&portable_pristine, save_dir, user_data);
     if version >= 2 {
         let mut game_mode = 0i32;
         xfer.xfer_int(&mut game_mode).ok()?;
@@ -1314,6 +1334,22 @@ impl SaveFileManager {
         game_client_bytes: &[u8],
         save_directory: &Path,
     ) -> SaveLoadResult<Vec<u8>> {
+        let initial = crate::save_load::snapshot::initial_skirmish::read(world_snapshot)?;
+        let source_game_info =
+            crate::save_load::snapshot::initial_skirmish::source(world_snapshot)?;
+        let mode = if initial.is_some() || source_game_info.is_some() {
+            CPP_GAME_SKIRMISH
+        } else {
+            pending_save_game_mode()
+        };
+        if save_info.save_type != SaveFileType::Mission {
+            map_admission::validate_native(
+                world_snapshot,
+                mode,
+                source_game_info.as_ref(),
+                str::to_owned,
+            )?;
+        }
         let player_team_chunks = player_team_chunks_from_world(world_snapshot)?;
         if save_info.save_type != SaveFileType::Mission {
             validate_host_alliances(world_snapshot, &player_team_chunks)?;
@@ -1351,9 +1387,13 @@ impl SaveFileManager {
                         }
                         Ok(())
                     }
-                    CHUNK_GAME_STATE_MAP => {
-                        write_game_state_map_block(xfer, save_info, save_directory)
-                    }
+                    CHUNK_GAME_STATE_MAP => write_game_state_map_block(
+                        xfer,
+                        save_info,
+                        save_directory,
+                        source_game_info.as_ref(),
+                        initial.is_some(),
+                    ),
                     CHUNK_GHOST_OBJECT => {
                         write_null_snapshot_version(xfer)?;
                         if !ghost_bytes.is_empty() {
@@ -1514,6 +1554,8 @@ impl SaveFileManager {
         let mut radar_payload: Option<Vec<u8>> = None;
         let mut players_payload: Option<Vec<u8>> = None;
         let mut team_factory_payload: Option<Vec<u8>> = None;
+        let mut map_payload: Option<Vec<u8>> = None;
+        let mut map_admission = None;
         let mut ghost_companion: Option<Vec<u8>> = None;
         let mut particle_companion: Option<Vec<u8>> = None;
 
@@ -1570,14 +1612,8 @@ impl SaveFileManager {
                     stash_loaded_terrain_visual_xfer(payload);
                 }
             } else if token.eq_ignore_ascii_case(CHUNK_GAME_STATE_MAP) {
-                // C++ extractAndSaveMap (GameStateMap.cpp:308-368) parks the
-                // embedded .map in the Save directory and always sets
-                // TheWritableGlobalData->m_mapName to that scratch path.
-                // An installed same-named retail map must not override it.
-                if let Some((extracted, pristine)) = extract_embedded_map(&payload, save_dir) {
-                    save_info.map_name = extracted.to_string_lossy().into_owned();
-                    save_info.pristine_map_name = (!pristine.is_empty()).then_some(pristine);
-                }
+                map_admission = Some(map_admission::read_source(&payload)?);
+                map_payload = Some(payload);
             } else if token.eq_ignore_ascii_case(CHUNK_INGAME_UI) {
                 ingame_ui_payload = Some(payload);
             } else if token.eq_ignore_ascii_case(CHUNK_TACTICAL_VIEW) {
@@ -1621,6 +1657,26 @@ impl SaveFileManager {
             validate_host_alliances(&world_snapshot, &player_team_chunks)?;
         }
         bind_player_team_chunks(&mut world_snapshot, &player_team_chunks)?;
+        // Reuse the existing map-root observation for both the original
+        // GameInfo field and embedded-map extraction; no receiving definitions
+        // or lobby/runtime state are polled while decoding either candidate.
+        let user_data = game_engine::common::global_data::read()
+            .get_user_data_dir()
+            .to_string();
+        if let Some((mode, source)) = &map_admission {
+            map_admission::bind_original_if_needed(&mut world_snapshot, source.as_ref())?;
+            map_admission::validate_native(&world_snapshot, *mode, source.as_ref(), |map| {
+                super::map_paths::to_portable(map, save_dir, &user_data)
+            })?;
+        }
+        if let Some(payload) = map_payload {
+            if let Some((extracted, pristine)) =
+                extract_embedded_map(&payload, save_dir, &user_data)
+            {
+                save_info.map_name = extracted.to_string_lossy().into_owned();
+                save_info.pristine_map_name = (!pristine.is_empty()).then_some(pristine);
+            }
+        }
         world_snapshot.w3d_ghost_companion = ghost_companion;
         world_snapshot.particle_system_companion = particle_companion;
         apply_persist_chunks(

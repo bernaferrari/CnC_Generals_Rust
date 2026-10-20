@@ -109,6 +109,9 @@ pub struct GameLogic {
     /// reset with a match, survives the existing SP/skirmish map-load preserve
     /// path, and never mutates GameNetwork.
     pub(super) player_template_bindings: HashMap<u32, PlayerTemplateIdentity>,
+    /// Immutable once-resolved initial admission, distinct from current players.
+    pub(crate) initial_skirmish_admission:
+        Option<Box<crate::skirmish_config::saved_admission::SavedSkirmishAdmission>>,
 
     /// Object ID counter
     pub(super) next_object_id: ObjectId,

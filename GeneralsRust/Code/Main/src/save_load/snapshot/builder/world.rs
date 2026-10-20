@@ -265,6 +265,11 @@ impl SnapshotBuilder {
         super::super::player_team_chunks::validate_roster(&snapshot, &chunks)?;
         super::super::player_team_chunks::bind_chunks_to_world(&mut snapshot, &chunks)?;
 
+        if let Some(initial) = &game_logic.initial_skirmish_admission {
+            super::super::initial_skirmish::append(&mut snapshot.lifecycle_tail, initial)?;
+            snapshot.version = 29;
+        }
+
         log::info!(
             "World snapshot complete: {} objects, {} players",
             snapshot.objects.len(),
@@ -298,6 +303,12 @@ impl SnapshotBuilder {
         game_logic: &mut GameLogic,
     ) -> SaveLoadResult<()> {
         validate_direct_world_snapshot_version(snapshot.version)?;
+        let initial_skirmish = super::super::initial_skirmish::read_for_restore(snapshot)?;
+        if let Some(initial) = &initial_skirmish {
+            initial
+                .validate_definitions()
+                .map_err(crate::save_load::SaveLoadError::Corrupted)?;
+        }
         let camera_continuation =
             super::super::camera_continuation::decode(&snapshot.lifecycle_tail)?;
         if let Some(camera) = camera_continuation.as_ref() {
@@ -376,6 +387,7 @@ impl SnapshotBuilder {
         if let Some(value) = native_lifecycle.hulk_max_lifetime_override {
             game_logic.native_hulk_max_lifetime_override = value;
         }
+        game_logic.initial_skirmish_admission = initial_skirmish;
         game_logic.clear_victory_observation();
         game_logic.health_events.clear();
         game_logic.ownership_events.clear();
@@ -439,7 +451,7 @@ impl SnapshotBuilder {
         self.restore_weather(&snapshot.weather, game_logic)?;
         self.restore_resource_manager(&snapshot.resource_manager, game_logic)?;
         self.restore_combat_tracker(&snapshot.combat_tracker, game_logic)?;
-        // Accepted world versions (23 through 28) explicitly serialize the AI
+        // Accepted world versions (23 through 29) explicitly serialize the AI
         // roster. An empty roster must not run skirmish constructors, which
         // would invent controllers and overwrite saved player build flags.
         if !snapshot.ai_players.is_empty() {

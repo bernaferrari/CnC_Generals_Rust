@@ -906,8 +906,13 @@ impl SnapshotBuilder {
                     .min()
             })
             .flatten();
+        // PlayerList::xfer mutates the already-admitted Player roster. Retain
+        // initFromDict facts absent from PlayerSnapshot; never run default-team
+        // admission using a saved display label during restoration.
+        let mut admitted = std::mem::take(game_logic.get_players_mut());
         game_logic.clear_all_players();
         for snap in players {
+            let initialized = admitted.remove(&snap.id);
             let statistics = PlayerStatistics {
                 units_built: snap.statistics.units_built,
                 units_lost: snap.statistics.units_lost,
@@ -939,77 +944,84 @@ impl SnapshotBuilder {
             // Palace CashBountyPower modules re-apply after objects restore.
             let cash_bounty_percent = 0.0_f32;
 
-            game_logic.add_player(Player {
-                id: snap.id,
-                team: snap.team,
-                name: snap.name.clone(),
-                resources: snap.resources,
+            game_logic.get_players_mut().insert(
+                snap.id,
+                Player {
+                    id: snap.id,
+                    team: snap.team,
+                    name: snap.name.clone(),
+                    resources: snap.resources,
 
-                power_available: snap.resources.power,
-                power_produced: 0,
-                power_consumed: 0,
-                // C++ Energy production is rebuilt after load.  In
-                // particular, an active OverchargeBehavior replays its bonus
-                // for the object's current controller in loadPostProcess.
-                captured_overcharge_power_delta: 0,
-                income_accumulator: 0.0,
-                selected_objects: Vec::new(),
-                unlocked_sciences,
-                queued_upgrades,
-                is_human: snap.is_human,
-                is_local: local_ids.contains(&snap.id) || fallback_local == Some(snap.id),
-                is_alive: snap.is_active,
-                is_observer: false,
-                did_preorder: false,
-                statistics,
-                academy_stats: game_engine::common::rts::academy_stats::AcademyStats::new(),
-                power_sabotaged_till_frame: 0,
-                color_rgb: (200, 200, 200),
-                color_night_rgb: (200, 200, 200),
+                    power_available: snap.resources.power,
+                    power_produced: 0,
+                    power_consumed: 0,
+                    // C++ Energy production is rebuilt after load.  In
+                    // particular, an active OverchargeBehavior replays its bonus
+                    // for the object's current controller in loadPostProcess.
+                    captured_overcharge_power_delta: 0,
+                    income_accumulator: 0.0,
+                    selected_objects: Vec::new(),
+                    unlocked_sciences,
+                    queued_upgrades,
+                    is_human: snap.is_human,
+                    is_local: local_ids.contains(&snap.id) || fallback_local == Some(snap.id),
+                    is_alive: snap.is_active,
+                    is_observer: initialized.as_ref().is_some_and(|p| p.is_observer),
+                    did_preorder: initialized.as_ref().is_some_and(|p| p.did_preorder),
+                    statistics,
+                    academy_stats: game_engine::common::rts::academy_stats::AcademyStats::new(),
+                    power_sabotaged_till_frame: 0,
+                    color_rgb: initialized
+                        .as_ref()
+                        .map_or((200, 200, 200), |p| p.color_rgb),
+                    color_night_rgb: initialized
+                        .as_ref()
+                        .map_or((200, 200, 200), |p| p.color_night_rgb),
 
-                start_position: -1,
-                alliance_team: -1,
-                cash_bounty_percent,
-                // Recomputed from owned CommandCenter / RadarVan on next
-                // update_player_radar residual pass (fail-closed restore).
-                radar_count: 0,
-                radar_disabled: false,
-                disable_proof_radar_count: 0,
-                logical_retaliation_mode_enabled: false,
-                // Pre-v10 fallback. C++ Player::xfer (Player.cpp:4268-4275)
-                // persists these; v10 `player_ranks` overwrites them after
-                // this constructor when the world tail is present.
-                rank_level: 1,
-                skill_points: 0,
-                science_purchase_points: 0,
-                skill_points_modifier: 1.0,
-                special_powers_used: 0,
-                can_build_units: true,
-                can_build_base: true,
-                units_should_hunt: false,
-                list_in_score_screen: true,
+                    start_position: initialized.as_ref().map_or(-1, |p| p.start_position),
+                    alliance_team: initialized.as_ref().map_or(-1, |p| p.alliance_team),
+                    cash_bounty_percent,
+                    // Recomputed from owned CommandCenter / RadarVan on next
+                    // update_player_radar residual pass (fail-closed restore).
+                    radar_count: 0,
+                    radar_disabled: false,
+                    disable_proof_radar_count: 0,
+                    logical_retaliation_mode_enabled: false,
+                    // Pre-v10 fallback. C++ Player::xfer (Player.cpp:4268-4275)
+                    // persists these; v10 `player_ranks` overwrites them after
+                    // this constructor when the world tail is present.
+                    rank_level: 1,
+                    skill_points: 0,
+                    science_purchase_points: 0,
+                    skill_points_modifier: 1.0,
+                    special_powers_used: 0,
+                    can_build_units: true,
+                    can_build_base: true,
+                    units_should_hunt: false,
+                    list_in_score_screen: true,
 
-                kind_of_production_cost_changes: Vec::new(),
-                shared_special_power_cooldowns: std::collections::HashMap::new(),
-                // C++ Player::xfer m_upgradesCompleted. Stamp writes the name
-                // list onto snap.upgrades; apply also re-adds after host registry.
-                completed_upgrades: snap
-                    .upgrades
-                    .iter()
-                    .filter(|name| !name.trim().is_empty())
-                    .cloned()
-                    .collect(),
-                resource_supply_centers: Vec::new(),
-                resource_supply_warehouses: Vec::new(),
-                map_side: crate::game_logic::PlayerMapSideState::default(),
-                team_relations: std::collections::HashMap::new(),
-                team_instance_team_relations: std::collections::HashMap::new(),
-                team_instance_player_relations: std::collections::HashMap::new(),
-                sciences_disabled: std::collections::HashSet::new(),
-                sciences_hidden: std::collections::HashSet::new(),
-                attacked_by: [false; crate::game_logic::Player::MAX_ATTACKED_BY_PLAYERS],
-                attacked_frame: 0,
-            });
+                    kind_of_production_cost_changes: Vec::new(),
+                    shared_special_power_cooldowns: std::collections::HashMap::new(),
+                    // C++ Player::xfer m_upgradesCompleted. Stamp writes the name
+                    // list onto snap.upgrades; apply also re-adds after host registry.
+                    completed_upgrades: snap
+                        .upgrades
+                        .iter()
+                        .filter(|name| !name.trim().is_empty())
+                        .cloned()
+                        .collect(),
+                    resource_supply_centers: Vec::new(),
+                    resource_supply_warehouses: Vec::new(),
+                    map_side: initialized.map(|p| p.map_side).unwrap_or_default(),
+                    team_relations: std::collections::HashMap::new(),
+                    team_instance_team_relations: std::collections::HashMap::new(),
+                    team_instance_player_relations: std::collections::HashMap::new(),
+                    sciences_disabled: std::collections::HashSet::new(),
+                    sciences_hidden: std::collections::HashSet::new(),
+                    attacked_by: [false; crate::game_logic::Player::MAX_ATTACKED_BY_PLAYERS],
+                    attacked_frame: 0,
+                },
+            );
         }
         Ok(())
     }

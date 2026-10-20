@@ -20,13 +20,14 @@ use std::time::SystemTime;
 /// host alliances / side identities / admission cash and its source in Players v4–v7, so older builds reject
 /// new bundles before host restore. Version 28 requires the live projectile arena
 /// continuation frame. Only these Rust capability versions are readable;
-/// original C++ module Xfer versions remain independently defined.
-pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 28;
-pub const WORLD_SNAPSHOT_DIRECT_XFER_VERSION: u32 = 28;
+/// Version 29 advertises the optional resolved-start capsule. The positional
+/// body remains unchanged; original C++ module versions are independent.
+pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 29;
+pub const WORLD_SNAPSHOT_DIRECT_XFER_VERSION: u32 = 29;
 
 /// Validate the Rust outer envelope before consuming or restoring its body.
 pub(crate) fn validate_direct_world_snapshot_version(version: u32) -> SaveLoadResult<()> {
-    if matches!(version, 23..=28) {
+    if matches!(version, 23..=29) {
         Ok(())
     } else {
         Err(crate::save_load::SaveLoadError::VersionMismatch {
@@ -232,7 +233,7 @@ pub struct WorldSnapshot {
     pub pending_combat: crate::game_logic::combat::PendingCombatSnapshot,
 
     /// Named GhostObject block travels with this decoded save. It is outside
-    /// the unchanged v23-28 GameLogic positional body and direct Xfer stream.
+    /// the unchanged v23-29 GameLogic positional body and direct Xfer stream.
     #[serde(skip)]
     pub(crate) w3d_ghost_companion: Option<Vec<u8>>,
     /// Raw named ParticleSystem block owned by this load/save candidate, never

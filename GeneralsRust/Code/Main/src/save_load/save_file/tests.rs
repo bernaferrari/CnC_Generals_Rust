@@ -583,12 +583,13 @@ fn game_state_map_round_trips_live_game_mode() {
                     difficulty: GameDifficulty::Medium,
                     save_type: SaveFileType::Normal,
                 };
-                write_game_state_map_block(&mut xfer, &info, Path::new("Save")).expect("write map");
+                write_game_state_map_block(&mut xfer, &info, Path::new("Save"), None, false)
+                    .expect("write map");
             }
             set_pending_save_game_mode(None);
             store_loaded_game_state_map_mode(None);
             let dest = unique_fixture_directory();
-            let _ = extract_embedded_map(&payload, &dest);
+            let _ = extract_embedded_map(&payload, &dest, "");
             assert_eq!(
                 take_loaded_game_state_map_mode(),
                 Some(CPP_GAME_SKIRMISH),

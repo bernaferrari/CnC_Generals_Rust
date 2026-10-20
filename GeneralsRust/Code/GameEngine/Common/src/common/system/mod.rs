@@ -35,6 +35,7 @@ pub mod radar;
 pub mod ram_file;
 pub mod registry;
 pub mod scene_submission;
+pub mod skirmish_game_info;
 pub mod snapshot;
 pub mod stack_dump;
 pub mod streaming_archive_file;

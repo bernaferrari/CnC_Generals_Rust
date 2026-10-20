@@ -377,6 +377,7 @@ fn host_synthesize_skirmish_config(
 ) -> crate::skirmish_config::SkirmishMatchConfig {
     let (start_positions, map_side_factions) = host_map_skirmish_shape(map_name);
     crate::skirmish_config::SkirmishMatchConfig {
+        source_game_info: None,
         map: map_name.to_string(),
         // There is no live GameInfo seed here; 0 is the deterministic seed
         // the golden host config uses for the same situation.
@@ -655,9 +656,6 @@ impl CnCGameEngine {
                     warn!("Rejecting configured Skirmish start before map load: {e}");
                     self.return_to_main_menu_after_match();
                     return;
-                } else if let Some(human) = config.slots.iter().find(|s| s.is_human && s.is_active)
-                {
-                    self.current_player_id = human.slot_index as u32;
                 }
             } else {
                 // C++ `GameLogic::startNewGame` (GameLogic.cpp:1494-1532)
@@ -676,10 +674,7 @@ impl CnCGameEngine {
                     faction
                 );
                 match self.host_apply_skirmish_config_authority(&synthesized) {
-                    Ok(()) => {
-                        // The synthesized human always owns slot 0.
-                        self.current_player_id = 0;
-                    }
+                    Ok(()) => {}
                     Err(e) => {
                         warn!("Rejecting synthesized Skirmish start before map load: {e}");
                         self.return_to_main_menu_after_match();
@@ -2892,6 +2887,7 @@ End
         // cash applied by the production authority path.
         let slots = host_synthesize_skirmish_slots(&[0, 1, 2], &["GLA", "China"], "USA");
         let config = crate::skirmish_config::SkirmishMatchConfig {
+            source_game_info: None,
             map: "SynthMap".to_string(),
             random_seed: 0,
             old_factions_only: false,

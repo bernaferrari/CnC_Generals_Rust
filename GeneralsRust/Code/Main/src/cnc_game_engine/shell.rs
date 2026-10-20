@@ -1582,7 +1582,12 @@ impl CnCGameEngine {
                         }
                     }
 
-                    if let Err(err) = game_engine::common::thing::init_thing_system() {
+                    // W3DModuleFactory registration precedes authored Object
+                    // parsing. Keep its catalog local; templates retain typed data.
+                    let mut native_module_catalog = game_engine::common::thing::module_factory::ModuleFactory::new();
+                    gamelogic::contain_module_overrides::register_native_module_overrides(&mut native_module_catalog)
+                        .expect("native startup module constructor catalog must be complete");
+                    if let Err(err) = game_engine::common::thing::init_thing_system_with_module_factory(&mut native_module_catalog) {
                         warn!("Thing system init failed during startup bootstrap: {err}. Continuing without thing system.");
                     }
                     if !game_engine::common::thing::thing_factory::ensure_system_ini_drawable_only_templates()
@@ -1598,9 +1603,10 @@ impl CnCGameEngine {
                         let mut total_loaded = 0usize;
                         for ini_path in &object_ini_paths {
                             if let Some(content) = extract_ini_text_from_archives(ini_path) {
-                                total_loaded += game_engine::common::thing::load_templates_from_ini_text(
+                                total_loaded += game_engine::common::thing::thing_factory::load_templates_from_ini_text_with_module_factory(
                                     &content,
                                     ini_path,
+                                    &mut native_module_catalog,
                                 );
                             }
                         }

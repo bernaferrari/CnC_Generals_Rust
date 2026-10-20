@@ -1456,3 +1456,7 @@ mod strict_receiving_source_tests {
         );
     }
 }
+
+#[cfg(all(test, feature = "game_client"))]
+#[path = "ww3d_asset_manager/native_template_data_tests.rs"]
+mod native_template_data_tests;

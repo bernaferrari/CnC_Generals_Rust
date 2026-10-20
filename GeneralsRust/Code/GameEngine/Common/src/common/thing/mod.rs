@@ -147,6 +147,15 @@ pub fn init_thing_system() -> Result<(), String> {
     Ok(())
 }
 
+/// Startup content may borrow a native catalog without publishing it as the
+/// compatibility ModuleFactory. Typed immutable data remains on each template.
+pub fn init_thing_system_with_module_factory(
+    module_factory: &mut module_factory::ModuleFactory,
+) -> Result<(), String> {
+    init_module_factory()?;
+    thing_factory::init_thing_factory_with_module_factory(module_factory)
+}
+
 /// Shutdown the entire Thing subsystem
 ///
 /// This function shuts down both factories and should be called during

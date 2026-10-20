@@ -160252,7 +160252,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "53ecc8e44c7b9e4e657042a212a1a57347476236f984825090649a18e8abcbb2",
+  "input_digest": "6b96870250c578b901c430ca679d5481ff6d6e547ab482617736f417acc29667",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -160305,11 +160305,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 847,
+        "end_line": 734,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/Common/src/System/SaveGame/game_state_map.rs",
-      "sha256": "3fb41d2e76cd4693cba15bd7b1b50fefe945ac9978449854c42a3a9124462238",
+      "sha256": "b666b43fd1e9bd3d696420493fda52e599bf9281f12b62031eb54d7701b2a85d",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -164037,11 +164037,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 2669,
+        "end_line": 2679,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini.rs",
-      "sha256": "564994d144247430bae4214cd89753551234d7d9f541ad862265d45cfdf18ad8",
+      "sha256": "4aee9d215e5ab40dfceece7694d40cd6303a7842b768ff39f07adb1e0bb9873b",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -165717,11 +165717,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 268,
+        "end_line": 277,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/mod.rs",
-      "sha256": "0b7180363397d90652ac2b11cb90e93b1d8c82eb9efa881c90b66b7795e8f61d",
+      "sha256": "e1da3ff5993e767a8af6b3eeb3e9a55ce136c8cd169005e8c7d6915398ac4e63",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -165861,11 +165861,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 2408,
+        "end_line": 2443,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/thing_factory.rs",
-      "sha256": "2f265c516d11367ec80dd85182d99e7b3ad0c0599ddbfdfbb81fad5ccf94ef81",
+      "sha256": "cad96c4027f4a0162c96dd5a0ac7a8436fac4ebe09728670e8e5fdd275d6a1c0",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },

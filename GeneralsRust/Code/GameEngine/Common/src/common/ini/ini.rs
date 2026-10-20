@@ -1700,6 +1700,16 @@ impl INI {
         Ok(())
     }
 
+    /// Consume this prepared source through the original normalized line reader
+    /// without dispatching content parsers. An attached CRC receives exactly
+    /// those line buffers; definitions and other runtime owners are untouched.
+    pub fn consume_remaining_lines(&mut self) -> INIResult<()> {
+        while !self.is_eof() {
+            self.read_line()?;
+        }
+        Ok(())
+    }
+
     /// Get the first token from the current line
     pub fn get_first_token(&self) -> Option<String> {
         self.buffer.split_whitespace().next().map(|s| s.to_string())

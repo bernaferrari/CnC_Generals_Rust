@@ -20,131 +20,18 @@ use std::path::{Path, PathBuf};
 
 const GAME_SKIRMISH_MODE: i32 = 2;
 
-/// C++ `GameInfo.h` / `NetworkDefs.h`: `MAX_SLOTS = MAX_PLAYER+1 = 8`.
 const SKIRMISH_MAX_SLOTS: i32 = 8;
 const SKIRMISH_GAME_INFO_VERSION: XferVersion = 4;
-
-/// C++ `SkirmishGameInfo::xfer` (GameInfo.cpp:1488-1588) field layout.
-/// Host/UI hooks still exchange the same snapshot bytes; we no longer wrap
-/// them in a Rust-only `u32` length prefix.
-#[derive(Clone)]
-struct SkirmishGameInfoSnapshot {
-    preorder_mask: i32,
-    crc_interval: i32,
-    in_game: bool,
-    in_progress: bool,
-    surrendered: bool,
-    game_id: i32,
-    slots: [SkirmishSlotSnapshot; SKIRMISH_MAX_SLOTS as usize],
-    local_ip: u32,
-    map_name: String,
-    map_crc: u32,
-    map_size: u32,
-    map_mask: i32,
-    seed: i32,
-    superweapon_restriction: u16,
-    starting_cash: u32,
-}
-
-#[derive(Clone, Default)]
-struct SkirmishSlotSnapshot {
-    state: i32,
-    name: String,
-    is_accepted: bool,
-    is_muted: bool,
-    color: i32,
-    start_pos: i32,
-    player_template: i32,
-    team_number: i32,
-    orig_color: i32,
-    orig_start_pos: i32,
-    orig_player_template: i32,
-}
-
-impl Default for SkirmishGameInfoSnapshot {
-    fn default() -> Self {
-        Self {
-            preorder_mask: 0,
-            crc_interval: 0,
-            in_game: false,
-            in_progress: false,
-            surrendered: false,
-            game_id: 0,
-            slots: Default::default(),
-            local_ip: 0,
-            map_name: String::new(),
-            map_crc: 0,
-            map_size: 0,
-            map_mask: 0,
-            seed: 0,
-            superweapon_restriction: 0,
-            starting_cash: 0,
-        }
-    }
-}
-
+use super::campaign_xfer::{
+    ChallengeGameInfoXfer as SkirmishGameInfoSnapshot, ChallengeSlotXfer as SkirmishSlotSnapshot,
+};
 impl Snapshot for SkirmishGameInfoSnapshot {
     fn crc(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
         self.xfer(xfer)
     }
-
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
-        // GameInfo.cpp:1490-1492
-        let mut version = SKIRMISH_GAME_INFO_VERSION;
-        xfer.xfer_version(&mut version, SKIRMISH_GAME_INFO_VERSION)?;
-
-        xfer.xfer_int(&mut self.preorder_mask)?;
-        xfer.xfer_int(&mut self.crc_interval)?;
-        xfer.xfer_bool(&mut self.in_game)?;
-        xfer.xfer_bool(&mut self.in_progress)?;
-        xfer.xfer_bool(&mut self.surrendered)?;
-        xfer.xfer_int(&mut self.game_id)?;
-
-        let mut slot_count = SKIRMISH_MAX_SLOTS;
-        xfer.xfer_int(&mut slot_count)?;
-        let slots_to_xfer = slot_count.clamp(0, SKIRMISH_MAX_SLOTS) as usize;
-        for slot in self.slots.iter_mut().take(slots_to_xfer) {
-            xfer.xfer_int(&mut slot.state)?;
-            if version >= 2 {
-                xfer.xfer_unicode_string(&mut slot.name)?;
-            }
-            xfer.xfer_bool(&mut slot.is_accepted)?;
-            xfer.xfer_bool(&mut slot.is_muted)?;
-            xfer.xfer_int(&mut slot.color)?;
-            xfer.xfer_int(&mut slot.start_pos)?;
-            xfer.xfer_int(&mut slot.player_template)?;
-            xfer.xfer_int(&mut slot.team_number)?;
-            xfer.xfer_int(&mut slot.orig_color)?;
-            xfer.xfer_int(&mut slot.orig_start_pos)?;
-            xfer.xfer_int(&mut slot.orig_player_template)?;
-        }
-
-        xfer.xfer_unsigned_int(&mut self.local_ip)?;
-        // System Xfer has no xfer_map_name; C++ xferMapName is ascii + portable
-        // conversion, which GameState already applied to hook payloads.
-        xfer.xfer_ascii_string(&mut self.map_name)?;
-        xfer.xfer_unsigned_int(&mut self.map_crc)?;
-        xfer.xfer_unsigned_int(&mut self.map_size)?;
-        xfer.xfer_int(&mut self.map_mask)?;
-        xfer.xfer_int(&mut self.seed)?;
-
-        if version >= 3 {
-            xfer.xfer_unsigned_short(&mut self.superweapon_restriction)?;
-            if version == 3 {
-                let mut obsolete = false;
-                xfer.xfer_bool(&mut obsolete)?;
-            }
-            // C++ `xfer->xferSnapshot(&m_startingCash)` → Money.cpp v1 + u32.
-            let mut money_version: XferVersion = 1;
-            xfer.xfer_version(&mut money_version, 1)?;
-            xfer.xfer_unsigned_int(&mut self.starting_cash)?;
-        } else if xfer.get_xfer_mode() == XferMode::Load {
-            self.superweapon_restriction = 0;
-            self.starting_cash = 0;
-        }
-        Ok(())
+        SkirmishGameInfoSnapshot::xfer(self, xfer)
     }
-
     fn load_post_process(&mut self) -> Result<(), XferStatus> {
         Ok(())
     }

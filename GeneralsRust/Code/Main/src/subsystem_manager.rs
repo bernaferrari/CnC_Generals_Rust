@@ -352,7 +352,11 @@ impl SubsystemInterface for GlobalDataSubsystem {
 
         for path in &ini_paths {
             if std::path::Path::new(path).exists() {
-                match ini.load(path, INILoadType::Overwrite) {
+                match ini.with_file_source(
+                    path,
+                    INILoadType::Overwrite,
+                    INI::consume_remaining_lines,
+                ) {
                     Ok(()) => debug!("XferCRC INI loaded: {}", path),
                     Err(err) => debug!("XferCRC INI skipped '{}': {}", path, err),
                 }
