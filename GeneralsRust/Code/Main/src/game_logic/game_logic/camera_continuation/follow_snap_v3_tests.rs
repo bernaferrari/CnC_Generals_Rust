@@ -10,7 +10,7 @@ fn pending_snap_v3_roundtrips_without_extending_frozen_v2_or_logic40() {
             .unwrap();
     world.session_view.camera.camera_follow_snap_immediate = true;
     let bytes = world.capture_camera_continuation().unwrap();
-    assert_eq!(&bytes[4..8], &6_u32.to_le_bytes());
+    assert_eq!(&bytes[4..8], &7_u32.to_le_bytes());
     let pending = decode(&bytes).unwrap();
     assert!(pending.owned_follow_snap_immediate());
     assert_eq!(
@@ -21,7 +21,11 @@ fn pending_snap_v3_roundtrips_without_extending_frozen_v2_or_logic40() {
         codec().serialize(&before.owned_extras.camera).unwrap(),
         codec().serialize(&pending.owned_extras.camera).unwrap()
     );
-    let v5: EnvelopeV5 = codec().deserialize::<EnvelopeV6>(&bytes[8..]).unwrap().base;
+    let v5: EnvelopeV5 = codec()
+        .deserialize::<EnvelopeV7>(&bytes[8..])
+        .unwrap()
+        .base
+        .base;
     let v4 = v5.base;
     let v3 = v4.base;
     let mut old3 = MAGIC.to_vec();

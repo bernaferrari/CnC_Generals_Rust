@@ -226,3 +226,19 @@ fn plain_world_snapshot_resumes_actual_headless_camera_owner_without_native_reco
     assert!(!receiving.session_view.scripted.script_camera_freeze_time);
     assert_eq!(receiving.visual_speed_multiplier(), 2.);
 }
+
+#[test]
+fn native_v7_scalar_time_preflight_rejects_conflicting_logic_before_admission() {
+    let (source, mut native) = pair();
+    let before = source.capture_camera_continuation().unwrap();
+    native.1.rotation_timing = Some(source.session_view.camera.rotation);
+    native.validate_logic_continuation(&logic(&source)).unwrap();
+    native.1.rotation_timing.as_mut().unwrap().time.end = 5;
+    assert!(
+        native
+            .validate_logic_continuation(&logic(&source))
+            .unwrap_err()
+            .contains("scalar rotation time")
+    );
+    assert_eq!(source.capture_camera_continuation().unwrap(), before);
+}

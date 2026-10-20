@@ -59,7 +59,13 @@ fn delivered_equal_x_cursor_is_a_setter_while_absent_event_and_idle_keys_are_not
     assert_eq!(modes.last_mouse_move_frame, 777);
     assert!(rotating);
     world.session_view.camera.camera_yaw_target = Some(0.5);
-    world.session_view.camera.camera_yaw_duration = 1.;
+    world.session_view.camera.rotation =
+        crate::presentation_frame::camera::rotation::RotationTiming::historical(
+            1.,
+            world.session_view.camera.rotation.ease_in(),
+            world.session_view.camera.rotation.ease_out(),
+            world.session_view.camera.rotation.time,
+        );
     let before = world.capture_camera_continuation().unwrap();
     let modes_before = serde_json::to_value(modes.capture_continuation()).unwrap();
     {
@@ -193,7 +199,13 @@ fn actual_winit_wheel_delta_per_detent_and_opposite_keys_share_engine_loan_opera
             ScriptedCameraPlayerCancel::Set
         );
         world.session_view.camera.camera_yaw_target = Some(0.5);
-        world.session_view.camera.camera_yaw_duration = 1.;
+        world.session_view.camera.rotation =
+            crate::presentation_frame::camera::rotation::RotationTiming::historical(
+                1.,
+                world.session_view.camera.rotation.ease_in(),
+                world.session_view.camera.rotation.ease_out(),
+                world.session_view.camera.rotation.time,
+            );
         let before = world.capture_camera_continuation().unwrap();
         let mode_before = serde_json::to_value(modes.capture_continuation()).unwrap();
         {

@@ -19,6 +19,7 @@ pub(crate) struct NativeCameraContinuation(CameraState, NativeCameraExtras);
 /// Neither this value nor the historical Native85 record is a runtime owner.
 #[derive(Default)]
 struct NativeCameraExtras {
+    rotation_timing: Option<crate::presentation_frame::camera::rotation::RotationTiming>,
     filter: Option<(glam::Vec2, Vec3)>,
     completed_view: Option<glam::Mat4>,
     camera_settings: Option<crate::presentation_frame::camera::settings::CameraSettings>,
@@ -179,10 +180,13 @@ impl CameraState {
         camera.camera_yaw_radians = self.camera_yaw_radians;
         camera.camera_yaw_target = self.camera_yaw_target;
         camera.camera_yaw_start = self.camera_yaw_start;
-        camera.camera_yaw_duration = self.camera_yaw_duration;
+        camera.rotation = crate::presentation_frame::camera::rotation::RotationTiming::historical(
+            self.camera_yaw_duration,
+            self.camera_yaw_ease_in,
+            self.camera_yaw_ease_out,
+            camera.rotation.time,
+        );
         camera.camera_yaw_frame = self.camera_yaw_frame;
-        camera.camera_yaw_ease_in = self.camera_yaw_ease_in;
-        camera.camera_yaw_ease_out = self.camera_yaw_ease_out;
         camera.camera_shake_rotation = self.camera_shake_rotation;
         camera.script_camera_shakers = self.script_camera_shakers.clone();
         camera.camera_follow_factor = self.camera_follow_factor;
@@ -212,6 +216,14 @@ impl NativeCameraContinuation {
         &self,
         logic: &crate::game_logic::LogicCameraContinuation,
     ) -> Result<(), String> {
+        if let Some(native) = self.1.rotation_timing {
+            if logic
+                .owned_rotation_timing()
+                .is_none_or(|logic| !logic.same_observation(native))
+            {
+                return Err("logic/native scalar rotation time absent or disagrees".into());
+            }
+        }
         if let Some(shake) = self.1.shake_policy {
             shake.validate()?;
         }
@@ -412,21 +424,11 @@ impl CnCGameEngine {
                 .game_logic
                 .session_view
                 .camera
-                .camera_yaw_duration
-                .clone(),
+                .rotation
+                .duration_seconds(),
             camera_yaw_frame: self.game_logic.session_view.camera.camera_yaw_frame.clone(),
-            camera_yaw_ease_in: self
-                .game_logic
-                .session_view
-                .camera
-                .camera_yaw_ease_in
-                .clone(),
-            camera_yaw_ease_out: self
-                .game_logic
-                .session_view
-                .camera
-                .camera_yaw_ease_out
-                .clone(),
+            camera_yaw_ease_in: self.game_logic.session_view.camera.rotation.ease_in(),
+            camera_yaw_ease_out: self.game_logic.session_view.camera.rotation.ease_out(),
             camera_shake_offset: view.offset,
             camera_shake_rotation: self
                 .game_logic
@@ -523,6 +525,8 @@ impl CnCGameEngine {
                 .native_filter_previous_target = previous_target;
         }
         let completed_view = continuation.completed_view();
+        // Pre-V7 native DTOs have no scalar endpoint observations; retain the
+        // logic companion's documented historical migration in that case.
         if let Some(shake) = continuation.1.shake_policy {
             self.game_logic.session_view.camera.shake_policy = shake;
         }
@@ -540,6 +544,10 @@ impl CnCGameEngine {
         let state = continuation.0;
         let now = Instant::now();
         state.admit_session_camera_fields(&mut self.game_logic.session_view.camera);
+        if let Some(time) = continuation.1.rotation_timing {
+            self.game_logic.session_view.camera.rotation = time;
+        }
+
         self.look_at_modes.admit_continuation(state.look_at);
         self.native_display
             .admit_continuation(state.display, client_frame(self));

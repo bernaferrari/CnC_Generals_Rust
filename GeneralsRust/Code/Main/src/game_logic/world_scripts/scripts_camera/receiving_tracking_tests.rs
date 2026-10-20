@@ -29,7 +29,13 @@ fn authored_tracking(world: &mut GameLogic, foreign: &Arc<MissionScriptHooks>) {
         .object_tracking
         .as_ref()
         .unwrap();
-    assert_eq!((tracking.turn_frames, tracking.hold_frames), (3, 4));
+    assert_eq!(
+        (
+            world.session_view.camera.rotation.turn_frames,
+            tracking.hold_frames
+        ),
+        (3, 4)
+    );
     assert_eq!(world.session_view.camera.camera_yaw_frame, 0);
     assert!(world.session_view.camera.camera_yaw_target.is_some());
 }

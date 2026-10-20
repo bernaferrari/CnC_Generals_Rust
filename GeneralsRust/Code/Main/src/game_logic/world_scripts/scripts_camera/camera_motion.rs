@@ -174,10 +174,8 @@ impl GameLogic {
                 .scripted
                 .object_tracking
                 .as_ref()
-                .map(|tracking| tracking.turn_frames + tracking.hold_frames)
-                .unwrap_or_else(|| {
-                    (camera_milliseconds(camera.camera_yaw_duration).max(1) / CAMERA_FRAME_MS)
-                        .max(1) as u32
+                .map_or(camera.rotation.turn_frames, |tracking| {
+                    camera.rotation.turn_frames + tracking.hold_frames
                 });
             return frames.saturating_sub(camera.camera_yaw_frame) as f32 * CAMERA_FRAME_MS as f32
                 / 1000.0;
@@ -247,10 +245,8 @@ impl GameLogic {
         request: &CameraModFinalSpeedMultiplierRequest,
     ) {
         if self.session_view.camera.camera_yaw_target.is_some() {
-            if let Some(tracking) = self.session_view.scripted.object_tracking.as_mut() {
-                tracking.end_time_multiplier = request.multiplier;
-                return;
-            }
+            self.session_view.camera.rotation.time.end = request.multiplier;
+            return;
         }
         self.session_view
             .scripted
@@ -322,25 +318,25 @@ impl GameLogic {
         ease_out: f32,
     ) {
         let milliseconds = camera_milliseconds(seconds).max(1);
-        let turn_frames = (milliseconds / CAMERA_FRAME_MS).max(1) as u32;
         let hold_frames = (camera_milliseconds(hold_seconds).max(0) / CAMERA_FRAME_MS) as u32;
         let multiplier = self.visual_speed_multiplier as i32;
+        self.session_view.camera.rotation.time =
+            crate::presentation_frame::camera::rotation::RotationTime::constant(multiplier);
         self.session_view.scripted.object_tracking = Some(CameraObjectTracking {
-            duration_ms: milliseconds,
-            turn_frames,
             hold_frames,
             last_position: position,
-            start_time_multiplier: multiplier,
-            end_time_multiplier: multiplier,
         });
         self.session_view.scripted.script_look_toward_object_id = Some(object_id);
         self.session_view.scripted.motion.active = false;
         self.session_view.scripted.path_arrived = false;
         let camera = &mut self.session_view.camera;
         camera.camera_yaw_frame = 0;
-        camera.camera_yaw_duration = milliseconds as f32 / 1000.;
-        camera.camera_yaw_ease_in = ease_in;
-        camera.camera_yaw_ease_out = ease_out;
+        camera.rotation = crate::presentation_frame::camera::rotation::RotationTiming::milliseconds(
+            milliseconds,
+            ease_in,
+            ease_out,
+            camera.rotation.time,
+        );
         camera.camera_yaw_target = Some(camera.camera_yaw_radians);
         self.mark_script_camera_movement_maybe_finished();
     }
@@ -360,7 +356,7 @@ impl GameLogic {
         let camera = &mut self.session_view.camera;
         camera.camera_yaw_frame = camera.camera_yaw_frame.saturating_add(1);
         let frame = camera.camera_yaw_frame;
-        let final_frame = tracking.turn_frames + tracking.hold_frames;
+        let final_frame = camera.rotation.turn_frames + tracking.hold_frames;
         if !admission.disable_camera_movement && frame <= final_frame {
             if let Some(position) = current {
                 tracking.last_position = position;
@@ -375,26 +371,14 @@ impl GameLogic {
                 }
                 angle -= std::f32::consts::FRAC_PI_2;
                 normalize_tracking_angle(&mut angle);
-                if frame <= tracking.turn_frames {
-                    let duration_ms = tracking.duration_ms as f32;
-                    let factor = crate::presentation_frame::camera::motion::parabolic_ease(
-                        frame as f32 / tracking.turn_frames as f32,
-                        camera.camera_yaw_ease_in * 1000. / duration_ms,
-                        camera.camera_yaw_ease_out * 1000. / duration_ms,
-                    );
+                if frame <= camera.rotation.turn_frames {
+                    let factor = camera.rotation.factor(frame);
                     let mut delta = angle - camera.camera_yaw_radians;
                     normalize_tracking_angle(&mut delta);
                     delta *= factor;
                     camera.camera_yaw_radians += delta;
                     normalize_tracking_angle(&mut camera.camera_yaw_radians);
-                    let time_delta = (i64::from(tracking.end_time_multiplier)
-                        - i64::from(tracking.start_time_multiplier))
-                        as f32
-                        * factor;
-                    self.visual_speed_multiplier = tracking
-                        .start_time_multiplier
-                        .saturating_add((0.5 + f64::from(time_delta)).floor() as i32)
-                        as f32;
+                    self.visual_speed_multiplier = camera.rotation.time.sample(factor);
                 } else {
                     camera.camera_yaw_radians = angle;
                 }

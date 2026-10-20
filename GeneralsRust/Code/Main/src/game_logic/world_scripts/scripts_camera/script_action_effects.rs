@@ -313,14 +313,13 @@ impl GameLogic {
         {
             // C++ rotateCamera replaces any current animation. FREEZE_ANGLE only
             // pins the in-flight move/path and must not swallow later rotates.
-            self.session_view.scripted.motion.active = false;
-            self.session_view.scripted.path_arrived = false;
-            self.session_view.scripted.object_tracking = None;
-            self.session_view.camera.install_rotate(
+
+            self.session_view.install_rotate(
                 last.rotations,
                 last.duration_seconds,
                 last.ease_in_seconds,
                 last.ease_out_seconds,
+                self.visual_speed_multiplier,
             );
             self.pending_camera_rotate = Some(last);
         }
@@ -380,17 +379,15 @@ impl GameLogic {
             .into_iter()
             .last()
         {
-            if self.session_view.camera.install_look_toward(
+            if self.session_view.install_look_toward(
                 self.session_view.target,
                 last.position,
                 last.duration_seconds,
                 last.ease_in_seconds,
                 last.ease_out_seconds,
                 last.reverse_rotation,
+                self.visual_speed_multiplier,
             ) {
-                self.session_view.scripted.motion.active = false;
-                self.session_view.scripted.path_arrived = false;
-                self.session_view.scripted.object_tracking = None;
                 self.pending_camera_rotate = None;
                 self.pending_camera_look_toward = Some(last);
             }

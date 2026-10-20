@@ -6,6 +6,60 @@ use super::{
 };
 
 impl SessionView {
+    /// Original rotateCamera admission captures the receiving View time before
+    /// any later modifier. A path and object-tracking rotation are replaced.
+    pub(crate) fn install_rotate(
+        &mut self,
+        rotations: f32,
+        seconds: f32,
+        ease_in: f32,
+        ease_out: f32,
+        speed: f32,
+    ) {
+        self.camera.rotation.time = super::camera::rotation::RotationTime::constant(speed as i32);
+        self.scripted.object_tracking = None;
+        self.scripted.script_look_toward_object_id = None;
+        self.scripted.motion.active = false;
+        self.scripted.path_arrived = false;
+        self.camera
+            .install_rotate(rotations, seconds, ease_in, ease_out);
+    }
+    pub(crate) fn install_look_toward(
+        &mut self,
+        from: glam::Vec3,
+        target: glam::Vec3,
+        seconds: f32,
+        ease_in: f32,
+        ease_out: f32,
+        reverse: bool,
+        speed: f32,
+    ) -> bool {
+        // Original prefix clears rcInfo.trackObject and hold count before its
+        // direction check. Model the initialized Target/Angle union explicitly.
+        // Rust's cache is initialized at admission; exact source union parity
+        // is defined after an actual tracking offer populates the C++ cache.
+        if let Some(tracking) = self.scripted.object_tracking.take() {
+            let id = self.scripted.script_look_toward_object_id.unwrap_or(0);
+            self.camera.camera_yaw_start = f32::from_bits(id);
+            if self.camera.camera_yaw_target.is_some() {
+                self.camera.camera_yaw_target = Some(tracking.last_position.x);
+            }
+        }
+        self.scripted.script_look_toward_object_id = None;
+        if !self
+            .camera
+            .install_look_toward(from, target, seconds, ease_in, ease_out, reverse)
+        {
+            return false;
+        }
+        self.camera.rotation.time = super::camera::rotation::RotationTime::constant(speed as i32);
+        self.scripted.object_tracking = None;
+        self.scripted.script_look_toward_object_id = None;
+        self.scripted.motion.active = false;
+        self.scripted.path_arrived = false;
+        true
+    }
+
     fn motion_parts<'a>(&'a mut self, speed: &'a mut f32) -> (&'a mut WaypointMotion, View<'a>) {
         let (ground, offset, pitch, yaw) = self.camera.native_camera.path_parts();
         (
@@ -72,6 +126,7 @@ impl SessionView {
             admission,
             self.target,
             self.scripted.object_tracking.is_some(),
+            speed,
         );
         if !admission.advances() {
             return active || travelling;
@@ -95,5 +150,75 @@ impl SessionView {
             && self.camera.camera_yaw_target.is_none()
             && self.camera.camera_zoom_target.is_none()
             && self.camera.camera_pitch_target.is_none()
+    }
+}
+
+#[cfg(test)]
+mod scalar_time_tests {
+    use super::*;
+    #[test]
+    fn scalar_time_obeys_admitted_phase_and_disabled_expiry_without_late_path_step() {
+        let mut view = SessionView::default();
+        let mut speed = 2.;
+        view.install_rotate(0.25, 0.132, 0., 0., speed);
+        view.camera.rotation.time.end = 6;
+        let normal = MotionAdmission {
+            update_views: true,
+            fast_camera_only: false,
+            paused: false,
+            debug_frozen: false,
+            disable_camera_movement: false,
+        };
+        for blocked in [
+            MotionAdmission {
+                paused: true,
+                ..normal
+            },
+            MotionAdmission {
+                debug_frozen: true,
+                ..normal
+            },
+            MotionAdmission {
+                update_views: false,
+                ..normal
+            },
+        ] {
+            view.advance_camera_movements(blocked, 33, &mut speed);
+            assert_eq!(view.camera.camera_yaw_frame, 0);
+            assert_eq!(speed, 2.);
+        }
+        view.advance_camera_movements(normal, 33, &mut speed);
+        assert_eq!(speed, 3.);
+        view.advance_camera_movements(
+            MotionAdmission {
+                disable_camera_movement: true,
+                ..normal
+            },
+            33,
+            &mut speed,
+        );
+        assert_eq!(view.camera.camera_yaw_frame, 2);
+        assert_eq!(speed, 3.);
+        view.advance_camera_movements(normal, 33, &mut speed);
+        assert_eq!(speed, 5.);
+        view.advance_camera_movements(
+            MotionAdmission {
+                disable_camera_movement: true,
+                ..normal
+            },
+            33,
+            &mut speed,
+        );
+        assert_eq!(speed, 5.);
+        assert!(view.camera.camera_yaw_target.is_none());
+        view.advance_camera_movements(normal, 33, &mut speed);
+        assert_eq!(speed, 5., "inactive endpoint cannot publish a late speed");
+        view.install_rotate(0.25, 0.033, 0., 0., speed);
+        assert_eq!(view.camera.rotation.time.start, 5);
+        assert_eq!(view.camera.rotation.time.end, 5);
+        // Source near-zero look preserves endpoints/current frame/time while
+        // changing the turn frame count and switching away from tracking.
+        assert!(!view.install_look_toward(view.target, view.target, 1., 0., 0., false, 9.));
+        assert_eq!(view.camera.rotation.time.start, 5);
     }
 }

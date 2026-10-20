@@ -9,7 +9,12 @@ fn configure_native(world: &mut GameLogic, yaw: f32, zoom: f32, ground: f32, des
     camera.camera_yaw_start = yaw - 0.25;
     camera.camera_yaw_target = Some(yaw + 0.5);
     camera.camera_yaw_frame = 7;
-    camera.camera_yaw_duration = 3.;
+    camera.rotation = crate::presentation_frame::camera::rotation::RotationTiming::historical(
+        3.,
+        camera.rotation.ease_in(),
+        camera.rotation.ease_out(),
+        camera.rotation.time,
+    );
     camera.camera_zoom = zoom;
     camera.camera_zoom_start = zoom - 0.1;
     camera.camera_zoom_target = Some(zoom + 0.2);
@@ -31,7 +36,7 @@ fn native_receipt(world: &GameLogic) -> Vec<u8> {
         camera.camera_yaw_start,
         camera.camera_yaw_target,
         camera.camera_yaw_frame,
-        camera.camera_yaw_duration,
+        camera.rotation.duration_seconds(),
         camera.camera_zoom,
         camera.camera_zoom_start,
         camera.camera_zoom_target,

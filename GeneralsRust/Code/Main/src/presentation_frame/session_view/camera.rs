@@ -12,6 +12,7 @@ pub(crate) mod motion;
 pub(crate) mod movement_rules;
 pub(crate) mod pose;
 pub(crate) mod projection;
+pub(crate) mod rotation;
 pub(crate) mod settings;
 pub(crate) mod shake_rules;
 pub(crate) mod shaker;
@@ -52,10 +53,8 @@ pub(crate) struct SessionCamera {
     pub(crate) camera_yaw_radians: f32,
     pub(crate) camera_yaw_target: Option<f32>,
     pub(crate) camera_yaw_start: f32,
-    pub(crate) camera_yaw_duration: f32,
+    pub(crate) rotation: rotation::RotationTiming,
     pub(crate) camera_yaw_frame: u32,
-    pub(crate) camera_yaw_ease_in: f32,
-    pub(crate) camera_yaw_ease_out: f32,
     pub(crate) camera_shake_rotation: Vec3,
     pub(crate) script_camera_shakers: Vec<ScriptCameraShaker>,
     pub(crate) camera_slave_mode:
@@ -102,10 +101,8 @@ impl Default for SessionCamera {
             camera_yaw_radians: 0.,
             camera_yaw_target: None,
             camera_yaw_start: 0.,
-            camera_yaw_duration: 0.,
+            rotation: Default::default(),
             camera_yaw_frame: 0,
-            camera_yaw_ease_in: 0.,
-            camera_yaw_ease_out: 0.,
             camera_shake_rotation: Vec3::ZERO,
             script_camera_shakers: Vec::new(),
             camera_slave_mode: None,
@@ -125,6 +122,7 @@ impl SessionCamera {
         admission: motion::MotionAdmission,
         logical_target: Vec3,
         skip_yaw: bool,
+        speed: &mut f32,
     ) -> bool {
         use motion::{AxisKind, AxisMotion, step_axis};
         let zoom = step_axis(
@@ -163,19 +161,22 @@ impl SessionCamera {
         if skip_yaw {
             return zoom.was_active || pitch.was_active || self.camera_yaw_target.is_some();
         }
-        let yaw = step_axis(
+        let yaw = motion::step_rotation(
             AxisMotion {
                 value: &mut self.camera_yaw_radians,
                 target: &mut self.camera_yaw_target,
                 frame: &mut self.camera_yaw_frame,
                 start: self.camera_yaw_start,
-                duration_seconds: self.camera_yaw_duration,
-                ease_in_seconds: self.camera_yaw_ease_in,
-                ease_out_seconds: self.camera_yaw_ease_out,
+                duration_seconds: self.rotation.duration_seconds(),
+                ease_in_seconds: self.rotation.ease_in(),
+                ease_out_seconds: self.rotation.ease_out(),
             },
-            AxisKind::Yaw,
+            self.rotation,
             admission,
         );
+        if let Some(factor) = yaw.eased_factor {
+            *speed = self.rotation.time.sample(factor);
+        }
         zoom.was_active || pitch.was_active || yaw.was_active
     }
 }

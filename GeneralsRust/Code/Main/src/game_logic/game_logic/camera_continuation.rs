@@ -70,6 +70,7 @@ struct CameraOwnedExtras {
     target: Option<Vec3>,
     path_arrived: bool,
     object_tracking: Option<CameraObjectTracking>,
+    rotation_timing: Option<crate::presentation_frame::camera::rotation::RotationTiming>,
     follow_snap_immediate: bool,
     constraints: crate::presentation_frame::camera::constraints::CameraConstraints,
     camera_settings: Option<crate::presentation_frame::camera::settings::CameraSettings>,
@@ -82,6 +83,11 @@ fn codec() -> CameraCodec<MAX_BYTES> {
 }
 
 impl LogicCameraContinuation {
+    pub(crate) fn owned_rotation_timing(
+        &self,
+    ) -> Option<crate::presentation_frame::camera::rotation::RotationTiming> {
+        self.owned_extras.rotation_timing
+    }
     pub(crate) fn owned_camera_state(&self) -> Option<&SessionCameraState> {
         self.owned_extras.camera.as_ref()
     }
@@ -157,8 +163,10 @@ mod path_v1;
 impl GameLogic {
     pub(crate) fn capture_camera_continuation(&self) -> Result<Vec<u8>, String> {
         let camera = SessionCameraState::capture(&self.session_view.camera);
-        let [rotate_remaining, zoom_remaining, pitch_remaining] =
-            camera.remaining_axis_seconds(self.session_view.scripted.object_tracking.as_ref());
+        let [rotate_remaining, zoom_remaining, pitch_remaining] = camera.remaining_axis_seconds(
+            self.session_view.scripted.object_tracking.as_ref(),
+            Some(self.session_view.camera.rotation),
+        );
         let state = LogicCameraContinuation {
             pending_camera_focus: self.pending_camera_focus.clone(),
             script_camera_focus_estimate: self.session_view.target,
@@ -230,6 +238,7 @@ impl GameLogic {
                 target: Some(self.session_view.target),
                 path_arrived: self.session_view.scripted.path_arrived,
                 object_tracking: self.session_view.scripted.object_tracking.clone(),
+                rotation_timing: Some(self.session_view.camera.rotation),
                 follow_snap_immediate: self.session_view.camera.camera_follow_snap_immediate,
                 constraints: self.session_view.camera.constraints,
                 camera_settings: Some(self.session_view.camera.settings),
@@ -290,6 +299,14 @@ impl GameLogic {
             .unwrap_or(state.script_camera_focus_estimate);
         if let Some(camera) = state.owned_extras.camera {
             camera.admit(&mut self.session_view.camera);
+        }
+        if let Some(timing) = state.owned_extras.rotation_timing {
+            self.session_view.camera.rotation = timing;
+        } else {
+            self.session_view.camera.rotation.time =
+                crate::presentation_frame::camera::rotation::RotationTime::constant(
+                    state.visual_speed_multiplier as i32,
+                );
         }
         self.session_view.camera.camera_follow_snap_immediate =
             state.owned_extras.follow_snap_immediate;

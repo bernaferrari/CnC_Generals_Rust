@@ -66,7 +66,10 @@ fn receiving_player_cancel_scopes_preserve_peer_and_foreign_core() {
             let pitch = scrolling.session_view.camera.camera_pitch_target;
             scrolling.cancel_scripted_camera_from_player_scroll();
             assert!(scrolling.session_view.camera.camera_yaw_target.is_none());
-            assert_eq!(scrolling.session_view.camera.camera_yaw_duration, 5.);
+            assert_eq!(
+                scrolling.session_view.camera.rotation.duration_seconds(),
+                5.
+            );
             assert_eq!(scrolling.session_view.camera.camera_zoom_target, zoom);
             assert_eq!(scrolling.session_view.camera.camera_pitch_target, pitch);
             assert_eq!(
@@ -89,7 +92,7 @@ fn receiving_player_cancel_scopes_preserve_peer_and_foreign_core() {
             assert!(setting.session_view.camera.camera_yaw_target.is_none());
             assert!(setting.session_view.camera.camera_pitch_target.is_none());
             assert!(setting.session_view.camera.camera_zoom_target.is_none());
-            assert_eq!(setting.session_view.camera.camera_yaw_duration, 5.);
+            assert_eq!(setting.session_view.camera.rotation.duration_seconds(), 5.);
             assert_eq!(setting.session_view.camera.camera_pitch_duration, 4.);
             assert_eq!(setting.session_view.camera.camera_zoom_duration, 3.);
             assert!(setting.session_view.scripted.script_camera_freeze_time);

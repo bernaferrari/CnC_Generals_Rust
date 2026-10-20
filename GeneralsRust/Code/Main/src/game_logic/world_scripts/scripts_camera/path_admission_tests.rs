@@ -106,7 +106,13 @@ fn nonprogressing_ring_is_an_error_and_resolver_never_cancels_live_state() {
         vec![(1, 2), (2, 1)],
     );
     world.session_view.camera.camera_yaw_target = Some(1.);
-    world.session_view.camera.camera_yaw_duration = 3.;
+    world.session_view.camera.rotation =
+        crate::presentation_frame::camera::rotation::RotationTiming::historical(
+            3.,
+            world.session_view.camera.rotation.ease_in(),
+            world.session_view.camera.rotation.ease_out(),
+            world.session_view.camera.rotation.time,
+        );
     world.session_view.camera.camera_zoom_target = Some(0.8);
     world.session_view.camera.camera_zoom_duration = 5.;
     world.session_view.scripted.script_camera_freeze_time = true;

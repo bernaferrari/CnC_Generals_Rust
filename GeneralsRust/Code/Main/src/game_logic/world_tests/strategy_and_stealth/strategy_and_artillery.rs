@@ -779,7 +779,7 @@ fn camera_mod_freeze_angle_pins_in_flight_rotate() {
     let camera = &game_logic.session_view.camera;
     assert_eq!(camera.camera_yaw_start.to_bits(), pinned.to_bits());
     assert_eq!(camera.camera_yaw_target, Some(pinned));
-    assert_eq!(camera.camera_yaw_duration, 2.);
+    assert_eq!(camera.rotation.duration_seconds(), 2.);
     assert_eq!(
         camera.camera_yaw_frame, 10,
         "freeze retains the original rotation clock"
@@ -967,7 +967,7 @@ fn camera_mod_freeze_angle_pins_already_queued_rotate() {
         camera.camera_yaw_radians.to_bits()
     );
     assert_eq!(camera.camera_yaw_target, Some(camera.camera_yaw_radians));
-    assert_eq!(camera.camera_yaw_duration, 2.);
+    assert_eq!(camera.rotation.duration_seconds(), 2.);
     assert_eq!(camera.camera_yaw_frame, 0);
     let pinned = camera.camera_yaw_radians;
     for _ in 0..59 {

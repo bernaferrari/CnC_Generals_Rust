@@ -48,6 +48,12 @@ struct DefinedCameraState {
     shake_policy: crate::presentation_frame::camera::shake_rules::CameraShakePolicy,
 }
 
+#[derive(Serialize, Deserialize)]
+struct ScalarCameraState {
+    base: DefinedCameraState,
+    rotation_timing: crate::presentation_frame::camera::rotation::RotationTiming,
+}
+
 pub(super) fn encode_native_camera(
     engine: &CnCGameEngine,
     state: &CameraState,
@@ -69,7 +75,8 @@ pub(super) fn encode_native_camera(
             None
         }
     };
-    encode_defined_camera(
+    engine.game_logic.session_view.camera.rotation.validate()?;
+    let mut base = defined_camera(
         state,
         engine.game_logic.session_view.camera.view_matrix,
         filter,
@@ -82,7 +89,12 @@ pub(super) fn encode_native_camera(
         engine.game_logic.session_view.camera.settings,
         engine.game_logic.session_view.camera.clip_policy,
         engine.game_logic.session_view.camera.shake_policy,
-    )
+    )?;
+    base.base.base.base.base.version = 7;
+    tagged(codec().serialize(&ScalarCameraState {
+        base,
+        rotation_timing: engine.game_logic.session_view.camera.rotation,
+    })?)
 }
 
 fn validate_filter(filter: Option<(glam::Vec2, Vec3)>) -> Result<(), String> {
@@ -174,11 +186,29 @@ fn encode_owned_camera(
     constraints: crate::presentation_frame::camera::constraints::CameraConstraints,
     settings: crate::presentation_frame::camera::settings::CameraSettings,
 ) -> Result<Vec<u8>, String> {
+    tagged(codec().serialize(&owned_camera(
+        state,
+        completed_view,
+        filter,
+        snap,
+        constraints,
+        settings,
+    )?)?)
+}
+
+fn owned_camera(
+    state: &CameraState,
+    completed_view: glam::Mat4,
+    filter: Option<(glam::Vec2, Vec3)>,
+    snap: bool,
+    constraints: crate::presentation_frame::camera::constraints::CameraConstraints,
+    settings: crate::presentation_frame::camera::settings::CameraSettings,
+) -> Result<OwnedCameraState, String> {
     state.validate_with_completed_view(Some(completed_view))?;
     validate_filter(filter)?;
     constraints.validate()?;
     settings.validate()?;
-    tagged(codec().serialize(&OwnedCameraState {
+    Ok(OwnedCameraState {
         base: ConstrainedCameraState {
             base: FollowCameraState {
                 base: CompletedCameraState {
@@ -192,7 +222,7 @@ fn encode_owned_camera(
             constraints,
         },
         camera_settings: settings,
-    })?)
+    })
 }
 
 fn encode_defined_camera(
@@ -205,16 +235,36 @@ fn encode_defined_camera(
     clip_policy: crate::presentation_frame::camera::clip::CameraClipPolicy,
     shake_policy: crate::presentation_frame::camera::shake_rules::CameraShakePolicy,
 ) -> Result<Vec<u8>, String> {
+    tagged(codec().serialize(&defined_camera(
+        state,
+        completed_view,
+        filter,
+        snap,
+        constraints,
+        settings,
+        clip_policy,
+        shake_policy,
+    )?)?)
+}
+
+fn defined_camera(
+    state: &CameraState,
+    completed_view: glam::Mat4,
+    filter: Option<(glam::Vec2, Vec3)>,
+    snap: bool,
+    constraints: crate::presentation_frame::camera::constraints::CameraConstraints,
+    settings: crate::presentation_frame::camera::settings::CameraSettings,
+    clip_policy: crate::presentation_frame::camera::clip::CameraClipPolicy,
+    shake_policy: crate::presentation_frame::camera::shake_rules::CameraShakePolicy,
+) -> Result<DefinedCameraState, String> {
     shake_policy.validate()?;
-    // Reuse the historical V5 validation/schema, then wrap it without changing it.
-    let old = encode_owned_camera(state, completed_view, filter, snap, constraints, settings)?;
-    let mut base: OwnedCameraState = codec().deserialize(&old[TAG.len()..])?;
+    let mut base = owned_camera(state, completed_view, filter, snap, constraints, settings)?;
     base.base.base.base.version = 6;
-    tagged(codec().serialize(&DefinedCameraState {
+    Ok(DefinedCameraState {
         base,
         clip_policy,
         shake_policy,
-    })?)
+    })
 }
 
 // Retained only to exercise the original version1 wire; live capture is V3.
@@ -249,6 +299,7 @@ pub(super) fn decode_native_camera(bytes: &[u8]) -> Result<NativeCameraContinuat
                 (
                     saved.camera,
                     NativeCameraExtras {
+                        rotation_timing: None,
                         clip_policy: None,
                         shake_policy: None,
                         camera_settings: None,
@@ -265,6 +316,7 @@ pub(super) fn decode_native_camera(bytes: &[u8]) -> Result<NativeCameraContinuat
                 (
                     saved.camera,
                     NativeCameraExtras {
+                        rotation_timing: None,
                         clip_policy: None,
                         shake_policy: None,
                         camera_settings: None,
@@ -281,6 +333,7 @@ pub(super) fn decode_native_camera(bytes: &[u8]) -> Result<NativeCameraContinuat
                 (
                     saved.base.camera,
                     NativeCameraExtras {
+                        rotation_timing: None,
                         clip_policy: None,
                         shake_policy: None,
                         camera_settings: None,
@@ -298,6 +351,7 @@ pub(super) fn decode_native_camera(bytes: &[u8]) -> Result<NativeCameraContinuat
                 (
                     saved.base.base.camera,
                     NativeCameraExtras {
+                        rotation_timing: None,
                         clip_policy: None,
                         shake_policy: None,
                         camera_settings: None,
@@ -316,6 +370,7 @@ pub(super) fn decode_native_camera(bytes: &[u8]) -> Result<NativeCameraContinuat
                 (
                     saved.base.base.base.camera,
                     NativeCameraExtras {
+                        rotation_timing: None,
                         clip_policy: None,
                         shake_policy: None,
                         camera_settings: Some(saved.camera_settings),
@@ -335,6 +390,7 @@ pub(super) fn decode_native_camera(bytes: &[u8]) -> Result<NativeCameraContinuat
                 (
                     saved.base.base.base.base.camera,
                     NativeCameraExtras {
+                        rotation_timing: None,
                         clip_policy: Some(saved.clip_policy),
                         shake_policy: Some(saved.shake_policy),
                         camera_settings: Some(saved.base.camera_settings),
@@ -344,6 +400,27 @@ pub(super) fn decode_native_camera(bytes: &[u8]) -> Result<NativeCameraContinuat
                         constraints: saved.base.base.constraints,
                     },
                 )
+            }
+            7 => {
+                let saved: ScalarCameraState = codec().deserialize(payload)?;
+                let mut base = saved.base;
+                base.base.base.base.base.version = 6;
+                let old = tagged(codec().serialize(&base)?)?;
+                let NativeCameraContinuation(camera, mut extras) = decode_native_camera(&old)?;
+                saved.rotation_timing.validate()?;
+                if saved.rotation_timing.duration_seconds().to_bits()
+                    != camera.camera_yaw_duration.to_bits()
+                    || saved.rotation_timing.ease_in().to_bits()
+                        != camera.camera_yaw_ease_in.to_bits()
+                    || saved.rotation_timing.ease_out().to_bits()
+                        != camera.camera_yaw_ease_out.to_bits()
+                {
+                    return Err(
+                        "native rotation observation disagrees with canonical timing".into(),
+                    );
+                }
+                extras.rotation_timing = Some(saved.rotation_timing);
+                return Ok(NativeCameraContinuation(camera, extras));
             }
             _ => return Err("unsupported native camera phase version".into()),
         };
@@ -506,8 +583,15 @@ mod tests {
                 .serialize(&world.session_view.camera.shake_policy)
                 .unwrap()
                 .len();
+        // Current logic is V7: its complete timing record follows frozen V6.
+        // Remove that exact typed suffix before projecting V6 to genuine V5.
+        assert_eq!(&saved[4..8], &7u32.to_le_bytes());
+        let timing_tail = codec()
+            .serialize(&world.session_view.camera.rotation)
+            .unwrap()
+            .len();
         let mut old_logic_bytes = saved.clone();
-        old_logic_bytes.truncate(old_logic_bytes.len() - tail);
+        old_logic_bytes.truncate(old_logic_bytes.len() - timing_tail - tail);
         old_logic_bytes[4..8].copy_from_slice(&5u32.to_le_bytes());
         let old_logic =
             crate::game_logic::GameLogic::decode_camera_continuation(&old_logic_bytes).unwrap();
@@ -779,3 +863,50 @@ mod constraint_v4_tests;
 #[cfg(all(test, feature = "game_client"))]
 #[path = "screen_shake_phase_save_tests.rs"]
 mod screen_shake_phase_save_tests;
+
+#[cfg(test)]
+mod scalar_time_v7_tests {
+    use super::*;
+    #[test]
+    fn native_v7_scalar_endpoints_wrap_frozen_native85_and_reject_truncation() {
+        let state = super::super::tests::fixture();
+        let legacy = codec().serialize(&state).unwrap();
+        let defined = encode_defined_camera(
+            &state,
+            state.completed_view(),
+            None,
+            false,
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+        )
+        .unwrap();
+        let mut base: DefinedCameraState = codec().deserialize(&defined[TAG.len()..]).unwrap();
+        base.base.base.base.base.version = 7;
+        let time = crate::presentation_frame::camera::rotation::RotationTiming::historical(
+            0.,
+            0.,
+            0.,
+            crate::presentation_frame::camera::rotation::RotationTime { start: 2, end: 5 },
+        );
+        let bytes = tagged(
+            codec()
+                .serialize(&ScalarCameraState {
+                    base,
+                    rotation_timing: time,
+                })
+                .unwrap(),
+        )
+        .unwrap();
+        let decoded = decode_native_camera(&bytes).unwrap();
+        assert_eq!(decoded.1.rotation_timing, Some(time));
+        assert_eq!(codec().serialize(&decoded.0).unwrap(), legacy);
+        assert!(decode_native_camera(&bytes[..bytes.len() - 1]).is_err());
+        assert!(decode_native_camera(&[bytes.as_slice(), &[0]].concat()).is_err());
+        assert_eq!(
+            decode_native_camera(&defined).unwrap().1.rotation_timing,
+            None
+        );
+    }
+}

@@ -122,9 +122,9 @@ fn assert_effect(world: &GameLogic, kind: ScriptActionType, x: f32, ground: f32)
             assert_eq!(request.position, look);
             assert_eq!(
                 (
-                    native.camera_yaw_duration,
-                    native.camera_yaw_ease_in,
-                    native.camera_yaw_ease_out
+                    native.rotation.duration_seconds(),
+                    native.rotation.ease_in(),
+                    native.rotation.ease_out()
                 ),
                 (1.1, 0.2, 0.3)
             );

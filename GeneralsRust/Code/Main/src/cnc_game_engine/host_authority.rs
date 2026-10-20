@@ -1363,14 +1363,18 @@ impl CnCGameEngine {
         // owned actions before saved continuation replaced runtime state.
         let has_camera_continuation = camera_continuation.is_some() || owns_session_camera;
         let owned_camera = owns_session_camera.then(|| {
-            crate::presentation_frame::camera::continuation::SessionCameraState::capture(
-                &self.game_logic.session_view.camera,
+            (
+                crate::presentation_frame::camera::continuation::SessionCameraState::capture(
+                    &self.game_logic.session_view.camera,
+                ),
+                self.game_logic.session_view.camera.rotation,
             )
         });
         if let Some(camera) = camera_continuation {
             self.admit_camera_continuation(camera);
-            if let Some(owned) = owned_camera {
+            if let Some((owned, timing)) = owned_camera {
                 owned.admit(&mut self.game_logic.session_view.camera);
+                self.game_logic.session_view.camera.rotation = timing;
             }
         } else if !owns_session_camera && let Some(camera) = client_persist.camera() {
             self.game_logic.session_view.target = glam::Vec3::from_array(camera.target);

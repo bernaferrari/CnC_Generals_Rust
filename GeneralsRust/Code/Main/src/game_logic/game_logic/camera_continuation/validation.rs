@@ -60,6 +60,9 @@ macro_rules! scalar {($($t:ty),*)=>{$(impl ValidateCamera for $t{fn validate(&se
 scalar!(bool, u32, i32, usize, (), ObjectId);
 impl ValidateCamera for LogicCameraContinuation {
     fn validate(&self) -> Result<(), String> {
+        if let Some(timing) = self.owned_extras.rotation_timing {
+            timing.validate()?;
+        }
         self.owned_extras.constraints.validate()?;
         if let Some(shake) = self.owned_extras.shake_policy {
             shake.validate()?;
@@ -71,6 +74,23 @@ impl ValidateCamera for LogicCameraContinuation {
         self.owned_extras.motion.validate()?;
         if let Some(tracking) = &self.owned_extras.object_tracking {
             tracking.validate()?;
+            let timing = self
+                .owned_extras
+                .rotation_timing
+                .ok_or("tracking continuation is missing its rotation timing")?;
+            let milliseconds = timing.duration_ms();
+            // A near-zero look may change count without changing the curve,
+            // but it first switches away from tracking. A retained tracking
+            // payload must still describe its original integral turn count.
+            if milliseconds < 1
+                || timing.turn_frames != (milliseconds / 33).max(1) as u32
+                || timing
+                    .turn_frames
+                    .checked_add(tracking.hold_frames)
+                    .is_none()
+            {
+                return Err("invalid camera tracking rotation timing".into());
+            }
         }
         self.owned_extras.target.validate()?;
         match (&self.owned_extras.camera, self.owned_extras.target) {
@@ -95,7 +115,10 @@ impl ValidateCamera for LogicCameraContinuation {
                             .to_array()
                             .map(f32::to_bits)
                     || camera
-                        .remaining_axis_seconds(self.owned_extras.object_tracking.as_ref())
+                        .remaining_axis_seconds(
+                            self.owned_extras.object_tracking.as_ref(),
+                            self.owned_extras.rotation_timing,
+                        )
                         .map(f32::to_bits)
                         != [
                             self.script_camera_rotate_remaining,

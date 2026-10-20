@@ -90,7 +90,13 @@ fn delivered_equal_x_rotation_is_a_setter_but_opposite_held_keys_are_not() {
     let peer = owner();
     let peer_saved = peer.capture_camera_continuation().unwrap();
     world.session_view.camera.camera_yaw_target = Some(0.4);
-    world.session_view.camera.camera_yaw_duration = 1.;
+    world.session_view.camera.rotation =
+        crate::presentation_frame::camera::rotation::RotationTiming::historical(
+            1.,
+            world.session_view.camera.rotation.ease_in(),
+            world.session_view.camera.rotation.ease_out(),
+            world.session_view.camera.rotation.time,
+        );
     world.session_view.camera.camera_zoom_target = Some(1.2);
     let pending = world.capture_camera_continuation().unwrap();
     world

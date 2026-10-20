@@ -171,8 +171,8 @@ fn v6_preserves_pending_clip_inputs_v5_is_frozen_and_uses_receiving_policy() {
     let saved_shake = source.session_view.camera.shake_policy;
     let installed = source.session_view.camera.projection_matrix;
     let bytes = source.capture_camera_continuation().unwrap();
-    assert_eq!(&bytes[4..8], &6u32.to_le_bytes());
-    let current: EnvelopeV6 = codec().deserialize(&bytes[8..]).unwrap();
+    assert_eq!(&bytes[4..8], &7u32.to_le_bytes());
+    let current: EnvelopeV6 = codec().deserialize::<EnvelopeV7>(&bytes[8..]).unwrap().base;
     let mut old = MAGIC.to_vec();
     old.extend_from_slice(&5u32.to_le_bytes());
     old.extend(codec().serialize(&current.base).unwrap());
@@ -210,11 +210,16 @@ fn v6_preserves_pending_clip_inputs_v5_is_frozen_and_uses_receiving_policy() {
         .unwrap();
     assert!(!far_is_extended(&legacy));
     assert_eq!(peer_before, peer.capture_camera_continuation().unwrap());
-    let mut bad = bytes.clone();
+    // Corrupt the explicit frozen V6 policies, not the V7 timing suffix.
+    let mut frozen_v6 = MAGIC.to_vec();
+    frozen_v6.extend_from_slice(&6u32.to_le_bytes());
+    frozen_v6.extend(codec().serialize(&current).unwrap());
+    assert!(GameLogic::decode_camera_continuation(&frozen_v6).is_ok());
+    let mut bad = frozen_v6.clone();
     let shake_len = codec().serialize(&current.shake_policy).unwrap().len();
     let clip_end = bad.len() - shake_len;
     bad[clip_end - 1] = 2;
-    let mut bad_shake = bytes.clone();
+    let mut bad_shake = frozen_v6;
     let tail = bad_shake.len();
     bad_shake[tail - 4..].copy_from_slice(&f32::NAN.to_le_bytes());
     assert!(GameLogic::decode_camera_continuation(&bad_shake).is_err());

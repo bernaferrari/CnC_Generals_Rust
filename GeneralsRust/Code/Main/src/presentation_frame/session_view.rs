@@ -295,3 +295,6 @@ mod motion_tests;
 
 #[cfg(test)]
 mod letterbox_delivery_tests;
+
+#[cfg(test)]
+mod scalar_cpp_trace_tests;

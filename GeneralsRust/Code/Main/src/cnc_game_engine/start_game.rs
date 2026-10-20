@@ -1476,10 +1476,14 @@ impl CnCGameEngine {
         self.game_logic.session_view.camera.camera_yaw_target = None;
         self.game_logic.session_view.camera.camera_yaw_start =
             self.game_logic.session_view.camera.camera_yaw_radians;
-        self.game_logic.session_view.camera.camera_yaw_duration = 0.0;
+        self.game_logic.session_view.camera.rotation =
+            crate::presentation_frame::camera::rotation::RotationTiming::historical(
+                0.,
+                0.,
+                0.,
+                self.game_logic.session_view.camera.rotation.time,
+            );
         self.game_logic.session_view.camera.camera_yaw_frame = 0;
-        self.game_logic.session_view.camera.camera_yaw_ease_in = 0.0;
-        self.game_logic.session_view.camera.camera_yaw_ease_out = 0.0;
 
         if let Err(error) = self.set_native_camera_transform() {
             log::error!("camera transform: {error}");
@@ -1496,14 +1500,12 @@ impl CnCGameEngine {
     }
 
     pub(super) fn apply_script_camera_rotate_request(&mut self, request: CameraRotateRequest) {
-        self.game_logic.session_view.scripted.object_tracking = None;
-        self.game_logic.session_view.scripted.motion.active = false;
-        self.game_logic.session_view.scripted.path_arrived = false;
-        self.game_logic.session_view.camera.install_rotate(
+        self.game_logic.session_view.install_rotate(
             request.rotations,
             request.duration_seconds,
             request.ease_in_seconds,
             request.ease_out_seconds,
+            self.game_logic.visual_speed_multiplier(),
         );
     }
 
@@ -1687,18 +1689,15 @@ impl CnCGameEngine {
         &mut self,
         request: CameraLookTowardWaypointRequest,
     ) {
-        if self.game_logic.session_view.camera.install_look_toward(
+        if self.game_logic.session_view.install_look_toward(
             self.game_logic.session_view.target,
             request.position,
             request.duration_seconds,
             request.ease_in_seconds,
             request.ease_out_seconds,
             request.reverse_rotation,
-        ) {
-            self.game_logic.session_view.scripted.object_tracking = None;
-            self.game_logic.session_view.scripted.motion.active = false;
-            self.game_logic.session_view.scripted.path_arrived = false;
-        }
+            self.game_logic.visual_speed_multiplier(),
+        ) {}
     }
 
     /// Wave 611: via `host_center_camera_on`.

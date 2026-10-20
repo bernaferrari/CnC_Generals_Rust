@@ -57,7 +57,12 @@ fn admitted_camera_owner_rejects_pause_and_advances_fast_without_a_logic_tick() 
 fn rotation_completion_does_not_also_consume_a_path_step() {
     let mut view = moving();
     view.camera.camera_yaw_target = Some(1.);
-    view.camera.camera_yaw_duration = 0.;
+    view.camera.rotation = crate::presentation_frame::camera::rotation::RotationTiming::historical(
+        0.,
+        view.camera.rotation.ease_in(),
+        view.camera.rotation.ease_out(),
+        view.camera.rotation.time,
+    );
     let mut speed = 1.;
     view.advance_camera_movements(admission(), 33, &mut speed);
     assert!(view.camera.camera_yaw_target.is_none());

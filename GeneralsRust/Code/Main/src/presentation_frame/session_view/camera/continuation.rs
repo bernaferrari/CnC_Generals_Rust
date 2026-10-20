@@ -55,6 +55,31 @@ pub(crate) struct SessionCameraState {
 }
 
 impl SessionCameraState {
+    pub(crate) fn historical_rotation(
+        &self,
+        time: crate::presentation_frame::camera::rotation::RotationTime,
+    ) -> crate::presentation_frame::camera::rotation::RotationTiming {
+        crate::presentation_frame::camera::rotation::RotationTiming::historical(
+            self.camera_yaw_duration,
+            self.camera_yaw_ease_in,
+            self.camera_yaw_ease_out,
+            time,
+        )
+    }
+    pub(crate) fn validate_rotation_observation(
+        &self,
+        timing: crate::presentation_frame::camera::rotation::RotationTiming,
+    ) -> Result<(), String> {
+        timing.validate()?;
+        if timing.duration_seconds().to_bits() != self.camera_yaw_duration.to_bits()
+            || timing.ease_in().to_bits() != self.camera_yaw_ease_in.to_bits()
+            || timing.ease_out().to_bits() != self.camera_yaw_ease_out.to_bits()
+        {
+            return Err("rotation observation disagrees with canonical timing".into());
+        }
+        Ok(())
+    }
+
     pub(crate) fn capture(camera: &SessionCamera) -> Self {
         Self {
             camera_position: camera.camera_position.clone(),
@@ -102,10 +127,10 @@ impl SessionCameraState {
             camera_yaw_radians: camera.camera_yaw_radians.clone(),
             camera_yaw_target: camera.camera_yaw_target.clone(),
             camera_yaw_start: camera.camera_yaw_start.clone(),
-            camera_yaw_duration: camera.camera_yaw_duration.clone(),
+            camera_yaw_duration: camera.rotation.duration_seconds().clone(),
             camera_yaw_frame: camera.camera_yaw_frame.clone(),
-            camera_yaw_ease_in: camera.camera_yaw_ease_in.clone(),
-            camera_yaw_ease_out: camera.camera_yaw_ease_out.clone(),
+            camera_yaw_ease_in: camera.rotation.ease_in().clone(),
+            camera_yaw_ease_out: camera.rotation.ease_out().clone(),
             camera_shake_rotation: camera.camera_shake_rotation.clone(),
             script_camera_shakers: camera.script_camera_shakers.clone(),
             camera_slave_mode: camera.camera_slave_mode.clone(),
@@ -241,10 +266,13 @@ impl SessionCameraState {
         camera.camera_yaw_radians = self.camera_yaw_radians;
         camera.camera_yaw_target = self.camera_yaw_target;
         camera.camera_yaw_start = self.camera_yaw_start;
-        camera.camera_yaw_duration = self.camera_yaw_duration;
+        camera.rotation = crate::presentation_frame::camera::rotation::RotationTiming::historical(
+            self.camera_yaw_duration,
+            self.camera_yaw_ease_in,
+            self.camera_yaw_ease_out,
+            camera.rotation.time,
+        );
         camera.camera_yaw_frame = self.camera_yaw_frame;
-        camera.camera_yaw_ease_in = self.camera_yaw_ease_in;
-        camera.camera_yaw_ease_out = self.camera_yaw_ease_out;
         camera.camera_shake_rotation = self.camera_shake_rotation;
         camera.script_camera_shakers = self.script_camera_shakers;
         camera.camera_slave_mode = self.camera_slave_mode;
@@ -299,6 +327,7 @@ impl SessionCameraState {
     pub(crate) fn remaining_axis_seconds(
         &self,
         tracking: Option<&crate::presentation_frame::scripted::CameraObjectTracking>,
+        timing: Option<super::rotation::RotationTiming>,
     ) -> [f32; 3] {
         fn remaining(target: Option<f32>, duration: f32, frame: u32) -> f32 {
             if target.is_none() {
@@ -307,18 +336,17 @@ impl SessionCameraState {
             let count = (((duration * 1000.0) as i32).max(1) / 33).max(1) as u32;
             count.saturating_sub(frame) as f32 * 0.033
         }
-        let rotate = if let Some(tracking) = tracking.filter(|_| self.camera_yaw_target.is_some()) {
-            tracking
-                .turn_frames
-                .saturating_add(tracking.hold_frames)
+        let count = timing.map_or_else(
+            || (((self.camera_yaw_duration * 1000.) as i32).max(1) / 33).max(1) as u32,
+            |timing| timing.turn_frames,
+        );
+        let rotate = if self.camera_yaw_target.is_some() {
+            count
+                .saturating_add(tracking.map_or(0, |tracking| tracking.hold_frames))
                 .saturating_sub(self.camera_yaw_frame) as f32
                 * 0.033
         } else {
-            remaining(
-                self.camera_yaw_target,
-                self.camera_yaw_duration,
-                self.camera_yaw_frame,
-            )
+            0.
         };
         [
             rotate,

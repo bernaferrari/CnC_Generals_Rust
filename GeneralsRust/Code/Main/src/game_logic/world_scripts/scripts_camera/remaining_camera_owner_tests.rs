@@ -1150,3 +1150,6 @@ mod receiving_default_camera_tests;
 
 #[path = "receiving_view_effect_tests.rs"]
 mod receiving_view_effect_tests;
+
+#[path = "scalar_time_owner_tests.rs"]
+mod scalar_time_owner_tests;

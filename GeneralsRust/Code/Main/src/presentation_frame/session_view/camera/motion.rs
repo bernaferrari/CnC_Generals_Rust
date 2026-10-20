@@ -36,8 +36,9 @@ pub(crate) struct AxisMotion<'a> {
     pub ease_out_seconds: f32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct AxisStep {
+    pub eased_factor: Option<f32>,
     pub was_active: bool,
     pub changed: bool,
     pub completed: bool,
@@ -67,14 +68,31 @@ pub(crate) fn step_axis(
     kind: AxisKind,
     admission: MotionAdmission,
 ) -> AxisStep {
+    step_axis_with_rotation(axis, kind, admission, None)
+}
+pub(crate) fn step_rotation(
+    axis: AxisMotion<'_>,
+    timing: super::rotation::RotationTiming,
+    admission: MotionAdmission,
+) -> AxisStep {
+    step_axis_with_rotation(axis, AxisKind::Yaw, admission, Some(timing))
+}
+fn step_axis_with_rotation(
+    axis: AxisMotion<'_>,
+    kind: AxisKind,
+    admission: MotionAdmission,
+    timing: Option<super::rotation::RotationTiming>,
+) -> AxisStep {
     let Some(target) = *axis.target else {
         return AxisStep {
+            eased_factor: None,
             was_active: false,
             changed: false,
             completed: false,
         };
     };
     let mut result = AxisStep {
+        eased_factor: None,
         was_active: true,
         changed: false,
         completed: false,
@@ -84,16 +102,22 @@ pub(crate) fn step_axis(
     }
     *axis.frame = axis.frame.saturating_add(1);
     let frame = *axis.frame;
-    let count = frame_count(axis.duration_seconds);
+    let count = timing.map_or_else(|| frame_count(axis.duration_seconds), |t| t.turn_frames);
     let before = *axis.value;
     if !admission.disable_camera_movement {
         if frame <= count {
             let duration_ms = ((axis.duration_seconds * 1000.0) as i32).max(1) as f32;
-            let eased = parabolic_ease(
-                frame as f32 / count as f32,
-                axis.ease_in_seconds * 1000.0 / duration_ms,
-                axis.ease_out_seconds * 1000.0 / duration_ms,
+            let eased = timing.map_or_else(
+                || {
+                    parabolic_ease(
+                        frame as f32 / count as f32,
+                        axis.ease_in_seconds * 1000.0 / duration_ms,
+                        axis.ease_out_seconds * 1000.0 / duration_ms,
+                    )
+                },
+                |t| t.factor(frame),
             );
+            result.eased_factor = Some(eased);
             *axis.value = axis.start + (target - axis.start) * eased;
             if matches!(kind, AxisKind::Yaw) {
                 normalize_yaw(axis.value);

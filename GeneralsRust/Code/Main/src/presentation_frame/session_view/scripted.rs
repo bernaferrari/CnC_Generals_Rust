@@ -6,25 +6,14 @@ use glam::Vec3;
 
 /// Original rcInfo.trackObject payload. The frame counter lives only in
 /// SessionCamera.camera_yaw_frame; an inactive payload retains its last target.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone)]
 pub(crate) struct CameraObjectTracking {
-    pub(crate) duration_ms: i32,
-    pub(crate) turn_frames: u32,
     pub(crate) hold_frames: u32,
     pub(crate) last_position: Vec3,
-    pub(crate) start_time_multiplier: i32,
-    pub(crate) end_time_multiplier: i32,
 }
 impl CameraObjectTracking {
     pub(crate) fn validate(&self) -> Result<(), String> {
-        if self.duration_ms < 1
-            || self.turn_frames != (self.duration_ms / 33).max(1) as u32
-            || self.turn_frames == 0
-            || self.turn_frames > i32::MAX as u32 / 33
-            || self.hold_frames > i32::MAX as u32 / 33
-            || self.turn_frames.checked_add(self.hold_frames).is_none()
-            || !self.last_position.is_finite()
-        {
+        if self.hold_frames > i32::MAX as u32 / 33 || !self.last_position.is_finite() {
             Err("invalid camera object tracking continuation".into())
         } else {
             Ok(())

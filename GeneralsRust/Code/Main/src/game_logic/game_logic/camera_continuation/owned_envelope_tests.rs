@@ -27,10 +27,11 @@ fn v1_bytes(state: &LogicCameraContinuation) -> Vec<u8> {
 // payload. V3 adds snap; V4 wraps V3 with the new constraint cache.
 fn v2_bytes_from_current(current: &[u8]) -> Vec<u8> {
     assert_eq!(&current[..4], MAGIC);
-    assert_eq!(&current[4..8], &6_u32.to_le_bytes());
+    assert_eq!(&current[4..8], &7_u32.to_le_bytes());
     let current: EnvelopeV5 = codec()
-        .deserialize::<EnvelopeV6>(&current[8..])
+        .deserialize::<EnvelopeV7>(&current[8..])
         .unwrap()
+        .base
         .base;
     let current = current.base;
     let mut bytes = MAGIC.to_vec();
@@ -40,10 +41,11 @@ fn v2_bytes_from_current(current: &[u8]) -> Vec<u8> {
 }
 fn v3_bytes_from_current(current: &[u8]) -> Vec<u8> {
     assert_eq!(&current[..4], MAGIC);
-    assert_eq!(&current[4..8], &6_u32.to_le_bytes());
+    assert_eq!(&current[4..8], &7_u32.to_le_bytes());
     let current: EnvelopeV5 = codec()
-        .deserialize::<EnvelopeV6>(&current[8..])
+        .deserialize::<EnvelopeV7>(&current[8..])
         .unwrap()
+        .base
         .base;
     let current = current.base;
     let mut bytes = MAGIC.to_vec();
@@ -59,7 +61,13 @@ fn camera_owner_v2_is_self_contained_without_a_native_block_and_leaves_peer_unch
     source.session_view.camera.camera_yaw_radians = 0.7;
     source.session_view.camera.camera_yaw_target = Some(1.2);
     source.session_view.camera.camera_yaw_start = 0.7;
-    source.session_view.camera.camera_yaw_duration = 2.0;
+    source.session_view.camera.rotation =
+        crate::presentation_frame::camera::rotation::RotationTiming::historical(
+            2.0,
+            source.session_view.camera.rotation.ease_in(),
+            source.session_view.camera.rotation.ease_out(),
+            source.session_view.camera.rotation.time,
+        );
     source.session_view.camera.camera_yaw_frame = 17;
     source
         .session_view
@@ -81,10 +89,18 @@ fn camera_owner_v2_is_self_contained_without_a_native_block_and_leaves_peer_unch
     let peer_before = peer.capture_camera_continuation().unwrap();
     let current = source.capture_camera_continuation().unwrap();
     let v2 = v2_bytes_from_current(&current);
+    let frozen_v6 = codec()
+        .deserialize::<EnvelopeV7>(&current[8..])
+        .unwrap()
+        .base;
+    let mut v6 = MAGIC.to_vec();
+    v6.extend_from_slice(&6u32.to_le_bytes());
+    v6.extend(codec().serialize(&frozen_v6).unwrap());
     for (version, bytes) in [
         (2_u32, v2),
         (3_u32, v3_bytes_from_current(&current)),
-        (6_u32, current.clone()),
+        (6_u32, v6),
+        (7_u32, current.clone()),
     ] {
         assert_eq!(&bytes[..4], MAGIC);
         assert_eq!(&bytes[4..8], &version.to_le_bytes());
@@ -105,6 +121,17 @@ fn camera_owner_v2_is_self_contained_without_a_native_block_and_leaves_peer_unch
             assert_eq!(v2_bytes_from_current(&recaptured), bytes);
         } else if version == 3 {
             assert_eq!(v3_bytes_from_current(&recaptured), bytes);
+        } else if version == 6 {
+            // Compare the admitted state through the frozen V6 schema, while
+            // the assertion above independently checks current V7 capture.
+            let projected = codec()
+                .deserialize::<EnvelopeV7>(&recaptured[8..])
+                .unwrap()
+                .base;
+            let mut historical = MAGIC.to_vec();
+            historical.extend_from_slice(&6u32.to_le_bytes());
+            historical.extend(codec().serialize(&projected).unwrap());
+            assert_eq!(historical, bytes);
         } else {
             assert_eq!(recaptured, bytes);
         }
@@ -226,6 +253,14 @@ fn camera_owner_v2_rejects_conflicting_legacy_projection_and_trailing_bytes() {
                     .base
                     .base
             }
+            7 => {
+                codec()
+                    .deserialize::<EnvelopeV7>(&saved[8..])
+                    .unwrap()
+                    .base
+                    .base
+                    .base
+            }
             _ => panic!("unexpected fixture camera version {version}"),
         };
         let mut legacy: LogicCameraContinuation = codec()
@@ -259,6 +294,11 @@ fn camera_owner_v2_rejects_conflicting_legacy_projection_and_trailing_bytes() {
                     })
                     .unwrap()
             }
+            7 => {
+                let mut original: EnvelopeV7 = codec().deserialize(&saved[8..]).unwrap();
+                original.base.base.base = envelope;
+                codec().serialize(&original).unwrap()
+            }
             _ => unreachable!(),
         };
         let mut malformed = saved[..8].to_vec();
@@ -278,20 +318,24 @@ fn camera_owner_v2_rejects_conflicting_legacy_projection_and_trailing_bytes() {
 #[test]
 fn camera_owner_v2_preserves_tracking_turn_hold_cache_and_actual_frame_future() {
     let mut source = GameLogic::new();
+    source.session_view.camera.rotation.time =
+        crate::presentation_frame::camera::rotation::RotationTime { start: 1, end: 3 };
     source.session_view.scripted.object_tracking = Some(CameraObjectTracking {
-        duration_ms: 99,
-        turn_frames: 3,
         hold_frames: 4,
         last_position: Vec3::new(80., 15., 120.),
-        start_time_multiplier: 1,
-        end_time_multiplier: 3,
     });
     // The object has disappeared; the original rotation retains its own last
     // target observation throughout the remaining turn and hold frames.
     source.session_view.scripted.script_look_toward_object_id = Some(42);
     source.session_view.camera.camera_yaw_target = Some(0.2);
     source.session_view.camera.camera_yaw_radians = 0.2;
-    source.session_view.camera.camera_yaw_duration = 0.099;
+    source.session_view.camera.rotation =
+        crate::presentation_frame::camera::rotation::RotationTiming::historical(
+            0.099,
+            source.session_view.camera.rotation.ease_in(),
+            source.session_view.camera.rotation.ease_out(),
+            source.session_view.camera.rotation.time,
+        );
     source.session_view.camera.camera_yaw_frame = 2;
     source.session_view.scripted.script_camera_freeze_time = true;
     let bytes = source.capture_camera_continuation().unwrap();
@@ -336,13 +380,17 @@ fn old_object_tracking_and_invalid_v2_tracking_reject_without_admission() {
     }
     // A V2 legacy ID without its typed cache/clock record is equally incomplete.
     assert!(GameLogic::decode_camera_continuation(&encode(&state).unwrap()).is_err());
+    state.owned_extras.rotation_timing =
+        Some(crate::presentation_frame::camera::rotation::RotationTiming::default());
+    state
+        .owned_extras
+        .rotation_timing
+        .as_mut()
+        .unwrap()
+        .turn_frames = 0;
     state.owned_extras.object_tracking = Some(CameraObjectTracking {
-        duration_ms: 0,
-        turn_frames: 0,
         hold_frames: 0,
         last_position: Vec3::ZERO,
-        start_time_multiplier: 1,
-        end_time_multiplier: 1,
     });
     assert!(GameLogic::decode_camera_continuation(&encode(&state).unwrap()).is_err());
 }
@@ -364,13 +412,11 @@ fn camera_owner_reset_cancels_actual_scalar_and_tracking_flags_without_replacing
     world.session_view.camera.camera_yaw_target = Some(0.7);
     world.session_view.camera.camera_pitch_target = Some(1.2);
     world.session_view.camera.camera_zoom_target = Some(0.8);
+    world.session_view.camera.rotation.time =
+        crate::presentation_frame::camera::rotation::RotationTime { start: 1, end: 1 };
     world.session_view.scripted.object_tracking = Some(CameraObjectTracking {
-        duration_ms: 99,
-        turn_frames: 3,
         hold_frames: 4,
         last_position: Vec3::new(80., 15., 120.),
-        start_time_multiplier: 1,
-        end_time_multiplier: 1,
     });
     world.session_view.scripted.script_look_toward_object_id = Some(42);
     let peer = GameLogic::new();
@@ -430,8 +476,9 @@ fn current_v5_to_input_v2_removes_only_owned_settings_cache_and_snap_extensions(
     world.session_view.camera.camera_follow_snap_immediate = true;
     let current = world.capture_camera_continuation().unwrap();
     let saved: EnvelopeV5 = codec()
-        .deserialize::<EnvelopeV6>(&current[8..])
+        .deserialize::<EnvelopeV7>(&current[8..])
         .unwrap()
+        .base
         .base;
     let saved = saved.base;
     let v2 = v2_bytes_from_current(&current);

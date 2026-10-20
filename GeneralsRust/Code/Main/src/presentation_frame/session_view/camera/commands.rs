@@ -36,10 +36,13 @@ impl SessionCamera {
     fn install_heading(&mut self, target: f32, seconds: f32, ease_in: f32, ease_out: f32) {
         self.camera_yaw_start = self.camera_yaw_radians;
         self.camera_yaw_target = Some(target);
-        self.camera_yaw_duration = milliseconds_duration(seconds);
+        self.rotation = super::rotation::RotationTiming::authored(
+            seconds,
+            ease_in,
+            ease_out,
+            self.rotation.time,
+        );
         self.camera_yaw_frame = 0;
-        self.camera_yaw_ease_in = ease_in.max(0.);
-        self.camera_yaw_ease_out = ease_out.max(0.);
     }
     /// W3DView::rotateCameraTowardPosition returns before cancelling a path
     /// when the horizontal direction is shorter than 0.1 source units.
@@ -52,6 +55,9 @@ impl SessionCamera {
         ease_out: f32,
         reverse: bool,
     ) -> bool {
+        // Source rcInfo.numFrames is updated before the near-zero return.
+        // Do not reset curFrame, old angle/ease, or active flag on that path.
+        self.rotation.update_count(seconds);
         let dx = target.x - from.x;
         let dy = target.z - from.z;
         let length = f64::from(dx * dx + dy * dy).sqrt() as f32;

@@ -73,7 +73,13 @@ impl NativeFilterCameraContext<'_> {
             self.look_at_modes
                 .note_scripted_camera_player_cancel(ScriptedCameraPlayerCancel::LookAt);
             self.native.camera_yaw_target = None;
-            self.native.camera_yaw_duration = 0.;
+            self.native.rotation =
+                crate::presentation_frame::camera::rotation::RotationTiming::historical(
+                    0.,
+                    self.native.rotation.ease_in(),
+                    self.native.rotation.ease_out(),
+                    self.native.rotation.time,
+                );
             cancel_scripted_camera();
             *self.target = crate::presentation_frame::receiving_look_at_target(
                 point,
@@ -230,7 +236,13 @@ mod tests {
                 native.camera_zoom = zoom;
                 native.camera_fx_pitch = pitch;
                 native.camera_yaw_target = yaw_target;
-                native.camera_yaw_duration = yaw_duration;
+                native.rotation =
+                    crate::presentation_frame::camera::rotation::RotationTiming::historical(
+                        yaw_duration,
+                        native.rotation.ease_in(),
+                        native.rotation.ease_out(),
+                        native.rotation.time,
+                    );
                 native.camera_position = position;
                 native.view_matrix = view;
                 native.projection_matrix = Mat4::IDENTITY;
@@ -269,7 +281,7 @@ mod tests {
                 );
                 drop(camera);
                 yaw_target = native.camera_yaw_target;
-                yaw_duration = native.camera_yaw_duration;
+                yaw_duration = native.rotation.duration_seconds();
                 drop(cancellation);
                 assert!(
                     !world.camera_movement_finished(),
@@ -379,7 +391,12 @@ mod tests {
         let mut native = crate::presentation_frame::camera::SessionCamera::default();
         native.native_camera = super::super::camera_height::CameraHeight::new(400., 45., 0.);
         native.camera_yaw_target = yaw_target;
-        native.camera_yaw_duration = yaw_duration;
+        native.rotation = crate::presentation_frame::camera::rotation::RotationTiming::historical(
+            yaw_duration,
+            native.rotation.ease_in(),
+            native.rotation.ease_out(),
+            native.rotation.time,
+        );
         native.camera_position = position;
         native.view_matrix = view;
         native.projection_matrix = Mat4::IDENTITY;
@@ -427,7 +444,7 @@ mod tests {
         );
         drop(camera);
         yaw_target = native.camera_yaw_target;
-        yaw_duration = native.camera_yaw_duration;
+        yaw_duration = native.rotation.duration_seconds();
         drop(cancellation);
         assert!(!world.script_camera_path_active());
         assert!(world.peek_pending_camera_rotate().is_none());
