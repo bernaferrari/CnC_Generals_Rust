@@ -730,31 +730,25 @@ fn resolve_skirmish_slots(
                     }
                     colors[slot.slot_index] = index;
                 }
-                if index == -2
-                    && matches!(
-                        slot.player_template,
-                        SkirmishPlayerTemplateSelection::Observer
+                // Occupied observers use the same selected authored colors as
+                // every other slot (CPP GameLogic.cpp763–778). -2 identifies
+                // the template; it is never a newly admitted color selection.
+                let definition = usize::try_from(index)
+                    .ok()
+                    .and_then(|i| palette.get(i))
+                    .ok_or("invalid authored selected color index")?;
+                let rgb = |packed: u32| {
+                    (
+                        ((packed >> 16) & 255) as u8,
+                        ((packed >> 8) & 255) as u8,
+                        (packed & 255) as u8,
                     )
-                {
-                    None
-                } else {
-                    let definition = usize::try_from(index)
-                        .ok()
-                        .and_then(|i| palette.get(i))
-                        .ok_or("invalid authored selected color index")?;
-                    let rgb = |packed: u32| {
-                        (
-                            ((packed >> 16) & 255) as u8,
-                            ((packed >> 8) & 255) as u8,
-                            (packed & 255) as u8,
-                        )
-                    };
-                    Some(ResolvedSkirmishColor {
-                        index,
-                        rgb: rgb(definition.get_color()),
-                        night_rgb: rgb(definition.night_color),
-                    })
-                }
+                };
+                Some(ResolvedSkirmishColor {
+                    index,
+                    rgb: rgb(definition.get_color()),
+                    night_rgb: rgb(definition.night_color),
+                })
             } else {
                 None
             };

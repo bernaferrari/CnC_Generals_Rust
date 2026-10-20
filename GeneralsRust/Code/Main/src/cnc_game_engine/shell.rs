@@ -2029,6 +2029,11 @@ impl CnCGameEngine {
         // Admit the detached worker's actual start_new_game reset only now.
         self.reset_replay_pacing_for_new_game();
         self.host_replace_game_logic(result.game_logic);
+        // The worker has finished PlayerTemplate/Multiplayer definitions and
+        // its actual INI CRC. Admit these application observations on the UI
+        // thread, not lazily on the first mouse move.
+        #[cfg(feature = "game_client")]
+        self.admit_replay_menu_application_metadata();
         // The boot presentation frame describes the pre-load, terrain-less
         // GameLogic instance.  Rebuild it after the worker handoff so WGPU sees
         // the retail map's decoded HeightMapData, lighting, roads, and bounds.

@@ -1580,6 +1580,9 @@ impl CnCGameEngine {
         // Transaction adaptation: only the successful receiving commit may
         // update controls, after its restored/default camera is installed.
         self.initialize_receiving_replay_controls();
+        // The receiving Recorder policy may have been replaced by this commit.
+        // Application definitions remain owned by the existing admitted snapshot.
+        self.configure_receiving_replay_menu();
         Ok(())
     }
 

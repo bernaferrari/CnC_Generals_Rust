@@ -304,6 +304,7 @@ mod tests {
             current_version_number: version.get_version_number(),
             current_exe_crc: 2,
             current_ini_crc: 3,
+            metadata: crate::gui::shell::replay_menu::fixture_replay_metadata_policy(1, 1),
         };
         let mut manager = WindowManager::new();
         manager.configure_replay_menu_owned(inputs.clone());

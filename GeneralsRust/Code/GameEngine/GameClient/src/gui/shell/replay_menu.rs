@@ -404,6 +404,67 @@ impl ReplayListEntry {
 }
 
 /// Replay menu state management
+/// Loaded application observations used by a metadata-only replay menu.
+/// No handles into GameNetwork or the receiving live Recorder are retained.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ReplayMenuMetadataPolicy {
+    pub limits: recorder::ReplayMenuMetadataLimits,
+    /// Open, closed, easy AI, medium AI, hard AI — C++ GameSlot::setState.
+    pub slot_labels: [String; 5],
+    pub map_extension: String,
+}
+
+impl ReplayMenuMetadataPolicy {
+    /// Application admission/compatibility boundary, never called by owned parsing.
+    pub fn capture_application() -> Self {
+        let color_count =
+            game_engine::common::ini::ini_multiplayer::with_multiplayer_settings(|definitions| {
+                definitions.get_num_colors()
+            });
+        let player_template_count =
+            game_engine::common::rts::player_template::get_player_template_store()
+                .get_player_template_count();
+        let map_extension = crate::map_util::MAP_EXTENSION.to_owned();
+        Self {
+            limits: recorder::ReplayMenuMetadataLimits {
+                color_count,
+                player_template_count,
+            },
+            slot_labels: [
+                "GUI:Open",
+                "GUI:Closed",
+                "GUI:EasyAI",
+                "GUI:MediumAI",
+                "GUI:HardAI",
+            ]
+            .map(GameText::fetch),
+            map_extension,
+        }
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn fixture_replay_metadata_policy(
+    color_count: i32,
+    player_template_count: i32,
+) -> ReplayMenuMetadataPolicy {
+    ReplayMenuMetadataPolicy {
+        limits: recorder::ReplayMenuMetadataLimits {
+            color_count,
+            player_template_count,
+        },
+        slot_labels: [
+            "FixtureOpen",
+            "FixtureClosed",
+            "FixtureEasy",
+            "FixtureMedium",
+            "FixtureHard",
+        ]
+        .map(str::to_owned),
+        map_extension: "map".into(),
+    }
+}
+
 /// Immutable policy supplied by the application that owns the menu and Recorder.
 #[derive(Clone, Debug)]
 pub struct ReplayMenuInputs {
@@ -414,6 +475,7 @@ pub struct ReplayMenuInputs {
     pub current_version_number: u32,
     pub current_exe_crc: u32,
     pub current_ini_crc: u32,
+    pub metadata: ReplayMenuMetadataPolicy,
 }
 
 pub struct ReplayMenu {
@@ -444,6 +506,7 @@ pub struct ReplayMenu {
     current_version_number: u32,
     current_exe_crc: u32,
     current_ini_crc: u32,
+    metadata: ReplayMenuMetadataPolicy,
 }
 
 impl ReplayMenu {
@@ -467,6 +530,7 @@ impl ReplayMenu {
             current_version_number: version.get_version_number(),
             current_exe_crc,
             current_ini_crc,
+            metadata: ReplayMenuMetadataPolicy::capture_application(),
         })
     }
 
@@ -481,6 +545,7 @@ impl ReplayMenu {
             current_version_number,
             current_exe_crc,
             current_ini_crc,
+            metadata,
         } = inputs;
         ReplayMenu {
             parent_id: 0,
@@ -503,6 +568,7 @@ impl ReplayMenu {
             current_version_number,
             current_exe_crc,
             current_ini_crc,
+            metadata,
         }
     }
 
@@ -514,6 +580,7 @@ impl ReplayMenu {
             && self.current_version_number == inputs.current_version_number
             && self.current_exe_crc == inputs.current_exe_crc
             && self.current_ini_crc == inputs.current_ini_crc
+            && self.metadata == inputs.metadata
     }
 
     /// Admit final application version/CRC observations without rebuilding an
@@ -535,6 +602,7 @@ impl ReplayMenu {
         self.current_version_number = inputs.current_version_number;
         self.current_exe_crc = inputs.current_exe_crc;
         self.current_ini_crc = inputs.current_ini_crc;
+        self.metadata = inputs.metadata.clone();
         // ReplayMenu.cpp202 compares against the current admitted content CRC.
         // Read metadata only; do not reopen or alter the receiving live Recorder.
         let colors: Vec<_> = self
@@ -797,7 +865,7 @@ impl ReplayMenu {
     /// Parse game info from options string
     fn parse_game_info(&self, options: &str) -> Option<ReplayGameInfo> {
         let mut info = ReplayGameInfo::new();
-        if parse_ascii_string_to_game_info(&mut info, options) {
+        if parse_ascii_string_to_game_info_with_policy(&mut info, options, &self.metadata) {
             Some(info)
         } else {
             None
@@ -1075,31 +1143,78 @@ pub enum KeyState {
 ///
 /// Matches C++ GameInfo parsing logic
 pub fn parse_ascii_string_to_game_info(game_info: &mut ReplayGameInfo, options: &str) -> bool {
-    let mut net_info = game_network::game_info::GameInfo::new();
-    if !game_network::game_info::serialization::parse_ascii_string_to_game_info(
-        &mut net_info,
-        options,
-    ) {
+    let policy = ReplayMenuMetadataPolicy::capture_application();
+    parse_ascii_string_to_game_info_with_policy(game_info, options, &policy)
+}
+
+pub(crate) fn parse_ascii_string_to_game_info_with_policy(
+    game_info: &mut ReplayGameInfo,
+    options: &str,
+    policy: &ReplayMenuMetadataPolicy,
+) -> bool {
+    let Some(metadata) = recorder::decode_replay_menu_metadata(options, policy.limits) else {
         return false;
+    };
+    // Preserve the existing C++ menu map-name projection. The plain Recorder
+    // DTO deliberately retains its raw M suffix for the simulation owner.
+    let components: Vec<_> = metadata
+        .map
+        .split(['\\', '/'])
+        .filter(|component| !component.is_empty())
+        .collect();
+    let mut map = components.join("\\");
+    if let Some(last) = components.last() {
+        if !map.is_empty() {
+            map.push('\\');
+        }
+        map.push_str(last);
+        map.push('.');
+        map.push_str(policy.map_extension.trim_start_matches('.'));
     }
-
-    game_info.set_map(net_info.get_map().to_string());
-
+    let mut candidate = ReplayGameInfo::new();
+    candidate.set_map(map);
     for index in 0..MAX_SLOTS {
         let mut slot = GameSlot::new();
-        if let Some(net_slot) = net_info.get_slot(index) {
-            slot.state = map_slot_state(net_slot.get_state());
-            slot.name = net_slot.get_name().to_string();
-            slot.color = net_slot.get_color();
-            slot.start_pos = net_slot.get_start_pos();
-            slot.player_template = net_slot.get_player_template();
-            slot.team_number = net_slot.get_team_number();
-            slot.ip = net_slot.get_ip();
-            slot.port = net_slot.get_port();
+        if let Some(decoded) = metadata.slots.get(index) {
+            slot.state = if decoded.is_human {
+                SlotState::Player
+            } else if decoded.is_occupied {
+                match decoded.ai_difficulty {
+                    1 => SlotState::EasyAI,
+                    3 => SlotState::BrutalAI,
+                    _ => SlotState::MedAI,
+                }
+            } else if decoded.is_open {
+                SlotState::Open
+            } else {
+                SlotState::Closed
+            };
+            slot.name = if decoded.is_human {
+                decoded.name.clone()
+            } else {
+                policy.slot_labels[match slot.state {
+                    SlotState::Open => 0,
+                    SlotState::Closed => 1,
+                    SlotState::EasyAI => 2,
+                    SlotState::MedAI => 3,
+                    SlotState::BrutalAI => 4,
+                    SlotState::Player => 0,
+                }]
+                .clone()
+            };
+            slot.color = decoded.color;
+            slot.start_pos = decoded.start_pos;
+            slot.player_template = decoded.player_template;
+            slot.team_number = decoded.team;
+            slot.ip = decoded.ip;
+            let Ok(port) = u16::try_from(decoded.port) else {
+                return false;
+            };
+            slot.port = port;
         }
-        game_info.set_slot(index, slot);
+        candidate.set_slot(index, slot);
     }
-
+    *game_info = candidate;
     true
 }
 
@@ -1108,17 +1223,6 @@ pub fn parse_ascii_string_to_game_info(game_info: &mut ReplayGameInfo, options: 
 /// Matches C++ getUnicodeTimeBuffer function
 pub fn get_unicode_time_buffer(time_val: &SystemTimeValue) -> String {
     time_val.to_display_string()
-}
-
-fn map_slot_state(state: game_network::game_info::SlotState) -> SlotState {
-    match state {
-        game_network::game_info::SlotState::Open => SlotState::Open,
-        game_network::game_info::SlotState::Closed => SlotState::Closed,
-        game_network::game_info::SlotState::EasyAI => SlotState::EasyAI,
-        game_network::game_info::SlotState::MedAI => SlotState::MedAI,
-        game_network::game_info::SlotState::BrutalAI => SlotState::BrutalAI,
-        game_network::game_info::SlotState::Player => SlotState::Player,
-    }
 }
 
 #[cfg(test)]
@@ -1348,3 +1452,7 @@ mod tests {
         assert_eq!(ReplayMenu::replay_map_display_name("", &cache), "");
     }
 }
+
+#[cfg(test)]
+#[path = "replay_metadata_tests.rs"]
+mod replay_metadata_tests;

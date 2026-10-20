@@ -286,3 +286,37 @@ fn actual_shell_and_match_clear_before_valid_or_failed_replay_header() {
         },
     );
 }
+
+#[test]
+fn receiving_freeze_peek_preserves_batch_order_once_and_reset_disconnects_old_loan() {
+    let mut state = ReplayPendingState::default();
+    let stale_sender = state.sender.clone();
+    state
+        .receive_client_messages(vec![
+            GameMessage::new(GameMessageType::ClearGameData),
+            GameMessage::new(GameMessageType::NewGame),
+        ])
+        .unwrap();
+    assert!(state.receiving_clear_command_pending());
+    assert!(state.receiving_clear_command_pending());
+    let messages = state.take_incoming();
+    assert_eq!(messages.len(), 2);
+    assert!(matches!(
+        messages[0].get_type(),
+        GameMessageType::ClearGameData
+    ));
+    assert!(matches!(messages[1].get_type(), GameMessageType::NewGame));
+    assert!(state.take_incoming().is_empty());
+    state
+        .receive_client_messages(vec![GameMessage::new(GameMessageType::ClearGameData)])
+        .unwrap();
+    assert!(state.receiving_clear_command_pending());
+    state.clear();
+    assert!(!state.receiving_clear_command_pending());
+    assert!(
+        stale_sender
+            .send(vec![GameMessage::new(GameMessageType::ClearGameData)])
+            .is_err()
+    );
+    assert!(state.take_incoming().is_empty());
+}

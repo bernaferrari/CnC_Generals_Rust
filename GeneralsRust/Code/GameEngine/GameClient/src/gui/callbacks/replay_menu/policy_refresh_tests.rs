@@ -60,11 +60,23 @@ fn admitted_content_crc_refresh_preserves_active_native_selection_and_release() 
         current_version_number: version.get_version_number(),
         current_exe_crc: 2,
         current_ini_crc: 3,
+        metadata: crate::gui::shell::replay_menu::fixture_replay_metadata_policy(1, 1),
     };
     let mut manager = WindowManager::new();
     let mut boot_inputs = inputs.clone();
     boot_inputs.current_ini_crc = 0;
+    let mut pending_content = boot_inputs.clone();
+    pending_content.metadata.limits.color_count = 0;
+    pending_content.metadata.limits.player_template_count = 0;
+    manager.configure_replay_menu_owned(pending_content);
+    let boot_owner = manager.replay_menu.as_ref().unwrap().clone();
+    // The worker's actual loaded definitions become ready before authored
+    // ReplayMenu initialization. Re-admit them without replacing the owner.
     manager.configure_replay_menu_owned(boot_inputs.clone());
+    assert!(Rc::ptr_eq(
+        &boot_owner,
+        manager.replay_menu.as_ref().unwrap()
+    ));
     let key = NameKeyGenerator::name_to_key;
     let parent = manager
         .create_window_with_id(

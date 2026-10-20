@@ -13,14 +13,12 @@ use crate::common::message_stream::{
     Coord3D, GameMessage, GameMessageArgumentDataType, GameMessageArgumentType, GameMessageType,
     ICoord2D, MessageSerializer, get_message_stream, is_network_command_message,
 };
+use crate::common::multiplayer_settings::PLAYERTEMPLATE_OBSERVER;
 use crate::common::random_value::{
     get_game_logic_random_seed, init_game_logic_random, init_random_with_seed,
 };
 use crate::common::version::get_version;
-use crate::game_network::{
-    PLAYERTEMPLATE_OBSERVER,
-    game_info::{GameInfo, SlotState},
-};
+use crate::game_network::game_info::{GameInfo, SlotState};
 
 /// Recorder operating mode
 /// Matches C++ RecorderModeType from Recorder.h:23-27
@@ -33,6 +31,10 @@ pub enum RecorderMode {
     /// Inactive (shell, saved game, or no replay)
     None,
 }
+
+mod game_info;
+pub use game_info::{ReplayMenuMetadataLimits, decode_replay_menu_metadata};
+use game_info::{format_replay_game_info, parse_replay_game_info};
 
 mod header;
 pub use header::inspect_replay_header;
@@ -471,181 +473,6 @@ const CPP_MSG_SELECT_TEAM0: u32 = 1016;
 const CPP_MSG_ADD_TEAM0: u32 = 1026;
 const CPP_MSG_DO_ATTACKSQUAD: u32 = 1036;
 const CPP_MSG_LOGIC_CRC: u32 = 1095;
-
-/// Serialize lobby options like C++ `GameInfoToAsciiString` (GameInfo.cpp:875-972).
-fn format_replay_game_info(info: &ReplayGameInfo) -> String {
-    let map = info.map.replace('\\', "/");
-    let mut options = format!(
-        "US={};M={:02x}{};MC={:X};MS={};SD={};C={};SR={};SC={};O={};S=",
-        info.use_stats,
-        info.map_contents_mask & 0xff,
-        map,
-        info.map_crc,
-        info.map_size,
-        info.seed,
-        info.crc_interval,
-        info.superweapon_restriction,
-        info.starting_cash,
-        if info.old_factions_only { 'Y' } else { 'N' },
-    );
-    for slot in info.slots.iter().take(8) {
-        if slot.is_occupied && slot.is_human {
-            options.push_str(&format!(
-                "H{},{:X},{},{}{},{},{},{},{},{}:",
-                slot.name,
-                slot.ip,
-                slot.port,
-                if slot.accepted { 'T' } else { 'F' },
-                if slot.has_map { 'T' } else { 'F' },
-                slot.color,
-                slot.player_template,
-                slot.start_pos,
-                slot.team,
-                slot.nat
-            ));
-        } else if slot.is_occupied {
-            let ai = match slot.ai_difficulty {
-                1 => 'E',
-                3 => 'H',
-                _ => 'M',
-            };
-            options.push_str(&format!(
-                "C{},{},{},{},{}:",
-                ai, slot.color, slot.player_template, slot.start_pos, slot.team
-            ));
-        } else if slot.is_open {
-            options.push_str("O:");
-        } else {
-            options.push_str("X:");
-        }
-    }
-    options.push(';');
-    options
-}
-
-/// Parse C++ `GameInfoToAsciiString` output into `ReplayGameInfo`.
-/// Matches `ParseAsciiStringToGameInfo` (GameInfo.cpp:982-1470) enough to restore
-/// map/seed/CRC/slot color/template/start/team/NAT.
-fn parse_replay_game_info(options: &str, info: &mut ReplayGameInfo) -> bool {
-    if options.is_empty() {
-        return false;
-    }
-    let mut saw_seed = false;
-    let mut saw_slots = false;
-    for pair in options.split(';') {
-        if pair.is_empty() {
-            continue;
-        }
-        let (key, val) = match pair.split_once('=') {
-            Some(kv) => kv,
-            None => continue,
-        };
-        match key {
-            "US" => {
-                info.use_stats = val.parse().unwrap_or(0);
-            }
-            "M" => {
-                if val.len() >= 2 {
-                    info.map_contents_mask = u32::from_str_radix(&val[..2], 16).unwrap_or(0);
-                    info.map = val[2..].to_string();
-                }
-            }
-            "MC" => {
-                info.map_crc = u32::from_str_radix(val, 16).unwrap_or(0);
-            }
-            "MS" => {
-                info.map_size = val.parse().unwrap_or(0);
-            }
-            "SD" => {
-                info.seed = val.parse().unwrap_or(0);
-                saw_seed = true;
-            }
-            "C" => {
-                info.crc_interval = val.parse().unwrap_or(100);
-            }
-            "SR" => {
-                info.superweapon_restriction = val.parse().unwrap_or(0);
-            }
-            "SC" => {
-                info.starting_cash = val.parse().unwrap_or(0);
-            }
-            "O" => {
-                info.old_factions_only = val.eq_ignore_ascii_case("Y");
-            }
-            "S" => {
-                saw_slots = parse_replay_slot_list(val, info);
-            }
-            _ => {}
-        }
-    }
-    saw_seed && saw_slots
-}
-
-fn parse_replay_slot_list(raw: &str, info: &mut ReplayGameInfo) -> bool {
-    let mut parts: Vec<&str> = raw.split(':').collect();
-    if parts.last() == Some(&"") {
-        parts.pop();
-    }
-    if parts.len() < 8 {
-        return false;
-    }
-    for (i, part) in parts.iter().take(8).enumerate() {
-        let slot = match info.slots.get_mut(i) {
-            Some(s) => s,
-            None => return false,
-        };
-        *slot = ReplaySlot::default();
-        if part.is_empty() {
-            return false;
-        }
-        match part.as_bytes()[0] {
-            b'X' => {}
-            b'O' => {
-                slot.is_open = true;
-            }
-            b'H' => {
-                let fields: Vec<&str> = part[1..].split(',').collect();
-                if fields.len() < 9 {
-                    return false;
-                }
-                slot.name = fields[0].to_string();
-                slot.ip = u32::from_str_radix(fields[1], 16).unwrap_or(0);
-                slot.port = fields[2].parse().unwrap_or(0);
-                let flags = fields[3].as_bytes();
-                slot.accepted = flags.first() == Some(&b'T');
-                slot.has_map = flags.get(1) == Some(&b'T');
-                slot.color = fields[4].parse().unwrap_or(-1);
-                slot.player_template = fields[5].parse().unwrap_or(-1);
-                slot.start_pos = fields[6].parse().unwrap_or(-1);
-                slot.team = fields[7].parse().unwrap_or(-1);
-                slot.nat = fields[8].parse().unwrap_or(0);
-                slot.is_human = true;
-                slot.is_occupied = true;
-                slot.is_observer = slot.player_template == PLAYERTEMPLATE_OBSERVER;
-            }
-            b'C' => {
-                let fields: Vec<&str> = part.split(',').collect();
-                if fields.len() < 5 {
-                    return false;
-                }
-                slot.ai_difficulty = match fields[0].as_bytes().get(1) {
-                    Some(&b'E') => 1,
-                    Some(&b'H') => 3,
-                    _ => 2,
-                };
-                slot.color = fields[1].parse().unwrap_or(-1);
-                slot.player_template = fields[2].parse().unwrap_or(-1);
-                slot.start_pos = fields[3].parse().unwrap_or(-1);
-                slot.team = fields[4].parse().unwrap_or(-1);
-                slot.is_human = false;
-                slot.is_occupied = true;
-                slot.is_observer = slot.player_template == PLAYERTEMPLATE_OBSERVER;
-            }
-            _ => return false,
-        }
-    }
-    true
-}
 
 /// C++ `GameMessage::Type` stored in `.rep` files (MessageStream.h:447-570).
 fn replay_type_id(msg: &GameMessageType) -> Result<u32, std::io::Error> {
@@ -2645,6 +2472,10 @@ pub fn with_recorder<R>(f: impl FnOnce(&Recorder) -> R) -> Option<R> {
 }
 
 #[cfg(test)]
+#[path = "recorder/legacy_fixture_isolation.rs"]
+mod legacy_fixture_isolation;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::common::ini::ini_game_data::ensure_global_data;
@@ -2711,28 +2542,32 @@ mod tests {
 
     #[test]
     fn test_recorder_init() {
-        let recorder = Recorder::new();
-        assert_eq!(recorder.get_mode(), RecorderMode::None);
-        assert!(!recorder.is_recording());
-        assert!(!recorder.is_playback());
+        super::legacy_fixture_isolation::run(module_path!(), "test_recorder_init", || {
+            let recorder = Recorder::new();
+            assert_eq!(recorder.get_mode(), RecorderMode::None);
+            assert!(!recorder.is_recording());
+            assert!(!recorder.is_playback());
+        });
     }
 
     #[test]
     fn test_recorder_modes() {
-        let mut recorder = Recorder::new();
+        super::legacy_fixture_isolation::run(module_path!(), "test_recorder_modes", || {
+            let mut recorder = Recorder::new();
 
-        // Test mode changes
-        recorder.mode = RecorderMode::Record;
-        assert!(recorder.is_recording());
-        assert!(!recorder.is_playback());
+            // Test mode changes
+            recorder.mode = RecorderMode::Record;
+            assert!(recorder.is_recording());
+            assert!(!recorder.is_playback());
 
-        recorder.mode = RecorderMode::Playback;
-        assert!(!recorder.is_recording());
-        assert!(recorder.is_playback());
+            recorder.mode = RecorderMode::Playback;
+            assert!(!recorder.is_recording());
+            assert!(recorder.is_playback());
 
-        recorder.mode = RecorderMode::None;
-        assert!(!recorder.is_recording());
-        assert!(!recorder.is_playback());
+            recorder.mode = RecorderMode::None;
+            assert!(!recorder.is_recording());
+            assert!(!recorder.is_playback());
+        });
     }
 
     #[test]
@@ -2754,15 +2589,21 @@ mod tests {
 
     #[test]
     fn test_logic_crc_posted_externally_tracks_command_source() {
-        // GameClient / Main record_tap install a command source when they own
-        // the MSG_LOGIC_CRC series; a bare recorder (headless/crate-only
-        // path) posts it itself via GameLogic::update.
-        let mut recorder = Recorder::new();
-        assert!(!recorder.logic_crc_posted_externally());
-        recorder.set_command_source(Some(Arc::new(|| Vec::new())));
-        assert!(recorder.logic_crc_posted_externally());
-        recorder.set_command_source(None);
-        assert!(!recorder.logic_crc_posted_externally());
+        super::legacy_fixture_isolation::run(
+            module_path!(),
+            "test_logic_crc_posted_externally_tracks_command_source",
+            || {
+                // GameClient / Main record_tap install a command source when they own
+                // the MSG_LOGIC_CRC series; a bare recorder (headless/crate-only
+                // path) posts it itself via GameLogic::update.
+                let mut recorder = Recorder::new();
+                assert!(!recorder.logic_crc_posted_externally());
+                recorder.set_command_source(Some(Arc::new(|| Vec::new())));
+                assert!(recorder.logic_crc_posted_externally());
+                recorder.set_command_source(None);
+                assert!(!recorder.logic_crc_posted_externally());
+            },
+        );
     }
 
     #[test]
@@ -2784,508 +2625,572 @@ mod tests {
 
     #[test]
     fn test_is_multiplayer_uses_game_mode_provider() {
-        let mut recorder = Recorder::new();
+        super::legacy_fixture_isolation::run(
+            module_path!(),
+            "test_is_multiplayer_uses_game_mode_provider",
+            || {
+                let mut recorder = Recorder::new();
 
-        recorder.set_game_mode_provider(Some(Arc::new(|| GAME_SINGLE_PLAYER)));
-        assert!(!recorder.is_multiplayer());
+                recorder.set_game_mode_provider(Some(Arc::new(|| GAME_SINGLE_PLAYER)));
+                assert!(!recorder.is_multiplayer());
 
-        recorder.set_game_mode_provider(Some(Arc::new(|| GAME_SHELL)));
-        assert!(!recorder.is_multiplayer());
+                recorder.set_game_mode_provider(Some(Arc::new(|| GAME_SHELL)));
+                assert!(!recorder.is_multiplayer());
 
-        recorder.set_game_mode_provider(Some(Arc::new(|| 2)));
-        assert!(recorder.is_multiplayer());
+                recorder.set_game_mode_provider(Some(Arc::new(|| 2)));
+                assert!(recorder.is_multiplayer());
 
-        recorder.set_game_mode_provider(Some(Arc::new(|| GAME_NONE)));
-        assert!(!recorder.is_multiplayer());
+                recorder.set_game_mode_provider(Some(Arc::new(|| GAME_NONE)));
+                assert!(!recorder.is_multiplayer());
+            },
+        );
     }
 
     #[test]
     fn test_local_slot_index_resolution_matches_replay_expectations() {
-        let mut recorder = Recorder::new();
+        super::legacy_fixture_isolation::run(
+            module_path!(),
+            "test_local_slot_index_resolution_matches_replay_expectations",
+            || {
+                let mut recorder = Recorder::new();
 
-        recorder.game_info.slots[3].is_occupied = true;
-        recorder.game_info.slots[3].ip = 0x0102_0304;
-        recorder.game_info.set_local_ip(0x0102_0304);
-        assert_eq!(recorder.resolve_local_slot_index(), 3);
+                recorder.game_info.slots[3].is_occupied = true;
+                recorder.game_info.slots[3].ip = 0x0102_0304;
+                recorder.game_info.set_local_ip(0x0102_0304);
+                assert_eq!(recorder.resolve_local_slot_index(), 3);
 
-        recorder.game_info.set_local_ip(0);
-        assert_eq!(recorder.resolve_local_slot_index(), 0);
+                recorder.game_info.set_local_ip(0);
+                assert_eq!(recorder.resolve_local_slot_index(), 0);
 
-        recorder.game_info.clear_slot_list();
-        assert_eq!(recorder.resolve_local_slot_index(), -1);
+                recorder.game_info.clear_slot_list();
+                assert_eq!(recorder.resolve_local_slot_index(), -1);
+            },
+        );
     }
 
     #[test]
     fn test_replay_dir_and_playback_updates_pending_map_from_header() {
-        let temp = tempfile::tempdir().unwrap();
-        let map_name = "Maps/TestPlayback.map".to_string();
-        let expected_seed = 0x1357_9BDF;
-        let (sink_types, captured_types_rx) = std::sync::mpsc::channel::<GameMessageType>();
+        super::legacy_fixture_isolation::run(
+            module_path!(),
+            "test_replay_dir_and_playback_updates_pending_map_from_header",
+            || {
+                let temp = tempfile::tempdir().unwrap();
+                let map_name = "Maps/TestPlayback.map".to_string();
+                let expected_seed = 0x1357_9BDF;
+                let (sink_types, captured_types_rx) = std::sync::mpsc::channel::<GameMessageType>();
 
-        {
-            let global = ensure_global_data();
-            let mut data = global.write();
-            data.set_path_user_data(temp.path().to_string_lossy().to_string());
-            data.map_name = map_name.clone();
-            data.pending_file.clear();
-        }
+                {
+                    let global = ensure_global_data();
+                    let mut data = global.write();
+                    data.set_path_user_data(temp.path().to_string_lossy().to_string());
+                    data.map_name = map_name.clone();
+                    data.pending_file.clear();
+                }
 
-        init_game_logic_random(expected_seed);
+                init_game_logic_random(expected_seed);
 
-        let mut writer = Recorder::new();
-        assert_eq!(writer.replay_dir(), temp.path().join("Replays"));
+                let mut writer = Recorder::new();
+                assert_eq!(writer.replay_dir(), temp.path().join("Replays"));
 
-        writer.start_recording(1, 2, 3, 60).unwrap();
+                writer.start_recording(1, 2, 3, 60).unwrap();
 
-        writer.set_current_frame(3);
-        let crc_message = GameMessage::new(GameMessageType::LogicCRC(0xDEADBEEF));
-        writer.write_to_file(&crc_message).unwrap();
+                writer.set_current_frame(3);
+                let crc_message = GameMessage::new(GameMessageType::LogicCRC(0xDEADBEEF));
+                writer.write_to_file(&crc_message).unwrap();
 
-        writer.stop_recording();
+                writer.stop_recording();
 
-        let replay_name = format!(
-            "{}{}",
-            writer.last_replay_filename(),
-            writer.replay_extension()
-        );
-        assert!(temp.path().join("Replays").join(&replay_name).exists());
+                let replay_name = format!(
+                    "{}{}",
+                    writer.last_replay_filename(),
+                    writer.replay_extension()
+                );
+                assert!(temp.path().join("Replays").join(&replay_name).exists());
 
-        {
-            let global = ensure_global_data();
-            global.write().pending_file = "OldPending.map".to_string();
-        }
+                {
+                    let global = ensure_global_data();
+                    global.write().pending_file = "OldPending.map".to_string();
+                }
 
-        let mut reader = Recorder::new();
-        reader.set_game_mode_provider(Some(Arc::new(|| 2)));
-        reader.set_command_sink(Some(std::sync::Arc::new(move |msg| {
-            sink_types
-                .send(msg.get_type().clone())
-                .expect("test observation receiver remains alive");
-        })));
-        assert!(reader.playback_file(replay_name).unwrap());
-        assert_eq!(get_game_logic_random_seed(), expected_seed);
+                let mut reader = Recorder::new();
+                reader.set_game_mode_provider(Some(Arc::new(|| 2)));
+                reader.set_command_sink(Some(std::sync::Arc::new(move |msg| {
+                    sink_types
+                        .send(msg.get_type().clone())
+                        .expect("test observation receiver remains alive");
+                })));
+                assert!(reader.playback_file(replay_name).unwrap());
+                assert_eq!(get_game_logic_random_seed(), expected_seed);
 
-        let pending = ensure_global_data().read().pending_file.clone();
-        assert_eq!(pending, map_name);
-        let mut captured_types: Vec<GameMessageType> = captured_types_rx.try_iter().collect();
-        assert_eq!(
-            captured_types.as_slice(),
-            &[GameMessageType::ClearGameData, GameMessageType::NewGame,]
-        );
+                let pending = ensure_global_data().read().pending_file.clone();
+                assert_eq!(pending, map_name);
+                let mut captured_types: Vec<GameMessageType> =
+                    captured_types_rx.try_iter().collect();
+                assert_eq!(
+                    captured_types.as_slice(),
+                    &[GameMessageType::ClearGameData, GameMessageType::NewGame,]
+                );
 
-        reader.stop_playback();
-        captured_types.extend(captured_types_rx.try_iter());
-        assert_eq!(
-            captured_types.as_slice(),
-            &[
-                GameMessageType::ClearGameData,
-                GameMessageType::NewGame,
-                GameMessageType::ClearGameData,
-            ]
+                reader.stop_playback();
+                captured_types.extend(captured_types_rx.try_iter());
+                assert_eq!(
+                    captured_types.as_slice(),
+                    &[
+                        GameMessageType::ClearGameData,
+                        GameMessageType::NewGame,
+                        GameMessageType::ClearGameData,
+                    ]
+                );
+            },
         );
     }
 
     #[test]
     fn test_playback_file_clears_shell_map_like_cpp_is_in_game() {
-        // C++ GameLogic.h:375 isInGame() is true for GAME_SHELL.
-        let temp = tempfile::tempdir().unwrap();
+        super::legacy_fixture_isolation::run(
+            module_path!(),
+            "test_playback_file_clears_shell_map_like_cpp_is_in_game",
+            || {
+                // C++ GameLogic.h:375 isInGame() is true for GAME_SHELL.
+                let temp = tempfile::tempdir().unwrap();
 
-        {
-            let global = ensure_global_data();
-            let mut data = global.write();
-            data.set_path_user_data(temp.path().to_string_lossy().to_string());
-            data.map_name = "Maps/PlaybackShellClear.map".to_string();
-            data.pending_file.clear();
-        }
+                {
+                    let global = ensure_global_data();
+                    let mut data = global.write();
+                    data.set_path_user_data(temp.path().to_string_lossy().to_string());
+                    data.map_name = "Maps/PlaybackShellClear.map".to_string();
+                    data.pending_file.clear();
+                }
 
-        let mut writer = Recorder::new();
-        writer.start_recording(1, 2, 3, 60).unwrap();
-        writer.set_current_frame(2);
-        writer
-            .write_to_file(&GameMessage::new(GameMessageType::LogicCRC(0x0BAD_F00D)))
-            .unwrap();
-        writer.stop_recording();
+                let mut writer = Recorder::new();
+                writer.start_recording(1, 2, 3, 60).unwrap();
+                writer.set_current_frame(2);
+                writer
+                    .write_to_file(&GameMessage::new(GameMessageType::LogicCRC(0x0BAD_F00D)))
+                    .unwrap();
+                writer.stop_recording();
 
-        let replay_name = format!(
-            "{}{}",
-            writer.last_replay_filename(),
-            writer.replay_extension()
-        );
+                let replay_name = format!(
+                    "{}{}",
+                    writer.last_replay_filename(),
+                    writer.replay_extension()
+                );
 
-        let (sink_types, captured_types_rx) = std::sync::mpsc::channel::<GameMessageType>();
-        let mut reader = Recorder::new();
-        reader.set_game_mode_provider(Some(Arc::new(|| GAME_SHELL)));
-        reader.set_command_sink(Some(std::sync::Arc::new(move |msg| {
-            sink_types
-                .send(msg.get_type().clone())
-                .expect("test observation receiver remains alive");
-        })));
+                let (sink_types, captured_types_rx) = std::sync::mpsc::channel::<GameMessageType>();
+                let mut reader = Recorder::new();
+                reader.set_game_mode_provider(Some(Arc::new(|| GAME_SHELL)));
+                reader.set_command_sink(Some(std::sync::Arc::new(move |msg| {
+                    sink_types
+                        .send(msg.get_type().clone())
+                        .expect("test observation receiver remains alive");
+                })));
 
-        assert!(reader.playback_file(replay_name).unwrap());
-        let captured_types: Vec<GameMessageType> = captured_types_rx.try_iter().collect();
-        assert_eq!(
-            captured_types.as_slice(),
-            &[GameMessageType::ClearGameData, GameMessageType::NewGame,]
+                assert!(reader.playback_file(replay_name).unwrap());
+                let captured_types: Vec<GameMessageType> = captured_types_rx.try_iter().collect();
+                assert_eq!(
+                    captured_types.as_slice(),
+                    &[GameMessageType::ClearGameData, GameMessageType::NewGame,]
+                );
+            },
         );
     }
 
     #[test]
     fn test_playback_file_skips_clear_game_data_when_not_in_game() {
-        let temp = tempfile::tempdir().unwrap();
+        super::legacy_fixture_isolation::run(
+            module_path!(),
+            "test_playback_file_skips_clear_game_data_when_not_in_game",
+            || {
+                let temp = tempfile::tempdir().unwrap();
 
-        {
-            let global = ensure_global_data();
-            let mut data = global.write();
-            data.set_path_user_data(temp.path().to_string_lossy().to_string());
-            data.map_name = "Maps/PlaybackNoClear.map".to_string();
-            data.pending_file.clear();
-        }
+                {
+                    let global = ensure_global_data();
+                    let mut data = global.write();
+                    data.set_path_user_data(temp.path().to_string_lossy().to_string());
+                    data.map_name = "Maps/PlaybackNoClear.map".to_string();
+                    data.pending_file.clear();
+                }
 
-        let mut writer = Recorder::new();
-        writer.start_recording(1, 2, 3, 60).unwrap();
-        writer.set_current_frame(2);
-        writer
-            .write_to_file(&GameMessage::new(GameMessageType::LogicCRC(0x0BAD_F00D)))
-            .unwrap();
-        writer.stop_recording();
+                let mut writer = Recorder::new();
+                writer.start_recording(1, 2, 3, 60).unwrap();
+                writer.set_current_frame(2);
+                writer
+                    .write_to_file(&GameMessage::new(GameMessageType::LogicCRC(0x0BAD_F00D)))
+                    .unwrap();
+                writer.stop_recording();
 
-        let replay_name = format!(
-            "{}{}",
-            writer.last_replay_filename(),
-            writer.replay_extension()
+                let replay_name = format!(
+                    "{}{}",
+                    writer.last_replay_filename(),
+                    writer.replay_extension()
+                );
+
+                let (sink_types, captured_types_rx) = std::sync::mpsc::channel::<GameMessageType>();
+                let mut reader = Recorder::new();
+                reader.set_game_mode_provider(Some(Arc::new(|| GAME_NONE)));
+                reader.set_command_sink(Some(std::sync::Arc::new(move |msg| {
+                    sink_types
+                        .send(msg.get_type().clone())
+                        .expect("test observation receiver remains alive");
+                })));
+
+                assert!(reader.playback_file(replay_name).unwrap());
+                let captured_types: Vec<GameMessageType> = captured_types_rx.try_iter().collect();
+                assert_eq!(captured_types.as_slice(), &[GameMessageType::NewGame,]);
+            },
         );
-
-        let (sink_types, captured_types_rx) = std::sync::mpsc::channel::<GameMessageType>();
-        let mut reader = Recorder::new();
-        reader.set_game_mode_provider(Some(Arc::new(|| GAME_NONE)));
-        reader.set_command_sink(Some(std::sync::Arc::new(move |msg| {
-            sink_types
-                .send(msg.get_type().clone())
-                .expect("test observation receiver remains alive");
-        })));
-
-        assert!(reader.playback_file(replay_name).unwrap());
-        let captured_types: Vec<GameMessageType> = captured_types_rx.try_iter().collect();
-        assert_eq!(captured_types.as_slice(), &[GameMessageType::NewGame,]);
     }
 
     #[test]
     fn test_replay_header_round_trips_fixed_width_time_layout() {
-        let temp = tempfile::tempdir().unwrap();
-        let map_name = "Maps/HeaderParity.map".to_string();
+        super::legacy_fixture_isolation::run(
+            module_path!(),
+            "test_replay_header_round_trips_fixed_width_time_layout",
+            || {
+                let temp = tempfile::tempdir().unwrap();
+                let map_name = "Maps/HeaderParity.map".to_string();
 
-        {
-            let global = ensure_global_data();
-            let mut data = global.write();
-            data.set_path_user_data(temp.path().to_string_lossy().to_string());
-            data.map_name = map_name.clone();
-            data.pending_file.clear();
-        }
+                {
+                    let global = ensure_global_data();
+                    let mut data = global.write();
+                    data.set_path_user_data(temp.path().to_string_lossy().to_string());
+                    data.map_name = map_name.clone();
+                    data.pending_file.clear();
+                }
 
-        let mut writer = Recorder::new();
-        writer.start_recording(1, 2, 3, 60).unwrap();
-        writer.set_current_frame(11);
-        writer
-            .write_to_file(&GameMessage::new(GameMessageType::LogicCRC(0x1234_5678)))
-            .unwrap();
-        writer.stop_recording();
+                let mut writer = Recorder::new();
+                writer.start_recording(1, 2, 3, 60).unwrap();
+                writer.set_current_frame(11);
+                writer
+                    .write_to_file(&GameMessage::new(GameMessageType::LogicCRC(0x1234_5678)))
+                    .unwrap();
+                writer.stop_recording();
 
-        let replay_name = format!(
-            "{}{}",
-            writer.last_replay_filename(),
-            writer.replay_extension()
+                let replay_name = format!(
+                    "{}{}",
+                    writer.last_replay_filename(),
+                    writer.replay_extension()
+                );
+                let bytes = std::fs::read(temp.path().join("Replays").join(&replay_name))
+                    .expect("replay should be readable");
+
+                assert_eq!(&bytes[..6], b"GENREP");
+
+                let start_time = u32::from_le_bytes(
+                    bytes[6..10]
+                        .try_into()
+                        .expect("start time should be 4 bytes"),
+                );
+                let end_time = u32::from_le_bytes(
+                    bytes[10..14]
+                        .try_into()
+                        .expect("end time should be 4 bytes"),
+                );
+                let frame_duration = u32::from_le_bytes(
+                    bytes[14..18]
+                        .try_into()
+                        .expect("frame duration should be 4 bytes"),
+                );
+                assert!(start_time > 0);
+                assert!(end_time >= start_time);
+                assert_eq!(frame_duration, 11);
+
+                let mut name_offset = _REPLAY_FIXED_HEADER_SIZE;
+                name_offset = read_utf16_z_end(&bytes, name_offset);
+                let time_bytes = &bytes[name_offset..name_offset + REPLAY_SYSTEM_TIME_BYTES];
+                let year = u16::from_le_bytes([time_bytes[0], time_bytes[1]]);
+                let month = u16::from_le_bytes([time_bytes[2], time_bytes[3]]);
+                let day_of_week = u16::from_le_bytes([time_bytes[4], time_bytes[5]]);
+                let day = u16::from_le_bytes([time_bytes[6], time_bytes[7]]);
+                let hour = u16::from_le_bytes([time_bytes[8], time_bytes[9]]);
+                let minute = u16::from_le_bytes([time_bytes[10], time_bytes[11]]);
+                let second = u16::from_le_bytes([time_bytes[12], time_bytes[13]]);
+                let milliseconds = u16::from_le_bytes([time_bytes[14], time_bytes[15]]);
+
+                assert!((1980..=2100).contains(&year));
+                assert!((1..=12).contains(&month));
+                assert!((0..=6).contains(&day_of_week));
+                assert!((1..=31).contains(&day));
+                assert!(hour <= 23);
+                assert!(minute <= 59);
+                assert!(second <= 59);
+                assert!(milliseconds <= 999);
+
+                let mut reader = Recorder::new();
+                let header = reader
+                    .load_replay_header(replay_name)
+                    .expect("header should parse");
+                let version = get_version();
+                assert_eq!(header.replay_name, "LastReplay");
+                assert_eq!(header.start_time, start_time as u64);
+                assert_eq!(header.end_time, end_time as u64);
+                assert_eq!(header.version_string, version.get_unicode_version());
+                assert_eq!(header.version_time_string, version.get_unicode_build_time());
+                assert!(header.time_val > UNIX_EPOCH);
+            },
         );
-        let bytes = std::fs::read(temp.path().join("Replays").join(&replay_name))
-            .expect("replay should be readable");
-
-        assert_eq!(&bytes[..6], b"GENREP");
-
-        let start_time = u32::from_le_bytes(
-            bytes[6..10]
-                .try_into()
-                .expect("start time should be 4 bytes"),
-        );
-        let end_time = u32::from_le_bytes(
-            bytes[10..14]
-                .try_into()
-                .expect("end time should be 4 bytes"),
-        );
-        let frame_duration = u32::from_le_bytes(
-            bytes[14..18]
-                .try_into()
-                .expect("frame duration should be 4 bytes"),
-        );
-        assert!(start_time > 0);
-        assert!(end_time >= start_time);
-        assert_eq!(frame_duration, 11);
-
-        let mut name_offset = _REPLAY_FIXED_HEADER_SIZE;
-        name_offset = read_utf16_z_end(&bytes, name_offset);
-        let time_bytes = &bytes[name_offset..name_offset + REPLAY_SYSTEM_TIME_BYTES];
-        let year = u16::from_le_bytes([time_bytes[0], time_bytes[1]]);
-        let month = u16::from_le_bytes([time_bytes[2], time_bytes[3]]);
-        let day_of_week = u16::from_le_bytes([time_bytes[4], time_bytes[5]]);
-        let day = u16::from_le_bytes([time_bytes[6], time_bytes[7]]);
-        let hour = u16::from_le_bytes([time_bytes[8], time_bytes[9]]);
-        let minute = u16::from_le_bytes([time_bytes[10], time_bytes[11]]);
-        let second = u16::from_le_bytes([time_bytes[12], time_bytes[13]]);
-        let milliseconds = u16::from_le_bytes([time_bytes[14], time_bytes[15]]);
-
-        assert!((1980..=2100).contains(&year));
-        assert!((1..=12).contains(&month));
-        assert!((0..=6).contains(&day_of_week));
-        assert!((1..=31).contains(&day));
-        assert!(hour <= 23);
-        assert!(minute <= 59);
-        assert!(second <= 59);
-        assert!(milliseconds <= 999);
-
-        let mut reader = Recorder::new();
-        let header = reader
-            .load_replay_header(replay_name)
-            .expect("header should parse");
-        let version = get_version();
-        assert_eq!(header.replay_name, "LastReplay");
-        assert_eq!(header.start_time, start_time as u64);
-        assert_eq!(header.end_time, end_time as u64);
-        assert_eq!(header.version_string, version.get_unicode_version());
-        assert_eq!(header.version_time_string, version.get_unicode_build_time());
-        assert!(header.time_val > UNIX_EPOCH);
     }
 
     #[test]
     fn test_recorder_init_prefers_pending_file_over_map_name() {
-        let global = ensure_global_data();
-        let snapshot = global.read().clone();
-        {
-            let mut data = global.write();
-            data.pending_file = "Maps/PendingOverride.map".to_string();
-            data.map_name = "Maps/MapNameFallback.map".to_string();
-        }
+        super::legacy_fixture_isolation::run(
+            module_path!(),
+            "test_recorder_init_prefers_pending_file_over_map_name",
+            || {
+                let global = ensure_global_data();
+                let snapshot = global.read().clone();
+                {
+                    let mut data = global.write();
+                    data.pending_file = "Maps/PendingOverride.map".to_string();
+                    data.map_name = "Maps/MapNameFallback.map".to_string();
+                }
 
-        let mut recorder = Recorder::new();
-        recorder.init();
+                let mut recorder = Recorder::new();
+                recorder.init();
 
-        assert_eq!(
-            recorder.get_game_info().get_map(),
-            "Maps/PendingOverride.map"
+                assert_eq!(
+                    recorder.get_game_info().get_map(),
+                    "Maps/PendingOverride.map"
+                );
+
+                *global.write() = snapshot;
+            },
         );
-
-        *global.write() = snapshot;
     }
 
     #[test]
     fn test_analyze_replay_sets_analysis_mode_and_progress_state() {
-        let temp = tempfile::tempdir().unwrap();
+        super::legacy_fixture_isolation::run(
+            module_path!(),
+            "test_analyze_replay_sets_analysis_mode_and_progress_state",
+            || {
+                let temp = tempfile::tempdir().unwrap();
 
-        {
-            let global = ensure_global_data();
-            let mut data = global.write();
-            data.set_path_user_data(temp.path().to_string_lossy().to_string());
-            data.map_name = "Maps/AnalysisReplay.map".to_string();
-            data.pending_file.clear();
-        }
+                {
+                    let global = ensure_global_data();
+                    let mut data = global.write();
+                    data.set_path_user_data(temp.path().to_string_lossy().to_string());
+                    data.map_name = "Maps/AnalysisReplay.map".to_string();
+                    data.pending_file.clear();
+                }
 
-        let mut writer = Recorder::new();
-        writer.start_recording(1, 2, 3, 60).unwrap();
-        writer.set_current_frame(7);
-        let crc_message = GameMessage::new(GameMessageType::LogicCRC(0xABCD1234));
-        writer.write_to_file(&crc_message).unwrap();
-        writer.stop_recording();
+                let mut writer = Recorder::new();
+                writer.start_recording(1, 2, 3, 60).unwrap();
+                writer.set_current_frame(7);
+                let crc_message = GameMessage::new(GameMessageType::LogicCRC(0xABCD1234));
+                writer.write_to_file(&crc_message).unwrap();
+                writer.stop_recording();
 
-        let replay_name = format!(
-            "{}{}",
-            writer.last_replay_filename(),
-            writer.replay_extension()
+                let replay_name = format!(
+                    "{}{}",
+                    writer.last_replay_filename(),
+                    writer.replay_extension()
+                );
+
+                let mut analyzer = Recorder::new();
+                assert!(!analyzer.is_analysis_in_progress());
+                assert!(analyzer.analyze_replay(replay_name).unwrap());
+                assert!(analyzer.doing_analysis);
+                assert!(analyzer.is_analysis_in_progress());
+
+                analyzer.update();
+                assert!(!analyzer.is_analysis_in_progress());
+            },
         );
-
-        let mut analyzer = Recorder::new();
-        assert!(!analyzer.is_analysis_in_progress());
-        assert!(analyzer.analyze_replay(replay_name).unwrap());
-        assert!(analyzer.doing_analysis);
-        assert!(analyzer.is_analysis_in_progress());
-
-        analyzer.update();
-        assert!(!analyzer.is_analysis_in_progress());
     }
 
     #[test]
     fn test_analyze_replay_suppresses_clear_game_data_messages() {
-        let temp = tempfile::tempdir().unwrap();
+        super::legacy_fixture_isolation::run(
+            module_path!(),
+            "test_analyze_replay_suppresses_clear_game_data_messages",
+            || {
+                let temp = tempfile::tempdir().unwrap();
 
-        {
-            let global = ensure_global_data();
-            let mut data = global.write();
-            data.set_path_user_data(temp.path().to_string_lossy().to_string());
-            data.map_name = "Maps/AnalysisClearReplay.map".to_string();
-            data.pending_file.clear();
-        }
+                {
+                    let global = ensure_global_data();
+                    let mut data = global.write();
+                    data.set_path_user_data(temp.path().to_string_lossy().to_string());
+                    data.map_name = "Maps/AnalysisClearReplay.map".to_string();
+                    data.pending_file.clear();
+                }
 
-        let mut writer = Recorder::new();
-        writer.start_recording(1, 2, 3, 60).unwrap();
-        writer.set_current_frame(4);
-        writer
-            .write_to_file(&GameMessage::new(GameMessageType::LogicCRC(0xFACE_B00C)))
-            .unwrap();
-        writer.stop_recording();
+                let mut writer = Recorder::new();
+                writer.start_recording(1, 2, 3, 60).unwrap();
+                writer.set_current_frame(4);
+                writer
+                    .write_to_file(&GameMessage::new(GameMessageType::LogicCRC(0xFACE_B00C)))
+                    .unwrap();
+                writer.stop_recording();
 
-        let replay_name = format!(
-            "{}{}",
-            writer.last_replay_filename(),
-            writer.replay_extension()
+                let replay_name = format!(
+                    "{}{}",
+                    writer.last_replay_filename(),
+                    writer.replay_extension()
+                );
+
+                let (sink_types, captured_types_rx) = std::sync::mpsc::channel::<GameMessageType>();
+                let mut analyzer = Recorder::new();
+                analyzer.set_command_sink(Some(std::sync::Arc::new(move |msg| {
+                    sink_types
+                        .send(msg.get_type().clone())
+                        .expect("test observation receiver remains alive");
+                })));
+
+                assert!(analyzer.analyze_replay(replay_name).unwrap());
+                analyzer.stop_playback();
+
+                let captured_types: Vec<GameMessageType> = captured_types_rx.try_iter().collect();
+                assert!(captured_types.is_empty());
+            },
         );
-
-        let (sink_types, captured_types_rx) = std::sync::mpsc::channel::<GameMessageType>();
-        let mut analyzer = Recorder::new();
-        analyzer.set_command_sink(Some(std::sync::Arc::new(move |msg| {
-            sink_types
-                .send(msg.get_type().clone())
-                .expect("test observation receiver remains alive");
-        })));
-
-        assert!(analyzer.analyze_replay(replay_name).unwrap());
-        analyzer.stop_playback();
-
-        let captured_types: Vec<GameMessageType> = captured_types_rx.try_iter().collect();
-        assert!(captured_types.is_empty());
     }
 
     #[test]
     fn test_version_playback_detects_header_mismatch_matrix() {
-        let temp = tempfile::tempdir().unwrap();
+        super::legacy_fixture_isolation::run(
+            module_path!(),
+            "test_version_playback_detects_header_mismatch_matrix",
+            || {
+                let temp = tempfile::tempdir().unwrap();
 
-        {
-            let global = ensure_global_data();
-            let mut data = global.write();
-            data.set_path_user_data(temp.path().to_string_lossy().to_string());
-            data.map_name = "Maps/VersionMatrixReplay.map".to_string();
-            data.pending_file.clear();
-            data.exe_crc = 0x1122_3344;
-            data.ini_crc = 0x5566_7788;
-        }
+                {
+                    let global = ensure_global_data();
+                    let mut data = global.write();
+                    data.set_path_user_data(temp.path().to_string_lossy().to_string());
+                    data.map_name = "Maps/VersionMatrixReplay.map".to_string();
+                    data.pending_file.clear();
+                    data.exe_crc = 0x1122_3344;
+                    data.ini_crc = 0x5566_7788;
+                }
 
-        let mut writer = Recorder::new();
-        writer.start_recording(1, 2, 3, 60).unwrap();
-        writer.set_current_frame(1);
-        writer
-            .write_to_file(&GameMessage::new(GameMessageType::LogicCRC(0xA1B2C3D4)))
-            .unwrap();
-        writer.stop_recording();
+                let mut writer = Recorder::new();
+                writer.start_recording(1, 2, 3, 60).unwrap();
+                writer.set_current_frame(1);
+                writer
+                    .write_to_file(&GameMessage::new(GameMessageType::LogicCRC(0xA1B2C3D4)))
+                    .unwrap();
+                writer.stop_recording();
 
-        let base_name = format!(
-            "{}{}",
-            writer.last_replay_filename(),
-            writer.replay_extension()
+                let base_name = format!(
+                    "{}{}",
+                    writer.last_replay_filename(),
+                    writer.replay_extension()
+                );
+                let replays_dir = temp.path().join("Replays");
+                let base_path = replays_dir.join(&base_name);
+                assert!(base_path.exists());
+
+                let (
+                    version_string_start,
+                    version_string_end,
+                    version_time_start,
+                    version_number_offset,
+                    ini_crc_offset,
+                ) = replay_version_offsets(
+                    &std::fs::read(&base_path)
+                        .expect("base replay should be readable for offset parsing"),
+                );
+                let exe_crc_offset = version_number_offset + 4;
+
+                // Baseline: no differences => FALSE (matches C++).
+                assert!(
+                    !Recorder::new()
+                        .test_version_playback(base_name.clone())
+                        .unwrap()
+                );
+
+                let ext = writer.replay_extension();
+                let version_string_name = format!("version_string_diff{ext}");
+                write_variant(&base_path, &replays_dir, &version_string_name, |bytes| {
+                    mutate_utf16_first_code_unit(
+                        bytes,
+                        version_string_start,
+                        version_string_end,
+                        "version string",
+                    );
+                });
+                assert!(
+                    Recorder::new()
+                        .test_version_playback(version_string_name)
+                        .unwrap()
+                );
+
+                let version_time_name = format!("version_time_diff{ext}");
+                write_variant(&base_path, &replays_dir, &version_time_name, |bytes| {
+                    mutate_utf16_first_code_unit(
+                        bytes,
+                        version_time_start,
+                        version_number_offset,
+                        "version build-time string",
+                    );
+                });
+                assert!(
+                    Recorder::new()
+                        .test_version_playback(version_time_name)
+                        .unwrap()
+                );
+
+                let version_number_name = format!("version_number_diff{ext}");
+                write_variant(&base_path, &replays_dir, &version_number_name, |bytes| {
+                    let current = u32::from_le_bytes(
+                        bytes[version_number_offset..version_number_offset + 4]
+                            .try_into()
+                            .expect("version number slice should be 4 bytes"),
+                    );
+                    bytes[version_number_offset..version_number_offset + 4]
+                        .copy_from_slice(&current.wrapping_add(1).to_le_bytes());
+                });
+                assert!(
+                    Recorder::new()
+                        .test_version_playback(version_number_name)
+                        .unwrap()
+                );
+
+                let exe_crc_name = format!("exe_crc_diff{ext}");
+                write_variant(&base_path, &replays_dir, &exe_crc_name, |bytes| {
+                    let current = u32::from_le_bytes(
+                        bytes[exe_crc_offset..exe_crc_offset + 4]
+                            .try_into()
+                            .expect("exe CRC slice should be 4 bytes"),
+                    );
+                    bytes[exe_crc_offset..exe_crc_offset + 4]
+                        .copy_from_slice(&current.wrapping_add(1).to_le_bytes());
+                });
+                assert!(Recorder::new().test_version_playback(exe_crc_name).unwrap());
+
+                let ini_crc_name = format!("ini_crc_diff{ext}");
+                write_variant(&base_path, &replays_dir, &ini_crc_name, |bytes| {
+                    let current = u32::from_le_bytes(
+                        bytes[ini_crc_offset..ini_crc_offset + 4]
+                            .try_into()
+                            .expect("ini CRC slice should be 4 bytes"),
+                    );
+                    bytes[ini_crc_offset..ini_crc_offset + 4]
+                        .copy_from_slice(&current.wrapping_add(1).to_le_bytes());
+                });
+                assert!(Recorder::new().test_version_playback(ini_crc_name).unwrap());
+            },
         );
-        let replays_dir = temp.path().join("Replays");
-        let base_path = replays_dir.join(&base_name);
-        assert!(base_path.exists());
-
-        let (
-            version_string_start,
-            version_string_end,
-            version_time_start,
-            version_number_offset,
-            ini_crc_offset,
-        ) = replay_version_offsets(
-            &std::fs::read(&base_path).expect("base replay should be readable for offset parsing"),
-        );
-        let exe_crc_offset = version_number_offset + 4;
-
-        // Baseline: no differences => FALSE (matches C++).
-        assert!(
-            !Recorder::new()
-                .test_version_playback(base_name.clone())
-                .unwrap()
-        );
-
-        let ext = writer.replay_extension();
-        let version_string_name = format!("version_string_diff{ext}");
-        write_variant(&base_path, &replays_dir, &version_string_name, |bytes| {
-            mutate_utf16_first_code_unit(
-                bytes,
-                version_string_start,
-                version_string_end,
-                "version string",
-            );
-        });
-        assert!(
-            Recorder::new()
-                .test_version_playback(version_string_name)
-                .unwrap()
-        );
-
-        let version_time_name = format!("version_time_diff{ext}");
-        write_variant(&base_path, &replays_dir, &version_time_name, |bytes| {
-            mutate_utf16_first_code_unit(
-                bytes,
-                version_time_start,
-                version_number_offset,
-                "version build-time string",
-            );
-        });
-        assert!(
-            Recorder::new()
-                .test_version_playback(version_time_name)
-                .unwrap()
-        );
-
-        let version_number_name = format!("version_number_diff{ext}");
-        write_variant(&base_path, &replays_dir, &version_number_name, |bytes| {
-            let current = u32::from_le_bytes(
-                bytes[version_number_offset..version_number_offset + 4]
-                    .try_into()
-                    .expect("version number slice should be 4 bytes"),
-            );
-            bytes[version_number_offset..version_number_offset + 4]
-                .copy_from_slice(&current.wrapping_add(1).to_le_bytes());
-        });
-        assert!(
-            Recorder::new()
-                .test_version_playback(version_number_name)
-                .unwrap()
-        );
-
-        let exe_crc_name = format!("exe_crc_diff{ext}");
-        write_variant(&base_path, &replays_dir, &exe_crc_name, |bytes| {
-            let current = u32::from_le_bytes(
-                bytes[exe_crc_offset..exe_crc_offset + 4]
-                    .try_into()
-                    .expect("exe CRC slice should be 4 bytes"),
-            );
-            bytes[exe_crc_offset..exe_crc_offset + 4]
-                .copy_from_slice(&current.wrapping_add(1).to_le_bytes());
-        });
-        assert!(Recorder::new().test_version_playback(exe_crc_name).unwrap());
-
-        let ini_crc_name = format!("ini_crc_diff{ext}");
-        write_variant(&base_path, &replays_dir, &ini_crc_name, |bytes| {
-            let current = u32::from_le_bytes(
-                bytes[ini_crc_offset..ini_crc_offset + 4]
-                    .try_into()
-                    .expect("ini CRC slice should be 4 bytes"),
-            );
-            bytes[ini_crc_offset..ini_crc_offset + 4]
-                .copy_from_slice(&current.wrapping_add(1).to_le_bytes());
-        });
-        assert!(Recorder::new().test_version_playback(ini_crc_name).unwrap());
     }
 
     #[test]
     fn test_global_recorder() {
-        let recorder = init_recorder();
-        assert!(recorder.lock().is_ok());
+        super::legacy_fixture_isolation::run(module_path!(), "test_global_recorder", || {
+            let recorder = init_recorder();
+            assert!(recorder.lock().is_ok());
 
-        // Test with_recorder
-        let mode = with_recorder(|r| r.get_mode());
-        assert_eq!(mode, Some(RecorderMode::None));
+            // Test with_recorder
+            let mode = with_recorder(|r| r.get_mode());
+            assert_eq!(mode, Some(RecorderMode::None));
 
-        // Test with_recorder_mut
-        let result = with_recorder_mut(|r| {
-            r.mode = RecorderMode::Record;
-            r.get_mode()
+            // Test with_recorder_mut
+            let result = with_recorder_mut(|r| {
+                r.mode = RecorderMode::Record;
+                r.get_mode()
+            });
+            assert_eq!(result, Some(RecorderMode::Record));
         });
-        assert_eq!(result, Some(RecorderMode::Record));
     }
 
     #[test]
@@ -3381,143 +3286,161 @@ mod tests {
 
     #[test]
     fn test_start_recording_preserves_lobby_slots() {
-        let temp = tempfile::tempdir().unwrap();
-        {
-            let global = ensure_global_data();
-            let mut data = global.write();
-            data.set_path_user_data(temp.path().to_string_lossy().to_string());
-            data.map_name = "Maps/LobbySlots.map".to_string();
-            data.pending_file.clear();
-        }
+        super::legacy_fixture_isolation::run(
+            module_path!(),
+            "test_start_recording_preserves_lobby_slots",
+            || {
+                let temp = tempfile::tempdir().unwrap();
+                {
+                    let global = ensure_global_data();
+                    let mut data = global.write();
+                    data.set_path_user_data(temp.path().to_string_lossy().to_string());
+                    data.map_name = "Maps/LobbySlots.map".to_string();
+                    data.pending_file.clear();
+                }
 
-        let mut lobby = ReplayGameInfo::new();
-        lobby.set_map("Maps/LobbySlots.map".to_string());
-        lobby.set_seed(42);
-        lobby.set_crc_interval(100);
-        lobby.slots[0] = ReplaySlot {
-            name: "Host".to_string(),
-            ip: 0x0A00_0001,
-            is_human: true,
-            is_observer: false,
-            is_occupied: true,
-            color: 3,
-            player_template: 4,
-            start_pos: 1,
-            team: 0,
-            nat: 2,
-            port: 8086,
-            accepted: true,
-            has_map: true,
-            ai_difficulty: 0,
-            is_open: false,
-        };
-        lobby.slots[1] = ReplaySlot {
-            name: String::new(),
-            ip: 0,
-            is_human: false,
-            is_observer: false,
-            is_occupied: true,
-            color: 1,
-            player_template: 2,
-            start_pos: 2,
-            team: 1,
-            nat: 0,
-            port: 0,
-            accepted: false,
-            has_map: false,
-            ai_difficulty: 2,
-            is_open: false,
-        };
+                let mut lobby = ReplayGameInfo::new();
+                lobby.set_map("Maps/LobbySlots.map".to_string());
+                lobby.set_seed(42);
+                lobby.set_crc_interval(100);
+                lobby.slots[0] = ReplaySlot {
+                    name: "Host".to_string(),
+                    ip: 0x0A00_0001,
+                    is_human: true,
+                    is_observer: false,
+                    is_occupied: true,
+                    color: 3,
+                    player_template: 4,
+                    start_pos: 1,
+                    team: 0,
+                    nat: 2,
+                    port: 8086,
+                    accepted: true,
+                    has_map: true,
+                    ai_difficulty: 0,
+                    is_open: false,
+                };
+                lobby.slots[1] = ReplaySlot {
+                    name: String::new(),
+                    ip: 0,
+                    is_human: false,
+                    is_observer: false,
+                    is_occupied: true,
+                    color: 1,
+                    player_template: 2,
+                    start_pos: 2,
+                    team: 1,
+                    nat: 0,
+                    port: 0,
+                    accepted: false,
+                    has_map: false,
+                    ai_difficulty: 2,
+                    is_open: false,
+                };
 
-        let mut writer = Recorder::new();
-        writer.set_recording_lobby(lobby, 0);
-        // Zero is a selected match seed, not an absent value that may inherit
-        // the lobby/process seed (42) during Recorder::reset.
-        writer.set_recording_seed(0);
-        writer.start_recording(1, 2, 0, 30).unwrap();
-        assert_eq!(writer.get_game_info().seed, 0);
-        writer.stop_recording();
+                let mut writer = Recorder::new();
+                writer.set_recording_lobby(lobby, 0);
+                // Zero is a selected match seed, not an absent value that may inherit
+                // the lobby/process seed (42) during Recorder::reset.
+                writer.set_recording_seed(0);
+                writer.start_recording(1, 2, 0, 30).unwrap();
+                assert_eq!(writer.get_game_info().seed, 0);
+                writer.stop_recording();
 
-        let replay_name = format!(
-            "{}{}",
-            writer.last_replay_filename(),
-            writer.replay_extension()
+                let replay_name = format!(
+                    "{}{}",
+                    writer.last_replay_filename(),
+                    writer.replay_extension()
+                );
+                let mut reader = Recorder::new();
+                assert!(reader.playback_file(replay_name).unwrap());
+                assert_eq!(
+                    reader.get_game_info().seed,
+                    0,
+                    "recorded owner seed survives the native replay header"
+                );
+                let slot0 = reader.get_game_info().get_slot(0).unwrap();
+                assert_eq!(slot0.name, "Host");
+                assert_eq!(slot0.color, 3);
+                assert_eq!(slot0.player_template, 4);
+                assert_eq!(slot0.start_pos, 1);
+                assert_eq!(slot0.team, 0);
+                assert_eq!(slot0.nat, 2);
+                let slot1 = reader.get_game_info().get_slot(1).unwrap();
+                assert!(slot1.is_occupied);
+                assert!(!slot1.is_human);
+                assert_eq!(slot1.color, 1);
+                assert_eq!(slot1.start_pos, 2);
+                assert_eq!(slot1.team, 1);
+            },
         );
-        let mut reader = Recorder::new();
-        assert!(reader.playback_file(replay_name).unwrap());
-        assert_eq!(
-            reader.get_game_info().seed,
-            0,
-            "recorded owner seed survives the native replay header"
-        );
-        let slot0 = reader.get_game_info().get_slot(0).unwrap();
-        assert_eq!(slot0.name, "Host");
-        assert_eq!(slot0.color, 3);
-        assert_eq!(slot0.player_template, 4);
-        assert_eq!(slot0.start_pos, 1);
-        assert_eq!(slot0.team, 0);
-        assert_eq!(slot0.nat, 2);
-        let slot1 = reader.get_game_info().get_slot(1).unwrap();
-        assert!(slot1.is_occupied);
-        assert!(!slot1.is_human);
-        assert_eq!(slot1.color, 1);
-        assert_eq!(slot1.start_pos, 2);
-        assert_eq!(slot1.team, 1);
     }
 
     #[test]
     fn test_init_controls_hides_except_during_playback() {
-        // C++ Recorder.cpp:1557-1560 winHide(mode != PLAYBACK)
-        let hidden = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let flag = hidden.clone();
-        let mut recorder = Recorder::new();
-        recorder.set_replay_control_visibility_hook(Some(Arc::new(move |hide| {
-            flag.store(hide, std::sync::atomic::Ordering::SeqCst);
-        })));
-        recorder.init_controls();
-        assert!(recorder.replay_controls_are_hidden());
-        assert!(hidden.load(std::sync::atomic::Ordering::SeqCst));
+        super::legacy_fixture_isolation::run(
+            module_path!(),
+            "test_init_controls_hides_except_during_playback",
+            || {
+                // C++ Recorder.cpp:1557-1560 winHide(mode != PLAYBACK)
+                let hidden = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+                let flag = hidden.clone();
+                let mut recorder = Recorder::new();
+                recorder.set_replay_control_visibility_hook(Some(Arc::new(move |hide| {
+                    flag.store(hide, std::sync::atomic::Ordering::SeqCst);
+                })));
+                recorder.init_controls();
+                assert!(recorder.replay_controls_are_hidden());
+                assert!(hidden.load(std::sync::atomic::Ordering::SeqCst));
 
-        recorder.mode = RecorderMode::Playback;
-        recorder.init_controls();
-        assert!(!recorder.replay_controls_are_hidden());
-        assert!(!hidden.load(std::sync::atomic::Ordering::SeqCst));
+                recorder.mode = RecorderMode::Playback;
+                recorder.init_controls();
+                assert!(!recorder.replay_controls_are_hidden());
+                assert!(!hidden.load(std::sync::atomic::Ordering::SeqCst));
+            },
+        );
     }
 
     #[test]
     fn test_logic_crc_from_file_reaches_handle_crc_message() {
-        let temp = tempfile::tempdir().unwrap();
-        {
-            let global = ensure_global_data();
-            let mut data = global.write();
-            data.set_path_user_data(temp.path().to_string_lossy().to_string());
-            data.map_name = "Maps/CrcPath.map".to_string();
-            data.pending_file.clear();
-        }
+        super::legacy_fixture_isolation::run(
+            module_path!(),
+            "test_logic_crc_from_file_reaches_handle_crc_message",
+            || {
+                let temp = tempfile::tempdir().unwrap();
+                {
+                    let global = ensure_global_data();
+                    let mut data = global.write();
+                    data.set_path_user_data(temp.path().to_string_lossy().to_string());
+                    data.map_name = "Maps/CrcPath.map".to_string();
+                    data.pending_file.clear();
+                }
 
-        let mut writer = Recorder::new();
-        writer.start_recording(1, 2, 0, 30).unwrap();
-        writer.set_current_frame(5);
-        writer
-            .write_to_file(&GameMessage::new(GameMessageType::LogicCRC(0xCAFE_BABE)))
-            .unwrap();
-        writer.stop_recording();
+                let mut writer = Recorder::new();
+                writer.start_recording(1, 2, 0, 30).unwrap();
+                writer.set_current_frame(5);
+                writer
+                    .write_to_file(&GameMessage::new(GameMessageType::LogicCRC(0xCAFE_BABE)))
+                    .unwrap();
+                writer.stop_recording();
 
-        let replay_name = format!(
-            "{}{}",
-            writer.last_replay_filename(),
-            writer.replay_extension()
+                let replay_name = format!(
+                    "{}{}",
+                    writer.last_replay_filename(),
+                    writer.replay_extension()
+                );
+                let mut reader = Recorder::new();
+                reader.set_current_frame(5);
+                assert!(reader.playback_file(replay_name).unwrap());
+                reader.update();
+                assert!(!reader.saw_crc_mismatch());
+                reader.notify_logic_crc(0xCAFE_BABE, 0);
+                assert!(!reader.saw_crc_mismatch());
+                reader.set_current_frame(6);
+                reader.notify_logic_crc(0xDEAD_BEEF, 0);
+                assert!(reader.saw_crc_mismatch());
+            },
         );
-        let mut reader = Recorder::new();
-        reader.set_current_frame(5);
-        assert!(reader.playback_file(replay_name).unwrap());
-        reader.update();
-        assert!(!reader.saw_crc_mismatch());
-        reader.notify_logic_crc(0xCAFE_BABE, 0);
-        assert!(!reader.saw_crc_mismatch());
-        reader.set_current_frame(6);
-        reader.notify_logic_crc(0xDEAD_BEEF, 0);
-        assert!(reader.saw_crc_mismatch());
     }
 
     #[test]
@@ -3568,114 +3491,126 @@ mod tests {
 
     #[test]
     fn cleanup_replay_file_preserves_original_rep() {
-        let temp = tempfile::tempdir().unwrap();
-        let stats = temp.path().join("stats");
-        {
-            let global = ensure_global_data();
-            let mut data = global.write();
-            data.set_path_user_data(temp.path().to_string_lossy().to_string());
-            data.save_stats = true;
-            data.base_stats_dir = stats.to_string_lossy().to_string();
-            data.map_name = "Maps/Cleanup.map".to_string();
-            data.pending_file.clear();
-        }
+        super::legacy_fixture_isolation::run(
+            module_path!(),
+            "cleanup_replay_file_preserves_original_rep",
+            || {
+                let temp = tempfile::tempdir().unwrap();
+                let stats = temp.path().join("stats");
+                {
+                    let global = ensure_global_data();
+                    let mut data = global.write();
+                    data.set_path_user_data(temp.path().to_string_lossy().to_string());
+                    data.save_stats = true;
+                    data.base_stats_dir = stats.to_string_lossy().to_string();
+                    data.map_name = "Maps/Cleanup.map".to_string();
+                    data.pending_file.clear();
+                }
 
-        let mut writer = Recorder::new();
-        writer.start_recording(1, 2, 0, 30).unwrap();
-        writer.set_current_frame(4);
-        writer
-            .write_to_file(&GameMessage::new(GameMessageType::LogicCRC(0x1111_2222)))
-            .unwrap();
-        let replay_name = format!(
-            "{}{}",
-            writer.last_replay_filename(),
-            writer.replay_extension()
-        );
-        let src = writer.replay_dir().join(&replay_name);
-        writer.log_crc_mismatch();
-        writer.stop_recording();
+                let mut writer = Recorder::new();
+                writer.start_recording(1, 2, 0, 30).unwrap();
+                writer.set_current_frame(4);
+                writer
+                    .write_to_file(&GameMessage::new(GameMessageType::LogicCRC(0x1111_2222)))
+                    .unwrap();
+                let replay_name = format!(
+                    "{}{}",
+                    writer.last_replay_filename(),
+                    writer.replay_extension()
+                );
+                let src = writer.replay_dir().join(&replay_name);
+                writer.log_crc_mismatch();
+                writer.stop_recording();
 
-        assert!(
-            src.exists(),
-            "C++ cleanUpReplayFile copies the .rep and never deletes it"
-        );
-        #[cfg(debug_assertions)]
-        assert!(
-            stats.join(&replay_name).exists(),
-            "DEBUG + m_saveStats copies the replay into m_baseStatsDir"
+                assert!(
+                    src.exists(),
+                    "C++ cleanUpReplayFile copies the .rep and never deletes it"
+                );
+                #[cfg(debug_assertions)]
+                assert!(
+                    stats.join(&replay_name).exists(),
+                    "DEBUG + m_saveStats copies the replay into m_baseStatsDir"
+                );
+            },
         );
     }
 
     #[test]
     fn playback_file_appends_new_game_to_the_message_stream() {
-        // C++ Recorder.cpp:1123-1134 appends MSG_NEW_GAME to TheMessageStream
-        // (not TheCommandList). stopPlayback :447 appends MSG_CLEAR_GAME_DATA.
-        let temp = tempfile::tempdir().unwrap();
-        {
-            let global = ensure_global_data();
-            let mut data = global.write();
-            data.set_path_user_data(temp.path().to_string_lossy().to_string());
-            data.map_name = "Maps/PlaybackStream.map".to_string();
-            data.pending_file.clear();
-        }
+        super::legacy_fixture_isolation::run(
+            module_path!(),
+            "playback_file_appends_new_game_to_the_message_stream",
+            || {
+                // C++ Recorder.cpp:1123-1134 appends MSG_NEW_GAME to TheMessageStream
+                // (not TheCommandList). stopPlayback :447 appends MSG_CLEAR_GAME_DATA.
+                let temp = tempfile::tempdir().unwrap();
+                {
+                    let global = ensure_global_data();
+                    let mut data = global.write();
+                    data.set_path_user_data(temp.path().to_string_lossy().to_string());
+                    data.map_name = "Maps/PlaybackStream.map".to_string();
+                    data.pending_file.clear();
+                }
 
-        let mut writer = Recorder::new();
-        writer.start_recording(1, 2, 3, 60).unwrap();
-        writer.set_current_frame(2);
-        writer
-            .write_to_file(&GameMessage::new(GameMessageType::LogicCRC(0x0BAD_F00D)))
-            .unwrap();
-        writer.stop_recording();
-        let replay_name = format!(
-            "{}{}",
-            writer.last_replay_filename(),
-            writer.replay_extension()
+                let mut writer = Recorder::new();
+                writer.start_recording(1, 2, 3, 60).unwrap();
+                writer.set_current_frame(2);
+                writer
+                    .write_to_file(&GameMessage::new(GameMessageType::LogicCRC(0x0BAD_F00D)))
+                    .unwrap();
+                writer.stop_recording();
+                let replay_name = format!(
+                    "{}{}",
+                    writer.last_replay_filename(),
+                    writer.replay_extension()
+                );
+
+                {
+                    let stream = get_message_stream();
+                    stream
+                        .write()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .clear_messages();
+                }
+
+                let mut reader = Recorder::new();
+                reader.set_game_mode_provider(Some(Arc::new(|| GAME_NONE)));
+                assert!(reader.playback_file(replay_name).unwrap());
+
+                {
+                    let stream = get_message_stream();
+                    let guard = stream.read().unwrap_or_else(|e| e.into_inner());
+                    let types: Vec<_> = guard
+                        .get_messages()
+                        .iter()
+                        .map(|msg| msg.get_type().clone())
+                        .collect();
+                    assert!(
+                        types
+                            .iter()
+                            .any(|ty| matches!(ty, GameMessageType::NewGame)),
+                        "playbackFile must append MSG_NEW_GAME to TheMessageStream, got {types:?}"
+                    );
+                }
+
+                reader.stop_playback();
+                {
+                    let stream = get_message_stream();
+                    let guard = stream.read().unwrap_or_else(|e| e.into_inner());
+                    let types: Vec<_> = guard
+                        .get_messages()
+                        .iter()
+                        .map(|msg| msg.get_type().clone())
+                        .collect();
+                    assert!(
+                        types
+                            .iter()
+                            .any(|ty| matches!(ty, GameMessageType::ClearGameData)),
+                        "stopPlayback must append MSG_CLEAR_GAME_DATA to TheMessageStream, got {types:?}"
+                    );
+                }
+            },
         );
-
-        {
-            let stream = get_message_stream();
-            stream
-                .write()
-                .unwrap_or_else(|e| e.into_inner())
-                .clear_messages();
-        }
-
-        let mut reader = Recorder::new();
-        reader.set_game_mode_provider(Some(Arc::new(|| GAME_NONE)));
-        assert!(reader.playback_file(replay_name).unwrap());
-
-        {
-            let stream = get_message_stream();
-            let guard = stream.read().unwrap_or_else(|e| e.into_inner());
-            let types: Vec<_> = guard
-                .get_messages()
-                .iter()
-                .map(|msg| msg.get_type().clone())
-                .collect();
-            assert!(
-                types
-                    .iter()
-                    .any(|ty| matches!(ty, GameMessageType::NewGame)),
-                "playbackFile must append MSG_NEW_GAME to TheMessageStream, got {types:?}"
-            );
-        }
-
-        reader.stop_playback();
-        {
-            let stream = get_message_stream();
-            let guard = stream.read().unwrap_or_else(|e| e.into_inner());
-            let types: Vec<_> = guard
-                .get_messages()
-                .iter()
-                .map(|msg| msg.get_type().clone())
-                .collect();
-            assert!(
-                types
-                    .iter()
-                    .any(|ty| matches!(ty, GameMessageType::ClearGameData)),
-                "stopPlayback must append MSG_CLEAR_GAME_DATA to TheMessageStream, got {types:?}"
-            );
-        }
     }
 }
 

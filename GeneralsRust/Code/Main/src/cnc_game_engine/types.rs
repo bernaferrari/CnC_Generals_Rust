@@ -1263,6 +1263,10 @@ pub struct CnCGameEngine {
     pub(super) average_fps_tracker: super::run_loop::AverageFpsTracker,
     pub(super) native_display: super::native_display::NativeDisplayState,
     pub(super) last_new_game_identity: Option<super::dispatch::LastNewGameIdentity>,
+    /// Immutable application definitions/text; captured at content admission,
+    /// never polled from shared registries by OS mouse/key dispatch.
+    #[cfg(feature = "game_client")]
+    pub(super) replay_menu_metadata: game_client::gui::shell::replay_menu::ReplayMenuMetadataPolicy,
     pub(crate) last_frame_timing: Option<FrameTiming>,
     pub(crate) frame_clock: FrameClock,
     pub(crate) menu_loading_tick_accumulator: Duration,

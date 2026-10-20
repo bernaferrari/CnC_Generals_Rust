@@ -762,6 +762,10 @@ impl CnCGameEngine {
             average_fps_tracker: super::run_loop::AverageFpsTracker::new(),
             native_display: super::native_display::NativeDisplayState::new(),
             last_new_game_identity: None,
+            #[cfg(feature = "game_client")]
+            replay_menu_metadata:
+                game_client::gui::shell::replay_menu::ReplayMenuMetadataPolicy::capture_application(
+                ),
             last_frame_timing: None,
             frame_clock: FrameClock::new(),
             menu_loading_tick_accumulator: Duration::ZERO,
@@ -870,6 +874,9 @@ impl CnCGameEngine {
             if let Err(e) = engine.game_client.post_process_display_strings() {
                 warn!("GameClient post-process display strings failed: {}", e);
             }
+            // init_display_subsystems loaded GameText; publish its completed
+            // immutable labels before any native event can open ReplayMenu.
+            engine.admit_replay_menu_application_metadata();
 
             if let Err(e) = engine.game_client.init_audio_subsystems() {
                 warn!("GameClient audio subsystems init failed: {}", e);

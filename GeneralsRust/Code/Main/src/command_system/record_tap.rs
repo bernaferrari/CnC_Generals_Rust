@@ -132,6 +132,7 @@ pub struct ReplayPendingState {
     recorded_messages: Vec<GameMessage>,
     lifecycle_messages: Vec<GameMessage>,
     incoming: Receiver<Vec<GameMessage>>,
+    admitted_incoming: Vec<GameMessage>,
     sender: Sender<Vec<GameMessage>>,
     commands: Vec<GameCommand>,
     camera: Option<ReplayCameraPose>,
@@ -163,6 +164,7 @@ impl Default for ReplayPendingState {
             recorded_messages: Vec::new(),
             lifecycle_messages: Vec::new(),
             incoming,
+            admitted_incoming: Vec::new(),
             sender,
             commands: Vec::new(),
             camera: None,
@@ -189,6 +191,7 @@ impl ReplayPendingState {
         (self.sender, self.incoming) = channel::unbounded();
         // GameLogic::reset does not reset C++ TheRecorder. Preserve the
         // admitted open reader while clearing this world's transient handoff.
+        self.admitted_incoming.clear();
         self.recorded_messages.clear();
         self.lifecycle_messages.clear();
         self.commands.clear();
@@ -219,12 +222,25 @@ impl ReplayPendingState {
         std::mem::take(&mut self.remirror)
     }
 
-    fn take_incoming(&mut self) -> Vec<GameMessage> {
-        let mut pending = Vec::new();
+    /// Admit the receiving client's completed CommandList handoff without ticking
+    /// Recorder or executing commands. A frozen step retains this same batch;
+    /// its original command phase consumes it after the freeze escape decision.
+    fn admit_incoming(&mut self) {
         while let Ok(messages) = self.incoming.try_recv() {
-            pending.extend(messages);
+            self.admitted_incoming.extend(messages);
         }
-        pending
+    }
+
+    pub(crate) fn receiving_clear_command_pending(&mut self) -> bool {
+        self.admit_incoming();
+        self.admitted_incoming
+            .iter()
+            .any(|message| matches!(message.get_type(), GameMessageType::ClearGameData))
+    }
+
+    fn take_incoming(&mut self) -> Vec<GameMessage> {
+        self.admit_incoming();
+        std::mem::take(&mut self.admitted_incoming)
     }
 }
 

@@ -44,19 +44,6 @@ pub(in super::super) enum SimulationStepOutcome {
     Frozen,
 }
 
-/// C++ GameLogic.cpp:3607
-/// `TheCommandList->containsMessageOfType(MSG_CLEAR_GAME_DATA)`. The Rust
-/// command-list counterpart is the shared common message stream (record_tap
-/// routes ClearGameData there; quit_menu_bridge/dispatch consume it). Peek
-/// only — consumption stays at Main's host_consume_clear_game_data boundary.
-fn host_stream_contains_clear_game_data() -> bool {
-    let stream = game_engine::common::message_stream::get_message_stream();
-    let stream = stream.read().unwrap_or_else(|e| e.into_inner());
-    stream.contains_message_of_type(
-        &game_engine::common::message_stream::GameMessageType::ClearGameData,
-    )
-}
-
 /// Residual-gate skip counters — test seam only.
 ///
 /// The gates sprinkled through `update_simulation` are pure performance cuts
@@ -523,18 +510,19 @@ impl GameLogic {
         //          || TheScriptEngine->isTimeFrozenDebug()
         //          || TheScriptEngine->isTimeFrozenScript();
         // When time is frozen, only scripts evaluated above are allowed to run.
-        if self.is_time_frozen_for_simulation() {
-            // C++ GameLogic.cpp:3607-3613: a pending MSG_CLEAR_GAME_DATA
-            // force-unfreezes and FALLS THROUGH to the full update so the
-            // clear-game dispatch can run on this frame.
-            if host_stream_contains_clear_game_data() {
-                // C++ ScriptEngine::forceUnfreezeTime()
-                // (ScriptEngine.cpp:8455-8464) clears the debug-DLL freeze;
-                // with no Rust debug-freeze counterpart, the script freeze
-                // term this condition reads is the state to clear. (The
-                // script-camera freeze ends on its own when the movement
-                // finishes — C++ does not clear the view freeze here either.)
-                self.script_time_frozen_by_script = false;
+        if self
+            .simulation_frozen_with_script_engine(None)
+            .expect("the receiving ScriptEngine is restored after early scripting")
+        {
+            // C++ tests CommandList, not MessageStream. Inspect only this
+            // world's admitted client batch; Recorder/CRC/commands stay at
+            // their original later phases. A queued EOF lifecycle notification
+            // is not an already-admitted command on this frame.
+            if self.replay_pending.receiving_clear_command_pending() {
+                self.force_script_debug_continue(None)
+                    .expect("the receiving ScriptEngine owns debug continue");
+                // ForceAppContinue does not clear script/camera freeze. C++
+                // falls through once without recomputing the freeze predicate.
             } else {
                 return SimulationStepOutcome::Frozen;
             }
@@ -1605,25 +1593,8 @@ impl GameLogic {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use game_engine::common::message_stream::{GameMessageType, get_message_stream};
-    use std::sync::Mutex;
-
-    /// The clear-game check reads the process-global message stream, so the
-    /// frozen tests serialize against each other (other suites already clear
-    /// and append this same global mid-run).
-    static STREAM_LOCK: Mutex<()> = Mutex::new(());
-
-    fn drop_pending_clear_game_data() {
-        let stream = get_message_stream();
-        let mut stream = stream.write().unwrap_or_else(|e| e.into_inner());
-        stream.clear_messages();
-    }
-
-    fn post_clear_game_data() {
-        let stream = get_message_stream();
-        let mut stream = stream.write().unwrap_or_else(|e| e.into_inner());
-        stream.append_message(GameMessageType::ClearGameData);
-    }
+    use game_engine::common::message_stream::GameMessageType;
+    static RANDOM_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     /// C++ GameLogic.cpp:3600 + 3614-3616 — scripts run BEFORE the freeze
     /// return, but terrain/commands/modules never do: frame and sim time stay
@@ -1631,9 +1602,6 @@ mod tests {
     /// a frozen frame).
     #[test]
     fn frozen_step_burns_time_advances_nothing_and_still_runs_scripts() {
-        let _guard = STREAM_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        drop_pending_clear_game_data();
-
         let mut logic = GameLogic::new();
         logic.scripts_loaded = true;
         logic.set_script_time_frozen_for_test(true);
@@ -1688,9 +1656,6 @@ mod tests {
 
     #[test]
     fn host_ai_runs_once_for_each_advanced_fixed_logic_frame() {
-        let _guard = STREAM_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        drop_pending_clear_game_data();
-
         let mut logic = GameLogic::new();
         add_test_host_ai(&mut logic);
 
@@ -1710,9 +1675,6 @@ mod tests {
 
     #[test]
     fn host_ai_does_not_run_on_frozen_steps_and_resumes_after_unfreeze() {
-        let _guard = STREAM_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        drop_pending_clear_game_data();
-
         let mut logic = GameLogic::new();
         add_test_host_ai(&mut logic);
         let initial_ai_time = host_ai_last_update_time(&logic);
@@ -1733,9 +1695,6 @@ mod tests {
 
     #[test]
     fn host_ai_catch_up_updates_every_internal_fixed_step() {
-        let _guard = STREAM_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        drop_pending_clear_game_data();
-
         let mut logic = GameLogic::new();
         add_test_host_ai(&mut logic);
         let first_tick_time = logic.sim_time_seconds;
@@ -1756,9 +1715,6 @@ mod tests {
     /// frame numbers.
     #[test]
     fn unfreeze_resumes_on_next_frame_without_skips() {
-        let _guard = STREAM_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        drop_pending_clear_game_data();
-
         let mut logic = GameLogic::new();
         logic.set_script_time_frozen_for_test(true);
         logic.step_simulation_with_budget(LOGIC_FRAME_TIMESTEP, None, None);
@@ -1773,38 +1729,116 @@ mod tests {
         assert!((logic.sim_time_seconds - 2.0 * LOGIC_FRAME_TIMESTEP).abs() < 1e-6);
     }
 
-    /// C++ GameLogic.cpp:3607-3613 — while frozen, a pending
-    /// MSG_CLEAR_GAME_DATA force-unfreezes and falls through to the full
-    /// update (the frame advances, the unfreeze persists).
-    /// containsMessageOfType only peeks: the message stays queued for Main's
-    /// host_consume_clear_game_data dispatch.
+    /// GameLogic.cpp3603-3617 and ScriptEngine.cpp8455-8464: actual
+    /// receiving tick clears debug only and falls through once; script/camera
+    /// freeze survive, and the peer's interpreter is untouched.
     #[test]
     fn frozen_with_pending_clear_game_data_falls_through() {
-        let _guard = STREAM_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        drop_pending_clear_game_data();
-        post_clear_game_data();
-
         let mut logic = GameLogic::new();
+        let mut peer = GameLogic::new();
+        logic
+            .owned_script_engine
+            .as_mut()
+            .unwrap()
+            .set_time_frozen_debug(true);
+        peer.owned_script_engine
+            .as_mut()
+            .unwrap()
+            .set_time_frozen_debug(true);
         logic.set_script_time_frozen_for_test(true);
-        logic.step_simulation_with_budget(LOGIC_FRAME_TIMESTEP, None, None);
+        logic.session_view.scripted.script_camera_freeze_time = true;
+        logic.session_view.camera.camera_zoom_target = Some(2.0);
+        logic.session_view.camera.camera_zoom_duration = 1.0;
+        assert!(logic.is_script_camera_time_frozen());
+        logic
+            .replay_pending
+            .receive_client_messages(vec![game_engine::common::message_stream::GameMessage::new(
+                GameMessageType::ClearGameData,
+            )])
+            .unwrap();
 
+        logic.step_simulation_with_budget(LOGIC_FRAME_TIMESTEP, None, Some(1));
         assert_eq!(
             logic.frame, 1,
-            "clear-game escape must fall through to the full update"
+            "clear escape falls through to the full update"
         );
+        assert!(!logic.script_debug_frozen(None).unwrap());
         assert!(
-            !logic.is_script_time_frozen(),
-            "force-unfreeze must persist (C++ ScriptEngine::forceUnfreezeTime)"
+            logic.is_script_time_frozen(),
+            "debug continue must preserve script freeze"
         );
+        assert!(logic.is_script_camera_time_frozen());
+        assert!(peer.script_debug_frozen(None).unwrap());
         let diag = logic.fixed_step_diagnostics();
         assert_eq!(diag.steps_run, 1);
         assert_eq!(diag.frozen_steps, 0);
-        let stream = get_message_stream();
-        let stream = stream.read().unwrap_or_else(|e| e.into_inner());
-
+        let lifecycle = logic.replay_pending.take_lifecycle_messages_owned();
         assert!(
-            stream.contains_message_of_type(&GameMessageType::ClearGameData),
-            "containsMessageOfType peeks; Main's dispatch consumes the message"
+            matches!(lifecycle.as_slice(), [message] if matches!(message.get_type(), GameMessageType::ClearGameData)),
+            "peek retains the command until its normal Recorder/command phase"
+        );
+        logic.step_simulation_with_budget(LOGIC_FRAME_TIMESTEP, None, Some(1));
+        assert_eq!(
+            logic.frame, 1,
+            "script/camera freeze still apply on the next frame"
+        );
+    }
+
+    #[test]
+    fn receiving_tick_debug_freeze_and_foreign_clear_are_instance_isolated() {
+        let mut logic = GameLogic::new();
+        let mut peer = GameLogic::new();
+        logic
+            .owned_script_engine
+            .as_mut()
+            .unwrap()
+            .set_time_frozen_debug(true);
+        peer.replay_pending
+            .receive_client_messages(vec![game_engine::common::message_stream::GameMessage::new(
+                GameMessageType::ClearGameData,
+            )])
+            .unwrap();
+        assert!(peer.replay_pending.receiving_clear_command_pending());
+        logic.step_simulation_with_budget(LOGIC_FRAME_TIMESTEP, None, Some(1));
+        assert_eq!(logic.frame, 0, "debug-only freeze stops the actual tick");
+        assert!(logic.script_debug_frozen(None).unwrap());
+        assert!(peer.replay_pending.receiving_clear_command_pending());
+        logic
+            .owned_script_engine
+            .as_mut()
+            .unwrap()
+            .set_time_frozen_debug(false);
+        logic.step_simulation_with_budget(LOGIC_FRAME_TIMESTEP, None, Some(1));
+        assert_eq!(logic.frame, 1);
+    }
+
+    #[test]
+    fn foreign_message_stream_clear_cannot_escape_receiving_tick_freeze() {
+        crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+            module_path!(),
+            "foreign_message_stream_clear_cannot_escape_receiving_tick_freeze",
+            || {
+                let stream = game_engine::common::message_stream::get_message_stream();
+                {
+                    let mut stream = stream.write().unwrap_or_else(|e| e.into_inner());
+                    stream.clear_messages();
+                    stream.append_message(GameMessageType::ClearGameData);
+                }
+                let mut logic = GameLogic::new();
+                logic.set_script_time_frozen_for_test(true);
+                logic.step_simulation_with_budget(LOGIC_FRAME_TIMESTEP, None, Some(1));
+                assert_eq!(
+                    logic.frame, 0,
+                    "foreign MessageStream is not receiving CommandList"
+                );
+                assert!(logic.is_script_time_frozen());
+                assert!(
+                    stream
+                        .read()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .contains_message_of_type(&GameMessageType::ClearGameData)
+                );
+            },
         );
     }
 
@@ -1815,8 +1849,7 @@ mod tests {
     /// session-owned, while standalone boot/Core callers retain the fallback.
     #[test]
     fn fixed_step_batch_does_not_consume_the_global_logic_stream() {
-        let _guard = STREAM_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        drop_pending_clear_game_data();
+        let _guard = RANDOM_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
 
         game_engine::common::random_value::init_random_with_seed(0x5EED_0F1);
         let global_words = game_engine::common::random_value::get_game_logic_random_seed_state();
@@ -1840,7 +1873,6 @@ mod tests {
             module_path!(),
             "foreign_setup_reset_and_process_reseed_do_not_change_driving_rng",
             || {
-                drop_pending_clear_game_data();
                 use game_engine::common::random_value::{
                     get_game_logic_random_value, init_game_logic_random,
                 };
@@ -1946,9 +1978,6 @@ mod tests {
         use crate::fow_rendering::FOWRenderingBridge;
         use gamelogic::system::shroud_manager::ShroudState;
 
-        let _guard = STREAM_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        drop_pending_clear_game_data();
-
         let mut logic = GameLogic::new();
         logic.add_player(crate::game_logic::Player::new(
             1,
@@ -2017,9 +2046,6 @@ mod tests {
     /// Headless callers passing Some(budget) keep the carry-over semantics.
     #[test]
     fn live_catchup_runs_one_step_and_drops_excess_backlog() {
-        let _guard = STREAM_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        drop_pending_clear_game_data();
-
         let mut logic = GameLogic::new();
         // 20 steps' worth of stall backlog on the live path (budget = None).
         logic.step_simulation_with_budget(20.0 * LOGIC_FRAME_TIMESTEP, None, None);
@@ -2054,8 +2080,6 @@ mod tests {
     /// performance cuts with no observable behavior when registries are empty.
     #[test]
     fn residual_gates_skip_empty_registries() {
-        let _guard = STREAM_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        drop_pending_clear_game_data();
         residual_gate_seam::reset_all();
 
         let mut logic = GameLogic::new();
@@ -2075,8 +2099,6 @@ mod tests {
 
     #[test]
     fn step_boundary_callback_draws_from_the_driving_instance_in_sequence() {
-        let _guard = STREAM_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        drop_pending_clear_game_data();
         use game_engine::common::random_value::{get_game_logic_random_value, with_session_random};
 
         const SEED: u32 = 0xB0A7_DA7A;
@@ -2117,8 +2139,6 @@ mod tests {
 
     #[test]
     fn nested_foreign_fixed_step_restores_the_outer_instance_stream() {
-        let _guard = STREAM_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        drop_pending_clear_game_data();
         use game_engine::common::random_value::{get_game_logic_random_value, with_session_random};
 
         const SEED: u32 = 0xA101_0001;
@@ -2160,8 +2180,6 @@ mod tests {
 
     #[test]
     fn callback_unwind_restores_an_enclosing_logic_rng_owner() {
-        let _guard = STREAM_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        drop_pending_clear_game_data();
         use game_engine::common::random_value::{
             RandomState, get_game_logic_random_value, with_logic_rng_owner,
         };
@@ -2202,8 +2220,6 @@ mod tests {
     }
     #[test]
     fn immutable_frame_timing_keeps_the_existing_absolute_clock_rule() {
-        let _lock = STREAM_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        drop_pending_clear_game_data();
         let timing = FrameTiming {
             frame_number: 300,
             delta_time: Duration::from_secs_f32(1.0 / 30.0),
@@ -2231,9 +2247,6 @@ mod tests {
     }
     #[test]
     fn host_logic_step_active_phase_restores_after_real_frozen_and_advanced_steps() {
-        let _guard = STREAM_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        drop_pending_clear_game_data();
-
         let mut logic = GameLogic::new();
         logic.scripts_loaded = true;
         logic.set_script_time_frozen_for_test(true);
@@ -2253,13 +2266,10 @@ mod tests {
             logic.with_host_logic_step(|_| ()).is_some(),
             "real advanced return must drop the owner phase"
         );
-        drop_pending_clear_game_data();
     }
 
     #[test]
     fn another_world_step_does_not_replace_the_driving_object_phase() {
-        let _guard = STREAM_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        drop_pending_clear_game_data();
         let mut first = GameLogic::new();
         first
             .with_host_logic_step(|first| {
@@ -2275,7 +2285,6 @@ mod tests {
             })
             .expect("first owner scope");
         assert!(!first.host_logic_step_active);
-        drop_pending_clear_game_data();
     }
     #[test]
     fn empty_scheduler_clock_boundary_admits_maximum_then_wraps_logic_once() {

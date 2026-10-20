@@ -6,6 +6,10 @@ use super::*;
 #[path = "script_status_owner_tests.rs"]
 mod script_status_owner_tests;
 
+#[cfg(test)]
+#[path = "replay_observer_color_tests.rs"]
+mod replay_observer_color_tests;
+
 // Host weather, replay, terrain, and bridge subsystem state.
 impl GameLogic {
     pub fn weather_state(&self) -> &RuntimeWeatherState {
@@ -386,8 +390,27 @@ impl GameLogic {
         observer.is_alive = false;
         observer.start_position = 0;
         observer.alliance_team = -1;
-        observer.color_rgb = (170, 170, 170);
-        observer.color_night_rgb = (170, 170, 170);
+        // CPP GameLogic.cpp1449–1450: the synthetic ReplayObserver uses
+        // authored palette index zero, independently of occupied observer slots.
+        // Retain the existing fallback when definitions are unavailable.
+        // Native boot admits the authored palette before player setup.
+        let (day, night) =
+            game_engine::common::ini::ini_multiplayer::with_multiplayer_settings(|settings| {
+                let rgb = |packed: u32| {
+                    (
+                        ((packed >> 16) & 255) as u8,
+                        ((packed >> 8) & 255) as u8,
+                        (packed & 255) as u8,
+                    )
+                };
+                settings
+                    .color_definitions
+                    .first()
+                    .map(|color| (rgb(color.get_color()), rgb(color.night_color)))
+                    .unwrap_or(((170, 170, 170), (170, 170, 170)))
+            });
+        observer.color_rgb = day;
+        observer.color_night_rgb = night;
 
         self.add_player(observer);
         if let Some(identity) = PlayerTemplateIdentity::from_exact_name("FactionObserver") {
@@ -396,6 +419,9 @@ impl GameLogic {
                 player.is_alive = false;
                 player.name = "ReplayObserver".into();
                 player.team = Team::Neutral;
+                // Template initialization must not overwrite selected side facts.
+                player.color_rgb = day;
+                player.color_night_rgb = night;
             }
         }
         id
@@ -414,6 +440,13 @@ impl GameLogic {
     /// C++ GameLogic.cpp:1436-1459 + PlayerList::newGame for ReplayObserver.
     pub fn install_replay_observer_side(&mut self) {
         let host_id = self.ensure_replay_observer_player();
+        // Project the receiving host's already admitted colors. Do not re-read
+        // definitions or infer a palette index from RGB at this bridge.
+        let host = self.players.get(&host_id).expect("admitted ReplayObserver");
+        let (day, night) = (host.color_rgb, host.color_night_rgb);
+        let packed = |(r, g, b): (u8, u8, u8)| {
+            (0xff00_0000u32 | ((r as u32) << 16) | ((g as u32) << 8) | b as u32) as i32
+        };
         let mut d = Dict::new();
         d.set_ascii_string(key_player_name(), "ReplayObserver");
         d.set_bool(key_player_is_human(), true);
@@ -422,10 +455,19 @@ impl GameLogic {
         d.set_ascii_string(key_player_allies(), String::new());
         d.set_ascii_string(key_player_enemies(), String::new());
         d.set_int(key_multiplayer_start_index(), 0);
+        d.set_int(key_player_color(), packed(day));
+        d.set_int(key_player_night_color(), packed(night));
 
         {
             let sides = &mut self.prepared_map_sides;
-            if sides.find_side_info("ReplayObserver").is_none() {
+            if let Some(index) = sides.find_side_info("ReplayObserver") {
+                let existing = sides
+                    .get_side_info_mut(index)
+                    .expect("existing observer side")
+                    .get_dict_mut();
+                existing.set_int(key_player_color(), packed(day));
+                existing.set_int(key_player_night_color(), packed(night));
+            } else {
                 sides.add_side(&d);
             }
             if sides.find_team_info("teamReplayObserver").is_none() {
@@ -437,10 +479,19 @@ impl GameLogic {
             }
         }
 
-        if let Ok(list) = ThePlayerList().read() {
-            if list.find_player_by_name("ReplayObserver").is_some() {
-                return;
+        let core_colors = (
+            gamelogic::common::Color::rgb(day.0, day.1, day.2),
+            gamelogic::common::Color::rgb(night.0, night.1, night.2),
+        );
+        let existing = ThePlayerList()
+            .read()
+            .ok()
+            .and_then(|list| list.find_player_by_name("ReplayObserver"));
+        if let Some(existing) = existing {
+            if let Ok(mut player) = existing.write() {
+                player.set_colors(core_colors.0, core_colors.1);
             }
+            return;
         }
 
         let mut logic_player = LogicPlayer::new(host_id as i32);
@@ -465,6 +516,7 @@ impl GameLogic {
             logic_player.set_observer(true);
             logic_player.set_player_type(LogicPlayerType::Observer, false);
         }
+        logic_player.set_colors(core_colors.0, core_colors.1);
         if let Ok(mut list) = ThePlayerList().write() {
             list.add_player(std::sync::Arc::new(std::sync::RwLock::new(logic_player)));
         }

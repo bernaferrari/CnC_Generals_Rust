@@ -213,6 +213,7 @@ fn wnd_load_without_selection_preserves_visible_receiving_menu() {
         current_version_number: 1,
         current_exe_crc: 2,
         current_ini_crc: 3,
+        metadata: crate::gui::shell::replay_menu::fixture_replay_metadata_policy(1, 1),
     });
     let key = NameKeyGenerator::name_to_key;
     let parent = manager

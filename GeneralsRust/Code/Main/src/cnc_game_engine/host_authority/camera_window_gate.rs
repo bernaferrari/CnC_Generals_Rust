@@ -453,6 +453,19 @@ impl CnCGameEngine {
         self.replay_fast_forward = true;
         game_engine::common::global_data::write().tivo_fast_mode = false;
         let result = (|| -> Result<Value, String> {
+            let metadata = self.receiving_replay_menu_inputs().metadata;
+            require(
+                metadata == game_client::gui::shell::replay_menu::ReplayMenuMetadataPolicy::capture_application(),
+                "native replay metadata was not admitted after content/text loading",
+            )?;
+            let metadata_evidence = json!({
+                "color_count": metadata.limits.color_count,
+                "player_template_count": metadata.limits.player_template_count,
+                "slot_labels": metadata.slot_labels,
+                "map_extension": metadata.map_extension,
+                "scope": "receiving Engine snapshot matches completed content/text admission; ordinary input does not poll shared definitions",
+            });
+            partial_evidence["replay_metadata_admission"] = metadata_evidence.clone();
             let slot = "camera_owner_new";
             let save_path = self.save_file_manager.get_save_path(slot);
             require(!save_path.exists(), "acceptance archive must not preexist")?;
@@ -547,6 +560,7 @@ impl CnCGameEngine {
             Ok(
                 json!({"reference":reference,"after_staged_peer":interleaved,"after_second_restore":resumed,
                 "scripted_origin_finalizer":scripted_origin,
+                "replay_metadata_admission":metadata_evidence,
                 "saved_archive":saved_file,"saved_owner":saved_owner,"hag_seed":hag_seed,"map":file_observation(&map)?,
                 "effective_rules":{"settings":self.game_logic.session_view.camera.settings,
                     "clip":self.game_logic.session_view.camera.clip_policy,"shake":self.game_logic.session_view.camera.shake_policy},

@@ -17,7 +17,17 @@ impl CnCGameEngine {
             current_version_number: version.get_version_number(),
             current_exe_crc: inputs.exe_crc,
             current_ini_crc: inputs.ini_crc,
+            metadata: self.replay_menu_metadata.clone(),
         }
+    }
+
+    /// Complete application content/localization admission only. Ordinary world
+    /// reset/save replacement retains this snapshot because definitions/text
+    /// have not changed. Any future runtime reload must use this same boundary.
+    pub(super) fn admit_replay_menu_application_metadata(&mut self) {
+        self.replay_menu_metadata =
+            game_client::gui::shell::replay_menu::ReplayMenuMetadataPolicy::capture_application();
+        self.configure_receiving_replay_menu();
     }
 
     pub(super) fn configure_receiving_replay_menu(&self) {

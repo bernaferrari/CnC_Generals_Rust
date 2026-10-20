@@ -29,7 +29,7 @@ use game_network::gamespy::ladder_defs::{
 use gamelogic::system::map_loader::MapLoader;
 
 const MAP_CACHE_NAME: &str = "MapCache.ini";
-const MAP_EXTENSION: &str = "map";
+pub(crate) const MAP_EXTENSION: &str = "map";
 const MAP_PREVIEW_DIR_SUFFIX: &str = "MapPreviews/";
 
 #[derive(Default, Debug)]

@@ -226,7 +226,6 @@ impl CnCGameEngine {
             let game_ending = self.game_logic.owned_script_game_ending();
             let tooltips_disabled = self.receiving_tooltips_disabled();
             let cursor_mouse = self.game_client.input_mouse_handle();
-            self.configure_receiving_replay_menu();
             let observer_roster = self.receiving_observer_roster();
             let mut replay_operation =
                 game_client::gui::callbacks::replay_menu::ingress::ReplayMenuOperation::new(
@@ -413,7 +412,6 @@ impl CnCGameEngine {
         let game_ending = self.game_logic.owned_script_game_ending();
         let tooltips_disabled = self.receiving_tooltips_disabled();
         let cursor_mouse = self.game_client.input_mouse_handle();
-        self.configure_receiving_replay_menu();
         let observer_roster = self.receiving_observer_roster();
         let mut replay_operation =
             game_client::gui::callbacks::replay_menu::ingress::ReplayMenuOperation::new(

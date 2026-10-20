@@ -137,13 +137,9 @@ pub(crate) fn recording_info(
         };
         let color = if let Some(source) = &admission.source {
             source.slots[slot.slot_index].color
-        } else if template == -2
-            && color_rgb_from_multiplayer_index(-2, slot.slot_index) == slot.color_rgb
-        {
-            -2
         } else {
             game_engine::common::ini::ini_multiplayer::with_multiplayer_settings(|settings| {
-                (0..settings.get_num_colors()).find(|index| {
+                let mut matches = (0..settings.get_num_colors()).filter(|index| {
                     settings.get_color_value(*index).is_some_and(|packed| {
                         (
                             ((packed >> 16) & 255) as u8,
@@ -151,15 +147,29 @@ pub(crate) fn recording_info(
                             (packed & 255) as u8,
                         ) == slot.color_rgb
                     })
-                })
-            })
-            .ok_or_else(|| {
-                format!(
-                    "native recording slot {} color has no observed palette index",
-                    slot.slot_index
-                )
+                });
+                match (matches.next(), matches.next()) {
+                    (Some(index), None) => Ok(index),
+                    (None, _) => Err(format!(
+                        "native recording slot {} color has no observed palette index",
+                        slot.slot_index
+                    )),
+                    (Some(_), Some(_)) => Err(format!(
+                        "native recording slot {} color has ambiguous palette identity",
+                        slot.slot_index
+                    )),
+                }
             })?
         };
+        if color < 0 {
+            // Old native saves may contain the former white observer sentinel.
+            // Reading those saves remains supported; newly written original
+            // replay headers must contain a resolved authored index.
+            return Err(format!(
+                "recording occupied slot {} has unresolved or invalid color index {color}",
+                slot.slot_index
+            ));
+        }
         *destination = ReplaySlot {
             name: slot.player_name.clone(),
             ip: 0,

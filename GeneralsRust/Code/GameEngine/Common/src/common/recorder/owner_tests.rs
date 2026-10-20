@@ -259,3 +259,78 @@ fn explicit_header_inspection_uses_full_path_without_mutating_live_reader() {
     live.update_owned(4, &[]);
     assert_eq!(camera_values(live.drain_pending_commands()), [(3, 110.0)]);
 }
+
+#[test]
+fn strict_menu_policy_does_not_change_actual_reader_admission() {
+    let directory = tempfile::tempdir().unwrap();
+    let policy = inputs(directory.path(), "Maps/ReaderPolicy", 7);
+    let mut writer = Recorder::new_owned(policy.clone());
+    let mut info = ReplayGameInfo::new();
+    info.map = policy.map.clone();
+    info.slots[0].name = "Owner".into();
+    info.slots[0].is_human = true;
+    info.slots[0].is_occupied = true;
+    info.slots[0].color = 39;
+    info.slots[0].player_template = 49;
+    info.slots[0].port = 70000;
+    info.slots[0].nat = 128;
+    writer.set_recording_lobby(info, 0);
+    writer.start_recording(1, 1, 0, 30).unwrap();
+    let file = policy.replay_directory.join(&writer.filename);
+    let filename = writer.filename.clone();
+    writer.stop_recording();
+    let mut reader = Recorder::new_owned(policy);
+    assert!(reader.playback_file_owned(filename, false).unwrap());
+    assert_eq!(reader.get_game_info().slots[0].port, 70000);
+    let metadata = inspect_replay_header(&file).unwrap();
+    assert!(
+        decode_replay_menu_metadata(
+            &metadata.game_options,
+            ReplayMenuMetadataLimits {
+                color_count: 40,
+                player_template_count: 50
+            }
+        )
+        .is_none(),
+        "metadata-only safe narrowing rejects overflow without changing Reader policy"
+    );
+    assert_eq!(reader.get_game_info().slots[0].port, 70000);
+    let mut corrupt = std::fs::read(&file).unwrap();
+    let mask = corrupt
+        .windows(4)
+        .position(|bytes| bytes == b"M=00")
+        .unwrap();
+    corrupt.splice(mask + 2..mask + 4, "你".as_bytes().iter().copied());
+    let bad_file = directory.path().join("bad-mask.rep");
+    std::fs::write(&bad_file, corrupt).unwrap();
+    assert_eq!(
+        inspect_replay_header(&bad_file).unwrap_err().kind(),
+        std::io::ErrorKind::InvalidData
+    );
+}
+
+#[test]
+fn recorded_template_one_is_a_faction_and_minus_two_is_observer() {
+    let directory = tempfile::tempdir().unwrap();
+    let policy = inputs(directory.path(), "Maps/ObserverIdentity", 7);
+    let mut writer = Recorder::new_owned(policy.clone());
+    let mut info = ReplayGameInfo::new();
+    info.map = policy.map.clone();
+    for (slot, template) in info.slots.iter_mut().zip([1, -2]) {
+        slot.is_human = true;
+        slot.is_occupied = true;
+        slot.player_template = template;
+        slot.name = format!("Template{template}");
+    }
+    writer.set_recording_lobby(info, 0);
+    writer.start_recording(1, 1, 0, 30).unwrap();
+    let filename = writer.filename.clone();
+    writer.stop_recording();
+    let mut reader = Recorder::new_owned(policy);
+    assert!(reader.playback_file_owned(filename, false).unwrap());
+    let slots = &reader.get_game_info().slots;
+    assert_eq!(slots[0].player_template, 1);
+    assert!(!slots[0].is_observer, "authored faction 1 is not Observer");
+    assert_eq!(slots[1].player_template, -2);
+    assert!(slots[1].is_observer, "C++ Observer sentinel is -2");
+}
