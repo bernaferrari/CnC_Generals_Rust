@@ -1280,10 +1280,13 @@ impl CnCGameEngine {
             &mut logic.session_view,
         );
         self.game_logic = logic;
+        if let Some(local) = self.game_logic.local_player_id() {
+            self.current_player_id = local;
+            self.host_match_local_player_id = Some(local);
+        }
         self.ui_manager
             .admit_camera_input_defaults(self.game_logic.camera_input_rules());
         self.host_admit_snow_for_world();
-        crate::command_system::bind_host_replay_authority(&self.game_logic.replay_pending);
         if let Some(shadow) = self.gameworld_shadow.as_mut() {
             shadow.reset_for_world_boundary();
             // The replacement is already a complete host world.  Seed the
@@ -1353,6 +1356,18 @@ impl CnCGameEngine {
             logic_rng_seed_words,
         } = staged;
         let runtime_world = runtime_world.preflight_native()?;
+        // Immutable application policy transfers; the old live reader never does.
+        // This prepares only the detached candidate and cannot reset the receiver.
+        let mut recorder_inputs = self
+            .game_logic
+            .replay_pending
+            .recorder_owned()
+            .owner_inputs()
+            .expect("receiving native Recorder inputs")
+            .clone();
+        recorder_inputs.map = logic.get_current_map_name().to_owned();
+        recorder_inputs.seed = logic.logic_base_seed;
+        logic.replay_pending.reset_recorder_owned(recorder_inputs);
         // Failed staging/preflight leaves the current Engine untouched. An
         // admitted candidate starts a new game, then its saved Native state
         // (when present) restores the replay flag below, in source order.
@@ -1434,10 +1449,7 @@ impl CnCGameEngine {
         // cues when the newly installed world first publishes presentation.
         self.game_logic.movement_events.clear();
         drop(old_logic);
-        crate::command_system::reset_host_recorder_after_successful_load(
-            &mut self.game_logic.replay_pending,
-        );
-        crate::command_system::bind_host_replay_authority(&self.game_logic.replay_pending);
+        self.reset_receiving_recorder_at_engine_boundary();
         // C++ RandomValue is process-static and no load path reseeds it
         // (GameState.cpp:628-741); only mission saves InitRandom(0) in their
         // message-loop follow-up.  Reseed after all staged map work, including
@@ -1565,6 +1577,9 @@ impl CnCGameEngine {
         }
         self.ui_manager
             .admit_camera_input_defaults(self.game_logic.camera_input_rules());
+        // Transaction adaptation: only the successful receiving commit may
+        // update controls, after its restored/default camera is installed.
+        self.initialize_receiving_replay_controls();
         Ok(())
     }
 

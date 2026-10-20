@@ -5,8 +5,8 @@
 //! Configures map, player slots, teams, factions, and game rules.
 
 use super::{
-    layout, sound_files, utils, ClickSpring, Interactive, KeyCode, MouseButton, Renderable, Screen,
-    UIEvent, UIRenderContext,
+    ClickSpring, Interactive, KeyCode, MouseButton, Renderable, Screen, UIEvent, UIRenderContext,
+    layout, sound_files, utils,
 };
 use crate::game_logic::GameMode;
 use crate::localization;
@@ -39,6 +39,12 @@ pub enum Faction {
 /// Player colors
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlayerColor {
+    /// Exact authored index and immutable values selected by this setup.
+    Authored {
+        index: i32,
+        color: u32,
+        night_color: u32,
+    },
     Red,
     Blue,
     Green,
@@ -50,8 +56,30 @@ pub enum PlayerColor {
 }
 
 impl PlayerColor {
+    pub(crate) fn authored_index(self) -> Option<i32> {
+        match self {
+            Self::Authored { index, .. } => Some(index),
+            _ => None,
+        }
+    }
+    fn from_authored(
+        index: i32,
+        definition: &game_engine::common::ini::ini_multiplayer::MultiplayerColorDefinition,
+    ) -> Self {
+        Self::Authored {
+            index,
+            color: definition.get_color(),
+            night_color: definition.night_color,
+        }
+    }
+
     pub fn to_rgb(&self) -> (u8, u8, u8) {
         match self {
+            PlayerColor::Authored { color, .. } => (
+                ((color >> 16) & 255) as u8,
+                ((color >> 8) & 255) as u8,
+                (color & 255) as u8,
+            ),
             PlayerColor::Red => (200, 0, 0),
             PlayerColor::Blue => (0, 0, 200),
             PlayerColor::Green => (0, 200, 0),
@@ -191,6 +219,9 @@ impl ActionBtn {
 pub struct SkirmishMenu {
     /// All player slots
     slots: Vec<GameSlot>,
+    /// Frozen authored palette in original definition/index order.
+    palette: Vec<game_engine::common::ini::ini_multiplayer::MultiplayerColorDefinition>,
+    random_color: PlayerColor,
     /// Game rules
     rules: GameRules,
     /// Selected map name
@@ -228,6 +259,12 @@ impl SkirmishMenu {
     pub fn new() -> Self {
         Self {
             slots: Vec::new(),
+            palette: Vec::new(),
+            random_color: PlayerColor::Authored {
+                index: -1,
+                color: 0xffffffff,
+                night_color: 0xffffffff,
+            },
             rules: GameRules::default(),
             map_name: "Default Map".to_string(),
             random_seed: 0,
@@ -246,14 +283,51 @@ impl SkirmishMenu {
 
     /// Initialize skirmish menu
     pub fn initialize(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        // Definition data is captured once; changing another setup cannot change
+        // this menu's selected values or manufacture an index from its RGB.
+        self.palette = game_engine::common::ini::ini_multiplayer::with_multiplayer_settings(|s| {
+            s.color_definitions.clone()
+        });
+        self.random_color =
+            game_engine::common::ini::ini_multiplayer::with_multiplayer_settings(|s| {
+                PlayerColor::from_authored(-1, &s.random_color)
+            });
+        if self.palette.is_empty() {
+            return Err("authored MultiplayerColorDefinition palette is unavailable".into());
+        }
         // Initialize all slots
         self.slots.clear();
         for i in 0..MAX_SLOTS {
-            self.slots.push(GameSlot::new(i));
+            let mut slot = GameSlot::new(i);
+            // CPP GameSlot::reset defaults to Random (-1), never slot ordinal.
+            slot.color = self.random_color;
+            self.slots.push(slot);
         }
 
         self.setup_action_buttons();
         Ok(())
+    }
+
+    /// Select an actual authored palette entry, retaining index even when RGBs match.
+    pub fn select_slot_color(&mut self, slot_index: usize, palette_index: i32) -> bool {
+        if palette_index == -1 {
+            let Some(slot) = self.slots.get_mut(slot_index) else {
+                return false;
+            };
+            slot.color = self.random_color;
+            return true;
+        }
+        let Ok(index) = usize::try_from(palette_index) else {
+            return false;
+        };
+        let Some(definition) = self.palette.get(index) else {
+            return false;
+        };
+        let Some(slot) = self.slots.get_mut(slot_index) else {
+            return false;
+        };
+        slot.color = PlayerColor::from_authored(palette_index, definition);
+        true
     }
 
     /// Update skirmish menu
@@ -294,7 +368,14 @@ impl SkirmishMenu {
 
         // Check slot interactions
         if let Some(slot_index) = self.hovered_slot {
-            self.cycle_slot_setting(slot_index);
+            let (left, _, width, _) = self.get_slot_area(slot_index);
+            if x >= left + (width * 3 / 4) as i32 {
+                let current = self.slots[slot_index].color.authored_index().unwrap_or(-1);
+                let next = (current + 2).rem_euclid(self.palette.len() as i32 + 1) - 1;
+                self.select_slot_color(slot_index, next);
+            } else {
+                self.cycle_slot_setting(slot_index);
+            }
         }
 
         None
@@ -714,6 +795,7 @@ mod tests {
     #[test]
     fn simulate_start_button_click_emits_start_game() {
         let mut menu = SkirmishMenu::new();
+        authored_fixture_palette();
         menu.initialize().expect("init");
         assert!(menu.configure_slot_medium_ai(1));
         menu.set_map_name("Lone Eagle");
@@ -733,6 +815,28 @@ mod tests {
     }
 
     use super::*;
+    fn authored_fixture_palette() {
+        if game_engine::common::ini::ini_multiplayer::with_multiplayer_settings(|s| {
+            s.get_num_colors()
+        }) != 0
+        {
+            return;
+        }
+        let mut ini = game_engine::common::ini::INI::new();
+        ini.with_inline_source(
+            "MultiplayerColor FixtureRed
+ RGBColor = R:200 G:0 B:0
+ RGBNightColor = R:100 G:0 B:0
+End
+MultiplayerColor FixtureBlue
+ RGBColor = R:0 G:0 B:200
+ RGBNightColor = R:0 G:0 B:100
+End
+",
+            |ini| ini.parse_current_file(),
+        )
+        .unwrap();
+    }
 
     #[test]
     fn test_skirmish_menu_creation() {
@@ -744,6 +848,7 @@ mod tests {
     #[test]
     fn test_slot_initialization() {
         let mut menu = SkirmishMenu::new();
+        authored_fixture_palette();
         menu.initialize().unwrap();
 
         assert_eq!(menu.slots.len(), MAX_SLOTS);
@@ -760,6 +865,7 @@ mod tests {
     #[test]
     fn test_slot_cycling() {
         let mut menu = SkirmishMenu::new();
+        authored_fixture_palette();
         menu.initialize().unwrap();
 
         let initial_type = menu.slots[1].player_type;
@@ -767,3 +873,7 @@ mod tests {
         assert_ne!(menu.slots[1].player_type, initial_type);
     }
 }
+
+#[cfg(all(test, feature = "game_client"))]
+#[path = "skirmish_menu/palette_owner_tests.rs"]
+mod palette_owner_tests;

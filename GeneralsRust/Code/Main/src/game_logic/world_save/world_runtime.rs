@@ -20,6 +20,37 @@ impl GameLogic {
         self.game_mode == GameMode::Shell
     }
 
+    /// Replay keeps its own mode; original map-vs-lobby preparation observes
+    /// actual receiving GameInfo, not a process Recorder or a mode-only guess.
+    pub(crate) fn has_recorded_lobby_sides(&self) -> bool {
+        self.replay_pending.recorder_owned().is_playback()
+            && self
+                .replay_pending
+                .recorder_owned()
+                .get_game_info()
+                .slots
+                .iter()
+                .any(|slot| slot.is_occupied)
+    }
+
+    pub(crate) fn uses_lobby_side_foundation(&self) -> bool {
+        matches!(
+            self.game_mode,
+            GameMode::Skirmish | GameMode::Multiplayer | GameMode::Lan | GameMode::Internet
+        ) || (self.game_mode == GameMode::Replay
+            && (self.has_recorded_lobby_sides()
+                || self
+                    .initial_skirmish_admission
+                    .as_ref()
+                    .is_some_and(|initial| initial.config.slots.iter().any(|slot| slot.is_active))))
+    }
+
+    pub(crate) fn is_single_player_scenario(&self) -> bool {
+        self.game_mode == GameMode::SinglePlayer
+            || (self.replay_pending.recorder_owned().is_playback()
+                && self.replay_pending.recorder_owned().get_game_mode() == 0)
+    }
+
     pub fn isInReplayGame(&self) -> bool {
         self.game_mode == GameMode::Replay
     }
@@ -49,6 +80,12 @@ impl GameLogic {
         // C++ routes this through the broader engine reset path, so keep the
         // fallback state scrubbed rather than only clearing the minimum fields.
         self.reset();
+        self.finish_clear_game_data_after_reset();
+    }
+
+    /// The native engine already performed its ordered subsystem/world reset.
+    /// Finish C++ clearGameData without performing a second reset.
+    pub(crate) fn finish_clear_game_data_after_reset(&mut self) {
         self.game_mode = GameMode::None;
         self.map_name.clear();
         self.last_map_settings = None;
@@ -232,8 +269,28 @@ impl GameLogic {
     /// Start a new game with specified mode
     pub fn start_new_game(&mut self, mode: GameMode) {
         self.start_new_game_state(mode);
-        crate::command_system::bind_host_replay_authority(&self.replay_pending);
-        crate::command_system::tap_host_new_game_for_recorder(mode, self.logic_base_seed);
+    }
+
+    /// Receiving native NewGame route; the actual dispatcher supplies its
+    /// difficulty/rank/FPS payload. Playback already consumed that lifecycle
+    /// message and must retain its admitted reader, not synthesize it again.
+    pub(crate) fn start_new_game_with_recorder_payload(
+        &mut self,
+        mode: GameMode,
+        difficulty: i32,
+        rank: i32,
+        max_fps: i32,
+    ) {
+        self.start_new_game_state(mode);
+        if !self.replay_pending.recorder_owned().is_playback() {
+            self.replay_pending.record_new_game_owned(
+                mode,
+                self.logic_base_seed,
+                difficulty,
+                rank,
+                max_fps,
+            );
+        }
     }
 
     /// Prepare a candidate world for loading a save. C++ GameState::loadGame
@@ -401,5 +458,33 @@ impl GameLogic {
             return Some(Team::China);
         }
         None
+    }
+}
+
+#[cfg(test)]
+mod clear_finalization_tests {
+    use super::*;
+
+    #[test]
+    fn clear_finalization_changes_only_receiving_lifecycle_without_second_reset() {
+        let mut receiving = GameLogic::new();
+        let mut foreign = GameLogic::new();
+        receiving.game_mode = GameMode::Replay;
+        receiving.map_name = "receiving.map".into();
+        receiving.map_loaded = true;
+        receiving.frame = 41;
+        foreign.game_mode = GameMode::Skirmish;
+        foreign.map_name = "foreign.map".into();
+        foreign.map_loaded = true;
+        foreign.frame = 93;
+        receiving.finish_clear_game_data_after_reset();
+        assert_eq!(receiving.game_mode(), GameMode::None);
+        assert!(receiving.map_name.is_empty());
+        assert!(!receiving.map_loaded);
+        assert_eq!(receiving.frame, 41, "finalization must not reset twice");
+        assert_eq!(foreign.game_mode(), GameMode::Skirmish);
+        assert_eq!(foreign.map_name, "foreign.map");
+        assert!(foreign.map_loaded);
+        assert_eq!(foreign.frame, 93);
     }
 }

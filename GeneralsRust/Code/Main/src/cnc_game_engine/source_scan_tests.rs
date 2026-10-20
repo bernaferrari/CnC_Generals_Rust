@@ -783,7 +783,8 @@ fn context_mouse_cursor_residual() {
         "C++ SelectionXlat posts MSG_MOUSEOVER_* even when the cursor icon is unchanged"
     );
     assert!(
-        body.contains("host_recorder_is_playback")
+        body.contains("recorder_owned()")
+            && body.contains("is_playback()")
             && body.contains("lookat_has_mouse_moved_recently"),
         "replay hover must keep SELECTING/ARROW until the viewer moves"
     );

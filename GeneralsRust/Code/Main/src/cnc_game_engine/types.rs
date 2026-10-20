@@ -597,6 +597,8 @@ pub(super) struct HostStartRequest {
     pub(super) player_template: Option<crate::game_logic::PlayerTemplateIdentity>,
     pub(super) game_info_starting_cash: Option<u32>,
     pub(super) difficulty_code: Option<i32>,
+    /// Actual MSG_NEW_GAME fields retained through Loading; never recover rank/FPS from a prior match.
+    pub(super) recorder_dispatch: Option<StartupNewGameDispatch>,
 }
 
 impl HostStartRequest {
@@ -614,6 +616,7 @@ impl HostStartRequest {
             player_template: None,
             game_info_starting_cash: None,
             difficulty_code: None,
+            recorder_dispatch: None,
         }
     }
 
@@ -632,6 +635,7 @@ impl HostStartRequest {
             player_template: Some(player_template),
             game_info_starting_cash: None,
             difficulty_code: None,
+            recorder_dispatch: None,
         }
     }
 }

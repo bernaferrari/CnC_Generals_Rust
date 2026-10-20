@@ -6882,13 +6882,29 @@
         {
           "blockers": [
             "unreviewed_mapping",
-            "unreviewed_symbol_ownership"
+            "unreviewed_symbol_ownership",
+            "unreviewed_source_range_ownership"
           ],
           "candidate_destinations": [
             {
               "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/Common/src/common/recorder.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/recorder/header.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/recorder/owner.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/recorder/owner_tests.rs"
             }
           ],
           "entry_id": "game_engine:Source/Common/Recorder.cpp",
@@ -28552,13 +28568,24 @@
         {
           "blockers": [
             "unreviewed_mapping",
-            "unreviewed_symbol_ownership"
+            "unreviewed_symbol_ownership",
+            "unreviewed_source_range_ownership"
           ],
           "candidate_destinations": [
             {
               "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/callbacks/replay_menu.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/callbacks/replay_menu/ingress.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/callbacks/replay_menu/policy_refresh_tests.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/GUICallbacks/Menus/ReplayMenu.cpp",
@@ -189890,7 +189917,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "6b96870250c578b901c430ca679d5481ff6d6e547ab482617736f417acc29667",
+  "provenance_input_digest": "f47480bf6bd02b213aea5e7cd03d794aebcd38d4cdd3af5397b827df867f2772",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,

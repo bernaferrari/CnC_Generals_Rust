@@ -385,6 +385,10 @@ impl CnCGameEngine {
             self.current_state,
             self.game_logic.game_mode(),
             self.ui_manager.replay_camera_preferences().0,
+            self.game_logic
+                .replay_pending
+                .recorder_owned()
+                .is_playback(),
         ) {
             let cursor = {
                 #[cfg(feature = "game_client")]
@@ -396,7 +400,7 @@ impl CnCGameEngine {
                     0
                 }
             };
-            crate::command_system::tap_replay_camera_for_recorder(
+            self.game_logic.replay_pending.record_camera_owned(
                 crate::command_system::ReplayCameraPose {
                     pos: self.game_logic.session_view.target,
                     yaw: self.game_logic.session_view.camera.camera_yaw_radians,
@@ -493,7 +497,11 @@ impl CnCGameEngine {
         self.sync_ingame_mouseover_hint();
         // C++ InGameUI.cpp:2462 — replayed SELECTING/ARROW stays put until
         // the viewer moves the mouse (LookAtXlat hasMouseMovedRecently).
-        if crate::command_system::host_recorder_is_playback()
+        if self
+            .game_logic
+            .replay_pending
+            .recorder_owned()
+            .is_playback()
             && !self
                 .look_at_modes
                 .lookat_has_mouse_moved_recently(self.game_logic.get_current_frame() as u32)
@@ -515,7 +523,10 @@ impl CnCGameEngine {
         // viewer moves the mouse (LookAtXlat hasMouseMovedRecently, 1s).
         #[cfg(feature = "game_client")]
         self.game_client.feed_look_at_replay_hover_gate(
-            crate::command_system::host_recorder_is_playback(),
+            self.game_logic
+                .replay_pending
+                .recorder_owned()
+                .is_playback(),
             self.look_at_modes
                 .lookat_has_mouse_moved_recently(self.game_logic.get_current_frame() as u32),
         );

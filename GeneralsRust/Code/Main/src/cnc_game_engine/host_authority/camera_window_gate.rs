@@ -298,6 +298,107 @@ impl CnCGameEngine {
         trace.push(rejected);
         Ok(trace)
     }
+    /// Real authored movement, native full-view/HAG and archive restore on the
+    /// existing receiving Engine. No synthetic pose or replacement owner.
+    fn camera_gate_scripted_origin(&mut self, saved_slot: &str) -> Result<Value, String> {
+        use gamelogic::scripting::core::{
+            Condition, ConditionType, OrCondition, Parameter, ParameterType, Script, ScriptAction,
+            ScriptActionType, ScriptList,
+        };
+        self.host_load_game_authority(saved_slot)
+            .map_err(HostLoadFailure::into_message)?;
+        let mut action = ScriptAction::new(ScriptActionType::MoveCameraTo);
+        action
+            .add_parameter(Parameter::with_coord(
+                ParameterType::Coord3D,
+                gamelogic::common::Coord3D::new(0., 0., 0.),
+            ))
+            .map_err(|error| format!("origin coordinate: {error:?}"))?;
+        for value in [0., 0., 0., 0.] {
+            action
+                .add_parameter(Parameter::with_real(ParameterType::Real, value))
+                .map_err(|error| format!("origin move timing: {error:?}"))?;
+        }
+        let mut condition = OrCondition::new();
+        condition
+            .set_first_and_condition(Some(Box::new(Condition::new(ConditionType::ConditionTrue))));
+        let mut script = Script::new();
+        script.script_name = "ReceivingOriginFinalizerRegression".into();
+        script.is_one_shot = true;
+        script.condition = Some(Box::new(condition));
+        script.action = Some(Box::new(action));
+        let mut list = ScriptList::new();
+        list.append_script(Box::new(script));
+        let mut interpreter =
+            gamelogic::scripting::engine::ScriptEngine::new().map_err(|error| error.to_string())?;
+        interpreter
+            .set_script_list_for_player(0, Some(Box::new(list)))
+            .map_err(|error| error.to_string())?;
+        self.game_logic
+            .update_local_script_engine_with_owner(&interpreter)
+            .map_err(|error| error.to_string())?;
+        require(
+            self.game_logic.session_view.scripted.motion.active,
+            "authored MoveCameraTo did not install receiving origin motion",
+        )?;
+        let frame = self.game_logic.frame.wrapping_add(1);
+        self.game_logic.set_current_frame(u64::from(frame));
+        self.game_client.set_frame(frame);
+        self.game_logic.apply_visual_speed_multiplier(
+            &crate::game_logic::mission_scripts::VisualSpeedMultiplierRequest { multiplier: 1 },
+        );
+        self.host_finalize_presentation_after_logic();
+        self.apply_pending_script_camera_requests();
+        self.complete_native_display_step()?;
+        let display = serde_json::to_value(self.native_display.capture_continuation(frame)?)
+            .map_err(|error| error.to_string())?;
+        require(
+            display["completed"]["update_views"] == true,
+            "origin regression requires an actual full native Display",
+        )?;
+        let target = self.game_logic.session_view.target;
+        require(
+            target.x == 0. && target.z == 0.,
+            "actual full Display replaced authored near-origin camera with base focus",
+        )?;
+        require(
+            !self.game_logic.session_view.scripted.motion.active,
+            "actual full Display did not finish zero-duration authored movement",
+        )?;
+        let slot = "camera_owner_scripted_origin";
+        require(
+            !self.save_file_manager.get_save_path(slot).exists(),
+            "origin continuation archive must be fresh",
+        )?;
+        let info = self.build_save_info(
+            slot,
+            "Origin camera acceptance",
+            "Real authored motion followed by native HAG and restore",
+            SaveFileType::Normal,
+        );
+        self.host_save_game_authority(slot, &info)?;
+        let saved = file_observation(&self.save_file_manager.get_save_path(slot))?;
+        let owner = logic_camera(&self.game_logic)?;
+        self.host_load_game_authority(slot)
+            .map_err(HostLoadFailure::into_message)?;
+        require(
+            logic_camera(&self.game_logic)? == owner,
+            "actual origin archive restore changed receiving camera owner",
+        )?;
+        let resumed = self.camera_gate_offer(frame.wrapping_add(1), 1)?;
+        require(
+            resumed["full"] == true,
+            "origin continuation requires an actual resumed full Display",
+        )?;
+        let target = self.game_logic.session_view.target;
+        require(
+            target.x == 0. && target.z == 0.,
+            "actual full Display replaced restored near-origin camera with base focus",
+        )?;
+        Ok(json!({"authored_display":display,"saved_owner":owner,
+            "saved_archive":saved,"resumed_display":resumed,
+            "scope":"actual local authored ScriptEngine MoveCameraTo, receiving full native Display/HAG, same Engine save/load and full continuation"}))
+    }
     pub(in crate::cnc_game_engine) fn run_camera_window_continuation_gate(
         &mut self,
     ) -> Result<PathBuf, String> {
@@ -440,8 +541,12 @@ impl CnCGameEngine {
                 resumed == reference,
                 "actual Engine save/load future camera/display trace diverged",
             )?;
+            phase = "scripted_origin_finalizer";
+            let scripted_origin = self.camera_gate_scripted_origin(slot)?;
+            partial_evidence["scripted_origin_finalizer"] = scripted_origin.clone();
             Ok(
                 json!({"reference":reference,"after_staged_peer":interleaved,"after_second_restore":resumed,
+                "scripted_origin_finalizer":scripted_origin,
                 "saved_archive":saved_file,"saved_owner":saved_owner,"hag_seed":hag_seed,"map":file_observation(&map)?,
                 "effective_rules":{"settings":self.game_logic.session_view.camera.settings,
                     "clip":self.game_logic.session_view.camera.clip_policy,"shake":self.game_logic.session_view.camera.shake_policy},

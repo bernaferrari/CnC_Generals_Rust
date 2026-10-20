@@ -34,9 +34,17 @@ pub enum RecorderMode {
     None,
 }
 
+mod header;
+pub use header::inspect_replay_header;
+
+mod owner;
+pub use owner::{RecorderOwnerEffects, RecorderOwnerInputs, RecorderPlaybackAdmission};
+
 /// Recorder class - main replay recording/playback system
 /// Matches C++ RecorderClass from Recorder.h:31-131 and Recorder.cpp
 pub struct Recorder {
+    owner_inputs: Option<RecorderOwnerInputs>,
+    owner_effects: RecorderOwnerEffects,
     /// Current mode (record/playback/none)
     mode: RecorderMode,
 
@@ -93,7 +101,7 @@ pub struct Recorder {
 
     /// Live lobby snapshot used by `startRecording` after `reset()` (C++ TheLAN / TheSkirmishGameInfo).
     pending_lobby: Option<ReplayGameInfo>,
-    pending_local_index: i32,
+    pending_local_index: Option<i32>,
     /// Selected seed supplied by the owning Main match, including valid zero.
     pending_recording_seed: Option<u32>,
     /// Optional live lobby provider consulted after reset.
@@ -932,7 +940,7 @@ fn write_fixed_width_time_t(file: &mut File, value: u32) -> Result<(), std::io::
     file.write_all(&value.to_le_bytes())
 }
 
-fn read_fixed_width_time_t(file: &mut File) -> Result<u32, std::io::Error> {
+fn read_fixed_width_time_t<R: Read>(file: &mut R) -> Result<u32, std::io::Error> {
     let mut buf = [0u8; REPLAY_TIME_T_BYTES as usize];
     file.read_exact(&mut buf)?;
     Ok(u32::from_le_bytes(buf))
@@ -986,7 +994,7 @@ fn system_time_from_replay_bytes(bytes: [u8; REPLAY_SYSTEM_TIME_BYTES]) -> Syste
     }
 }
 
-fn read_system_time_from_file(file: &mut File) -> Result<SystemTime, std::io::Error> {
+fn read_system_time_from_file<R: Read>(file: &mut R) -> Result<SystemTime, std::io::Error> {
     let mut buf = [0u8; REPLAY_SYSTEM_TIME_BYTES];
     file.read_exact(&mut buf)?;
     Ok(system_time_from_replay_bytes(buf))
@@ -1029,19 +1037,6 @@ fn append_game_message_to_the_message_stream(msg: &GameMessage) {
     }
 }
 
-fn send_clear_game_data(
-    command_sink: &Option<Arc<dyn Fn(GameMessage) + Send + Sync>>,
-    pending_commands: &mut Vec<GameMessage>,
-) {
-    let clear_msg = GameMessage::new(GameMessageType::ClearGameData);
-    append_game_message_to_the_message_stream(&clear_msg);
-    if let Some(sink) = command_sink {
-        sink.as_ref()(clear_msg);
-    } else {
-        pending_commands.push(clear_msg);
-    }
-}
-
 impl Default for Recorder {
     fn default() -> Self {
         Self::new()
@@ -1052,7 +1047,18 @@ impl Recorder {
     /// Constructor
     /// Matches C++ RecorderClass::RecorderClass() from Recorder.cpp:340-355
     pub fn new() -> Self {
+        Self::construct(None)
+    }
+
+    /// Construct a detached receiving Recorder without consulting ambient state.
+    pub fn new_owned(inputs: RecorderOwnerInputs) -> Self {
+        Self::construct(Some(inputs))
+    }
+
+    fn construct(owner_inputs: Option<RecorderOwnerInputs>) -> Self {
         let mut recorder = Self {
+            owner_inputs,
+            owner_effects: RecorderOwnerEffects::default(),
             mode: RecorderMode::Record,
             file: None,
             filename: String::new(),
@@ -1072,7 +1078,7 @@ impl Recorder {
             command_cull: None,
             pending_commands: Vec::new(),
             pending_lobby: None,
-            pending_local_index: -1,
+            pending_local_index: None,
             pending_recording_seed: None,
             lobby_info_provider: None,
             replay_control_hook: None,
@@ -1097,7 +1103,9 @@ impl Recorder {
         self.pending_commands.clear();
         self.pending_recording_seed = None;
 
-        if let Some(data) = get_global_data() {
+        if let Some(owner) = &self.owner_inputs {
+            self.game_info.set_map(owner.map.clone());
+        } else if let Some(data) = get_global_data() {
             let data = data.read();
             let map = if !data.pending_file.is_empty() {
                 data.pending_file.clone()
@@ -1109,7 +1117,10 @@ impl Recorder {
             self.game_info.set_map(String::new());
         }
 
-        self.game_info.set_seed(get_game_logic_random_seed());
+        self.game_info.set_seed(match &self.owner_inputs {
+            Some(owner) => owner.seed,
+            None => get_game_logic_random_seed(),
+        });
 
         self.was_desync = false;
         self.doing_analysis = false;
@@ -1151,7 +1162,7 @@ impl Recorder {
     /// Snapshot used by the next `start_recording` after `reset()` (C++ TheSkirmishGameInfo / TheLAN).
     pub fn set_recording_lobby(&mut self, info: ReplayGameInfo, local_index: i32) {
         self.pending_lobby = Some(info);
-        self.pending_local_index = local_index;
+        self.pending_local_index = Some(local_index);
     }
 
     /// Admit the owning match seed for the next recording without reseeding
@@ -1205,6 +1216,7 @@ impl Recorder {
     fn get_current_frame(&self) -> u32 {
         self.frame_provider
             .as_ref()
+            .filter(|_| self.owner_inputs.is_none())
             .map(|provider| provider())
             .unwrap_or(self.current_frame)
     }
@@ -1235,6 +1247,7 @@ impl Recorder {
         // GAME_SHELL is in-game, so playback from the shell map must clear first.
         self.game_mode_provider
             .as_ref()
+            .filter(|_| self.owner_inputs.is_none())
             .map(|provider| provider() != GAME_NONE)
             .unwrap_or(false)
     }
@@ -1266,9 +1279,21 @@ impl Recorder {
     /// Update for recording mode
     /// Matches C++ RecorderClass::updateRecord() from Recorder.cpp:455-503
     fn update_record(&mut self) {
+        let messages = if self.owner_inputs.is_some() {
+            Vec::new()
+        } else {
+            self.command_source
+                .as_ref()
+                .map(|source| source())
+                .unwrap_or_default()
+        };
+        self.update_record_messages(messages);
+    }
+
+    fn update_record_messages(&mut self, messages: Vec<GameMessage>) {
         let mut need_flush = false;
-        if let Some(source) = &self.command_source {
-            for msg in source() {
+        {
+            for msg in messages {
                 match msg.get_type() {
                     GameMessageType::NewGame => {
                         let mode = match msg.get_argument(0) {
@@ -1359,7 +1384,11 @@ impl Recorder {
             return;
         }
 
-        if let Some(cull) = &self.command_cull {
+        if let Some(cull) = self
+            .command_cull
+            .as_ref()
+            .filter(|_| self.owner_inputs.is_none())
+        {
             cull();
         }
         self.pending_commands.retain(keep_command_during_playback);
@@ -1483,7 +1512,11 @@ impl Recorder {
             return;
         }
 
-        if let Some(sink) = &self.command_sink {
+        if let Some(sink) = self
+            .command_sink
+            .as_ref()
+            .filter(|_| self.owner_inputs.is_none())
+        {
             sink(msg);
         } else {
             self.pending_commands.push(msg);
@@ -1517,6 +1550,16 @@ impl Recorder {
         rank_points: i32,
         max_fps: i32,
     ) -> Result<(), std::io::Error> {
+        if self
+            .owner_inputs
+            .as_ref()
+            .is_some_and(|owner| owner.replay_directory.as_os_str().is_empty())
+        {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "receiving replay directory was not admitted",
+            ));
+        }
         if self.file.is_some() {
             log::error!("Starting to record game while game is in progress.");
             return Err(std::io::Error::new(
@@ -1524,10 +1567,14 @@ impl Recorder {
                 "Already recording",
             ));
         }
-        let captured_lobby = if let Some(provider) = &self.lobby_info_provider {
+        let captured_lobby = if let Some(provider) = self
+            .lobby_info_provider
+            .as_ref()
+            .filter(|_| self.owner_inputs.is_none())
+        {
             provider()
         } else if let Some(info) = self.pending_lobby.take() {
-            Some((info, self.pending_local_index))
+            Some((info, self.pending_local_index.unwrap_or(-1)))
         } else {
             None
         };
@@ -1546,10 +1593,10 @@ impl Recorder {
                 lobby.set_crc_interval(100);
             }
             self.game_info = lobby;
-            self.pending_local_index = local_idx;
+            self.pending_local_index = Some(local_idx);
         } else {
             self.game_info.set_crc_interval(100);
-            self.pending_local_index = -1;
+            self.pending_local_index = None;
         }
 
         if let Some(seed) = selected_seed {
@@ -1608,10 +1655,15 @@ impl Recorder {
         let version_string = version.get_unicode_version();
         let version_time_string = version.get_unicode_build_time();
         let version_number: u32 = version.get_version_number();
-        let (exe_crc, ini_crc): (u32, u32) = get_global_data()
-            .map(|data| {
-                let g = data.read();
-                (g.exe_crc, g.ini_crc)
+        let (exe_crc, ini_crc): (u32, u32) = self
+            .owner_inputs
+            .as_ref()
+            .map(|owner| (owner.exe_crc, owner.ini_crc))
+            .or_else(|| {
+                get_global_data().map(|data| {
+                    let g = data.read();
+                    (g.exe_crc, g.ini_crc)
+                })
             })
             .unwrap_or((0, 0));
 
@@ -1626,11 +1678,9 @@ impl Recorder {
         self.write_ascii_string(&mut file, &slot_list)?;
 
         // Write local index (LAN IP match / GameSpy slot / skirmish 0 / SP -1).
-        let local_index = if self.pending_local_index >= 0 {
-            self.pending_local_index
-        } else {
-            self.resolve_local_slot_index()
-        };
+        let local_index = self
+            .pending_local_index
+            .unwrap_or_else(|| self.resolve_local_slot_index());
         self.write_ascii_string(&mut file, &local_index.to_string())?;
 
         // Write game difficulty (Recorder.cpp:652-653)
@@ -1651,7 +1701,9 @@ impl Recorder {
         self.original_game_mode = original_game_mode;
 
         log::info!("Started recording to {}", filepath.display());
-        self.init_controls();
+        if self.owner_inputs.is_none() {
+            self.init_controls();
+        }
         Ok(())
     }
 
@@ -1933,12 +1985,20 @@ impl Recorder {
     /// Start playback from file
     /// Matches C++ RecorderClass::playbackFile() from Recorder.cpp:1029-1138
     pub fn playback_file(&mut self, filename: String) -> Result<bool, std::io::Error> {
+        self.playback_file_with_in_game(filename, self.is_current_game_in_game())
+    }
+
+    fn playback_file_with_in_game(
+        &mut self,
+        filename: String,
+        in_game: bool,
+    ) -> Result<bool, std::io::Error> {
         // Adapter parity: stale queued commands must not survive a new playback session.
         self.pending_commands.clear();
 
-        if !self.doing_analysis && self.is_current_game_in_game() {
+        if !self.doing_analysis && in_game {
             // C++ clears live game data only when playback starts from an active game.
-            send_clear_game_data(&self.command_sink, &mut self.pending_commands);
+            self.emit_lifecycle(GameMessage::new(GameMessageType::ClearGameData));
         }
 
         self.mode = RecorderMode::Playback;
@@ -1955,7 +2015,9 @@ impl Recorder {
         // Validate magic number
         // Already done in read_replay_header
 
-        if let Some(data) = get_global_data() {
+        if self.owner_inputs.is_some() {
+            self.owner_effects.pending_map = Some(self.game_info.get_map().to_string());
+        } else if let Some(data) = get_global_data() {
             data.write().pending_file = self.game_info.get_map().to_string();
         }
 
@@ -1988,7 +2050,13 @@ impl Recorder {
         self.read_next_frame();
 
         // C++ parity: playback header controls replay CRC cadence.
-        crate::common::crc_debug::set_replay_crc_interval(self.game_info.get_crc_interval() as i32);
+        if self.owner_inputs.is_some() {
+            self.owner_effects.crc_interval = Some(self.game_info.get_crc_interval() as i32);
+        } else {
+            crate::common::crc_debug::set_replay_crc_interval(
+                self.game_info.get_crc_interval() as i32
+            );
+        }
 
         // Send MSG_NEW_GAME message
         if !self.doing_analysis {
@@ -2001,19 +2069,19 @@ impl Recorder {
                 msg.append_integer_argument(max_fps);
             }
             // C++ Recorder.cpp:1123-1134 TheMessageStream->appendMessage(MSG_NEW_GAME).
-            append_game_message_to_the_message_stream(&msg);
-            if let Some(sink) = &self.command_sink {
-                sink(msg);
+            self.emit_lifecycle(msg);
+            if self.owner_inputs.is_some() {
+                self.owner_effects.admitted_seed = Some(self.game_info.get_seed());
             } else {
-                self.pending_commands.push(msg);
+                init_game_logic_random(self.game_info.get_seed());
+                init_random_with_seed(self.game_info.get_seed());
             }
-
-            init_game_logic_random(self.game_info.get_seed());
-            init_random_with_seed(self.game_info.get_seed());
         }
 
         self.current_replay_filename = filename;
-        self.init_controls();
+        if self.owner_inputs.is_none() {
+            self.init_controls();
+        }
         Ok(true)
     }
 
@@ -2049,97 +2117,13 @@ impl Recorder {
     fn read_replay_header(&mut self, header: &mut ReplayHeader) -> Result<bool, std::io::Error> {
         let filepath = self.get_replay_dir().join(&header.filename);
         let mut file = File::open(&filepath)?;
-
-        // Read GENREP magic (Recorder.cpp:804-812)
-        let mut magic = [0u8; 6];
-        file.read_exact(&mut magic)?;
-        if &magic != b"GENREP" {
-            log::error!("Replay file did not have GENREP at start");
+        if !header::decode_replay_header(&mut file, header, &mut self.game_info)? {
             return Ok(false);
         }
-
-        // Read stats (Recorder.cpp:814-825)
-        let mut buf4 = [0u8; 4];
-        let mut buf1 = [0u8; 1];
-
-        header.start_time = read_fixed_width_time_t(&mut file)? as u64;
-        header.end_time = read_fixed_width_time_t(&mut file)? as u64;
-
-        file.read_exact(&mut buf4)?;
-        header.frame_duration = u32::from_le_bytes(buf4);
-
-        file.read_exact(&mut buf1)?;
-        header.desync_game = buf1[0] != 0;
-
-        file.read_exact(&mut buf1)?;
-        header.quit_early = buf1[0] != 0;
-
-        for i in 0..8 {
-            file.read_exact(&mut buf1)?;
-            header.player_discons[i] = buf1[0] != 0;
+        if header.for_playback {
+            self.current_file_position = file.seek(SeekFrom::Current(0))?;
+            self.file = Some(file);
         }
-
-        // Read replay name (Recorder.cpp:828)
-        header.replay_name = self.read_unicode_string(&mut file)?;
-
-        // Read date/time (Recorder.cpp:831)
-        header.time_val = read_system_time_from_file(&mut file)?;
-
-        // Read version info (Recorder.cpp:833-838)
-        header.version_string = self.read_unicode_string(&mut file)?;
-        header.version_time_string = self.read_unicode_string(&mut file)?;
-
-        file.read_exact(&mut buf4)?;
-        header.version_number = u32::from_le_bytes(buf4);
-
-        file.read_exact(&mut buf4)?;
-        header.exe_crc = u32::from_le_bytes(buf4);
-
-        file.read_exact(&mut buf4)?;
-        header.ini_crc = u32::from_le_bytes(buf4);
-
-        // Read game info (Recorder.cpp:841-852)
-        header.game_options = self.read_ascii_string(&mut file)?;
-        self.game_info.reset();
-        self.game_info.enter_game();
-
-        if header.game_options.is_empty() {
-            // Legacy rust files wrote an empty stub string; keep SP empty slots.
-        } else if !parse_replay_game_info(&header.game_options, &mut self.game_info) {
-            log::error!("Failed to parse replay game options");
-            self.game_info.end_game();
-            self.game_info.reset();
-            return Ok(false);
-        }
-        self.game_info.start_game(0);
-
-        // Read player index (Recorder.cpp:854-869)
-        let player_index_str = self.read_ascii_string(&mut file)?;
-        header.local_player_index = player_index_str.parse().unwrap_or(-1);
-
-        if header.local_player_index < -1 || header.local_player_index >= 8 {
-            log::error!("Invalid local slot number");
-            self.game_info.end_game();
-            self.game_info.reset();
-            return Ok(false);
-        }
-
-        if header.local_player_index >= 0 {
-            if let Some(slot) = self.game_info.get_slot(header.local_player_index as usize) {
-                let local_ip = slot.get_ip();
-                self.game_info.set_local_ip(local_ip);
-            }
-        }
-
-        // If not for playback, cleanup and close
-        if !header.for_playback {
-            self.game_info.end_game();
-            self.game_info.reset();
-            return Ok(true);
-        }
-
-        self.current_file_position = file.seek(SeekFrom::Current(0))?;
-        self.file = Some(file);
         Ok(true)
     }
 
@@ -2152,7 +2136,7 @@ impl Recorder {
         self.filename.clear();
 
         if !self.doing_analysis {
-            send_clear_game_data(&self.command_sink, &mut self.pending_commands);
+            self.emit_lifecycle(GameMessage::new(GameMessageType::ClearGameData));
         }
     }
 
@@ -2172,10 +2156,15 @@ impl Recorder {
         let version_time_string_diff =
             header.version_time_string != version.get_unicode_build_time();
         let version_number_diff = header.version_number != version.get_version_number();
-        let (exe_crc, ini_crc): (u32, u32) = get_global_data()
-            .map(|data| {
-                let g = data.read();
-                (g.exe_crc, g.ini_crc)
+        let (exe_crc, ini_crc): (u32, u32) = self
+            .owner_inputs
+            .as_ref()
+            .map(|owner| (owner.exe_crc, owner.ini_crc))
+            .or_else(|| {
+                get_global_data().map(|data| {
+                    let g = data.read();
+                    (g.exe_crc, g.ini_crc)
+                })
             })
             .unwrap_or((0, 0));
         let exe_different = version_string_diff
@@ -2285,9 +2274,15 @@ impl Recorder {
         // C++ Recorder.cpp:169-172 — m_wasDesync only in DEBUG/INTERNAL + m_saveStats.
         #[cfg(debug_assertions)]
         {
-            if get_global_data()
-                .map(|data| data.read().save_stats)
-                .unwrap_or(false)
+            if self
+                .owner_inputs
+                .as_ref()
+                .map(|owner| owner.save_stats)
+                .unwrap_or_else(|| {
+                    get_global_data()
+                        .map(|data| data.read().save_stats)
+                        .unwrap_or(false)
+                })
             {
                 self.was_desync = true;
             }
@@ -2298,6 +2293,21 @@ impl Recorder {
     /// Handle CRC message for validation
     /// Matches C++ RecorderClass::handleCRCMessage() from Recorder.cpp:957-994
     pub fn handle_crc_message(&mut self, new_crc: u32, player_index: i32, from_playback: bool) {
+        let name_key = self
+            .player_name_key_provider
+            .as_ref()
+            .filter(|_| self.owner_inputs.is_none())
+            .and_then(|provider| provider(player_index));
+        self.handle_crc_message_with_name_key(new_crc, from_playback, name_key.as_deref());
+    }
+
+    /// Receiving player attribution, without a retained player-list callback.
+    pub fn handle_crc_message_with_name_key(
+        &mut self,
+        new_crc: u32,
+        from_playback: bool,
+        name_key: Option<&str>,
+    ) {
         let frame = self.get_current_frame();
         let crc_info = match &mut self.crc_info {
             Some(info) => info,
@@ -2312,12 +2322,7 @@ impl Recorder {
         let local_player_index = crc_info.get_local_player() as i32;
         // C++ Recorder.cpp:968-972 — same player if !p or name key == "player{localSlot}".
         let expected_key = format!("player{}", local_player_index);
-        let same_player = self
-            .player_name_key_provider
-            .as_ref()
-            .and_then(|provider| provider(player_index))
-            .map(|key| key == expected_key)
-            .unwrap_or(true);
+        let same_player = name_key.map(|key| key == expected_key).unwrap_or(true);
         if same_player || local_player_index < 0 {
             let playback_crc = crc_info.read_crc();
 
@@ -2343,18 +2348,23 @@ impl Recorder {
             if self.filename.is_empty() {
                 return;
             }
-            let Some(global) = get_global_data() else {
-                return;
+            let (save_stats, stats_directory) = if let Some(owner) = &self.owner_inputs {
+                (owner.save_stats, owner.stats_directory.clone())
+            } else {
+                let Some(global) = get_global_data() else {
+                    return;
+                };
+                let data = global.read();
+                (data.save_stats, PathBuf::from(data.base_stats_dir.trim()))
             };
-            let data = global.read();
-            if !data.save_stats || data.base_stats_dir.trim().is_empty() {
+            if !save_stats || stats_directory.as_os_str().is_empty() {
                 return;
             }
             let src = self.get_replay_dir().join(&self.filename);
             if !src.exists() {
                 return;
             }
-            let dest = PathBuf::from(data.base_stats_dir.trim()).join(&self.filename);
+            let dest = stats_directory.join(&self.filename);
             if let Some(parent) = dest.parent() {
                 let _ = std::fs::create_dir_all(parent);
             }
@@ -2393,12 +2403,15 @@ impl Recorder {
     /// must stay silent while an external bridge owns the series, or the
     /// `.rep` stream receives two divergent CRC series.
     pub fn logic_crc_posted_externally(&self) -> bool {
-        self.command_source.is_some()
+        self.owner_inputs.is_some() || self.command_source.is_some()
     }
 
     /// Get replay directory path
     /// Matches C++ RecorderClass::getReplayDir() from Recorder.cpp:1459-1466
     fn get_replay_dir(&self) -> PathBuf {
+        if let Some(owner) = &self.owner_inputs {
+            return owner.replay_directory.clone();
+        }
         let base = get_global_data()
             .map(|data| data.read().get_path_user_data().to_string())
             .filter(|path| !path.trim().is_empty());
@@ -2446,7 +2459,9 @@ impl Recorder {
         // C++: winHide(getMode() != PLAYBACK) on ReplayControl.wnd:ParentReplayControl
         let hide = self.mode != RecorderMode::Playback;
         self.replay_controls_hidden = hide;
-        if let Some(hook) = &self.replay_control_hook {
+        if self.owner_inputs.is_some() {
+            self.owner_effects.controls_hidden = Some(hide);
+        } else if let Some(hook) = &self.replay_control_hook {
             hook(hide);
         }
     }
@@ -2466,9 +2481,19 @@ impl Recorder {
         let mode = self
             .game_mode_provider
             .as_ref()
+            .filter(|_| self.owner_inputs.is_none())
             .map(|provider| provider())
             .unwrap_or(self.original_game_mode);
 
+        self.is_multiplayer_for_game_mode(mode)
+    }
+
+    pub fn is_multiplayer_for_game_mode(&self, mode: i32) -> bool {
+        if self.mode == RecorderMode::Playback
+            && self.game_info.slots.iter().any(|slot| slot.is_occupied())
+        {
+            return true;
+        }
         if mode == GAME_SINGLE_PLAYER || mode == GAME_SHELL {
             return false;
         }
@@ -2534,7 +2559,7 @@ impl Recorder {
         Ok(())
     }
 
-    fn read_unicode_string<R: Read>(&self, reader: &mut R) -> Result<String, std::io::Error> {
+    fn read_unicode_string<R: Read>(reader: &mut R) -> Result<String, std::io::Error> {
         let mut buf = [0u8; 2];
         let mut chars = Vec::new();
 
@@ -2551,7 +2576,7 @@ impl Recorder {
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
     }
 
-    fn read_ascii_string<R: Read>(&self, reader: &mut R) -> Result<String, std::io::Error> {
+    fn read_ascii_string<R: Read>(reader: &mut R) -> Result<String, std::io::Error> {
         let mut bytes = Vec::new();
         let mut buf = [0u8; 1];
 
@@ -3653,3 +3678,7 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "recorder/owner_tests.rs"]
+mod owner_tests;

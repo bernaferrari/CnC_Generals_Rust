@@ -101,6 +101,7 @@ mod camera_filter;
 mod camera_height;
 mod camera_motion;
 mod camera_view_effects;
+mod clear_game_data;
 #[cfg(feature = "game_client")]
 mod control_bar_bridge;
 mod control_bar_viewport;
@@ -115,6 +116,7 @@ mod input;
 #[cfg(feature = "game_client")]
 mod minimap_bridge;
 mod mouse;
+mod startup_ini_content;
 #[cfg(test)]
 pub(crate) use mouse::live_view_height_clamp;
 mod native_display;
@@ -256,3 +258,8 @@ pub const ENGINE_SRC: &str = concat!(
 
 mod camera_continuation;
 pub(crate) use camera_continuation::NativeCameraContinuation;
+
+mod replay_lifecycle;
+
+#[cfg(feature = "game_client")]
+mod replay_window;

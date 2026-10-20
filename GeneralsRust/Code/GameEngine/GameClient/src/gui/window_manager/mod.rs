@@ -174,6 +174,8 @@ pub(crate) fn as_any_ref(user_data: Option<&mut dyn std::any::Any>) -> Option<&d
 
 /// Main WindowManager struct
 pub struct WindowManager {
+    pub(crate) replay_menu:
+        Option<Rc<RefCell<crate::gui::callbacks::replay_menu::ReplayMenuState>>>,
     // Window lists
     root_windows: Vec<Rc<RefCell<GameWindow>>>,
     window_by_id: HashMap<WindowId, Weak<RefCell<GameWindow>>>,
@@ -213,9 +215,39 @@ pub struct WindowManager {
 }
 
 impl WindowManager {
+    /// Install the receiving menu policy before loading ReplayMenu.wnd. No
+    /// Recorder handle or borrowed owner is retained by the window tree.
+    pub fn configure_replay_menu_owned(
+        &mut self,
+        inputs: crate::gui::shell::replay_menu::ReplayMenuInputs,
+    ) {
+        if let Some(state) = self.replay_menu.as_ref() {
+            if let Err(error) = state.borrow_mut().refresh_receiving_policy(&inputs) {
+                log::warn!("Cannot re-admit ReplayMenu policy: {error}");
+            }
+            return;
+        }
+        self.replay_menu = Some(Rc::new(RefCell::new(
+            crate::gui::callbacks::replay_menu::ReplayMenuState::new_owned(inputs),
+        )));
+    }
+
+    pub(crate) fn replay_menu_state(
+        &mut self,
+    ) -> Rc<RefCell<crate::gui::callbacks::replay_menu::ReplayMenuState>> {
+        self.replay_menu
+            .get_or_insert_with(|| {
+                Rc::new(RefCell::new(
+                    crate::gui::callbacks::replay_menu::ReplayMenuState::new(),
+                ))
+            })
+            .clone()
+    }
+
     /// Create a new WindowManager
     pub fn new() -> Self {
         Self {
+            replay_menu: None,
             root_windows: Vec::new(),
             window_by_id: HashMap::new(),
             destroy_queue: VecDeque::new(),
@@ -413,3 +445,7 @@ pub const WINDOW_MANAGER_SRC: &str = concat!(
 
 #[cfg(test)]
 mod control_bar_dispatch_tests;
+
+#[cfg(test)]
+#[path = "replay_menu_input_tests.rs"]
+mod replay_menu_input_tests;

@@ -226,13 +226,27 @@ impl CnCGameEngine {
             let game_ending = self.game_logic.owned_script_game_ending();
             let tooltips_disabled = self.receiving_tooltips_disabled();
             let cursor_mouse = self.game_client.input_mouse_handle();
+            self.configure_receiving_replay_menu();
             let observer_roster = self.receiving_observer_roster();
+            let mut replay_operation =
+                game_client::gui::callbacks::replay_menu::ingress::ReplayMenuOperation::new(
+                    !self.game_logic.isInNetworkGame(),
+                );
+            let camera_rules = self.game_logic.camera_input_rules();
+            let pending = &mut self.game_logic.replay_pending;
+            let mut replay_version = |filename: &str| {
+                pending
+                    .replay_version_differs_owned(filename.to_owned())
+                    .unwrap_or(false)
+            };
             let mut context = game_client::gui::window_manager::ControlBarInputContext {
+                replay_menu: Some(&mut replay_operation),
+                replay_version: Some(&mut replay_version),
                 observer_roster: observer_roster.as_ref(),
                 camera_options: Some(
                     game_client::gui::window_manager::CameraOptionsInputContext::new(
                         self.ui_manager.options_preferences_mut(),
-                        self.game_logic.camera_input_rules(),
+                        camera_rules,
                     ),
                 ),
                 control_bar: &mut self.control_bar,
@@ -242,11 +256,13 @@ impl CnCGameEngine {
                 tooltips_disabled,
                 cursor_mouse: cursor_mouse.as_ref(),
             };
-            game_client::gui::window_manager::dispatch_os_key_to_window_manager_with_control_bar(
-                vk,
-                state,
-                &mut context,
-            ) == WindowInputReturnCode::Used
+            let result = game_client::gui::window_manager::dispatch_os_key_to_window_manager_with_control_bar(vk, state, &mut context);
+            drop(context);
+            drop(replay_version);
+            if let Some(step) = replay_operation.take() {
+                step.complete(self);
+            }
+            result == WindowInputReturnCode::Used
         }
         #[cfg(not(feature = "game_client"))]
         {
@@ -397,13 +413,27 @@ impl CnCGameEngine {
         let game_ending = self.game_logic.owned_script_game_ending();
         let tooltips_disabled = self.receiving_tooltips_disabled();
         let cursor_mouse = self.game_client.input_mouse_handle();
+        self.configure_receiving_replay_menu();
         let observer_roster = self.receiving_observer_roster();
+        let mut replay_operation =
+            game_client::gui::callbacks::replay_menu::ingress::ReplayMenuOperation::new(
+                !self.game_logic.isInNetworkGame(),
+            );
+        let camera_rules = self.game_logic.camera_input_rules();
+        let pending = &mut self.game_logic.replay_pending;
+        let mut replay_version = |filename: &str| {
+            pending
+                .replay_version_differs_owned(filename.to_owned())
+                .unwrap_or(false)
+        };
         let mut context = game_client::gui::window_manager::ControlBarInputContext {
+            replay_menu: Some(&mut replay_operation),
+            replay_version: Some(&mut replay_version),
             observer_roster: observer_roster.as_ref(),
             camera_options: Some(
                 game_client::gui::window_manager::CameraOptionsInputContext::new(
                     self.ui_manager.options_preferences_mut(),
-                    self.game_logic.camera_input_rules(),
+                    camera_rules,
                 ),
             ),
             control_bar: &mut self.control_bar,
@@ -413,13 +443,20 @@ impl CnCGameEngine {
             tooltips_disabled,
             cursor_mouse: cursor_mouse.as_ref(),
         };
-        game_client::gui::window_manager::dispatch_os_mouse_to_window_manager_with_control_bar(
-            msg,
-            x,
-            y,
-            facts,
-            &mut context,
-        )
+        let result =
+            game_client::gui::window_manager::dispatch_os_mouse_to_window_manager_with_control_bar(
+                msg,
+                x,
+                y,
+                facts,
+                &mut context,
+            );
+        drop(context);
+        drop(replay_version);
+        if let Some(step) = replay_operation.take() {
+            step.complete(self);
+        }
+        result
     }
 
     pub(in crate::cnc_game_engine) fn dispatch_os_mouse_to_window_manager(

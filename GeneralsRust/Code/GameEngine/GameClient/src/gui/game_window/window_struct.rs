@@ -51,6 +51,7 @@ pub struct WindowCallbacks {
     pub(crate) options_menu_system: bool,
     pub(crate) main_menu_system: bool,
     pub(crate) quit_menu_system: bool,
+    pub(crate) replay_menu_system: bool,
     pub(crate) owned_radar_draw: bool,
     pub(crate) owned_control_bar_tooltip: bool,
 }
@@ -177,6 +178,10 @@ impl Default for GameWindow {
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SelectedOwnerAction {
     ControlBarToggle,
+    ReplayMenuLoad,
+    ReplayMenuDoubleClick,
+    ReplayMenuConfirm,
+    ReplayMenuRestart,
     ObserverButtonSlot(Option<usize>),
     OptionsAccept,
     OptionsDefaults,

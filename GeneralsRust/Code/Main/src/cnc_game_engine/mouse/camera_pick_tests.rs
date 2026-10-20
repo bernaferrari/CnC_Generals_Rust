@@ -540,17 +540,26 @@ fn host_replay_camera_emit_matches_cpp_look_at_gates() {
     assert!(!should_emit_host_replay_camera(
         GameState::Menu,
         crate::game_logic::GameMode::Skirmish,
-        true
+        true,
+        false,
     ));
     assert!(!should_emit_host_replay_camera(
         GameState::InGame,
         crate::game_logic::GameMode::Multiplayer,
-        true
+        true,
+        false,
     ));
     assert!(!should_emit_host_replay_camera(
         GameState::InGame,
         crate::game_logic::GameMode::Shell,
-        true
+        true,
+        false,
+    ));
+    assert!(!should_emit_host_replay_camera(
+        GameState::InGame,
+        crate::game_logic::GameMode::Skirmish,
+        true,
+        true,
     ));
 }
 
@@ -1215,7 +1224,8 @@ fn replay_hover_feeds_has_mouse_moved_recently_gate() {
         "C++ InGameUI.cpp:2462 gate must be fed before createMouseoverHint"
     );
     assert!(
-        body.contains("host_recorder_is_playback")
+        body.contains("recorder_owned()")
+            && body.contains("is_playback()")
             && body.contains("lookat_has_mouse_moved_recently"),
         "live host owns both playback and LookAt 1s window"
     );

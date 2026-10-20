@@ -4,6 +4,9 @@ use super::super::*;
 #[cfg(test)]
 #[path = "ai_phase_tests.rs"]
 mod ai_phase_tests;
+#[cfg(all(test, feature = "game_client"))]
+#[path = "recorder_owner_tests.rs"]
+mod recorder_owner_tests;
 /// A bounded loan of this instance across its synchronous logic phases.
 /// Drop releases the reentry guard on freeze and unwinding.
 struct HostLogicStep<'a> {
@@ -554,17 +557,10 @@ impl GameLogic {
         // -----------------------------------------------------------------------
         // C++: m_CRC = getCRC(CRC_RECALC); TheMessageStream->appendMessage(MSG_LOGIC_CRC);
         // then TheRecorder->UPDATE() inside processCommandList's recorder flush.
+        // That receiving flush captures/posts the CRC once, before commands.
+        // The object-ID collection below only reads the same world. Do not also
+        // post through the standalone global interval/Recorder/CommandList route.
         crate::command_system::stamp_host_logic_frame(&mut self.replay_pending, self.frame);
-        let state_crc = if crate::command_system::logic_crc_due(self.frame) {
-            self.logic_crc()
-        } else {
-            0
-        };
-        crate::command_system::post_host_logic_crc_if_due(
-            &mut self.replay_pending,
-            self.frame,
-            state_crc,
-        );
 
         // -----------------------------------------------------------------------
         // Phase 4: Pre-Update / Collect object IDs

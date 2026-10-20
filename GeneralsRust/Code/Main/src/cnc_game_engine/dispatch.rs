@@ -423,6 +423,9 @@ impl CnCGameEngine {
                 show_advice,
             };
             let deferred_snapshot = snapshot.clone();
+            game_client::gui::with_window_manager(|manager| {
+                manager.transition_set_group("FadeWholeScreen", false);
+            });
             let result = game_client::gui::with_shell_mut(|shell| {
                 if let Err(e) = game_client::system::SubsystemInterface::init(shell) {
                     return Err(e);
@@ -452,6 +455,10 @@ impl CnCGameEngine {
                 }
             }
         }
+        #[cfg(feature = "game_client")]
+        game_client::gui::with_window_manager(|manager| {
+            manager.transition_reverse("FadeWholeScreen");
+        });
         self.set_runtime_host_ui_screen_override(Some("ScoreScreen"));
     }
 
@@ -459,6 +466,11 @@ impl CnCGameEngine {
     /// MSG_CLEAR_GAME_DATA. C++ `GameLogic::clearGameData`
     /// (`GameLogicDispatch.cpp:223-253`) pushes ScoreScreen then resets.
     pub(super) fn host_consume_clear_game_data(&mut self) -> bool {
+        #[cfg(feature = "game_client")]
+        if self.dispatch_receiving_recorder_lifecycle() {
+            return true;
+        }
+
         if !matches!(
             self.current_state,
             GameState::InGame | GameState::Victory | GameState::Defeat
@@ -480,50 +492,12 @@ impl CnCGameEngine {
         if !Self::take_clear_game_data_from_common_stream() {
             return false;
         }
-        self.host_set_paused(false);
-        if let Ok(mut guard) = gamelogic::scripting::engine::get_script_engine().write() {
-            if let Some(engine) = guard.as_mut() {
-                // C++ GameLogicDispatch.cpp:241 TheScriptActions->closeWindows(FALSE).
-                engine.close_windows(false);
-            }
-        }
-
-        let in_shell_game = matches!(
-            self.host_match_game_mode,
-            Some(crate::game_logic::GameMode::Shell)
-        );
-        let in_game = matches!(
-            self.current_state,
-            GameState::InGame | GameState::Victory | GameState::Defeat
-        );
-        // MSG_CLEAR_GAME_DATA uses the default showScoreScreen=TRUE
-        // (GameLogicDispatch.cpp:439).
-        let show_score =
-            Self::clear_game_data_should_push_score_screen(in_shell_game, in_game, true);
-
-        // C++ pushes ScoreScreen then TheGameEngine->reset(). Rust Shell::reset
-        // (if it runs via resetAll) pops the stack, so reset first then push
-        // so the player still sees ScoreScreen. CampaignManager state survives.
-        // Freeze the receiving match before reset; the layout owns the result.
-        let end_frame = self.game_logic.frame;
-        let show_advice = matches!(
-            self.game_logic.game_mode(),
-            GameMode::Skirmish | GameMode::Internet
-        );
-        let advice = if show_score && show_advice {
-            self.game_logic.score_academy_advice()
-        } else {
-            Default::default()
-        };
-        self.reset_match_state();
+        let show_score = self.game_logic.game_mode() != GameMode::Shell
+            && self.game_logic.game_mode() != GameMode::None;
+        self.clear_receiving_game_data(true);
+        self.transition_to_state(GameState::Menu);
         if show_score {
-            self.host_push_score_screen_like_cpp(end_frame, advice, show_advice);
-            self.transition_to_state(GameState::Menu);
-            // show_shell_menu with a non-empty stack reveals ScoreScreen
-            // instead of pushing MainMenu.wnd.
             self.set_runtime_host_ui_screen_override(Some("ScoreScreen"));
-        } else {
-            self.transition_to_state(GameState::Menu);
         }
         true
     }
@@ -563,6 +537,7 @@ impl CnCGameEngine {
         };
         request.game_info_starting_cash = game_info_starting_cash;
         request.difficulty_code = Some(dispatch.difficulty_code);
+        request.recorder_dispatch = Some(dispatch);
         self.record_last_new_game_identity(LastNewGameIdentity {
             dispatch,
             player_template: request.player_template.clone(),
@@ -688,6 +663,7 @@ impl CnCGameEngine {
         };
         request.game_info_starting_cash = game_info_starting_cash;
         request.difficulty_code = Some(dispatch.difficulty_code);
+        request.recorder_dispatch = Some(dispatch);
         self.record_last_new_game_identity(LastNewGameIdentity {
             dispatch,
             player_template: request.player_template.clone(),

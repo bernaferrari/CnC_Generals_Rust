@@ -30,6 +30,7 @@ pub type ExtendedMessageBoxFunc = Box<dyn FnMut(Option<&mut dyn Any>) -> Message
 
 #[derive(Default)]
 pub struct WindowMessageBoxData {
+    owned_replay: RefCell<Option<super::replay_menu::ingress::ReplayMenuStep>>,
     yes_callback: RefCell<Option<MessageBoxFunc>>,
     no_callback: RefCell<Option<MessageBoxFunc>>,
     ok_callback: RefCell<Option<MessageBoxFunc>>,
@@ -44,11 +45,33 @@ impl WindowMessageBoxData {
         cancel_callback: Option<MessageBoxFunc>,
     ) -> Self {
         Self {
+            owned_replay: RefCell::new(None),
             yes_callback: RefCell::new(yes_callback),
             no_callback: RefCell::new(no_callback),
             ok_callback: RefCell::new(ok_callback),
             cancel_callback: RefCell::new(cancel_callback),
         }
+    }
+
+    pub(crate) fn with_owned_replay(
+        self,
+        playback: super::replay_menu::ingress::ReplayPlayback,
+    ) -> Self {
+        *self.owned_replay.borrow_mut() = Some(
+            super::replay_menu::ingress::ReplayMenuStep::Playback(playback),
+        );
+        self
+    }
+    pub(crate) fn with_owned_restart(self) -> Self {
+        *self.owned_replay.borrow_mut() =
+            Some(super::replay_menu::ingress::ReplayMenuStep::Restart);
+        self
+    }
+    pub(crate) fn has_owned_replay(&self) -> bool {
+        self.owned_replay.borrow().is_some()
+    }
+    pub(crate) fn take_owned_replay(&self) -> Option<super::replay_menu::ingress::ReplayMenuStep> {
+        self.owned_replay.borrow_mut().take()
     }
 
     fn call_yes(&self) {
@@ -797,138 +820,172 @@ fn gogo_message_box(
     if button_flags == 0 {
         return None;
     }
-
     with_window_manager(|manager| {
-        let script = if use_logo {
-            "Menus/QuitMessageBox.wnd"
-        } else {
-            "Menus/MessageBox.wnd"
-        };
-        let info = manager.create_windows_from_script(script).ok()?;
-        let menu_name = if use_logo {
-            "QuitMessageBox.wnd:"
-        } else {
-            "MessageBox.wnd:"
-        };
+        gogo_message_box_in(
+            manager,
+            x,
+            y,
+            width,
+            height,
+            button_flags,
+            title,
+            body,
+            yes_callback,
+            no_callback,
+            ok_callback,
+            cancel_callback,
+            use_logo,
+        )
+    })
+}
 
-        let true_parent = lookup_window_by_name(&info.windows, menu_name).or_else(|| {
-            info.windows
-                .iter()
-                .find(|w| w.borrow().get_parent().is_none())
-                .cloned()
-        })?;
+// Shared original construction algorithm; native callers supply their manager.
+fn gogo_message_box_in(
+    manager: &mut crate::gui::window_manager::WindowManager,
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+    button_flags: u16,
+    title: &str,
+    body: &str,
+    yes_callback: Option<MessageBoxFunc>,
+    no_callback: Option<MessageBoxFunc>,
+    ok_callback: Option<MessageBoxFunc>,
+    cancel_callback: Option<MessageBoxFunc>,
+    use_logo: bool,
+) -> Option<Rc<RefCell<GameWindow>>> {
+    if button_flags == 0 {
+        return None;
+    }
 
-        let parent_id =
-            NameKeyGenerator::name_to_key(&format!("{}MessageBoxParent", menu_name)) as WindowId;
-        let parent = manager
-            .get_window_by_id(parent_id)
-            .unwrap_or_else(|| true_parent.clone());
+    let script = if use_logo {
+        "Menus/QuitMessageBox.wnd"
+    } else {
+        "Menus/MessageBox.wnd"
+    };
+    let info = manager.create_windows_from_script(script).ok()?;
+    let menu_name = if use_logo {
+        "QuitMessageBox.wnd:"
+    } else {
+        "MessageBox.wnd:"
+    };
 
-        let _ = manager.set_modal(true_parent.clone());
-        let _ = manager.set_focus(None);
-        let _ = manager.set_focus(Some(&parent));
+    let true_parent = lookup_window_by_name(&info.windows, menu_name).or_else(|| {
+        info.windows
+            .iter()
+            .find(|w| w.borrow().get_parent().is_none())
+            .cloned()
+    })?;
 
-        if width > 0 && height > 0 {
-            resize_message_box_children(&parent, width, height);
-        }
-        if x >= 0 && y >= 0 {
-            let _ = parent.borrow_mut().set_position(x, y);
-        }
+    let parent_id =
+        NameKeyGenerator::name_to_key(&format!("{}MessageBoxParent", menu_name)) as WindowId;
+    let parent = manager
+        .get_window_by_id(parent_id)
+        .unwrap_or_else(|| true_parent.clone());
 
-        let button_ok_id =
-            NameKeyGenerator::name_to_key(&format!("{}ButtonOk", menu_name)) as WindowId;
-        let button_yes_id =
-            NameKeyGenerator::name_to_key(&format!("{}ButtonYes", menu_name)) as WindowId;
-        let button_no_id =
-            NameKeyGenerator::name_to_key(&format!("{}ButtonNo", menu_name)) as WindowId;
-        let button_cancel_id =
-            NameKeyGenerator::name_to_key(&format!("{}ButtonCancel", menu_name)) as WindowId;
+    let _ = manager.set_modal(true_parent.clone());
+    let _ = manager.set_focus(None);
+    let _ = manager.set_focus(Some(&parent));
 
-        let button_ok = manager.get_window_by_id(button_ok_id);
-        let button_yes = manager.get_window_by_id(button_yes_id);
-        let button_no = manager.get_window_by_id(button_no_id);
-        let button_cancel = manager.get_window_by_id(button_cancel_id);
+    if width > 0 && height > 0 {
+        resize_message_box_children(&parent, width, height);
+    }
+    if x >= 0 && y >= 0 {
+        let _ = parent.borrow_mut().set_position(x, y);
+    }
 
-        let mut button_x = [0; 3];
-        let mut button_y = [0; 3];
+    let button_ok_id = NameKeyGenerator::name_to_key(&format!("{}ButtonOk", menu_name)) as WindowId;
+    let button_yes_id =
+        NameKeyGenerator::name_to_key(&format!("{}ButtonYes", menu_name)) as WindowId;
+    let button_no_id = NameKeyGenerator::name_to_key(&format!("{}ButtonNo", menu_name)) as WindowId;
+    let button_cancel_id =
+        NameKeyGenerator::name_to_key(&format!("{}ButtonCancel", menu_name)) as WindowId;
+
+    let button_ok = manager.get_window_by_id(button_ok_id);
+    let button_yes = manager.get_window_by_id(button_yes_id);
+    let button_no = manager.get_window_by_id(button_no_id);
+    let button_cancel = manager.get_window_by_id(button_cancel_id);
+
+    let mut button_x = [0; 3];
+    let mut button_y = [0; 3];
+    if let Some(ref ok) = button_ok {
+        let (x, y) = ok.borrow().get_position();
+        button_x[0] = x;
+        button_y[0] = y;
+    }
+    if let Some(ref no) = button_no {
+        let (x, y) = no.borrow().get_position();
+        button_x[1] = x;
+        button_y[1] = y;
+    }
+    if let Some(ref cancel) = button_cancel {
+        let (x, y) = cancel.borrow().get_position();
+        button_x[2] = x;
+        button_y[2] = y;
+    }
+
+    if (button_flags & (MSG_BOX_OK | MSG_BOX_YES)) == (MSG_BOX_OK | MSG_BOX_YES) {
+        warn!("Message box has both OK and YES buttons set.");
+    }
+
+    if (button_flags & MSG_BOX_OK) == MSG_BOX_OK {
         if let Some(ref ok) = button_ok {
-            let (x, y) = ok.borrow().get_position();
-            button_x[0] = x;
-            button_y[0] = y;
+            let _ = ok.borrow_mut().set_position(button_x[0], button_y[0]);
+            let _ = ok.borrow_mut().show();
         }
+    } else if (button_flags & MSG_BOX_YES) == MSG_BOX_YES {
+        if let Some(ref yes) = button_yes {
+            let _ = yes.borrow_mut().set_position(button_x[0], button_y[0]);
+            let _ = yes.borrow_mut().show();
+        }
+    }
+
+    if (button_flags & (MSG_BOX_NO | MSG_BOX_CANCEL)) == (MSG_BOX_NO | MSG_BOX_CANCEL) {
         if let Some(ref no) = button_no {
-            let (x, y) = no.borrow().get_position();
-            button_x[1] = x;
-            button_y[1] = y;
+            let _ = no.borrow_mut().set_position(button_x[1], button_y[1]);
+            let _ = no.borrow_mut().show();
         }
         if let Some(ref cancel) = button_cancel {
-            let (x, y) = cancel.borrow().get_position();
-            button_x[2] = x;
-            button_y[2] = y;
+            let _ = cancel.borrow_mut().set_position(button_x[2], button_y[2]);
+            let _ = cancel.borrow_mut().show();
         }
-
-        if (button_flags & (MSG_BOX_OK | MSG_BOX_YES)) == (MSG_BOX_OK | MSG_BOX_YES) {
-            warn!("Message box has both OK and YES buttons set.");
+    } else if (button_flags & MSG_BOX_NO) == MSG_BOX_NO {
+        if let Some(ref no) = button_no {
+            let _ = no.borrow_mut().set_position(button_x[2], button_y[2]);
+            let _ = no.borrow_mut().show();
         }
-
-        if (button_flags & MSG_BOX_OK) == MSG_BOX_OK {
-            if let Some(ref ok) = button_ok {
-                let _ = ok.borrow_mut().set_position(button_x[0], button_y[0]);
-                let _ = ok.borrow_mut().show();
-            }
-        } else if (button_flags & MSG_BOX_YES) == MSG_BOX_YES {
-            if let Some(ref yes) = button_yes {
-                let _ = yes.borrow_mut().set_position(button_x[0], button_y[0]);
-                let _ = yes.borrow_mut().show();
-            }
+    } else if (button_flags & MSG_BOX_CANCEL) == MSG_BOX_CANCEL {
+        if let Some(ref cancel) = button_cancel {
+            let _ = cancel.borrow_mut().set_position(button_x[2], button_y[2]);
+            let _ = cancel.borrow_mut().show();
         }
+    }
 
-        if (button_flags & (MSG_BOX_NO | MSG_BOX_CANCEL)) == (MSG_BOX_NO | MSG_BOX_CANCEL) {
-            if let Some(ref no) = button_no {
-                let _ = no.borrow_mut().set_position(button_x[1], button_y[1]);
-                let _ = no.borrow_mut().show();
-            }
-            if let Some(ref cancel) = button_cancel {
-                let _ = cancel.borrow_mut().set_position(button_x[2], button_y[2]);
-                let _ = cancel.borrow_mut().show();
-            }
-        } else if (button_flags & MSG_BOX_NO) == MSG_BOX_NO {
-            if let Some(ref no) = button_no {
-                let _ = no.borrow_mut().set_position(button_x[2], button_y[2]);
-                let _ = no.borrow_mut().show();
-            }
-        } else if (button_flags & MSG_BOX_CANCEL) == MSG_BOX_CANCEL {
-            if let Some(ref cancel) = button_cancel {
-                let _ = cancel.borrow_mut().set_position(button_x[2], button_y[2]);
-                let _ = cancel.borrow_mut().show();
-            }
-        }
+    let title_id =
+        NameKeyGenerator::name_to_key(&format!("{}StaticTextTitle", menu_name)) as WindowId;
+    if let Some(title_window) = manager.get_window_by_id(title_id) {
+        let _ = title_window.borrow_mut().set_text(title);
+    }
+    let message_id =
+        NameKeyGenerator::name_to_key(&format!("{}StaticTextMessage", menu_name)) as WindowId;
+    if let Some(message_window) = manager.get_window_by_id(message_id) {
+        let _ = message_window.borrow_mut().set_text(body);
+    }
 
-        let title_id =
-            NameKeyGenerator::name_to_key(&format!("{}StaticTextTitle", menu_name)) as WindowId;
-        if let Some(title_window) = manager.get_window_by_id(title_id) {
-            let _ = title_window.borrow_mut().set_text(title);
-        }
-        let message_id =
-            NameKeyGenerator::name_to_key(&format!("{}StaticTextMessage", menu_name)) as WindowId;
-        if let Some(message_window) = manager.get_window_by_id(message_id) {
-            let _ = message_window.borrow_mut().set_text(body);
-        }
+    true_parent
+        .borrow_mut()
+        .set_user_data(WindowMessageBoxData::new(
+            yes_callback,
+            no_callback,
+            ok_callback,
+            cancel_callback,
+        ));
 
-        true_parent
-            .borrow_mut()
-            .set_user_data(WindowMessageBoxData::new(
-                yes_callback,
-                no_callback,
-                ok_callback,
-                cancel_callback,
-            ));
+    let _ = parent.borrow_mut().show();
+    let _ = parent.borrow_mut().bring_to_front();
 
-        let _ = parent.borrow_mut().show();
-        let _ = parent.borrow_mut().bring_to_front();
-
-        Some(true_parent)
-    })
+    Some(true_parent)
 }
 
 fn gogo_ex_message_box(
@@ -1139,6 +1196,109 @@ pub fn message_box_yes_no_cancel(
         cancel_callback,
         false,
     )
+}
+
+pub(crate) fn replay_no_selection_in(manager: &mut crate::gui::window_manager::WindowManager) {
+    let _ = gogo_message_box_in(
+        manager,
+        -1,
+        -1,
+        -1,
+        -1,
+        MSG_BOX_OK,
+        &crate::game_text::GameText::fetch("GUI:NoFileSelected"),
+        &crate::game_text::GameText::fetch("GUI:PleaseSelectAFile"),
+        None,
+        None,
+        None,
+        None,
+        false,
+    );
+}
+
+pub(crate) fn replay_version_confirmation_in(
+    manager: &mut crate::gui::window_manager::WindowManager,
+    playback: super::replay_menu::ingress::ReplayPlayback,
+) {
+    if let Some(window) = gogo_message_box_in(
+        manager,
+        -1,
+        -1,
+        -1,
+        -1,
+        MSG_BOX_OK | MSG_BOX_CANCEL,
+        &crate::game_text::GameText::fetch("GUI:OlderReplayVersionTitle"),
+        &crate::game_text::GameText::fetch("GUI:OlderReplayVersion"),
+        None,
+        None,
+        None,
+        None,
+        false,
+    ) {
+        if let Some(data) = window.borrow().get_user_data::<WindowMessageBoxData>() {
+            *data.owned_replay.borrow_mut() = Some(
+                super::replay_menu::ingress::ReplayMenuStep::Playback(playback),
+            );
+        }
+    }
+}
+
+pub(crate) fn restart_confirmation_in(manager: &mut crate::gui::window_manager::WindowManager) {
+    if let Some(window) = gogo_message_box_in(
+        manager,
+        -1,
+        -1,
+        -1,
+        -1,
+        MSG_BOX_YES | MSG_BOX_NO,
+        &crate::game_text::GameText::fetch("GUI:RestartConfirmationTitle"),
+        &crate::game_text::GameText::fetch("GUI:RestartConfirmation"),
+        None,
+        None,
+        None,
+        None,
+        false,
+    ) {
+        if let Some(data) = window.borrow().get_user_data::<WindowMessageBoxData>() {
+            *data.owned_replay.borrow_mut() =
+                Some(super::replay_menu::ingress::ReplayMenuStep::Restart);
+        }
+    }
+}
+
+/// Actual offline QuitMenu restart confirmation. The dialog owns the domain
+/// continuation; it stores neither a host callback nor a borrowed session.
+pub(crate) fn message_box_restart_confirmation() {
+    if let Some(window) = message_box_yes_no(
+        &crate::game_text::GameText::fetch("GUI:RestartConfirmationTitle"),
+        &crate::game_text::GameText::fetch("GUI:RestartConfirmation"),
+        None,
+        None,
+    ) {
+        if let Some(data) = window.borrow().get_user_data::<WindowMessageBoxData>() {
+            *data.owned_replay.borrow_mut() =
+                Some(super::replay_menu::ingress::ReplayMenuStep::Restart);
+        }
+    }
+}
+
+/// Native confirmation retains the exact selected filename even if another
+/// menu is opened or the source layout is reset before OK is selected.
+pub(crate) fn message_box_replay_confirmation(
+    playback: super::replay_menu::ingress::ReplayPlayback,
+) {
+    if let Some(window) = message_box_ok_cancel(
+        &crate::game_text::GameText::fetch("GUI:OlderReplayVersionTitle"),
+        &crate::game_text::GameText::fetch("GUI:OlderReplayVersion"),
+        None,
+        None,
+    ) {
+        if let Some(data) = window.borrow().get_user_data::<WindowMessageBoxData>() {
+            *data.owned_replay.borrow_mut() = Some(
+                super::replay_menu::ingress::ReplayMenuStep::Playback(playback),
+            );
+        }
+    }
 }
 
 pub fn message_box_ok_cancel(

@@ -1239,7 +1239,7 @@ fn clear_game_data_pushes_score_screen_not_main_menu() {
         .and_then(|s| s.split("fn host_restart_mission_from_dispatch").next())
         .expect("host_consume_clear_game_data");
     assert!(
-        consume.contains("host_push_score_screen_like_cpp")
+        consume.contains("clear_receiving_game_data(true)")
             && !consume.contains("return_to_main_menu_after_match"),
         "MSG_CLEAR_GAME_DATA must push ScoreScreen, not Main Menu"
     );

@@ -8,6 +8,9 @@ use crate::game_logic::{GameLogic, GameMode, Player, PlayerTemplateIdentity, Tea
 use crate::ui::skirmish_menu::{Faction, GameRules, GameSlot, MAX_SLOTS, PlayerType};
 use serde::{Deserialize, Serialize};
 
+#[cfg(feature = "game_client")]
+mod fallback_admission;
+pub(crate) mod replay_admission;
 pub(crate) mod saved_admission;
 
 /// The exact C++ `GameSlot::m_playerTemplate` selection for an occupied
@@ -29,6 +32,10 @@ pub enum SkirmishPlayerTemplateSelection {
     },
     /// C++ `PLAYERTEMPLATE_RANDOM`; it is resolved one time before map load.
     Random,
+    /// C++ PLAYERTEMPLATE_OBSERVER (-2), resolved by the named immutable
+    /// FactionObserver definition rather than interpreting -2 as a store index.
+    /// Appended to preserve the historical Exact/Random serde discriminants.
+    Observer,
 }
 
 impl SkirmishPlayerTemplateSelection {
@@ -222,17 +229,22 @@ pub fn config_from_skirmish_menu(
             ai_difficulty: ai.map(difficulty_name),
         });
     }
-    SkirmishMatchConfig {
+    let mut config = SkirmishMatchConfig {
         source_game_info: None,
         map: map.to_string(),
-        // The fallback menu has no GameClient GameInfo backing. Its caller
+        // The fallback owns this retained seed before Start. Its caller
         // owns this retained seed explicitly; do not synthesize a transient
         // wall-clock value and present it as C++ GameInfo parity.
         random_seed,
         old_factions_only: false,
         rules: GameRulesSnapshot::from(rules),
         slots: out_slots,
+    };
+    #[cfg(feature = "game_client")]
+    {
+        config.source_game_info = fallback_admission::observe_start(&config, slots);
     }
+    config
 }
 
 /// Golden skirmish: USA human vs Medium GLA AI on a fixed map name.
@@ -284,10 +296,17 @@ pub fn golden_skirmish_config(map: &str) -> SkirmishMatchConfig {
 /// The borrow keeps all validation/re-resolution above `start_new_game`; no
 /// map or player mutation may begin until every occupied slot has a concrete,
 /// valid PlayerTemplate identity.
+#[derive(Clone, Copy)]
+struct ResolvedSkirmishColor {
+    index: i32,
+    rgb: (u8, u8, u8),
+    night_rgb: (u8, u8, u8),
+}
 struct ResolvedSkirmishSlot<'a> {
     slot: &'a SkirmishSlotConfig,
     player_template: PlayerTemplateIdentity,
     team: Team,
+    color: Option<ResolvedSkirmishColor>,
 }
 
 fn validate_skirmish_template(
@@ -350,6 +369,20 @@ fn resolve_exact_skirmish_template(
     })?;
     let team = validate_skirmish_template(&template)?;
     Ok((identity, team))
+}
+
+fn resolve_observer_skirmish_template() -> Result<(PlayerTemplateIdentity, Team), String> {
+    let identity = PlayerTemplateIdentity::from_exact_name("FactionObserver")
+        .ok_or("occupied observer requires receiving FactionObserver definition")?;
+    let template = identity
+        .resolve()
+        .ok_or("receiving FactionObserver disappeared")?;
+    if !template.is_observer()
+        || PlayerTemplateIdentity::team_for_template(&template) != Some(Team::Neutral)
+    {
+        return Err("receiving FactionObserver is not a neutral observer template".into());
+    }
+    Ok((identity, Team::Neutral))
 }
 
 fn random_skirmish_template_candidates(
@@ -436,7 +469,12 @@ pub fn populate_random_start_position(slots: &mut [SkirmishSlotConfig], map_name
 
     let mut taken = vec![false; num_players as usize];
     for slot in slots.iter() {
-        if !slot.is_active {
+        if !slot.is_active
+            || matches!(
+                slot.player_template,
+                SkirmishPlayerTemplateSelection::Observer
+            )
+        {
             continue;
         }
         let pos = slot.start_position;
@@ -449,16 +487,29 @@ pub fn populate_random_start_position(slots: &mut [SkirmishSlotConfig], map_name
         if idx < 0 || idx >= num_players {
             return true;
         }
-        taken[idx as usize] || slots.iter().any(|s| s.is_active && s.start_position == idx)
+        taken[idx as usize]
+            || slots.iter().any(|s| {
+                s.is_active
+                    && !matches!(s.player_template, SkirmishPlayerTemplateSelection::Observer)
+                    && s.start_position == idx
+            })
     };
 
     let mut team_pos = [-1i32; MAX_SLOTS];
-    let mut has_start_spot_been_picked = slots
-        .iter()
-        .any(|s| s.is_active && s.start_position >= 0 && s.start_position < num_players);
+    let mut has_start_spot_been_picked = slots.iter().any(|s| {
+        s.is_active
+            && !matches!(s.player_template, SkirmishPlayerTemplateSelection::Observer)
+            && s.start_position >= 0
+            && s.start_position < num_players
+    });
 
     for i in 0..slots.len() {
-        if !slots[i].is_active {
+        if !slots[i].is_active
+            || matches!(
+                slots[i].player_template,
+                SkirmishPlayerTemplateSelection::Observer
+            )
+        {
             continue;
         }
         let pos = slots[i].start_position;
@@ -546,7 +597,12 @@ fn skirmish_num_teams(slots: &[SkirmishSlotConfig]) -> i32 {
     let mut num_teams = 0;
     let mut last_team = -2;
     for slot in slots {
-        if !slot.is_active {
+        if !slot.is_active
+            || matches!(
+                slot.player_template,
+                SkirmishPlayerTemplateSelection::Observer
+            )
+        {
             continue;
         }
         if slot.team == -1 || slot.team != last_team {
@@ -599,6 +655,9 @@ fn resolve_skirmish_slots(
                 template_name,
                 *template_index,
             )?)),
+            SkirmishPlayerTemplateSelection::Observer => {
+                exact.push(Some(resolve_observer_skirmish_template()?));
+            }
             SkirmishPlayerTemplateSelection::Random => {
                 needs_random = true;
                 exact.push(None);
@@ -612,6 +671,36 @@ fn resolve_skirmish_slots(
         return Err("no eligible PlayerTemplate is available for Random Skirmish selection".into());
     }
 
+    // CPP checkForDuplicateColors descends slots, preserving the first index.
+    // The temporary selection stream is installed into the receiving match once.
+    let mut colors = config
+        .source_game_info
+        .as_ref()
+        .map(|(source, _)| source.slots.iter().map(|s| s.color).collect::<Vec<_>>());
+    let palette = game_engine::common::ini::ini_multiplayer::with_multiplayer_settings(|s| {
+        s.color_definitions.clone()
+    });
+    if let Some(colors) = colors.as_mut() {
+        for slot in active_slots.iter().rev() {
+            let color = colors[slot.slot_index];
+            if color >= 0 && (color as usize) < palette.len() {
+                colors[slot.slot_index] = -1;
+                if !colors.contains(&color) {
+                    colors[slot.slot_index] = color;
+                }
+            }
+        }
+        let random = active_slots
+            .iter()
+            .filter(|s| colors[s.slot_index] == -1)
+            .count();
+        let available = (0..palette.len())
+            .filter(|index| !colors.contains(&(*index as i32)))
+            .count();
+        if available < random {
+            return Err("not enough authored colors for occupied Random slots".into());
+        }
+    }
     // Caller supplies the driving match's seeded scoped stream; never
     // broadcast to other sessions or the process fallback here.
     active_slots
@@ -627,10 +716,53 @@ fn resolve_skirmish_slots(
                         .expect("random candidates validated above"),
                 )?,
             };
+            // CPP populateRandomSideAndColor resolves color immediately after
+            // this slot's faction, before advancing to the next occupied slot.
+            let color = if let Some(colors) = colors.as_mut() {
+                let mut index = colors[slot.slot_index];
+                if index == -1 {
+                    use game_engine::common::random_value::get_game_logic_random_value;
+                    loop {
+                        index = get_game_logic_random_value(0, palette.len() as i32 - 1);
+                        if !colors.contains(&index) {
+                            break;
+                        }
+                    }
+                    colors[slot.slot_index] = index;
+                }
+                if index == -2
+                    && matches!(
+                        slot.player_template,
+                        SkirmishPlayerTemplateSelection::Observer
+                    )
+                {
+                    None
+                } else {
+                    let definition = usize::try_from(index)
+                        .ok()
+                        .and_then(|i| palette.get(i))
+                        .ok_or("invalid authored selected color index")?;
+                    let rgb = |packed: u32| {
+                        (
+                            ((packed >> 16) & 255) as u8,
+                            ((packed >> 8) & 255) as u8,
+                            (packed & 255) as u8,
+                        )
+                    };
+                    Some(ResolvedSkirmishColor {
+                        index,
+                        rgb: rgb(definition.get_color()),
+                        night_rgb: rgb(definition.night_color),
+                    })
+                }
+            } else {
+                None
+            };
             Ok(ResolvedSkirmishSlot {
                 slot,
                 player_template,
                 team,
+                color,
             })
         })
         .collect()
@@ -644,6 +776,14 @@ fn resolve_skirmish_slots(
 pub fn apply_skirmish_config(
     logic: &mut GameLogic,
     config: &SkirmishMatchConfig,
+) -> Result<(), String> {
+    apply_skirmish_config_for_mode(logic, config, GameMode::Skirmish)
+}
+
+pub(crate) fn apply_skirmish_config_for_mode(
+    logic: &mut GameLogic,
+    config: &SkirmishMatchConfig,
+    mode: GameMode,
 ) -> Result<(), String> {
     // Validate/resolve the candidate without changing an existing match on
     // error. Replay admission uses the same GameInfo seed in this config.
@@ -659,7 +799,7 @@ pub fn apply_skirmish_config(
     logic.set_logic_random_seed(config.random_seed);
     let stream = logic.logic_random.clone();
     game_engine::common::random_value::with_session_random(&stream, || {
-        logic.start_new_game(GameMode::Skirmish);
+        logic.start_new_game(mode);
         // Carry faction-selection draws into the admitted match stream before
         // the subsequent start-position selection.
         logic.logic_random.set_seed_words(selection.seed_words());
@@ -673,6 +813,9 @@ pub fn apply_skirmish_config(
         admit_resolved_slots(logic, config, &assigned, resolved_slots)?;
         admission.admit_local_selection(logic);
         logic.initial_skirmish_admission = Some(Box::new(admission));
+        if mode == GameMode::Replay {
+            logic.apply_replay_observer_as_local_player();
+        }
         Ok(())
     })
 }
@@ -692,7 +835,19 @@ fn admit_resolved_slots(
     let mut human_id: Option<u32> = None;
 
     for resolved in resolved_slots {
-        let slot = resolved.slot;
+        let mut selected_slot = resolved.slot.clone();
+        if let Some(color) = resolved.color {
+            selected_slot.color_rgb = color.rgb;
+        }
+        let slot = &selected_slot;
+        let night_rgb = resolved
+            .color
+            .map(|color| color.night_rgb)
+            .unwrap_or_else(|| {
+                crate::game_logic::host_gamedata_lobby_residual::multiplayer_night_rgb_for_day(
+                    slot.color_rgb,
+                )
+            });
         let team = resolved.team;
         let player_id = slot.slot_index as u32;
         let start_position = assigned
@@ -708,10 +863,7 @@ fn admit_resolved_slots(
         // non-zero PlayerTemplate Money value may replace it.
         player.resources.supplies = cash;
         player.color_rgb = slot.color_rgb;
-        player.color_night_rgb =
-            crate::game_logic::host_gamedata_lobby_residual::multiplayer_night_rgb_for_day(
-                slot.color_rgb,
-            );
+        player.color_night_rgb = night_rgb;
 
         player.start_position = start_position;
         player.alliance_team = slot.team;
@@ -738,10 +890,7 @@ fn admit_resolved_slots(
             )
         })?;
         player.color_rgb = slot.color_rgb;
-        player.color_night_rgb =
-            crate::game_logic::host_gamedata_lobby_residual::multiplayer_night_rgb_for_day(
-                slot.color_rgb,
-            );
+        player.color_night_rgb = night_rgb;
 
         player.start_position = start_position;
         player.alliance_team = slot.team;
@@ -819,7 +968,7 @@ pub fn config_from_client_skirmish_setup(
     map_override: Option<&str>,
 ) -> Option<SkirmishMatchConfig> {
     use game_client::gui::get_skirmish_setup;
-    use game_client::{MAX_SLOTS, PLAYERTEMPLATE_RANDOM, SlotState};
+    use game_client::{MAX_SLOTS, PLAYERTEMPLATE_OBSERVER, PLAYERTEMPLATE_RANDOM, SlotState};
     use game_engine::common::ini::ensure_player_templates_loaded;
     use game_engine::common::ini::ini_multiplayer::with_multiplayer_settings;
     use game_engine::common::rts::player_template::get_player_template_store;
@@ -922,6 +1071,8 @@ pub fn config_from_client_skirmish_setup(
                             },
                         )
                     })
+            } else if tpl == PLAYERTEMPLATE_OBSERVER {
+                ("Observer".into(), SkirmishPlayerTemplateSelection::Observer)
             } else if tpl == PLAYERTEMPLATE_RANDOM {
                 // PLAYERTEMPLATE_RANDOM is resolved once by the offline host
                 // from the retained GameInfo seed before the map load.
@@ -1052,6 +1203,21 @@ fn color_rgb_from_multiplayer_index(color_idx: i32, slot_index: usize) -> (u8, u
         (220, 220, 220),
     ];
 
+    if color_idx == -2 {
+        // Observer is a real C++ special color in every receiving profile,
+        // including headless builds; it is not a fallback palette position.
+        let packed =
+            game_engine::common::ini::ini_multiplayer::with_multiplayer_settings(|settings| {
+                settings.get_color_value(-2)
+            })
+            .expect("MultiplayerSettings always owns its observer color");
+        return (
+            ((packed >> 16) & 255) as u8,
+            ((packed >> 8) & 255) as u8,
+            (packed & 255) as u8,
+        );
+    }
+
     #[cfg(feature = "game_client")]
     {
         use game_engine::common::ini::ini_multiplayer::with_multiplayer_settings;
@@ -1085,7 +1251,7 @@ mod tests {
                     "retail template '{name}' must resolve"
                 );
             }
-            SkirmishPlayerTemplateSelection::Random => {
+            SkirmishPlayerTemplateSelection::Random | SkirmishPlayerTemplateSelection::Observer => {
                 panic!("test requested an exact PlayerTemplate");
             }
         }
@@ -1095,7 +1261,9 @@ mod tests {
     fn template_index(selection: &SkirmishPlayerTemplateSelection) -> i32 {
         match selection {
             SkirmishPlayerTemplateSelection::Exact { template_index, .. } => *template_index,
-            SkirmishPlayerTemplateSelection::Random => panic!("test requested an Exact template"),
+            SkirmishPlayerTemplateSelection::Random | SkirmishPlayerTemplateSelection::Observer => {
+                panic!("test requested an Exact template")
+            }
         }
     }
 
@@ -1218,7 +1386,9 @@ mod tests {
                     template_index: template_index(&tank),
                 }
             }
-            SkirmishPlayerTemplateSelection::Random => unreachable!(),
+            SkirmishPlayerTemplateSelection::Random | SkirmishPlayerTemplateSelection::Observer => {
+                unreachable!("named Air Force selection is exact")
+            }
         };
         let config = SkirmishMatchConfig {
             source_game_info: None,
@@ -1938,3 +2108,7 @@ mod tests {
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[path = "skirmish_config/template_identity_tests.rs"]
 mod template_identity_tests;
+
+#[cfg(test)]
+#[path = "skirmish_config/observer_admission_tests.rs"]
+mod observer_admission_tests;

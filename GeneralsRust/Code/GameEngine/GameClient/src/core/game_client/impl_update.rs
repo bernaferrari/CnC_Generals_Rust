@@ -1859,6 +1859,7 @@ impl GameClient {
         materials: &[NativeMaterialObservation],
         views: &[NativeDrawView],
         phase: NativeDrawPhase,
+        recorder: &game_engine::common::recorder::Recorder,
         receive: &mut dyn FnMut(Vec<GameMessage>) -> GameClientResult<()>,
     ) -> GameClientResult<()> {
         self.finish_presentation_shell_with_native_views_routed(
@@ -1866,7 +1867,7 @@ impl GameClient {
             materials,
             views,
             phase,
-            Some(receive),
+            Some((recorder, receive)),
             None,
         )
     }
@@ -1877,6 +1878,7 @@ impl GameClient {
         materials: &[NativeMaterialObservation],
         views: &[NativeDrawView],
         phase: NativeDrawPhase,
+        recorder: &game_engine::common::recorder::Recorder,
         receive: &mut dyn FnMut(Vec<GameMessage>) -> GameClientResult<()>,
         lifecycle: &mut crate::effects::particle_manager::NativeParticleObjectLifecycle<'_>,
     ) -> GameClientResult<()> {
@@ -1885,7 +1887,7 @@ impl GameClient {
             materials,
             views,
             phase,
-            Some(receive),
+            Some((recorder, receive)),
             Some(lifecycle),
         )
     }
@@ -1896,7 +1898,10 @@ impl GameClient {
         materials: &[NativeMaterialObservation],
         views: &[NativeDrawView],
         phase: NativeDrawPhase,
-        receive: Option<&mut dyn FnMut(Vec<GameMessage>) -> GameClientResult<()>>,
+        receive: Option<(
+            &game_engine::common::recorder::Recorder,
+            &mut dyn FnMut(Vec<GameMessage>) -> GameClientResult<()>,
+        )>,
         lifecycle: Option<&mut crate::effects::particle_manager::NativeParticleObjectLifecycle<'_>>,
     ) -> GameClientResult<()> {
         if !std::sync::Arc::ptr_eq(&prepared.owner, &self.presentation_shell_owner)
@@ -1929,7 +1934,10 @@ impl GameClient {
     fn finish_presentation_shell_routed(
         &mut self,
         prepared: PreparedPresentationShell,
-        receive: Option<&mut dyn FnMut(Vec<GameMessage>) -> GameClientResult<()>>,
+        receive: Option<(
+            &game_engine::common::recorder::Recorder,
+            &mut dyn FnMut(Vec<GameMessage>) -> GameClientResult<()>,
+        )>,
     ) -> GameClientResult<()> {
         if prepared.skip_draw {
             return Ok(());
@@ -1950,8 +1958,8 @@ impl GameClient {
 
         self.update_post_draw_ui()?;
         self.process_beacon_notifications()?;
-        if let Some(receive) = receive {
-            self.pump_message_stream_to_receiving_owner(receive)?;
+        if let Some((recorder, receive)) = receive {
+            self.pump_message_stream_to_receiving_owner(recorder, receive)?;
         } else {
             self.pump_message_stream()?;
         }

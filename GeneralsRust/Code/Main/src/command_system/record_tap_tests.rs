@@ -833,50 +833,45 @@ fn router_batch_arrives_in_the_same_logic_frame() {
 
 #[test]
 fn new_game_starts_one_recording_and_leaves_no_lifecycle_message() {
-    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
-        module_path!(),
-        "new_game_starts_one_recording_and_leaves_no_lifecycle_message",
-        || {
-            let mut state = ReplayPendingState::default();
-            bind_host_replay_authority(&state);
-            let temp = tempfile::tempdir().unwrap();
-            let global = game_engine::common::ini::ini_game_data::ensure_global_data();
-            {
-                let mut data = global.write();
-                data.set_path_user_data(temp.path().to_string_lossy().to_string());
-                data.map_name = "Maps/RecorderLifecycle.map".to_string();
-                data.pending_file.clear();
-            }
-            clear_command_list();
-            install_host_replay_bridges();
-            with_recorder_mut(|recorder| recorder.reset());
-            tap_host_new_game_for_recorder(GameMode::Skirmish, 0x5EED_0021);
+    let temp = tempfile::tempdir().unwrap();
+    let mut state = ReplayPendingState::default();
+    let inputs = game_engine::common::recorder::RecorderOwnerInputs {
+        map: "Maps/RecorderLifecycle.map".into(),
+        seed: 0x5EED_0021,
+        replay_directory: temp.path().join("Replays"),
+        exe_crc: 0,
+        ini_crc: 0,
+        save_stats: false,
+        stats_directory: temp.path().join("Stats"),
+    };
+    state.reset_recorder_owned(inputs.clone());
+    state.record_new_game_owned(GameMode::Skirmish, inputs.seed, 1, 0, 30);
 
-            let mut queue = VecDeque::new();
-            flush_recorder_and_replay_authority(&mut state, &mut queue, 0xCAFE_0001);
-            assert!(with_recorder(|recorder| recorder.is_recording()).unwrap_or(false));
-            assert_eq!(
-                with_recorder(|recorder| recorder.get_game_info().seed),
-                Some(0x5EED_0021),
-                "the actual Main recorder tap carries the selected owner seed"
-            );
-            assert!(
-                snapshot_command_list()
-                    .iter()
-                    .all(|msg| !matches!(msg.get_type(), GameMessageType::NewGame)),
-                "C++ resets TheCommandList after each logic frame, so MSG_NEW_GAME must not start a second recording"
-            );
-
-            flush_recorder_and_replay_authority(&mut state, &mut queue, 0xCAFE_0001);
-            assert!(with_recorder(|recorder| recorder.is_recording()).unwrap_or(false));
-            reset_host_recorder_after_successful_load(&mut state);
-            bind_host_replay_authority(&state);
-            assert!(!with_recorder(|recorder| recorder.is_recording()).unwrap_or(true));
-            flush_recorder_and_replay_authority(&mut state, &mut queue, 0xCAFE_0001);
-            assert!(!with_recorder(|recorder| recorder.is_recording()).unwrap_or(true));
-            clear_command_list();
-        },
+    let mut queue = VecDeque::new();
+    state.flush_owned(0, &mut queue, 0xCAFE_0001, 0, None);
+    assert!(state.recorder_owned().is_recording());
+    assert_eq!(
+        state.recorder_owned().get_game_info().seed,
+        0x5EED_0021,
+        "the actual Main recorder tap carries the selected owner seed"
     );
+    assert!(
+        state
+            .recorded_messages
+            .iter()
+            .all(|msg| !matches!(msg.get_type(), GameMessageType::NewGame)),
+        "C++ resets TheCommandList after each logic frame, so MSG_NEW_GAME must not start a second recording"
+    );
+    let recording = state.recorder_owned().last_replay_filename().to_owned();
+    // A different frame must execute the recorder again, rather than pass
+    // merely because its duplicate-frame guard skipped the second operation.
+    state.flush_owned(1, &mut queue, 0xCAFE_0001, 0, None);
+    assert!(state.recorder_owned().is_recording());
+    assert_eq!(state.recorder_owned().last_replay_filename(), recording);
+    state.reset_recorder_owned(inputs);
+    assert!(!state.recorder_owned().is_recording());
+    state.flush_owned(2, &mut queue, 0xCAFE_0001, 0, None);
+    assert!(!state.recorder_owned().is_recording());
 }
 
 #[test]
@@ -998,13 +993,16 @@ fn native_client_stream_routes_once_to_receiving_world_without_core_player_queue
             append_game_message_to_stream(&second);
             let mut deliveries = 0;
             client
-                .pump_message_stream_to_receiving_owner(&mut |messages| {
-                    deliveries += 1;
-                    owner
-                        .replay_pending
-                        .receive_client_messages(messages)
-                        .map_err(game_client::core::GameClientError::InvalidOperation)
-                })
+                .pump_message_stream_to_receiving_owner(
+                    owner.replay_pending.recorder_owned(),
+                    &mut |messages| {
+                        deliveries += 1;
+                        owner
+                            .replay_pending
+                            .receive_client_messages(messages)
+                            .map_err(game_client::core::GameClientError::InvalidOperation)
+                    },
+                )
                 .unwrap();
             assert_eq!(deliveries, 1);
             assert_eq!(
@@ -1020,29 +1018,36 @@ fn native_client_stream_routes_once_to_receiving_world_without_core_player_queue
             assert!(matches!(batch[1].get_type(), GameMessageType::DoStop));
             assert!(peer.replay_pending.take_incoming().is_empty());
             client
-                .pump_message_stream_to_receiving_owner(&mut |_| {
-                    panic!("empty second pump must not redeliver the batch")
-                })
+                .pump_message_stream_to_receiving_owner(
+                    owner.replay_pending.recorder_owned(),
+                    &mut |_| panic!("empty second pump must not redeliver the batch"),
+                )
                 .unwrap();
             owner.replay_pending.clear();
             append_game_message_to_stream(&second);
             client
-                .pump_message_stream_to_receiving_owner(&mut |messages| {
-                    owner
-                        .replay_pending
-                        .receive_client_messages(messages)
-                        .map_err(game_client::core::GameClientError::InvalidOperation)
-                })
+                .pump_message_stream_to_receiving_owner(
+                    owner.replay_pending.recorder_owned(),
+                    &mut |messages| {
+                        owner
+                            .replay_pending
+                            .receive_client_messages(messages)
+                            .map_err(game_client::core::GameClientError::InvalidOperation)
+                    },
+                )
                 .unwrap();
             assert_eq!(owner.replay_pending.take_incoming().len(), 1);
             assert!(peer.replay_pending.take_incoming().is_empty());
             append_game_message_to_stream(&first);
             let error = client
-                .pump_message_stream_to_receiving_owner(&mut |_| {
-                    Err(game_client::core::GameClientError::InvalidOperation(
-                        "receiving rejection".into(),
-                    ))
-                })
+                .pump_message_stream_to_receiving_owner(
+                    owner.replay_pending.recorder_owned(),
+                    &mut |_| {
+                        Err(game_client::core::GameClientError::InvalidOperation(
+                            "receiving rejection".into(),
+                        ))
+                    },
+                )
                 .unwrap_err();
             assert!(error.to_string().contains("receiving rejection"));
             game_client::message_stream::command_router::set_host_command_authority(None);
@@ -1107,12 +1112,15 @@ fn native_world_bind_reset_preserves_foreign_core_callback_and_explicit_command_
             let native_first = GameMessage::with_player(GameMessageType::DoStop, 3);
             append_game_message_to_stream(&native_first);
             client
-                .pump_message_stream_to_receiving_owner(&mut |messages| {
-                    first
-                        .replay_pending
-                        .receive_client_messages(messages)
-                        .map_err(game_client::core::GameClientError::InvalidOperation)
-                })
+                .pump_message_stream_to_receiving_owner(
+                    first.replay_pending.recorder_owned(),
+                    &mut |messages| {
+                        first
+                            .replay_pending
+                            .receive_client_messages(messages)
+                            .map_err(game_client::core::GameClientError::InvalidOperation)
+                    },
+                )
                 .unwrap();
             let first_batch = first.replay_pending.take_incoming();
             assert_eq!(first_batch.len(), 1);
@@ -1121,21 +1129,25 @@ fn native_world_bind_reset_preserves_foreign_core_callback_and_explicit_command_
             let native_second = GameMessage::with_player(GameMessageType::DoStop, 4);
             append_game_message_to_stream(&native_second);
             client
-                .pump_message_stream_to_receiving_owner(&mut |messages| {
-                    second
-                        .replay_pending
-                        .receive_client_messages(messages)
-                        .map_err(game_client::core::GameClientError::InvalidOperation)
-                })
+                .pump_message_stream_to_receiving_owner(
+                    second.replay_pending.recorder_owned(),
+                    &mut |messages| {
+                        second
+                            .replay_pending
+                            .receive_client_messages(messages)
+                            .map_err(game_client::core::GameClientError::InvalidOperation)
+                    },
+                )
                 .unwrap();
             let second_batch = second.replay_pending.take_incoming();
             assert_eq!(second_batch.len(), 1);
             assert_eq!(second_batch[0].get_player_index(), 4);
             assert!(first.replay_pending.take_incoming().is_empty());
             client
-                .pump_message_stream_to_receiving_owner(&mut |_| {
-                    panic!("native batch delivered twice")
-                })
+                .pump_message_stream_to_receiving_owner(
+                    second.replay_pending.recorder_owned(),
+                    &mut |_| panic!("native batch delivered twice"),
+                )
                 .unwrap();
             assert_eq!(
                 *foreign_seen.lock().unwrap(),
@@ -1144,6 +1156,81 @@ fn native_world_bind_reset_preserves_foreign_core_callback_and_explicit_command_
             );
             // No clear: the process-isolated test retains the foreign callback
             // through completion, just as production preserves its ownership.
+        },
+    );
+}
+
+#[test]
+fn native_client_culls_by_actual_receiving_replay_reader_while_global_recorder_is_inactive() {
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "native_client_culls_by_actual_receiving_replay_reader_while_global_recorder_is_inactive",
+        || {
+            let directory = tempfile::tempdir().unwrap();
+            let inputs = game_engine::common::recorder::RecorderOwnerInputs {
+                map: "Maps/Receiving.map".into(),
+                seed: 7,
+                replay_directory: directory.path().join("Replays"),
+                exe_crc: 0,
+                ini_crc: 0,
+                save_stats: false,
+                stats_directory: directory.path().join("Stats"),
+            };
+            let mut writer = ReplayPendingState::default();
+            writer.reset_recorder_owned(inputs.clone());
+            writer.record_new_game_owned(GameMode::Skirmish, 7, 1, 0, 30);
+            writer.flush_owned(0, &mut VecDeque::new(), 0, 7, None);
+            writer.record_camera_owned(ReplayCameraPose {
+                pos: Vec3::new(10.0, 2.0, 3.0),
+                yaw: 0.25,
+                pitch: 0.75,
+                zoom: 1.5,
+                cursor: 0,
+                pixel: (0, 0),
+                player_index: 7,
+            });
+            writer.flush_owned(2, &mut VecDeque::new(), 0, 7, None);
+            let filename = format!(
+                "{}{}",
+                writer.recorder_owned().last_replay_filename(),
+                writer.recorder_owned().replay_extension()
+            );
+            writer.stop_recording_owned();
+            let mut receiving = ReplayPendingState::default();
+            receiving.reset_recorder_owned(inputs);
+            assert!(receiving.playback_file_owned(filename, false).unwrap());
+            receiving.take_lifecycle_messages_owned();
+            init_recorder();
+            with_recorder_mut(|recorder| recorder.reset());
+            assert!(!host_recorder_is_playback());
+            let client = game_client::core::GameClient::new().unwrap();
+            append_game_message_to_stream(&GameMessage::with_player(GameMessageType::DoStop, 7));
+            let mut delivered = 0;
+            client
+                .pump_message_stream_to_receiving_owner(
+                    receiving.recorder_owned(),
+                    &mut |messages| {
+                        delivered += messages
+                            .iter()
+                            .filter(|message| matches!(message.get_type(), GameMessageType::DoStop))
+                            .count();
+                        Ok(())
+                    },
+                )
+                .unwrap();
+            assert_eq!(
+                delivered, 0,
+                "actual receiving Playback must cull live user orders even while foreign global Recorder is inactive"
+            );
+            receiving.flush_owned(2, &mut VecDeque::new(), 0, 7, None);
+            assert_eq!(
+                receiving.take_camera().unwrap().pos,
+                Vec3::new(10.0, 2.0, 3.0)
+            );
+            assert!(
+                !host_recorder_is_playback(),
+                "receiving reader must not publish its mode"
+            );
         },
     );
 }

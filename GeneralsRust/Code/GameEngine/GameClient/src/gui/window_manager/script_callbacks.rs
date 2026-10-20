@@ -765,6 +765,10 @@ impl WindowManager {
                     window.set_system_callback(|window, msg, data1, data2| {
                         replay_menu_system(window, msg, data1, data2)
                     });
+                    window.mark_replay_menu_system_callback();
+                    if let Some(state) = self.replay_menu.as_ref() {
+                        window.set_user_data(state.clone());
+                    }
                 }
                 "ChallengeMenuSystem" => {
                     window.set_system_callback(|window, msg, data1, data2| {

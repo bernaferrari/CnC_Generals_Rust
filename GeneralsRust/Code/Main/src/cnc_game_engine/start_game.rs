@@ -487,6 +487,7 @@ impl CnCGameEngine {
             player_template,
             game_info_starting_cash,
             difficulty_code,
+            recorder_dispatch,
         } = request;
 
         // C++ MSG_NEW_GAME GAME_SHELL is Shell::showShellMap, not a match start.
@@ -566,6 +567,7 @@ impl CnCGameEngine {
                 player_template,
                 game_info_starting_cash,
                 difficulty_code,
+                recorder_dispatch,
             },
             interactive_start_from_menu,
             prelude_retry_at: std::time::Instant::now(),
@@ -586,6 +588,7 @@ impl CnCGameEngine {
             player_template,
             game_info_starting_cash,
             difficulty_code,
+            recorder_dispatch,
         } = pending.request;
         let interactive_start_from_menu = pending.interactive_start_from_menu;
         let offline_mode = matches!(mode, GameMode::SinglePlayer | GameMode::Skirmish);
@@ -594,25 +597,23 @@ impl CnCGameEngine {
         // the application Recorder. It is input to this match, not a global
         // broadcast that another already-running world must adopt.
         let replay_inputs = if mode == GameMode::Replay {
-            let Some(inputs) = game_engine::common::recorder::with_recorder(|recorder| {
-                let info = recorder.get_game_info();
-                (info.seed, info.starting_cash)
-            }) else {
-                warn!("Rejecting Replay start without its recorded GameInfo seed");
+            let recorder = self.game_logic.replay_pending.recorder_owned();
+            if !recorder.is_playback() {
+                warn!("Rejecting Replay start without receiving admitted Recorder");
                 self.return_to_main_menu_after_match();
                 return;
-            };
-            Some(inputs)
+            }
+            let info = recorder.get_game_info();
+            Some((info.seed, info.starting_cash))
         } else {
             None
         };
 
-        // Wave 842: retain the selected host-owned match mode through map load
-        // / presentation seed.
-        // The load boundary deliberately clears every old-world residual, so
-        // the selected mode is stamped only after that boundary succeeds.
-        // C++ GameLogicDispatch.cpp:256 TheGameEngine->reset() before startNewGame.
-        self.host_game_engine_reset();
+        if replay_inputs.is_some() {
+            self.host_reset_for_admitted_replay_start();
+        } else {
+            self.host_game_engine_reset();
+        }
         self.reset_replay_pacing_for_new_game();
         // Wave 843/844/871: clear prior match residuals until load completes.
         self.host_clear_match_residuals();
@@ -646,7 +647,31 @@ impl CnCGameEngine {
                 .unwrap_or(0)
         );
 
-        if mode == GameMode::Skirmish {
+        if mode == GameMode::Replay && skirmish.is_some() {
+            let config = skirmish.as_ref().expect("checked receiving replay slots");
+            if let Err(error) = crate::skirmish_config::apply_skirmish_config_for_mode(
+                &mut self.game_logic,
+                config,
+                GameMode::Replay,
+            ) {
+                warn!("Rejecting recorded GameInfo admission before map load: {error}");
+                self.return_to_main_menu_after_match();
+                return;
+            }
+            if let Some(local) = self.game_logic.local_player_id() {
+                self.current_player_id = local;
+            }
+        } else if mode == GameMode::Replay {
+            // All-closed original single-player headers are driven by authored
+            // map sides, not by the generic USA/AI starter roster.
+            self.game_logic.start_new_game_with_recorder_payload(
+                GameMode::Replay,
+                difficulty_code.unwrap_or(1),
+                0,
+                30,
+            );
+            self.game_logic.clear_all_players();
+        } else if mode == GameMode::Skirmish {
             if let Some(ref config) = skirmish {
                 if let Err(e) = self.host_apply_skirmish_config_authority(config) {
                     // A supplied C++ GameInfo-derived config has selected
@@ -720,6 +745,47 @@ impl CnCGameEngine {
         }
         if let Some(code) = difficulty_code {
             self.host_game_logic_mut().admit_session_difficulty(code);
+        }
+        if mode != GameMode::Replay {
+            let seed = self.game_logic.logic_base_seed;
+            self.game_logic
+                .replay_pending
+                .reset_recorder_for_match_owned(map_name.clone(), seed);
+            let difficulty = recorder_dispatch
+                .map(|dispatch| dispatch.difficulty_code)
+                .or(difficulty_code)
+                .unwrap_or(1);
+            let rank = recorder_dispatch
+                .map(|dispatch| dispatch.rank_points)
+                .unwrap_or(0);
+            let max_fps = recorder_dispatch
+                .and_then(|dispatch| dispatch.max_fps)
+                .unwrap_or(30);
+            let recordable = if let Some(admission) =
+                self.game_logic.initial_skirmish_admission.as_ref()
+            {
+                match crate::skirmish_config::replay_admission::recording_info(admission) {
+                    Ok((info, local)) => {
+                        self.game_logic
+                            .replay_pending
+                            .recording_lobby_owned(info, local);
+                        true
+                    }
+                    Err(error) => {
+                        warn!(
+                            "Cannot represent native admission in GENREP: {error}; recording disabled for this start"
+                        );
+                        false
+                    }
+                }
+            } else {
+                true
+            };
+            if recordable {
+                self.game_logic
+                    .replay_pending
+                    .record_new_game_owned(mode, seed, difficulty, rank, max_fps);
+            }
         }
         if mode != GameMode::Skirmish {
             let default_starting_cash = self.default_starting_cash;
@@ -831,6 +897,7 @@ impl CnCGameEngine {
         );
         self.game_logic.session_view.camera.camera_pitch_radians = 0.0;
         self.game_logic.session_view.camera.camera_yaw_radians = 0.0;
+        self.initialize_receiving_replay_controls();
         // W3DView::setCameraTransform calculates camera constraints when
         // lookAt/setZoomToDefault builds the initial pose. The match camera
         // must apply that same viewport inset before its first player scroll.
@@ -1975,6 +2042,22 @@ impl CnCGameEngine {
     /// BlankWindow.wnd covers the previous map/UI while subsystems reset;
     /// multiplayer tears down `TheNetwork`.
     pub(super) fn host_game_engine_reset(&mut self) {
+        self.host_game_engine_reset_with_recorder(true, true);
+    }
+
+    /// The admitted file was opened after the old world's actual clear. The
+    /// native loading presentation must not close it a second time.
+    pub(super) fn host_reset_for_admitted_replay_start(&mut self) {
+        self.host_game_engine_reset_with_recorder(false, true);
+    }
+
+    /// ClearGameData pushes its score layout before reset. C++ GameClient::reset
+    /// does not reset Shell; only the next admitted start removes the old stack.
+    pub(super) fn host_reset_for_clear_game_data(&mut self) {
+        self.host_game_engine_reset_with_recorder(true, false);
+    }
+
+    fn host_game_engine_reset_with_recorder(&mut self, reset_recorder: bool, reset_shell: bool) {
         // Source Client/UI reset captures defaults from outgoing map rules,
         // before GlobalData overrides disappear. GameLogic reset may run again.
         self.game_logic.session_view.camera.settings =
@@ -2001,6 +2084,17 @@ impl CnCGameEngine {
         };
 
         let delete_network = self.host_is_in_multiplayer_game();
+        if reset_recorder {
+            // Reverse source subsystem reset reaches Recorder before GameLogic.
+            self.reset_receiving_recorder_at_engine_boundary();
+            // Reset is not a new-game controls creation phase. Hide only the
+            // receiving existing transport before outgoing shell layouts reset.
+            game_client::gui::with_window_manager(|manager| {
+                game_client::gui::callbacks::replay_controls::hide_replay_controls_owned(
+                    manager, false,
+                );
+            });
+        }
 
         if let Some(subsystem_manager) = get_subsystem_manager() {
             let mut manager = subsystem_manager.lock();
@@ -2032,8 +2126,10 @@ impl CnCGameEngine {
         // Defcon6, physical LMB could never select a unit). Shell::reset pops
         // every screen via the immediate path.
         #[cfg(feature = "game_client")]
-        if let Err(err) = game_client::gui::ShellHandle::default().reset() {
-            warn!("GameEngine::reset TheShell reset failed: {err}");
+        if reset_shell {
+            if let Err(err) = game_client::gui::ShellHandle::default().reset() {
+                warn!("GameEngine::reset TheShell reset failed: {err}");
+            }
         }
 
         if delete_network {
@@ -2054,6 +2150,10 @@ impl CnCGameEngine {
         // C++ GameLogicDispatch / GameState / PopupSaveLoad call
         // TheGameEngine->reset() before tearing down match state.
         self.host_game_engine_reset();
+        self.reset_match_state_after_engine_reset();
+    }
+
+    pub(super) fn reset_match_state_after_engine_reset(&mut self) {
         self.pending_match_start = None;
         self.drain_renderer_attachments();
 

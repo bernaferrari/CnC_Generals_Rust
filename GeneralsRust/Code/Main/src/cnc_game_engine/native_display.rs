@@ -254,6 +254,7 @@ impl CnCGameEngine {
                         draw_drawables: false,
                         update_particles: false,
                     },
+                    pending_commands.recorder_owned(),
                     &mut receive,
                 )
                 .map_err(|error| error.to_string());
@@ -376,6 +377,7 @@ impl CnCGameEngine {
                                 &pending.facts,
                                 &views,
                                 phase,
+                                pending_commands.recorder_owned(),
                                 &mut receive,
                                 lifecycle,
                             )
@@ -424,19 +426,9 @@ impl CnCGameEngine {
     /// Shared final camera commitment. Rendering consumes these exact matrices.
     fn finalize_native_view_camera(&mut self) -> Result<(), String> {
         self.host_ensure_presentation_frame_for_render();
-        if self
-            .game_logic
-            .session_view
-            .camera
-            .camera_slave_mode
-            .is_none()
-            && matches!(self.current_state, GameState::InGame | GameState::Paused)
-        {
-            let target = self.game_logic.session_view.target;
-            if target.x * target.x + target.z * target.z < 80. * 80. {
-                self.snap_camera_to_local_units_if_needed();
-            }
-        }
+        // The receiving target may legitimately be near map origin after
+        // script movement, player input or restore. W3DView::update does not
+        // reapply match-bootstrap focus while committing an ordinary view.
         // Clip/projection is current before provisional constraint rays.
         self.rebuild_tactical_projection();
         self.set_native_camera_transform()?;

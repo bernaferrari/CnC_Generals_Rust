@@ -15,6 +15,14 @@ pub(crate) struct SavedSkirmishAdmission {
     /// complete original stream can be emitted for this native admission.
     pub local_slot_from_client: bool,
 }
+fn resolved_original_color(slot: &SkirmishSlotConfig, color: i32) -> bool {
+    color >= 0
+        || (matches!(
+            slot.player_template,
+            SkirmishPlayerTemplateSelection::Observer
+        ) && color == -2)
+}
+
 impl SavedSkirmishAdmission {
     pub(super) fn capture(
         config: &SkirmishMatchConfig,
@@ -32,6 +40,15 @@ impl SavedSkirmishAdmission {
                 .iter()
                 .find(|r| r.slot.slot_index == slot.slot_index)
                 .ok_or("resolved initial slot is missing")?;
+            if let Some(color) = selected.color {
+                slot.color_rgb = color.rgb;
+            }
+            if matches!(
+                slot.player_template,
+                SkirmishPlayerTemplateSelection::Observer
+            ) {
+                continue;
+            }
             slot.player_template = SkirmishPlayerTemplateSelection::Exact {
                 template_name: selected.player_template.template_name.clone(),
                 template_index: selected
@@ -48,13 +65,24 @@ impl SavedSkirmishAdmission {
             // Random faction/start selection has now completed once, matching
             // the source's saved current fields. Original fields stay intact.
             for slot in config_copy.slots.iter().filter(|slot| slot.is_active) {
-                let SkirmishPlayerTemplateSelection::Exact { template_index, .. } =
-                    &slot.player_template
-                else {
-                    unreachable!()
+                let raw_template = match &slot.player_template {
+                    SkirmishPlayerTemplateSelection::Exact { template_index, .. } => {
+                        *template_index
+                    }
+                    SkirmishPlayerTemplateSelection::Observer => -2,
+                    SkirmishPlayerTemplateSelection::Random => {
+                        unreachable!("initial selection resolved")
+                    }
                 };
-                info.slots[slot.slot_index].player_template = *template_index;
+                info.slots[slot.slot_index].player_template = raw_template;
                 info.slots[slot.slot_index].start_pos = slot.start_position;
+                if let Some(color) = resolved
+                    .iter()
+                    .find(|r| r.slot.slot_index == slot.slot_index)
+                    .and_then(|r| r.color)
+                {
+                    info.slots[slot.slot_index].color = color.index;
+                }
             }
         }
         let local_slot = if source.is_some() && source_local.is_none() {
@@ -102,7 +130,7 @@ impl SavedSkirmishAdmission {
                     .filter(|slot| slot.is_active)
                     .all(|slot| {
                         let color = info.slots[slot.slot_index].color;
-                        color >= 0
+                        resolved_original_color(slot, color)
                             && game_engine::common::ini::ini_multiplayer::with_multiplayer_settings(
                                 |settings| {
                                     settings.get_color_value(color).is_some_and(|packed| {
@@ -141,12 +169,27 @@ impl SavedSkirmishAdmission {
             }
             let active = (2..=5).contains(&source.state);
             let (selection, faction, color) = if active {
-                let template = store
-                    .get_nth_player_template_signed(source.player_template)
-                    .ok_or(
-                        "original saved occupied slot has no concrete receiving PlayerTemplate",
-                    )?;
-                if source.color < 0 {
+                let (template, selection) = if source.player_template == -2 {
+                    let template = store
+                        .find_template("FactionObserver")
+                        .filter(|template| template.is_observer())
+                        .ok_or("original occupied observer requires receiving FactionObserver")?;
+                    (template, SkirmishPlayerTemplateSelection::Observer)
+                } else {
+                    let template = store
+                        .get_nth_player_template_signed(source.player_template)
+                        .ok_or(
+                            "original saved occupied slot has no concrete receiving PlayerTemplate",
+                        )?;
+                    (
+                        template,
+                        SkirmishPlayerTemplateSelection::Exact {
+                            template_name: template.get_name().to_string(),
+                            template_index: source.player_template,
+                        },
+                    )
+                };
+                if source.color < 0 && !(source.player_template == -2 && source.color == -2) {
                     return Err(format!(
                         "original saved occupied slot has unresolved or invalid color index {}",
                         source.color
@@ -162,10 +205,7 @@ impl SavedSkirmishAdmission {
                     )
                 })?;
                 (
-                    SkirmishPlayerTemplateSelection::Exact {
-                        template_name: template.get_name().to_string(),
-                        template_index: source.player_template,
-                    },
+                    selection,
                     template.get_side().to_string(),
                     (
                         ((packed >> 16) & 255) as u8,
@@ -255,6 +295,7 @@ impl SavedSkirmishAdmission {
                     template_name,
                     template_index,
                 } if !template_name.is_empty() && *template_index >= 0 => {}
+                SkirmishPlayerTemplateSelection::Observer => {}
                 _ => {
                     return Err(format!(
                         "saved initial slot {} has no resolved PlayerTemplate",
@@ -270,19 +311,23 @@ impl SavedSkirmishAdmission {
                     (false, Some("Hard" | "Brutal")) => 4,
                     (false, _) => 3,
                 };
-                let SkirmishPlayerTemplateSelection::Exact { template_index, .. } =
-                    &slot.player_template
-                else {
-                    unreachable!()
+                let raw_template = match &slot.player_template {
+                    SkirmishPlayerTemplateSelection::Exact { template_index, .. } => {
+                        *template_index
+                    }
+                    SkirmishPlayerTemplateSelection::Observer => -2,
+                    SkirmishPlayerTemplateSelection::Random => {
+                        unreachable!("resolved admission validated")
+                    }
                 };
-                if raw.color < 0 {
+                if !resolved_original_color(slot, raw.color) {
                     return Err(
                         "complete original GameInfo contains an unresolved color index".into(),
                     );
                 }
                 if raw.state != state
                     || raw.start_pos != slot.start_position
-                    || raw.player_template != *template_index
+                    || raw.player_template != raw_template
                     || raw.team_number != slot.team
                 {
                     return Err(format!(
@@ -348,7 +393,7 @@ impl SavedSkirmishAdmission {
                 let color = info.slots[slot.slot_index].color;
                 let agrees = game_engine::common::ini::ini_multiplayer::with_multiplayer_settings(
                     |settings| {
-                        color >= 0
+                        resolved_original_color(slot, color)
                             && settings.get_color_value(color).is_some_and(|packed| {
                                 (
                                     ((packed >> 16) & 255) as u8,
@@ -382,7 +427,34 @@ impl SavedSkirmishAdmission {
     /// Install the same player admission kernel without reroll/reset/recorder.
     pub(crate) fn admit(&self, world: &mut GameLogic) -> Result<(), String> {
         self.validate_definitions()?;
-        let resolved = resolve_skirmish_slots(&self.config)?;
+        let mut resolved = resolve_skirmish_slots(&self.config)?;
+        // Saved current indices are admitted exactly, never randomized again.
+        if let Some(source) = &self.source {
+            let palette =
+                game_engine::common::ini::ini_multiplayer::with_multiplayer_settings(|s| {
+                    s.color_definitions.clone()
+                });
+            for selected in &mut resolved {
+                let index = source.slots[selected.slot.slot_index].color;
+                if index >= 0 {
+                    let definition = palette
+                        .get(index as usize)
+                        .ok_or("saved selected color definition is unavailable")?;
+                    let rgb = |packed: u32| {
+                        (
+                            ((packed >> 16) & 255) as u8,
+                            ((packed >> 8) & 255) as u8,
+                            (packed & 255) as u8,
+                        )
+                    };
+                    selected.color = Some(ResolvedSkirmishColor {
+                        index,
+                        rgb: rgb(definition.get_color()),
+                        night_rgb: rgb(definition.night_color),
+                    });
+                }
+            }
+        }
         world.clear_all_players();
         admit_resolved_slots(world, &self.config, &self.config.slots, resolved)?;
         self.admit_local_selection(world);

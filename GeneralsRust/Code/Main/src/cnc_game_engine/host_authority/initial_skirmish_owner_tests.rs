@@ -554,22 +554,71 @@ fn actual_random_color_client_input_keeps_native_archive_and_nonfirst_local_auth
             assert_eq!(config.source_game_info.as_ref().unwrap().1, 1);
             assert_eq!(raw.slots[0].color, -1);
             assert_eq!(raw.slots[1].color, -1);
+            let mut source = GameLogic::new();
+            apply_skirmish_config(&mut source, &config).unwrap();
+            // Random is an authored selection request, not the converter's
+            // provisional RGB. Save continuation must retain the value actually
+            // admitted by the receiving match (CPP populateRandomSideAndColor).
             let expected_colors = config
                 .slots
                 .iter()
                 .filter(|s| s.is_active)
-                .map(|s| (s.slot_index as u32, s.color_rgb))
+                .map(|slot| {
+                    let id = slot.slot_index as u32;
+                    let player = source.get_player(id).unwrap();
+                    let accepted = source
+                        .initial_skirmish_admission
+                        .as_ref()
+                        .unwrap()
+                        .config
+                        .slots
+                        .iter()
+                        .find(|s| s.slot_index == slot.slot_index)
+                        .unwrap();
+                    assert_eq!(
+                        player.color_rgb, accepted.color_rgb,
+                        "initial admission retains actual selected current color"
+                    );
+                    assert!(
+                        game_engine::common::ini::ini_multiplayer::with_multiplayer_settings(
+                            |settings| settings.color_definitions.iter().any(|definition| {
+                                let packed = definition.get_color();
+                                (
+                                    ((packed >> 16) & 255) as u8,
+                                    ((packed >> 8) & 255) as u8,
+                                    (packed & 255) as u8,
+                                ) == player.color_rgb
+                            })
+                        ),
+                        "Random admission must choose an authored palette color"
+                    );
+                    (id, player.color_rgb, player.color_night_rgb)
+                })
                 .collect::<Vec<_>>();
-            let mut source = GameLogic::new();
-            apply_skirmish_config(&mut source, &config).unwrap();
+            assert_eq!(
+                &config.source_game_info.as_ref().unwrap().0,
+                &raw,
+                "resolution never rewrites the caller's prestart observation"
+            );
             assert_eq!(source.local_player_id(), Some(1));
             assert!(!source.get_player(0).unwrap().is_local);
             assert!(source.get_player(1).unwrap().is_local);
             assert!(source.load_map(&map));
+            for (id, color, night) in &expected_colors {
+                let player = source.get_player(*id).unwrap();
+                assert_eq!(
+                    player.color_rgb, *color,
+                    "map foundation preserves admitted current color"
+                );
+                assert_eq!(
+                    player.color_night_rgb, *night,
+                    "map foundation preserves admitted night color"
+                );
+            }
             let initial = source.initial_skirmish_admission.as_ref().unwrap();
             assert!(
                 initial.source.is_none(),
-                "unresolved current colors cannot produce an original stream"
+                "prestart GameInfo must not invent the missing in-progress lifecycle"
             );
             assert!(initial.local_slot_from_client);
             assert_eq!(initial.local_slot, Some(1));
@@ -627,8 +676,13 @@ fn actual_random_color_client_input_keeps_native_archive_and_nonfirst_local_auth
                 restored.logic.initial_skirmish_admission.as_deref(),
                 source.initial_skirmish_admission.as_deref()
             );
-            for (id, color) in expected_colors {
+            for (id, color, night) in expected_colors {
                 assert_eq!(restored.logic.get_player(id).unwrap().color_rgb, color);
+                assert_eq!(
+                    restored.logic.get_player(id).unwrap().color_night_rgb,
+                    night,
+                    "save continuation preserves admitted night color"
+                );
             }
             assert_eq!(definitions(&restored.logic), definitions(&source));
             assert_eq!(persisted(&peer), peer_before);

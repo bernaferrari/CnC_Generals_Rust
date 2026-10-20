@@ -4,33 +4,10 @@ impl CnCGameEngine {
     /// One application-boundary loose-file/archive resolver; constructors
     /// consume private parsed content and never select ambient game data.
     async fn load_startup_game_data_texts() -> Result<Vec<(&'static str, String)>, String> {
-        let mut texts = Vec::new();
         let mut paths = vec!["Data/INI/Default/GameData.ini", "Data/INI/GameData.ini"];
         #[cfg(any(debug_assertions, feature = "internal"))]
         paths.push("Data/INI/GameDataDebug.ini");
-        for path in paths {
-            let text = if let Some(text) = Self::read_startup_ini_from_disk(path) {
-                Some(text)
-            } else {
-                if let Some(manager) = crate::assets::manager::get_asset_manager() {
-                    let mut manager = manager
-                        .lock()
-                        .map_err(|_| "asset manager poisoned".to_string())?;
-                    match manager.extract_file(path).await {
-                        Ok(bytes) => {
-                            Some(String::from_utf8(bytes).map_err(|err| format!("{path}: {err}"))?)
-                        }
-                        Err(_) => None,
-                    }
-                } else {
-                    None
-                }
-            };
-            if let Some(text) = text {
-                texts.push((path, text));
-            }
-        }
-        Ok(texts)
+        Self::load_startup_ini_texts(&paths).await
     }
     pub(super) async fn load_production_energy_baseline()
     -> Result<game_engine::common::ini::ini_game_data::ProductionEnergyRules, String> {
@@ -396,7 +373,13 @@ impl CnCGameEngine {
                 .await
                 .map_err(|err| anyhow::anyhow!(err))?,
         );
-        crate::command_system::bind_host_replay_authority(&game_logic.replay_pending);
+        let recorder_inputs = Self::capture_recorder_application_inputs(
+            game_logic.get_current_map_name().to_owned(),
+            game_logic.logic_base_seed,
+        );
+        game_logic
+            .replay_pending
+            .reset_recorder_owned(recorder_inputs);
         let resource_manager = ResourceManager::new();
         let mut save_file_manager = SaveFileManager::new();
         save_file_manager
@@ -473,6 +456,12 @@ impl CnCGameEngine {
         // C++ parity (GameEngine.cpp): if intro is disabled by INI/flags, startup enters
         // the post-intro state after shell-map validation.
         Self::sync_after_intro_when_intro_disabled();
+
+        // C++ GameEngine.cpp:399 initializes authored setup definitions before
+        // client UI. Complete this once before the archive worker can run.
+        Self::load_startup_multiplayer_definitions()
+            .await
+            .map_err(anyhow::Error::msg)?;
 
         let startup_load_state = if build_map_cache || audio_startup_requires_quit {
             StartupLoadState::Complete
@@ -841,7 +830,11 @@ impl CnCGameEngine {
             if let Err(e) = engine.game_client.init_input_subsystems() {
                 warn!("GameClient input subsystems init failed: {}", e);
             }
-            if let Err(e) = engine.game_client.init_display_subsystems() {
+            let replay_menu_inputs = engine.receiving_replay_menu_inputs();
+            if let Err(e) = engine
+                .game_client
+                .init_display_subsystems_with_replay_menu(Some(replay_menu_inputs))
+            {
                 warn!("GameClient display subsystems init failed: {}", e);
             }
 
@@ -884,7 +877,8 @@ impl CnCGameEngine {
 
             engine.game_client.init_savegame_counter_bridge();
 
-            engine.game_client.init_recorder_bridge();
+            // Native Recorder lives in the receiving GameLogic. Standalone
+            // Core owns its separate explicit bridge; do not install it here.
 
             engine
                 .game_client

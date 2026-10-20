@@ -404,6 +404,18 @@ impl ReplayListEntry {
 }
 
 /// Replay menu state management
+/// Immutable policy supplied by the application that owns the menu and Recorder.
+#[derive(Clone, Debug)]
+pub struct ReplayMenuInputs {
+    pub replay_directory: PathBuf,
+    pub replay_extension: String,
+    pub last_replay_filename: String,
+    pub current_version: String,
+    pub current_version_number: u32,
+    pub current_exe_crc: u32,
+    pub current_ini_crc: u32,
+}
+
 pub struct ReplayMenu {
     // Window IDs
     parent_id: u32,
@@ -447,6 +459,29 @@ impl ReplayMenu {
                 (g.exe_crc, g.ini_crc)
             })
             .unwrap_or((0, 0));
+        Self::new_owned(ReplayMenuInputs {
+            replay_directory: replay_dir,
+            replay_extension: replay_ext,
+            last_replay_filename,
+            current_version: version.get_unicode_version(),
+            current_version_number: version.get_version_number(),
+            current_exe_crc,
+            current_ini_crc,
+        })
+    }
+
+    /// Receiving application policy, captured before opening the authored layout.
+    /// The constructor does not publish state or consult another Recorder.
+    pub fn new_owned(inputs: ReplayMenuInputs) -> Self {
+        let ReplayMenuInputs {
+            replay_directory: replay_dir,
+            replay_extension: replay_ext,
+            last_replay_filename,
+            current_version,
+            current_version_number,
+            current_exe_crc,
+            current_ini_crc,
+        } = inputs;
         ReplayMenu {
             parent_id: 0,
             button_load_id: 0,
@@ -464,11 +499,65 @@ impl ReplayMenu {
             replay_directory: replay_dir,
             replay_extension: replay_ext,
             last_replay_filename,
-            current_version: version.get_unicode_version(),
-            current_version_number: version.get_version_number(),
+            current_version,
+            current_version_number,
             current_exe_crc,
             current_ini_crc,
         }
+    }
+
+    pub(crate) fn receiving_inputs_match(&self, inputs: &ReplayMenuInputs) -> bool {
+        self.replay_directory == inputs.replay_directory
+            && self.replay_extension == inputs.replay_extension
+            && self.last_replay_filename == inputs.last_replay_filename
+            && self.current_version == inputs.current_version
+            && self.current_version_number == inputs.current_version_number
+            && self.current_exe_crc == inputs.current_exe_crc
+            && self.current_ini_crc == inputs.current_ini_crc
+    }
+
+    /// Admit final application version/CRC observations without rebuilding an
+    /// active WND or changing its filename/selection identity.
+    pub(crate) fn refresh_receiving_version_policy(
+        &mut self,
+        inputs: &ReplayMenuInputs,
+    ) -> Result<bool, &'static str> {
+        if self.receiving_inputs_match(inputs) {
+            return Ok(false);
+        }
+        if self.replay_directory != inputs.replay_directory
+            || self.replay_extension != inputs.replay_extension
+            || self.last_replay_filename != inputs.last_replay_filename
+        {
+            return Err("Replay namespace cannot change while its authored menu owner is retained");
+        }
+        self.current_version = inputs.current_version.clone();
+        self.current_version_number = inputs.current_version_number;
+        self.current_exe_crc = inputs.current_exe_crc;
+        self.current_ini_crc = inputs.current_ini_crc;
+        // ReplayMenu.cpp202 compares against the current admitted content CRC.
+        // Read metadata only; do not reopen or alter the receiving live Recorder.
+        let colors: Vec<_> = self
+            .replay_list
+            .iter()
+            .map(|entry| {
+                self.read_replay_header(&self.replay_directory.join(&entry.filename))
+                    .map(|header| {
+                        header.get_display_color(
+                            &self.current_version,
+                            self.current_version_number,
+                            self.current_exe_crc,
+                            self.current_ini_crc,
+                        )
+                    })
+            })
+            .collect();
+        for (entry, color) in self.replay_list.iter_mut().zip(colors) {
+            if let Some(color) = color {
+                entry.color = color;
+            }
+        }
+        Ok(true)
     }
 
     /// Initialize the replay menu
@@ -700,12 +789,9 @@ impl ReplayMenu {
 
     /// Read replay header from file
     fn read_replay_header(&self, filepath: &Path) -> Option<ReplayHeader> {
-        let filename = filepath.file_name()?.to_string_lossy().to_string();
-        recorder::init_recorder();
-        match recorder::with_recorder_mut(|rec| rec.load_replay_header(filename)) {
-            Some(Ok(header)) => Some(map_common_header(header)),
-            _ => None,
-        }
+        recorder::inspect_replay_header(filepath)
+            .ok()
+            .map(map_common_header)
     }
 
     /// Parse game info from options string
@@ -722,14 +808,7 @@ impl ReplayMenu {
     ///
     /// Matches C++ ReplayMenu.cpp:396-418 and 519-550
     pub fn load_replay(&self) -> Result<(), String> {
-        if self.selected_index < 0 {
-            return Err("GUI:NoFileSelected".to_string());
-        }
-
-        let filename = self.get_replay_filename_from_listbox(self.selected_index);
-        if filename.is_empty() {
-            return Err("GUI:PleaseSelectAFile".to_string());
-        }
+        let filename = self.selected_replay_filename()?;
 
         // Check version compatibility
         let filepath = self.replay_directory.join(&filename);
@@ -749,6 +828,21 @@ impl ReplayMenu {
         self.playback_file(&filename)?;
 
         Ok(())
+    }
+
+    /// Capture one selection before any dialog/reset can change its window.
+    /// Version admission belongs to the receiving Recorder's testVersionPlayback.
+    pub fn selected_replay_filename(&self) -> Result<String, String> {
+        if self.selected_index < 0 {
+            return Err("GUI:NoFileSelected".to_string());
+        }
+
+        let filename = self.get_replay_filename_from_listbox(self.selected_index);
+        if filename.is_empty() {
+            return Err("GUI:PleaseSelectAFile".to_string());
+        }
+
+        Ok(filename)
     }
 
     /// Actually start playback of a replay file

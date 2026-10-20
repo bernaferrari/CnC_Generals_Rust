@@ -68,14 +68,7 @@ impl GameLogic {
 
         sides.validate_sides();
 
-        if matches!(
-            self.game_mode,
-            GameMode::Skirmish
-                | GameMode::Multiplayer
-                | GameMode::Lan
-                | GameMode::Internet
-                | GameMode::Replay
-        ) {
+        if self.uses_lobby_side_foundation() {
             sides.prepare_for_mp_or_skirmish();
             self.add_host_players_as_sides(&mut sides);
             sides.validate_sides();
@@ -103,16 +96,7 @@ impl GameLogic {
         // PlayerList.cpp110–121 skips the unnamed row after independently creating
         // neutral and admits every retained named Civilian. Skirmish skips the
         // later authored-player overwrite, so these owners must be admitted here.
-        if !self.players.is_empty()
-            && matches!(
-                self.game_mode,
-                GameMode::Skirmish
-                    | GameMode::Multiplayer
-                    | GameMode::Lan
-                    | GameMode::Internet
-                    | GameMode::Replay
-            )
-        {
+        if !self.players.is_empty() && self.uses_lobby_side_foundation() {
             // PlayerList::newGame reconstructs named map owners from this map.
             // Keep lobby/neutral/replay identities, but do not retain a prior map's
             // authored owners (or relationship references to their reused IDs).
@@ -163,3 +147,7 @@ impl GameLogic {
         team_definitions
     }
 }
+
+#[cfg(test)]
+#[path = "replay_authored_side_tests.rs"]
+mod replay_authored_side_tests;

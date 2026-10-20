@@ -1,6 +1,5 @@
 //! ReplayControls.cpp callback bridge.
 
-use crate::gui::callbacks::get_ingame_ui_system;
 use crate::gui::with_window_manager;
 use crate::gui::{GameWindow, WindowMessage, WindowMsgData, WindowMsgHandled};
 use game_engine::common::name_key_generator::NameKeyGenerator;
@@ -24,15 +23,18 @@ pub fn create_replay_control() -> bool {
 /// C++ RecorderClass::initControls — `winHide(getMode() != PLAYBACK)`.
 /// Creates ReplayControl.wnd if missing so playback can show the transport.
 pub fn apply_replay_control_visibility(hide: bool) {
+    with_window_manager(|manager| apply_replay_control_visibility_owned(manager, hide));
+}
+
+/// Recorder.cpp1552: lookup/hide only; InGameUI initialization creates the window.
+pub fn apply_replay_control_visibility_owned(
+    manager: &mut crate::gui::window_manager::WindowManager,
+    hide: bool,
+) {
     let parent_id = NameKeyGenerator::name_to_key(PARENT_REPLAY_CONTROL) as i32;
-    with_window_manager(|manager| {
-        if manager.get_window_by_id(parent_id).is_none() {
-            let _ = manager.create_windows_from_script("ReplayControl.wnd");
-        }
-        if let Some(win) = manager.get_window_by_id(parent_id) {
-            let _ = win.borrow_mut().hide(hide);
-        }
-    });
+    if let Some(window) = manager.get_window_by_id(parent_id) {
+        let _ = window.borrow_mut().hide(hide);
+    }
 }
 
 /// Borrowed native replay controls; missing authored windows remain absent.
@@ -83,33 +85,25 @@ pub fn toggle_replay_controls() {
 }
 
 pub fn replay_control_input(
-    window: &GameWindow,
-    msg: WindowMessage,
-    data1: WindowMsgData,
-    data2: WindowMsgData,
+    _window: &GameWindow,
+    _msg: WindowMessage,
+    _data1: WindowMsgData,
+    _data2: WindowMsgData,
 ) -> WindowMsgHandled {
-    let replay = {
-        let system = get_ingame_ui_system();
-        let system = system.read().unwrap_or_else(|e| e.into_inner());
-        system.get_replay()
-    };
-    let mut replay = replay.write().unwrap_or_else(|e| e.into_inner());
-    replay.input(window, msg, data1, data2)
+    // ReplayControls.cpp: the authored input callback has no mutable state.
+    WindowMsgHandled::Ignored
 }
 
 pub fn replay_control_system(
-    window: &GameWindow,
+    _window: &GameWindow,
     msg: WindowMessage,
-    data1: WindowMsgData,
-    data2: WindowMsgData,
+    _data1: WindowMsgData,
+    _data2: WindowMsgData,
 ) -> WindowMsgHandled {
-    let replay = {
-        let system = get_ingame_ui_system();
-        let system = system.read().unwrap_or_else(|e| e.into_inner());
-        system.get_replay()
-    };
-    let mut replay = replay.write().unwrap_or_else(|e| e.into_inner());
-    replay.system(window, msg, data1, data2)
+    match msg {
+        WindowMessage::GadgetSelected => WindowMsgHandled::Handled,
+        _ => WindowMsgHandled::Ignored,
+    }
 }
 
 #[cfg(test)]
@@ -156,5 +150,29 @@ mod owned_tests {
         hide_replay_controls_owned(&mut manager, false);
         toggle_replay_controls_owned(&mut manager, true);
         assert!(manager.get_window_by_id(id).is_none());
+    }
+    #[test]
+    fn authored_replay_callbacks_are_stateless_on_receiving_windows() {
+        let mut manager = WindowManager::new();
+        let window = manager
+            .create_window_with_id(None, 0, 0, 100, 40, 91)
+            .unwrap();
+        let window = window.borrow();
+        assert_eq!(
+            replay_control_input(&window, WindowMessage::GadgetSelected, 0, 0),
+            WindowMsgHandled::Ignored
+        );
+        assert_eq!(
+            replay_control_system(&window, WindowMessage::GadgetSelected, 0, 0),
+            WindowMsgHandled::Handled
+        );
+        assert_eq!(
+            replay_control_system(&window, WindowMessage::Destroy, 0, 0),
+            WindowMsgHandled::Ignored
+        );
+        assert_eq!(
+            replay_control_input(&window, WindowMessage::Destroy, 0, 0),
+            WindowMsgHandled::Ignored
+        );
     }
 }

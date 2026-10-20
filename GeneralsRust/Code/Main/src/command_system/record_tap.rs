@@ -128,6 +128,9 @@ fn append_game_message_to_stream(msg: &GameMessage) {
 /// messages before `GameLogic::processCommandList`. The callback channel
 /// crosses the client/logic boundary; decoded state stays on the game instance.
 pub struct ReplayPendingState {
+    recorder: game_engine::common::recorder::Recorder,
+    recorded_messages: Vec<GameMessage>,
+    lifecycle_messages: Vec<GameMessage>,
     incoming: Receiver<Vec<GameMessage>>,
     sender: Sender<Vec<GameMessage>>,
     commands: Vec<GameCommand>,
@@ -144,6 +147,21 @@ impl Default for ReplayPendingState {
     fn default() -> Self {
         let (sender, incoming) = channel::unbounded();
         Self {
+            // Detached worlds do not resolve directories, map names or seeds
+            // from another live application. Admission supplies these explicitly.
+            recorder: game_engine::common::recorder::Recorder::new_owned(
+                game_engine::common::recorder::RecorderOwnerInputs {
+                    map: String::new(),
+                    seed: 0,
+                    replay_directory: std::path::PathBuf::new(),
+                    exe_crc: 0,
+                    ini_crc: 0,
+                    save_stats: false,
+                    stats_directory: std::path::PathBuf::new(),
+                },
+            ),
+            recorded_messages: Vec::new(),
+            lifecycle_messages: Vec::new(),
             incoming,
             sender,
             commands: Vec::new(),
@@ -160,10 +178,7 @@ impl Default for ReplayPendingState {
 
 impl ReplayPendingState {
     /// Client stream handoff into this receiving world; reset disconnects old loans.
-    pub(crate) fn receive_client_messages(
-        &mut self,
-        messages: Vec<GameMessage>,
-    ) -> Result<(), String> {
+    pub(crate) fn receive_client_messages(&self, messages: Vec<GameMessage>) -> Result<(), String> {
         self.sender
             .send(messages)
             .map_err(|error| format!("receiving command handoff disconnected: {error}"))
@@ -172,6 +187,10 @@ impl ReplayPendingState {
         // Disconnect a callback that captured the previous world/session's
         // sender, so a late delivery cannot enter the reset game.
         (self.sender, self.incoming) = channel::unbounded();
+        // GameLogic::reset does not reset C++ TheRecorder. Preserve the
+        // admitted open reader while clearing this world's transient handoff.
+        self.recorded_messages.clear();
+        self.lifecycle_messages.clear();
         self.commands.clear();
         self.camera = None;
         self.teams.clear();
@@ -413,31 +432,32 @@ pub fn tap_host_new_game_for_recorder(mode: GameMode, selected_seed: u32) {
 
 /// C++ `LookAtXlat.cpp:459-469`: emit `MSG_SET_REPLAY_CAMERA` onto the list
 /// the recorder snapshots (loc, angle, pitch, zoom, cursor, pixel).
-pub fn tap_replay_camera_for_recorder(pose: ReplayCameraPose) {
+pub fn tap_replay_camera_for_recorder(mut pose: ReplayCameraPose) {
     install_host_replay_bridges();
+    if pose.pixel == (0, 0) && pose.cursor == 0 {
+        let (cursor, pixel) = host_replay_mouse_snapshot();
+        pose.cursor = cursor;
+        pose.pixel = (pixel.x, pixel.y);
+    }
+    append_to_command_list(replay_camera_to_message(pose));
+}
+
+fn replay_camera_to_message(pose: ReplayCameraPose) -> GameMessage {
     let coord = coord_from_vec3(pose.pos);
     let mut message = GameMessage::with_player(
         GameMessageType::SetReplayCamera(coord.clone(), pose.yaw, pose.zoom),
         pose.player_index,
     );
-    let (cursor, pixel) = if pose.pixel != (0, 0) || pose.cursor != 0 {
-        (
-            pose.cursor,
-            ICoord2D {
-                x: pose.pixel.0,
-                y: pose.pixel.1,
-            },
-        )
-    } else {
-        host_replay_mouse_snapshot()
-    };
     message.append_location_argument(coord);
     message.append_real_argument(pose.yaw);
     message.append_real_argument(pose.pitch);
     message.append_real_argument(pose.zoom);
-    message.append_integer_argument(cursor);
-    message.append_pixel_argument(pixel);
-    append_to_command_list(message);
+    message.append_integer_argument(pose.cursor);
+    message.append_pixel_argument(ICoord2D {
+        x: pose.pixel.0,
+        y: pose.pixel.1,
+    });
+    message
 }
 
 /// Stamp live `TheGameLogic->getFrame()` for the next recorder write/playback.
@@ -684,6 +704,15 @@ fn apply_replay_team_to_leftover_player(player_index: i32, slot: u8, kind: u8, i
 }
 
 fn apply_replay_messages_to_host(state: &mut ReplayPendingState, messages: &[GameMessage]) {
+    apply_replay_messages(state, messages, true);
+}
+
+// Fixed receiving caller choice, never an ambient active-world selector.
+fn apply_replay_messages(
+    state: &mut ReplayPendingState,
+    messages: &[GameMessage],
+    core_delivery: bool,
+) {
     for message in messages {
         let player_index = message.get_player_index();
         match message.get_type() {
@@ -720,11 +749,17 @@ fn apply_replay_messages_to_host(state: &mut ReplayPendingState, messages: &[Gam
             }
             GameMessageType::NewGame | GameMessageType::ClearGameData => {
                 // C++ GameLogicDispatch.cpp:396-440 prepareNewGame/clearGameData.
-                append_game_message_to_stream(message);
+                if core_delivery {
+                    append_game_message_to_stream(message);
+                } else {
+                    state.lifecycle_messages.push(message.clone());
+                }
             }
             GameMessageType::CreateTeamSlot(slot) => {
                 let ids = object_ids_from_message(message);
-                apply_replay_team_to_leftover_player(player_index, *slot, 0, &ids);
+                if core_delivery {
+                    apply_replay_team_to_leftover_player(player_index, *slot, 0, &ids);
+                }
                 state.teams.push(ReplayTeamOp::Create {
                     player_index,
                     slot: *slot,
@@ -733,7 +768,9 @@ fn apply_replay_messages_to_host(state: &mut ReplayPendingState, messages: &[Gam
                 state.queue_selection_remirror(player_index);
             }
             GameMessageType::SelectTeamSlot(slot) => {
-                apply_replay_team_to_leftover_player(player_index, *slot, 1, &[]);
+                if core_delivery {
+                    apply_replay_team_to_leftover_player(player_index, *slot, 1, &[]);
+                }
                 state.teams.push(ReplayTeamOp::Select {
                     player_index,
                     slot: *slot,
@@ -741,7 +778,9 @@ fn apply_replay_messages_to_host(state: &mut ReplayPendingState, messages: &[Gam
                 state.queue_selection_remirror(player_index);
             }
             GameMessageType::AddTeamSlot(slot) => {
-                apply_replay_team_to_leftover_player(player_index, *slot, 2, &[]);
+                if core_delivery {
+                    apply_replay_team_to_leftover_player(player_index, *slot, 2, &[]);
+                }
                 state.teams.push(ReplayTeamOp::Add {
                     player_index,
                     slot: *slot,
@@ -1135,3 +1174,6 @@ mod special_power_tests;
 #[cfg(test)]
 #[path = "record_tap/line_build_input_tests.rs"]
 mod line_build_input_tests;
+
+#[path = "record_tap/owner.rs"]
+mod owner;

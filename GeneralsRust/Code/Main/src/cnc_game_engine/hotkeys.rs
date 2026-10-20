@@ -52,8 +52,15 @@ impl CnCGameEngine {
     }
 
     /// C++ `Player::processCreateTeamGameMessage` leftover `m_squads` / Squad xfer.
-    pub(crate) fn write_leftover_player_create_team(&self, group_num: u8, ids: &[ObjectId]) {
-        crate::command_system::tap_host_team_slot_for_recorder(group_num, 0, ids);
+    pub(crate) fn write_leftover_player_create_team(&mut self, group_num: u8, ids: &[ObjectId]) {
+        if let Some(local_player) = self.game_logic.local_player_id() {
+            self.game_logic.replay_pending.record_team_slot_owned(
+                local_player as i32,
+                group_num,
+                0,
+                ids,
+            );
+        }
         let object_ids: Vec<u32> = ids.iter().map(|id| id.0).collect();
         let Ok(list) = gamelogic::player::ThePlayerList().read() else {
             return;
@@ -73,12 +80,15 @@ impl CnCGameEngine {
     }
 
     /// C++ `Player::processSelectTeamGameMessage` / `processAddTeamGameMessage`.
-    fn write_leftover_player_select_team(&self, group_num: u8, add: bool) {
-        crate::command_system::tap_host_team_slot_for_recorder(
-            group_num,
-            if add { 2 } else { 1 },
-            &[],
-        );
+    fn write_leftover_player_select_team(&mut self, group_num: u8, add: bool) {
+        if let Some(local_player) = self.game_logic.local_player_id() {
+            self.game_logic.replay_pending.record_team_slot_owned(
+                local_player as i32,
+                group_num,
+                if add { 2 } else { 1 },
+                &[],
+            );
+        }
         let Ok(list) = gamelogic::player::ThePlayerList().read() else {
             return;
         };

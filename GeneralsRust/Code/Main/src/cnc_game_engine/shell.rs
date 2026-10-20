@@ -1119,6 +1119,28 @@ impl CnCGameEngine {
     ) -> StartupLoadState {
         let (sender, receiver) = mpsc::channel();
         let worker_gen = startup_worker_generation();
+        // Driving-thread application ingress, frozen before this worker exists.
+        // INI CRC is supplied by this worker's actual content walk below.
+        let mut recorder_inputs = {
+            let data = game_engine::common::ini::ini_game_data::ensure_global_data();
+            let data = data.read();
+            let directory = if data.get_path_user_data().trim().is_empty() {
+                let mut path = std::env::current_exe().unwrap_or_default();
+                path.pop();
+                path
+            } else {
+                std::path::PathBuf::from(data.get_path_user_data())
+            };
+            game_engine::common::recorder::RecorderOwnerInputs {
+                map: map_to_load.clone().unwrap_or_default(),
+                seed: 0,
+                replay_directory: directory.join("Replays"),
+                exe_crc: data.exe_crc,
+                ini_crc: 0,
+                save_stats: data.save_stats,
+                stats_directory: std::path::PathBuf::from(data.base_stats_dir.trim()),
+            }
+        };
         thread::spawn(move || {
             Self::emit_startup_load_progress(&sender, 0.03, "Preparing startup archive access");
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(
@@ -1263,31 +1285,8 @@ impl CnCGameEngine {
                         }
                     }
 
-                    // C++ parity: GameEngine.cpp:399 — load Multiplayer.ini (Default + override)
-                    // into the global MULTIPLAYER_SETTINGS OnceCell.
-                    {
-                        let mut loaded_any_multiplayer = false;
-                        for mp_path in [
-                            "Data/INI/Default/Multiplayer.ini",
-                            "Data/INI/Multiplayer.ini",
-                        ] {
-                            if let Some(content) = extract_ini_text_from_archives(mp_path) {
-                                let mut ini = game_engine::common::ini::INI::new();
-                                match ini.with_inline_source(&content, |ini| ini.parse_current_file()) {
-                                    Ok(()) => {
-                                        loaded_any_multiplayer = true;
-                                        info!("Loaded {}", mp_path);
-                                    }
-                                    Err(err) => {
-                                        warn!("Failed parsing {}: {}", mp_path, err);
-                                    }
-                                }
-                            }
-                        }
-                        if !loaded_any_multiplayer {
-                            warn!("No Multiplayer.ini found in archives — continuing without multiplayer settings");
-                        }
-                    }
+                    // Multiplayer definitions were admitted once by boot before
+                    // spawning this worker. Re-parsing appends StartingMoney choices.
 
                     let _ = game_engine::common::ini::ini_terrain::initialize_terrain_types();
                     // C++ parity: GameEngine.cpp:400 — load Terrain.ini (Default + override)
@@ -1619,6 +1618,7 @@ impl CnCGameEngine {
                         let crc = super::ini_crc_boot::calculate_game_engine_ini_crc(
                             |path| extract_ini_text_from_archives(path),
                         );
+                        recorder_inputs.ini_crc = crc;
                         super::ini_crc_boot::publish_ini_crc(crc);
                         info!("GameEngine init-table INI CRC: {crc:08X}");
                     }
@@ -1724,6 +1724,8 @@ impl CnCGameEngine {
                     worker_stop_if_abandoned()?;
                     Self::emit_startup_load_progress(&sender, 0.18, "Creating game session");
                     let mut game_logic = GameLogic::initialize();
+                    recorder_inputs.seed = game_logic.logic_base_seed;
+                    game_logic.replay_pending.reset_recorder_owned(recorder_inputs);
                     game_logic.seed_ocl_application_definitions(ocl_application_base);
                     game_logic.admit_camera_application_clip(camera_clip_base);
                     game_logic.admit_camera_application_movement(camera_movement_base);
@@ -1761,63 +1763,22 @@ impl CnCGameEngine {
                             "Starting replay playback",
                         );
 
-                        // C++ parity: bootstrap startup replay through the legacy recorder.
-                        crate::save_load::apply_host_recorder_init_controls();
-                        game_engine::common::recorder::init_recorder();
-                        let startup_command_sink: Arc<
-                            dyn Fn(game_engine::common::message_stream::GameMessage)
-                                + Send
-                                + Sync,
-                        > = Arc::new(|message| {
-                            let stream = game_engine::common::message_stream::get_message_stream();
-                            let write_result = stream.write();
-                            match write_result {
-                                Ok(mut stream_guard) => {
-                                    CnCGameEngine::append_common_message_to_stream(
-                                        &mut stream_guard,
-                                        &message,
-                                    );
-                                }
-                                Err(err) => {
-                                    warn!(
-                                        "Failed to forward recorder startup command into message stream: {}",
-                                        err
-                                    );
-                                }
-                            }
-                        });
-                        let _ = game_engine::common::recorder::with_recorder_mut(|recorder| {
-                            recorder.set_command_sink(Some(startup_command_sink));
-                        });
+                        // The actual admitted file belongs to this candidate and
+                        // moves with it through StartupLoadResult, without re-open.
                         let replay_to_play = replay_to_load.to_ascii_lowercase();
-                        match game_engine::common::recorder::with_recorder_mut(|recorder| {
-                            recorder.playback_file(replay_to_play.clone())
-                        }) {
-                            Some(Ok(true)) => {}
-                            Some(Ok(false)) => {
-                                warn!(
-                                    "Legacy recorder rejected startup replay '{}'",
-                                    replay_to_load
-                                );
+                        match game_logic.replay_pending.playback_file_owned(replay_to_play, false) {
+                            Ok(true) => {
+                                map_to_load = Some(game_logic.replay_pending.recorder_owned().get_game_info().map.clone());
                             }
-                            Some(Err(err)) => {
-                                warn!(
-                                    "Legacy recorder replay bootstrap failed for '{}': {}",
-                                    replay_to_load, err
-                                );
-                            }
-                            None => {
-                                warn!(
-                                    "Legacy recorder unavailable for startup replay '{}'",
-                                    replay_to_load
-                                );
-                            }
+                            Ok(false) => warn!("Receiving Recorder rejected startup replay '{}'", replay_to_load),
+                            Err(error) => warn!("Receiving replay bootstrap failed for '{}': {}", replay_to_load, error),
                         }
                     }
 
                     worker_stop_if_abandoned()?;
-                    let startup_messages = Self::take_startup_messages_from_stream(worker_gen)
+                    let mut startup_messages = Self::take_startup_messages_from_stream(worker_gen)
                         .unwrap_or_default();
+                    startup_messages.extend(game_logic.replay_pending.take_lifecycle_messages_owned());
                     let startup_new_game =
                         Self::startup_new_game_dispatch_from_messages(&startup_messages);
 
@@ -1852,13 +1813,40 @@ impl CnCGameEngine {
                         // Recorder.cpp:1133 admits the recorded GameInfo seed.
                         // Address this candidate directly: process initialization
                         // cannot choose a running Main session's logic stream.
-                        let (replay_seed, replay_cash) = game_engine::common::recorder::with_recorder(
-                            |recorder| { let info = recorder.get_game_info(); (info.seed, info.starting_cash) },
-                        ).ok_or_else(|| "startup replay recorder disappeared before seed admission".to_string())?;
+                        let info = game_logic.replay_pending.recorder_owned().get_game_info();
+                        let (replay_seed, replay_cash) = (info.seed, info.starting_cash);
                         game_logic.set_logic_random_seed(replay_seed);
                         game_info_starting_cash = Some(replay_cash);
                     }
-                    game_logic.start_new_game(startup_mode);
+                    let (difficulty, rank, max_fps) = startup_new_game
+                        .map(|dispatch| (dispatch.difficulty_code, dispatch.rank_points, dispatch.max_fps.unwrap_or(30)))
+                        .unwrap_or((1, 0, 30));
+                    if startup_mode == GameMode::Replay {
+                        // GameLogic.cpp selects this actual Recorder's GameInfo
+                        // before constructing sides; the reader stays in this candidate.
+                        let recorder = game_logic.replay_pending.recorder_owned();
+                        let recorded = recorder.get_game_info().clone();
+                        let original_mode = recorder.get_game_mode();
+                        match crate::skirmish_config::replay_admission::config_from_recorded_info(&recorded)? {
+                            Some(config) => {
+                                crate::skirmish_config::apply_skirmish_config_for_mode(
+                                    &mut game_logic, &config, GameMode::Replay,
+                                )?;
+                            }
+                            None if original_mode == 0 => {
+                                game_logic.start_new_game_with_recorder_payload(
+                                    GameMode::Replay, difficulty, rank, max_fps,
+                                );
+                                // Closed lobby rows preserve the campaign's authored sides.
+                                game_logic.clear_all_players();
+                            }
+                            None => return Err(format!(
+                                "Replay original mode {original_mode} has no occupied GameInfo slots"
+                            )),
+                        }
+                    } else {
+                        game_logic.start_new_game_with_recorder_payload(startup_mode, difficulty, rank, max_fps);
+                    }
                     Self::admit_startup_difficulty(&mut game_logic, startup_new_game);
                     game_logic.admit_new_game_starting_cash(game_info_starting_cash, default_starting_cash);
 
@@ -1883,6 +1871,15 @@ impl CnCGameEngine {
                                 Self::emit_startup_load_progress(&sender, progress, phase);
                             });
                         if !map_loaded {
+                            if replay_startup_requested && !start_in_menu {
+                                // This worker owns the failed candidate only. Close its
+                                // actual file before admitting the shell fallback; no old
+                                // running session or native GUI is touched by candidate IO.
+                                game_logic.replay_pending.stop_playback_owned();
+                                game_logic.replay_pending.take_lifecycle_messages_owned();
+                                let seed = game_logic.logic_base_seed;
+                                game_logic.replay_pending.reset_recorder_for_match_owned(String::new(), seed);
+                            }
                             if start_in_menu {
                                 warn!(
                                     "Failed to load shell map '{}'; continuing startup without a shell background map",
@@ -2091,6 +2088,7 @@ impl CnCGameEngine {
             );
             self.game_logic.session_view.camera.camera_pitch_radians = 0.0;
             self.game_logic.session_view.camera.camera_yaw_radians = 0.0;
+            self.initialize_receiving_replay_controls();
             let (_, render_look) = self
                 .game_logic
                 .session_view

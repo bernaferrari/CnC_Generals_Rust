@@ -33,6 +33,7 @@ impl GameWindow {
                 options_menu_system: false,
                 main_menu_system: false,
                 quit_menu_system: false,
+                replay_menu_system: false,
                 owned_radar_draw: false,
                 owned_control_bar_tooltip: false,
             },
@@ -1730,6 +1731,7 @@ impl GameWindow {
         self.callbacks.options_menu_system = false;
         self.callbacks.main_menu_system = false;
         self.callbacks.quit_menu_system = false;
+        self.callbacks.replay_menu_system = false;
     }
 
     /// Get system callback.
@@ -1748,6 +1750,7 @@ impl GameWindow {
         self.callbacks.options_menu_system = false;
         self.callbacks.main_menu_system = false;
         self.callbacks.quit_menu_system = false;
+        self.callbacks.replay_menu_system = false;
     }
 
     /// Set tooltip callback
@@ -1840,6 +1843,8 @@ impl GameWindow {
         data1: WindowMsgData,
         data2: WindowMsgData,
         owned_options: bool,
+        owned_replay: bool,
+        owned_restart: bool,
     ) -> (WindowMsgHandled, Option<ControlBarNotification>) {
         if msg != WindowMessage::Destroy && self.status.contains(WindowStatus::DESTROYED) {
             return (WindowMsgHandled::Ignored, None);
@@ -1850,7 +1855,17 @@ impl GameWindow {
                 return (result, None);
             }
         }
-        self.handle_widget_input_with_control_bar_notification(msg, data1, data2, owned_options)
+        self.handle_widget_input_with_control_bar_notification(
+            msg,
+            data1,
+            data2,
+            owned_options,
+            owned_replay,
+            owned_restart,
+        )
+    }
+    pub(crate) fn mark_replay_menu_system_callback(&mut self) {
+        self.callbacks.replay_menu_system = true;
     }
     pub(crate) fn mark_quit_menu_system_callback(&mut self) {
         self.callbacks.quit_menu_system = true;

@@ -11,7 +11,16 @@ impl GameWindow {
         data2: WindowMsgData,
     ) -> WindowMsgHandled {
         let mut notification = None;
-        self.handle_widget_input_phase(msg, data1, data2, false, false, &mut notification)
+        self.handle_widget_input_phase(
+            msg,
+            data1,
+            data2,
+            false,
+            false,
+            false,
+            false,
+            &mut notification,
+        )
     }
     pub(crate) fn handle_widget_input_with_control_bar_notification(
         &mut self,
@@ -19,6 +28,8 @@ impl GameWindow {
         data1: WindowMsgData,
         data2: WindowMsgData,
         owned_options: bool,
+        owned_replay: bool,
+        owned_restart: bool,
     ) -> (WindowMsgHandled, Option<ControlBarNotification>) {
         let mut notification = None;
         let result = self.handle_widget_input_phase(
@@ -27,6 +38,8 @@ impl GameWindow {
             data2,
             true,
             owned_options,
+            owned_replay,
+            owned_restart,
             &mut notification,
         );
         (result, notification)
@@ -38,6 +51,8 @@ impl GameWindow {
         data2: WindowMsgData,
         owned_control_bar: bool,
         owned_options: bool,
+        owned_replay: bool,
+        owned_restart: bool,
         notification: &mut Option<ControlBarNotification>,
     ) -> WindowMsgHandled {
         self.sync_listbox_content_top_inset();
@@ -422,6 +437,56 @@ impl GameWindow {
                 }
             };
 
+            if owned_replay
+                && (single_push_button_notification || is_listbox_message)
+                && let Some(owner) = target_owner.as_ref()
+            {
+                let key = game_engine::common::name_key_generator::NameKeyGenerator::name_to_key;
+                let owner_ref = owner.borrow();
+                let action = if owner_ref.callbacks.replay_menu_system
+                    && msg == WindowMessage::GadgetSelected
+                    && data1 as u32 == key("ReplayMenu.wnd:ButtonLoadReplay")
+                {
+                    Some(SelectedOwnerAction::ReplayMenuLoad)
+                } else if owner_ref.callbacks.replay_menu_system
+                    && msg == WindowMessage::User(GLM_DOUBLE_CLICKED)
+                    && data1 as u32 == key("ReplayMenu.wnd:ListboxReplayFiles")
+                {
+                    Some(SelectedOwnerAction::ReplayMenuDoubleClick)
+                } else if owned_restart
+                    && owner_ref.callbacks.quit_menu_system
+                    && msg == WindowMessage::GadgetSelected
+                    && [
+                        key("QuitMenu.wnd:ButtonRestart"),
+                        key("QuitNoSave.wnd:ButtonRestart"),
+                    ]
+                    .contains(&(data1 as u32))
+                {
+                    Some(SelectedOwnerAction::ReplayMenuRestart)
+                } else if msg == WindowMessage::GadgetSelected
+                    && [
+                        key("MessageBox.wnd:ButtonOk"),
+                        key("MessageBox.wnd:ButtonYes"),
+                    ]
+                    .contains(&(data1 as u32))
+                    && owner_ref
+                        .get_user_data::<crate::gui::callbacks::message_box::WindowMessageBoxData>()
+                        .is_some_and(|data| data.has_owned_replay())
+                {
+                    Some(SelectedOwnerAction::ReplayMenuConfirm)
+                } else {
+                    None
+                };
+                drop(owner_ref);
+                if let Some(action) = action {
+                    *notification = Some(ControlBarNotification {
+                        owner: owner.clone(),
+                        action,
+                        control_id: data1,
+                    });
+                    return WindowMsgHandled::Handled;
+                }
+            }
             if single_push_button_notification
                 && matches!(
                     msg,

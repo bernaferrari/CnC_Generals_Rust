@@ -95,6 +95,8 @@ fn click_options(
         writes: Vec::new(),
     };
     let mut context = ControlBarInputContext {
+        replay_version: None,
+        replay_menu: None,
         observer_roster: None,
         camera_options: Some(CameraOptionsInputContext::new(prefs, rules)),
         control_bar: &mut bar,
@@ -287,11 +289,25 @@ fn actual_quit_and_no_save_options_buttons_select_borrowed_camera_admission() {
         button.borrow_mut().set_cursor_position(5, 5).unwrap();
         let (_, down) = button
             .borrow_mut()
-            .send_input_with_control_bar_notification(WindowMessage::LeftDown, 0, 0, true);
+            .send_input_with_control_bar_notification(
+                WindowMessage::LeftDown,
+                0,
+                0,
+                true,
+                false,
+                false,
+            );
         assert!(down.is_none());
         let (_, up) = button
             .borrow_mut()
-            .send_input_with_control_bar_notification(WindowMessage::LeftUp, 0, 0, true);
+            .send_input_with_control_bar_notification(
+                WindowMessage::LeftUp,
+                0,
+                0,
+                true,
+                false,
+                false,
+            );
         let up = up.expect("actual push button must produce the selected pause Options action");
         assert!(matches!(up.action, SelectedOwnerAction::ShowQuitOptions));
         assert_eq!(up.control_id, id as WindowMsgData);

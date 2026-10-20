@@ -102,6 +102,13 @@ impl<'a> CameraOptionsInputContext<'a> {
 }
 pub struct ControlBarInputContext<'a> {
     pub camera_options: Option<CameraOptionsInputContext<'a>>,
+    /// Owned result for this synchronous native operation; consumed by Main
+    /// immediately after dispatch, never retained across a frame.
+    pub replay_menu:
+        Option<&'a mut crate::gui::callbacks::replay_menu::ingress::ReplayMenuOperation>,
+    /// Bounded Recorder-only probe; captured from the same receiving match,
+    /// independent of the view loan. Never retained by windows or a dialog.
+    pub replay_version: Option<&'a mut dyn FnMut(&str) -> bool>,
     pub observer_roster:
         Option<&'a crate::gui::control_bar::control_bar_observer::NativeObserverRoster>,
     pub control_bar: &'a mut ControlBar,
@@ -145,9 +152,44 @@ impl WindowManager {
                     data1,
                     data2,
                     context.camera_options.is_some() || context.observer_roster.is_some(),
+                    context.replay_menu.is_some(),
+                    context
+                        .replay_menu
+                        .as_ref()
+                        .is_some_and(|op| op.allow_offline_restart()),
                 )
         };
         if let Some(notification) = notification {
+            if matches!(
+                notification.action,
+                SelectedOwnerAction::ReplayMenuLoad
+                    | SelectedOwnerAction::ReplayMenuDoubleClick
+                    | SelectedOwnerAction::ReplayMenuConfirm
+                    | SelectedOwnerAction::ReplayMenuRestart
+            ) {
+                if let Some(operation) = context.replay_menu.as_deref_mut() {
+                    match notification.action {
+                        SelectedOwnerAction::ReplayMenuLoad => operation.capture_menu(self, false),
+                        SelectedOwnerAction::ReplayMenuDoubleClick => {
+                            operation.capture_menu(self, true)
+                        }
+                        SelectedOwnerAction::ReplayMenuRestart => operation.capture_restart(),
+                        SelectedOwnerAction::ReplayMenuConfirm => {
+                            operation.capture_confirmation(&notification.owner.borrow());
+                            let _ = self.unset_modal(&notification.owner);
+                            let _ = self.destroy_window(notification.owner.clone());
+                            self.flush_destroy_queue();
+                        }
+                        _ => unreachable!(),
+                    }
+                    if let Some(version) = context.replay_version.as_mut() {
+                        operation.complete_ui_in(self, Some(&mut **version));
+                    } else {
+                        operation.complete_ui_in(self, None);
+                    }
+                }
+                return handled;
+            }
             if let SelectedOwnerAction::ObserverButtonSlot(slot) = notification.action {
                 if let Some(roster) = context.observer_roster {
                     // Resolve the authored button slot against this operation's
@@ -212,7 +254,11 @@ impl WindowManager {
                                 Some(PendingCameraOptions::OpenQuit(notification.control_id))
                             }
                             SelectedOwnerAction::ControlBarToggle
-                            | SelectedOwnerAction::ObserverButtonSlot(_) => None,
+                            | SelectedOwnerAction::ObserverButtonSlot(_)
+                            | SelectedOwnerAction::ReplayMenuLoad
+                            | SelectedOwnerAction::ReplayMenuDoubleClick
+                            | SelectedOwnerAction::ReplayMenuConfirm
+                            | SelectedOwnerAction::ReplayMenuRestart => None,
                         };
                     }
                 }

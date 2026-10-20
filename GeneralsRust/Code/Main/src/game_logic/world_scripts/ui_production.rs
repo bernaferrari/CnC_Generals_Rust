@@ -421,7 +421,7 @@ impl GameLogic {
     /// Queue a command from the UI
     pub fn queue_command(&mut self, command: crate::command_system::GameCommand) {
         log::trace!("Queuing command: {:?}", command.command_type);
-        crate::command_system::tap_host_command_for_recorder(&command);
+        self.replay_pending.record_command_owned(&command);
         self.command_queue.push_back(command);
     }
 
@@ -481,16 +481,18 @@ impl GameLogic {
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         // The recorder observes this driving world even outside a full tick.
-        crate::command_system::stamp_host_logic_frame(&mut self.replay_pending, self.frame);
-        let state_crc = if crate::command_system::logic_crc_due(self.frame) {
+        let state_crc = if self.replay_pending.logic_crc_due_owned(self.frame) {
             self.logic_crc()
         } else {
             0
         };
-        crate::command_system::flush_recorder_and_replay_authority(
-            &mut self.replay_pending,
+        let local_player_index = self.local_player_id().map_or(-1, |id| id as i32);
+        self.replay_pending.flush_owned(
+            self.frame,
             &mut self.command_queue,
             state_crc,
+            local_player_index,
+            None,
         );
         while let Some(command) = self.command_queue.pop_front() {
             self.execute_command_with_effects(command, ui.reborrow());

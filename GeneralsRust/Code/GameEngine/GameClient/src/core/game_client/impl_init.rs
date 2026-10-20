@@ -401,6 +401,14 @@ impl GameClient {
     }
 
     pub fn init_display_subsystems(&mut self) -> GameClientResult<()> {
+        self.init_display_subsystems_with_replay_menu(None)
+    }
+
+    /// Native immutable Recorder policy is admitted before Shell binds authored windows.
+    pub fn init_display_subsystems_with_replay_menu(
+        &mut self,
+        replay_menu: Option<crate::gui::shell::replay_menu::ReplayMenuInputs>,
+    ) -> GameClientResult<()> {
         log::info!("init_display_subsystems: starting");
 
         self.init_localized_ui_resources()?;
@@ -464,6 +472,10 @@ impl GameClient {
             let mut window_manager = WindowManagerSubsystem::new();
             window_manager.init()?;
             self.subsystem_manager.window_manager = Some(Arc::new(Mutex::new(window_manager)));
+        }
+
+        if let Some(inputs) = replay_menu {
+            crate::gui::with_window_manager(|manager| manager.configure_replay_menu_owned(inputs));
         }
 
         {
@@ -648,6 +660,9 @@ impl GameClient {
             crate::core::subsystems::register_in_game_ui_snapshot_block(ui_arc.clone());
             register_radar_snapshot_block(ui_arc.clone());
             self.subsystem_manager.in_game_ui = Some(ui_arc);
+            // InGameUI.cpp1157 creates this authored transport during UI init;
+            // Recorder::initControls later only changes existing visibility.
+            crate::gui::callbacks::replay_controls::create_replay_control();
         }
 
         // C++ GameClient.cpp:351-353 creates and initializes
@@ -794,7 +809,7 @@ impl GameClient {
         Ok(())
     }
 
-    fn take_completed_client_messages(&self) -> GameClientResult<Vec<GameMessage>> {
+    fn take_completed_client_messages(&self, playback: bool) -> GameClientResult<Vec<GameMessage>> {
         let mut completed_messages = {
             let mut stream = THE_MESSAGE_STREAM.write().map_err(|_| {
                 GameClientError::SubsystemError("Message stream lock poisoned".into())
@@ -804,9 +819,7 @@ impl GameClient {
             })?
         };
 
-        if game_engine::common::recorder::with_recorder(|recorder| recorder.is_playback())
-            .unwrap_or(false)
-        {
+        if playback {
             // C++ Recorder::updatePlayback culls live user network orders
             // before GameLogic dispatch. The owner now ticks Recorder later,
             // so filter them before routing into the legacy queue as well.
@@ -820,7 +833,10 @@ impl GameClient {
     }
 
     pub fn pump_message_stream(&self) -> GameClientResult<()> {
-        let completed_messages = self.take_completed_client_messages()?;
+        let playback =
+            game_engine::common::recorder::with_recorder(|recorder| recorder.is_playback())
+                .unwrap_or(false);
+        let completed_messages = self.take_completed_client_messages(playback)?;
         if completed_messages.is_empty() {
             return Ok(());
         }
@@ -835,9 +851,10 @@ impl GameClient {
     /// Do not also publish this batch to Core's independent player queues.
     pub fn pump_message_stream_to_receiving_owner(
         &self,
+        recorder: &game_engine::common::recorder::Recorder,
         receive: &mut dyn FnMut(Vec<GameMessage>) -> GameClientResult<()>,
     ) -> GameClientResult<()> {
-        let completed_messages = self.take_completed_client_messages()?;
+        let completed_messages = self.take_completed_client_messages(recorder.is_playback())?;
         if completed_messages.is_empty() {
             return Ok(());
         }

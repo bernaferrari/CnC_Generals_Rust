@@ -273,7 +273,7 @@ impl GameLogic {
         self.sync_legacy_player_list_from_sides();
         // Campaign owner identities must exist before singleton admission;
         // skirmish retains the already admitted lobby slots.
-        if self.game_mode != GameMode::Skirmish {
+        if !self.uses_lobby_side_foundation() {
             self.apply_host_players_from_side_dicts(&sides_data.side_dicts, false);
         }
         self.stash_side_builds_on_host(&sides_data.side_builds);
@@ -653,7 +653,7 @@ impl GameLogic {
         if !game_engine::System::capture_campaign_manager_runtime().is_challenge {
             return;
         }
-        if !matches!(self.game_mode, GameMode::SinglePlayer) {
+        if !self.is_single_player_scenario() {
             return;
         }
         use gamelogic::common::Relationship;

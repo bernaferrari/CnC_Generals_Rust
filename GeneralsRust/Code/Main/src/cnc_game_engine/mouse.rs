@@ -497,6 +497,7 @@ fn should_emit_host_replay_camera(
     state: GameState,
     mode: crate::game_logic::GameMode,
     save_camera: bool,
+    recorder_playback: bool,
 ) -> bool {
     if !matches!(state, GameState::InGame) {
         return false;
@@ -504,7 +505,7 @@ fn should_emit_host_replay_camera(
     if !save_camera {
         return false;
     }
-    if crate::command_system::host_recorder_is_playback() {
+    if recorder_playback {
         return false;
     }
     // C++ LookAtXlat.cpp:459 — single-player or skirmish only.
@@ -518,7 +519,10 @@ impl CnCGameEngine {
     fn receiving_replay_camera_for_player(&self, player_index: i32) -> bool {
         // Recorder lifecycle remains a distinct capability (hq-e2zpa), not
         // equivalent to the receiving GameMode enum at start/stop boundaries.
-        crate::command_system::host_recorder_is_playback()
+        self.game_logic
+            .replay_pending
+            .recorder_owned()
+            .is_playback()
             && self.ui_manager.replay_camera_preferences().1
             && self.receiving_observer_look_at_player() == Some(player_index)
     }

@@ -2145,9 +2145,9 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
 #[path = "water_owner_tests.rs"]
 mod water_owner_tests;
 
-#[cfg(test)]
+#[cfg(any(test, feature = "internal"))]
 impl GameLogic {
-    /// Execute a fixture's local engine through the actual borrowed Main driver.
+    /// Execute an acceptance interpreter through the actual borrowed Main driver.
     /// No driver or engine is installed into process state.
     pub(crate) fn update_local_script_engine_with_owner(
         &mut self,

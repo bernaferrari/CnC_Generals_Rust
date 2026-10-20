@@ -8,7 +8,18 @@ impl CnCGameEngine {
     ) -> Option<game_client::gui::control_bar::control_bar_observer::NativeObserverRoster> {
         receiving_observer_roster_from_world(
             &self.game_logic,
-            game_engine::common::recorder::with_recorder(|recorder| recorder.is_multiplayer())?,
+            self.game_logic
+                .replay_pending
+                .recorder_owned()
+                .is_multiplayer_for_game_mode(match self.game_logic.game_mode() {
+                    crate::game_logic::GameMode::SinglePlayer => 0,
+                    crate::game_logic::GameMode::Skirmish => 2,
+                    crate::game_logic::GameMode::Replay => 3,
+                    crate::game_logic::GameMode::Shell => 4,
+                    crate::game_logic::GameMode::None => 6,
+                    crate::game_logic::GameMode::Internet => 5,
+                    _ => 1,
+                }),
         )
     }
     pub(super) fn receiving_observer_look_at_player(&self) -> Option<i32> {
@@ -61,6 +72,8 @@ impl CnCGameEngine {
         let (x, y) = self.mouse_position;
         let observer_roster = self.receiving_observer_roster();
         let mut context = game_client::gui::window_manager::ControlBarInputContext {
+            replay_menu: None,
+            replay_version: None,
             observer_roster: observer_roster.as_ref(),
             camera_options: None,
             control_bar: &mut self.control_bar,

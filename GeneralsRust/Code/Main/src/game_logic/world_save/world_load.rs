@@ -3,6 +3,19 @@
 use super::*;
 
 impl GameLogic {
+    /// Replay commands belong to their recorded map; never substitute another match.
+    pub(crate) fn load_recorded_map_with_progress<F>(
+        &mut self,
+        map: &str,
+        progress: F,
+    ) -> Option<String>
+    where
+        F: FnMut(f32, &str),
+    {
+        self.load_map_with_progress(map, progress)
+            .then(|| map.to_owned())
+    }
+
     pub(in super::super) fn ground_loaded_map_objects_to_terrain(
         &mut self,
         objects: &[super::script_loader::PlacedObject],
@@ -326,16 +339,17 @@ impl GameLogic {
                             }
                         }
                         // Common skirmish residual: player 0 human USA, 1 AI GLA.
-                        map_player_to_team.entry(0).or_insert(Team::USA);
-                        map_player_to_team.entry(1).or_insert(Team::GLA);
+                        if self.uses_lobby_side_foundation() {
+                            map_player_to_team.entry(0).or_insert(Team::USA);
+                            map_player_to_team.entry(1).or_insert(Team::GLA);
+                        }
                         // Seed players from map ownership only when no skirmish/host
                         // players were already configured. Wiping would destroy
                         // apply_skirmish_config slots/AI on Lone Eagle-style loads.
                         if !map_player_to_team.is_empty() {
-                            let preserve_host_players = matches!(
-                                self.game_mode,
-                                GameMode::Skirmish | GameMode::SinglePlayer
-                            ) && !self.players.is_empty();
+                            let preserve_host_players = (self.uses_lobby_side_foundation()
+                                || self.game_mode == GameMode::SinglePlayer)
+                                && !self.players.is_empty();
                             if preserve_host_players {
                                 log::info!(
                                     "Preserving {} host player(s) across map load (skirmish/SP config)",
@@ -796,7 +810,7 @@ impl GameLogic {
         // Skirmish/SP: map spawn clears world objects. Rebind host AI (stale
         // object/factory refs, rebuild budget) and re-ensure GLA_*/faction templates
         // without wiping players, cash, difficulty, or is_active.
-        if matches!(self.game_mode, GameMode::Skirmish | GameMode::SinglePlayer) {
+        if self.uses_lobby_side_foundation() || self.is_single_player_scenario() {
             self.rebind_host_ai_after_map_load();
             // C++ GameLogic.cpp placeObjectAtPosition loop for PlayerTemplate StartingUnitN.
             // Without this, Lone Eagle-style maps keep buildings but no dozers/workers.

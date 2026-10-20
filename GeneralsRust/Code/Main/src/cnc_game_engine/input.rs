@@ -1428,6 +1428,15 @@ impl CnCGameEngine {
         if self.host_consume_clear_game_data() {
             return;
         }
+        if self.current_state == GameState::InGame && self.game_logic.game_mode() == GameMode::None
+        {
+            // C++ GameLogic::update does not run a GAME_NONE world. A failed
+            // synchronous replay header can leave the native shell/score layout
+            // visible while the host was previously InGame. Keep the client
+            // phase alive without a second reset or fabricated world.
+            self.host_tick_menu_client_residuals(visual_dt, dt);
+            return;
+        }
         if matches!(self.current_state, GameState::Menu) && self.menu_world_frames_rendered < 5 {
             debug!(
                 "update_internal: Menu state, update_runtime_subsystems done, entering state match"

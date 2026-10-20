@@ -4,21 +4,20 @@ use crate::game_text::GameText;
 use crate::gui::shell::replay_menu::ReplayMenu as ShellReplayMenu;
 use crate::gui::{
     Color as WindowColor, GLM_DOUBLE_CLICKED, GameWindow, KeyModifiers, WindowLayout,
-    WindowMessage, WindowMsgData, WindowMsgHandled, message_box_ok, message_box_ok_cancel,
-    message_box_yes_no, queue_shell_pop, queue_shell_shutdown_complete,
-    show_shell_map_if_available, with_shell_ref, with_window_manager, write_input_focus_response,
+    WindowMessage, WindowMsgData, WindowMsgHandled, message_box_ok, message_box_yes_no,
+    queue_shell_pop, queue_shell_shutdown_complete, show_shell_map_if_available, with_shell_ref,
+    with_window_manager, write_input_focus_response,
 };
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::recorder::{init_recorder, with_recorder, with_recorder_mut};
 use std::cell::RefCell;
 use std::path::PathBuf;
-use std::rc::Rc;
-use std::sync::{Arc, Mutex};
+use std::rc::{Rc, Weak};
 
 const KEY_ESC: usize = 0x1B;
 const KEY_STATE_UP: usize = 0x0001;
 
-struct ReplayMenuState {
+pub(crate) struct ReplayMenuState {
     parent_id: i32,
     gadget_parent_id: i32,
     button_load_id: i32,
@@ -26,7 +25,7 @@ struct ReplayMenuState {
     button_delete_id: i32,
     button_copy_id: i32,
     listbox_id: i32,
-    parent: Option<Rc<RefCell<GameWindow>>>,
+    parent: Option<Weak<RefCell<GameWindow>>>,
     listbox_window: Option<Rc<RefCell<GameWindow>>>,
     menu: ShellReplayMenu,
     is_shutting_down: bool,
@@ -35,8 +34,52 @@ struct ReplayMenuState {
 }
 
 impl ReplayMenuState {
-    fn new() -> Self {
+    pub(crate) fn receiving_inputs_match(
+        &self,
+        inputs: &crate::gui::shell::replay_menu::ReplayMenuInputs,
+    ) -> bool {
+        self.menu.receiving_inputs_match(inputs)
+    }
+
+    pub(crate) fn refresh_receiving_policy(
+        &mut self,
+        inputs: &crate::gui::shell::replay_menu::ReplayMenuInputs,
+    ) -> Result<(), &'static str> {
+        if !self.menu.refresh_receiving_version_policy(inputs)? {
+            return Ok(());
+        }
+        // Refresh only presentation colors. Never clear/repopulate the active
+        // gadget, lose its selected filename, or interrupt a Down/Up operation.
+        if let Some(window) = self.listbox_window.as_ref() {
+            let mut window = window.borrow_mut();
+            if let Some(list) = window.list_box_mut() {
+                for (row, entry) in self.menu.get_replay_list().iter().enumerate() {
+                    let color = WindowColor::new(
+                        entry.color.r,
+                        entry.color.g,
+                        entry.color.b,
+                        entry.color.a,
+                    );
+                    let _ = list.set_item_color(row, color);
+                    for column in 0..4 {
+                        let _ = list.set_item_column_color(row, column, Some(color));
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn new_owned(inputs: crate::gui::shell::replay_menu::ReplayMenuInputs) -> Self {
+        Self::with_menu(ShellReplayMenu::new_owned(inputs))
+    }
+
+    pub(crate) fn new() -> Self {
         let (replay_dir, replay_ext) = replay_dir_and_ext();
+        Self::with_menu(ShellReplayMenu::new(replay_dir, replay_ext))
+    }
+
+    fn with_menu(menu: ShellReplayMenu) -> Self {
         Self {
             parent_id: 0,
             gadget_parent_id: 0,
@@ -47,7 +90,7 @@ impl ReplayMenuState {
             listbox_id: 0,
             parent: None,
             listbox_window: None,
-            menu: ShellReplayMenu::new(replay_dir, replay_ext),
+            menu,
             is_shutting_down: false,
             initial_gadget_delay: 2,
             just_entered: false,
@@ -55,14 +98,25 @@ impl ReplayMenuState {
     }
 }
 
-thread_local! {
-    static REPLAY_MENU_STATE: Arc<Mutex<ReplayMenuState>> =
-        Arc::new(Mutex::new(ReplayMenuState::new()));
+// The application WindowManager owns the menu. Compatibility callbacks resolve
+// that manager; native selected actions receive it directly and never use TLS.
+fn replay_menu_state() -> Rc<RefCell<ReplayMenuState>> {
+    let mut state = None;
+    with_window_manager(|manager| state = Some(manager.replay_menu_state()));
+    state.expect("ReplayMenu manager operation must not re-enter")
 }
 
-fn replay_menu_state() -> Arc<Mutex<ReplayMenuState>> {
-    REPLAY_MENU_STATE.with(|state| state.clone())
+fn replay_menu_layout_state(layout: &WindowLayout) -> Option<Rc<RefCell<ReplayMenuState>>> {
+    layout.windows().iter().find_map(|window| {
+        window
+            .borrow()
+            .get_user_data::<Rc<RefCell<ReplayMenuState>>>()
+            .cloned()
+    })
 }
+
+#[path = "replay_menu/ingress.rs"]
+pub mod ingress;
 
 fn name_to_id(name: &str) -> i32 {
     NameKeyGenerator::name_to_key(name) as i32
@@ -157,90 +211,39 @@ fn populate_replay_listbox(state: &mut ReplayMenuState) {
     }
 }
 
-fn hide_parent_menu() {
-    let state_handle = replay_menu_state();
-    let state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
-    if let Some(parent) = state.parent.as_ref() {
-        let _ = parent.borrow_mut().hide(true);
-    }
-}
-
-fn playback_replay_row_direct(row_selected: i32) {
+fn playback_replay_row_direct(state_handle: Rc<RefCell<ReplayMenuState>>, row_selected: i32) {
     if row_selected < 0 {
         return;
     }
-
-    let state_handle = replay_menu_state();
-    let state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
-    let filename = state.menu.get_replay_filename_from_listbox(row_selected);
+    let state = state_handle.borrow();
+    let playback = ingress::ReplayPlayback::captured(
+        state.menu.get_replay_filename_from_listbox(row_selected),
+        state.parent.clone(),
+    );
     drop(state);
-
-    init_recorder();
-    if let Some(Ok(true)) = with_recorder_mut(|recorder| recorder.playback_file(filename)) {
-        hide_parent_menu();
-    }
+    ingress::ReplayMenuStep::Playback(playback).complete(&mut ingress::CompatibilityReplayReceiver);
 }
 
-fn playback_selected_replay(ignore_version: bool) {
-    let state_handle = replay_menu_state();
-    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+fn playback_selected_replay(state_handle: Rc<RefCell<ReplayMenuState>>, ignore_version: bool) {
+    let mut state = state_handle.borrow_mut();
     sync_selected_index(&mut state);
-
-    let selected = state.menu.get_selected_index();
-    if selected < 0 {
-        let _ = message_box_ok(
-            &GameText::fetch("GUI:NoFileSelected"),
-            &GameText::fetch("GUI:PleaseSelectAFile"),
-            None,
-        );
-        return;
-    }
-
-    if ignore_version {
-        let filename = state.menu.get_replay_filename_from_listbox(selected);
-        drop(state);
-        init_recorder();
-        if let Some(Ok(true)) =
-            with_recorder_mut(|recorder| recorder.playback_file(filename.clone()))
-        {
-            hide_parent_menu();
+    let step = match state.menu.selected_replay_filename() {
+        Ok(filename) => {
+            let playback = ingress::ReplayPlayback::captured(filename, state.parent.clone());
+            if ignore_version {
+                ingress::ReplayMenuStep::Playback(playback)
+            } else {
+                ingress::ReplayMenuStep::CheckVersion(playback)
+            }
         }
-        return;
-    }
-
-    match state.menu.load_replay() {
-        Ok(()) => {
-            drop(state);
-            hide_parent_menu();
-        }
-        Err(err) if err == "GUI:OlderReplayVersion" => {
-            let ok = Box::new(|| playback_selected_replay(true));
-            drop(state);
-            let _ = message_box_ok_cancel(
-                &GameText::fetch("GUI:OlderReplayVersionTitle"),
-                &GameText::fetch("GUI:OlderReplayVersion"),
-                Some(ok),
-                None,
-            );
-        }
-        Err(err) if err == "GUI:NoFileSelected" || err == "GUI:PleaseSelectAFile" => {
-            drop(state);
-            let _ = message_box_ok(
-                &GameText::fetch("GUI:NoFileSelected"),
-                &GameText::fetch("GUI:PleaseSelectAFile"),
-                None,
-            );
-        }
-        Err(err) => {
-            drop(state);
-            let _ = message_box_ok(&GameText::fetch("GUI:Error"), &err, None);
-        }
-    }
+        Err(_) => ingress::ReplayMenuStep::NoSelection,
+    };
+    drop(state);
+    step.complete(&mut ingress::CompatibilityReplayReceiver);
 }
 
-fn confirm_delete_replay() {
-    let state_handle = replay_menu_state();
-    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+fn confirm_delete_replay(state_handle: Rc<RefCell<ReplayMenuState>>) {
+    let mut state = state_handle.borrow_mut();
     sync_selected_index(&mut state);
     if state.menu.get_selected_index() < 0 {
         drop(state);
@@ -252,9 +255,8 @@ fn confirm_delete_replay() {
         return;
     }
     drop(state);
-    let yes = Box::new(|| {
-        let state_handle = replay_menu_state();
-        let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+    let yes = Box::new(move || {
+        let mut state = state_handle.borrow_mut();
         state.menu.delete_replay();
         populate_replay_listbox(&mut state);
     });
@@ -266,9 +268,8 @@ fn confirm_delete_replay() {
     );
 }
 
-fn confirm_copy_replay() {
-    let state_handle = replay_menu_state();
-    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+fn confirm_copy_replay(state_handle: Rc<RefCell<ReplayMenuState>>) {
+    let mut state = state_handle.borrow_mut();
     sync_selected_index(&mut state);
     if state.menu.get_selected_index() < 0 {
         drop(state);
@@ -280,9 +281,8 @@ fn confirm_copy_replay() {
         return;
     }
     drop(state);
-    let yes = Box::new(|| {
-        let state_handle = replay_menu_state();
-        let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+    let yes = Box::new(move || {
+        let mut state = state_handle.borrow_mut();
         state.menu.copy_replay();
         populate_replay_listbox(&mut state);
     });
@@ -295,8 +295,8 @@ fn confirm_copy_replay() {
 }
 
 pub fn replay_menu_init(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
-    let state_handle = replay_menu_state();
-    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+    let state_handle = replay_menu_layout_state(layout).unwrap_or_else(replay_menu_state);
+    let mut state = state_handle.borrow_mut();
 
     state.parent_id = name_to_id("ReplayMenu.wnd:ParentReplayMenu");
     state.gadget_parent_id = name_to_id("ReplayMenu.wnd:GadgetParent");
@@ -305,17 +305,20 @@ pub fn replay_menu_init(layout: &WindowLayout, _user_data: Option<&dyn std::any:
     state.button_delete_id = name_to_id("ReplayMenu.wnd:ButtonDeleteReplay");
     state.button_copy_id = name_to_id("ReplayMenu.wnd:ButtonCopyReplay");
     state.listbox_id = name_to_id("ReplayMenu.wnd:ListboxReplayFiles");
-    state.menu = ShellReplayMenu::new(replay_dir_and_ext().0, replay_dir_and_ext().1);
     state.menu.init();
     state.is_shutting_down = false;
     state.just_entered = true;
     state.initial_gadget_delay = 2;
 
     with_window_manager(|manager| {
-        state.parent = manager.get_window_by_id(state.parent_id);
+        let parent = manager.get_window_by_id(state.parent_id);
+        if let Some(parent) = parent.as_ref() {
+            parent.borrow_mut().set_user_data(state_handle.clone());
+        }
+        state.parent = parent.as_ref().map(Rc::downgrade);
         state.listbox_window = manager.get_window_by_id(state.listbox_id);
-        if let Some(parent) = state.parent.as_ref() {
-            let _ = manager.set_focus(Some(parent));
+        if let Some(parent) = state.parent.as_ref().and_then(Weak::upgrade) {
+            let _ = manager.set_focus(Some(&parent));
         }
         if let Some(gadget_parent) = manager.get_window_by_id(state.gadget_parent_id) {
             let _ = gadget_parent.borrow_mut().hide(true);
@@ -339,15 +342,19 @@ pub fn replay_menu_shutdown(layout: &WindowLayout, user_data: Option<&dyn std::a
         return;
     }
 
-    let state_handle = replay_menu_state();
-    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+    let Some(state_handle) = replay_menu_layout_state(layout) else {
+        return;
+    };
+    let mut state = state_handle.borrow_mut();
     state.menu.shutdown(false);
     state.is_shutting_down = true;
 }
 
 pub fn replay_menu_update(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
-    let state_handle = replay_menu_state();
-    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+    let Some(state_handle) = replay_menu_layout_state(layout) else {
+        return;
+    };
+    let mut state = state_handle.borrow_mut();
     if state.just_entered {
         if state.initial_gadget_delay == 1 {
             with_window_manager(|manager| {
@@ -372,13 +379,18 @@ pub fn replay_menu_update(layout: &WindowLayout, _user_data: Option<&dyn std::an
 }
 
 pub fn replay_menu_system(
-    _window: &GameWindow,
+    window: &GameWindow,
     msg: WindowMessage,
     data1: WindowMsgData,
     _data2: WindowMsgData,
 ) -> WindowMsgHandled {
-    let state_handle = replay_menu_state();
-    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+    let Some(state_handle) = window
+        .get_user_data::<Rc<RefCell<ReplayMenuState>>>()
+        .cloned()
+    else {
+        return WindowMsgHandled::Ignored;
+    };
+    let mut state = state_handle.borrow_mut();
 
     match msg {
         WindowMessage::InputFocus => write_input_focus_response(data1, _data2, true),
@@ -390,7 +402,7 @@ pub fn replay_menu_system(
             }
             if control_id == state.button_load_id {
                 drop(state);
-                playback_selected_replay(false);
+                playback_selected_replay(state_handle.clone(), false);
                 return WindowMsgHandled::Handled;
             }
             if control_id == state.button_back_id {
@@ -400,12 +412,12 @@ pub fn replay_menu_system(
             }
             if control_id == state.button_delete_id {
                 drop(state);
-                confirm_delete_replay();
+                confirm_delete_replay(state_handle.clone());
                 return WindowMsgHandled::Handled;
             }
             if control_id == state.button_copy_id {
                 drop(state);
-                confirm_copy_replay();
+                confirm_copy_replay(state_handle.clone());
                 return WindowMsgHandled::Handled;
             }
             WindowMsgHandled::Handled
@@ -414,7 +426,7 @@ pub fn replay_menu_system(
             if data1 as i32 == state.listbox_id {
                 if let Some(row_selected) = selected_replay_row_for_double_click(&mut state) {
                     drop(state);
-                    playback_replay_row_direct(row_selected);
+                    playback_replay_row_direct(state_handle.clone(), row_selected);
                 }
                 return WindowMsgHandled::Handled;
             }
@@ -425,7 +437,7 @@ pub fn replay_menu_system(
 }
 
 pub fn replay_menu_input(
-    _window: &GameWindow,
+    window: &GameWindow,
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
@@ -435,12 +447,20 @@ pub fn replay_menu_input(
     }
 
     if (data2 & KEY_STATE_UP) != 0 {
-        let state_handle = replay_menu_state();
-        let state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(parent) = state.parent.as_ref() {
+        let Some(state_handle) = window
+            .get_user_data::<Rc<RefCell<ReplayMenuState>>>()
+            .cloned()
+        else {
+            return WindowMsgHandled::Handled;
+        };
+        let state = state_handle.borrow();
+        let parent = state.parent.as_ref().and_then(Weak::upgrade);
+        let button_back_id = state.button_back_id;
+        drop(state);
+        if let Some(parent) = parent {
             let _ = parent.borrow_mut().send_system_message(
                 WindowMessage::GadgetSelected,
-                state.button_back_id as WindowMsgData,
+                button_back_id as WindowMsgData,
                 0,
             );
         }
@@ -508,13 +528,14 @@ mod tests {
 
         {
             let state_handle = replay_menu_state();
-            let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+            let mut state = state_handle.borrow_mut();
             *state = ReplayMenuState::new();
             state.listbox_id = listbox_id;
             state.listbox_window = Some(listbox_window);
         }
 
-        let window = GameWindow::new();
+        let mut window = GameWindow::new();
+        window.set_user_data(replay_menu_state());
         assert_eq!(
             replay_menu_system(
                 &window,
@@ -594,7 +615,7 @@ fn ensure_replay_control_ids(state: &mut ReplayMenuState) {
 /// Residual: bind ReplayMenu control IDs (no layout load required).
 pub fn simulate_replay_menu_bind_controls() -> bool {
     let state_handle = replay_menu_state();
-    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+    let mut state = state_handle.borrow_mut();
     ensure_replay_control_ids(&mut state);
     state.is_shutting_down = false;
     state.button_load_id != 0 || state.listbox_id != 0 || state.button_back_id != 0
@@ -606,7 +627,7 @@ pub fn simulate_replay_menu_select_slot(slot_index: i32) -> bool {
         return false;
     }
     let state_handle = replay_menu_state();
-    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+    let mut state = state_handle.borrow_mut();
     ensure_replay_control_ids(&mut state);
     // Best-effort list selection when list is populated; residual slot is authoritative.
     state.menu.set_selected_index(slot_index);
@@ -618,7 +639,7 @@ pub fn simulate_replay_menu_select_slot(slot_index: i32) -> bool {
 /// Residual: fire ButtonLoadReplay without full playback/engine start.
 pub fn simulate_replay_menu_load_button_gadget_selected() -> bool {
     let state_handle = replay_menu_state();
-    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+    let mut state = state_handle.borrow_mut();
     ensure_replay_control_ids(&mut state);
     if residual_replay_menu_selected_slot().is_none() && state.menu.get_selected_index() < 0 {
         // C++ ignores Load with no selection.
@@ -631,7 +652,7 @@ pub fn simulate_replay_menu_load_button_gadget_selected() -> bool {
 /// Residual: fire ButtonDeleteReplay without filesystem delete.
 pub fn simulate_replay_menu_delete_button_gadget_selected() -> bool {
     let state_handle = replay_menu_state();
-    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+    let mut state = state_handle.borrow_mut();
     ensure_replay_control_ids(&mut state);
     if residual_replay_menu_selected_slot().is_none() && state.menu.get_selected_index() < 0 {
         return false;
@@ -643,7 +664,7 @@ pub fn simulate_replay_menu_delete_button_gadget_selected() -> bool {
 /// Residual: fire ButtonCopyReplay without filesystem copy.
 pub fn simulate_replay_menu_copy_button_gadget_selected() -> bool {
     let state_handle = replay_menu_state();
-    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+    let mut state = state_handle.borrow_mut();
     ensure_replay_control_ids(&mut state);
     if residual_replay_menu_selected_slot().is_none() && state.menu.get_selected_index() < 0 {
         return false;
@@ -655,7 +676,7 @@ pub fn simulate_replay_menu_copy_button_gadget_selected() -> bool {
 /// Residual: fire ButtonBack (shell pop residual latch).
 pub fn simulate_replay_menu_back_button_gadget_selected() -> bool {
     let state_handle = replay_menu_state();
-    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+    let mut state = state_handle.borrow_mut();
     ensure_replay_control_ids(&mut state);
     residual_replay_action_store(ResidualReplayMenuAction::Back);
     RESIDUAL_REPLAY_SLOT.store(-1, std::sync::atomic::Ordering::Relaxed);

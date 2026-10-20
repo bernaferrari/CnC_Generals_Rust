@@ -1053,7 +1053,12 @@ impl CnCGameEngine {
         &mut self,
         new_ids: &[crate::game_logic::ObjectId],
     ) {
-        if crate::command_system::host_recorder_is_playback() {
+        if self
+            .game_logic
+            .replay_pending
+            .recorder_owned()
+            .is_playback()
+        {
             return;
         }
         let newly_selected = new_ids.iter().any(|id| !self.selected_objects.contains(id));
@@ -1174,7 +1179,19 @@ impl CnCGameEngine {
         #[cfg(feature = "game_client")]
         let mut last_load_screen_progress = None::<(f32, String)>;
 
-        let loaded = {
+        let loaded = if self.game_logic.game_mode() == GameMode::Replay {
+            self.game_logic
+                .load_recorded_map_with_progress(map_name, |progress, phase| {
+                    #[cfg(feature = "game_client")]
+                    if let Some(kind) = active_load_screen {
+                        let progress = progress.clamp(0.0, 1.0);
+                        Self::pump_cpp_load_screen_progress(kind, progress, phase);
+                        last_load_screen_progress = Some((progress, phase.to_string()));
+                    }
+                    #[cfg(not(feature = "game_client"))]
+                    let _ = (progress, phase);
+                })
+        } else {
             #[cfg(feature = "game_client")]
             {
                 if let Some(kind) = active_load_screen {
