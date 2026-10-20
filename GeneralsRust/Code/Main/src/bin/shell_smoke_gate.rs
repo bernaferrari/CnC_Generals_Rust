@@ -1,9 +1,9 @@
 use generals_main::shell_smoke::{format_shell_smoke_report, run_shell_smoke};
 
-fn main() {
+fn main() -> gamelogic::GameLogicResult<()> {
     // Gate default: GameWorld damage last-writer for HP (opt out DAMAGE_AUTHORITY=0).
 
-    let r = run_shell_smoke(10);
+    let r = run_shell_smoke(10)?;
     println!("{}", format_shell_smoke_report(&r));
     // Fail-closed retail: headless smoke must never claim full W3D playability.
     // Limited host claim (shell_host_playable_ok) is required for success and is
@@ -1612,5 +1612,5 @@ fn main() {
         r.laser_segment_upload_ok,
         r.detail
     );
-    std::process::exit(1);
+    std::process::exit(1)
 }

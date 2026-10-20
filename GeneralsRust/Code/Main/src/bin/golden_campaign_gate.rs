@@ -18,13 +18,13 @@ use generals_main::golden_campaign::{
     DEFAULT_CAMPAIGN_FRAME_ADVANCE, format_campaign_report, run_golden_campaign,
 };
 
-fn main() {
+fn main() -> gamelogic::GameLogicResult<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.iter().any(|a| a == "--help" || a == "-h") {
         println!("Usage: golden_campaign_gate [--map NAME_OR_PATH] [--frames N]");
         println!("SinglePlayer campaign residual: scripts tick + frames + victory + objectives.");
         println!("Default prefers retail MD_*/GC_* load; GEN_CAMPAIGN_HOST_SAFE=1 for host-safe.");
-        return;
+        return Ok(());
     }
 
     let mut map: Option<String> = None;
@@ -53,7 +53,7 @@ fn main() {
         }
     }
 
-    let result = run_golden_campaign(map.as_deref(), frames);
+    let result = run_golden_campaign(map.as_deref(), frames)?;
     println!("{}", format_campaign_report(&result));
 
     if result.campaign_playable_claim && result.status == "success" {
@@ -102,5 +102,5 @@ fn main() {
         result.victory_eval_ok,
         result.frames_advanced
     );
-    std::process::exit(1);
+    std::process::exit(1)
 }

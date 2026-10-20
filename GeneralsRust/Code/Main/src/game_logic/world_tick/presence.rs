@@ -141,6 +141,7 @@ impl GameLogic {
                         d.set_cost(1000, 0);
                         d.add_kind_of(KindOf::Vehicle);
                         d.add_kind_of(KindOf::Worker);
+                        d.add_kind_of(KindOf::Dozer);
                         d.add_kind_of(KindOf::Selectable);
                         self.templates.insert("GoldenDozer".into(), d);
                     }

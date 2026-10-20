@@ -103,7 +103,7 @@ fn camera_mod_final_look_toward_uses_remaining_script_camera_time() {
         game_logic.take_camera_look_toward_request().is_none(),
         "path does not request a second yaw interpolation"
     );
-    game_logic.headless_camera_view_offer(33);
+    game_logic.headless_camera_view_offer(33).unwrap();
     assert_eq!(game_logic.session_view.scripted.motion.elapsed_ms, 33);
     assert!(game_logic.session_view.camera.camera_yaw_radians < 0.);
     assert!(game_logic.session_view.camera.camera_yaw_target.is_none());
@@ -147,7 +147,7 @@ fn camera_mod_look_toward_applies_during_active_move() {
         });
 
     game_logic.evaluate_and_execute_scripts(0.0);
-    game_logic.headless_camera_view_offer(33);
+    game_logic.headless_camera_view_offer(33).unwrap();
 
     let motion = &game_logic.session_view.scripted.motion;
     assert!(motion.active);
@@ -203,7 +203,7 @@ fn camera_mod_freeze_time_applies_to_next_script_camera_move() {
     );
 
     for _ in 0..91 {
-        game_logic.headless_camera_view_offer(33);
+        game_logic.headless_camera_view_offer(33).unwrap();
     }
     assert!(
         !game_logic.is_script_camera_time_frozen(),
@@ -266,7 +266,7 @@ fn camera_mod_freeze_time_and_finished_include_rotate_zoom_pitch() {
     );
 
     for _ in 0..30 {
-        game_logic.headless_camera_view_offer(33);
+        game_logic.headless_camera_view_offer(33).unwrap();
     }
     assert!(
         !game_logic.is_script_camera_time_frozen(),
@@ -288,7 +288,7 @@ fn camera_mod_freeze_time_and_finished_include_rotate_zoom_pitch() {
         "CAMERA_MOVEMENT_FINISHED must be false during zoom"
     );
     for _ in 0..15 {
-        game_logic.headless_camera_view_offer(33);
+        game_logic.headless_camera_view_offer(33).unwrap();
     }
     assert!(game_logic.mission_scripts.is_camera_movement_finished());
 }
@@ -335,7 +335,7 @@ fn camera_look_toward_cancels_in_flight_move() {
         "look-toward is a rotate and must keep movement unfinished"
     );
 
-    game_logic.headless_camera_view_offer(33);
+    game_logic.headless_camera_view_offer(33).unwrap();
     assert!(
         game_logic.script_camera_move_to_target().is_none(),
         "update must not revive the cancelled move"
@@ -762,7 +762,7 @@ fn camera_mod_freeze_angle_pins_in_flight_rotate() {
         });
     game_logic.evaluate_and_execute_scripts(0.0);
     for _ in 0..10 {
-        game_logic.headless_camera_view_offer(33);
+        game_logic.headless_camera_view_offer(33).unwrap();
     }
     let pinned = game_logic.session_view.camera.camera_yaw_radians;
     assert_ne!(pinned.to_bits(), 0.0f32.to_bits());
@@ -777,7 +777,7 @@ fn camera_mod_freeze_angle_pins_in_flight_rotate() {
         "freeze retains the original rotation clock"
     );
     for _ in 0..49 {
-        game_logic.headless_camera_view_offer(33);
+        game_logic.headless_camera_view_offer(33).unwrap();
     }
     assert_eq!(
         game_logic.session_view.camera.camera_yaw_target,
@@ -787,7 +787,7 @@ fn camera_mod_freeze_angle_pins_in_flight_rotate() {
         game_logic.session_view.camera.camera_yaw_radians.to_bits(),
         pinned.to_bits()
     );
-    game_logic.headless_camera_view_offer(33);
+    game_logic.headless_camera_view_offer(33).unwrap();
     assert!(game_logic.session_view.camera.camera_yaw_target.is_none());
     assert_eq!(
         game_logic.session_view.camera.camera_yaw_radians.to_bits(),
@@ -856,7 +856,7 @@ fn camera_setup_cancels_in_flight_move() {
         game_logic.session_view.camera.camera_pitch_target,
         Some(0.4)
     );
-    game_logic.headless_camera_view_offer(33);
+    game_logic.headless_camera_view_offer(33).unwrap();
     assert!(!game_logic.session_view.scripted.motion.active);
     assert_eq!(game_logic.session_view.target, Vec3::new(10., 0., 20.));
     assert!(game_logic.peek_pending_camera_look_toward().is_none());
@@ -963,7 +963,7 @@ fn camera_mod_freeze_angle_pins_already_queued_rotate() {
     assert_eq!(camera.camera_yaw_frame, 0);
     let pinned = camera.camera_yaw_radians;
     for _ in 0..59 {
-        game_logic.headless_camera_view_offer(33);
+        game_logic.headless_camera_view_offer(33).unwrap();
     }
     assert_eq!(
         game_logic.session_view.camera.camera_yaw_target,
@@ -973,7 +973,7 @@ fn camera_mod_freeze_angle_pins_already_queued_rotate() {
         game_logic.session_view.camera.camera_yaw_radians.to_bits(),
         pinned.to_bits()
     );
-    game_logic.headless_camera_view_offer(33);
+    game_logic.headless_camera_view_offer(33).unwrap();
     assert!(game_logic.session_view.camera.camera_yaw_target.is_none());
     assert_eq!(
         game_logic.session_view.camera.camera_yaw_radians.to_bits(),
@@ -1036,7 +1036,7 @@ fn camera_mod_final_speed_multiplier_applies_to_next_script_camera_move() {
         });
     baseline.evaluate_and_execute_scripts(0.0);
     for _ in 0..60 {
-        baseline.headless_camera_view_offer(33);
+        baseline.headless_camera_view_offer(33).unwrap();
     }
     let baseline_remaining = baseline.script_camera_remaining_seconds();
 
@@ -1059,7 +1059,7 @@ fn camera_mod_final_speed_multiplier_applies_to_next_script_camera_move() {
         });
     modified.evaluate_and_execute_scripts(0.0);
     for _ in 0..60 {
-        modified.headless_camera_view_offer(33);
+        modified.headless_camera_view_offer(33).unwrap();
     }
     let modified_remaining = modified.script_camera_remaining_seconds();
 
@@ -1153,8 +1153,8 @@ fn visual_speed_multiplier_scales_script_camera_update_rate() {
         accelerated_remaining, baseline_remaining,
         "logic evaluation does not advance any receiving view clock"
     );
-    baseline.headless_camera_view_offer(33);
-    accelerated.headless_camera_view_offer(33);
+    baseline.headless_camera_view_offer(33).unwrap();
+    accelerated.headless_camera_view_offer(33).unwrap();
     assert_eq!(
         accelerated.script_camera_remaining_seconds(),
         baseline.script_camera_remaining_seconds(),
@@ -1464,13 +1464,28 @@ fn camera_slave_mode_enable_and_disable_requests_are_drained_for_engine() {
     );
 }
 
+fn admit_camera_home_terrain(game_logic: &mut GameLogic) {
+    let mut map = gamelogic::system::map_loader::MapData::new();
+    map.width = 64;
+    map.height = 64;
+    map.boundaries = vec![gamelogic::common::ICoord2D::new(64, 64)];
+    map.heightmap = vec![0; 64 * 64];
+    game_logic
+        .world_services
+        .terrain()
+        .write()
+        .unwrap()
+        .load_map_data(map);
+}
+
 #[test]
 fn camera_move_home_prefers_local_command_center() {
     let mut game_logic = GameLogic::new();
     game_logic.scripts_loaded = true;
-    // The target selection is under test; use real bounds containing both
-    // candidate homes so receiving LookAt constraints do not clip either.
+    // LookAt uses actual receiving terrain. Cached host bounds deliberately
+    // differ; target selection must not clip an interior Home against them.
     game_logic.override_world_size(1024., 1024.);
+    admit_camera_home_terrain(&mut game_logic);
     ensure_test_player_for_team(&mut game_logic, Team::USA);
     ensure_test_structure_template(&mut game_logic);
     ensure_test_command_center_template(&mut game_logic);
@@ -1497,9 +1512,10 @@ fn camera_move_home_prefers_local_command_center() {
 fn camera_move_home_falls_back_to_local_team_base() {
     let mut game_logic = GameLogic::new();
     game_logic.scripts_loaded = true;
-    // The target selection is under test; use real bounds containing both
-    // candidate homes so receiving LookAt constraints do not clip either.
+    // LookAt uses actual receiving terrain. Cached host bounds deliberately
+    // differ; target selection must not clip an interior Home against them.
     game_logic.override_world_size(1024., 1024.);
+    admit_camera_home_terrain(&mut game_logic);
     ensure_test_player_for_team(&mut game_logic, Team::USA);
     ensure_test_structure_template(&mut game_logic);
     game_logic.objects.clear();

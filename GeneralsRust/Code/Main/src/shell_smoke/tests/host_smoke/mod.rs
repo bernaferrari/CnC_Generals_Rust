@@ -36,7 +36,7 @@ use self::waves_731_788::assert_waves_731_788;
 
 #[test]
 fn host_smoke_applies_skirmish_and_advances_frames() {
-    let r = run_shell_smoke(8);
+    let r = run_shell_smoke(8).unwrap();
     assert_core(&r);
     assert_presentation(&r);
     assert_waves_72_112(&r);

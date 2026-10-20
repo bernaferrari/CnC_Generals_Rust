@@ -291,16 +291,25 @@ impl GameLogic {
         self.mark_script_camera_movement_maybe_finished();
         changed
     }
-    pub(crate) fn headless_camera_view_offer(&mut self, frame_ms: i32) -> bool {
-        self.advance_camera_view(
-            MotionAdmission {
-                update_views: true,
-                fast_camera_only: false,
-                paused: self.is_paused(),
-                debug_frozen: false,
-                disable_camera_movement: self.camera_movement_disabled(),
-            },
+    pub(crate) fn headless_camera_view_offer(
+        &mut self,
+        frame_ms: i32,
+    ) -> gamelogic::GameLogicResult<bool> {
+        self.headless_camera_view_offer_with_script_engine(frame_ms, None)
+    }
+
+    pub(crate) fn headless_camera_view_offer_with_script_engine(
+        &mut self,
+        frame_ms: i32,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+    ) -> gamelogic::GameLogicResult<bool> {
+        self.advance_receiving_camera_view(
+            true,
+            false,
+            self.is_paused(),
+            self.camera_movement_disabled(),
             frame_ms,
+            interpreter,
         )
     }
     pub(super) fn install_camera_object_tracking(
@@ -463,3 +472,7 @@ fn normalize_tracking_angle(angle: &mut f32) {
         *angle -= 2. * pi;
     }
 }
+
+#[cfg(test)]
+#[path = "headless_debug_tests.rs"]
+mod headless_debug_tests;

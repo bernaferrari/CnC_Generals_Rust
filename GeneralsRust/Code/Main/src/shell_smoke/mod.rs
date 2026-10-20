@@ -301,8 +301,8 @@ mod tests;
 /// applies it, loads retail map when present, advances logic frames, builds presentation,
 /// applies dual-tick presentation → GameHUD selection/minimap, ensures ControlBar.wnd,
 /// and exercises shell→InGame screen ownership (start_game_from_ui parity).
-pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
-    let host = host::run_host_session(frames);
+pub fn run_shell_smoke(frames: u32) -> gamelogic::GameLogicResult<ShellSmokeResult> {
+    let host = host::run_host_session(frames)?;
     let presentation =
         presentation::evaluate_presentation_residuals(&host.pres, host.presentation_ok);
     let early = honesty::evaluate_early_honesty(&host.pres, host.presentation_ok);
@@ -311,7 +311,7 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
     let shell_ui = shell::evaluate_shell_ui();
     // Never claim full retail playability from headless smoke (no W3D/window/GPU).
     let playable_claim = false;
-    result::assemble(
+    Ok(result::assemble(
         host,
         presentation,
         early,
@@ -320,5 +320,5 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         selection_consumers_ok,
         shell_ui,
         playable_claim,
-    )
+    ))
 }

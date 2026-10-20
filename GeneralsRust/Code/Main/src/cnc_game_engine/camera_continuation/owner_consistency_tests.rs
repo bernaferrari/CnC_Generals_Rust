@@ -158,7 +158,7 @@ fn plain_world_snapshot_resumes_actual_headless_camera_owner_without_native_reco
     assert_eq!(admission_speed, source.visual_speed_multiplier());
     source.session_view.scripted.script_camera_freeze_time = true;
     for _ in 0..7 {
-        source.headless_camera_view_offer(33);
+        source.headless_camera_view_offer(33).unwrap();
     }
     assert!(source.session_view.scripted.motion.active);
     let mut peer = GameLogic::new();
@@ -188,9 +188,9 @@ fn plain_world_snapshot_resumes_actual_headless_camera_owner_without_native_reco
     assert_eq!(peer.capture_camera_continuation().unwrap(), peer_before);
     let mut observed_segment_arrival = source.session_view.scripted.path_arrived;
     for _ in 0..65 {
-        source.headless_camera_view_offer(33);
-        peer.headless_camera_view_offer(17);
-        receiving.headless_camera_view_offer(33);
+        source.headless_camera_view_offer(33).unwrap();
+        peer.headless_camera_view_offer(17).unwrap();
+        receiving.headless_camera_view_offer(33).unwrap();
         observed_segment_arrival |= receiving.session_view.scripted.path_arrived;
         assert_eq!(
             receiving.capture_camera_continuation().unwrap(),

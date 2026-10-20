@@ -224,6 +224,10 @@ mod historic_bonus_owner_tests;
 mod materialization_frame_tests;
 
 #[cfg(test)]
+#[path = "../builder_catalog_tests.rs"]
+mod builder_catalog_tests;
+
+#[cfg(test)]
 #[path = "../world_skirmish_tests.rs"]
 mod skirmish_starting_unit_residual_tests;
 

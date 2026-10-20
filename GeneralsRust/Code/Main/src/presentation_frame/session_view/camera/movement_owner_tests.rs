@@ -37,7 +37,7 @@ fn receiving_movement_rule_controls_actual_headless_view_despite_foreign_global_
                     .writable
                     .disable_camera_movement = false;
             }
-            assert!(owner.headless_camera_view_offer(33));
+            assert!(owner.headless_camera_view_offer(33).unwrap());
             assert_eq!(owner.session_view.camera.camera_zoom_frame, 1);
             assert_eq!(owner.session_view.camera.camera_zoom, start);
             {
@@ -45,10 +45,10 @@ fn receiving_movement_rule_controls_actual_headless_view_despite_foreign_global_
                     .writable
                     .disable_camera_movement = true;
             }
-            assert!(peer.headless_camera_view_offer(33));
+            assert!(peer.headless_camera_view_offer(33).unwrap());
             assert_eq!(peer.session_view.camera.camera_zoom_frame, 1);
             assert_ne!(peer.session_view.camera.camera_zoom, start);
-            assert!(owner.headless_camera_view_offer(33));
+            assert!(owner.headless_camera_view_offer(33).unwrap());
             assert_eq!(owner.session_view.camera.camera_zoom_target, None);
             assert_eq!(owner.session_view.camera.camera_zoom, start);
             let before = owner.capture_camera_continuation().unwrap();
@@ -85,8 +85,8 @@ fn movement_configuration_is_not_saved_pose_and_receiving_policy_survives_admiss
     assert!(!receiver.camera_movement_disabled());
     assert!(source.camera_movement_disabled());
     let unchanged = source.session_view.camera.camera_zoom;
-    assert!(source.headless_camera_view_offer(33));
-    assert!(receiver.headless_camera_view_offer(33));
+    assert!(source.headless_camera_view_offer(33).unwrap());
+    assert!(receiver.headless_camera_view_offer(33).unwrap());
     assert_eq!(source.session_view.camera.camera_zoom, unchanged);
     assert_ne!(receiver.session_view.camera.camera_zoom, unchanged);
 }

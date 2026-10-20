@@ -516,13 +516,17 @@ fn actual_main_camera_movement_finished_queries_the_driving_world() {
             );
             let peer_before = second.capture_camera_continuation().unwrap();
             for _ in 0..90 {
-                first.headless_camera_view_offer(33);
+                first
+                    .headless_camera_view_offer_with_script_engine(33, Some(&first_engine))
+                    .unwrap();
             }
             assert!(
                 first.session_view.scripted.motion.active,
                 "2970ms is before source3000ms deadline"
             );
-            first.headless_camera_view_offer(33);
+            first
+                .headless_camera_view_offer_with_script_engine(33, Some(&first_engine))
+                .unwrap();
             assert!(!first.session_view.scripted.motion.active);
             assert_eq!(second.capture_camera_continuation().unwrap(), peer_before);
             first.frame = 106;

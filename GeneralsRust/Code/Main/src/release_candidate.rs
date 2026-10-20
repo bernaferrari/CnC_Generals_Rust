@@ -390,7 +390,10 @@ pub struct ReleaseCandidateReport {
     pub detail: String,
 }
 
-pub fn run_release_candidate_package(soak_runs: u32, frames: u32) -> ReleaseCandidateReport {
+pub fn run_release_candidate_package(
+    soak_runs: u32,
+    frames: u32,
+) -> gamelogic::GameLogicResult<ReleaseCandidateReport> {
     let mut soak_ok = true;
     let mut start_hashes = Vec::new();
 
@@ -432,8 +435,8 @@ pub fn run_release_candidate_package(soak_runs: u32, frames: u32) -> ReleaseCand
         .map(|(a, b)| a.checkpoint_hash() == b.checkpoint_hash())
         .unwrap_or(false);
 
-    let g1 = run_golden_skirmish(None, 4);
-    let g2 = run_golden_skirmish(None, 4);
+    let g1 = run_golden_skirmish(None, 4)?;
+    let g2 = run_golden_skirmish(None, 4)?;
     let golden_cash_match = g1.human_cash == g2.human_cash && g1.ai_cash == g2.ai_cash;
 
     // Real asset path: known-missing file must diagnose; verification fails closed.
@@ -455,7 +458,7 @@ pub fn run_release_candidate_package(soak_runs: u32, frames: u32) -> ReleaseCand
 
     let (presentation_ok, presentation_detail) = exercise_presentation_paths();
     let (campaign_soak_ok, campaign_detail) = exercise_campaign_progression_soak();
-    let campaign_runtime = run_golden_campaign(None, 5);
+    let campaign_runtime = run_golden_campaign(None, 5)?;
     let campaign_runtime_ok = campaign_runtime.campaign_playable_claim
         && campaign_runtime.status == "success"
         && campaign_runtime.frames_advanced > 0
@@ -468,13 +471,13 @@ pub fn run_release_candidate_package(soak_runs: u32, frames: u32) -> ReleaseCand
         let cfg = golden_skirmish_config("RCTrace");
         let _ = apply_skirmish_config(&mut logic, &cfg);
         let scenario = TraceScenario::new([1, 2, 3, 4, 5, 6], 3);
-        let frames = run_trace_scenario(&mut logic, &scenario);
+        let frames = run_trace_scenario(&mut logic, &scenario)?;
         if frames.is_empty() {
             soak_ok = false;
         }
     }
 
-    ReleaseCandidateReport {
+    Ok(ReleaseCandidateReport {
         soak_runs: soak_runs.max(1),
         soak_ok: soak_ok
             && g1.status == "success"
@@ -500,7 +503,7 @@ pub fn run_release_candidate_package(soak_runs: u32, frames: u32) -> ReleaseCand
             campaign_runtime_ok,
             retail_campaign_map_loaded
         ),
-    }
+    })
 }
 
 pub fn format_rc_report(r: &ReleaseCandidateReport) -> String {
@@ -545,7 +548,7 @@ mod tests {
         assert!(p_ok, "{p_detail}");
         let (c_ok, c_detail) = exercise_campaign_progression_soak();
         assert!(c_ok, "{c_detail}");
-        let runtime = run_golden_campaign(None, 4);
+        let runtime = run_golden_campaign(None, 4).unwrap();
         assert!(
             runtime.campaign_playable_claim && runtime.scripts_tick_ok,
             "campaign runtime residual: {}",
@@ -555,7 +558,7 @@ mod tests {
 
     #[test]
     fn release_candidate_package_runs() {
-        let report = run_release_candidate_package(2, 5);
+        let report = run_release_candidate_package(2, 5).unwrap();
         assert!(report.soak_ok, "{}", report.detail);
         assert!(report.deterministic_match, "{}", report.detail);
         assert!(report.dual_run_hash_match, "{}", report.detail);

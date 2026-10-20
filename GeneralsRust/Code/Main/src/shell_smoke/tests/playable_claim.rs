@@ -4,7 +4,7 @@ pub use super::*;
 
 #[test]
 fn shell_host_playable_ok_never_implies_retail_playable_claim() {
-    let r = run_shell_smoke(4);
+    let r = run_shell_smoke(4).unwrap();
     // Documented honesty contract: limited host flag is independent of retail claim.
     if r.shell_host_playable_ok {
         assert!(

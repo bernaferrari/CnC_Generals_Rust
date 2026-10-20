@@ -107,8 +107,8 @@ fn one_millisecond_reset_preserves_pose_hag_and_follow_until_actual_view_offer_a
         .admit_camera_continuation(GameLogic::decode_camera_continuation(&saved).unwrap())
         .unwrap();
     for _ in 0..3 {
-        world.headless_camera_view_offer(33);
-        restored.headless_camera_view_offer(33);
+        world.headless_camera_view_offer(33).unwrap();
+        restored.headless_camera_view_offer(33).unwrap();
         assert_eq!(
             world.capture_camera_continuation().unwrap(),
             restored.capture_camera_continuation().unwrap()

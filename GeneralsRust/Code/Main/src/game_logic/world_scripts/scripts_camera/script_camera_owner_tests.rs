@@ -143,7 +143,7 @@ fn actual_main_camera_move_keeps_engine_axes_and_zero_duration_without_a_handler
                 engine
                     .set_script_list_for_player(0, Some(Box::new(list)))
                     .unwrap();
-                let _ = walk(&mut world, engine);
+                let receiving_engine = walk(&mut world, engine);
                 let request = &world.session_view.scripted.motion;
                 assert!(request.active);
                 assert_eq!(
@@ -156,7 +156,9 @@ fn actual_main_camera_move_keeps_engine_axes_and_zero_duration_without_a_handler
                         "instant command crosses path but defers final pose"
                     );
                     assert!(world.peek_pending_camera_focus().is_none());
-                    world.headless_camera_view_offer(33);
+                    world
+                        .headless_camera_view_offer_with_script_engine(33, Some(&receiving_engine))
+                        .unwrap();
                     assert_eq!(world.session_view.target, Vec3::new(120., 0., 240.));
                     assert!(!world.session_view.scripted.motion.active);
                 } else {

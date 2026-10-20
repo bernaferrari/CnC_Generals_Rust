@@ -39,7 +39,7 @@ fn moving_world() -> GameLogic {
 fn logic_camera_continuation_retains_future_move_and_shutter_steps() {
     let mut uninterrupted = moving_world();
     for _ in 0..7 {
-        uninterrupted.headless_camera_view_offer(33);
+        uninterrupted.headless_camera_view_offer(33).unwrap();
     }
     let bytes = uninterrupted.capture_camera_continuation().unwrap();
     let mut restored = GameLogic::new();
@@ -47,8 +47,8 @@ fn logic_camera_continuation_retains_future_move_and_shutter_steps() {
         .admit_camera_continuation(GameLogic::decode_camera_continuation(&bytes).unwrap())
         .unwrap();
     for _ in 0..50 {
-        uninterrupted.headless_camera_view_offer(33);
-        restored.headless_camera_view_offer(33);
+        uninterrupted.headless_camera_view_offer(33).unwrap();
+        restored.headless_camera_view_offer(33).unwrap();
         assert_eq!(
             restored.session_view.target,
             uninterrupted.session_view.target
@@ -167,8 +167,8 @@ fn logic_camera_continuation_retains_path_segments_rolling_and_pending_admission
         .unwrap();
     assert_eq!(restored.capture_camera_continuation().unwrap(), bytes);
     for _ in 0..3 {
-        restored.headless_camera_view_offer(33);
-        world.headless_camera_view_offer(33);
+        restored.headless_camera_view_offer(33).unwrap();
+        world.headless_camera_view_offer(33).unwrap();
         assert_eq!(restored.session_view.target, world.session_view.target);
     }
     assert_eq!(

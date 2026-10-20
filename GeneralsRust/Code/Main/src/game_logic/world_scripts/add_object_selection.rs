@@ -844,7 +844,12 @@ impl GameLogic {
                 {
                     let mut d = unit(
                         "USA_Dozer",
-                        &[KindOf::Vehicle, KindOf::Worker, KindOf::Selectable],
+                        &[
+                            KindOf::Vehicle,
+                            KindOf::Worker,
+                            KindOf::Dozer,
+                            KindOf::Selectable,
+                        ],
                         300.0,
                         1000,
                         200.0,
@@ -862,7 +867,12 @@ impl GameLogic {
                     // keep buildings but omit the starting dozer.
                     let mut d = unit(
                         "AmericaVehicleDozer",
-                        &[KindOf::Vehicle, KindOf::Worker, KindOf::Selectable],
+                        &[
+                            KindOf::Vehicle,
+                            KindOf::Worker,
+                            KindOf::Dozer,
+                            KindOf::Selectable,
+                        ],
                         300.0,
                         1000,
                         200.0,

@@ -114,7 +114,10 @@ pub fn resolve_first_map(candidates: &[&str]) -> Option<(String, PathBuf)> {
 /// When `map_name` is `None`, tries [`DEFAULT_MAP_CANDIDATES`]. If no map is found,
 /// still advances frames on a skirmish world so the update path is covered and the
 /// status reports `AssetsUnavailable` honestly.
-pub fn run_map_frame_scenario(map_name: Option<&str>, frames: u32) -> MapFrameScenarioResult {
+pub fn run_map_frame_scenario(
+    map_name: Option<&str>,
+    frames: u32,
+) -> gamelogic::GameLogicResult<MapFrameScenarioResult> {
     let frames = frames.max(1);
     let mut logic = GameLogic::new();
     logic.start_new_game(GameMode::Skirmish);
@@ -152,7 +155,7 @@ pub fn run_map_frame_scenario(map_name: Option<&str>, frames: u32) -> MapFrameSc
     let frame_before = logic.get_frame();
     for _ in 0..frames {
         logic.update();
-        logic.headless_camera_view_offer(33);
+        logic.headless_camera_view_offer(33)?;
     }
     let frame_after = logic.get_frame();
     let frames_advanced = frame_after.saturating_sub(frame_before);
@@ -168,7 +171,7 @@ pub fn run_map_frame_scenario(map_name: Option<&str>, frames: u32) -> MapFrameSc
         status_seed
     };
 
-    MapFrameScenarioResult {
+    Ok(MapFrameScenarioResult {
         map_identity,
         map_resolved,
         map_loaded,
@@ -178,7 +181,7 @@ pub fn run_map_frame_scenario(map_name: Option<&str>, frames: u32) -> MapFrameSc
         frame_after,
         object_count: logic.host_objects().len(),
         status,
-    }
+    })
 }
 
 /// Format a single-line machine-readable summary for gate logs.
@@ -208,7 +211,7 @@ mod tests {
     #[test]
     fn advances_stable_frames_without_map_assets() {
         // Drive the production update path even when maps are absent.
-        let result = run_map_frame_scenario(Some("__no_such_map_for_gate__"), 5);
+        let result = run_map_frame_scenario(Some("__no_such_map_for_gate__"), 5).unwrap();
         assert_eq!(result.frames_requested, 5);
         assert!(
             result.frames_advanced > 0,

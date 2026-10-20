@@ -8,6 +8,20 @@ use gamelogic::scripting::engine::{ScriptActionHandler, ScriptEngine, get_script
 
 fn world(x: f32) -> (GameLogic, ObjectId, Vec3) {
     let mut world = GameLogic::new();
+    // LookAt constrains against the receiving terrain, not cached host bounds.
+    // Supply a real extent for these action-order fixtures; exact padded-edge
+    // behavior is independently checked by receiving_look_at_tests.
+    let mut map = gamelogic::system::map_loader::MapData::new();
+    map.width = 64;
+    map.height = 64;
+    map.boundaries = vec![gamelogic::common::ICoord2D::new(64, 64)];
+    map.heightmap = vec![0; 64 * 64];
+    world
+        .world_services
+        .terrain()
+        .write()
+        .unwrap()
+        .load_map_data(map);
     world.add_player(Player::new(0, Team::USA, "FocusOwner", true));
     let mut unit = ThingTemplate::new("FocusUnit");
     unit.set_health(100.0).add_kind_of(KindOf::Selectable);
@@ -22,7 +36,7 @@ fn world(x: f32) -> (GameLogic, ObjectId, Vec3) {
     assert!(world.host_object(id).unwrap().is_selectable());
     world.select_objects(0, vec![id]);
     assert_eq!(world.players.get(&0).unwrap().selected_objects, vec![id]);
-    let home = Vec3::new(x + 40.0, 0.0, 170.0);
+    let home = Vec3::new(x + 200.0, 0.0, x + 220.0);
     world
         .create_object_for_player("AmericaCommandCenter", 0, home)
         .unwrap();
@@ -198,7 +212,7 @@ fn camera_focus_same_id_public_updates_and_next_flush_stay_on_driving_owner() {
             assert!(a.take_camera_focus_request().is_none());
             assert!(a.session_view.scripted.motion.active);
             assert_eq!(a.session_view.scripted.motion.total_time_ms, 0);
-            a.headless_camera_view_offer(33);
+            a.headless_camera_view_offer(33).unwrap();
             assert_eq!(a.session_view.target, Vec3::new(400., 0., 450.));
             assert!(!a.session_view.scripted.motion.active);
             assert_eq!(b.camera_follow_object_id(), Some(b_id));
@@ -231,8 +245,8 @@ fn camera_focus_external_public_handler_flush_keeps_family_last_and_presence_sem
             let (mut world, id, home) = world(110.0);
             install(&mut world, vec![], false);
             let handler = MissionScriptActionHandler::new(world.mission_scripts.clone());
-            handler.move_camera(10.0, 20.0, 3.0).unwrap();
-            handler.move_camera(30.0, 40.0, 5.0).unwrap();
+            handler.move_camera(220.0, 240.0, 3.0).unwrap();
+            handler.move_camera(260.0, 280.0, 5.0).unwrap();
             handler.move_camera_to_selection().unwrap();
             handler.camera_move_home().unwrap();
             handler.camera_follow_object(id.0, true).unwrap();
@@ -265,12 +279,12 @@ fn camera_focus_external_public_handler_flush_keeps_family_last_and_presence_sem
             assert_eq!(world.take_camera_focus_request(), Some(home));
             world.update();
             assert!(world.take_camera_focus_request().is_none());
-            handler.move_camera(10.0, 20.0, 3.0).unwrap();
-            handler.move_camera(30.0, 40.0, 5.0).unwrap();
+            handler.move_camera(220.0, 240.0, 3.0).unwrap();
+            handler.move_camera(260.0, 280.0, 5.0).unwrap();
             world.update();
             assert_eq!(
                 world.take_camera_focus_request(),
-                Some(Vec3::new(30.0, 0.0, 40.0)),
+                Some(Vec3::new(260.0, 0.0, 280.0)),
                 "moves retain insertion order; source LookAt sets logical height to zero"
             );
             world.update();

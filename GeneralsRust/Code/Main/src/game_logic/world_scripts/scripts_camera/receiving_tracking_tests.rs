@@ -21,7 +21,8 @@ fn authored_tracking(world: &mut GameLogic, foreign: &Arc<MissionScriptHooks>) {
         true,
     ));
     world.frame += 1;
-    let _ = run(world, engine(Arc::clone(foreign), list));
+    let receiving_engine = run(world, engine(Arc::clone(foreign), list));
+    world.install_owned_script_engine(receiving_engine);
     let tracking = world
         .session_view
         .scripted
@@ -72,10 +73,10 @@ fn authored_tracking_moves_only_receiving_same_id_and_retains_removed_target_thr
             let foreign = Vec3::new(0., 25., 100.);
             position(&mut owner, id, first);
             position(&mut peer, peer_id, foreign);
-            owner.headless_camera_view_offer(33);
+            owner.headless_camera_view_offer(33).unwrap();
             assert_eq!(cached(&owner), first);
             assert!(owner.session_view.camera.camera_yaw_radians < 0.);
-            peer.headless_camera_view_offer(33);
+            peer.headless_camera_view_offer(33).unwrap();
             assert_eq!(cached(&peer), foreign);
             assert_eq!(
                 peer.session_view.camera.camera_yaw_radians.to_bits(),
@@ -84,7 +85,7 @@ fn authored_tracking_moves_only_receiving_same_id_and_retains_removed_target_thr
             let peer_camera = peer.capture_camera_continuation().unwrap();
             let initial_yaw = owner.session_view.camera.camera_yaw_radians;
             position(&mut owner, id, Vec3::new(0., 35., 100.));
-            owner.headless_camera_view_offer(33);
+            owner.headless_camera_view_offer(33).unwrap();
             assert_eq!(cached(&owner), Vec3::new(0., 35., 100.));
             assert!(
                 owner.session_view.camera.camera_yaw_radians > initial_yaw,
@@ -95,7 +96,7 @@ fn authored_tracking_moves_only_receiving_same_id_and_retains_removed_target_thr
             let prior = owner.session_view.camera.camera_yaw_radians;
             let delta = angle_to(turn_end) - prior;
             let expected_turn_end = prior + delta;
-            owner.headless_camera_view_offer(33);
+            owner.headless_camera_view_offer(33).unwrap();
             assert_eq!(
                 owner.session_view.camera.camera_yaw_radians.to_bits(),
                 expected_turn_end.to_bits(),
@@ -103,7 +104,7 @@ fn authored_tracking_moves_only_receiving_same_id_and_retains_removed_target_thr
             );
             let hold_target = Vec3::new(-100., 55., 0.);
             position(&mut owner, id, hold_target);
-            owner.headless_camera_view_offer(33);
+            owner.headless_camera_view_offer(33).unwrap();
             assert_eq!(owner.session_view.camera.camera_yaw_frame, 4);
             assert_eq!(cached(&owner), hold_target);
             assert_eq!(
@@ -129,8 +130,8 @@ fn authored_tracking_moves_only_receiving_same_id_and_retains_removed_target_thr
                 .unwrap();
             assert_eq!(restored.capture_camera_continuation().unwrap(), encoded);
             for frame in 5..=7 {
-                owner.headless_camera_view_offer(33);
-                restored.headless_camera_view_offer(33);
+                owner.headless_camera_view_offer(33).unwrap();
+                restored.headless_camera_view_offer(33).unwrap();
                 assert_eq!(
                     cached(&owner),
                     hold_target,
@@ -166,7 +167,7 @@ fn authored_tracking_freeze_angle_invalidates_id_but_keeps_last_target_and_origi
             authored_tracking(&mut owner, &peer.mission_scripts);
             let target = Vec3::new(100., 15., 0.);
             position(&mut owner, id, target);
-            owner.headless_camera_view_offer(33);
+            owner.headless_camera_view_offer(33).unwrap();
             let first_yaw = owner.session_view.camera.camera_yaw_radians;
             let mut list = ScriptList::new();
             list.append_script(script(
@@ -177,7 +178,8 @@ fn authored_tracking_freeze_angle_invalidates_id_but_keeps_last_target_and_origi
                 true,
             ));
             owner.frame += 1;
-            let _ = run(&mut owner, engine(Arc::clone(&peer.mission_scripts), list));
+            let receiving_engine = run(&mut owner, engine(Arc::clone(&peer.mission_scripts), list));
+            owner.install_owned_script_engine(receiving_engine);
             assert_eq!(
                 owner.session_view.scripted.script_look_toward_object_id,
                 None
@@ -185,14 +187,14 @@ fn authored_tracking_freeze_angle_invalidates_id_but_keeps_last_target_and_origi
             assert_eq!(owner.session_view.camera.camera_yaw_frame, 1);
             position(&mut owner, id, Vec3::new(0., 25., 100.));
             peer.reset();
-            owner.headless_camera_view_offer(33);
+            owner.headless_camera_view_offer(33).unwrap();
             assert_eq!(cached(&owner), target);
             assert!(
                 owner.session_view.camera.camera_yaw_radians < first_yaw,
                 "source invalidates the ID, not the cached target or remaining turn"
             );
             for _ in 0..5 {
-                owner.headless_camera_view_offer(33);
+                owner.headless_camera_view_offer(33).unwrap();
             }
             assert_eq!(owner.session_view.camera.camera_yaw_frame, 7);
             assert!(owner.session_view.camera.camera_yaw_target.is_none());

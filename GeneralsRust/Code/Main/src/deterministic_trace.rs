@@ -319,7 +319,10 @@ impl FrameTrace {
     }
 }
 
-pub fn run_trace_scenario(game_logic: &mut GameLogic, scenario: &TraceScenario) -> Vec<FrameTrace> {
+pub fn run_trace_scenario(
+    game_logic: &mut GameLogic,
+    scenario: &TraceScenario,
+) -> gamelogic::GameLogicResult<Vec<FrameTrace>> {
     let mut commands_by_frame = scenario.commands.clone();
     commands_by_frame.sort_by_key(|entry| entry.frame);
 
@@ -342,7 +345,7 @@ pub fn run_trace_scenario(game_logic: &mut GameLogic, scenario: &TraceScenario) 
 
         game_logic.update();
 
-        game_logic.headless_camera_view_offer(33);
+        game_logic.headless_camera_view_offer(33)?;
         trace.push(FrameTrace::from_game_logic(
             game_logic,
             scenario.rng_seed,
@@ -351,7 +354,7 @@ pub fn run_trace_scenario(game_logic: &mut GameLogic, scenario: &TraceScenario) 
         ));
     }
 
-    trace
+    Ok(trace)
 }
 
 pub fn first_trace_difference<'a>(

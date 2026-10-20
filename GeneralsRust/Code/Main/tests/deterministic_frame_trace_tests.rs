@@ -415,7 +415,7 @@ fn trace_scenario_runs_scheduled_commands_before_each_frame_capture() {
 
     assert_trace_attack_legal(&game_logic, humvee, technical);
     let first_processed_frame = game_logic.get_frame();
-    let trace = run_trace_scenario(&mut game_logic, &scenario);
+    let trace = run_trace_scenario(&mut game_logic, &scenario).unwrap();
 
     assert_eq!(trace.len(), 3);
     assert_eq!(trace[0].frame, 1);

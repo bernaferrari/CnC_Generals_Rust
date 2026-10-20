@@ -43,7 +43,8 @@ fn authored(
     let mut list = ScriptList::new();
     list.append_script(script("OwnedCameraPath", actions, true));
     owner.frame += 1;
-    let _ = run(owner, engine(Arc::clone(foreign), list));
+    let receiving_engine = run(owner, engine(Arc::clone(foreign), list));
+    owner.install_owned_script_engine(receiving_engine);
 }
 fn assert_path(owner: &GameLogic, x: f32, yaw: f32, start: Vec3) {
     let path = &owner.session_view.scripted.motion;
@@ -127,8 +128,8 @@ fn authored_camera_path_owns_receiving_chain_and_yaw_through_peer_reset_and_enco
                 "owned continuation restores the same canonical native pose"
             );
             for _ in 0..114 {
-                a.headless_camera_view_offer(33);
-                restored.headless_camera_view_offer(33);
+                a.headless_camera_view_offer(33).unwrap();
+                restored.headless_camera_view_offer(33).unwrap();
                 assert_eq!(
                     a.capture_camera_continuation().unwrap(),
                     restored.capture_camera_continuation().unwrap()
@@ -276,7 +277,7 @@ fn authored_rotate_cancels_receiving_path_preserves_axes_and_continues_after_res
             );
             assert!(owner.session_view.scripted.motion.active);
             assert!(peer.session_view.scripted.motion.active);
-            owner.headless_camera_view_offer(33);
+            owner.headless_camera_view_offer(33).unwrap();
             let position = owner.session_view.target;
             let peer_before = peer.capture_camera_continuation().unwrap();
             authored(
@@ -311,8 +312,8 @@ fn authored_rotate_cancels_receiving_path_preserves_axes_and_continues_after_res
             // Cross rotation completion and the old path's remaining duration.
             // It must never resume, including in the encoded continuation.
             for _ in 0..260 {
-                owner.headless_camera_view_offer(33);
-                restored.headless_camera_view_offer(33);
+                owner.headless_camera_view_offer(33).unwrap();
+                restored.headless_camera_view_offer(33).unwrap();
                 assert_eq!(owner.session_view.target, position);
                 assert_eq!(restored.session_view.target, position);
                 assert_eq!(

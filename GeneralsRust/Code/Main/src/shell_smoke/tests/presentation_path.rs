@@ -459,7 +459,7 @@ fn presentation_camera_follow_residual() {
         .split_once("pub(super) fn advance_native_camera_view(")
         .expect("admitted camera view")
         .1
-        .split_once("let admission = MotionAdmission")
+        .split_once(".advance_receiving_camera_view(")
         .expect("scalar movement boundary")
         .0;
     assert!(

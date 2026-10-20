@@ -32,7 +32,7 @@ fn authored_camera_actions_use_receiving_movement_rule_under_foreign_global_publ
                     .writable
                     .disable_camera_movement = false;
             }
-            assert!(first.headless_camera_view_offer(33));
+            assert!(first.headless_camera_view_offer(33).unwrap());
             assert_eq!(first.session_view.camera.camera_yaw_frame, 1);
             assert_eq!(first.session_view.camera.camera_zoom_frame, 1);
             assert_eq!(first.session_view.camera.camera_yaw_radians, first_angle);
@@ -42,7 +42,7 @@ fn authored_camera_actions_use_receiving_movement_rule_under_foreign_global_publ
                     .writable
                     .disable_camera_movement = true;
             }
-            assert!(second.headless_camera_view_offer(33));
+            assert!(second.headless_camera_view_offer(33).unwrap());
             assert_eq!(second.session_view.camera.camera_yaw_frame, 1);
             assert_eq!(second.session_view.camera.camera_zoom_frame, 1);
             assert_ne!(second.session_view.camera.camera_yaw_radians, second_angle);

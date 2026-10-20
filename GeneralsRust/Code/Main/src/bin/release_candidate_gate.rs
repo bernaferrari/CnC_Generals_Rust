@@ -1,7 +1,7 @@
 use generals_main::release_candidate::{format_rc_report, run_release_candidate_package};
 
-fn main() {
-    let report = run_release_candidate_package(2, 5);
+fn main() -> gamelogic::GameLogicResult<()> {
+    let report = run_release_candidate_package(2, 5)?;
     println!("{}", format_rc_report(&report));
     if report.soak_ok
         && report.deterministic_match
@@ -25,5 +25,5 @@ fn main() {
         report.campaign_runtime_ok,
         report.golden_status
     );
-    std::process::exit(1);
+    std::process::exit(1)
 }

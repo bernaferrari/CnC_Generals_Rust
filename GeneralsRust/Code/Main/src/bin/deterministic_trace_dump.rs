@@ -55,7 +55,7 @@ fn run_named_scenario(scenario: &str, final_frame: u32) -> Result<TraceDump> {
                     vec![attacker],
                 )],
             );
-            let frames = run_trace_scenario(&mut game_logic, &scenario);
+            let frames = run_trace_scenario(&mut game_logic, &scenario)?;
             Ok(TraceDump {
                 schema: "generals.frame_trace.v2",
                 scenario: "smoke_attack".to_string(),

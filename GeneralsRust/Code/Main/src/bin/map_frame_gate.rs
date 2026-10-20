@@ -12,13 +12,13 @@ use generals_main::map_frame_scenario::{
     DEFAULT_MAP_FRAME_ADVANCE, MapFrameStatus, format_map_frame_report, run_map_frame_scenario,
 };
 
-fn main() {
+fn main() -> gamelogic::GameLogicResult<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.iter().any(|a| a == "--help" || a == "-h") {
         println!("Usage: map_frame_gate [--map NAME_OR_PATH] [--frames N]");
         println!("Loads a retail/dev map via GameLogic::load_map and advances N logic frames.");
         println!("When no map is available, still advances frames and reports assets_unavailable.");
-        return;
+        return Ok(());
     }
 
     let mut map: Option<String> = None;
@@ -47,7 +47,7 @@ fn main() {
         }
     }
 
-    let result = run_map_frame_scenario(map.as_deref(), frames);
+    let result = run_map_frame_scenario(map.as_deref(), frames)?;
     println!("{}", format_map_frame_report(&result));
 
     match result.status {

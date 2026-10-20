@@ -301,8 +301,8 @@ fn camera_owner_v2_preserves_tracking_turn_hold_cache_and_actual_frame_future() 
     let mut receiving = GameLogic::new();
     receiving.admit_camera_continuation(state).unwrap();
     for _ in 0..5 {
-        source.headless_camera_view_offer(33);
-        receiving.headless_camera_view_offer(33);
+        source.headless_camera_view_offer(33).unwrap();
+        receiving.headless_camera_view_offer(33).unwrap();
         assert_eq!(
             receiving.capture_camera_continuation().unwrap(),
             source.capture_camera_continuation().unwrap()

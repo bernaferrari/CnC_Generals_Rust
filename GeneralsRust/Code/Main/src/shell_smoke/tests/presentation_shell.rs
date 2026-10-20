@@ -7,46 +7,54 @@ mod presentation_shell_deepen_tests {
     #[test]
     fn presentation_shell_deepens_visual_speed_without_main_draw_ownership() {
         let src = game_client::core::game_client::GAME_CLIENT_SRC;
-        let idx = src
-            .find("fn update_presentation_shell")
-            .expect("presentation shell");
-        // Bound to this function's body: the shell tick deepened past the
-        // former 2800-char window (visual-speed / freeze / DisplayString
-        // residuals moved deeper into the tick), so a fixed window broke.
-        let end = src[idx..]
-            .find("\n    pub fn ")
-            .map(|rel| idx + rel)
-            .unwrap_or(src.len());
-        let window = &src[idx..end];
+        let begin = src
+            .split_once("fn begin_presentation_shell_observing(")
+            .expect("receiving shell begin")
+            .1
+            .split_once("pub fn finish_presentation_shell_with_native_views(")
+            .expect("receiving shell finish boundary")
+            .0;
+        let finish = src
+            .split_once("fn finish_presentation_shell_routed(")
+            .expect("receiving shell finish")
+            .1
+            .split_once("fn update_orphaned_w3d_ghosts_if_unfrozen(")
+            .expect("finish boundary")
+            .0;
         assert!(
-            window.contains("get_script_visual_speed_multiplier"),
-            "shell must scale visual delta by script visual speed"
+            begin.contains("self.admit_visual_time(observe()?)?")
+                && begin.contains("delta_time * visual_speed")
+                && begin.contains("freeze_time || visual_speed <= 0."),
+            "shell must use receiving visual speed and freeze after pre-draw UI"
         );
         assert!(
-            window.contains("should_freeze_visual_time"),
-            "shell must honor visual freeze residual"
+            !begin.contains("get_script_visual_speed_multiplier")
+                && !begin.contains("should_freeze_visual_time"),
+            "receiving shell must not rediscover ambient visual state"
         );
         assert!(
-            window.contains("update_display_string_manager"),
-            "shell must tick DisplayStringManager residual"
+            finish.contains("update_display_string_manager"),
+            "shell must tick DisplayStringManager after drawable work"
         );
         assert!(
-            window.contains("update_display_only"),
-            "shell must run display UPDATE residual (not DRAW)"
+            begin.contains("update_display_only"),
+            "shell must run display UPDATE, not Main's DRAW"
         );
         assert!(
-            window.contains("draw_drawable_icon_ui"),
-            "shell must run drawable icon UI residual"
+            finish.contains("draw_drawable_icon_ui"),
+            "shell must run drawable icon UI"
         );
+        for phase in [begin, finish] {
+            assert!(
+                !phase.contains("self.update_input")
+                    && !phase.contains("self.update_audio")
+                    && !phase.contains("self.draw_display"),
+                "presentation shell must not take Main input/audio/draw ownership"
+            );
+        }
         assert!(
-            !window.contains("self.update_input")
-                && !window.contains("self.update_audio")
-                && !window.contains("self.draw_display"),
-            "presentation shell must not take Main input/audio/draw ownership"
-        );
-        assert!(
-            window.contains("update_drawables_local"),
-            "shell keeps local drawable path (no OBJECT_REGISTRY shroud bind)"
+            begin.contains("update_drawables_local"),
+            "shell keeps the local drawable path"
         );
     }
 }

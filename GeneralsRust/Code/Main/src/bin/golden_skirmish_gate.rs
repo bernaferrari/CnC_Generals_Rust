@@ -1,6 +1,6 @@
 use generals_main::golden_skirmish::{format_golden_report, run_golden_skirmish};
 
-fn main() {
+fn main() -> gamelogic::GameLogicResult<()> {
     // Gate default: GameWorld damage last-writer for HP (opt out DAMAGE_AUTHORITY=0).
 
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -19,7 +19,7 @@ fn main() {
             }
             "--help" | "-h" => {
                 println!("Usage: golden_skirmish_gate [--map PATH] [--frames N]");
-                return;
+                return Ok(());
             }
             other => {
                 eprintln!("unknown arg {other}");
@@ -27,7 +27,7 @@ fn main() {
             }
         }
     }
-    let result = run_golden_skirmish(map.as_deref(), frames);
+    let result = run_golden_skirmish(map.as_deref(), frames)?;
     println!("{}", format_golden_report(&result));
     // Full vertical-slice gate: config, frames, all gameplay steps, victory, save/load.
     // Map present: main combat on map armies — synthetic_combat=false,
@@ -122,5 +122,5 @@ fn main() {
         result.combat_store_damage_ok,
         result.map_loaded
     );
-    std::process::exit(1);
+    std::process::exit(1)
 }

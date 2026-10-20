@@ -277,9 +277,12 @@ pub fn prefer_retail_campaign_load() -> bool {
 /// Full `load_map` **defaults to the retail campaign map** when it resolves
 /// (safe after CALL_SUBROUTINE hang fix). Set `GEN_CAMPAIGN_HOST_SAFE=1` for
 /// the Lone Eagle host-safe residual path.
-pub fn run_golden_campaign(map_name: Option<&str>, frames: u32) -> GoldenCampaignResult {
+pub fn run_golden_campaign(
+    map_name: Option<&str>,
+    frames: u32,
+) -> gamelogic::GameLogicResult<GoldenCampaignResult> {
     let prefer_retail = prefer_retail_campaign_load();
-    run_golden_campaign_ex(map_name, frames, prefer_retail)
+    Ok(run_golden_campaign_ex(map_name, frames, prefer_retail)?)
 }
 
 /// Same as [`run_golden_campaign`] with an explicit full-retail-load flag
@@ -288,7 +291,7 @@ pub fn run_golden_campaign_ex(
     map_name: Option<&str>,
     frames: u32,
     force_full_campaign: bool,
-) -> GoldenCampaignResult {
+) -> gamelogic::GameLogicResult<GoldenCampaignResult> {
     let frames = frames.max(1);
     let _ = std::fs::create_dir_all(SaveLoadManager::default_save_directory().join("Campaign"));
 
@@ -453,7 +456,7 @@ pub fn run_golden_campaign_ex(
     let frame_before = logic.get_frame();
     for _ in 0..frames {
         logic.update();
-        logic.headless_camera_view_offer(33);
+        logic.headless_camera_view_offer(33)?;
     }
     let frame_after = logic.get_frame();
     let frames_advanced = frame_after.saturating_sub(frame_before);
@@ -568,7 +571,7 @@ pub fn run_golden_campaign_ex(
         "failed"
     };
 
-    GoldenCampaignResult {
+    Ok(GoldenCampaignResult {
         campaign_started,
         mission_id: MISSION_ID.into(),
         campaign_map_identity,
@@ -606,7 +609,7 @@ pub fn run_golden_campaign_ex(
         challenge_campaign_count,
         challenge_general_started,
         status: status.into(),
-    }
+    })
 }
 
 /// First USA campaign / Training map identity for the offline sit-through path.
@@ -668,7 +671,7 @@ mod tests {
 
     #[test]
     fn campaign_path_advances_without_panic() {
-        let result = run_golden_campaign(None, 5);
+        let result = run_golden_campaign(None, 5).unwrap();
         assert!(
             result.frames_advanced > 0,
             "frames must advance: {}",
@@ -798,7 +801,8 @@ mod tests {
             return;
         };
 
-        let result = run_golden_campaign_ex(Some(map_path.to_str().unwrap_or("MD_USA01")), 3, true);
+        let result =
+            run_golden_campaign_ex(Some(map_path.to_str().unwrap_or("MD_USA01")), 3, true).unwrap();
         let report = format_campaign_report(&result);
         assert!(
             result.campaign_playable_claim,
@@ -831,7 +835,7 @@ mod tests {
     #[test]
     fn campaign_host_safe_opt_out_skips_retail_map() {
         // Explicit host-safe residual path (no env race): force_full=false.
-        let result = run_golden_campaign_ex(None, 3, false);
+        let result = run_golden_campaign_ex(None, 3, false).unwrap();
         let report = format_campaign_report(&result);
         assert!(
             result.campaign_playable_claim,
@@ -872,7 +876,7 @@ mod tests {
     #[test]
     fn missing_assets_still_advance_single_player() {
         // Force no campaign map by using a nonsense path for scripts; host may still load.
-        let result = run_golden_campaign(Some("__no_such_campaign_map__"), 3);
+        let result = run_golden_campaign(Some("__no_such_campaign_map__"), 3).unwrap();
         assert!(
             result.frames_advanced > 0,
             "{}",

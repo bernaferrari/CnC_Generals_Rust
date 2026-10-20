@@ -71,6 +71,7 @@ pub fn create_unit_templates() -> HashMap<String, ThingTemplate> {
     let mut gla_worker = ThingTemplate::new("GLA_Worker");
     gla_worker
         .add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Dozer)
         .add_kind_of(KindOf::Selectable)
         .set_health(40.0)
         .set_cost(200, 0)
@@ -148,6 +149,7 @@ pub fn create_unit_templates() -> HashMap<String, ThingTemplate> {
     let mut usa_dozer = ThingTemplate::new("USA_Dozer");
     usa_dozer
         .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Dozer)
         .add_kind_of(KindOf::Selectable)
         .set_health(300.0)
         .set_cost(1000, 0)
@@ -222,6 +224,7 @@ pub fn create_unit_templates() -> HashMap<String, ThingTemplate> {
     let mut china_dozer = ThingTemplate::new("China_Dozer");
     china_dozer
         .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Dozer)
         .add_kind_of(KindOf::Selectable)
         .set_health(350.0)
         .set_cost(1000, 0)

@@ -10,7 +10,8 @@ fn authored(
     let mut list = ScriptList::new();
     list.append_script(script("OwnedCameraSetup", actions, true));
     world.frame += 1;
-    let _ = run(world, engine(Arc::clone(foreign), list));
+    let receiving_engine = run(world, engine(Arc::clone(foreign), list));
+    world.install_owned_script_engine(receiving_engine);
 }
 
 fn independent_axes(world: &mut GameLogic, foreign: &Arc<MissionScriptHooks>) {
@@ -47,7 +48,8 @@ fn observer(world: &mut GameLogic, foreign: &Arc<MissionScriptHooks>) -> bool {
     list.append_script(waiting);
     let before = world.new_script_messages.len();
     world.frame += 1;
-    let _ = run(world, engine(Arc::clone(foreign), list));
+    let receiving_engine = run(world, engine(Arc::clone(foreign), list));
+    world.install_owned_script_engine(receiving_engine);
     world.new_script_messages[before..]
         .iter()
         .any(|message| message == "Transmission: owned axes finished")
@@ -55,7 +57,7 @@ fn observer(world: &mut GameLogic, foreign: &Arc<MissionScriptHooks>) -> bool {
 
 fn offer_frames(world: &mut GameLogic, frames: u32) {
     for _ in 0..frames {
-        world.headless_camera_view_offer(33);
+        world.headless_camera_view_offer(33).unwrap();
     }
 }
 fn remaining_frames(world: &GameLogic, zoom: bool) -> u32 {

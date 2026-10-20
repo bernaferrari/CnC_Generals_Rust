@@ -185,7 +185,12 @@ fn install_templates(logic: &mut GameLogic) {
         ),
         template(
             "GoldenDozer",
-            &[KindOf::Vehicle, KindOf::Worker, KindOf::Selectable],
+            &[
+                KindOf::Vehicle,
+                KindOf::Worker,
+                KindOf::Dozer,
+                KindOf::Selectable,
+            ],
             300.0,
             1000,
             0.1,
@@ -265,40 +270,54 @@ fn install_templates(logic: &mut GameLogic) {
     }
 }
 
-fn run_frames(logic: &mut GameLogic, frames: usize) {
+fn run_frames(logic: &mut GameLogic, frames: usize) -> gamelogic::GameLogicResult<()> {
     for _ in 0..frames {
         logic.update();
-        logic.headless_camera_view_offer(33);
+        logic.headless_camera_view_offer(33)?;
     }
+
+    Ok(())
 }
 
-fn run_until<F>(logic: &mut GameLogic, max_frames: usize, cond: F) -> bool
+fn run_until<F>(
+    logic: &mut GameLogic,
+    max_frames: usize,
+    cond: F,
+) -> gamelogic::GameLogicResult<bool>
 where
     F: FnMut(&GameLogic) -> bool,
 {
-    run_until_counted(logic, max_frames, cond).1
+    Ok(run_until_counted(logic, max_frames, cond)?.1)
 }
 
 /// Frames consumed by `run_until` (updates performed; early-exit returns index).
-fn run_until_budget<F>(logic: &mut GameLogic, max_frames: usize, cond: F) -> usize
+fn run_until_budget<F>(
+    logic: &mut GameLogic,
+    max_frames: usize,
+    cond: F,
+) -> gamelogic::GameLogicResult<usize>
 where
     F: FnMut(&GameLogic) -> bool,
 {
-    run_until_counted(logic, max_frames, cond).0
+    Ok(run_until_counted(logic, max_frames, cond)?.0)
 }
 
-fn run_until_counted<F>(logic: &mut GameLogic, max_frames: usize, mut cond: F) -> (usize, bool)
+fn run_until_counted<F>(
+    logic: &mut GameLogic,
+    max_frames: usize,
+    mut cond: F,
+) -> gamelogic::GameLogicResult<(usize, bool)>
 where
     F: FnMut(&GameLogic) -> bool,
 {
     for i in 0..max_frames {
         if cond(logic) {
-            return (i, true);
+            return Ok((i, true));
         }
         logic.update();
-        logic.headless_camera_view_offer(33);
+        logic.headless_camera_view_offer(33)?;
     }
-    (max_frames, cond(logic))
+    Ok((max_frames, cond(logic)))
 }
 
 fn resolve_map(explicit: Option<&str>) -> (String, bool) {
@@ -527,11 +546,7 @@ fn ensure_dozer(logic: &mut GameLogic, base: Vec3) -> Option<ObjectId> {
     logic
         .host_objects()
         .values()
-        .find(|o| {
-            o.team == Team::USA
-                && o.is_alive()
-                && (o.is_kind_of(KindOf::Worker) || o.template_name.contains("Dozer"))
-        })
+        .find(|o| o.team == Team::USA && o.is_alive() && o.can_construct())
         .map(|o| o.id)
         .or_else(|| {
             let pos = clamp_build_site(logic, base + Vec3::new(25.0, 0.0, 0.0));
@@ -816,6 +831,7 @@ fn prepare_retail_usa_host_templates(logic: &mut GameLogic) {
         if *name == "USA_Dozer" {
             t.add_kind_of(KindOf::Vehicle);
             t.add_kind_of(KindOf::Worker);
+            t.add_kind_of(KindOf::Dozer);
             t.add_kind_of(KindOf::Selectable);
         }
     }
@@ -1014,9 +1030,14 @@ fn approach_point(enemy_pos: Vec3, index: usize) -> Vec3 {
 }
 
 /// Pure path march — no set_position. Used instead of setup/dozer warps.
-fn march_unit_near(logic: &mut GameLogic, id: ObjectId, dest: Vec3, budget: usize) -> bool {
+fn march_unit_near(
+    logic: &mut GameLogic,
+    id: ObjectId,
+    dest: Vec3,
+    budget: usize,
+) -> gamelogic::GameLogicResult<bool> {
     let _ = logic.assign_unit_path(id, dest, &[]);
-    run_until(logic, budget, |g| {
+    Ok(run_until(logic, budget, |g| {
         g.host_object(id)
             .map(|o| {
                 let p = o.get_position();
@@ -1025,7 +1046,7 @@ fn march_unit_near(logic: &mut GameLogic, id: ObjectId, dest: Vec3, budget: usiz
                 (dx * dx + dz * dz).sqrt() < 16.0
             })
             .unwrap_or(false)
-    })
+    })?)
 }
 
 fn golden_allow_teleport_pull() -> bool {
@@ -1099,7 +1120,9 @@ fn golden_mopup_destroy_enabled() -> bool {
     })
 }
 
-fn clear_remaining_enemy_army_for_map_victory(logic: &mut GameLogic) {
+fn clear_remaining_enemy_army_for_map_victory(
+    logic: &mut GameLogic,
+) -> gamelogic::GameLogicResult<()> {
     // Wave 451 honesty residual:
     // - Default: no mop-up destroy (fail honestly if combat left survivors).
     // - Opt-in GOLDEN_ALLOW_MOPUP_DESTROY=1: destroy_object die path for leftovers
@@ -1107,7 +1130,7 @@ fn clear_remaining_enemy_army_for_map_victory(logic: &mut GameLogic) {
     // - Forbidden: objects.remove bypass of die modules, take_damage cheats,
     //   re-team, or health gates that fake the primary kill.
     if !golden_mopup_destroy_enabled() {
-        return;
+        return Ok(());
     }
     const DRAIN_PASSES: u32 = 10;
     const FRAMES_PER_PASS: usize = 30;
@@ -1120,13 +1143,13 @@ fn clear_remaining_enemy_army_for_map_victory(logic: &mut GameLogic) {
             .map(|o| o.id)
             .collect();
         if leftovers.is_empty() {
-            return;
+            return Ok(());
         }
         for id in leftovers {
             logic.destroy_object(id);
         }
         // Topple/slow-death ticks + process_destroy_list (may spawn GLAHole).
-        run_frames(logic, FRAMES_PER_PASS);
+        run_frames(logic, FRAMES_PER_PASS)?;
     }
 
     // Stuck topple/hole residue: still destroy_object only — never objects.remove.
@@ -1140,6 +1163,8 @@ fn clear_remaining_enemy_army_for_map_victory(logic: &mut GameLogic) {
         logic.destroy_object(id);
     }
     logic.process_destroy_list();
+
+    Ok(())
 }
 
 fn fight_enemies_with_rangers(
@@ -1147,9 +1172,9 @@ fn fight_enemies_with_rangers(
     rangers: &[ObjectId],
     primary_target: Option<ObjectId>,
     max_rounds: u32,
-) -> (bool, bool, bool, bool, bool) {
+) -> gamelogic::GameLogicResult<(bool, bool, bool, bool, bool)> {
     if rangers.is_empty() {
-        return (false, false, false, false, false);
+        return Ok((false, false, false, false, false));
     }
 
     // Prefer retail infantry speed + store weapon damage (no 80/40 assists).
@@ -1231,7 +1256,7 @@ fn fight_enemies_with_rangers(
                 // March until in range or budget exhausted.
                 let used = run_until_budget(logic, march_frames, |g| {
                     any_ranger_in_weapon_range(g, &live, ep)
-                });
+                })?;
                 materialize_host_damage_log(logic);
                 fight_sim_frames = fight_sim_frames.saturating_add(used);
             }
@@ -1318,7 +1343,7 @@ fn fight_enemies_with_rangers(
             let dist = horiz_distance(centroid, ep);
             // Bound per-focus thrash so multi-base retarget cannot hang.
             let mini = (((dist / MARCH_SPEED.max(1.0)) * 30.0) as usize + 180).clamp(30, 450);
-            let used = run_until_budget(logic, mini, |g| any_ranger_in_weapon_range(g, &live, ep));
+            let used = run_until_budget(logic, mini, |g| any_ranger_in_weapon_range(g, &live, ep))?;
             materialize_host_damage_log(logic);
             fight_sim_frames = fight_sim_frames.saturating_add(used);
             if fight_sim_frames >= MAX_FIGHT_SIM_FRAMES {
@@ -1417,7 +1442,7 @@ fn fight_enemies_with_rangers(
                 cmd_id += 1;
             }
             let step = step_frames.min(MAX_FIGHT_SIM_FRAMES.saturating_sub(fight_sim_frames));
-            run_frames(logic, step);
+            run_frames(logic, step)?;
             materialize_host_damage_log(logic);
             fight_sim_frames = fight_sim_frames.saturating_add(step);
             if fight_sim_frames >= MAX_FIGHT_SIM_FRAMES {
@@ -1434,7 +1459,7 @@ fn fight_enemies_with_rangers(
             ));
             cmd_id += 1;
             let step = 3usize.min(MAX_FIGHT_SIM_FRAMES.saturating_sub(fight_sim_frames));
-            run_frames(logic, step);
+            run_frames(logic, step)?;
             materialize_host_damage_log(logic);
             fight_sim_frames = fight_sim_frames.saturating_add(step);
             if fight_sim_frames >= MAX_FIGHT_SIM_FRAMES {
@@ -1550,13 +1575,13 @@ fn fight_enemies_with_rangers(
     // a cleanup wave that scores no extra damage would otherwise wipe the
     // aggregated combat_no_teleport_ok flag (golden_skirmish_gate map path).
     let combat_no_teleport_ok = !used_teleport_pull;
-    (
+    Ok((
         fought,
         combat_destroyed,
         combat_no_teleport_ok,
         realistic_speed_ok,
         store_damage_ok,
-    )
+    ))
 }
 
 /// Synthetic host combat world: GoldenCC + GoldenEnemyCC soup (no map load).
@@ -1564,7 +1589,7 @@ fn run_synthetic_host_skirmish(
     logic: &mut GameLogic,
     map_identity: &str,
     frames: u32,
-) -> VerticalSliceOutcome {
+) -> gamelogic::GameLogicResult<VerticalSliceOutcome> {
     // Layout keeps STRUCTURE_PLACE_CLEARANCE_RESIDUAL (40) between pads.
     // Barracks ~80 from CC; enemy CC ~200 (in GoldenRanger range 100 after march);
     // supply pile far from build pads (SUPPLY_BUILD_BORDER 20 + radii).
@@ -1607,10 +1632,10 @@ fn run_synthetic_host_skirmish(
         .unwrap_or(false);
 
     // Construct barracks via DozerConstruct after a pure path march (no set_position).
-    let _ = march_unit_near(logic, dozer, Vec3::new(75.0, 0.0, 0.0), 180);
+    let _ = march_unit_near(logic, dozer, Vec3::new(75.0, 0.0, 0.0), 180)?;
     for _ in 0..3 {
         logic.update();
-        logic.headless_camera_view_offer(33);
+        logic.headless_camera_view_offer(33)?;
     }
     logic.queue_command(command(
         2,
@@ -1626,7 +1651,7 @@ fn run_synthetic_host_skirmish(
         g.host_objects()
             .values()
             .any(|o| o.template_name == "Barracks" && o.team == Team::USA && o.is_constructed())
-    });
+    })?;
 
     let barracks_id = logic
         .host_objects()
@@ -1688,7 +1713,7 @@ fn run_synthetic_host_skirmish(
             g.get_player(0)
                 .map(|p| p.resources.supplies > cash_at_gather)
                 .unwrap_or(false)
-        });
+        })?;
 
     let system = CommandSystem::new();
     let mut produced = false;
@@ -1717,14 +1742,14 @@ fn run_synthetic_host_skirmish(
                     .filter(|o| o.template_name == "GoldenRanger" && o.team == Team::USA)
                     .count()
                     >= 1
-            });
+            })?;
         let _ = run_until(logic, 360, |g| {
             g.host_objects()
                 .values()
                 .filter(|o| o.template_name == "GoldenRanger" && o.team == Team::USA)
                 .count()
                 >= 4
-        });
+        })?;
     }
 
     // Upgrade claim honesty: the queue must be accepted by the authored
@@ -1766,7 +1791,7 @@ fn run_synthetic_host_skirmish(
                 g.get_player(0)
                     .map(|p| p.has_unlocked_upgrade("Upgrade_AmericaSupplyLines"))
                     .unwrap_or(false)
-            });
+            })?;
     }
 
     let production_rangers: Vec<_> = logic
@@ -1792,10 +1817,10 @@ fn run_synthetic_host_skirmish(
         combat_no_teleport_ok,
         combat_realistic_speed_ok,
         combat_store_damage_ok,
-    ) = fight_enemies_with_rangers(logic, &production_rangers, Some(enemy_cc), 1200);
+    ) = fight_enemies_with_rangers(logic, &production_rangers, Some(enemy_cc), 1200)?;
 
     let frame_before = logic.get_frame();
-    run_frames(logic, frames.max(1) as usize);
+    run_frames(logic, frames.max(1) as usize)?;
     let frames_advanced = logic.get_frame().saturating_sub(frame_before).max(1);
 
     let gla_alive = logic
@@ -1811,7 +1836,7 @@ fn run_synthetic_host_skirmish(
 
     let save_load_ok = mid_match_save_load_ok(logic, map_identity);
 
-    VerticalSliceOutcome {
+    Ok(VerticalSliceOutcome {
         frames_advanced,
         moved_units,
         gathered,
@@ -1832,7 +1857,7 @@ fn run_synthetic_host_skirmish(
         combat_no_mopup_ok: true,
         combat_realistic_speed_ok,
         combat_store_damage_ok,
-    }
+    })
 }
 
 /// Map-loaded main combat world: build/produce/fight map-spawned enemies (not GoldenEnemyCC).
@@ -1845,7 +1870,7 @@ fn run_map_world_skirmish(
     logic: &mut GameLogic,
     map_identity: &str,
     frames: u32,
-) -> VerticalSliceOutcome {
+) -> gamelogic::GameLogicResult<VerticalSliceOutcome> {
     logic.set_ai_active(1, true);
     // Colocate host AI rebuild soup with the map army so residual rebuilds
     // (default GLA base is (200,0,200)) are not a second full-HP CC across the
@@ -1926,7 +1951,7 @@ fn run_map_world_skirmish(
     let (supply, retail_supply_target) = resolve_map_gather_target(logic, base);
 
     let Some(dozer) = ensure_dozer(logic, base) else {
-        return VerticalSliceOutcome {
+        return Ok(VerticalSliceOutcome {
             frames_advanced: 0,
             moved_units: false,
             gathered: false,
@@ -1945,7 +1970,7 @@ fn run_map_world_skirmish(
             combat_no_mopup_ok: true,
             combat_realistic_speed_ok: false,
             combat_store_damage_ok: false,
-        };
+        });
     };
     let dozer_is_retail = logic
         .host_object(dozer)
@@ -1954,12 +1979,12 @@ fn run_map_world_skirmish(
 
     let barracks_pos = clamp_build_site(logic, base + Vec3::new(40.0, 0.0, 0.0));
     // Path the dozer to the pad — no set_position warp (hq-8u1u).
-    let _ = march_unit_near(logic, dozer, barracks_pos + Vec3::new(-5.0, 0.0, 0.0), 400);
+    let _ = march_unit_near(logic, dozer, barracks_pos + Vec3::new(-5.0, 0.0, 0.0), 400)?;
     // Host FOW residual: push main-crate vision so build pads near the start
     // are CELLSHROUD_CLEAR (LBC_SHROUD otherwise blocks DozerConstruct).
     for _ in 0..3 {
         logic.update();
-        logic.headless_camera_view_offer(33);
+        logic.headless_camera_view_offer(33)?;
     }
 
     // Move dozer via production Move command.
@@ -1995,12 +2020,12 @@ fn run_map_world_skirmish(
         // Wave 829: FOW + LBC_OK pad per template (edge/shroud residual).
         for _ in 0..3 {
             logic.update();
-            logic.headless_camera_view_offer(33);
+            logic.headless_camera_view_offer(33)?;
         }
         let barracks_pos = find_legal_build_site_near(logic, base, bname, Some(dozer));
-        let _ = march_unit_near(logic, dozer, barracks_pos + Vec3::new(-5.0, 0.0, 0.0), 240);
+        let _ = march_unit_near(logic, dozer, barracks_pos + Vec3::new(-5.0, 0.0, 0.0), 240)?;
         logic.update();
-        logic.headless_camera_view_offer(33);
+        logic.headless_camera_view_offer(33)?;
         logic.queue_command(command(
             2 + attempt as u32,
             0,
@@ -2019,7 +2044,7 @@ fn run_map_world_skirmish(
                         || o.template_name.contains("Barracks")
                         || o.is_kind_of(KindOf::FSBarracks))
             })
-        });
+        })?;
         if constructed {
             barracks_built_name = bname.clone();
             break;
@@ -2138,7 +2163,7 @@ fn run_map_world_skirmish(
                     })
                     .count()
                     >= 2
-            });
+            })?;
             if got_two {
                 produced = true;
                 ranger_name_used = rname.clone();
@@ -2153,7 +2178,7 @@ fn run_map_world_skirmish(
                         })
                         .count()
                         >= 8
-                });
+                })?;
                 break;
             }
         }
@@ -2269,7 +2294,7 @@ fn run_map_world_skirmish(
                 }
                 for _ in 0..2 {
                     logic.update();
-                    logic.headless_camera_view_offer(33);
+                    logic.headless_camera_view_offer(33)?;
                 }
             }
         }
@@ -2318,7 +2343,7 @@ fn run_map_world_skirmish(
                             })
                             .count()
                             >= need
-                    });
+                    })?;
                 }
             }
         }
@@ -2341,7 +2366,8 @@ fn run_map_world_skirmish(
             })
             .or_else(|| find_map_enemy_structure(logic))
             .or_else(|| find_any_enemy(logic));
-        let (f, c, t, s, d) = fight_enemies_with_rangers(logic, &wave_rangers, focus, fight_rounds);
+        let (f, c, t, s, d) =
+            fight_enemies_with_rangers(logic, &wave_rangers, focus, fight_rounds)?;
         fought |= f;
         all_cleared = c
             && !logic
@@ -2384,12 +2410,12 @@ fn run_map_world_skirmish(
                     }
                     for _ in 0..2 {
                         logic.update();
-                        logic.headless_camera_view_offer(33);
+                        logic.headless_camera_view_offer(33)?;
                     }
                 }
             }
             let (f, c, nt, rs, sd) =
-                fight_enemies_with_rangers(logic, &live, Some(focus), cleanup_fight_rounds);
+                fight_enemies_with_rangers(logic, &live, Some(focus), cleanup_fight_rounds)?;
             fought |= f;
             combat_no_teleport_ok &= nt;
             combat_realistic_speed_ok &= rs;
@@ -2405,7 +2431,7 @@ fn run_map_world_skirmish(
         // (Wave 451: default OFF for honest combat; no take_damage / re-team cheat).
         let mopup_enabled = golden_mopup_destroy_enabled();
         if mopup_enabled {
-            clear_remaining_enemy_army_for_map_victory(logic);
+            clear_remaining_enemy_army_for_map_victory(logic)?;
         }
         combat_no_mopup_ok = !mopup_enabled;
 
@@ -2457,12 +2483,12 @@ fn run_map_world_skirmish(
     // Victory already evaluated; do not let trailing rebuild flip the result.
     logic.set_ai_active(1, true);
     let frame_before = logic.get_frame();
-    run_frames(logic, frames.max(1) as usize);
+    run_frames(logic, frames.max(1) as usize)?;
     let frames_advanced = logic.get_frame().saturating_sub(frame_before).max(1);
 
     let save_load_ok = mid_match_save_load_ok(logic, map_identity);
 
-    VerticalSliceOutcome {
+    Ok(VerticalSliceOutcome {
         frames_advanced,
         moved_units,
         gathered,
@@ -2482,11 +2508,14 @@ fn run_map_world_skirmish(
         combat_no_mopup_ok,
         combat_realistic_speed_ok,
         combat_store_damage_ok,
-    }
+    })
 }
 
 /// Production-linked golden skirmish scenario.
-pub fn run_golden_skirmish(map_override: Option<&str>, frames: u32) -> GoldenSkirmishResult {
+pub fn run_golden_skirmish(
+    map_override: Option<&str>,
+    frames: u32,
+) -> gamelogic::GameLogicResult<GoldenSkirmishResult> {
     let (map_identity, map_exists) = resolve_map(map_override);
     let config = golden_skirmish_config(&map_identity);
     let slots_active = config.slots.iter().filter(|s| s.is_active).count();
@@ -2555,9 +2584,9 @@ pub fn run_golden_skirmish(map_override: Option<&str>, frames: u32) -> GoldenSki
         .and_then(|s| s.ai_difficulty.clone())
         .unwrap_or_else(|| "unknown".into());
     let outcome = if map_loaded {
-        run_map_world_skirmish(&mut logic, &map_identity, frames)
+        run_map_world_skirmish(&mut logic, &map_identity, frames)?
     } else {
-        run_synthetic_host_skirmish(&mut logic, &map_identity, frames)
+        run_synthetic_host_skirmish(&mut logic, &map_identity, frames)?
     };
 
     // Deterministic config apply checkpoints (two fresh worlds, same config).
@@ -2636,7 +2665,7 @@ pub fn run_golden_skirmish(map_override: Option<&str>, frames: u32) -> GoldenSki
         "partial".into()
     };
 
-    GoldenSkirmishResult {
+    Ok(GoldenSkirmishResult {
         map_identity,
         map_loaded,
         config_applied,
@@ -2674,7 +2703,7 @@ pub fn run_golden_skirmish(map_override: Option<&str>, frames: u32) -> GoldenSki
         combat_realistic_speed_ok: outcome.combat_realistic_speed_ok,
         combat_store_damage_ok: outcome.combat_store_damage_ok,
         status,
-    }
+    })
 }
 
 pub fn format_golden_report(r: &GoldenSkirmishResult) -> String {
@@ -2742,19 +2771,19 @@ mod tests {
             .unwrap_or(Vec3::ZERO);
         let dozer = ensure_dozer(&mut logic, base).expect("dozer");
         logic.update();
-        logic.headless_camera_view_offer(33);
+        logic.headless_camera_view_offer(33).unwrap();
         let bname =
             first_present_template(&logic, &["USA_Barracks", "AmericaBarracks", "Barracks"])
                 .unwrap_or_else(|| "Barracks".into());
         // Wave 829: reveal FOW then pick an LBC_OK pad (edge margin + shroud).
         for _ in 0..5 {
             logic.update();
-            logic.headless_camera_view_offer(33);
+            logic.headless_camera_view_offer(33).unwrap();
         }
         let site = find_legal_build_site_near(&logic, base, &bname, Some(dozer));
-        let _ = march_unit_near(&mut logic, dozer, site + Vec3::new(-5.0, 0.0, 0.0), 240);
+        let _ = march_unit_near(&mut logic, dozer, site + Vec3::new(-5.0, 0.0, 0.0), 240).unwrap();
         logic.update();
-        logic.headless_camera_view_offer(33);
+        logic.headless_camera_view_offer(33).unwrap();
         // Simulate host construct: create under construction via legal path.
         let id = logic.create_object_under_construction(&bname, Team::USA, site);
         assert!(
@@ -2791,18 +2820,18 @@ mod tests {
             d.set_position(p); // keep
         }
         logic.update();
-        logic.headless_camera_view_offer(33); // apply vision for post-load spawned dozer
+        logic.headless_camera_view_offer(33).unwrap(); // apply vision for post-load spawned dozer
         let bname =
             first_present_template(&logic, &["USA_Barracks", "AmericaBarracks", "Barracks"])
                 .unwrap_or_else(|| "Barracks".into());
         for _ in 0..5 {
             logic.update();
-            logic.headless_camera_view_offer(33);
+            logic.headless_camera_view_offer(33).unwrap();
         }
         let site = find_legal_build_site_near(&logic, base, &bname, Some(dozer));
-        let _ = march_unit_near(&mut logic, dozer, site + Vec3::new(-5.0, 0.0, 0.0), 240);
+        let _ = march_unit_near(&mut logic, dozer, site + Vec3::new(-5.0, 0.0, 0.0), 240).unwrap();
         logic.update();
-        logic.headless_camera_view_offer(33);
+        logic.headless_camera_view_offer(33).unwrap();
         let legal =
             logic.is_location_legal_to_build_for_builder(Team::USA, site, &bname, Some(dozer));
         assert!(
@@ -2892,8 +2921,40 @@ mod tests {
     }
 
     #[test]
+    fn golden_synthetic_dozer_authors_constructor_capability() {
+        let mut logic = GameLogic::new();
+        let config = golden_skirmish_config("CatalogCapability");
+        apply_skirmish_config(&mut logic, &config).unwrap();
+        install_templates(&mut logic);
+        let dozer = logic
+            .create_object_for_player("GoldenDozer", 0, Vec3::ZERO)
+            .unwrap();
+        let object = logic.host_object(dozer).unwrap();
+        assert!(
+            object.is_kind_of(KindOf::Dozer),
+            "golden authored constructor must carry DOZER"
+        );
+        assert!(object.can_construct());
+        assert!(object.can_repair());
+        assert!(
+            logic
+                .templates
+                .get("GoldenHarvester")
+                .unwrap()
+                .is_kind_of(KindOf::Harvester)
+        );
+        assert!(
+            !logic
+                .templates
+                .get("GoldenHarvester")
+                .unwrap()
+                .is_kind_of(KindOf::Dozer)
+        );
+    }
+
+    #[test]
     fn golden_skirmish_full_vertical_slice() {
-        let result = run_golden_skirmish(None, 8);
+        let result = run_golden_skirmish(None, 8).unwrap();
         assert!(result.config_applied, "skirmish config must apply");
         assert_eq!(result.slots_active, 2);
         assert_eq!(result.ai_difficulty, "Medium");
@@ -3042,7 +3103,7 @@ mod tests {
             eprintln!("retail map absent — skipping map-loaded golden assertion");
             return;
         };
-        let result = run_golden_skirmish(Some(map), 30);
+        let result = run_golden_skirmish(Some(map), 30).unwrap();
         assert!(
             result.map_loaded,
             "retail map must load on main logic: {}",
@@ -3138,7 +3199,7 @@ mod tests {
     #[test]
     fn golden_skirmish_synthetic_when_map_absent() {
         // Force synthetic path with a non-existent map identity.
-        let result = run_golden_skirmish(Some("/nonexistent/no_such_map.map"), 8);
+        let result = run_golden_skirmish(Some("/nonexistent/no_such_map.map"), 8).unwrap();
         assert!(!result.map_loaded, "missing map must not report loaded");
         assert!(
             result.synthetic_combat,

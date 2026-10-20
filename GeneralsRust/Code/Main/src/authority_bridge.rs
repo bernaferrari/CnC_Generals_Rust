@@ -63,7 +63,7 @@ fn host_templates(logic: &mut GameLogic) {
 }
 
 /// No take_damage fallbacks, no HP caps after spawn, no re-teaming.
-pub fn run_host_only_combat_victory() -> (bool, String) {
+pub fn run_host_only_combat_victory() -> gamelogic::GameLogicResult<(bool, String)> {
     // Ensure dual-tick env is not required (we do not set it).
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("HostOnlyBridge");
@@ -118,10 +118,10 @@ pub fn run_host_only_combat_victory() -> (bool, String) {
     // Bridge must stay unused on host authority path.
     let any_bridged = logic.host_objects().values().any(|_o| false);
     if any_bridged {
-        return (
+        return Ok((
             false,
             "unexpected engine_object_id on default host path".into(),
-        );
+        ));
     }
 
     // Weapons come from template.resolve_primary_weapon at create_object.
@@ -155,7 +155,7 @@ pub fn run_host_only_combat_victory() -> (bool, String) {
     ));
     for _ in 0..400u32 {
         logic.update();
-        logic.headless_camera_view_offer(33);
+        logic.headless_camera_view_offer(33)?;
         let still_alive = logic
             .host_object(enemy)
             .map(|o| o.is_alive())
@@ -176,16 +176,16 @@ pub fn run_host_only_combat_victory() -> (bool, String) {
         );
 
     let ok = moved && damaged && victory && !any_bridged;
-    (
+    Ok((
         ok,
         format!(
             "moved={moved} damaged={damaged} killed={combat_killed} victory={victory} bridged={any_bridged}"
         ),
-    )
+    ))
 }
 
 /// Host stores presentation after update and HUD consumer applies it.
-pub fn run_presentation_consumer_path() -> (bool, String) {
+pub fn run_presentation_consumer_path() -> gamelogic::GameLogicResult<(bool, String)> {
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("PresConsumer");
     let _ = apply_skirmish_config(&mut logic, &cfg);
@@ -209,7 +209,7 @@ pub fn run_presentation_consumer_path() -> (bool, String) {
         o.status.selected = true;
     }
     logic.update();
-    logic.headless_camera_view_offer(33);
+    logic.headless_camera_view_offer(33)?;
     let frame = PresentationFrame::build_from_logic(&mut logic, 0);
     let mut ui = GameUIState::default();
     frame.apply_to_ui_state(&mut ui);
@@ -232,7 +232,7 @@ pub fn run_presentation_consumer_path() -> (bool, String) {
     #[cfg(not(feature = "game_client"))]
     let control_bar_ok = true;
     let ok = supplies_ok && objects_ok && minimap_ok && panel_ok && control_bar_ok;
-    (
+    Ok((
         ok,
         format!(
             "credits={} objects={} minimap={} panel_hp={} frame={}",
@@ -242,7 +242,7 @@ pub fn run_presentation_consumer_path() -> (bool, String) {
             hud.selection_panel().health_current,
             frame.frame.0
         ),
-    )
+    ))
 }
 
 #[cfg(test)]
@@ -255,13 +255,13 @@ mod tests {
             std::env::var_os("GENERALS_ALLOW_DUAL_TICK").is_none(),
             "test must run without dual tick env"
         );
-        let (ok, detail) = run_host_only_combat_victory();
+        let (ok, detail) = run_host_only_combat_victory().unwrap();
         assert!(ok, "{detail}");
     }
 
     #[test]
     fn presentation_consumer_updates_hud_from_snapshot() {
-        let (ok, detail) = run_presentation_consumer_path();
+        let (ok, detail) = run_presentation_consumer_path().unwrap();
         assert!(ok, "{detail}");
     }
 
@@ -295,7 +295,7 @@ mod tests {
         // 200 HP structure; default weapon needs multi-second fight.
         for _ in 0..400 {
             logic.update();
-            logic.headless_camera_view_offer(33);
+            logic.headless_camera_view_offer(33).unwrap();
             if !logic
                 .host_object(enemy)
                 .map(|o| o.is_alive())

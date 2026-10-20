@@ -17,13 +17,13 @@ use generals_main::release_candidate::{format_rc_report, run_release_candidate_p
 use generals_main::shell_smoke::{format_shell_smoke_report, run_shell_smoke};
 use std::time::Duration;
 
-fn main() {
+fn main() -> gamelogic::GameLogicResult<()> {
     // Gate default: GameWorld damage last-writer for HP (opt out DAMAGE_AUTHORITY=0).
 
     let mut failed = Vec::new();
 
     // 1) Map frames — when assets present require load + advance.
-    let map = run_map_frame_scenario(None, 5);
+    let map = run_map_frame_scenario(None, 5)?;
     println!("map_frame: {}", format_map_frame_report(&map));
     let map_ok = map.frames_advanced > 0
         && matches!(
@@ -37,7 +37,7 @@ fn main() {
     }
 
     // 2) Golden skirmish vertical slice (enough end frames; combat has its own budget).
-    let golden = run_golden_skirmish(None, 30);
+    let golden = run_golden_skirmish(None, 30)?;
     println!("golden: {}", format_golden_report(&golden));
     if golden.status != "success" || !golden.victory || !golden.save_load_ok || !golden.fought {
         failed.push(format!(
@@ -124,7 +124,7 @@ fn main() {
     }
 
     // 5) Shell/boot smoke (headless production types + skirmish start).
-    let shell = run_shell_smoke(8);
+    let shell = run_shell_smoke(8)?;
     println!("{}", format_shell_smoke_report(&shell));
     if shell.status != "success" {
         failed.push(format!("shell {}", shell.detail));
@@ -149,7 +149,7 @@ fn main() {
     }
 
     // 6) Campaign residual — SinglePlayer + mission scripts tick + frames.
-    let campaign = run_golden_campaign(None, 5);
+    let campaign = run_golden_campaign(None, 5)?;
     println!("campaign: {}", format_campaign_report(&campaign));
     if !(campaign.campaign_playable_claim
         && campaign.status == "success"
@@ -166,7 +166,7 @@ fn main() {
     }
 
     // 7) RC package.
-    let rc = run_release_candidate_package(2, 5);
+    let rc = run_release_candidate_package(2, 5)?;
     println!("rc: {}", format_rc_report(&rc));
     if !(rc.soak_ok
         && rc.deterministic_match
@@ -315,5 +315,5 @@ fn main() {
     for f in failed {
         eprintln!("  - {f}");
     }
-    std::process::exit(1);
+    std::process::exit(1)
 }
