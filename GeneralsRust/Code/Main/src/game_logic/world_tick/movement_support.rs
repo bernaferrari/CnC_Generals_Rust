@@ -2887,10 +2887,17 @@ impl GameLogic {
     /// Drain this world's accepted shots into its CombatSystem (fire-spawn authority apply).
     pub(crate) fn drain_pending_projectiles_into_combat(&mut self) {
         crate::game_logic::host_historic_bonus::set_logic_frame(self.frame);
-        crate::game_logic::combat::drain_pending_projectiles(
+        let projectile_terrain = crate::game_logic::game_logic::FlightTerrainView {
+            grid: &self.pathfinding_system.grid,
+            logical: Some(self.world_services.terrain()),
+            terrain: self.terrain.as_ref(),
+            samples: self.pathfinding_height_samples.as_ref(),
+        };
+        crate::game_logic::combat::drain_pending_projectiles_with_terrain(
             &mut self.combat_system,
             &self.objects,
             self.frame,
+            Some(&projectile_terrain),
         );
         self.apply_owned_projectileless_delayed_damage();
         self.execute_pending_weapon_fire_ocls();

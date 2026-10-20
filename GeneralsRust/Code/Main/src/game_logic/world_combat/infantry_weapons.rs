@@ -1153,9 +1153,13 @@ impl GameLogic {
     }
 
     /// C++ `TheTerrainLogic->getExtent()` for OCL CreateAtEdge.
-    /// Prefer leftover TerrainLogic active boundary; else live world_min/world_max.
+    /// Observe this session at planning time; mapless adapters retain world bounds.
     pub(crate) fn ocl_map_extents(&self) -> (f32, f32, f32, f32) {
-        if let Ok(terrain) = gamelogic::terrain::get_terrain_logic().try_read() {
+        let terrain_owner = self.world_services.terrain();
+        {
+            let terrain = terrain_owner
+                .read()
+                .unwrap_or_else(|error| error.into_inner());
             let ext = terrain.get_extent();
             if ext.hi.x > ext.lo.x && ext.hi.y > ext.lo.y {
                 return (ext.lo.x, ext.lo.y, ext.hi.x, ext.hi.y);

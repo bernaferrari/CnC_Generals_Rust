@@ -1,509 +1,442 @@
-// well_known_keys.rs - central store for common Dict keys.
-
-use once_cell::sync::OnceCell;
+//! Common Dict names resolve through the current NameKeyGenerator namespace.
+//! Numeric keys are namespace-relative: caching one process-wide would alias
+//! another thread's allocation order or an explicitly reset name table.
 
 use crate::common::name_key_generator::{NameKeyGenerator, NameKeyType};
 
-fn key_for(name: &'static str, slot: &OnceCell<NameKeyType>) -> NameKeyType {
-    *slot.get_or_init(|| NameKeyGenerator::name_to_key(name))
-}
-
-static PLAYER_NAME: OnceCell<NameKeyType> = OnceCell::new();
-static PLAYER_IS_HUMAN: OnceCell<NameKeyType> = OnceCell::new();
-static PLAYER_DISPLAY_NAME: OnceCell<NameKeyType> = OnceCell::new();
-static PLAYER_FACTION: OnceCell<NameKeyType> = OnceCell::new();
-static PLAYER_ALLIES: OnceCell<NameKeyType> = OnceCell::new();
-static PLAYER_ENEMIES: OnceCell<NameKeyType> = OnceCell::new();
-static PLAYER_IS_SKIRMISH: OnceCell<NameKeyType> = OnceCell::new();
-static PLAYER_IS_PREORDER: OnceCell<NameKeyType> = OnceCell::new();
-static MULTIPLAYER_START_INDEX: OnceCell<NameKeyType> = OnceCell::new();
-static SKIRMISH_DIFFICULTY: OnceCell<NameKeyType> = OnceCell::new();
-static PLAYER_COLOR: OnceCell<NameKeyType> = OnceCell::new();
-static PLAYER_NIGHT_COLOR: OnceCell<NameKeyType> = OnceCell::new();
-static PLAYER_START_MONEY: OnceCell<NameKeyType> = OnceCell::new();
-
-static OBJECT_NAME: OnceCell<NameKeyType> = OnceCell::new();
-static OBJECT_SCRIPT_ATTACHMENT: OnceCell<NameKeyType> = OnceCell::new();
-static OBJECT_MAX_HPS: OnceCell<NameKeyType> = OnceCell::new();
-static OBJECT_INITIAL_HEALTH: OnceCell<NameKeyType> = OnceCell::new();
-static OBJECT_VETERANCY: OnceCell<NameKeyType> = OnceCell::new();
-static OBJECT_AGGRESSIVENESS: OnceCell<NameKeyType> = OnceCell::new();
-static OBJECT_RECRUITABLE_AI: OnceCell<NameKeyType> = OnceCell::new();
-static OBJECT_SELECTABLE: OnceCell<NameKeyType> = OnceCell::new();
-static OBJECT_STOPPING_DISTANCE: OnceCell<NameKeyType> = OnceCell::new();
-static OBJECT_ENABLED: OnceCell<NameKeyType> = OnceCell::new();
-static OBJECT_POWERED: OnceCell<NameKeyType> = OnceCell::new();
-static OBJECT_INDESTRUCTIBLE: OnceCell<NameKeyType> = OnceCell::new();
-static OBJECT_UNSELLABLE: OnceCell<NameKeyType> = OnceCell::new();
-static OBJECT_TARGETABLE: OnceCell<NameKeyType> = OnceCell::new();
-static OBJECT_VISUAL_RANGE: OnceCell<NameKeyType> = OnceCell::new();
-static OBJECT_SHROUD_CLEARING_DISTANCE: OnceCell<NameKeyType> = OnceCell::new();
-static OBJECT_GRANT_UPGRADE: OnceCell<NameKeyType> = OnceCell::new();
-static OBJECT_TIME: OnceCell<NameKeyType> = OnceCell::new();
-static OBJECT_WEATHER: OnceCell<NameKeyType> = OnceCell::new();
-static OBJECT_SOUND_AMBIENT_ENABLED: OnceCell<NameKeyType> = OnceCell::new();
-static OBJECT_SOUND_AMBIENT: OnceCell<NameKeyType> = OnceCell::new();
-static OBJECT_SOUND_AMBIENT_CUSTOMIZED: OnceCell<NameKeyType> = OnceCell::new();
-static OBJECT_SOUND_AMBIENT_LOOPING: OnceCell<NameKeyType> = OnceCell::new();
-static OBJECT_SOUND_AMBIENT_LOOP_COUNT: OnceCell<NameKeyType> = OnceCell::new();
-static OBJECT_SOUND_AMBIENT_MIN_VOLUME: OnceCell<NameKeyType> = OnceCell::new();
-static OBJECT_SOUND_AMBIENT_VOLUME: OnceCell<NameKeyType> = OnceCell::new();
-static OBJECT_SOUND_AMBIENT_MIN_RANGE: OnceCell<NameKeyType> = OnceCell::new();
-static OBJECT_SOUND_AMBIENT_MAX_RANGE: OnceCell<NameKeyType> = OnceCell::new();
-static OBJECT_SOUND_AMBIENT_PRIORITY: OnceCell<NameKeyType> = OnceCell::new();
-
-static TEAM_NAME: OnceCell<NameKeyType> = OnceCell::new();
-static TEAM_OWNER: OnceCell<NameKeyType> = OnceCell::new();
-static TEAM_IS_SINGLETON: OnceCell<NameKeyType> = OnceCell::new();
-static TEAM_HOME: OnceCell<NameKeyType> = OnceCell::new();
-static TEAM_IS_AI_RECRUITABLE: OnceCell<NameKeyType> = OnceCell::new();
-static TEAM_IS_BASE_DEFENSE: OnceCell<NameKeyType> = OnceCell::new();
-static TEAM_IS_PERIMETER_DEFENSE: OnceCell<NameKeyType> = OnceCell::new();
-static TEAM_AUTO_REINFORCE: OnceCell<NameKeyType> = OnceCell::new();
-static TEAM_AGGRESSIVENESS: OnceCell<NameKeyType> = OnceCell::new();
-static TEAM_TRANSPORTS_RETURN: OnceCell<NameKeyType> = OnceCell::new();
-static TEAM_AVOID_THREATS: OnceCell<NameKeyType> = OnceCell::new();
-static TEAM_ATTACK_COMMON_TARGET: OnceCell<NameKeyType> = OnceCell::new();
-static TEAM_EXECUTES_ACTIONS_ON_CREATE: OnceCell<NameKeyType> = OnceCell::new();
-static TEAM_ON_CREATE_SCRIPT: OnceCell<NameKeyType> = OnceCell::new();
-static TEAM_ON_IDLE_SCRIPT: OnceCell<NameKeyType> = OnceCell::new();
-static TEAM_ON_UNIT_DESTROYED_SCRIPT: OnceCell<NameKeyType> = OnceCell::new();
-static TEAM_ON_DESTROYED_SCRIPT: OnceCell<NameKeyType> = OnceCell::new();
-static TEAM_ENEMY_SIGHTED_SCRIPT: OnceCell<NameKeyType> = OnceCell::new();
-static TEAM_ALL_CLEAR_SCRIPT: OnceCell<NameKeyType> = OnceCell::new();
-static TEAM_INITIAL_IDLE_FRAMES: OnceCell<NameKeyType> = OnceCell::new();
-static TEAM_DESTROYED_THRESHOLD: OnceCell<NameKeyType> = OnceCell::new();
-static TEAM_PRODUCTION_PRIORITY: OnceCell<NameKeyType> = OnceCell::new();
-static TEAM_PRODUCTION_PRIORITY_SUCCESS_INCREASE: OnceCell<NameKeyType> = OnceCell::new();
-static TEAM_PRODUCTION_PRIORITY_FAILURE_DECREASE: OnceCell<NameKeyType> = OnceCell::new();
-static TEAM_PRODUCTION_CONDITION: OnceCell<NameKeyType> = OnceCell::new();
-static TEAM_GENERIC_SCRIPT_HOOK: OnceCell<NameKeyType> = OnceCell::new();
-static TEAM_UNIT_TYPE1: OnceCell<NameKeyType> = OnceCell::new();
-static TEAM_UNIT_TYPE2: OnceCell<NameKeyType> = OnceCell::new();
-static TEAM_UNIT_TYPE3: OnceCell<NameKeyType> = OnceCell::new();
-static TEAM_UNIT_TYPE4: OnceCell<NameKeyType> = OnceCell::new();
-static TEAM_UNIT_TYPE5: OnceCell<NameKeyType> = OnceCell::new();
-static TEAM_UNIT_TYPE6: OnceCell<NameKeyType> = OnceCell::new();
-static TEAM_UNIT_TYPE7: OnceCell<NameKeyType> = OnceCell::new();
-static TEAM_UNIT_MIN_COUNT1: OnceCell<NameKeyType> = OnceCell::new();
-static TEAM_UNIT_MIN_COUNT2: OnceCell<NameKeyType> = OnceCell::new();
-static TEAM_UNIT_MIN_COUNT3: OnceCell<NameKeyType> = OnceCell::new();
-static TEAM_UNIT_MIN_COUNT4: OnceCell<NameKeyType> = OnceCell::new();
-static TEAM_UNIT_MIN_COUNT5: OnceCell<NameKeyType> = OnceCell::new();
-static TEAM_UNIT_MIN_COUNT6: OnceCell<NameKeyType> = OnceCell::new();
-static TEAM_UNIT_MIN_COUNT7: OnceCell<NameKeyType> = OnceCell::new();
-static TEAM_UNIT_MAX_COUNT1: OnceCell<NameKeyType> = OnceCell::new();
-static TEAM_UNIT_MAX_COUNT2: OnceCell<NameKeyType> = OnceCell::new();
-static TEAM_UNIT_MAX_COUNT3: OnceCell<NameKeyType> = OnceCell::new();
-static TEAM_UNIT_MAX_COUNT4: OnceCell<NameKeyType> = OnceCell::new();
-static TEAM_UNIT_MAX_COUNT5: OnceCell<NameKeyType> = OnceCell::new();
-static TEAM_UNIT_MAX_COUNT6: OnceCell<NameKeyType> = OnceCell::new();
-static TEAM_UNIT_MAX_COUNT7: OnceCell<NameKeyType> = OnceCell::new();
-static TEAM_MAX_INSTANCES: OnceCell<NameKeyType> = OnceCell::new();
-static TEAM_TRANSPORT: OnceCell<NameKeyType> = OnceCell::new();
-static TEAM_REINFORCEMENT_ORIGIN: OnceCell<NameKeyType> = OnceCell::new();
-static TEAM_STARTS_FULL: OnceCell<NameKeyType> = OnceCell::new();
-static TEAM_TRANSPORTS_EXIT: OnceCell<NameKeyType> = OnceCell::new();
-
 pub fn key_player_name() -> NameKeyType {
-    key_for("playerName", &PLAYER_NAME)
+    NameKeyGenerator::name_to_key("playerName")
 }
 
 pub fn key_player_is_human() -> NameKeyType {
-    key_for("playerIsHuman", &PLAYER_IS_HUMAN)
+    NameKeyGenerator::name_to_key("playerIsHuman")
 }
 
 pub fn key_player_display_name() -> NameKeyType {
-    key_for("playerDisplayName", &PLAYER_DISPLAY_NAME)
+    NameKeyGenerator::name_to_key("playerDisplayName")
 }
 
 pub fn key_player_faction() -> NameKeyType {
-    key_for("playerFaction", &PLAYER_FACTION)
+    NameKeyGenerator::name_to_key("playerFaction")
 }
 
 pub fn key_player_allies() -> NameKeyType {
-    key_for("playerAllies", &PLAYER_ALLIES)
+    NameKeyGenerator::name_to_key("playerAllies")
 }
 
 pub fn key_player_enemies() -> NameKeyType {
-    key_for("playerEnemies", &PLAYER_ENEMIES)
+    NameKeyGenerator::name_to_key("playerEnemies")
 }
 
 pub fn key_player_is_skirmish() -> NameKeyType {
-    key_for("playerIsSkirmish", &PLAYER_IS_SKIRMISH)
+    NameKeyGenerator::name_to_key("playerIsSkirmish")
 }
 
 pub fn key_player_is_preorder() -> NameKeyType {
-    key_for("playerIsPreorder", &PLAYER_IS_PREORDER)
+    NameKeyGenerator::name_to_key("playerIsPreorder")
 }
 
 pub fn key_multiplayer_start_index() -> NameKeyType {
-    key_for("multiplayerStartIndex", &MULTIPLAYER_START_INDEX)
+    NameKeyGenerator::name_to_key("multiplayerStartIndex")
 }
 
 pub fn key_skirmish_difficulty() -> NameKeyType {
-    key_for("skirmishDifficulty", &SKIRMISH_DIFFICULTY)
+    NameKeyGenerator::name_to_key("skirmishDifficulty")
 }
 
 pub fn key_player_color() -> NameKeyType {
-    key_for("playerColor", &PLAYER_COLOR)
+    NameKeyGenerator::name_to_key("playerColor")
 }
 
 pub fn key_player_night_color() -> NameKeyType {
-    key_for("playerNightColor", &PLAYER_NIGHT_COLOR)
+    NameKeyGenerator::name_to_key("playerNightColor")
 }
 
 pub fn key_player_start_money() -> NameKeyType {
-    key_for("playerStartMoney", &PLAYER_START_MONEY)
+    NameKeyGenerator::name_to_key("playerStartMoney")
 }
 
 pub fn key_object_name() -> NameKeyType {
-    key_for("objectName", &OBJECT_NAME)
+    NameKeyGenerator::name_to_key("objectName")
 }
 
 pub fn key_object_script_attachment() -> NameKeyType {
-    key_for("objectScriptAttachment", &OBJECT_SCRIPT_ATTACHMENT)
+    NameKeyGenerator::name_to_key("objectScriptAttachment")
 }
 
 pub fn key_object_max_hps() -> NameKeyType {
-    key_for("objectMaxHPs", &OBJECT_MAX_HPS)
+    NameKeyGenerator::name_to_key("objectMaxHPs")
 }
 
 pub fn key_object_initial_health() -> NameKeyType {
-    key_for("objectInitialHealth", &OBJECT_INITIAL_HEALTH)
+    NameKeyGenerator::name_to_key("objectInitialHealth")
 }
 
 pub fn key_object_veterancy() -> NameKeyType {
-    key_for("objectVeterancy", &OBJECT_VETERANCY)
+    NameKeyGenerator::name_to_key("objectVeterancy")
 }
 
 pub fn key_object_aggressiveness() -> NameKeyType {
-    key_for("objectAggressiveness", &OBJECT_AGGRESSIVENESS)
+    NameKeyGenerator::name_to_key("objectAggressiveness")
 }
 
 pub fn key_object_recruitable_ai() -> NameKeyType {
-    key_for("objectRecruitableAI", &OBJECT_RECRUITABLE_AI)
+    NameKeyGenerator::name_to_key("objectRecruitableAI")
 }
 
 pub fn key_object_selectable() -> NameKeyType {
-    key_for("objectSelectable", &OBJECT_SELECTABLE)
+    NameKeyGenerator::name_to_key("objectSelectable")
 }
 
 pub fn key_object_stopping_distance() -> NameKeyType {
-    key_for("objectStoppingDistance", &OBJECT_STOPPING_DISTANCE)
+    NameKeyGenerator::name_to_key("objectStoppingDistance")
 }
 
 pub fn key_object_enabled() -> NameKeyType {
-    key_for("objectEnabled", &OBJECT_ENABLED)
+    NameKeyGenerator::name_to_key("objectEnabled")
 }
 
 pub fn key_object_powered() -> NameKeyType {
-    key_for("objectPowered", &OBJECT_POWERED)
+    NameKeyGenerator::name_to_key("objectPowered")
 }
 
 pub fn key_object_indestructible() -> NameKeyType {
-    key_for("objectIndestructible", &OBJECT_INDESTRUCTIBLE)
+    NameKeyGenerator::name_to_key("objectIndestructible")
 }
 
 pub fn key_object_unsellable() -> NameKeyType {
-    key_for("objectUnsellable", &OBJECT_UNSELLABLE)
+    NameKeyGenerator::name_to_key("objectUnsellable")
 }
 
 pub fn key_object_targetable() -> NameKeyType {
-    key_for("objectTargetable", &OBJECT_TARGETABLE)
+    NameKeyGenerator::name_to_key("objectTargetable")
 }
 
 pub fn key_object_visual_range() -> NameKeyType {
-    key_for("objectVisualRange", &OBJECT_VISUAL_RANGE)
+    NameKeyGenerator::name_to_key("objectVisualRange")
 }
 
 pub fn key_object_shroud_clearing_distance() -> NameKeyType {
-    key_for(
-        "objectShroudClearingDistance",
-        &OBJECT_SHROUD_CLEARING_DISTANCE,
-    )
+    NameKeyGenerator::name_to_key("objectShroudClearingDistance")
 }
 
 pub fn key_object_grant_upgrade() -> NameKeyType {
-    key_for("objectGrantUpgrade", &OBJECT_GRANT_UPGRADE)
+    NameKeyGenerator::name_to_key("objectGrantUpgrade")
 }
 
 pub fn key_object_time() -> NameKeyType {
-    key_for("objectTime", &OBJECT_TIME)
+    NameKeyGenerator::name_to_key("objectTime")
 }
 
 pub fn key_object_weather() -> NameKeyType {
-    key_for("objectWeather", &OBJECT_WEATHER)
+    NameKeyGenerator::name_to_key("objectWeather")
 }
 
 pub fn key_object_sound_ambient_enabled() -> NameKeyType {
-    key_for("objectSoundAmbientEnabled", &OBJECT_SOUND_AMBIENT_ENABLED)
+    NameKeyGenerator::name_to_key("objectSoundAmbientEnabled")
 }
 
 pub fn key_object_sound_ambient() -> NameKeyType {
-    key_for("objectSoundAmbient", &OBJECT_SOUND_AMBIENT)
+    NameKeyGenerator::name_to_key("objectSoundAmbient")
 }
 
 pub fn key_object_sound_ambient_customized() -> NameKeyType {
-    key_for(
-        "objectSoundAmbientCustomized",
-        &OBJECT_SOUND_AMBIENT_CUSTOMIZED,
-    )
+    NameKeyGenerator::name_to_key("objectSoundAmbientCustomized")
 }
 
 pub fn key_object_sound_ambient_looping() -> NameKeyType {
-    key_for("objectSoundAmbientLooping", &OBJECT_SOUND_AMBIENT_LOOPING)
+    NameKeyGenerator::name_to_key("objectSoundAmbientLooping")
 }
 
 pub fn key_object_sound_ambient_loop_count() -> NameKeyType {
-    key_for(
-        "objectSoundAmbientLoopCount",
-        &OBJECT_SOUND_AMBIENT_LOOP_COUNT,
-    )
+    NameKeyGenerator::name_to_key("objectSoundAmbientLoopCount")
 }
 
 pub fn key_object_sound_ambient_min_volume() -> NameKeyType {
-    key_for(
-        "objectSoundAmbientMinVolume",
-        &OBJECT_SOUND_AMBIENT_MIN_VOLUME,
-    )
+    NameKeyGenerator::name_to_key("objectSoundAmbientMinVolume")
 }
 
 pub fn key_object_sound_ambient_volume() -> NameKeyType {
-    key_for("objectSoundAmbientVolume", &OBJECT_SOUND_AMBIENT_VOLUME)
+    NameKeyGenerator::name_to_key("objectSoundAmbientVolume")
 }
 
 pub fn key_object_sound_ambient_min_range() -> NameKeyType {
-    key_for(
-        "objectSoundAmbientMinRange",
-        &OBJECT_SOUND_AMBIENT_MIN_RANGE,
-    )
+    NameKeyGenerator::name_to_key("objectSoundAmbientMinRange")
 }
 
 pub fn key_object_sound_ambient_max_range() -> NameKeyType {
-    key_for(
-        "objectSoundAmbientMaxRange",
-        &OBJECT_SOUND_AMBIENT_MAX_RANGE,
-    )
+    NameKeyGenerator::name_to_key("objectSoundAmbientMaxRange")
 }
 
 pub fn key_object_sound_ambient_priority() -> NameKeyType {
-    key_for("objectSoundAmbientPriority", &OBJECT_SOUND_AMBIENT_PRIORITY)
+    NameKeyGenerator::name_to_key("objectSoundAmbientPriority")
 }
 
 pub fn key_team_name() -> NameKeyType {
-    key_for("teamName", &TEAM_NAME)
+    NameKeyGenerator::name_to_key("teamName")
 }
 
 pub fn key_team_owner() -> NameKeyType {
-    key_for("teamOwner", &TEAM_OWNER)
+    NameKeyGenerator::name_to_key("teamOwner")
 }
 
 pub fn key_team_is_singleton() -> NameKeyType {
-    key_for("teamIsSingleton", &TEAM_IS_SINGLETON)
+    NameKeyGenerator::name_to_key("teamIsSingleton")
 }
 
 pub fn key_team_home() -> NameKeyType {
-    key_for("teamHome", &TEAM_HOME)
+    NameKeyGenerator::name_to_key("teamHome")
 }
 
 pub fn key_team_is_ai_recruitable() -> NameKeyType {
-    key_for("teamIsAIRecruitable", &TEAM_IS_AI_RECRUITABLE)
+    NameKeyGenerator::name_to_key("teamIsAIRecruitable")
 }
 
 pub fn key_team_is_base_defense() -> NameKeyType {
-    key_for("teamIsBaseDefense", &TEAM_IS_BASE_DEFENSE)
+    NameKeyGenerator::name_to_key("teamIsBaseDefense")
 }
 
 pub fn key_team_is_perimeter_defense() -> NameKeyType {
-    key_for("teamIsPerimeterDefense", &TEAM_IS_PERIMETER_DEFENSE)
+    NameKeyGenerator::name_to_key("teamIsPerimeterDefense")
 }
 
 pub fn key_team_auto_reinforce() -> NameKeyType {
-    key_for("teamAutoReinforce", &TEAM_AUTO_REINFORCE)
+    NameKeyGenerator::name_to_key("teamAutoReinforce")
 }
 
 pub fn key_team_aggressiveness() -> NameKeyType {
-    key_for("teamAggressiveness", &TEAM_AGGRESSIVENESS)
+    NameKeyGenerator::name_to_key("teamAggressiveness")
 }
 
 pub fn key_team_transports_return() -> NameKeyType {
-    key_for("teamTransportsReturn", &TEAM_TRANSPORTS_RETURN)
+    NameKeyGenerator::name_to_key("teamTransportsReturn")
 }
 
 pub fn key_team_avoid_threats() -> NameKeyType {
-    key_for("teamAvoidThreats", &TEAM_AVOID_THREATS)
+    NameKeyGenerator::name_to_key("teamAvoidThreats")
 }
 
 pub fn key_team_attack_common_target() -> NameKeyType {
-    key_for("teamAttackCommonTarget", &TEAM_ATTACK_COMMON_TARGET)
+    NameKeyGenerator::name_to_key("teamAttackCommonTarget")
 }
 
 pub fn key_team_executes_actions_on_create() -> NameKeyType {
-    key_for(
-        "teamExecutesActionsOnCreate",
-        &TEAM_EXECUTES_ACTIONS_ON_CREATE,
-    )
+    NameKeyGenerator::name_to_key("teamExecutesActionsOnCreate")
 }
 
 pub fn key_team_on_create_script() -> NameKeyType {
-    key_for("teamOnCreateScript", &TEAM_ON_CREATE_SCRIPT)
+    NameKeyGenerator::name_to_key("teamOnCreateScript")
 }
 
 pub fn key_team_on_idle_script() -> NameKeyType {
-    key_for("teamOnIdleScript", &TEAM_ON_IDLE_SCRIPT)
+    NameKeyGenerator::name_to_key("teamOnIdleScript")
 }
 
 pub fn key_team_on_unit_destroyed_script() -> NameKeyType {
-    key_for("teamOnUnitDestroyedScript", &TEAM_ON_UNIT_DESTROYED_SCRIPT)
+    NameKeyGenerator::name_to_key("teamOnUnitDestroyedScript")
 }
 
 pub fn key_team_on_destroyed_script() -> NameKeyType {
-    key_for("teamOnDestroyedScript", &TEAM_ON_DESTROYED_SCRIPT)
+    NameKeyGenerator::name_to_key("teamOnDestroyedScript")
 }
 
 pub fn key_team_enemy_sighted_script() -> NameKeyType {
-    key_for("teamEnemySightedScript", &TEAM_ENEMY_SIGHTED_SCRIPT)
+    NameKeyGenerator::name_to_key("teamEnemySightedScript")
 }
 
 pub fn key_team_all_clear_script() -> NameKeyType {
-    key_for("teamAllClearScript", &TEAM_ALL_CLEAR_SCRIPT)
+    NameKeyGenerator::name_to_key("teamAllClearScript")
 }
 
 pub fn key_team_initial_idle_frames() -> NameKeyType {
-    key_for("teamInitialIdleFrames", &TEAM_INITIAL_IDLE_FRAMES)
+    NameKeyGenerator::name_to_key("teamInitialIdleFrames")
 }
 
 pub fn key_team_destroyed_threshold() -> NameKeyType {
-    key_for("teamDestroyedThreshold", &TEAM_DESTROYED_THRESHOLD)
+    NameKeyGenerator::name_to_key("teamDestroyedThreshold")
 }
 
 pub fn key_team_production_priority() -> NameKeyType {
-    key_for("teamProductionPriority", &TEAM_PRODUCTION_PRIORITY)
+    NameKeyGenerator::name_to_key("teamProductionPriority")
 }
 
 pub fn key_team_production_priority_success_increase() -> NameKeyType {
-    key_for(
-        "teamProductionPrioritySuccessIncrease",
-        &TEAM_PRODUCTION_PRIORITY_SUCCESS_INCREASE,
-    )
+    NameKeyGenerator::name_to_key("teamProductionPrioritySuccessIncrease")
 }
 
 pub fn key_team_production_priority_failure_decrease() -> NameKeyType {
-    key_for(
-        "teamProductionPriorityFailureDecrease",
-        &TEAM_PRODUCTION_PRIORITY_FAILURE_DECREASE,
-    )
+    NameKeyGenerator::name_to_key("teamProductionPriorityFailureDecrease")
 }
 
 pub fn key_team_production_condition() -> NameKeyType {
-    key_for("teamProductionCondition", &TEAM_PRODUCTION_CONDITION)
+    NameKeyGenerator::name_to_key("teamProductionCondition")
 }
 
 pub fn key_team_generic_script_hook() -> NameKeyType {
-    key_for("teamGenericScriptHook", &TEAM_GENERIC_SCRIPT_HOOK)
+    NameKeyGenerator::name_to_key("teamGenericScriptHook")
 }
 
 pub fn key_team_unit_type1() -> NameKeyType {
-    key_for("teamUnitType1", &TEAM_UNIT_TYPE1)
+    NameKeyGenerator::name_to_key("teamUnitType1")
 }
 
 pub fn key_team_unit_type2() -> NameKeyType {
-    key_for("teamUnitType2", &TEAM_UNIT_TYPE2)
+    NameKeyGenerator::name_to_key("teamUnitType2")
 }
 
 pub fn key_team_unit_type3() -> NameKeyType {
-    key_for("teamUnitType3", &TEAM_UNIT_TYPE3)
+    NameKeyGenerator::name_to_key("teamUnitType3")
 }
 
 pub fn key_team_unit_type4() -> NameKeyType {
-    key_for("teamUnitType4", &TEAM_UNIT_TYPE4)
+    NameKeyGenerator::name_to_key("teamUnitType4")
 }
 
 pub fn key_team_unit_type5() -> NameKeyType {
-    key_for("teamUnitType5", &TEAM_UNIT_TYPE5)
+    NameKeyGenerator::name_to_key("teamUnitType5")
 }
 
 pub fn key_team_unit_type6() -> NameKeyType {
-    key_for("teamUnitType6", &TEAM_UNIT_TYPE6)
+    NameKeyGenerator::name_to_key("teamUnitType6")
 }
 
 pub fn key_team_unit_type7() -> NameKeyType {
-    key_for("teamUnitType7", &TEAM_UNIT_TYPE7)
+    NameKeyGenerator::name_to_key("teamUnitType7")
 }
 
 pub fn key_team_unit_min_count1() -> NameKeyType {
-    key_for("teamUnitMinCount1", &TEAM_UNIT_MIN_COUNT1)
+    NameKeyGenerator::name_to_key("teamUnitMinCount1")
 }
 
 pub fn key_team_unit_min_count2() -> NameKeyType {
-    key_for("teamUnitMinCount2", &TEAM_UNIT_MIN_COUNT2)
+    NameKeyGenerator::name_to_key("teamUnitMinCount2")
 }
 
 pub fn key_team_unit_min_count3() -> NameKeyType {
-    key_for("teamUnitMinCount3", &TEAM_UNIT_MIN_COUNT3)
+    NameKeyGenerator::name_to_key("teamUnitMinCount3")
 }
 
 pub fn key_team_unit_min_count4() -> NameKeyType {
-    key_for("teamUnitMinCount4", &TEAM_UNIT_MIN_COUNT4)
+    NameKeyGenerator::name_to_key("teamUnitMinCount4")
 }
 
 pub fn key_team_unit_min_count5() -> NameKeyType {
-    key_for("teamUnitMinCount5", &TEAM_UNIT_MIN_COUNT5)
+    NameKeyGenerator::name_to_key("teamUnitMinCount5")
 }
 
 pub fn key_team_unit_min_count6() -> NameKeyType {
-    key_for("teamUnitMinCount6", &TEAM_UNIT_MIN_COUNT6)
+    NameKeyGenerator::name_to_key("teamUnitMinCount6")
 }
 
 pub fn key_team_unit_min_count7() -> NameKeyType {
-    key_for("teamUnitMinCount7", &TEAM_UNIT_MIN_COUNT7)
+    NameKeyGenerator::name_to_key("teamUnitMinCount7")
 }
 
 pub fn key_team_unit_max_count1() -> NameKeyType {
-    key_for("teamUnitMaxCount1", &TEAM_UNIT_MAX_COUNT1)
+    NameKeyGenerator::name_to_key("teamUnitMaxCount1")
 }
 
 pub fn key_team_unit_max_count2() -> NameKeyType {
-    key_for("teamUnitMaxCount2", &TEAM_UNIT_MAX_COUNT2)
+    NameKeyGenerator::name_to_key("teamUnitMaxCount2")
 }
 
 pub fn key_team_unit_max_count3() -> NameKeyType {
-    key_for("teamUnitMaxCount3", &TEAM_UNIT_MAX_COUNT3)
+    NameKeyGenerator::name_to_key("teamUnitMaxCount3")
 }
 
 pub fn key_team_unit_max_count4() -> NameKeyType {
-    key_for("teamUnitMaxCount4", &TEAM_UNIT_MAX_COUNT4)
+    NameKeyGenerator::name_to_key("teamUnitMaxCount4")
 }
 
 pub fn key_team_unit_max_count5() -> NameKeyType {
-    key_for("teamUnitMaxCount5", &TEAM_UNIT_MAX_COUNT5)
+    NameKeyGenerator::name_to_key("teamUnitMaxCount5")
 }
 
 pub fn key_team_unit_max_count6() -> NameKeyType {
-    key_for("teamUnitMaxCount6", &TEAM_UNIT_MAX_COUNT6)
+    NameKeyGenerator::name_to_key("teamUnitMaxCount6")
 }
 
 pub fn key_team_unit_max_count7() -> NameKeyType {
-    key_for("teamUnitMaxCount7", &TEAM_UNIT_MAX_COUNT7)
+    NameKeyGenerator::name_to_key("teamUnitMaxCount7")
 }
 
 pub fn key_team_max_instances() -> NameKeyType {
-    key_for("teamMaxInstances", &TEAM_MAX_INSTANCES)
+    NameKeyGenerator::name_to_key("teamMaxInstances")
 }
 
 pub fn key_team_transport() -> NameKeyType {
-    key_for("teamTransport", &TEAM_TRANSPORT)
+    NameKeyGenerator::name_to_key("teamTransport")
 }
 
 pub fn key_team_reinforcement_origin() -> NameKeyType {
-    key_for("teamReinforcementOrigin", &TEAM_REINFORCEMENT_ORIGIN)
+    NameKeyGenerator::name_to_key("teamReinforcementOrigin")
 }
 
 pub fn key_team_starts_full() -> NameKeyType {
-    key_for("teamStartsFull", &TEAM_STARTS_FULL)
+    NameKeyGenerator::name_to_key("teamStartsFull")
 }
 
 pub fn key_team_transports_exit() -> NameKeyType {
-    key_for("teamTransportsExit", &TEAM_TRANSPORTS_EXIT)
+    NameKeyGenerator::name_to_key("teamTransportsExit")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::common::dict::Dict;
+
+    #[test]
+    fn well_known_keys_follow_each_receiving_name_namespace_and_reset() {
+        let observe = |prefix_count: u32| {
+            std::thread::spawn(move || {
+                NameKeyGenerator::reset();
+                for index in 0..prefix_count {
+                    NameKeyGenerator::name_to_key(&format!("NamespacePrefix{index}"));
+                }
+                let mut dict = Dict::new();
+                dict.set_ascii_string(key_team_name(), "DefaultTeam");
+                dict.set_ascii_string(key_team_owner(), "PlyrCivilian");
+                let expected = NameKeyGenerator::name_to_key("teamProductionCondition");
+                let key = key_team_production_condition();
+                assert_eq!(key, expected);
+                assert_eq!(
+                    NameKeyGenerator::key_to_name(key).as_deref(),
+                    Some("teamProductionCondition")
+                );
+                assert!(
+                    dict.get_type(key).is_none(),
+                    "missing production condition must not alias another Dict field"
+                );
+                assert!(dict.get_ascii_string(key).is_empty());
+                NameKeyGenerator::reset();
+                for index in 0..prefix_count + 11 {
+                    NameKeyGenerator::name_to_key(&format!("AfterReset{index}"));
+                }
+                let after_reset = key_team_production_condition();
+                assert_eq!(
+                    NameKeyGenerator::key_to_name(after_reset).as_deref(),
+                    Some("teamProductionCondition")
+                );
+                assert_eq!(
+                    after_reset,
+                    NameKeyGenerator::name_to_key("teamProductionCondition")
+                );
+                assert_eq!(key_team_production_condition(), after_reset);
+                assert_ne!(
+                    NameKeyGenerator::name_to_key("TeamProductionCondition"),
+                    after_reset,
+                    "case-sensitive original names remain distinct"
+                );
+                key
+            })
+            .join()
+            .expect("namespace worker")
+        };
+        let first = observe(0);
+        let second = observe(7);
+        assert_ne!(
+            first, second,
+            "allocation order belongs to its own namespace"
+        );
+    }
 }

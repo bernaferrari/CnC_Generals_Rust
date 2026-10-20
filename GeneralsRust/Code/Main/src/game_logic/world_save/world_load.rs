@@ -76,11 +76,13 @@ impl GameLogic {
         F: FnMut(f32, &str),
     {
         let services = Arc::clone(&self.world_services);
+        let mut delivery = gamelogic::terrain_water::publish_map_water_legacy_native;
         gamelogic::system::engine_stores::with_world_services(&services, || {
             self.load_map_with_definition_source_and_progress(
                 map_name,
                 None,
                 difficulty,
+                Some(&mut delivery),
                 report_progress,
             )
         })
@@ -89,6 +91,20 @@ impl GameLogic {
     /// Saved geometry stays on the extracted map; only companion INIs use the
     /// original source, as in C++ GameLogic::loadMapINI saved-directory branch.
     pub(crate) fn load_map_with_definition_source(&mut self, map_name: &str, source: &str) -> bool {
+        let mut delivery = gamelogic::terrain_water::publish_map_water_legacy_native;
+        self.load_map_with_definition_source_and_water_delivery(
+            map_name,
+            source,
+            Some(&mut delivery),
+        )
+    }
+
+    pub(crate) fn load_map_with_definition_source_and_water_delivery(
+        &mut self,
+        map_name: &str,
+        source: &str,
+        water_delivery: Option<&mut dyn FnMut(&gamelogic::terrain_water::WaterGridState)>,
+    ) -> bool {
         let difficulty = self
             .owned_script_engine
             .as_ref()
@@ -99,6 +115,7 @@ impl GameLogic {
                 map_name,
                 Some(source),
                 difficulty,
+                water_delivery,
                 |_, _| {},
             )
         })
@@ -109,6 +126,7 @@ impl GameLogic {
         map_name: &str,
         definition_source: Option<&str>,
         map_script_difficulty: Option<gamelogic::player::GameDifficulty>,
+        water_delivery: Option<&mut dyn FnMut(&gamelogic::terrain_water::WaterGridState)>,
         mut report_progress: F,
     ) -> bool
     where
@@ -288,10 +306,11 @@ impl GameLogic {
                     report_progress(0.40, "Syncing shell runtime");
                 }
                 let sync_started = Instant::now();
-                if !self.sync_legacy_runtime_from_fast_chunky_with_script_difficulty(
+                if !self.sync_legacy_runtime_from_fast_chunky_with_water_delivery(
                     path,
                     &chunky,
                     map_script_difficulty,
+                    water_delivery,
                     &mut report_progress,
                 ) {
                     return false;

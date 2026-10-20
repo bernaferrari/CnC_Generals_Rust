@@ -72,6 +72,27 @@ impl GameLogic {
     where
         F: FnMut(f32, &str),
     {
+        let mut delivery = gamelogic::terrain_water::publish_map_water_legacy_native;
+        self.sync_legacy_runtime_from_fast_chunky_with_water_delivery(
+            map_path,
+            chunky,
+            difficulty,
+            Some(&mut delivery),
+            report_progress,
+        )
+    }
+
+    pub(in super::super) fn sync_legacy_runtime_from_fast_chunky_with_water_delivery<F>(
+        &mut self,
+        map_path: &Path,
+        chunky: &super::script_loader::ChunkyMap,
+        difficulty: Option<gamelogic::player::GameDifficulty>,
+        water_delivery: Option<&mut dyn FnMut(&gamelogic::terrain_water::WaterGridState)>,
+        mut report_progress: F,
+    ) -> bool
+    where
+        F: FnMut(f32, &str),
+    {
         let sync_started = Instant::now();
         report_progress(0.41, "Fast sync heightmap");
         log::info!(
@@ -180,7 +201,13 @@ impl GameLogic {
             .filter(|trigger| trigger.is_water_area() && trigger.get_num_points() > 2)
             .cloned()
             .collect();
-        super::script_loader::install_runtime_polygon_triggers(&polygon_triggers);
+        {
+            let terrain_owner = self.world_services.terrain();
+            let mut terrain = terrain_owner
+                .write()
+                .unwrap_or_else(|error| error.into_inner());
+            super::script_loader::install_runtime_polygon_triggers(&mut terrain, &polygon_triggers);
+        } // Release before progress can dispatch authored load-screen callbacks.
 
         report_progress(0.435, "Fast sync roads");
         self.runtime_road_segments =
@@ -264,7 +291,20 @@ impl GameLogic {
                     return false;
                 }
                 // C++ GameLogic.cpp:1629 TheTerrainLogic->newMap after load.
-                terrain.new_map(false);
+                // The effective definitions are borrowed only during local
+                // configuration; no GlobalData loan crosses native delivery.
+                let definitions =
+                    game_engine::common::ini::get_global_data().map(|global| global.read().clone());
+                let source = self
+                    .map_definition_source
+                    .as_deref()
+                    .unwrap_or_else(|| map_path.to_str().unwrap_or(""));
+                terrain.new_map_with_water_configuration(
+                    false,
+                    source,
+                    definitions.as_ref(),
+                    water_delivery,
+                );
             }
             self.copy_crate_water_into_host_terrain();
         } else {
@@ -1140,3 +1180,7 @@ mod map_singleton_owner_tests {
 #[cfg(test)]
 #[path = "prepared_team_factory_tests.rs"]
 mod prepared_team_factory_tests;
+
+#[cfg(test)]
+#[path = "polygon_trigger_owner_tests.rs"]
+mod polygon_trigger_owner_tests;

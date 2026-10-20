@@ -131,6 +131,20 @@ impl TeamFactoryHandle {
         self.inner.try_lock()
     }
 
+    /// Copy only real available definitions for a detached logical restore.
+    /// This is a read, so it must not drain callbacks like TeamFactoryGuard.
+    pub fn detached_definition_catalog(
+        &self,
+        names: Option<&[String]>,
+    ) -> Result<TeamFactory, String> {
+        let guard = self
+            .inner
+            .inner
+            .lock()
+            .map_err(|_| "team definition catalog poisoned")?;
+        guard.detached_definition_catalog(names)
+    }
+
     /// Replace contents only at an explicit whole-world boundary.
     pub fn replace_for_world_boundary(&self, next: TeamFactory) -> TeamFactory {
         self.inner.replace_for_world_boundary(next)
@@ -258,4 +272,71 @@ pub fn with_team<R>(team_id: TeamID, f: impl FnOnce(&mut Team) -> R) -> Option<R
 pub fn with_team_mut<R>(team: Arc<RwLock<Team>>, f: impl FnOnce(&mut Team) -> R) -> Option<R> {
     let mut guard = team.write().ok()?;
     Some(f(&mut guard))
+}
+
+#[cfg(test)]
+mod detached_definition_tests {
+    use super::*;
+    #[test]
+    fn definition_catalog_keeps_ids_order_controllers_without_runtime_aliases_or_callbacks() {
+        let handle = TeamFactoryHandle::new();
+        {
+            let mut factory = handle.inner.inner.lock().unwrap();
+            let mut definition = TeamPrototype::new("OwnedDefinition".into());
+            definition.set_id(37);
+            definition.owner_name = "actual_owner".into();
+            definition
+                .production_condition_runtime
+                .lock()
+                .unwrap()
+                .always_false = true;
+            factory
+                .prototypes
+                .insert("OwnedDefinition".into(), Arc::new(definition));
+            factory.prototype_order.push("OwnedDefinition".into());
+            factory
+                .prototype_controllers
+                .insert("OwnedDefinition".into(), Some(4));
+            factory
+                .pending_create_action_scripts
+                .push("do_not_flush".into());
+            factory.unique_team_prototype_id = 38;
+        }
+        let names = vec!["OwnedDefinition".to_string()];
+        let detached = handle.detached_definition_catalog(Some(&names)).unwrap();
+        let original = handle.inner.inner.lock().unwrap();
+        assert_eq!(original.pending_create_action_scripts, ["do_not_flush"]);
+        assert!(detached.pending_create_action_scripts.is_empty());
+        assert_eq!(detached.prototype_order, original.prototype_order);
+        assert_eq!(
+            detached.prototype_controllers,
+            original.prototype_controllers
+        );
+        assert_eq!(detached.unique_team_prototype_id, 38);
+        assert!(detached.teams.is_empty());
+        let before = original.prototypes.get("OwnedDefinition").unwrap();
+        let after = detached.prototypes.get("OwnedDefinition").unwrap();
+        assert_eq!(after.get_id(), before.get_id());
+        assert_eq!(after.get_owner_name(), before.get_owner_name());
+        assert!(!Arc::ptr_eq(
+            &before.production_condition_runtime,
+            &after.production_condition_runtime
+        ));
+        assert!(!Arc::ptr_eq(
+            &before.generic_script_runtime,
+            &after.generic_script_runtime
+        ));
+        after
+            .production_condition_runtime
+            .lock()
+            .unwrap()
+            .always_false = false;
+        after.generic_script_runtime.lock().unwrap().push(None);
+        assert!(before.production_condition_always_false());
+        assert_eq!(
+            before.generic_script_runtime.lock().unwrap().len(),
+            MAX_GENERIC_SCRIPTS
+        );
+        assert!(!after.production_condition_always_false());
+    }
 }

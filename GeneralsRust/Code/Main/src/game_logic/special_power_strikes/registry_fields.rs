@@ -1316,7 +1316,12 @@ impl HostSpecialPowerStrikeRegistry {
     /// C++ update each frame: move `m_currentTargetPosition` toward override at
     /// ManualDrivingSpeed (or Fast) / LOGICFRAMES_PER_SECOND, clamping so the
     /// step never overshoots. Call once per logic frame before damage planning.
-    pub fn advance_manual_beam_drive(&mut self, current_frame: u32) {
+    pub fn advance_manual_beam_drive(
+        &mut self,
+        current_frame: u32,
+        terrain: &gamelogic::terrain::TerrainLogic,
+        random: &game_engine::common::random_value::SessionRandom,
+    ) {
         for field in &mut self.beam_fields {
             if !(field.manual_target_mode || field.scripted_waypoint_mode)
                 || field.is_expired(current_frame)
@@ -1337,31 +1342,36 @@ impl HostSpecialPowerStrikeRegistry {
             let max_step = particle_manual_speed_per_frame(fast) * frames as f32;
             let dx = field.override_destination.x - field.current_target_position.x;
             let dz = field.override_destination.z - field.current_target_position.z;
-            let dist = (dx * dx + dz * dz).sqrt();
+            let dy = field.override_destination.y - field.current_target_position.y;
+            // C++ Coord3D is x/y/height: keep that accumulation order in Y-up.
+            let dist = ((dx * dx + dz * dz) + dy * dy).sqrt();
             // C++: when dist < speed, clamp then pick leftover next link.
             // Movement this frame still uses the old dest vector.
             if field.scripted_waypoint_mode && dist < max_step {
-                if let Some(terrain) = gamelogic::helpers::TheTerrainLogic::get() {
-                    if let Some((next_id, next_pos)) =
-                        terrain.random_outgoing_waypoint_link(field.next_dest_waypoint_id)
-                    {
-                        field.next_dest_waypoint_id = next_id;
-                        field.override_destination =
-                            glam::Vec3::new(next_pos.x, next_pos.z, next_pos.y);
-                    }
+                if let Some((next_id, next_pos)) =
+                    particle_waypoint_next(terrain, random, field.next_dest_waypoint_id)
+                {
+                    field.next_dest_waypoint_id = next_id;
+                    field.override_destination = next_pos;
                 }
             }
-            if dist > 1e-4 {
+            if dist != 0.0 {
                 let step = max_step.min(dist);
-                let scale = step / dist;
-                field.current_target_position.x += dx * scale;
-                field.current_target_position.z += dz * scale;
+                // Source normalizes each component, then scales. Only source
+                // x/y (host x/z) move; source z is snapped to terrain below.
+                field.current_target_position.x += (dx / dist) * step;
+                field.current_target_position.z += (dz / dist) * step;
                 field.manual_drive_distance_total += step;
                 field.manual_drive_applications = field.manual_drive_applications.saturating_add(1);
                 if fast {
                     field.fast_drive_applications = field.fast_drive_applications.saturating_add(1);
                 }
             }
+            field.current_target_position.y = terrain.get_ground_height(
+                field.current_target_position.x,
+                field.current_target_position.z,
+                None,
+            );
             field.last_drive_update_frame = current_frame;
         }
     }
@@ -1701,4 +1711,34 @@ impl HostSpecialPowerStrikeRegistry {
             }
         }
     }
+}
+
+/// One source waypoint observation, borrowed from the driving session.
+/// Positive link counts consume one existing stream draw, in authored link order.
+fn particle_waypoint_next(
+    terrain: &gamelogic::terrain::TerrainLogic,
+    random: &game_engine::common::random_value::SessionRandom,
+    id: u32,
+) -> Option<(u32, Vec3)> {
+    let waypoint = terrain.get_waypoint_by_id(id)?;
+    let count = waypoint.get_num_links();
+    if count == 0 {
+        return None;
+    }
+    let which = (random.next_u32() % count as u32) as usize;
+    let next_id = waypoint.get_link(which)?;
+    let next = terrain.get_waypoint_by_id(next_id)?;
+    let pos = next.get_location();
+    Some((next.get_id(), Vec3::new(pos.x, pos.z, pos.y)))
+}
+
+pub(crate) fn particle_waypoint_initial_override(
+    terrain: &gamelogic::terrain::TerrainLogic,
+    random: &game_engine::common::random_value::SessionRandom,
+    id: u32,
+) -> Option<(u32, Vec3)> {
+    particle_waypoint_next(terrain, random, id).or_else(|| {
+        let pos = terrain.get_waypoint_by_id(id)?.get_location();
+        Some((id, Vec3::new(pos.x, pos.z, pos.y)))
+    })
 }

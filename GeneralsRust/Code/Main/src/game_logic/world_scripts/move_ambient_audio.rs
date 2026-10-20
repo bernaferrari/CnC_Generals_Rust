@@ -2,8 +2,8 @@
 #![allow(unused_imports, non_snake_case)]
 use super::super::*;
 use crate::game_logic::host_move_ambient_audio::{
-    TemplateMoveAmbientSlot, drain_ambient_restarts, drain_move_loop_stops, move_uses_damaged,
-    resolve_ambient_event, resolve_for_object,
+    TemplateMoveAmbientSlot, drain_move_loop_stops, move_uses_damaged, resolve_ambient_event,
+    resolve_for_object,
 };
 
 /// Existing Main policy for failed permanent-loop restart attempts. C++
@@ -59,10 +59,6 @@ impl GameLogic {
                     .with_position(ev.position)
                     .stopping(),
             );
-        }
-        let restarts = drain_ambient_restarts();
-        for id in restarts {
-            self.start_ambient_sound(id);
         }
         self.restart_ambient_sounds_if_dropped();
     }

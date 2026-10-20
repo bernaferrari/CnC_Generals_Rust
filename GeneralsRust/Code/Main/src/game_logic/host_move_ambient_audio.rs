@@ -49,7 +49,6 @@ thread_local! {
     static TEMPLATE_OVERRIDE: RefCell<HashMap<(String, TemplateMoveAmbientSlot), String>> =
         RefCell::new(HashMap::new());
     static STOP_LOG: RefCell<Vec<MoveAmbientStopEvent>> = RefCell::new(Vec::new());
-    static AMBIENT_RESTART_LOG: RefCell<Vec<ObjectId>> = RefCell::new(Vec::new());
 }
 
 pub fn nonempty_audio_event_name(name: &str) -> Option<String> {
@@ -88,14 +87,6 @@ pub fn record_move_loop_stop(object: ObjectId, event_name: String, position: Vec
 
 pub fn drain_move_loop_stops() -> Vec<MoveAmbientStopEvent> {
     STOP_LOG.with(|log| std::mem::take(&mut *log.borrow_mut()))
-}
-
-pub fn record_ambient_restart(object: ObjectId) {
-    AMBIENT_RESTART_LOG.with(|log| log.borrow_mut().push(object));
-}
-
-pub fn drain_ambient_restarts() -> Vec<ObjectId> {
-    AMBIENT_RESTART_LOG.with(|log| std::mem::take(&mut *log.borrow_mut()))
 }
 
 pub fn host_template_move_ambient(

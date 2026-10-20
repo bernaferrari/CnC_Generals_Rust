@@ -114,13 +114,29 @@ impl Team {
     }
 
     fn object_did_enter(object_id: ObjectID, trigger: &PolygonTrigger) -> bool {
-        OBJECT_REGISTRY
+        Self::object_did_enter_in_registry(&OBJECT_REGISTRY, object_id, trigger)
+    }
+
+    fn object_did_enter_in_registry(
+        registry: &crate::object::registry::ObjectRegistry,
+        object_id: ObjectID,
+        trigger: &PolygonTrigger,
+    ) -> bool {
+        registry
             .with_object(object_id, |object| object.did_enter(trigger))
             .unwrap_or(false)
     }
 
     fn object_did_exit(object_id: ObjectID, trigger: &PolygonTrigger) -> bool {
-        OBJECT_REGISTRY
+        Self::object_did_exit_in_registry(&OBJECT_REGISTRY, object_id, trigger)
+    }
+
+    fn object_did_exit_in_registry(
+        registry: &crate::object::registry::ObjectRegistry,
+        object_id: ObjectID,
+        trigger: &PolygonTrigger,
+    ) -> bool {
+        registry
             .with_object(object_id, |object| object.did_exit(trigger))
             .unwrap_or(false)
     }

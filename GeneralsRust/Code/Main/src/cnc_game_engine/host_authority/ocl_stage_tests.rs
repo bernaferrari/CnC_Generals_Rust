@@ -78,6 +78,7 @@ fn actual_saved_map_ocl_candidate_uses_own_base_and_solo_without_mutating_active
                 info(),
                 None,
                 None,
+                None, // no paired TerrainVisual in this direct staging fixture
                 "ocl",
                 GameMode::Skirmish,
                 &source.templates,
@@ -111,6 +112,7 @@ fn actual_saved_map_ocl_candidate_uses_own_base_and_solo_without_mutating_active
                 info(),
                 None,
                 None,
+                None, // no paired TerrainVisual in this direct staging fixture
                 "ocl",
                 GameMode::Skirmish,
                 &source.templates,

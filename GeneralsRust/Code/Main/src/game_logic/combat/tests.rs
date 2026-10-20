@@ -2565,6 +2565,7 @@ pub(in crate::game_logic) mod tests {
         let highest = crate::game_logic::weapon_bootstrap::estimate_highest_intervening_terrain(
             start,
             destination,
+            None,
         );
         let curve = gamelogic::weapon::bezier::BezierSegment::create_projectile_arc(
             to_cpp(start),
@@ -2919,7 +2920,7 @@ pub(in crate::game_logic) mod tests {
             ignition_fx: "FX_MissileIgnition".into(),
             ..HostMissileFlight::default()
         }));
-        delay0.bind_authored_flight(Vec3::ZERO, Vec3::new(100.0, 0.0, 0.0), 100.0);
+        delay0.bind_authored_flight(Vec3::ZERO, Vec3::new(100.0, 0.0, 0.0), 100.0, None);
         assert!(
             !delay0.is_warhead_armed(),
             "C++ delay 0 still starts LAUNCH so IgnitionFX can play"
@@ -2950,7 +2951,7 @@ pub(in crate::game_logic) mod tests {
             ignition_fx: "FX_MissileIgnition".into(),
             ..HostMissileFlight::default()
         }));
-        delayed.bind_authored_flight(Vec3::ZERO, Vec3::new(100.0, 0.0, 0.0), 100.0);
+        delayed.bind_authored_flight(Vec3::ZERO, Vec3::new(100.0, 0.0, 0.0), 100.0, None);
         assert!(!delayed.is_warhead_armed());
         let _ = delayed.update(1.0 / 30.0, true);
         assert!(

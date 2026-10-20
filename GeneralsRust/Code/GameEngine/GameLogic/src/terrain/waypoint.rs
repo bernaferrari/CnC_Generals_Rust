@@ -166,6 +166,18 @@ impl TerrainLogic {
         &mut self.trigger_areas
     }
 
+    /// Replace this map's ordered trigger table and its derived water handles.
+    /// PolygonTrigger.cpp:111 clears the old list before appending every row.
+    /// Duplicate name/ID lookups keep the first row; no name-based filtering.
+    pub fn replace_trigger_areas(&mut self, triggers: impl IntoIterator<Item = PolygonTrigger>) {
+        self.trigger_areas.clear();
+        self.water_handles.clear();
+        self.water_handles_by_trigger_id.clear();
+        for trigger in triggers {
+            self.add_trigger_area(trigger);
+        }
+    }
+
     /// Add a trigger area
     pub fn add_trigger_area(&mut self, trigger: PolygonTrigger) {
         let trigger_name_ascii = trigger.get_trigger_name().clone();

@@ -15,6 +15,10 @@ struct StagedRestoreWorld {
     client_drawables: crate::save_load::snapshot::ClientDrawableWorldSnapshot,
     /// Decoded client state stays detached until the candidate world commits.
     game_client_xfer_bytes: Option<Vec<u8>>,
+    /// Native terrain effects stay detached until this candidate commits.
+    terrain_visual: Option<crate::save_load::snapshot::PreparedTerrainVisual>,
+    /// Immutable successful source map configuration receipt; not a second owner.
+    map_water_configuration: Option<gamelogic::terrain_water::WaterGridState>,
     client_persist: crate::save_load::snapshot::WorldPersistV18,
     camera_continuation: Option<NativeCameraContinuation>,
     owns_session_camera: bool,
@@ -1282,6 +1286,8 @@ impl CnCGameEngine {
             shroud: _,
             client_drawables,
             game_client_xfer_bytes,
+            terrain_visual,
+            map_water_configuration,
             client_persist,
             camera_continuation,
             owns_session_camera,
@@ -1393,6 +1399,14 @@ impl CnCGameEngine {
         }
         // Native map actions already ran at definition admission and saved team
         // state replaced their runtime state. No Core script is replayed here.
+        // TerrainVisual follows the client/view blocks in the original named
+        // stream. This remaining native adapter is intentionally visible:
+        // x3l7v still tracks renderer-owned water/scorch service migration.
+        if let Some(terrain_visual) = terrain_visual {
+            terrain_visual.commit_legacy_native();
+        } else if let Some(configured) = map_water_configuration {
+            gamelogic::terrain_water::publish_map_water_legacy_native(&configured);
+        }
         native_commit.finish_after_logic_commit();
         // Movement receipts belong to runtime output, not the save wire. Map
         // admission must not replay movement
@@ -1586,15 +1600,19 @@ impl CnCGameEngine {
             .render_pipeline
             .capture_client_drawable_snapshot(&visual_world);
         let save_path = self.save_file_manager.get_save_path(slot);
+        // Transitional native-only observation; never discovers raw/water owner.
+        // Replace this global scorch adapter when RenderPipeline owns its buffer.
+        let terrain_scorches = game_client::terrain::scorch_mesh::terrain_scorch_marks();
         let result = self
             .save_file_manager
-            .save_game_with_client_save_state(
+            .save_game_with_client_save_state_and_terrain_scorches(
                 slot,
                 &self.game_logic,
                 client_drawables,
                 &mut self.game_client,
                 save_info,
                 client_save,
+                Some(&terrain_scorches),
             )
             .map_err(|e| format!("{e}"));
         // C++ GameState::saveGame (GameState.cpp:547-597): HUD
@@ -1713,6 +1731,7 @@ impl CnCGameEngine {
             snapshot,
             save_info,
             game_client_xfer: game_client_xfer_bytes,
+            terrain_visual_xfer,
             saved_game_mode,
         } = save_file_manager
             .load_game_snapshot(slot)
@@ -1723,6 +1742,7 @@ impl CnCGameEngine {
             save_info,
             saved_game_mode,
             game_client_xfer_bytes,
+            terrain_visual_xfer,
             slot,
             active_mode,
             template_catalog,
@@ -1752,11 +1772,194 @@ impl CnCGameEngine {
     /// the focused test can force an error *after* map loading has mutated all
     /// candidate globals, proving rollback preserves the active world.  It is
     /// not a production failpoint and does not alter save schema/versioning.
+    /// Direct logical save admission uses the same exact-map candidate kernel
+    /// as the native Engine, but has no native renderer/client receiver.
+    pub(crate) fn restore_decoded_logical_save(
+        manager: &SaveFileManager,
+        slot: &str,
+        decoded: crate::save_load::DecodedGameSave,
+        live: &mut crate::game_logic::GameLogic,
+    ) -> Result<
+        (
+            SaveGameInfo,
+            Option<crate::save_load::snapshot::PreparedTerrainVisual>,
+        ),
+        String,
+    > {
+        if crate::game_logic::script_loader::find_map_file(&decoded.save_info.map_name).is_none() {
+            return Self::restore_mapless_logical_save(manager, decoded, live);
+        }
+        let crate::save_load::DecodedGameSave {
+            snapshot,
+            save_info,
+            saved_game_mode,
+            game_client_xfer,
+            terrain_visual_xfer,
+        } = decoded;
+        let staged = Self::stage_decoded_saved_world_for_restore(
+            &snapshot,
+            save_info,
+            saved_game_mode,
+            game_client_xfer,
+            terrain_visual_xfer,
+            slot,
+            live.game_mode(),
+            &live.templates,
+            &live.weapon_definition_base,
+            &live.projectile_definitions,
+            &live.ocl_application_definitions(),
+            live.ai_definitions.baseline(),
+            live.production_energy_baseline(),
+            live.physics_rules_baseline(),
+            live.session_view.camera.settings,
+            live.session_view.camera.clip_policy,
+            live.session_view.camera.shake_policy,
+            live.session_view.camera.movement_policy,
+            live.session_view.camera.input_policy,
+            &live.world_services,
+            |snapshot, candidate| {
+                manager
+                    .restore_game_snapshot(snapshot, candidate)
+                    .map_err(|error| error.to_string())
+            },
+        )?;
+        let StagedRestoreWorld {
+            mut logic,
+            info,
+            runtime_world,
+            terrain_visual,
+            owns_session_camera,
+            ..
+        } = staged;
+        let checked = runtime_world.preflight_native()?;
+        // Nothing can fail beyond this boundary. No native effects are applied
+        // by this logical-only API; caller owns the returned optional payload.
+        let committed = checked.install_globals();
+        admit_staged_session_view(
+            &mut live.session_view,
+            &mut logic.session_view,
+            owns_session_camera,
+        );
+        let previous = std::mem::replace(live, logic);
+        drop(previous);
+        committed.finish_after_logic_commit();
+        Ok((info, terrain_visual))
+    }
+
+    /// Existing logical-only archives may have no authored map. Their checked
+    /// saved grid is legitimate logical data, not a guessed native water map.
+    fn restore_mapless_logical_save(
+        manager: &SaveFileManager,
+        decoded: crate::save_load::DecodedGameSave,
+        live: &mut crate::game_logic::GameLogic,
+    ) -> Result<
+        (
+            SaveGameInfo,
+            Option<crate::save_load::snapshot::PreparedTerrainVisual>,
+        ),
+        String,
+    > {
+        let chunks = crate::save_load::snapshot::player_team_chunks_from_world(&decoded.snapshot)
+            .map_err(|error| error.to_string())?;
+        let definition_names = chunks
+            .teams
+            .as_ref()
+            .filter(|teams| teams.persist_roster)
+            .map(|teams| {
+                teams
+                    .prototypes
+                    .iter()
+                    .map(|prototype| prototype.team_name.clone())
+                    .collect::<Vec<_>>()
+            });
+        let definitions = live
+            .team_factory
+            .detached_definition_catalog(definition_names.as_deref())?;
+        let effects = crate::game_logic::staged_world_effects::StagedWorldEffects::enter();
+        let transaction = gamelogic::runtime_world_transaction::HostRuntimeWorldStage::begin(
+            &live.world_services,
+        );
+        let mut candidate = crate::game_logic::GameLogic::new();
+        candidate.start_new_game_for_restore(live.game_mode());
+        // The receiving loaded catalog owns name/mask allocation order; the
+        // snapshot carries purchased/pending state, not UpgradeTemplate INI.
+        // Clone the value-owned catalog before admitting that runtime state.
+        let upgrade_definitions = live
+            .world_services
+            .upgrade_center()
+            .read()
+            .unwrap_or_else(|error| error.into_inner())
+            .clone();
+        *candidate
+            .world_services
+            .upgrade_center()
+            .write()
+            .unwrap_or_else(|error| error.into_inner()) = upgrade_definitions;
+        candidate.templates.extend(live.templates.clone());
+        candidate.weapon_definition_base = live.weapon_definition_base.clone();
+        candidate.weapon_definitions = live.weapon_definition_base.clone();
+        candidate.projectile_definitions = live.projectile_definitions.clone();
+        candidate.seed_ocl_application_definitions(live.ocl_application_definitions());
+        candidate.set_ai_definition_base(live.ai_definitions.baseline().clone());
+        candidate.admit_production_energy_base(live.production_energy_baseline());
+        candidate.admit_physics_rules_base(live.physics_rules_baseline())?;
+        candidate.session_view.camera.settings = live.session_view.camera.settings.reset_seed();
+        candidate.session_view.camera.clip_policy =
+            live.session_view.camera.clip_policy.reset_seed();
+        candidate.session_view.camera.shake_policy =
+            live.session_view.camera.shake_policy.reset_seed();
+        candidate.session_view.camera.movement_policy =
+            live.session_view.camera.movement_policy.reset_seed();
+        candidate.session_view.camera.input_policy =
+            live.session_view.camera.input_policy.reset_seed();
+        // Definitions only: IDs/order/controllers retained, mutable script
+        // caches and Team instances never shared with the running factory.
+        drop(
+            candidate
+                .team_factory
+                .replace_for_world_boundary(definitions),
+        );
+        let builder = crate::save_load::SnapshotBuilder::new();
+        builder
+            .prepare_logical_terrain_for_restore(&decoded.snapshot, &mut candidate)
+            .map_err(|error| error.to_string())?;
+        let terrain = crate::save_load::snapshot::prepare_receiving_terrain_visual(
+            &candidate,
+            decoded.terrain_visual_xfer.as_deref(),
+        )
+        .map_err(|error| error.to_string())?;
+        // Validate the complete paired payload before object/script restore.
+        manager
+            .restore_game_snapshot(&decoded.snapshot, &mut candidate)
+            .map_err(|error| error.to_string())?;
+        if let Some(terrain) = &terrain {
+            crate::save_load::snapshot::admit_receiving_terrain_visual(&mut candidate, terrain)
+                .map_err(|error| error.to_string())?;
+        }
+        let owns_camera =
+            crate::save_load::snapshot::read_owned_session_camera(&decoded.snapshot.lifecycle_tail)
+                .map_err(|error| error.to_string())?;
+        let staged = transaction.finish_and_restore_live(&candidate.world_services);
+        effects.finish_and_restore_live();
+        let checked = staged.preflight_native()?;
+        let committed = checked.install_globals();
+        admit_staged_session_view(
+            &mut live.session_view,
+            &mut candidate.session_view,
+            owns_camera,
+        );
+        let previous = std::mem::replace(live, candidate);
+        drop(previous);
+        committed.finish_after_logic_commit();
+        Ok((decoded.save_info, terrain))
+    }
+
     fn stage_decoded_saved_world_for_restore<F>(
         snapshot: &crate::save_load::WorldSnapshot,
         save_info: SaveGameInfo,
         saved_game_mode: Option<i32>,
         game_client_xfer_bytes: Option<Vec<u8>>,
+        terrain_visual_xfer_bytes: Option<Vec<u8>>,
         slot: &str,
         active_mode: crate::game_logic::GameMode,
         template_catalog: &std::collections::HashMap<String, crate::game_logic::ThingTemplate>,
@@ -1882,7 +2085,15 @@ impl CnCGameEngine {
         // prior resolution above only proves that this exact identity maps to
         // a real on-disk retail file rather than to a development fallback.
         let definition_source = save_info.pristine_map_name.as_deref().unwrap_or(saved_map);
-        if !staged.load_map_with_definition_source(saved_map, definition_source) {
+        let mut map_water_configuration = None;
+        let mut capture_map_water = |state: &gamelogic::terrain_water::WaterGridState| {
+            map_water_configuration = Some(state.clone());
+        };
+        if !staged.load_map_with_definition_source_and_water_delivery(
+            saved_map,
+            definition_source,
+            Some(&mut capture_map_water),
+        ) {
             return Err(format!(
                 "failed to load saved map '{saved_map}' from '{resolved_map_name}'"
             ));
@@ -1893,7 +2104,18 @@ impl CnCGameEngine {
             ));
         }
 
+        // Validate the companion against actual map water layout before the
+        // logical snapshot can replace it. No native state is touched here.
+        let terrain_visual = crate::save_load::snapshot::prepare_receiving_terrain_visual(
+            &staged,
+            terrain_visual_xfer_bytes.as_deref(),
+        )
+        .map_err(|error| error.to_string())?;
         restore_snapshot(snapshot, &mut staged)?;
+        if let Some(prepared) = &terrain_visual {
+            crate::save_load::snapshot::admit_receiving_terrain_visual(&mut staged, prepared)
+                .map_err(|error| error.to_string())?;
+        }
 
         // Snapshot restoration must not turn a successful map load into a
         // false in-game claim.  It currently restores terrain/objects but not
@@ -1916,6 +2138,8 @@ impl CnCGameEngine {
             shroud: snapshot.shroud.clone(),
             client_drawables: snapshot.client_drawables.clone(),
             game_client_xfer_bytes,
+            terrain_visual,
+            map_water_configuration,
             client_persist: snapshot.persist_v18.clone(),
             camera_continuation,
             owns_session_camera,

@@ -705,6 +705,12 @@ impl GameLogic {
         stream_binding: Option<crate::game_logic::combat::ProjectileStreamBinding>,
     ) {
         let projectile_name = pending.projectile_object_name.clone();
+        let projectile_terrain = crate::game_logic::game_logic::FlightTerrainView {
+            grid: &self.pathfinding_system.grid,
+            logical: Some(self.world_services.terrain()),
+            terrain: self.terrain.as_ref(),
+            samples: self.pathfinding_height_samples.as_ref(),
+        };
         let ready = crate::game_logic::combat::materialize_accepted_projectile(
             &mut self.combat_system,
             &self.objects,
@@ -717,6 +723,7 @@ impl GameLogic {
             } else {
                 crate::game_logic::projectile_definitions::ProjectileDefinitionMode::LegacyBootstrap
             },
+            Some(&projectile_terrain),
         );
         if let Some(shot) = ready {
             let limit = game_engine::common::global_data::read().historic_damage_limit;

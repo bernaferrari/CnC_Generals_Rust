@@ -470,7 +470,10 @@ pub fn spectre_orbit_gattling_is_firing(field: &HostSpectreOrbitField) -> bool {
 /// Host Y-up impact of leftover `m_gattlingTargetPosition ± 5` + `getGroundHeight`.
 ///
 /// C++ XY is the ground plane; host maps that to XZ and writes terrain height to Y.
-pub fn spectre_gattling_strafe_smoke_impact(gattling_target: Vec3) -> Vec3 {
+pub fn spectre_gattling_strafe_smoke_impact(
+    gattling_target: Vec3,
+    ground_height: impl FnOnce(f32, f32) -> Option<f32>,
+) -> Vec3 {
     let x = gattling_target.x
         + gamelogic::helpers::game_client_random_value_real(
             -SPECTRE_GATTLING_STRAFE_SMOKE_JITTER,
@@ -481,9 +484,9 @@ pub fn spectre_gattling_strafe_smoke_impact(gattling_target: Vec3) -> Vec3 {
             -SPECTRE_GATTLING_STRAFE_SMOKE_JITTER,
             SPECTRE_GATTLING_STRAFE_SMOKE_JITTER,
         );
-    let y = gamelogic::helpers::TheTerrainLogic::get()
-        .map(|terrain| terrain.get_ground_height(x, z, None))
-        .unwrap_or(gattling_target.y);
+    // Observe the driving owner only after the two existing client jitter draws.
+    // The loan ends inside the callback before any particle delivery.
+    let y = ground_height(x, z).unwrap_or(gattling_target.y);
     Vec3::new(x, y, z)
 }
 
@@ -545,3 +548,7 @@ mod override_clamp_tests {
         assert!(!HostGunshipStatus::Idle.overridable_destination_active());
     }
 }
+
+#[cfg(test)]
+#[path = "spectre_impact_owner_tests.rs"]
+mod spectre_impact_owner_tests;

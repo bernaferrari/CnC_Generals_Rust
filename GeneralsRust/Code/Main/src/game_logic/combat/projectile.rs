@@ -197,7 +197,7 @@ impl Projectile {
         }
     }
 
-    /// Attach exact parsed Object INI lifetime behavior at launch.
+    /// Attach resolved Object INI lifecycle; flight binding selects content.
     pub fn set_projectile_lifecycle(
         &mut self,
         lifecycle: Option<crate::game_logic::weapon_bootstrap::HostProjectileLifecycle>,
@@ -207,16 +207,16 @@ impl Projectile {
         self.max_lifetime = lifecycle
             .map(crate::game_logic::weapon_bootstrap::HostProjectileLifecycle::lifetime_seconds)
             .unwrap_or(0.0);
-        if self.flight.is_none() && !self.projectile_object_name.is_empty() {
-            self.flight =
-                crate::game_logic::weapon_bootstrap::host_projectile_flight_for_object_name(
-                    &self.projectile_object_name,
-                );
-        }
     }
 
     /// Bind parsed C++ flight/warhead and build the DumbProjectile Bezier.
-    pub fn bind_authored_flight(&mut self, start: Vec3, end: Vec3, speed_per_second: f32) {
+    pub(crate) fn bind_authored_flight(
+        &mut self,
+        start: Vec3,
+        end: Vec3,
+        speed_per_second: f32,
+        terrain: Option<&crate::game_logic::game_logic::FlightTerrainView<'_>>,
+    ) {
         if self.flight.is_none() && !self.projectile_object_name.is_empty() {
             self.flight =
                 crate::game_logic::weapon_bootstrap::host_projectile_flight_for_object_name(
@@ -242,6 +242,7 @@ impl Projectile {
                     dumb,
                     speed_per_second,
                     0,
+                    terrain,
                 );
                 self.flight_runtime.path = path;
                 self.flight_runtime.path_segments = segs;

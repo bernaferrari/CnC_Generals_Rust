@@ -246,6 +246,7 @@ fn malformed_client_chunk_rejects_candidate_before_touching_live_client() {
                 save_info("corrupt_client", "Not A Retail Map".to_string()),
                 None,
                 Some(invalid_chunk),
+                None, // no paired TerrainVisual in this direct staging fixture
                 "corrupt_client",
                 GameMode::SinglePlayer,
                 &catalog,
@@ -609,6 +610,7 @@ fn forced_post_restore_failure_restores_globals_and_tls_effect_queues() {
                 info,
                 saved_game_mode,
                 staged_client_bytes,
+                None, // no paired TerrainVisual in this direct staging fixture
                 "forced_stage_failure",
                 GameMode::Skirmish,
                 &catalog,
@@ -897,6 +899,7 @@ fn embedded_saved_map_restores_original_ai_companions_without_replacing_geometry
                         info,
                         saved_game_mode,
                         None,
+                        None, // no paired TerrainVisual in this direct staging fixture
                         "owned_companions",
                         GameMode::Skirmish,
                         &catalog,
@@ -1418,6 +1421,7 @@ fn main_services_start_and_stage_leave_foreign_core_ai_installed() {
                     info,
                     saved_game_mode,
                     None,
+                    None, // no paired TerrainVisual in this direct staging fixture
                     "owned_services",
                     GameMode::Skirmish,
                     &catalog,

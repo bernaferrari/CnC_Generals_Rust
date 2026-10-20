@@ -6,6 +6,17 @@ impl SnapshotBuilder {
         Self {}
     }
 
+    /// Admit only the checked saved logical grid into a detached receiver.
+    /// This supplies no authored map or water-render configuration.
+    pub(crate) fn prepare_logical_terrain_for_restore(
+        &self,
+        snapshot: &WorldSnapshot,
+        candidate: &mut GameLogic,
+    ) -> SaveLoadResult<()> {
+        validate_direct_world_snapshot_version(snapshot.version)?;
+        self.restore_terrain(&snapshot.terrain, candidate)
+    }
+
     /// Create complete world snapshot from current game state
     pub fn create_world_snapshot(&self, game_logic: &GameLogic) -> SaveLoadResult<WorldSnapshot> {
         #[cfg(feature = "game_client")]
@@ -499,17 +510,8 @@ impl SnapshotBuilder {
                     .map_err(SaveLoadError::Corrupted)?;
             }
         }
-        if let Some(terrain_visual_bytes) = take_loaded_terrain_visual_xfer() {
-            let terrain_handle = game_logic.world_services.terrain().clone();
-            let mut terrain = terrain_handle
-                .write()
-                .map_err(|_| SaveLoadError::Corrupted("candidate terrain lock poisoned".into()))?;
-            game_client::terrain::terrain_visual_xfer::restore_live_terrain_visual_for_terrain(
-                &mut terrain,
-                &terrain_visual_bytes,
-            )
-            .map_err(SaveLoadError::Serialization)?;
-        }
+        // Direct WorldSnapshot restore has no archive companion. Full saves
+        // explicitly prepare/admit their paired TerrainVisual in the caller.
 
         // Map loading initializes a fresh shroud grid and may reveal
         // staging-map objects. Replace that world's manager only when this save

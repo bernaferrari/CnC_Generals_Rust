@@ -619,8 +619,10 @@ fn particle_uplink_manual_drive_and_outer_nodes_residual_honesty() {
     }
 
     // Advance 30 frames at normal speed: 20 units/sec → 20 units moved.
+    let terrain = gamelogic::terrain::TerrainLogic::new();
+    let random = game_engine::common::random_value::SessionRandom::default();
     let after_normal = spawn + 1 + 30;
-    reg.advance_manual_beam_drive(after_normal);
+    reg.advance_manual_beam_drive(after_normal, &terrain, &random);
     {
         let f = &reg.beam_fields()[0];
         assert!(
@@ -644,11 +646,11 @@ fn particle_uplink_manual_drive_and_outer_nodes_residual_honesty() {
     assert!(reg.set_beam_override_destination(field_id, override_dest, click3));
     assert!(particle_is_fast_drive(click3, click2));
     // Sync drive update to click3 so the next advance measures exactly 30 frames.
-    reg.advance_manual_beam_drive(click3);
+    reg.advance_manual_beam_drive(click3, &terrain, &random);
     let before_fast_dist = reg.beam_fields()[0].manual_drive_distance_total;
     let before_fast_pos_x = reg.beam_fields()[0].current_target_position.x;
     let after_fast = click3 + 30;
-    reg.advance_manual_beam_drive(after_fast);
+    reg.advance_manual_beam_drive(after_fast, &terrain, &random);
     {
         let f = &reg.beam_fields()[0];
         let moved = f.manual_drive_distance_total - before_fast_dist;

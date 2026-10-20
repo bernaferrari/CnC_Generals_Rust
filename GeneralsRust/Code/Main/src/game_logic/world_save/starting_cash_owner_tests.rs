@@ -42,6 +42,42 @@ fn prepare(world: &mut GameLogic, rows: &[Dict]) -> u32 {
         .id
 }
 
+// The direct SnapshotBuilder API receives an already map-prepared candidate,
+// just as C++ TeamFactory::xfer expects the map's prototype table to exist.
+// These are independent authored CKMP inputs, never reconstructed save entries.
+fn encoded_fixture_map(path: &std::path::Path, rows: &[Dict]) {
+    let mut out = game_engine::common::system::DataChunkOutput::new();
+    out.open_data_chunk("HeightMapData", 3);
+    for value in [21, 21, 1, 441] {
+        out.write_int(value);
+    }
+    for _ in 0..441 {
+        out.write_byte(0);
+    }
+    out.close_data_chunk();
+    out.open_data_chunk("SidesList", 2);
+    out.write_int(rows.len() as i32);
+    for row in rows {
+        out.write_dict(row);
+        out.write_int(0); // no authored build list
+    }
+    out.write_int(0); // source admission supplies actual default singleton teams
+    out.close_data_chunk();
+    std::fs::write(path, out.into_ckmp_bytes()).unwrap();
+}
+
+fn loaded_prototypes(world: &GameLogic) -> Vec<(String, u32)> {
+    let mut factory = world.team_factory.lock().unwrap();
+    factory
+        .prototype_names()
+        .into_iter()
+        .map(|name| {
+            let id = factory.find_team_prototype(&name).unwrap().get_id();
+            (name, id)
+        })
+        .collect()
+}
+
 #[test]
 fn default_cash_and_reserved_neutral_calibrate_prepared_admission() {
     isolated(
@@ -377,8 +413,22 @@ fn encoded_restore_keeps_spent_balances_and_initial_cash_separately() {
     isolated(
         "encoded_restore_keeps_spent_balances_and_initial_cash_separately",
         || {
+            let directory = tempfile::tempdir().unwrap();
+            let path = directory.path().join("StartingCashAdmission.map");
+            encoded_fixture_map(&path, &rows("Civilian", Some(700)));
             let mut source = configured(12_500);
-            let id = prepare(&mut source, &rows("Civilian", Some(700)));
+            assert!(
+                source.load_map(path.to_str().unwrap()),
+                "actual source map foundation"
+            );
+            let id = source
+                .players
+                .values()
+                .find(|player| player.map_side.map_player_name == "Civilian")
+                .unwrap()
+                .id;
+            let prototypes = loaded_prototypes(&source);
+            assert!(!prototypes.is_empty(), "real prepared map prototypes");
             source.players.get_mut(&id).unwrap().resources.supplies = 2;
             source.players.get_mut(&0).unwrap().resources.supplies = 3;
             let builder = SnapshotBuilder::new();
@@ -386,6 +436,15 @@ fn encoded_restore_keeps_spent_balances_and_initial_cash_separately() {
             let bytes = bincode_legacy::serialize(&snapshot).unwrap();
             let decoded = decode_bincode_world_snapshot(&bytes).unwrap();
             let mut restored = configured(0);
+            assert!(
+                restored.load_map(path.to_str().unwrap()),
+                "actual receiving map foundation"
+            );
+            assert_eq!(
+                loaded_prototypes(&restored),
+                prototypes,
+                "same authored map order and IDs before Xfer"
+            );
             builder
                 .restore_from_snapshot(&decoded, &mut restored)
                 .unwrap();

@@ -426,6 +426,24 @@ fn parsed_upgrade_ledger_cancel_refunds_once() {
         ));
         assert!(player.has_queued_upgrade("Upgrade_AuthoredRefundLedger"));
         assert_eq!(player.statistics.resources_spent, spent_before + 321);
+        // Observe the completed enqueue operation separately. Cancellation
+        // must publish one refund, not erase its preceding withdrawal receipt.
+        economy_events.complete_boundary();
+        assert_eq!(
+            economy_events.take_completed(),
+            vec![HostEconomyEvent {
+                player_id: OWNER,
+                supplies: 1_000 - cost.supplies,
+                power_available: player.power_available,
+            }]
+        );
+        assert_eq!(
+            economy_events.take_money_audio(),
+            vec![HostMoneyAudioEvent {
+                player_id: OWNER,
+                kind: HostMoneyAudio::Withdraw,
+            }]
+        );
 
         assert!(player.cancel_queued_upgrade(
             "upgrade_authoredrefundledger",
@@ -474,6 +492,19 @@ fn zero_money_ledger_cancel_reverses_power_without_deposit_cue() {
             economy_events,
         ));
         assert_eq!(player.power_available, before_power - 7);
+        economy_events.complete_boundary();
+        assert_eq!(
+            economy_events.take_completed(),
+            vec![HostEconomyEvent {
+                player_id: OWNER,
+                supplies: 1_000,
+                power_available: before_power - 7,
+            }]
+        );
+        assert!(
+            economy_events.take_money_audio().is_empty(),
+            "zero-cost enqueue has no withdrawal cue"
+        );
 
         assert!(player.cancel_queued_upgrade(
             "Upgrade_ZeroMoneyLedgerControl",

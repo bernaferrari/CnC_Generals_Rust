@@ -439,32 +439,16 @@ pub fn parse_runtime_polygon_triggers_from_chunky(
     Ok(triggers)
 }
 
-/// Register parsed map polygons on leftover `TerrainLogic` by name.
-///
-/// C++ `PolygonTrigger::ParsePolygonTriggersDataChunk` leaves the live list
-/// as the geometry source for `pointInTrigger`. Skip names already present
-/// so `load_map_data` and this installer do not double-add.
-pub fn install_runtime_polygon_triggers(triggers: &[PolygonTrigger]) {
-    // Fast-sync fail-open contract (world_tests mod.rs
-    // fast_chunky_sync_fail_opens_when_legacy_globals_are_busy): when a
-    // startup worker still holds THE_TERRAIN_LOGIC, skip installation instead
-    // of blocking the sync (which would self-deadlock the sync's own held
-    // locks and stall every other pathfinding user).
-    let terrain_owner_handle = gamelogic::terrain::get_terrain_logic();
-    let Ok(mut terrain) = terrain_owner_handle.try_write() else {
-        log::warn!(
-            "install_runtime_polygon_triggers: THE_TERRAIN_LOGIC contended; skipping {} polygon trigger(s)",
-            triggers.len()
-        );
-        return;
-    };
-    for trigger in triggers {
-        let name = trigger.get_trigger_name().as_str();
-        if terrain.get_trigger_area_by_name(name).is_some() {
-            continue;
-        }
-        terrain.add_trigger_area(trigger.clone());
-    }
+/// Admit the parsed polygon table on its explicit receiving logical owner.
+/// The source parser replaces its list and preserves every row in file order,
+/// including duplicate names/IDs; first-match lookup remains the owner policy.
+/// Shared with canonical map admission so early load-screen callbacks observe
+/// the same complete table without a global lookup or contention-based skip.
+pub fn install_runtime_polygon_triggers(
+    terrain: &mut gamelogic::terrain::TerrainLogic,
+    triggers: &[PolygonTrigger],
+) {
+    terrain.replace_trigger_areas(triggers.iter().cloned());
 }
 
 /// Parse world bounds from the map's GlobalLighting or Waypoints chunk.

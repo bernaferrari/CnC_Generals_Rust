@@ -141,6 +141,7 @@ fn legacy_camera_restore_uses_saved_map_rules_not_active_or_application_maximum(
                 info.clone(),
                 None,
                 None,
+                        None, // no paired TerrainVisual in this direct staging fixture
                 "camera",
                 crate::game_logic::GameMode::Skirmish,
                 &source.templates,

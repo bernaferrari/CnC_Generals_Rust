@@ -62,6 +62,87 @@ impl TeamFactory {
         }
     }
 
+    /// Definition admission for the existing mapless logical save API.
+    /// Preserve authored identity/order/controller values without importing any
+    /// live Team, callback queue, or mutable cached Script into the candidate.
+    fn detached_definition_catalog(&self, names: Option<&[String]>) -> Result<Self, String> {
+        let mut candidate = Self::new();
+        candidate.prototype_order = self
+            .prototype_order
+            .iter()
+            .filter(|name| names.is_none_or(|names| names.contains(name)))
+            .cloned()
+            .collect();
+        candidate.prototype_controllers = self
+            .prototype_controllers
+            .iter()
+            .filter(|(name, _)| names.is_none_or(|names| names.contains(name)))
+            .map(|(name, owner)| (name.clone(), *owner))
+            .collect();
+        candidate.unique_team_prototype_id = self.unique_team_prototype_id;
+        for (name, definition) in &self.prototypes {
+            if names.is_some_and(|names| !names.contains(name)) {
+                continue;
+            }
+            // Deliberate field-by-field definition copy: the only two
+            // shared mutable cache fields get fresh owners, never Arc::clone.
+            let always_false = definition
+                .production_condition_runtime
+                .lock()
+                .map_err(|_| "team production-condition cache poisoned")?
+                .always_false;
+            let detached = TeamPrototype {
+                id: definition.id,
+                name: definition.name.clone(),
+                owner_name: definition.owner_name.clone(),
+                is_singleton: definition.is_singleton,
+                is_ai_recruitable: definition.is_ai_recruitable,
+                is_base_defense: definition.is_base_defense,
+                is_perimeter_defense: definition.is_perimeter_defense,
+                automatically_reinforce: definition.automatically_reinforce,
+                initial_team_attitude: definition.initial_team_attitude,
+                transports_return: definition.transports_return,
+                avoid_threats: definition.avoid_threats,
+                attack_common_target: definition.attack_common_target,
+                max_instances: definition.max_instances,
+                script_on_create: definition.script_on_create.clone(),
+                script_on_idle: definition.script_on_idle.clone(),
+                initial_idle_frames: definition.initial_idle_frames,
+                script_on_enemy_sighted: definition.script_on_enemy_sighted.clone(),
+                script_on_all_clear: definition.script_on_all_clear.clone(),
+                script_on_destroyed: definition.script_on_destroyed.clone(),
+                destroyed_threshold: definition.destroyed_threshold,
+                script_on_unit_destroyed: definition.script_on_unit_destroyed.clone(),
+                production_priority: definition.production_priority,
+                production_priority_success_increase: definition
+                    .production_priority_success_increase,
+                production_priority_failure_decrease: definition
+                    .production_priority_failure_decrease,
+                production_condition: definition.production_condition.clone(),
+                production_condition_runtime: Arc::new(Mutex::new(ProductionConditionRuntime {
+                    always_false,
+                    script: None,
+                })),
+                execute_actions_on_create: definition.execute_actions_on_create,
+                team_generic_scripts: definition.team_generic_scripts.clone(),
+                generic_script_runtime: Arc::new(Mutex::new(vec![None; MAX_GENERIC_SCRIPTS])),
+                attack_priority_name: definition.attack_priority_name.clone(),
+                units_info: definition.units_info,
+                num_units_info: definition.num_units_info,
+                transport_unit_type: definition.transport_unit_type.clone(),
+                start_reinforce_waypoint: definition.start_reinforce_waypoint.clone(),
+                team_starts_full: definition.team_starts_full,
+                transports_exit: definition.transports_exit,
+                home_location: definition.home_location,
+                has_home_location: definition.has_home_location,
+            };
+            candidate
+                .prototypes
+                .insert(name.clone(), Arc::new(detached));
+        }
+        Ok(candidate)
+    }
+
     /// Initialize team factory
     pub fn init(&mut self) {
         self.unlink_prototypes_from_owning_players();

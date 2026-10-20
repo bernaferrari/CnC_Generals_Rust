@@ -74,6 +74,7 @@ impl CombatSystem {
                                 &mut projectile.flight_runtime,
                                 dumb,
                                 tgt.get_position(),
+                                terrain,
                             );
                             projectile.target_position = projectile.flight_runtime.path_end;
                         }

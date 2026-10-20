@@ -747,7 +747,8 @@ impl TerrainLogic {
     }
 }
 
-// Standalone Core compatibility only. Main passes its receiving effect sink.
+// Legacy native compatibility delivery. Main flatten_and_snap still reaches
+// this wrapper; explicit receiving native effects remain tracked by hq-x3l7v.
 fn compatibility_height_change(change: TerrainHeightChange) {
     if let Some(visual) = crate::helpers::TheTerrainVisual::get() {
         visual.set_raw_map_height(

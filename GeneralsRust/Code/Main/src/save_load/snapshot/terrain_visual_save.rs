@@ -6,30 +6,61 @@
 //! Cannon / map scorches survive save/load.
 
 use crate::save_load::{SaveLoadError, SaveLoadResult};
-use std::sync::Mutex;
-
 pub const CHUNK_TERRAIN_VISUAL: &str = "CHUNK_TerrainVisual";
+pub use game_client::terrain::terrain_visual_xfer::PreparedTerrainVisual;
 
-static PENDING_TERRAIN_VISUAL_XFER: Mutex<Option<Vec<u8>>> = Mutex::new(None);
+/// Explicit logical owner, with an optional native observation from the caller.
+pub fn capture_receiving_terrain_visual_xfer_bytes(
+    world: &crate::game_logic::GameLogic,
+    scorches: Option<&[game_client::terrain::scorch_mesh::ScorchMark]>,
+) -> SaveLoadResult<Vec<u8>> {
+    let terrain = world
+        .world_services
+        .terrain()
+        .read()
+        .map_err(|_| SaveLoadError::Serialization("receiving terrain lock poisoned".into()))?;
+    game_client::terrain::terrain_visual_xfer::capture_owned_terrain_visual_for_terrain(
+        &terrain, scorches,
+    )
+    .map_err(SaveLoadError::Serialization)
+}
 
+/// No native effects during candidate preparation or logical admission.
+pub fn prepare_receiving_terrain_visual(
+    world: &crate::game_logic::GameLogic,
+    bytes: Option<&[u8]>,
+) -> SaveLoadResult<Option<PreparedTerrainVisual>> {
+    let Some(bytes) = bytes else {
+        return Ok(None);
+    };
+    let terrain = world
+        .world_services
+        .terrain()
+        .read()
+        .map_err(|_| SaveLoadError::Corrupted("receiving terrain lock poisoned".into()))?;
+    game_client::terrain::terrain_visual_xfer::prepare_terrain_visual_for_terrain(&terrain, bytes)
+        .map_err(SaveLoadError::Corrupted)
+}
+pub fn admit_receiving_terrain_visual(
+    world: &mut crate::game_logic::GameLogic,
+    prepared: &PreparedTerrainVisual,
+) -> SaveLoadResult<()> {
+    let mut terrain = world
+        .world_services
+        .terrain()
+        .write()
+        .map_err(|_| SaveLoadError::Corrupted("candidate terrain lock poisoned".into()))?;
+    prepared
+        .admit_logical(&mut terrain)
+        .map_err(SaveLoadError::Corrupted)
+}
+
+// Standalone compatibility test/service APIs; actual archive paths never use
+// these ambient owner adapters. Native renderer ownership remains x3l7v work.
 pub fn capture_terrain_visual_xfer_bytes() -> SaveLoadResult<Vec<u8>> {
     game_client::terrain::capture_live_terrain_visual_xfer_bytes()
         .map_err(SaveLoadError::Serialization)
 }
-
-pub fn stash_loaded_terrain_visual_xfer(bytes: Vec<u8>) {
-    if let Ok(mut slot) = PENDING_TERRAIN_VISUAL_XFER.lock() {
-        *slot = Some(bytes);
-    }
-}
-
-pub fn take_loaded_terrain_visual_xfer() -> Option<Vec<u8>> {
-    PENDING_TERRAIN_VISUAL_XFER
-        .lock()
-        .ok()
-        .and_then(|mut slot| slot.take())
-}
-
 pub fn restore_terrain_visual_from_xfer_bytes(bytes: &[u8]) -> SaveLoadResult<()> {
     game_client::terrain::restore_live_terrain_visual_from_xfer_bytes(bytes)
         .map_err(SaveLoadError::Serialization)

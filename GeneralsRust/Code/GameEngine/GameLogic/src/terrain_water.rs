@@ -282,16 +282,37 @@ pub fn enable_water_grid(enable: bool) -> bool {
 impl WaterGridState {
     pub fn configure_for_map(&mut self, enable: bool) -> bool {
         if !enable {
-            self.enabled = false;
-            self.publish_visual();
-            return true;
+            let configured = self.configure_for_map_owned(false, "", None);
+            publish_map_water_legacy_native(self);
+            return configured;
         }
-
         let Some(global) = game_engine::common::ini::get_global_data() else {
             return false;
         };
         let global = global.read();
-        let map_name = global.map_name.trim();
+        if !self.configure_for_map_owned(enable, &global.map_name, Some(&global)) {
+            return false;
+        }
+        drop(global);
+        publish_map_water_legacy_native(self);
+        true
+    }
+    /// Configure only this owner from actual immutable map definitions.
+    /// Native delivery belongs to the caller; detached maps stay inert.
+    pub fn configure_for_map_owned(
+        &mut self,
+        enable: bool,
+        map_name: &str,
+        global: Option<&game_engine::common::ini::ini_game_data::GlobalData>,
+    ) -> bool {
+        if !enable {
+            self.enabled = false;
+            return true;
+        }
+        let Some(global) = global else {
+            return false;
+        };
+        let map_name = map_name.trim();
         if map_name.is_empty() {
             return false;
         }
@@ -343,7 +364,6 @@ impl WaterGridState {
             global.vertex_water_attenuation_range[i],
         );
         self.enabled = true;
-        self.publish_visual();
         true
     }
 }
@@ -361,5 +381,15 @@ mod tests {
         grid.enabled = true;
         assert!((grid.height_at(100.0, 200.0).unwrap() - 12.0).abs() < 1e-4);
         assert!(grid.height_at(0.0, 0.0).is_none());
+    }
+}
+
+/// Temporary standalone native delivery boundary. Disable has no configuration
+/// side effects, matching TerrainLogic.cpp enableWaterGrid(false).
+pub fn publish_map_water_legacy_native(state: &WaterGridState) {
+    if state.enabled {
+        state.publish_visual();
+    } else if let Some(hook) = with_hooks(|hooks| hooks.enable_water_grid).flatten() {
+        hook(false);
     }
 }

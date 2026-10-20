@@ -824,6 +824,7 @@ impl SaveFileManager {
             None,
             save_info,
             crate::save_load::snapshot::ClientSaveState::default(),
+            None,
         )
     }
 
@@ -843,6 +844,7 @@ impl SaveFileManager {
             Some(client),
             save_info,
             crate::save_load::snapshot::ClientSaveState::default(),
+            None,
         )
     }
 
@@ -867,6 +869,7 @@ impl SaveFileManager {
                 camera_continuation: None,
                 control_groups: None,
             },
+            None,
         )
     }
 
@@ -887,6 +890,29 @@ impl SaveFileManager {
             Some(client),
             save_info,
             state,
+            None,
+        )
+    }
+
+    /// Native caller supplies its actual scorch observation explicitly.
+    pub fn save_game_with_client_save_state_and_terrain_scorches(
+        &mut self,
+        filename: &str,
+        game_logic: &GameLogic,
+        client_drawables: ClientDrawableWorldSnapshot,
+        client: &mut game_client::core::game_client::GameClient,
+        save_info: &SaveGameInfo,
+        state: crate::save_load::snapshot::ClientSaveState,
+        scorches: Option<&[game_client::terrain::scorch_mesh::ScorchMark]>,
+    ) -> SaveLoadResult<()> {
+        self.save_game_with_client_state_impl(
+            filename,
+            game_logic,
+            client_drawables,
+            Some(client),
+            save_info,
+            state,
+            scorches,
         )
     }
 
@@ -898,6 +924,7 @@ impl SaveFileManager {
         mut client: Option<&mut game_client::core::game_client::GameClient>,
         save_info: &SaveGameInfo,
         state: crate::save_load::snapshot::ClientSaveState,
+        terrain_scorches: Option<&[game_client::terrain::scorch_mesh::ScorchMark]>,
     ) -> SaveLoadResult<()> {
         if let Some(camera) = state.camera {
             camera.validate()?;
@@ -969,11 +996,14 @@ impl SaveFileManager {
         if effective_info.pristine_map_name.is_none() {
             effective_info.pristine_map_name = game_logic.map_definition_source.clone();
         }
+        let terrain_visual_bytes =
+            capture_receiving_terrain_visual_xfer_bytes(game_logic, terrain_scorches)?;
         let write_result = self.save_to_file(
             &temp_path,
             &world_snapshot,
             &effective_info,
             &client_xfer_bytes,
+            Some(&terrain_visual_bytes),
             cpp_game_mode_from_live(game_logic.game_mode()),
         );
         write_result?;
@@ -990,33 +1020,50 @@ impl SaveFileManager {
     }
 
     /// Load game from file
+    /// Logical-only API. Native applications use the companion-aware route.
     pub fn load_game(
         &mut self,
         filename: &str,
         game_logic: &mut GameLogic,
     ) -> SaveLoadResult<SaveGameInfo> {
+        let (info, _native_effects) = self.load_game_with_terrain_visual(filename, game_logic)?;
+        // Explicit absence of a native receiver: logical state only, matching
+        // this API's existing omission of the GameClient companion.
+        Ok(info)
+    }
+
+    pub fn load_game_with_terrain_visual(
+        &mut self,
+        filename: &str,
+        game_logic: &mut GameLogic,
+    ) -> SaveLoadResult<(SaveGameInfo, Option<PreparedTerrainVisual>)> {
         let prior_campaign = capture_live_campaign_state();
-        let DecodedGameSave {
-            snapshot: world_snapshot,
-            save_info,
-            ..
-        } = match self.load_game_snapshot(filename) {
+        let decoded = match self.load_game_snapshot(filename) {
             Ok(decoded) => decoded,
-            Err(err) => {
+            Err(error) => {
                 rollback_campaign_after_failed_load(prior_campaign);
-                return Err(err);
+                return Err(error);
             }
         };
-        if save_info.save_type != SaveFileType::Mission {
-            if let Err(err) = self.restore_game_snapshot(&world_snapshot, game_logic) {
+        // Mission metadata launches a later mission-start operation, as before.
+        if decoded.save_info.save_type == SaveFileType::Mission {
+            commit_stashed_campaign_state();
+            return Ok((decoded.save_info, None));
+        }
+        match crate::cnc_game_engine::CnCGameEngine::restore_decoded_logical_save(
+            self, filename, decoded, game_logic,
+        )
+        .map_err(SaveLoadError::Serialization)
+        {
+            Ok(restored) => {
+                commit_stashed_campaign_state();
+                Ok(restored)
+            }
+            Err(error) => {
                 rollback_campaign_after_failed_load(prior_campaign);
-                return Err(err);
+                Err(error)
             }
         }
-        commit_stashed_campaign_state();
-
-        log::info!("Game loaded successfully from save slot: {}", filename);
-        Ok(save_info)
     }
 
     /// Decode a save without mutating a live `GameLogic` instance.
@@ -1186,6 +1233,7 @@ impl SaveFileManager {
         world_snapshot: &WorldSnapshot,
         save_info: &SaveGameInfo,
         client_xfer_bytes: &[u8],
+        terrain_visual_bytes: Option<&[u8]>,
         supplied_game_mode: i32,
     ) -> SaveLoadResult<()> {
         let file = OpenOptions::new()
@@ -1194,10 +1242,11 @@ impl SaveFileManager {
             .truncate(true)
             .open(path)?;
         let mut writer = BufWriter::new(file);
-        let encoded = Self::write_common_sav_chunks_with_client_bytes(
+        let encoded = Self::write_common_sav_chunks_with_client_and_terrain_bytes(
             world_snapshot,
             save_info,
             client_xfer_bytes,
+            terrain_visual_bytes,
             &self.save_directory,
             supplied_game_mode,
         )?;
@@ -1263,6 +1312,24 @@ impl SaveFileManager {
         save_directory: &Path,
         supplied_game_mode: i32,
     ) -> SaveLoadResult<Vec<u8>> {
+        Self::write_common_sav_chunks_with_client_and_terrain_bytes(
+            world_snapshot,
+            save_info,
+            client_xfer_bytes,
+            None,
+            save_directory,
+            supplied_game_mode,
+        )
+    }
+
+    fn write_common_sav_chunks_with_client_and_terrain_bytes(
+        world_snapshot: &WorldSnapshot,
+        save_info: &SaveGameInfo,
+        client_xfer_bytes: &[u8],
+        terrain_visual_bytes: Option<&[u8]>,
+        save_directory: &Path,
+        supplied_game_mode: i32,
+    ) -> SaveLoadResult<Vec<u8>> {
         validate_direct_world_snapshot_version(world_snapshot.version)?;
         let logic_payload = bincode_legacy::serialize(world_snapshot)
             .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
@@ -1271,6 +1338,7 @@ impl SaveFileManager {
             save_info,
             logic_payload,
             client_xfer_bytes,
+            terrain_visual_bytes,
             save_directory,
             supplied_game_mode,
         )
@@ -1291,6 +1359,7 @@ impl SaveFileManager {
             save_info,
             logic_payload,
             &[],
+            None,
             save_directory,
             supplied_game_mode,
         )
@@ -1301,6 +1370,7 @@ impl SaveFileManager {
         save_info: &SaveGameInfo,
         logic_payload: Vec<u8>,
         game_client_bytes: &[u8],
+        supplied_terrain_visual_bytes: Option<&[u8]>,
         save_directory: &Path,
         supplied_game_mode: i32,
     ) -> SaveLoadResult<Vec<u8>> {
@@ -1332,7 +1402,7 @@ impl SaveFileManager {
             .particle_system_companion
             .as_deref()
             .unwrap_or_default();
-        let terrain_visual_bytes = capture_terrain_visual_xfer_bytes().unwrap_or_default();
+        let terrain_visual_bytes = supplied_terrain_visual_bytes.unwrap_or_default().to_vec();
         let block_names: &[&str] = if save_info.save_type == SaveFileType::Mission {
             // C++ `xferSaveData` (`GameState.cpp:1339-1346`) writes only
             // CHUNK_GameState + CHUNK_Campaign for SAVE_FILE_TYPE_MISSION.
@@ -1513,6 +1583,7 @@ impl SaveFileManager {
         };
         let mut logic_data: Option<Vec<u8>> = None;
         let mut game_client_xfer = None;
+        let mut terrain_visual_xfer = None;
         let mut saw_game_state = false;
         let mut ingame_ui_payload: Option<Vec<u8>> = None;
         let mut tactical_view_payload: Option<Vec<u8>> = None;
@@ -1576,7 +1647,7 @@ impl SaveFileManager {
                 // starts at version 3 and carries scorches after the tree/prop
                 // snapshot.
                 if payload.first().copied() != Some(1) || payload.len() > 1 {
-                    stash_loaded_terrain_visual_xfer(payload);
+                    terrain_visual_xfer = Some(payload);
                 }
             } else if token.eq_ignore_ascii_case(CHUNK_GAME_STATE_MAP) {
                 map_admission = Some(map_admission::read_source(&payload)?);
@@ -1665,6 +1736,7 @@ impl SaveFileManager {
             snapshot: world_snapshot,
             save_info,
             game_client_xfer,
+            terrain_visual_xfer,
             saved_game_mode,
         })
     }

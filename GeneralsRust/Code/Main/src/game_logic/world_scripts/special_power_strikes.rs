@@ -98,23 +98,20 @@ impl GameLogic {
                 .special_power_strikes
                 .take_scripted_waypoint_special_power(source_object);
             if let Some(wid) = waypoint_id {
+                let waypoint_override = {
+                    let owner = self.world_services.terrain();
+                    let terrain = owner.read().unwrap_or_else(|error| error.into_inner());
+                    crate::game_logic::special_power_strikes::particle_waypoint_initial_override(
+                        &terrain,
+                        &self.logic_random,
+                        wid,
+                    )
+                };
                 if let Some(strike) = self.special_power_strikes.get_mut(id) {
                     strike.scripted_waypoint_mode = true;
-                    if let Some(terrain) = gamelogic::helpers::TheTerrainLogic::get() {
-                        if let Some((next_id, next_pos)) =
-                            terrain.scripted_waypoint_initial_override(wid)
-                        {
-                            strike.next_dest_waypoint_id = next_id;
-                            strike.waypoint_override =
-                                glam::Vec3::new(next_pos.x, next_pos.z, next_pos.y);
-                        } else {
-                            strike.next_dest_waypoint_id = wid;
-                            strike.waypoint_override = target_position;
-                        }
-                    } else {
-                        strike.next_dest_waypoint_id = wid;
-                        strike.waypoint_override = target_position;
-                    }
+                    let (next_id, next_pos) = waypoint_override.unwrap_or((wid, target_position));
+                    strike.next_dest_waypoint_id = next_id;
+                    strike.waypoint_override = next_pos;
                 }
             } else if !fired_by_script {
                 if let Some(strike) = self.special_power_strikes.get_mut(id) {
@@ -1076,15 +1073,23 @@ impl GameLogic {
             // C++ startMoving: bind WaveGuide1, snap, face the first link.
             let mut apply_ori: Option<f32> = None;
             let mut apply_pos: Option<glam::Vec3> = None;
+            // Resolve the complete authored chain at the original startMoving point.
+            // The receiving loan ends before object motion, water, damage or callbacks.
+            let binding = self
+                .objects
+                .get(&gid)
+                .and_then(|obj| obj.wave_guide_data.as_ref())
+                .filter(|wg| !wg.initialized)
+                .map(|_| {
+                    let owner = self.world_services.terrain();
+                    let terrain = owner.read().unwrap_or_else(|error| error.into_inner());
+                    terrain.bind_wave_guide1()
+                });
             if let Some(obj) = self.objects.get_mut(&gid) {
                 let cur = obj.get_position();
                 if let Some(wg) = obj.wave_guide_data.as_mut() {
                     if !wg.initialized {
-                        match gamelogic::terrain::get_terrain_logic()
-                            .read()
-                            .ok()
-                            .map(|tl| tl.bind_wave_guide1())
-                        {
+                        match binding {
                             Some(gamelogic::terrain::WaveGuide1Bind::Follow {
                                 first,
                                 last,
@@ -2023,7 +2028,9 @@ impl GameLogic {
             if !spectre_gunship_visible_for_strafe_fx(shroud) {
                 continue;
             }
-            let impact = spectre_gattling_strafe_smoke_impact(aim);
+            let impact = spectre_gattling_strafe_smoke_impact(aim, |x, z| {
+                self.terrain_ground_height_at(Vec3::new(x, 0.0, z))
+            });
             let _ = spawn_leftover_strafe_smoke(impact);
             let _ = self.combat_particles.spawn_named(
                 CombatParticleKind::WeaponImpact,
@@ -2077,7 +2084,15 @@ impl GameLogic {
         self.drain_puc_loop_audio();
         // Manual beam driving residual: advance current target toward override
         // before damage / scorch planning (retail update order).
-        self.special_power_strikes.advance_manual_beam_drive(frame);
+        {
+            let owner = self.world_services.terrain();
+            let terrain = owner.read().unwrap_or_else(|error| error.into_inner());
+            self.special_power_strikes.advance_manual_beam_drive(
+                frame,
+                &terrain,
+                &self.logic_random,
+            );
+        }
 
         let object_positions: Vec<(ObjectId, Vec3, Team, bool)> = self
             .objects
@@ -3003,3 +3018,15 @@ fn leftover_academy_special_power_template_name(
 #[cfg(all(test, feature = "game_client"))]
 #[path = "beam_fx_owner_tests.rs"]
 mod beam_fx_owner_tests;
+
+#[cfg(test)]
+#[path = "terrain_consumer_owner_tests.rs"]
+mod terrain_consumer_owner_tests;
+
+#[cfg(test)]
+#[path = "particle_waypoint_owner_tests.rs"]
+mod particle_waypoint_owner_tests;
+
+#[cfg(test)]
+#[path = "particle_drive_parity_tests.rs"]
+mod particle_drive_parity_tests;

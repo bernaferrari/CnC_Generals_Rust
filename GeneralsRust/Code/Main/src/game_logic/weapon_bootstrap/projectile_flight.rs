@@ -278,38 +278,36 @@ fn cpp_to_host(pos: gamelogic::common::Coord3D) -> Vec3 {
     Vec3::new(pos.x, pos.z, pos.y)
 }
 
-/// Highest intervening terrain along the 3D chord (C++ estimateTerrainExtremesAlongLine).
-/// Empty / unmapped worlds return 0 so the Bezier still clears start/end Z.
-pub fn estimate_highest_intervening_terrain(start: Vec3, end: Vec3) -> f32 {
+/// Existing Host chord estimate over explicitly receiving terrain.
+/// This preserves the Host ten-unit sampling algorithm; original cached partition
+/// cell extrema and failed-on-map admission remain separate parity work.
+/// An explicit mapless caller returns zero, never an ambient owner.
+pub(crate) fn estimate_highest_intervening_terrain(
+    start: Vec3,
+    end: Vec3,
+    terrain: Option<&crate::game_logic::game_logic::FlightTerrainView<'_>>,
+) -> f32 {
+    let Some(terrain) = terrain else {
+        return 0.0;
+    };
     let start_cpp = host_to_cpp(start);
     let end_cpp = host_to_cpp(end);
-    let mut highest = 0.0;
-    if let Some(partition) = gamelogic::ThePartitionManager::get() {
-        if partition.estimate_terrain_extremes_along_line(start_cpp, end_cpp, &mut highest) {
-            return highest;
+    let dx = end_cpp.x - start_cpp.x;
+    let dy = end_cpp.y - start_cpp.y;
+    let dist = (dx * dx + dy * dy).sqrt();
+    let step = 10.0_f32.max(1.0);
+    let steps = ((dist / step).ceil() as i32).max(1);
+    let mut highest = f32::MIN;
+    for i in 0..=steps {
+        let t = i as f32 / steps as f32;
+        let x = start_cpp.x + dx * t;
+        let y = start_cpp.y + dy * t;
+        let z = terrain.raw_ground(Vec3::new(x, 0.0, y), 0.0);
+        if z > highest {
+            highest = z;
         }
     }
-    if let Some(terrain) = gamelogic::helpers::TheTerrainLogic::get() {
-        let dx = end_cpp.x - start_cpp.x;
-        let dy = end_cpp.y - start_cpp.y;
-        let dist = (dx * dx + dy * dy).sqrt();
-        let step = 10.0_f32.max(1.0);
-        let steps = ((dist / step).ceil() as i32).max(1);
-        let mut max_height = f32::MIN;
-        for i in 0..=steps {
-            let t = i as f32 / steps as f32;
-            let x = start_cpp.x + dx * t;
-            let y = start_cpp.y + dy * t;
-            let z = terrain.get_ground_height(x, y, None);
-            if z > max_height {
-                max_height = z;
-            }
-        }
-        if max_height.is_finite() {
-            return max_height;
-        }
-    }
-    0.0
+    if highest.is_finite() { highest } else { 0.0 }
 }
 
 /// C++ calcFlightPath in host Y-up space.
@@ -319,8 +317,9 @@ pub fn build_dumb_bezier_path(
     flight: &HostDumbProjectileFlight,
     speed_per_second: f32,
     existing_segments: usize,
+    terrain: Option<&crate::game_logic::game_logic::FlightTerrainView<'_>>,
 ) -> (Vec<Vec3>, usize) {
-    let highest = estimate_highest_intervening_terrain(start, end);
+    let highest = estimate_highest_intervening_terrain(start, end, terrain);
     let speed_per_frame = if speed_per_second > 0.0 {
         speed_per_second / LOGIC_FRAMES_PER_SECOND
     } else {
@@ -345,6 +344,7 @@ pub fn adjust_flight_path_end(
     runtime: &mut HostProjectileRuntime,
     flight: &HostDumbProjectileFlight,
     new_victim_center: Vec3,
+    terrain: Option<&crate::game_logic::game_logic::FlightTerrainView<'_>>,
 ) {
     if flight.flight_path_adjust_per_frame <= 0.0 {
         return;
@@ -366,6 +366,7 @@ pub fn adjust_flight_path_end(
         flight,
         runtime.path_speed_per_frame * LOGIC_FRAMES_PER_SECOND,
         runtime.path_segments.max(1),
+        terrain,
     );
     runtime.path = path;
     runtime.path_segments = segs;
@@ -515,7 +516,7 @@ mod tests {
         };
         let start = Vec3::new(0.0, 10.0, 0.0);
         let end = Vec3::new(100.0, 10.0, 0.0);
-        let (path, segs) = build_dumb_bezier_path(start, end, &flight, 250.0, 0);
+        let (path, segs) = build_dumb_bezier_path(start, end, &flight, 250.0, 0, None);
         assert!(segs > 1);
         assert!(path.len() > 1);
         let mid = path[path.len() / 2];
@@ -561,7 +562,7 @@ mod tests {
             path_segments: 8,
             ..HostProjectileRuntime::default()
         };
-        adjust_flight_path_end(&mut runtime, &flight, Vec3::new(130.0, 0.0, 0.0));
+        adjust_flight_path_end(&mut runtime, &flight, Vec3::new(130.0, 0.0, 0.0), None);
         assert!((runtime.path_end.x - 105.0).abs() < 0.01);
         assert!(!runtime.path.is_empty());
     }

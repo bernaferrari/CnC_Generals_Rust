@@ -67,6 +67,42 @@ fn civilian_rows() -> Vec<Dict> {
     vec![neutral, named]
 }
 
+// The direct SnapshotBuilder API receives an already map-prepared candidate,
+// just as C++ TeamFactory::xfer expects the map's prototype table to exist.
+// These are independent authored CKMP inputs, never reconstructed save entries.
+fn encoded_fixture_map(path: &std::path::Path, rows: &[Dict]) {
+    let mut out = game_engine::common::system::DataChunkOutput::new();
+    out.open_data_chunk("HeightMapData", 3);
+    for value in [21, 21, 1, 441] {
+        out.write_int(value);
+    }
+    for _ in 0..441 {
+        out.write_byte(0);
+    }
+    out.close_data_chunk();
+    out.open_data_chunk("SidesList", 2);
+    out.write_int(rows.len() as i32);
+    for row in rows {
+        out.write_dict(row);
+        out.write_int(0); // no authored build list
+    }
+    out.write_int(0); // source admission supplies actual default singleton teams
+    out.close_data_chunk();
+    std::fs::write(path, out.into_ckmp_bytes()).unwrap();
+}
+
+fn loaded_prototypes(world: &GameLogic) -> Vec<(String, u32)> {
+    let mut factory = world.team_factory.lock().unwrap();
+    factory
+        .prototype_names()
+        .into_iter()
+        .map(|name| {
+            let id = factory.find_team_prototype(&name).unwrap().get_id();
+            (name, id)
+        })
+        .collect()
+}
+
 #[test]
 fn role_admission_calibration() {
     isolated("role_admission_calibration", || {
@@ -250,8 +286,16 @@ fn owned_admission_roles_and_names_survive_encoded_save_continuation() {
     isolated(
         "owned_admission_roles_and_names_survive_encoded_save_continuation",
         || {
+            let directory = tempfile::tempdir().unwrap();
+            let path = directory.path().join("OwnedRoleAdmission.map");
+            encoded_fixture_map(&path, &civilian_rows());
             let mut source = configured(true, true);
-            source.apply_host_players_from_side_dicts(&civilian_rows(), true);
+            assert!(
+                source.load_map(path.to_str().unwrap()),
+                "actual source map foundation"
+            );
+            let prototypes = loaded_prototypes(&source);
+            assert!(!prototypes.is_empty(), "real prepared map prototypes");
             source.players.get_mut(&0).unwrap().start_position = -1;
             let observer = source.replay_observer_player_id().unwrap();
             source.players.get_mut(&observer).unwrap().name = "Renamed replay".into();
@@ -261,7 +305,16 @@ fn owned_admission_roles_and_names_survive_encoded_save_continuation() {
             let decoded = decode_bincode_world_snapshot(&bytes).unwrap();
             let mut foreign = configured(false, false);
             foreign.reset();
-            let mut restored = GameLogic::new();
+            let mut restored = configured(true, false);
+            assert!(
+                restored.load_map(path.to_str().unwrap()),
+                "actual receiving map foundation"
+            );
+            assert_eq!(
+                loaded_prototypes(&restored),
+                prototypes,
+                "same authored map order and IDs before Xfer"
+            );
             builder
                 .restore_from_snapshot(&decoded, &mut restored)
                 .unwrap();
@@ -283,7 +336,16 @@ fn owned_admission_roles_and_names_survive_encoded_save_continuation() {
                 "player3"
             );
             let second = builder.create_world_snapshot(&restored).unwrap();
-            let mut restarted = GameLogic::new();
+            let mut restarted = configured(true, false);
+            assert!(
+                restarted.load_map(path.to_str().unwrap()),
+                "actual second receiving map foundation"
+            );
+            assert_eq!(
+                loaded_prototypes(&restarted),
+                prototypes,
+                "same authored map order and IDs on repeated continuation"
+            );
             builder
                 .restore_from_snapshot(&second, &mut restarted)
                 .unwrap();

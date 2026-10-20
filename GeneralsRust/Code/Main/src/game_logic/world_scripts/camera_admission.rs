@@ -273,8 +273,25 @@ mod camera_request_admission_tests {
     #[test]
     fn waypoint_focus_origin_survives_completion_and_equal_position_overwrite_is_distinct() {
         let mut world = GameLogic::new();
+        // LookAt is a real source terrain/bounds operation, not a raw queue
+        // setter. Use a receiving map and an interior destination so the
+        // same-position overwrite witness does not accidentally test clipping.
+        let mut map = gamelogic::system::map_loader::MapData::new();
+        map.width = 256;
+        map.height = 256;
+        map.heightmap = vec![0; 256 * 256];
+        map.boundaries = vec![gamelogic::common::ICoord2D::new(256, 256)];
+        assert!(
+            world
+                .world_services
+                .terrain()
+                .write()
+                .unwrap()
+                .load_map_geometry(map)
+                .is_empty()
+        );
         world.session_view.target = Vec3::new(2., 0., 3.);
-        let destination = Vec3::new(20., 0., 30.);
+        let destination = Vec3::new(1000., 0., 1000.);
         world.request_path_camera_focus(destination);
         let frame = PresentationFrame::build_from_logic(&mut world, 0);
         assert_eq!(frame.camera_focus_previous_target, Some([2., 0., 3.]));

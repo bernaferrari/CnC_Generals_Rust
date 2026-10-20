@@ -188,9 +188,9 @@ pub use player_team_persist::{
 pub use special_powers::*;
 pub use terrain::*;
 pub use terrain_visual_save::{
-    CHUNK_TERRAIN_VISUAL, capture_terrain_visual_xfer_bytes,
-    restore_terrain_visual_from_xfer_bytes, stash_loaded_terrain_visual_xfer,
-    take_loaded_terrain_visual_xfer,
+    CHUNK_TERRAIN_VISUAL, PreparedTerrainVisual, admit_receiving_terrain_visual,
+    capture_receiving_terrain_visual_xfer_bytes, capture_terrain_visual_xfer_bytes,
+    prepare_receiving_terrain_visual, restore_terrain_visual_from_xfer_bytes,
 };
 pub use types::*;
 pub use w3d_ghost_save::{

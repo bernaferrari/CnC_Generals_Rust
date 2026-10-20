@@ -473,10 +473,21 @@ pub fn nearer_live_bridge_attack_point(from: glam::Vec3, victim: &Object) -> gla
 /// Drain all pending projectiles and spawn them into the combat system.
 /// Resolves target object positions from the objects map.
 /// Target expiry and projectileless travel time use the driving game's frame.
+/// Explicit low-level mapless adapter. Main sessions use the receiving variant below.
 pub fn drain_pending_projectiles(
     combat: &mut CombatSystem,
     objects: &HashMap<ObjectId, Object>,
     frame: u32,
+) {
+    drain_pending_projectiles_with_terrain(combat, objects, frame, None);
+}
+
+/// Actual Main admissions borrow the receiving view for each path calculation.
+pub(in crate::game_logic) fn drain_pending_projectiles_with_terrain(
+    combat: &mut CombatSystem,
+    objects: &HashMap<ObjectId, Object>,
+    frame: u32,
+    terrain: Option<&crate::game_logic::game_logic::FlightTerrainView<'_>>,
 ) {
     let pending = std::mem::take(&mut combat.pending_projectiles);
 
@@ -489,6 +500,7 @@ pub fn drain_pending_projectiles(
             None,
             None,
             crate::game_logic::projectile_definitions::ProjectileDefinitionMode::LegacyBootstrap,
+            terrain,
         ) {
             combat.projectileless_delayed.push(immediate);
         }
@@ -508,6 +520,7 @@ pub(in crate::game_logic) fn materialize_accepted_projectile(
     stream_binding: Option<ProjectileStreamBinding>,
     profile: Option<&crate::game_logic::projectile_definitions::ProjectileProfile>,
     definition_mode: crate::game_logic::projectile_definitions::ProjectileDefinitionMode,
+    terrain: Option<&crate::game_logic::game_logic::FlightTerrainView<'_>>,
 ) -> Option<LiveProjectilelessDelayedDamage> {
     // Queue acceptance normally froze this field. Retain the parsed-only
     // fallback for legacy shadow records created before that bridge; an
@@ -742,7 +755,7 @@ pub(in crate::game_logic) fn materialize_accepted_projectile(
             proj.flight = Some(profile.flight.clone());
         }
         if profile.is_some() || definition_mode == crate::game_logic::projectile_definitions::ProjectileDefinitionMode::LegacyBootstrap {
-            proj.bind_authored_flight(p.shooter_pos, target_pos, flight_speed_per_second);
+            proj.bind_authored_flight(p.shooter_pos, target_pos, flight_speed_per_second, terrain);
         }
         proj.is_small_missile = host_projectile_is_small_missile(proj);
     }

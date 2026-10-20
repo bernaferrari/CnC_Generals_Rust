@@ -113,6 +113,7 @@ Object OwnedAmbientRetryAuthoredBuilding
   SoundAmbient = OwnedAmbientRetryPermanentLoop
   Body = ActiveBody ModuleTag_ActualBody
     MaxHealth = 100
+    InitialHealth = 100
   End
 End
 "#,
@@ -139,6 +140,11 @@ fn create(world: &mut GameLogic, template: &ThingTemplate, position: Vec3) -> Ob
         .create_object(TEMPLATE, Team::USA, position)
         .expect("actual authored ambient admission");
     let object = world.objects.get(&id).expect("actual admitted Object");
+    assert_eq!(
+        object.health.current, 100.0,
+        "authored live body is prerequisite for pristine ambient"
+    );
+    assert!(object.is_alive());
     assert_eq!(object.ambient_audio.as_deref(), Some(EVENT));
     assert!(object.ambient_sound_enabled_from_script);
     assert_eq!(object.get_position(), position);

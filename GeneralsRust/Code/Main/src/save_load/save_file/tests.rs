@@ -7,6 +7,7 @@ mod control_group_ownership;
 mod historical_player_cash;
 mod particle_candidate;
 mod particle_capture_failure;
+mod terrain_candidate;
 
 use super::*;
 use crate::game_logic::{
@@ -129,9 +130,23 @@ fn host_pause_save_persists_terrain_scorches_and_particle_systems() {
         particle_candidate::local_particle_bytes("SavedFxFixture", Vec3::new(4.0, 5.0, 6.0));
     snapshot.particle_system_companion = Some(particle_bytes.clone());
     let save_info = fixture_save_info();
-    let bytes =
-        SaveFileManager::write_common_sav_chunks(&snapshot, &save_info, CPP_GAME_SINGLE_PLAYER)
-            .expect("write sav with FX chunks");
+    let terrain_owner = GameLogic::new();
+    let explicit_marks = [game_client::terrain::scorch_mesh::ScorchMark {
+        location: [88.0, 16.0, 4.0],
+        radius: 22.0,
+        scorch_type: 1,
+    }];
+    let terrain_bytes =
+        capture_receiving_terrain_visual_xfer_bytes(&terrain_owner, Some(&explicit_marks)).unwrap();
+    let bytes = SaveFileManager::write_common_sav_chunks_with_client_and_terrain_bytes(
+        &snapshot,
+        &save_info,
+        &[],
+        Some(&terrain_bytes),
+        Path::new("Save"),
+        CPP_GAME_SINGLE_PLAYER,
+    )
+    .expect("write sav with FX chunks");
     let blocks = walk_named_chunks(&bytes).expect("walk host chunks");
 
     let terrain = blocks

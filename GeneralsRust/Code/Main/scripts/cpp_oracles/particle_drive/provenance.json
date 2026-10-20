@@ -1,0 +1,30 @@
+{
+  "original_sources": {
+    "GeneralsMD/Code/GameEngine/Source/GameLogic/Object/Update/ParticleUplinkCannonUpdate.cpp": "e43a7cf0984cc70507c0801e96ae34a929626b9334eed3d5329fa7048e9b785c",
+    "GeneralsMD/Code/Libraries/Include/Lib/BaseType.h": "590af4e59d0e48510d976eeafa248000a1ac9f05d8f905f66f24b1c1cf9eceef"
+  },
+  "cpp_sha256": "f59d89ee55604d3022402850893abaa426887bc5a4aa8a29ff2b0d5f0552c163",
+  "cases_sha256": "93f86f2ac5a898908ffd6e6985b09b5b9929a36b3e7f16e4cda0273a9ffd9c8b",
+  "input_protocol": "tag currentXYZ overrideXYZ ground scripted nextXYZ; source Z-up. Input-only no expected answers. All scripted cases single outgoing link; stub rejects any wider random range.",
+  "output_protocol": "tag currentXbits currentYbits currentZbits nextWaypointID; corresponds Rust printed x,z,y bits",
+  "commands": [
+    "clang++ -std=c++17 -O0 -ffp-contract=off original.cpp -o /tmp/generals-particle-drive-original",
+    "/tmp/generals-particle-drive-original < cases.txt"
+  ],
+  "limits": [
+    "Only exact source manual/scripted movement branch plus ground assignment; not full beam FX/state machine.",
+    "Constant terrain stub witnesses ground request timing but does not independently execute BaseHeightMap sampler (accepted separate terrain oracle).",
+    "Portable nearest compiler profile, no retail MSVC/x87 proof.",
+    "One frame per case; Rust elapsed-frame multiplier unchanged and separate adaptation.",
+    "Data adapter speeds20/40 and click delay15 are explicit case inputs, not a claim about C++ constructor defaults. Single outgoing link stub rejects wider random ranges."
+  ],
+  "executed": true,
+  "execution_record": "516 acceptance: actual C++ stdout compared with actual Main production-route test trace at both 1 and 8 workers; see Bead hq-ng305.",
+  "expected_sha256": "5298229efd84675b5d860ccc9c54c866cd96482b8c0b7d87f48412f6fdee4c93",
+  "extracted_source_before_line_end_normalization": {
+    "drive_body": "d5880fe2e809c9828f84932ed952dae8df2d35147c553eabf9f45035c5f9e054",
+    "Coord3D": "f539616a7d35ef4cbcf9642e4265724b6553cea52f402432c0903efbca8f704f",
+    "ground_line": "cac266372f56fc08998cc0088c5157c024c81bd7017800d0218a599d3791e722"
+  },
+  "snippet_normalization": "Only trailing spaces/tabs before newline are removed from copied source snippets. Original source and raw extracted snippet hashes above retain their exact provenance; no C++ tokens or arithmetic changed."
+}

@@ -149,12 +149,7 @@ impl TerrainLogic {
         );
 
         // Load polygon trigger areas from map data
-        self.trigger_areas.clear();
-        self.water_handles.clear();
-        self.water_handles_by_trigger_id.clear();
-        for trigger in map_data.polygon_triggers {
-            self.add_trigger_area(trigger);
-        }
+        self.replace_trigger_areas(map_data.polygon_triggers);
 
         // Load waypoints and links
         self.waypoint_list_head = None;
@@ -360,7 +355,29 @@ impl TerrainLogic {
     /// C++ parity: this is a post-load finalize step, not a full terrain reset.
     /// It aligns waypoint Z with loaded ground height and enables water grid only
     /// when the map defines the legacy `WaveGuide1` marker.
-    pub fn new_map(&mut self, _save_game: bool) {
+    pub fn new_map(&mut self, save_game: bool) {
+        let global = game_engine::common::ini::get_global_data();
+        let definitions = global.as_ref().map(|data| data.read().clone());
+        let source = definitions
+            .as_ref()
+            .map(|data| data.map_name.as_str())
+            .unwrap_or("");
+        let mut delivery = crate::terrain_water::publish_map_water_legacy_native;
+        self.new_map_with_water_configuration(
+            save_game,
+            source,
+            definitions.as_ref(),
+            Some(&mut delivery),
+        );
+    }
+
+    pub fn new_map_with_water_configuration(
+        &mut self,
+        _save_game: bool,
+        map_name: &str,
+        definitions: Option<&game_engine::common::ini::ini_game_data::GlobalData>,
+        deliver: Option<&mut dyn FnMut(&crate::terrain_water::WaterGridState)>,
+    ) {
         if self.query_load_pending {
             self.query_load_pending = false;
             return;
@@ -384,7 +401,16 @@ impl TerrainLogic {
         }
 
         let wave_guide = AsciiString::from("WaveGuide1");
-        self.enable_water_grid(self.get_waypoint_by_name(&wave_guide).is_some());
+        let enable = self.get_waypoint_by_name(&wave_guide).is_some();
+        self.water_grid_enabled = enable;
+        let configured = self
+            .water_grid
+            .configure_for_map_owned(enable, map_name, definitions);
+        if configured {
+            if let Some(deliver) = deliver {
+                deliver(&self.water_grid);
+            }
+        }
     }
 
     pub fn has_height_map(&self) -> bool {

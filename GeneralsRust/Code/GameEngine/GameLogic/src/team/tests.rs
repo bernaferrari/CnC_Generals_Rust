@@ -932,11 +932,17 @@ mod tests {
         // C++ Object::didEnterOrExit (Object.cpp:2467-2479) is true on now and now-1.
         use crate::common::ICoord3D;
         use crate::object::Object;
+        use crate::object::collide::collision_system::CollisionSystem;
+        use crate::object::registry::ObjectRegistry;
         use crate::polygon_trigger::PolygonTrigger;
-        use crate::system::game_logic::get_game_logic;
-        use crate::terrain::get_terrain_logic;
+        use crate::system::game_logic::enter_update_frame;
+        use crate::terrain::TerrainLogic;
 
-        let _lock = crate::test_sync::lock();
+        // Own the terrain and lookup used by this operation. The shared
+        // compatibility owners can be reset independently by another match.
+        let mut terrain = TerrainLogic::new();
+        let mut collision = CollisionSystem::new();
+        let registry = ObjectRegistry::default();
         let area_name = "TeamAreaPreviousFrameParity";
         let object_id = 0x00FE_DCBA;
         let trigger = PolygonTrigger::new(
@@ -949,60 +955,87 @@ mod tests {
                 ICoord3D::new(0, 10, 0),
             ],
         );
-        get_terrain_logic()
-            .write()
-            .expect("terrain")
-            .add_trigger_area(trigger.clone());
+        terrain.add_trigger_area(trigger.clone());
 
-        get_game_logic()
-            .lock()
-            .expect("game logic lock")
-            .set_current_frame(41);
+        let frame = enter_update_frame(41);
 
         let obj = Object::new_test(object_id, 100.0);
         let object_arc = Arc::new(RwLock::new(obj));
-        OBJECT_REGISTRY.register_object(object_id, &object_arc);
+        registry.register_object(object_id, &object_arc);
         {
             let mut guard = object_arc.write().expect("object write");
             guard
-                .set_position(&Coord3D::new(5.0, 5.0, 0.0))
+                .set_transform_matrix_with_services(
+                    &crate::common::Matrix3D::from_translation(Coord3D::new(5.0, 5.0, 0.0)),
+                    &terrain,
+                    &mut collision,
+                    41,
+                    &mut |_| {},
+                    &mut |_| {},
+                )
                 .expect("enter area");
         }
 
-        assert!(Team::object_did_enter(object_id, &trigger));
+        // A separate match can admit the same ID and retire its terrain/index
+        // between our transform and script query without erasing this event.
+        let mut foreign_terrain = TerrainLogic::new();
+        foreign_terrain.add_trigger_area(trigger.clone());
+        let foreign_registry = ObjectRegistry::default();
+        let foreign_object = Arc::new(RwLock::new(Object::new_test(object_id, 100.0)));
+        foreign_registry.register_object(object_id, &foreign_object);
+        foreign_terrain.reset();
+        foreign_registry.clear();
 
-        get_game_logic()
-            .lock()
-            .expect("game logic lock")
-            .set_current_frame(42);
-        assert!(Team::object_did_enter(object_id, &trigger));
+        assert!(Team::object_did_enter_in_registry(
+            &registry, object_id, &trigger
+        ));
+
+        drop(frame);
+        let frame = enter_update_frame(42);
+        assert!(Team::object_did_enter_in_registry(
+            &registry, object_id, &trigger
+        ));
 
         {
             let mut guard = object_arc.write().expect("object write");
             guard
-                .set_position(&Coord3D::new(20.0, 20.0, 0.0))
+                .set_transform_matrix_with_services(
+                    &crate::common::Matrix3D::from_translation(Coord3D::new(20.0, 20.0, 0.0)),
+                    &terrain,
+                    &mut collision,
+                    42,
+                    &mut |_| {},
+                    &mut |_| {},
+                )
                 .expect("leave area");
         }
 
-        get_game_logic()
-            .lock()
-            .expect("game logic lock")
-            .set_current_frame(43);
+        drop(frame);
+        let frame = enter_update_frame(43);
         {
             let mut guard = object_arc.write().expect("object write");
             guard
-                .set_position(&Coord3D::new(21.0, 21.0, 0.0))
+                .set_transform_matrix_with_services(
+                    &crate::common::Matrix3D::from_translation(Coord3D::new(21.0, 21.0, 0.0)),
+                    &terrain,
+                    &mut collision,
+                    43,
+                    &mut |_| {},
+                    &mut |_| {},
+                )
                 .expect("confirm exit");
         }
-        assert!(Team::object_did_exit(object_id, &trigger));
+        assert!(Team::object_did_exit_in_registry(
+            &registry, object_id, &trigger
+        ));
 
-        get_game_logic()
-            .lock()
-            .expect("game logic lock")
-            .set_current_frame(44);
-        assert!(Team::object_did_exit(object_id, &trigger));
+        drop(frame);
+        let frame = enter_update_frame(44);
+        assert!(Team::object_did_exit_in_registry(
+            &registry, object_id, &trigger
+        ));
 
-        OBJECT_REGISTRY.unregister_object(object_id);
+        drop(frame);
     }
 
     #[test]

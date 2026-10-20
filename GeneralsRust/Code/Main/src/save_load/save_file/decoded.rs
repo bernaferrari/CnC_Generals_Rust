@@ -14,4 +14,6 @@ pub struct DecodedGameSave {
     /// Absent for the historical one-byte NullSnapshot or omitted client chunk.
     /// Kept detached until the receiving host admits the candidate world.
     pub game_client_xfer: Option<Vec<u8>>,
+    /// Paired with this archive, never published for another restore to take.
+    pub terrain_visual_xfer: Option<Vec<u8>>,
 }

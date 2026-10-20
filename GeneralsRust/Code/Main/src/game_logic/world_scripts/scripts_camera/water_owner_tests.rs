@@ -344,11 +344,14 @@ fn water_mesh_xfer_admits_only_the_validated_owner_and_preserves_cpp_fields() {
                     },
                 );
             }
-            second_handle
-                .write()
-                .unwrap()
-                .water_grid_state_mut()
-                .resolution = (2.0, 2.0, 10.0);
+            {
+                let mut receiving = second_handle.write().unwrap();
+                let grid = receiving.water_grid_state_mut();
+                // The original wire enabled flag is validated against the
+                // receiving map, never used to reconfigure a disabled owner.
+                grid.enabled = true;
+                grid.resolution = (2.0, 2.0, 10.0);
+            }
             let bytes =
                 game_client::terrain::terrain_visual_xfer::capture_live_terrain_visual_for_terrain(
                     &first_handle.read().unwrap(),
