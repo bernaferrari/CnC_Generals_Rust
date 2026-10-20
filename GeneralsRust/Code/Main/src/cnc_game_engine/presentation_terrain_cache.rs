@@ -6,12 +6,13 @@
 //! height/blend payload or reading live GameLogic during rendering.
 
 use super::*;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock, Weak};
 
 #[derive(Debug, Default)]
 pub(super) struct PresentationTerrainCache {
     revision: u64,
-    cached_revision: Option<u64>,
+    cached_revision: Option<(u64, u64)>,
+    terrain_owner: Option<Weak<RwLock<gamelogic::terrain::TerrainLogic>>>,
     runtime_heightmap: Option<Arc<crate::presentation_frame::PresentationRuntimeHeightmap>>,
 }
 
@@ -20,33 +21,48 @@ impl PresentationTerrainCache {
     pub(super) fn invalidate(&mut self) {
         self.revision = self.revision.wrapping_add(1);
         self.cached_revision = None;
+        self.terrain_owner = None;
         self.runtime_heightmap = None;
     }
 
-    /// Freeze one full runtime payload for the current terrain revision.
+    /// Freeze the actual receiving bytes once per owner and height revision.
+    /// Published frames retain their immutable prior payload after mutation.
     pub(super) fn runtime_heightmap_for_logic(
         &mut self,
         logic: &crate::game_logic::GameLogic,
     ) -> Option<Arc<crate::presentation_frame::PresentationRuntimeHeightmap>> {
-        if self.cached_revision != Some(self.revision) {
-            #[cfg(feature = "game_client")]
-            {
-                self.runtime_heightmap = logic.terrain_heightmap_snapshot().map(|heightmap| {
-                    Arc::new(
-                        crate::presentation_frame::PresentationRuntimeHeightmap::from_height_map(
-                            &heightmap,
-                        ),
-                    )
-                });
-            }
-            #[cfg(not(feature = "game_client"))]
-            {
-                let _ = logic;
-                self.runtime_heightmap = None;
-            }
-            self.cached_revision = Some(self.revision);
+        #[cfg(not(feature = "game_client"))]
+        {
+            // No presentation payload exists on this backend; do not acquire
+            // a terrain loan merely to cache another None.
+            let _ = logic;
+            None
         }
-        self.runtime_heightmap.clone()
+        #[cfg(feature = "game_client")]
+        {
+            let owner = logic.world_services.terrain();
+            // A Weak identifies the existing owner without keeping a destroyed
+            // world alive or allowing a recycled allocation to match its ID.
+            let identity = Arc::downgrade(owner);
+            let same_owner = self
+                .terrain_owner
+                .as_ref()
+                .is_some_and(|previous| Weak::ptr_eq(previous, &identity));
+            let terrain = owner.read().unwrap_or_else(|error| error.into_inner());
+            let revision = (self.revision, terrain.height_revision());
+            if !same_owner || self.cached_revision != Some(revision) {
+                self.runtime_heightmap = logic
+                    .terrain_heightmap_snapshot_with_terrain_logic(&terrain)
+                    .map(|heightmap| {
+                        let mut snapshot = crate::presentation_frame::PresentationRuntimeHeightmap::from_height_map(&heightmap);
+                        snapshot.source_byte_heights = terrain.has_height_map();
+                        Arc::new(snapshot)
+                    });
+                self.cached_revision = Some(revision);
+                self.terrain_owner = Some(identity);
+            }
+            self.runtime_heightmap.clone()
+        }
     }
 
     #[cfg(test)]
@@ -213,3 +229,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(all(test, feature = "game_client"))]
+#[path = "presentation_terrain_revision_tests.rs"]
+mod revision_tests;

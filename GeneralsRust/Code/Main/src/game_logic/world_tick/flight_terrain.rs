@@ -5,12 +5,23 @@ use glam::Vec3;
 
 pub(crate) struct FlightTerrainView<'a> {
     pub(crate) grid: &'a PathfindingGrid,
+    pub(crate) logical: Option<&'a std::sync::RwLock<gamelogic::terrain::TerrainLogic>>,
     pub(crate) terrain: Option<&'a TerrainData>,
     pub(crate) samples: Option<&'a PathfindingHeightSamples>,
 }
 
 impl FlightTerrainView<'_> {
     pub(crate) fn raw_ground(&self, pos: Vec3, fallback: f32) -> f32 {
+        if let Some(owner) = self.logical {
+            // One bounded observation: callbacks may change the same terrain
+            // between queries, so no read guard crosses an object operation.
+            let terrain = owner.read().unwrap_or_else(|error| error.into_inner());
+            if terrain.logic_height_map_extents() != (0, 0)
+                || !terrain.logic_height_map_bytes().is_empty()
+            {
+                return terrain.get_ground_height(pos.x, pos.z, None);
+            }
+        }
         if let Some(terrain) = self.terrain {
             return terrain.logic_height_at_world(pos);
         }
@@ -34,9 +45,9 @@ impl FlightTerrainView<'_> {
             }
         }
         // Mapless objects can carry an explicit owned ground observation.
-        // Loaded maps admit TerrainData (native and headless); snapshots may
-        // instead provide the validated height cache above. No Core terrain
-        // or bridge overlay is used as a substitute for raw map heights.
+        // TerrainData and coarse caches support explicit mapless fixtures.
+        // A loaded receiving logical map is authoritative above. Bridge
+        // overlays remain a separate highest_surface operation.
         fallback
     }
 
@@ -58,6 +69,7 @@ impl crate::game_logic::GameLogic {
     /// necessarily contains this point, so clip=true equals this height read.
     pub(crate) fn evacuation_surface_height(&self, pos: Vec3, fallback: f32) -> f32 {
         let view = FlightTerrainView {
+            logical: Some(self.world_services.terrain().as_ref()),
             grid: &self.pathfinding_system.grid,
             terrain: self.terrain.as_ref(),
             samples: self.pathfinding_height_samples.as_ref(),

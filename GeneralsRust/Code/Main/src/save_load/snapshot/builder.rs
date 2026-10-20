@@ -1379,19 +1379,17 @@ impl SnapshotBuilder {
         let height_map = _game_logic
             .snapshot_terrain_heights_for_path_grid()
             .unwrap_or_default();
-        let terrain_owner_handle = std::sync::Arc::clone(_game_logic.world_services.terrain());
-        let (logic_width, logic_height, logic_heights) = terrain_owner_handle
+        let terrain = _game_logic
+            .world_services
+            .terrain()
             .read()
-            .ok()
-            .map(|terrain| {
-                let (w, h) = terrain.logic_height_map_extents();
-                (
-                    w.max(0) as u32,
-                    h.max(0) as u32,
-                    terrain.logic_height_map_bytes().to_vec(),
-                )
-            })
-            .unwrap_or((0, 0, Vec::new()));
+            .unwrap_or_else(|error| error.into_inner());
+        let (w, h) = terrain.logic_height_map_extents();
+        let (logic_width, logic_height, logic_heights) = (
+            w.max(0) as u32,
+            h.max(0) as u32,
+            terrain.logic_height_map_bytes().to_vec(),
+        );
         Ok(TerrainSnapshot {
             width,
             height,

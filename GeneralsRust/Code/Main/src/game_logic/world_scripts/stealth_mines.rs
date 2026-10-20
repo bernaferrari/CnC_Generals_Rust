@@ -2249,11 +2249,7 @@ impl GameLogic {
                     .get(&charge_id)
                     .map(|c| c.get_position())
                     .unwrap_or(tpos);
-                let ground_y = self
-                    .terrain
-                    .as_ref()
-                    .map(|t| t.height_at_world(charge_pos))
-                    .unwrap_or(0.0);
+                let ground_y = self.terrain_ground_height_at(charge_pos).unwrap_or(0.0);
                 let new_pos = if immobile {
                     // C++ IMMOBILE: keep bomber plant XY, only refresh Z/Y to terrain.
                     sticky_immobile_follow_pos(charge_pos, ground_y)
@@ -2337,9 +2333,7 @@ impl GameLogic {
                 .objects
                 .get(&cid)
                 .map(|o| {
-                    self.terrain
-                        .as_ref()
-                        .map(|t| t.height_at_world(o.get_position()))
+                    self.terrain_ground_height_at(o.get_position())
                         .unwrap_or(0.0)
                 })
                 .unwrap_or(0.0);

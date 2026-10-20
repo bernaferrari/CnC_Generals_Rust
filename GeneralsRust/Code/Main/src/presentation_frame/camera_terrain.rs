@@ -22,8 +22,8 @@ pub(super) fn sample_camera_height(
     }
     let x = world_x * 0.1;
     let z = world_z * 0.1;
-    let floor_x = x.floor();
-    let floor_z = z.floor();
+    let floor_x = gamelogic::terrain::source_height_cell_floor(x).ok()? as f32;
+    let floor_z = gamelogic::terrain::source_height_cell_floor(z).ok()? as f32;
     let ix = (floor_x as i64).saturating_add(i64::from(map.border_size));
     let iz = (floor_z as i64).saturating_add(i64::from(map.border_size));
     let width = i64::from(map.width);

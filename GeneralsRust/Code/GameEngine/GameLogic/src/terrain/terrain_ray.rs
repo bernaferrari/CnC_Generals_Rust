@@ -192,7 +192,7 @@ fn source_integer(value: f32) -> Result<i32, String> {
     }
     Ok(value.trunc() as i32)
 }
-fn source_floor(value: f32) -> Result<i32, String> {
+pub(super) fn source_floor(value: f32) -> Result<i32, String> {
     source_integer(if value.is_sign_negative() {
         value - f32::from_bits(0x3f7fffff)
     } else {

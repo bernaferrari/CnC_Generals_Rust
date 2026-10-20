@@ -247,6 +247,63 @@ impl TerrainData {
         self.heightmap.clone()
     }
 
+    /// Read-only presentation adapter. The receiving Core bytes own every
+    /// height; TerrainData contributes only matching immutable material data.
+    #[cfg(feature = "game_client")]
+    pub(crate) fn heightmap_from_logic_samples(
+        metadata: Option<&Self>,
+        width: i32,
+        height: i32,
+        border: i32,
+        raw: &[u8],
+    ) -> Result<HeightMap, String> {
+        let count = usize::try_from(width).ok().and_then(|width| {
+            usize::try_from(height)
+                .ok()
+                .and_then(|height| width.checked_mul(height))
+        });
+        if width <= 0 || height <= 0 || border < 0 || count != Some(raw.len()) {
+            return Err("invalid receiving Core height-map projection".into());
+        }
+        let count = raw.len();
+        let metadata = metadata
+            .map(|terrain| &terrain.heightmap)
+            .filter(|map| map.width == width as u32 && map.height == height as u32);
+        let minimum = f32::from(*raw.iter().min().expect("positive grid"));
+        let maximum = f32::from(*raw.iter().max().expect("positive grid"));
+        Ok(HeightMap {
+            width: width as u32,
+            height: height as u32,
+            heights: raw
+                .iter()
+                .map(|sample| f32::from(*sample) / 255.0)
+                .collect(),
+            // Normalized bytes use the full source 255*MAP_HEIGHT_SCALE range,
+            // never an observed map maximum which would rescale live heights.
+            max_height: MAP_HEIGHT_SAMPLE_WORLD_MAX,
+            scale: MAP_HEIGHT_SAMPLE_XY_FACTOR,
+            min_height: minimum * MAP_HEIGHT_SAMPLE_SCALE,
+            height_range: (maximum - minimum) * MAP_HEIGHT_SAMPLE_SCALE,
+            border_size: border,
+            tile_ndxes: metadata.map_or_else(|| vec![0; count], |map| map.tile_ndxes.clone()),
+            blend_tile_ndxes: metadata
+                .map_or_else(|| vec![0; count], |map| map.blend_tile_ndxes.clone()),
+            extra_blend_tile_ndxes: metadata
+                .map_or_else(|| vec![0; count], |map| map.extra_blend_tile_ndxes.clone()),
+            blended_tiles: metadata.map_or_else(Vec::new, |map| map.blended_tiles.clone()),
+            extra_blended_tiles: metadata
+                .map_or_else(Vec::new, |map| map.extra_blended_tiles.clone()),
+            cliff_info: metadata
+                .map_or_else(|| vec![Default::default()], |map| map.cliff_info.clone()),
+            cliff_info_ndxes: metadata
+                .map_or_else(|| vec![0; count], |map| map.cliff_info_ndxes.clone()),
+            draw_origin_x: metadata.map_or(0, |map| map.draw_origin_x),
+            draw_origin_y: metadata.map_or(0, |map| map.draw_origin_y),
+            draw_width: metadata.map_or(width, |map| map.draw_width),
+            draw_height: metadata.map_or(height, |map| map.draw_height),
+        })
+    }
+
     fn sample_normalized(&self, x: u32, z: u32) -> f32 {
         let x = x.min(self.heightmap.width.saturating_sub(1));
         let z = z.min(self.heightmap.height.saturating_sub(1));

@@ -245,7 +245,7 @@ fn terrain_query_load_skips_new_map_finalization() {
 #[test]
 fn w3d_extents_use_boundaries_border_and_height_range() {
     let mut terrain = TerrainLogic::new();
-    let mut map_data = map_data_with_heightmap(8, 6, vec![4, 10, 1, 9, 8, 2, 7, 5]);
+    let mut map_data = map_data_with_heightmap(8, 6, vec![4, 10, 1, 9, 8, 2, 7, 5].repeat(6));
     map_data.boundaries = vec![ICoord2D::new(3, 4), ICoord2D::new(7, 5)];
     map_data.border_size = 2;
     terrain.load_map_data(map_data);
@@ -279,7 +279,7 @@ fn w3d_extents_use_boundaries_border_and_height_range() {
 #[test]
 fn w3d_reset_restores_empty_extent_state() {
     let mut terrain = TerrainLogic::new();
-    let mut map_data = map_data_with_heightmap(3, 3, vec![2, 4, 6, 8]);
+    let mut map_data = map_data_with_heightmap(3, 3, vec![2, 4, 6, 8, 2, 4, 6, 8, 2]);
     map_data.boundaries = vec![ICoord2D::new(3, 3)];
     map_data.border_size = 1;
     terrain.load_map_data(map_data);
@@ -745,7 +745,7 @@ fn edge_points_use_active_boundary_extent_not_max_pathfind() {
     // C++ findClosestEdgePoint/findFarthestEdgePoint call getExtent()
     // (W3DTerrainLogic.cpp:176-193 active boundary), not the largest.
     let mut terrain = TerrainLogic::new();
-    let mut map_data = map_data_with_heightmap(8, 6, vec![4, 10, 1, 9, 8, 2, 7, 5]);
+    let mut map_data = map_data_with_heightmap(8, 6, vec![4, 10, 1, 9, 8, 2, 7, 5].repeat(6));
     map_data.boundaries = vec![ICoord2D::new(3, 4), ICoord2D::new(7, 5)];
     terrain.load_map_data(map_data);
 

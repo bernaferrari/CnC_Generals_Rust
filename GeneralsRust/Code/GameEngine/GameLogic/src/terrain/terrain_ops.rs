@@ -3,6 +3,58 @@
 use super::*;
 
 impl TerrainLogic {
+    pub(super) fn checked_height_sample_len(
+        width: i32,
+        height: i32,
+        border: i32,
+    ) -> Result<usize, String> {
+        if width <= 0
+            || height <= 0
+            || border < 0
+            || width
+                .checked_add(border)
+                .and_then(|n| n.checked_add(border))
+                .and_then(|n| n.checked_add(132))
+                .is_none()
+            || height
+                .checked_add(border)
+                .and_then(|n| n.checked_add(border))
+                .and_then(|n| n.checked_add(132))
+                .is_none()
+        {
+            return Err("invalid terrain height dimensions/border".into());
+        }
+        let len = (width as usize)
+            .checked_mul(height as usize)
+            .ok_or("terrain height sample count overflow")?;
+        if len > isize::MAX as usize {
+            return Err("terrain height allocation exceeds addressable slice".into());
+        }
+        Ok(len)
+    }
+    /// Every admitted map is either the canonical unloaded tuple or a full grid.
+    pub fn validate_height_map(&self) -> Result<(), String> {
+        if self.map_dx == 0 && self.map_dy == 0 && self.border_size == 0 && self.map_data.is_empty()
+        {
+            return Ok(());
+        }
+        let expected = Self::checked_height_sample_len(self.map_dx, self.map_dy, self.border_size)?;
+        if expected != self.map_data.len() {
+            return Err("terrain height sample count disagrees with dimensions".into());
+        }
+        Ok(())
+    }
+
+    pub fn height_revision(&self) -> u64 {
+        self.height_revision
+    }
+    pub fn logic_height_map_border_size(&self) -> i32 {
+        self.border_size
+    }
+    pub(super) fn bump_height_revision(&mut self) {
+        self.height_revision = self.height_revision.wrapping_add(1);
+    }
+
     /// Get active boundary
     pub fn get_active_boundary(&self) -> i32 {
         self.active_boundary
@@ -22,38 +74,92 @@ impl TerrainLogic {
     /// Copies `min(len, xferLen)` into the existing buffer, then notifies the
     /// visual (`staticLightingChanged`).
     pub fn apply_logic_height_map_bytes(&mut self, data: &[u8]) {
-        if self.map_data.is_empty() || self.map_dx <= 0 || self.map_dy <= 0 {
-            if data.is_empty() {
-                return;
+        self.apply_logic_height_map_bytes_with_effects(data, &mut || {
+            if let Some(visual) = crate::helpers::TheTerrainVisual::get() {
+                visual.static_lighting_changed();
             }
-            self.map_data = data.to_vec();
-            return;
+        });
+    }
+    /// Owned Xfer admission: same prefix copy and synchronous lighting phase;
+    /// a detached candidate supplies its own sink, never a published visual.
+    pub fn apply_logic_height_map_bytes_with_effects(
+        &mut self,
+        data: &[u8],
+        effect: &mut impl FnMut(),
+    ) {
+        if let Err(error) = self.try_apply_logic_height_map_bytes_with_effects(data, effect) {
+            log::error!("terrain height admission: {error}");
+        }
+    }
+    pub fn try_apply_logic_height_map_bytes_with_effects(
+        &mut self,
+        data: &[u8],
+        effect: &mut impl FnMut(),
+    ) -> Result<(), String> {
+        self.validate_height_map()?;
+        if self.map_data.is_empty() {
+            if data.is_empty() {
+                return Ok(());
+            }
+            return Err("cannot apply height bytes without an admitted receiving grid".into());
         }
         let mut len = (self.map_dx as usize).saturating_mul(self.map_dy as usize);
         len = len.min(self.map_data.len()).min(data.len());
+        if self.map_data[..len] != data[..len] {
+            self.bump_height_revision();
+        }
         self.map_data[..len].copy_from_slice(&data[..len]);
         self.cliff_state
             .rebuild(&self.map_data, self.map_dx, self.map_dy);
 
-        if let Some(visual) = crate::helpers::TheTerrainVisual::get() {
-            visual.static_lighting_changed();
-        }
+        effect();
+
+        Ok(())
     }
 
     /// Restore host `TerrainSnapshot` logic heights after load.
     pub fn restore_logic_height_map(&mut self, width: i32, height: i32, data: &[u8]) {
-        if width <= 0 || height <= 0 {
-            return;
+        self.restore_logic_height_map_with_effects(width, height, data, &mut || {
+            if let Some(visual) = crate::helpers::TheTerrainVisual::get() {
+                visual.static_lighting_changed();
+            }
+        });
+    }
+    /// Owned snapshot admission; zero-fill/prefix-copy semantics stay unchanged.
+    pub fn restore_logic_height_map_with_effects(
+        &mut self,
+        width: i32,
+        height: i32,
+        data: &[u8],
+        effect: &mut impl FnMut(),
+    ) {
+        if let Err(error) =
+            self.try_restore_logic_height_map_with_effects(width, height, data, effect)
+        {
+            log::error!("terrain height admission: {error}");
         }
-        let expected = (width as usize).saturating_mul(height as usize);
-        if expected == 0 {
-            return;
-        }
+    }
+    pub fn try_restore_logic_height_map_with_effects(
+        &mut self,
+        width: i32,
+        height: i32,
+        data: &[u8],
+        effect: &mut impl FnMut(),
+    ) -> Result<(), String> {
+        self.validate_height_map()?;
+        let expected = Self::checked_height_sample_len(width, height, self.border_size)?;
+        // Reserve the entire replacement before touching the receiving owner.
+        let mut replacement = Vec::new();
+        replacement
+            .try_reserve_exact(expected)
+            .map_err(|_| "terrain height allocation failed")?;
+        replacement.resize(expected, 0);
+        let n = expected.min(data.len());
+        replacement[..n].copy_from_slice(&data[..n]);
+        self.bump_height_revision();
         self.map_dx = width;
         self.map_dy = height;
-        self.map_data = vec![0u8; expected];
-        let n = expected.min(data.len());
-        self.map_data[..n].copy_from_slice(&data[..n]);
+        self.map_data = replacement;
         if let Some((&min_height, &max_height)) =
             self.map_data.iter().min().zip(self.map_data.iter().max())
         {
@@ -63,9 +169,9 @@ impl TerrainLogic {
         self.cliff_state
             .rebuild(&self.map_data, self.map_dx, self.map_dy);
 
-        if let Some(visual) = crate::helpers::TheTerrainVisual::get() {
-            visual.static_lighting_changed();
-        }
+        effect();
+
+        Ok(())
     }
 
     /// Set active boundary and rebuild partition/shroud/radar like C++ TerrainLogic.
@@ -235,9 +341,19 @@ impl TerrainLogic {
     /// all terrain cells within the footprint to that average. Only lowers,
     /// never raises — matching C++ setRawMapHeight behavior.
     pub fn flatten_terrain(&mut self, obj: &Arc<RwLock<Object>>) {
+        if let Err(error) = self.flatten_terrain_with_effects(obj, &mut compatibility_height_change)
+        {
+            log::error!("standalone terrain flatten: {error}");
+        }
+    }
+    pub fn flatten_terrain_with_effects(
+        &mut self,
+        obj: &Arc<RwLock<Object>>,
+        effect: &mut impl FnMut(TerrainHeightChange),
+    ) -> Result<(), String> {
         let obj_guard = obj.read().unwrap();
         if obj_guard.get_geometry_info().get_is_small() {
-            return;
+            return Ok(());
         }
 
         let pos = obj_guard.get_position();
@@ -245,62 +361,26 @@ impl TerrainLogic {
 
         match geom.get_geometry_type() {
             EngineGeometryType::Box => {
-                self.flatten_terrain_box_at(
+                self.flatten_terrain_box_at_with_effects(
                     pos.x,
                     pos.y,
                     obj_guard.get_orientation(),
                     geom.get_major_radius(),
                     geom.get_minor_radius(),
-                );
+                    effect,
+                )?;
             }
             EngineGeometryType::Sphere | EngineGeometryType::Cylinder => {
-                let radius = geom.get_major_radius();
-                let radius_sqr = radius * radius;
-                let i_min_x = ((pos.x - radius) / MAP_XY_FACTOR).floor() as i32;
-                let _i_min_y = ((pos.y - radius) / MAP_XY_FACTOR).floor() as i32;
-                let i_max_x = ((pos.x + radius) / MAP_XY_FACTOR).floor() as i32;
-                let i_max_y = ((pos.y + radius) / MAP_XY_FACTOR).floor() as i32;
-
-                // First pass: sample average height within the circle
-                let mut total_height: f32 = 0.0;
-                let mut num_samples: i32 = 0;
-                for i in i_min_x..=i_max_x {
-                    // C++ bug: j starts at 0, not iMin.y — we match C++ exactly
-                    for j in 0..=i_max_y {
-                        let test_pt_x = i as f32 * MAP_XY_FACTOR;
-                        let test_pt_y = j as f32 * MAP_XY_FACTOR;
-                        let dx = test_pt_x - pos.x;
-                        let dy = test_pt_y - pos.y;
-                        if dx * dx + dy * dy < radius_sqr {
-                            total_height += self.get_ground_height(test_pt_x, test_pt_y, None);
-                            num_samples += 1;
-                        }
-                    }
-                }
-                if num_samples == 0 {
-                    return;
-                }
-                let avg_height = total_height / num_samples as f32;
-                let raw_data_height = (0.5 + avg_height / MAP_HEIGHT_SCALE).floor() as i32;
-
-                // Second pass: flatten 3x3 area around each matching cell
-                for i in i_min_x..=i_max_x {
-                    for j in 0..=i_max_y {
-                        let test_pt_x = i as f32 * MAP_XY_FACTOR;
-                        let test_pt_y = j as f32 * MAP_XY_FACTOR;
-                        let dx = test_pt_x - pos.x;
-                        let dy = test_pt_y - pos.y;
-                        if dx * dx + dy * dy < radius_sqr {
-                            for di in -1..=1 {
-                                for dj in -1..=1 {
-                                    self.set_raw_map_height(i + di, j + dj, raw_data_height);
-                                }
-                            }
-                        }
-                    }
-                }
+                self.flatten_terrain_at_with_effects(
+                    pos.x,
+                    pos.y,
+                    geom.get_major_radius(),
+                    effect,
+                )?;
             }
         }
+
+        Ok(())
     }
 
     /// C++ `TerrainLogic::flattenTerrain` GEOMETRY_BOX (TerrainLogic.cpp:2620-2746).
@@ -313,8 +393,28 @@ impl TerrainLogic {
         halfsize_x: f32,
         halfsize_y: f32,
     ) {
+        if let Err(error) = self.flatten_terrain_box_at_with_effects(
+            x,
+            y,
+            angle,
+            halfsize_x,
+            halfsize_y,
+            &mut compatibility_height_change,
+        ) {
+            log::error!("standalone terrain flatten: {error}");
+        }
+    }
+    pub fn flatten_terrain_box_at_with_effects(
+        &mut self,
+        x: f32,
+        y: f32,
+        angle: f32,
+        halfsize_x: f32,
+        halfsize_y: f32,
+        effect: &mut impl FnMut(TerrainHeightChange),
+    ) -> Result<(), String> {
         if halfsize_x <= 0.0 && halfsize_y <= 0.0 {
-            return;
+            return Ok(());
         }
         let c = angle.cos();
         let s = angle.sin();
@@ -345,10 +445,10 @@ impl TerrainLogic {
             .max(bottom_right_y)
             .max(bottom_left_y);
 
-        let i_min_x = (min_x / MAP_XY_FACTOR).floor() as i32;
-        let _i_min_y = (min_y / MAP_XY_FACTOR).floor() as i32;
-        let i_max_x = (max_x / MAP_XY_FACTOR).floor() as i32;
-        let i_max_y = (max_y / MAP_XY_FACTOR).floor() as i32;
+        let i_min_x = super::terrain_ray::source_floor((min_x / MAP_XY_FACTOR))?;
+        let _i_min_y = super::terrain_ray::source_floor((min_y / MAP_XY_FACTOR))?;
+        let i_max_x = super::terrain_ray::source_floor((max_x / MAP_XY_FACTOR))?;
+        let i_max_y = super::terrain_ray::source_floor((max_y / MAP_XY_FACTOR))?;
 
         let mut total_height: f32 = 0.0;
         let mut num_samples: i32 = 0;
@@ -383,12 +483,15 @@ impl TerrainLogic {
             }
         }
         if num_samples == 0 {
-            return;
+            return Ok(());
         }
         let avg_height = total_height / num_samples as f32;
-        let mut raw_data_height = (0.5 + avg_height / MAP_HEIGHT_SCALE).floor() as i32;
+        let mut raw_data_height =
+            super::terrain_ray::source_floor((0.5 + avg_height / MAP_HEIGHT_SCALE))?;
 
-        let center_height = (self.get_ground_height(x, y, None) / MAP_HEIGHT_SCALE).floor() as i32;
+        let center_height = super::terrain_ray::source_floor(
+            (self.get_ground_height(x, y, None) / MAP_HEIGHT_SCALE),
+        )?;
         if raw_data_height > center_height {
             raw_data_height = center_height;
         }
@@ -417,27 +520,38 @@ impl TerrainLogic {
                     test_pt_y,
                 );
                 if match_tri {
-                    for di in -1..=1 {
-                        for dj in -1..=1 {
-                            self.set_raw_map_height(i + di, j + dj, raw_data_height);
-                        }
-                    }
+                    self.lower_footprint_cell_with_effects(i, j, raw_data_height, effect);
                 }
             }
         }
+
+        Ok(())
     }
 
     /// Flatten a circular footprint at world XY (C++ ground plane).
     /// Used by host dozer placement when the crate Object is not in the registry.
     /// Matches TerrainLogic::flattenTerrain cylinder path (TerrainLogic.cpp:2620).
     pub fn flatten_terrain_at(&mut self, x: f32, y: f32, radius: f32) {
+        if let Err(error) =
+            self.flatten_terrain_at_with_effects(x, y, radius, &mut compatibility_height_change)
+        {
+            log::error!("standalone terrain flatten: {error}");
+        }
+    }
+    pub fn flatten_terrain_at_with_effects(
+        &mut self,
+        x: f32,
+        y: f32,
+        radius: f32,
+        effect: &mut impl FnMut(TerrainHeightChange),
+    ) -> Result<(), String> {
         if radius <= 0.0 {
-            return;
+            return Ok(());
         }
         let radius_sqr = radius * radius;
-        let i_min_x = ((x - radius) / MAP_XY_FACTOR).floor() as i32;
-        let i_max_x = ((x + radius) / MAP_XY_FACTOR).floor() as i32;
-        let i_max_y = ((y + radius) / MAP_XY_FACTOR).floor() as i32;
+        let i_min_x = super::terrain_ray::source_floor(((x - radius) / MAP_XY_FACTOR))?;
+        let i_max_x = super::terrain_ray::source_floor(((x + radius) / MAP_XY_FACTOR))?;
+        let i_max_y = super::terrain_ray::source_floor(((y + radius) / MAP_XY_FACTOR))?;
         let mut total_height: f32 = 0.0;
         let mut num_samples: i32 = 0;
         for i in i_min_x..=i_max_x {
@@ -453,14 +567,11 @@ impl TerrainLogic {
             }
         }
         if num_samples == 0 {
-            return;
+            return Ok(());
         }
         let avg_height = total_height / num_samples as f32;
-        let mut raw_data_height = (0.5 + avg_height / MAP_HEIGHT_SCALE).floor() as i32;
-        let center_height = (self.get_ground_height(x, y, None) / MAP_HEIGHT_SCALE).floor() as i32;
-        if raw_data_height > center_height {
-            raw_data_height = center_height;
-        }
+        let raw_data_height =
+            super::terrain_ray::source_floor((0.5 + avg_height / MAP_HEIGHT_SCALE))?;
         for i in i_min_x..=i_max_x {
             for j in 0..=i_max_y {
                 let test_pt_x = i as f32 * MAP_XY_FACTOR;
@@ -468,14 +579,12 @@ impl TerrainLogic {
                 let dx = test_pt_x - x;
                 let dy = test_pt_y - y;
                 if dx * dx + dy * dy < radius_sqr {
-                    for di in -1..=1 {
-                        for dj in -1..=1 {
-                            self.set_raw_map_height(i + di, j + dj, raw_data_height);
-                        }
-                    }
+                    self.lower_footprint_cell_with_effects(i, j, raw_data_height, effect);
                 }
             }
         }
+
+        Ok(())
     }
 
     /// C++ `MAX(1, getRawMapHeight(&gridPos) - displacementAmount)`:
@@ -530,26 +639,80 @@ impl TerrainLogic {
     /// C++ adds getBorderSizeInline() to the incoming playable-grid coords
     /// before indexing the full (playable + 2*border) height buffer.
     pub(super) fn set_raw_map_height(&mut self, x: i32, y: i32, height: i32) {
-        let playable_x = x;
-        let playable_y = y;
-        let x = x + self.border_size.max(0);
-        let y = y + self.border_size.max(0);
-        if x < 0 || y < 0 || x >= self.map_dx || y >= self.map_dy {
+        self.set_raw_map_height_with_effects(x, y, height, &mut compatibility_height_change);
+    }
+    /// Apply one strict lower-write and notify only after canonical bytes and
+    /// cliff bits have changed. The sink belongs to the driving world.
+    pub fn set_raw_map_height_with_effects(
+        &mut self,
+        x: i32,
+        y: i32,
+        height: i32,
+        effect: &mut impl FnMut(TerrainHeightChange),
+    ) {
+        let Some(idx) = self.raw_map_height_index(x, y) else {
             return;
+        };
+        // Original compares Int before narrowing its accepted value to u8.
+        if self.map_data[idx] as i32 > height {
+            let accepted = height as u8;
+            let changed = self.map_data[idx] != accepted;
+            self.map_data[idx] = accepted;
+            if changed {
+                self.bump_height_revision();
+            }
+            let grid_x = (idx % self.map_dx as usize) as i32;
+            let grid_y = (idx / self.map_dx as usize) as i32;
+            self.cliff_state.refresh_vertex(
+                &self.map_data,
+                self.map_dx,
+                self.map_dy,
+                grid_x,
+                grid_y,
+            );
+            effect(TerrainHeightChange {
+                playable_x: x,
+                playable_y: y,
+                raw_height: accepted,
+                requested_height: height,
+            });
         }
-        let idx = (y * self.map_dx + x) as usize;
-        if idx >= self.map_data.len() {
-            return;
+    }
+
+    // WorldHeightMap::getHeight/setRawHeight validate the flattened index,
+    // not X and Y independently; edge aliases are intentional source behavior.
+    fn raw_map_height_index(&self, x: i32, y: i32) -> Option<usize> {
+        if self.map_dx <= 0 {
+            return None;
         }
-        let height_clamped = height.max(0).min(255) as u8;
-        if self.map_data[idx] > height_clamped {
-            self.map_data[idx] = height_clamped;
-            self.cliff_state
-                .refresh_vertex(&self.map_data, self.map_dx, self.map_dy, x, y);
-            // C++ W3DTerrainVisual::setRawMapHeight (W3DTerrainVisual.cpp:923-924)
-            // writes the golden logic map then calls staticLightingChanged().
-            if let Some(visual) = crate::helpers::TheTerrainVisual::get() {
-                visual.set_raw_map_height(playable_x, playable_y, height);
+        let x = i64::from(x) + i64::from(self.border_size);
+        let y = i64::from(y) + i64::from(self.border_size);
+        let index = y.checked_mul(i64::from(self.map_dx))?.checked_add(x)?;
+        usize::try_from(index)
+            .ok()
+            .filter(|&index| index < self.map_data.len())
+    }
+
+    fn lower_footprint_cell_with_effects(
+        &mut self,
+        x: i32,
+        y: i32,
+        height: i32,
+        effect: &mut impl FnMut(TerrainHeightChange),
+    ) {
+        for (dx, dy) in [
+            (0, 0),
+            (-1, 0),
+            (1, 0),
+            (0, -1),
+            (0, 1),
+            (-1, -1),
+            (1, 1),
+            (1, -1),
+            (-1, 1),
+        ] {
+            if let Some((x, y)) = x.checked_add(dx).zip(y.checked_add(dy)) {
+                self.set_raw_map_height_with_effects(x, y, height, effect);
             }
         }
     }
@@ -557,16 +720,8 @@ impl TerrainLogic {
     /// Get raw map height at grid position.
     /// Reference: C++ W3DTerrainVisual::getRawMapHeight() in W3DTerrainVisual.cpp:941-951
     pub(super) fn get_raw_map_height(&self, x: i32, y: i32) -> i32 {
-        let x = x + self.border_size.max(0);
-        let y = y + self.border_size.max(0);
-        if x < 0 || y < 0 || x >= self.map_dx || y >= self.map_dy {
-            return 0;
-        }
-        let idx = (y * self.map_dx + x) as usize;
-        if idx >= self.map_data.len() {
-            return 0;
-        }
-        self.map_data[idx] as i32
+        self.raw_map_height_index(x, y)
+            .map_or(0, |index| self.map_data[index] as i32)
     }
 
     /// 2D point-in-triangle test using cross products.
@@ -589,5 +744,16 @@ impl TerrainLogic {
         let has_pos = (d1 > 0.0) || (d2 > 0.0) || (d3 > 0.0);
 
         !(has_neg && has_pos)
+    }
+}
+
+// Standalone Core compatibility only. Main passes its receiving effect sink.
+fn compatibility_height_change(change: TerrainHeightChange) {
+    if let Some(visual) = crate::helpers::TheTerrainVisual::get() {
+        visual.set_raw_map_height(
+            change.playable_x,
+            change.playable_y,
+            change.requested_height,
+        );
     }
 }

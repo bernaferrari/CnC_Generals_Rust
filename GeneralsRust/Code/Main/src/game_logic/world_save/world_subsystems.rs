@@ -637,9 +637,9 @@ impl GameLogic {
     }
 
     pub fn terrain_height_at(&self, world_pos: Vec3) -> Option<f32> {
-        let terrain_owner_handle = self.world_services.terrain().clone();
-        let terrain = terrain_owner_handle.read().ok();
-        self.terrain_height_at_with_terrain_logic(world_pos, terrain.as_deref())
+        let owner = self.world_services.terrain();
+        let terrain = owner.read().unwrap_or_else(|error| error.into_inner());
+        self.terrain_height_at_with_terrain_logic(world_pos, Some(&terrain))
     }
 
     pub(in super::super) fn terrain_height_at_with_terrain_logic(
@@ -647,7 +647,14 @@ impl GameLogic {
         world_pos: Vec3,
         terrain: Option<&gamelogic::terrain::TerrainLogic>,
     ) -> Option<f32> {
-        let ground = self.terrain_ground_height_at(world_pos);
+        // None means no loan was supplied, not that this world has no map.
+        // In particular, older callers using read().ok() must not turn a
+        // poisoned known owner into stale detached ground or a missing deck.
+        if terrain.is_none() {
+            return self.terrain_height_at(world_pos);
+        }
+        // A supplied receiving loan must not reenter the same terrain lock.
+        let ground = self.terrain_ground_height_with_terrain_logic(world_pos, terrain);
         // C++ getLayerHeight: non-rubble deck plane wins when the XY is on a span.
         if let Some(tl) = terrain {
             if let Some(deck) = tl.host_deck_height_at(world_pos.x, world_pos.z) {
@@ -661,7 +668,16 @@ impl GameLogic {
 
     /// C++ raw map ground sampling; no bridge layer or presentation remapping.
     pub(crate) fn raw_terrain_ground_height_at(&self, position: Vec3) -> f32 {
+        let owner = self.world_services.terrain();
+        let terrain = owner.read().unwrap_or_else(|error| error.into_inner());
+        if terrain.has_height_map() {
+            return terrain.get_ground_height(position.x, position.z, None);
+        }
+        // Detached fixtures without an admitted Core map retain their raw
+        // fixed-cell sampler. Loaded production never reads this copy.
         crate::game_logic::game_logic::FlightTerrainView {
+            // This fallback runs while the receiving read loan is held.
+            logical: None,
             grid: &self.pathfinding_system.grid,
             terrain: self.terrain.as_ref(),
             samples: self.pathfinding_height_samples.as_ref(),
@@ -672,6 +688,21 @@ impl GameLogic {
     /// Original getGroundHeight without the bridge deck override used by
     /// getLayerHeight. Positional effects/crushing must not climb a deck.
     pub(crate) fn terrain_ground_height_at(&self, world_pos: Vec3) -> Option<f32> {
+        let owner = self.world_services.terrain();
+        let terrain = owner.read().unwrap_or_else(|error| error.into_inner());
+        self.terrain_ground_height_with_terrain_logic(world_pos, Some(&terrain))
+    }
+
+    fn terrain_ground_height_with_terrain_logic(
+        &self,
+        world_pos: Vec3,
+        terrain: Option<&gamelogic::terrain::TerrainLogic>,
+    ) -> Option<f32> {
+        if let Some(terrain) = terrain.filter(|terrain| terrain.has_height_map()) {
+            return Some(terrain.get_ground_height(world_pos.x, world_pos.z, None));
+        }
+        // Preserve authored detached/no-map fixture behavior only. There is no
+        // second height authority once this world admits its Core map.
         #[cfg(feature = "game_client")]
         {
             if let Some(h) = self.terrain.as_ref().map(|t| t.height_at_world(world_pos)) {
@@ -831,9 +862,42 @@ impl GameLogic {
     pub fn terrain_heightmap_snapshot(
         &self,
     ) -> Option<game_client::terrain::height_map::HeightMap> {
-        self.terrain
+        let owner = self.world_services.terrain();
+        let terrain = owner.read().unwrap_or_else(|error| error.into_inner());
+        self.terrain_heightmap_snapshot_with_terrain_logic(&terrain)
+    }
+
+    /// Reuse the caller's actual receiving loan; the cache reads revision and
+    /// freezes these exact bytes under one loan rather than recursively locking.
+    #[cfg(feature = "game_client")]
+    pub(crate) fn terrain_heightmap_snapshot_with_terrain_logic(
+        &self,
+        terrain: &gamelogic::terrain::TerrainLogic,
+    ) -> Option<game_client::terrain::height_map::HeightMap> {
+        self.try_terrain_heightmap_snapshot_with_terrain_logic(terrain)
+            .expect("admitted Core terrain byte grid must remain valid")
+    }
+
+    #[cfg(feature = "game_client")]
+    pub(crate) fn try_terrain_heightmap_snapshot_with_terrain_logic(
+        &self,
+        terrain: &gamelogic::terrain::TerrainLogic,
+    ) -> Result<Option<game_client::terrain::height_map::HeightMap>, String> {
+        if terrain.has_height_map() {
+            let (width, height) = terrain.logic_height_map_extents();
+            return crate::game_logic::terrain::TerrainData::heightmap_from_logic_samples(
+                self.terrain.as_ref(),
+                width,
+                height,
+                terrain.logic_height_map_border_size(),
+                terrain.logic_height_map_bytes(),
+            )
+            .map(Some);
+        }
+        Ok(self
+            .terrain
             .as_ref()
-            .map(|terrain| terrain.heightmap_clone())
+            .map(|terrain| terrain.heightmap_clone()))
     }
 
     /// Snapshot map bridge spans converted to runtime world-space vectors for visual road parity.
@@ -942,7 +1006,12 @@ impl GameLogic {
         if width == 0 || height == 0 {
             return None;
         }
-        if let Some(terrain) = self.terrain.as_ref() {
+        let terrain = self
+            .world_services
+            .terrain()
+            .read()
+            .unwrap_or_else(|error| error.into_inner());
+        if terrain.has_height_map() || self.terrain.is_some() {
             let grid_size = self.pathfinding_system.grid.grid_size();
             let origin = self.pathfinding_system.grid.origin();
             let mut samples = Vec::with_capacity((width * height) as usize);
@@ -953,7 +1022,8 @@ impl GameLogic {
                         0.0,
                         origin.z + (y as f32 + 0.5) * grid_size,
                     );
-                    samples.push(terrain.height_at_world(pos));
+                    samples
+                        .push(self.terrain_ground_height_with_terrain_logic(pos, Some(&terrain))?);
                 }
             }
             return Some(samples);
@@ -984,6 +1054,18 @@ impl GameLogic {
             height as i32,
             heights.to_vec(),
         );
+
+        // Raw loaded bytes remain canonical. Coarse save samples are a
+        // mapless/old-save fallback, never replacement authored geometry.
+        if self
+            .world_services
+            .terrain()
+            .read()
+            .unwrap_or_else(|error| error.into_inner())
+            .has_height_map()
+        {
+            return true;
+        }
 
         #[cfg(feature = "game_client")]
         {
@@ -1422,3 +1504,7 @@ impl GameLogic {
         };
     }
 }
+
+#[cfg(test)]
+#[path = "terrain_height_owner_tests.rs"]
+mod terrain_height_owner_tests;

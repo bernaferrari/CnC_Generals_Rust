@@ -748,6 +748,7 @@ impl GameLogic {
                 }
                 let pos = obj.get_position();
                 let flight_terrain = super::flight_terrain::FlightTerrainView {
+                    logical: Some(self.world_services.terrain().as_ref()),
                     grid: &self.pathfinding_system.grid,
                     terrain: self.terrain.as_ref(),
                     samples: self.pathfinding_height_samples.as_ref(),
@@ -829,6 +830,7 @@ impl GameLogic {
             let mut blocked_out = false;
             let mut restamp_after_move = false;
             let flight_terrain = super::flight_terrain::FlightTerrainView {
+                logical: Some(self.world_services.terrain().as_ref()),
                 grid: &self.pathfinding_system.grid,
                 terrain: self.terrain.as_ref(),
                 samples: self.pathfinding_height_samples.as_ref(),
@@ -847,6 +849,7 @@ impl GameLogic {
                                 Object::step_stamp_contact,
                             );
                             let flight_terrain = super::flight_terrain::FlightTerrainView {
+                                logical: Some(self.world_services.terrain().as_ref()),
                                 grid: &self.pathfinding_system.grid,
                                 terrain: self.terrain.as_ref(),
                                 samples: self.pathfinding_height_samples.as_ref(),
@@ -871,6 +874,7 @@ impl GameLogic {
                             Object::step_stamp_contact,
                         );
                         let flight_terrain = super::flight_terrain::FlightTerrainView {
+                            logical: Some(self.world_services.terrain().as_ref()),
                             grid: &self.pathfinding_system.grid,
                             terrain: self.terrain.as_ref(),
                             samples: self.pathfinding_height_samples.as_ref(),
@@ -912,6 +916,7 @@ impl GameLogic {
                             Object::step_stamp_contact,
                         );
                         let flight_terrain = super::flight_terrain::FlightTerrainView {
+                            logical: Some(self.world_services.terrain().as_ref()),
                             grid: &self.pathfinding_system.grid,
                             terrain: self.terrain.as_ref(),
                             samples: self.pathfinding_height_samples.as_ref(),
@@ -951,6 +956,7 @@ impl GameLogic {
                             Object::step_stamp_contact,
                         );
                         let flight_terrain = super::flight_terrain::FlightTerrainView {
+                            logical: Some(self.world_services.terrain().as_ref()),
                             grid: &self.pathfinding_system.grid,
                             terrain: self.terrain.as_ref(),
                             samples: self.pathfinding_height_samples.as_ref(),
@@ -1045,6 +1051,7 @@ impl GameLogic {
                                     Object::step_stamp_contact,
                                 );
                                 let flight_terrain = super::flight_terrain::FlightTerrainView {
+                                    logical: Some(self.world_services.terrain().as_ref()),
                                     grid: &self.pathfinding_system.grid,
                                     terrain: self.terrain.as_ref(),
                                     samples: self.pathfinding_height_samples.as_ref(),
@@ -1080,6 +1087,7 @@ impl GameLogic {
                             Object::step_stamp_contact,
                         );
                         let flight_terrain = super::flight_terrain::FlightTerrainView {
+                            logical: Some(self.world_services.terrain().as_ref()),
                             grid: &self.pathfinding_system.grid,
                             terrain: self.terrain.as_ref(),
                             samples: self.pathfinding_height_samples.as_ref(),
@@ -1239,6 +1247,7 @@ impl GameLogic {
                                     Object::step_stamp_contact,
                                 );
                                 let flight_terrain = super::flight_terrain::FlightTerrainView {
+                                    logical: Some(self.world_services.terrain().as_ref()),
                                     grid: &self.pathfinding_system.grid,
                                     terrain: self.terrain.as_ref(),
                                     samples: self.pathfinding_height_samples.as_ref(),
@@ -1385,6 +1394,7 @@ impl GameLogic {
                                     Object::step_stamp_contact,
                                 );
                                 let flight_terrain = super::flight_terrain::FlightTerrainView {
+                                    logical: Some(self.world_services.terrain().as_ref()),
                                     grid: &self.pathfinding_system.grid,
                                     terrain: self.terrain.as_ref(),
                                     samples: self.pathfinding_height_samples.as_ref(),
@@ -1510,6 +1520,7 @@ impl GameLogic {
                                     Object::step_stamp_contact,
                                 );
                                 let flight_terrain = super::flight_terrain::FlightTerrainView {
+                                    logical: Some(self.world_services.terrain().as_ref()),
                                     grid: &self.pathfinding_system.grid,
                                     terrain: self.terrain.as_ref(),
                                     samples: self.pathfinding_height_samples.as_ref(),
@@ -1541,6 +1552,7 @@ impl GameLogic {
                                     Object::step_stamp_contact,
                                 );
                                 let flight_terrain = super::flight_terrain::FlightTerrainView {
+                                    logical: Some(self.world_services.terrain().as_ref()),
                                     grid: &self.pathfinding_system.grid,
                                     terrain: self.terrain.as_ref(),
                                     samples: self.pathfinding_height_samples.as_ref(),
@@ -1814,6 +1826,7 @@ impl GameLogic {
                                         Object::step_stamp_contact,
                                     );
                                     let flight_terrain = super::flight_terrain::FlightTerrainView {
+                                        logical: Some(self.world_services.terrain().as_ref()),
                                         grid: &self.pathfinding_system.grid,
                                         terrain: self.terrain.as_ref(),
                                         samples: self.pathfinding_height_samples.as_ref(),

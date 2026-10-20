@@ -3,6 +3,7 @@ use super::super::*;
 #[test]
 fn runtime_heightmap_roundtrip_preserves_samples() {
     let hm = PresentationRuntimeHeightmap {
+        source_byte_heights: false,
         width: 2,
         height: 2,
         heights: vec![0.0, 0.25, 0.5, 1.0],
@@ -55,6 +56,7 @@ fn runtime_heightmap_roundtrip_preserves_samples() {
 #[test]
 fn runtime_heightmap_extra_blend_positions_pack_i_or_j_shift_16() {
     let hm = PresentationRuntimeHeightmap {
+        source_byte_heights: false,
         width: 3,
         height: 3,
         heights: vec![0.0; 9],
@@ -87,6 +89,7 @@ fn runtime_heightmap_extra_blend_positions_pack_i_or_j_shift_16() {
 #[test]
 fn runtime_heightmap_old_serialized_frames_default_new_blend_metadata() {
     let mut encoded = serde_json::to_value(PresentationRuntimeHeightmap {
+        source_byte_heights: false,
         width: 1,
         height: 1,
         heights: vec![0.0],
@@ -115,6 +118,7 @@ fn runtime_heightmap_arc_world_env_json_roundtrip_keeps_full_payload() {
     use std::sync::Arc;
 
     let payload = PresentationRuntimeHeightmap {
+        source_byte_heights: false,
         width: 2,
         height: 2,
         heights: vec![0.0, 0.25, 0.5, 1.0],

@@ -195,6 +195,7 @@ fn live_z_resolves_post_motion_position_and_retains_current_layer_unclipped() {
                 .stamp_bridge_deck(corners[0], corners[1], corners[2], corners[3], false);
             let grid = &world.pathfinding_system.grid;
             let view = FlightTerrainView {
+                logical: None,
                 grid,
                 terrain: world.terrain.as_ref(),
                 samples: world.pathfinding_height_samples.as_ref(),
@@ -331,6 +332,7 @@ fn authored_map_raw_height_is_owned_and_uses_the_cpp_triangle_on_both_backends()
                 );
                 let pos = Vec3::new(2.5, 60.0, 7.5);
                 let view = FlightTerrainView {
+                    logical: None,
                     grid: &world.pathfinding_system.grid,
                     terrain: world.terrain.as_ref(),
                     samples: world.pathfinding_height_samples.as_ref(),
@@ -358,6 +360,7 @@ fn authored_map_raw_height_is_owned_and_uses_the_cpp_triangle_on_both_backends()
             worlds[1].0.reset();
             let (first, pos) = &worlds[0];
             let view = FlightTerrainView {
+                logical: None,
                 grid: &first.pathfinding_system.grid,
                 terrain: first.terrain.as_ref(),
                 samples: first.pathfinding_height_samples.as_ref(),
@@ -489,4 +492,38 @@ End
             }
         },
     );
+}
+
+#[test]
+fn flight_and_evacuation_ground_follow_receiving_raw_bytes_after_lowering() {
+    let mut world = GameLogic::new();
+    let peer = GameLogic::new();
+    assert!(world.restore_terrain_heights_from_grid(4, 4, &[99.; 16]));
+    let mut map = gamelogic::system::map_loader::MapData::new();
+    map.width = 4;
+    map.height = 4;
+    map.heightmap = vec![30; 16];
+    world
+        .world_services
+        .terrain()
+        .write()
+        .unwrap()
+        .load_map_geometry(map);
+    let point = Vec3::new(10., 100., 10.);
+    assert_eq!(world.evacuation_surface_height(point, -1.), 18.75);
+    world
+        .world_services
+        .terrain()
+        .write()
+        .unwrap()
+        .set_raw_map_height_with_effects(1, 1, 8, &mut |_| {});
+    let view = FlightTerrainView {
+        grid: &world.pathfinding_system.grid,
+        logical: Some(world.world_services.terrain().as_ref()),
+        terrain: world.terrain.as_ref(),
+        samples: world.pathfinding_height_samples.as_ref(),
+    };
+    assert_eq!(view.raw_ground(point, -1.), 5.);
+    assert_eq!(world.evacuation_surface_height(point, -1.), 5.);
+    assert_eq!(peer.evacuation_surface_height(point, -1.), -1.);
 }

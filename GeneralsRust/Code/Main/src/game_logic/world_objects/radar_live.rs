@@ -507,8 +507,12 @@ impl GameLogic {
         // terrain_height_at ordinarily obtains this same read borrow for each
         // bridge query. Pass it explicitly so a queued writer cannot cause a
         // recursive read acquisition halfway through the grid.
-        let terrain_owner_handle = self.world_services.terrain().clone();
-        let terrain = terrain_owner_handle.read().ok();
+        let terrain = Some(
+            self.world_services
+                .terrain()
+                .read()
+                .unwrap_or_else(|error| error.into_inner()),
+        );
         let mut samples = Vec::with_capacity((W * H) as usize);
         let mut bridges = Vec::with_capacity((W * H) as usize);
         let mut min_z = f32::MAX;
@@ -521,10 +525,12 @@ impl GameLogic {
                 let mut height = self
                     .terrain_height_at_with_terrain_logic(world, terrain.as_deref())
                     .unwrap_or(0.0);
-                let mut water = self
-                    .terrain
-                    .as_ref()
-                    .is_some_and(|t| t.is_underwater_at_world(world));
+                let logical_loaded = terrain.as_ref().is_some_and(|t| t.has_height_map());
+                let mut water = !logical_loaded
+                    && self
+                        .terrain
+                        .as_ref()
+                        .is_some_and(|t| t.is_underwater_at_world(world));
                 if let Some(tl) = terrain.as_ref() {
                     let leftover_h = tl.get_ground_height(wx, wy, None);
                     if self.terrain.is_none() {

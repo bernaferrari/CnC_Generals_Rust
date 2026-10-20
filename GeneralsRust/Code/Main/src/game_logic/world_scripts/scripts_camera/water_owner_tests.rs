@@ -528,7 +528,7 @@ fn owned_terrain_queries_ignore_foreign_waypoints_heights_and_bridge_snapshots()
                 });
                 let handle = world.world_services.terrain().clone();
                 let mut terrain = handle.write().unwrap();
-                world.admit_map_bridge_geometry(&mut terrain, map);
+                world.admit_map_bridge_geometry(&mut terrain, map).unwrap();
                 assert!(
                     terrain
                         .find_bridge_at(&gamelogic::common::Coord3D::new(20.0, 20.0, deck))

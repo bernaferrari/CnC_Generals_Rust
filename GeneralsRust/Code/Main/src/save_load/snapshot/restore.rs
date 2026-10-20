@@ -1042,18 +1042,62 @@ impl SnapshotBuilder {
         terrain_snapshot: &TerrainSnapshot,
         game_logic: &mut GameLogic,
     ) -> SaveLoadResult<()> {
-        if terrain_snapshot.logic_width > 0
-            && terrain_snapshot.logic_height > 0
-            && !terrain_snapshot.logic_heights.is_empty()
+        // Validate the host's complete raw snapshot before touching the
+        // candidate. Xfer's separate prefix-copy format is not this payload.
+        let raw_shape = if terrain_snapshot.logic_width == 0
+            && terrain_snapshot.logic_height == 0
+            && terrain_snapshot.logic_heights.is_empty()
         {
-            let terrain_owner_handle = std::sync::Arc::clone(game_logic.world_services.terrain());
-            if let Ok(mut terrain) = terrain_owner_handle.write() {
-                terrain.restore_logic_height_map(
-                    terrain_snapshot.logic_width as i32,
-                    terrain_snapshot.logic_height as i32,
-                    &terrain_snapshot.logic_heights,
-                );
+            None
+        } else {
+            let width = i32::try_from(terrain_snapshot.logic_width)
+                .map_err(|_| SaveLoadError::Corrupted("terrain width exceeds source Int".into()))?;
+            let height = i32::try_from(terrain_snapshot.logic_height).map_err(|_| {
+                SaveLoadError::Corrupted("terrain height exceeds source Int".into())
+            })?;
+            if width <= 0
+                || height <= 0
+                || (width as usize).checked_mul(height as usize)
+                    != Some(terrain_snapshot.logic_heights.len())
+            {
+                return Err(SaveLoadError::Corrupted(
+                    "invalid complete terrain byte grid".into(),
+                ));
             }
+            Some((width, height))
+        };
+        for (length, name) in [
+            (terrain_snapshot.height_map.len(), "height"),
+            (terrain_snapshot.passability_map.len(), "passability"),
+        ] {
+            if length > 0
+                && (terrain_snapshot.width == 0
+                    || terrain_snapshot.height == 0
+                    || (terrain_snapshot.width as usize)
+                        .checked_mul(terrain_snapshot.height as usize)
+                        != Some(length))
+            {
+                return Err(SaveLoadError::Corrupted(format!(
+                    "invalid terrain {name} grid"
+                )));
+            }
+        }
+        if let Some((width, height)) = raw_shape {
+            let mut terrain = game_logic
+                .world_services
+                .terrain()
+                .write()
+                .unwrap_or_else(|error| error.into_inner());
+            // A detached load candidate has no installed native terrain visual.
+            // Its bytes are published only through completed presentation data.
+            terrain
+                .try_restore_logic_height_map_with_effects(
+                    width,
+                    height,
+                    &terrain_snapshot.logic_heights,
+                    &mut || {},
+                )
+                .map_err(SaveLoadError::Corrupted)?;
         }
 
         if terrain_snapshot.width == 0 || terrain_snapshot.height == 0 {

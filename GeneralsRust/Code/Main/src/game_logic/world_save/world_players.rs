@@ -259,7 +259,10 @@ impl GameLogic {
             let terrain_owner = self.world_services.terrain().clone();
             {
                 let mut terrain = terrain_owner.write().unwrap_or_else(|e| e.into_inner());
-                self.admit_map_bridge_geometry(&mut terrain, map_data);
+                if let Err(error) = self.admit_map_bridge_geometry(&mut terrain, map_data) {
+                    log::error!("Cannot admit receiving terrain: {error}");
+                    return false;
+                }
                 // C++ GameLogic.cpp:1629 TheTerrainLogic->newMap after load.
                 terrain.new_map(false);
             }

@@ -1984,13 +1984,13 @@ impl GameLogic {
             // Sample terrain heights without holding object borrows.
             let gh_samples: Vec<(f32, f32, f32)> = {
                 let mut samples = Vec::new();
-                if let Some(terrain) = self.terrain.as_ref() {
-                    // Pre-sample a small grid around current pos for tick closure.
-                    for dx in [-8.0_f32, 0.0, 8.0] {
-                        for dz in [-8.0_f32, 0.0, 8.0] {
-                            let x = pos.x + dx;
-                            let z = pos.z + dz;
-                            samples.push((x, z, terrain.height_at_world(Vec3::new(x, 0.0, z))));
+                // Freeze bounded observations before the mutable object tick.
+                for dx in [-8.0_f32, 0.0, 8.0] {
+                    for dz in [-8.0_f32, 0.0, 8.0] {
+                        let x = pos.x + dx;
+                        let z = pos.z + dz;
+                        if let Some(height) = self.terrain_ground_height_at(Vec3::new(x, 0.0, z)) {
+                            samples.push((x, z, height));
                         }
                     }
                 }

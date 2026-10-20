@@ -683,7 +683,9 @@ fn crushing_uses_actual_ground_below_a_receiving_world_bridge_deck() {
                     "OwnedToppleBridge".into(),
                 ));
             let terrain = owner.world_services.terrain().clone();
-            owner.admit_map_bridge_geometry(&mut terrain.write().unwrap(), map);
+            owner
+                .admit_map_bridge_geometry(&mut terrain.write().unwrap(), map)
+                .unwrap();
             let position = glam::Vec3::new(20.0, 0.0, 12.0);
             assert_eq!(
                 owner.terrain_height_at(position),

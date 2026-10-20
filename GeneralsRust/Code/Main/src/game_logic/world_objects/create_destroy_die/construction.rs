@@ -267,3 +267,6 @@ mod tests;
 
 #[cfg(test)]
 mod difficulty_owner_tests;
+
+#[cfg(test)]
+mod terrain_owner_tests;

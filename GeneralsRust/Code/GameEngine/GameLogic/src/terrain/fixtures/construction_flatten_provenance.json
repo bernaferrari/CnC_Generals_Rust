@@ -1,0 +1,18 @@
+{
+  "origin": "actual original C++ component execution by parent",
+  "build_exit": 0,
+  "run_exit": 0,
+  "rows": 12,
+  "source_and_corpus_sha256": {
+    "construction_flatten_original.cpp": "52aea2418efbbec1951a11712b3d77ddd52852b7f8f9bf12cdc4fac725eea52f",
+    "cases.tsv": "532daae33a755985219ea78708a75bd3f56854185279e2dc516f7b47a47f4835",
+    "original-portable-nearest.jsonl": "0c0cfb9f2fbe4f054a061439d8f42342358ca57b2f430fc46db6c667ce1db97a"
+  },
+  "scope": "Original TerrainLogic::flattenTerrain and receiving W3D raw map/sample/light-state component, not factory/native-render integration",
+  "profile_limits": [
+    "original_non_msvc_wwmath_nearest; clang -O0 no fastmath / contraction",
+    "original unused triangle flags zero initialized by compiler profile",
+    "Core test receiving sink checks notification count and derives original light-state observation; native road rendering absent"
+  ],
+  "case_geometry_small": "Original raw outputs retained; plain helper driver skips calls because it has no Object flag. Actual Main authored GeometryIsSmall production admission requires independent test."
+}

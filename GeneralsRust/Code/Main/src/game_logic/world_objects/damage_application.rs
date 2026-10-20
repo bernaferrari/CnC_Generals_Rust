@@ -778,6 +778,7 @@ impl GameLogic {
         #[cfg(feature = "game_client")]
         let player = self.local_player_id();
         let terrain = crate::game_logic::game_logic::FlightTerrainView {
+            logical: Some(self.world_services.terrain().as_ref()),
             grid: &self.pathfinding_system.grid,
             terrain: self.terrain.as_ref(),
             samples: self.pathfinding_height_samples.as_ref(),

@@ -650,10 +650,22 @@ pub struct TerrainDynamicWaterSnapshotEntry {
     pub current_height: f32,
 }
 
+/// One accepted raw lower-write, in original playable ground-plane XY.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TerrainHeightChange {
+    pub playable_x: i32,
+    pub playable_y: i32,
+    pub raw_height: u8,
+    /// Original Int argument before WorldHeightMap byte narrowing.
+    pub requested_height: i32,
+}
+
 /// Main terrain logic system
 pub struct TerrainLogic {
     /// Array of height samples
     map_data: Vec<u8>,
+    /// Receiving height cache identity; never part of saved game wire state.
+    height_revision: u64,
     /// Width of map samples
     map_dx: i32,
     /// Height of map samples
@@ -710,11 +722,20 @@ mod bridges;
 #[cfg(test)]
 mod closest_waypoint_tests;
 mod geometry;
+#[cfg(test)]
+mod height_owner_tests;
 mod map_height;
 mod query;
 mod terrain_ops;
 mod terrain_ray;
 pub use terrain_ray::{TerrainHeightSamples, TerrainRayCast};
+
+/// Original BaseHeightMap FAST_REAL_FLOOR for receiving logical samples and
+/// their frozen presentation queries. Rejects coordinates outside checked Int.
+pub fn source_height_cell_floor(value: f32) -> Result<i32, String> {
+    terrain_ray::source_floor(value)
+}
+
 #[cfg(test)]
 mod tests;
 mod water;
@@ -755,3 +776,9 @@ pub fn init_terrain_physics_integration() {
         physics.set_terrain_query(terrain_query);
     }
 }
+
+#[cfg(test)]
+mod construction_flatten_cpp_tests;
+
+#[cfg(test)]
+mod map_height_source_tests;

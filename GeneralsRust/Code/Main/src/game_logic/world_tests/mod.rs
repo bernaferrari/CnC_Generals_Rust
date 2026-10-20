@@ -103,7 +103,9 @@ fn global_terrain_load_map_data_does_not_deadlock_on_bridge() {
         // Main admits terrain and pathfinder geometry through the same owner.
         let terrain_owner_handle = logic.world_services.terrain().clone();
         let mut terrain = terrain_owner_handle.write().expect("own terrain");
-        logic.admit_map_bridge_geometry(&mut terrain, map_data);
+        logic
+            .admit_map_bridge_geometry(&mut terrain, map_data)
+            .unwrap();
         assert!(
             terrain.get_first_bridge().is_some(),
             "map bridge must still register"

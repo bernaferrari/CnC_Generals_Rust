@@ -23,11 +23,12 @@ impl GameLogic {
         &mut self,
         terrain: &mut gamelogic::terrain::TerrainLogic,
         data: gamelogic::system::map_loader::MapData,
-    ) {
+    ) -> Result<(), String> {
+        gamelogic::terrain::TerrainLogic::validate_map_geometry(&data)?;
         terrain.reset();
         self.pathfinding_system.grid.clear_bridge_admission();
         // Original addBridge reserves in source order; the linked list prepends.
-        for (info, template) in terrain.load_map_geometry(data) {
+        for (info, template) in terrain.try_load_map_geometry(data)? {
             let layer = self.reserve_owned_bridge(&info);
             terrain.prepend_bridge_on_layer(
                 info,
@@ -35,6 +36,7 @@ impl GameLogic {
                 gamelogic::path::PathfindLayerEnum::from_u32(layer as u32),
             );
         }
+        Ok(())
     }
 
     /// Native load recreates map geometry rather than serializing layer IDs.

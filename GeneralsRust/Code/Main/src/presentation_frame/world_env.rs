@@ -309,6 +309,10 @@ impl PresentationBlendTileInfo {
 /// terrain bake, including secondary blend metadata.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct PresentationRuntimeHeightmap {
+    /// Immutable provenance: samples were frozen from the receiving Core byte grid.
+    /// Historical and authored synthetic payloads retain their existing mapping.
+    #[serde(default)]
+    pub source_byte_heights: bool,
     pub width: u32,
     pub height: u32,
     pub heights: Vec<f32>,
@@ -338,6 +342,7 @@ impl PresentationRuntimeHeightmap {
     #[cfg(feature = "game_client")]
     pub fn from_height_map(hm: &game_client::terrain::height_map::HeightMap) -> Self {
         Self {
+            source_byte_heights: false,
             width: hm.width,
             height: hm.height,
             heights: hm.heights.clone(),
@@ -633,9 +638,18 @@ impl PresentationWorldEnv {
 
         #[cfg(feature = "game_client")]
         let runtime_heightmap = runtime_heightmap.or_else(|| {
-            logic.terrain_heightmap_snapshot().map(|heightmap| {
-                Arc::new(PresentationRuntimeHeightmap::from_height_map(&heightmap))
-            })
+            let terrain = logic
+                .world_services
+                .terrain()
+                .read()
+                .unwrap_or_else(|error| error.into_inner());
+            logic
+                .terrain_heightmap_snapshot_with_terrain_logic(&terrain)
+                .map(|heightmap| {
+                    let mut snapshot = PresentationRuntimeHeightmap::from_height_map(&heightmap);
+                    snapshot.source_byte_heights = terrain.has_height_map();
+                    Arc::new(snapshot)
+                })
         });
         #[cfg(not(feature = "game_client"))]
         let runtime_heightmap = {
@@ -793,8 +807,9 @@ impl PresentationWorldEnv {
         )
     }
 
-    /// Sample the frozen full-resolution terrain using the same world-to-heightmap
-    /// mapping as Main's authoritative `TerrainData`.
+    /// Sample the frozen terrain presented to the player. Core-byte payloads use
+    /// original logical coordinates and triangle interpolation; synthetic payloads
+    /// retain their authored world-bounds mapping.
     ///
     /// Mouse picking must use this snapshot rather than re-locking `GameLogic`:
     /// a command is interpreted against the world which was actually presented
@@ -802,6 +817,9 @@ impl PresentationWorldEnv {
     /// and diagnostic consumers, but is not accurate enough for a camera ray.
     pub fn sample_gameplay_terrain_height(&self, world_x: f32, world_z: f32) -> Option<f32> {
         let heightmap = self.runtime_heightmap.as_ref()?;
+        if heightmap.source_byte_heights {
+            return super::camera_terrain::sample_camera_height(heightmap, world_x, world_z);
+        }
         if !heightmap.is_usable() {
             return None;
         }

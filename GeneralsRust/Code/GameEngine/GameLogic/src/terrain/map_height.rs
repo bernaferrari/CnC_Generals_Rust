@@ -6,6 +6,7 @@ impl TerrainLogic {
     pub fn new() -> Self {
         Self {
             map_data: Vec::new(),
+            height_revision: 0,
             map_dx: 0,
             map_dy: 0,
             map_min_z: 0.0,
@@ -52,6 +53,63 @@ impl TerrainLogic {
         &mut self,
         map_data: crate::system::map_loader::MapData,
     ) -> Vec<(BridgeInfo, AsciiString)> {
+        match self.try_load_map_geometry(map_data) {
+            Ok(bridges) => bridges,
+            Err(error) => {
+                log::error!("terrain map admission: {error}");
+                Vec::new()
+            }
+        }
+    }
+    /// Check a decoded map before a caller resets map-scoped subsystems.
+    pub fn validate_map_geometry(
+        map_data: &crate::system::map_loader::MapData,
+    ) -> Result<(), String> {
+        Self::map_geometry_extents(map_data).map(|_| ())
+    }
+
+    fn map_geometry_extents(
+        map_data: &crate::system::map_loader::MapData,
+    ) -> Result<(i32, i32), String> {
+        let width =
+            i32::try_from(map_data.width).map_err(|_| "terrain map width exceeds index domain")?;
+        let height = i32::try_from(map_data.height)
+            .map_err(|_| "terrain map height exceeds index domain")?;
+        let border = map_data.border_size;
+        let (width, height) =
+            if width == 0 && height == 0 && border == 0 && map_data.heightmap.is_empty() {
+                (0, 0)
+            } else {
+                let twice_border = border.checked_mul(2).ok_or("terrain map border overflow")?;
+                let full = width
+                    .checked_add(twice_border)
+                    .zip(height.checked_add(twice_border));
+                let full = full.filter(|&(w, h)| {
+                    border > 0
+                        && Self::checked_height_sample_len(w, h, border).ok()
+                            == Some(map_data.heightmap.len())
+                });
+                if let Some(full) = full {
+                    full
+                } else {
+                    let expected = Self::checked_height_sample_len(width, height, border)?;
+                    if expected != map_data.heightmap.len() {
+                        return Err("terrain map bytes disagree with full/sample dimensions".into());
+                    }
+                    (width, height)
+                }
+            };
+
+        Ok((width, height))
+    }
+
+    /// Validate shape before changing any receiving bytes, metadata or revision.
+    pub fn try_load_map_geometry(
+        &mut self,
+        map_data: crate::system::map_loader::MapData,
+    ) -> Result<Vec<(BridgeInfo, AsciiString)>, String> {
+        let (width, height) = Self::map_geometry_extents(&map_data)?;
+
         self.query_load_pending = false;
 
         // Store heightmap. MapData.width/height are playable (minus 2*border);
@@ -59,20 +117,10 @@ impl TerrainLogic {
         // full stride so indexing matches WorldHeightMap::getXExtent().
         // The parsed map is consumed here. Keep one live logical height buffer
         // for sampling, deformation and Xfer instead of an unused second copy.
+        self.bump_height_revision();
         self.map_data = map_data.heightmap;
-        let border = map_data.border_size.max(0);
-        let playable_w = map_data.width as i32;
-        let playable_h = map_data.height as i32;
-        let full_w = playable_w.saturating_add(2 * border);
-        let full_h = playable_h.saturating_add(2 * border);
-        let data_len = self.map_data.len() as i32;
-        if border > 0 && full_w > 0 && full_h > 0 && data_len == full_w.saturating_mul(full_h) {
-            self.map_dx = full_w;
-            self.map_dy = full_h;
-        } else {
-            self.map_dx = playable_w;
-            self.map_dy = playable_h;
-        }
+        self.map_dx = width;
+        self.map_dy = height;
         if let Some((&min_height, &max_height)) =
             self.map_data.iter().min().zip(self.map_data.iter().max())
         {
@@ -120,14 +168,15 @@ impl TerrainLogic {
         // CPP reserves layers in authored order; the terrain list prepends.
         // Return geometry in that original order without a CoreAI callback.
         self.bridge_list_head = None;
-        self.authored_bridges
+        Ok(self
+            .authored_bridges
             .iter()
             .enumerate()
             .filter_map(|(index, bridge)| {
                 Self::bridge_info_from_map_data(bridge, index as i32)
                     .map(|info| (info, AsciiString::from(bridge.template_name.as_str())))
             })
-            .collect()
+            .collect())
     }
 
     /// Snapshot parsed map bridge geometry.
@@ -190,6 +239,7 @@ impl TerrainLogic {
 
     /// Reset the terrain system
     pub fn reset(&mut self) {
+        self.bump_height_revision();
         self.map_data.clear();
         self.map_dx = 0;
         self.map_dy = 0;
@@ -349,17 +399,36 @@ impl TerrainLogic {
             return 0.0;
         }
 
-        let map_x = x / MAP_XY_FACTOR;
-        let map_y = y / MAP_XY_FACTOR;
+        // BaseHeightMap.cpp multiplies by the stored reciprocal, then uses
+        // FAST_REAL_FLOOR. Negative exact integers deliberately differ from
+        // mathematical floor after the source's almost-one subtraction.
+        const MAP_XY_FACTOR_INV: f32 = 1.0 / MAP_XY_FACTOR;
+        let map_x = x * MAP_XY_FACTOR_INV;
+        let map_y = y * MAP_XY_FACTOR_INV;
+        let (Ok(ixf), Ok(iyf)) = (
+            super::source_height_cell_floor(map_x),
+            super::source_height_cell_floor(map_y),
+        ) else {
+            // Original conversion is undefined outside its finite Int domain.
+            // Reject it without indexing or manufacturing a fallback cell.
+            if let Some(n) = normal {
+                *n = Coord3D::new(0.0, 0.0, 1.0);
+            }
+            return 0.0;
+        };
+        let fx = map_x - ixf as f32;
+        let fy = map_y - iyf as f32;
 
-        let ixf = map_x.floor();
-        let iyf = map_y.floor();
-        let fx = map_x - ixf;
-        let fy = map_y - iyf;
-
-        // C++ BaseHeightMap: ix/iy += getBorderSizeInline(); xExtent is full width.
-        let ix = ixf as i32 + self.border_size.max(0);
-        let iy = iyf as i32 + self.border_size.max(0);
+        // Add the authored border only after the source conversion.
+        let Some((ix, iy)) = ixf
+            .checked_add(self.border_size)
+            .zip(iyf.checked_add(self.border_size))
+        else {
+            if let Some(n) = normal {
+                *n = Coord3D::new(0.0, 0.0, 1.0);
+            }
+            return 0.0;
+        };
 
         let x_extent = self.map_dx;
         let y_extent = self.map_dy;

@@ -1319,7 +1319,12 @@ impl GameLogic {
         let radius = Self::structure_place_radius(obj).max(1.0);
         // C++ flattenTerrain returns immediately for GeometryIsSmall.
         let skip_flatten = geom.authored && geom.is_small;
-        if let Ok(mut terrain) = gamelogic::terrain::get_terrain_logic().write() {
+        let snapped_height = {
+            let mut terrain = self
+                .world_services
+                .terrain()
+                .write()
+                .unwrap_or_else(|error| error.into_inner());
             if terrain.has_height_map() {
                 if !skip_flatten {
                     if geom.authored
@@ -1333,20 +1338,19 @@ impl GameLogic {
                             geom.minor_radius,
                         );
                     } else if geom.authored {
-                        terrain.flatten_terrain_at(pos.x, pos.z, geom.major_radius.max(1.0));
+                        terrain.flatten_terrain_at(pos.x, pos.z, geom.major_radius);
                     } else {
                         terrain.flatten_terrain_at(pos.x, pos.z, radius);
                     }
                 }
-                let z = terrain.get_ground_height(pos.x, pos.z, None);
-                if let Some(obj) = self.objects.get_mut(&id) {
-                    obj.set_position(glam::Vec3::new(pos.x, z, pos.z));
-                }
-                self.sweep_under_construction_footprint_mines(id);
-                return;
+                Some(terrain.get_ground_height(pos.x, pos.z, None))
+            } else {
+                None
             }
-        }
-        if let Some(h) = self.terrain_height_at(pos) {
+        };
+        // Release the terrain loan before object callbacks and mine effects.
+        // Source order remains flatten -> snap -> pathfinder admission.
+        if let Some(h) = snapped_height.or_else(|| self.terrain_height_at(pos)) {
             if let Some(obj) = self.objects.get_mut(&id) {
                 obj.set_position(glam::Vec3::new(pos.x, h, pos.z));
             }
