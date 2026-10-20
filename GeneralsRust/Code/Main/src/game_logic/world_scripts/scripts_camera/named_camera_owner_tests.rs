@@ -50,17 +50,16 @@ fn named_camera_actions_use_receiving_id_and_exact_name() {
                 authored_named(&mut owner, &peer, kind, "FocusScout");
                 if kind == ScriptActionType::CameraLookTowardObject {
                     assert_eq!(
-                        owner.session_view.scripted.script_look_toward_object_id,
+                        owner.session_view.camera.rotation_registers.legacy_id(),
                         Some(id.0)
                     );
-                    let tracking = owner
-                        .session_view
-                        .scripted
-                        .object_tracking
-                        .as_ref()
-                        .unwrap();
-                    assert_eq!(tracking.last_position, position);
-                    assert_eq!(tracking.hold_frames, 60);
+                    let tracking = &owner.session_view.camera.rotation_registers;
+                    assert_eq!(
+                        tracking.cached_target(),
+                        None,
+                        "admission never observes the named target position"
+                    );
+                    assert_eq!(tracking.hold_frames(), 60);
                 } else {
                     assert_eq!(owner.camera_follow_object_id(), Some(id));
                     assert_eq!(
@@ -70,7 +69,7 @@ fn named_camera_actions_use_receiving_id_and_exact_name() {
                 }
                 assert_eq!(peer.camera_follow_object_id(), None);
                 assert_eq!(
-                    peer.session_view.scripted.script_look_toward_object_id,
+                    peer.session_view.camera.rotation_registers.legacy_id(),
                     None
                 );
                 assert_camera_queues_empty(&peer.mission_scripts);
@@ -102,10 +101,10 @@ fn named_camera_missing_and_case_mismatch_preserve_receiving_camera() {
                     assert_eq!(owner.camera_follow_object_id(), Some(id));
                     assert_eq!(owner.session_view.scripted.camera_tether_play, Some(7.));
                     assert_eq!(
-                        owner.session_view.scripted.script_look_toward_object_id,
+                        owner.session_view.camera.rotation_registers.legacy_id(),
                         None
                     );
-                    assert!(owner.session_view.scripted.object_tracking.is_none());
+                    assert!(!owner.session_view.camera.rotation_registers.is_tracking());
                     assert_eq!(owner.session_view.camera.camera_zoom_target, Some(2.));
                     assert_eq!(
                         owner.host_objects().len(),
@@ -162,7 +161,7 @@ fn named_camera_this_object_uses_driving_interpreter_and_restores_cursor() {
                 );
                 if kind == ScriptActionType::CameraLookTowardObject {
                     assert_eq!(
-                        owner.session_view.scripted.script_look_toward_object_id,
+                        owner.session_view.camera.rotation_registers.legacy_id(),
                         Some(id.0)
                     );
                 } else {
@@ -171,8 +170,8 @@ fn named_camera_this_object_uses_driving_interpreter_and_restores_cursor() {
                 // The cursor must restore after the subroutine; a plain action
                 // using THIS_OBJECT outside an object call is an owned miss.
                 owner.session_view.scripted.camera_follow_target = None;
-                owner.session_view.scripted.script_look_toward_object_id = None;
-                owner.session_view.scripted.object_tracking = None;
+                owner.session_view.camera.rotation_registers.finish();
+                let before_miss = owner.capture_camera_continuation().unwrap();
                 interpreter.friend_execute_action_with_driver(
                     &named_camera_action(kind, gamelogic::scripting::core::THIS_OBJECT),
                     None,
@@ -181,10 +180,11 @@ fn named_camera_this_object_uses_driving_interpreter_and_restores_cursor() {
                 );
                 assert_eq!(owner.camera_follow_object_id(), None);
                 assert_eq!(
-                    owner.session_view.scripted.script_look_toward_object_id,
-                    None
+                    owner.capture_camera_continuation().unwrap(),
+                    before_miss,
+                    "a rejected THIS_OBJECT lookup does not rewrite inactive source payload"
                 );
-                assert!(owner.session_view.scripted.object_tracking.is_none());
+                assert!(!owner.session_view.camera.rotation_registers.active());
                 assert_camera_queues_empty(&peer.mission_scripts);
             }
         },
@@ -208,25 +208,24 @@ fn authored_named_tracking_encoded_continuation_keeps_receiving_identity() {
                 "FocusScout",
             );
             let encoded = owner.capture_camera_continuation().unwrap();
-            peer.session_view.scripted.object_tracking = None;
+            peer.session_view.camera.rotation_registers.finish();
             peer.session_view.target = Vec3::new(-500., 0., -600.);
             restored
                 .admit_camera_continuation(GameLogic::decode_camera_continuation(&encoded).unwrap())
                 .unwrap();
             assert_eq!(restored.capture_camera_continuation().unwrap(), encoded);
             assert_eq!(
-                restored.session_view.scripted.script_look_toward_object_id,
+                restored.session_view.camera.rotation_registers.legacy_id(),
                 Some(id.0)
             );
             assert_eq!(
                 restored
                     .session_view
-                    .scripted
-                    .object_tracking
-                    .as_ref()
-                    .unwrap()
-                    .last_position,
-                owner.host_object(id).unwrap().get_position()
+                    .camera
+                    .rotation_registers
+                    .cached_target(),
+                None,
+                "V8 preserves unavailable pre-offer cache rather than admission position"
             );
             assert_eq!(peer.session_view.target, Vec3::new(-500., 0., -600.));
         },

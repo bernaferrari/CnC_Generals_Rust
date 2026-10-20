@@ -54,6 +54,12 @@ struct ScalarCameraState {
     rotation_timing: crate::presentation_frame::camera::rotation::RotationTiming,
 }
 
+#[derive(Serialize, Deserialize)]
+struct RegisteredCameraState {
+    base: ScalarCameraState,
+    rotation_registers: crate::presentation_frame::camera::registers::RotationRegistersState,
+}
+
 pub(super) fn encode_native_camera(
     engine: &CnCGameEngine,
     state: &CameraState,
@@ -75,7 +81,22 @@ pub(super) fn encode_native_camera(
             None
         }
     };
-    engine.game_logic.session_view.camera.rotation.validate()?;
+    let camera = &engine.game_logic.session_view.camera;
+    camera
+        .rotation_registers
+        .capture()
+        .validate_timing(camera.rotation)?;
+    let (start, target) = camera
+        .rotation_registers
+        .legacy_scalar(state.camera_yaw_radians);
+    if start.to_bits() != state.camera_yaw_start.to_bits()
+        || target.map(f32::to_bits) != state.camera_yaw_target.map(f32::to_bits)
+        || camera.rotation.duration_seconds().to_bits() != state.camera_yaw_duration.to_bits()
+        || camera.rotation.ease_in().to_bits() != state.camera_yaw_ease_in.to_bits()
+        || camera.rotation.ease_out().to_bits() != state.camera_yaw_ease_out.to_bits()
+    {
+        return Err("native camera projection disagrees with complete rotation owner".into());
+    }
     let mut base = defined_camera(
         state,
         engine.game_logic.session_view.camera.view_matrix,
@@ -90,11 +111,21 @@ pub(super) fn encode_native_camera(
         engine.game_logic.session_view.camera.clip_policy,
         engine.game_logic.session_view.camera.shake_policy,
     )?;
-    base.base.base.base.base.version = 7;
-    tagged(codec().serialize(&ScalarCameraState {
-        base,
-        rotation_timing: engine.game_logic.session_view.camera.rotation,
-    })?)
+    base.base.base.base.base.version = 8;
+    tagged(
+        codec().serialize(&RegisteredCameraState {
+            base: ScalarCameraState {
+                base,
+                rotation_timing: engine.game_logic.session_view.camera.rotation,
+            },
+            rotation_registers: engine
+                .game_logic
+                .session_view
+                .camera
+                .rotation_registers
+                .capture(),
+        })?,
+    )
 }
 
 fn validate_filter(filter: Option<(glam::Vec2, Vec3)>) -> Result<(), String> {
@@ -300,6 +331,7 @@ pub(super) fn decode_native_camera(bytes: &[u8]) -> Result<NativeCameraContinuat
                     saved.camera,
                     NativeCameraExtras {
                         rotation_timing: None,
+                        rotation_registers: None,
                         clip_policy: None,
                         shake_policy: None,
                         camera_settings: None,
@@ -317,6 +349,7 @@ pub(super) fn decode_native_camera(bytes: &[u8]) -> Result<NativeCameraContinuat
                     saved.camera,
                     NativeCameraExtras {
                         rotation_timing: None,
+                        rotation_registers: None,
                         clip_policy: None,
                         shake_policy: None,
                         camera_settings: None,
@@ -334,6 +367,7 @@ pub(super) fn decode_native_camera(bytes: &[u8]) -> Result<NativeCameraContinuat
                     saved.base.camera,
                     NativeCameraExtras {
                         rotation_timing: None,
+                        rotation_registers: None,
                         clip_policy: None,
                         shake_policy: None,
                         camera_settings: None,
@@ -352,6 +386,7 @@ pub(super) fn decode_native_camera(bytes: &[u8]) -> Result<NativeCameraContinuat
                     saved.base.base.camera,
                     NativeCameraExtras {
                         rotation_timing: None,
+                        rotation_registers: None,
                         clip_policy: None,
                         shake_policy: None,
                         camera_settings: None,
@@ -371,6 +406,7 @@ pub(super) fn decode_native_camera(bytes: &[u8]) -> Result<NativeCameraContinuat
                     saved.base.base.base.camera,
                     NativeCameraExtras {
                         rotation_timing: None,
+                        rotation_registers: None,
                         clip_policy: None,
                         shake_policy: None,
                         camera_settings: Some(saved.camera_settings),
@@ -391,6 +427,7 @@ pub(super) fn decode_native_camera(bytes: &[u8]) -> Result<NativeCameraContinuat
                     saved.base.base.base.base.camera,
                     NativeCameraExtras {
                         rotation_timing: None,
+                        rotation_registers: None,
                         clip_policy: Some(saved.clip_policy),
                         shake_policy: Some(saved.shake_policy),
                         camera_settings: Some(saved.base.camera_settings),
@@ -420,6 +457,31 @@ pub(super) fn decode_native_camera(bytes: &[u8]) -> Result<NativeCameraContinuat
                     );
                 }
                 extras.rotation_timing = Some(saved.rotation_timing);
+                return Ok(NativeCameraContinuation(camera, extras));
+            }
+            8 => {
+                let saved: RegisteredCameraState = codec().deserialize(payload)?;
+                saved.rotation_registers.validate()?;
+                let mut base = saved.base;
+                base.base.base.base.base.base.version = 7;
+                let old = tagged(codec().serialize(&base)?)?;
+                let NativeCameraContinuation(camera, mut extras) = decode_native_camera(&old)?;
+                let registers =
+                    crate::presentation_frame::camera::registers::RotationRegisters::restore(
+                        saved.rotation_registers.clone(),
+                    );
+                let (start, target) = registers.legacy_scalar(camera.camera_yaw_radians);
+                if start.to_bits() != camera.camera_yaw_start.to_bits()
+                    || target.map(f32::to_bits) != camera.camera_yaw_target.map(f32::to_bits)
+                {
+                    return Err("native camera register projection disagrees".into());
+                }
+                saved.rotation_registers.validate_timing(
+                    extras
+                        .rotation_timing
+                        .ok_or("complete native camera registers are missing timing")?,
+                )?;
+                extras.rotation_registers = Some(saved.rotation_registers);
                 return Ok(NativeCameraContinuation(camera, extras));
             }
             _ => return Err("unsupported native camera phase version".into()),
@@ -583,15 +645,25 @@ mod tests {
                 .serialize(&world.session_view.camera.shake_policy)
                 .unwrap()
                 .len();
-        // Current logic is V7: its complete timing record follows frozen V6.
-        // Remove that exact typed suffix before projecting V6 to genuine V5.
-        assert_eq!(&saved[4..8], &7u32.to_le_bytes());
+        // Current V8 appends complete registers after the frozen V7 timing.
+        // Remove typed suffixes rather than altering either historical schema.
+        assert_eq!(&saved[4..8], &8u32.to_le_bytes());
+        let register_tail = codec()
+            .serialize(&world.session_view.camera.rotation_registers.capture())
+            .unwrap()
+            .len();
+        let mut old_v7_bytes = saved.clone();
+        old_v7_bytes.truncate(old_v7_bytes.len() - register_tail);
+        old_v7_bytes[4..8].copy_from_slice(&7u32.to_le_bytes());
+        let old_v7 =
+            crate::game_logic::GameLogic::decode_camera_continuation(&old_v7_bytes).unwrap();
+        native.validate_logic_continuation(&old_v7).unwrap();
         let timing_tail = codec()
             .serialize(&world.session_view.camera.rotation)
             .unwrap()
             .len();
         let mut old_logic_bytes = saved.clone();
-        old_logic_bytes.truncate(old_logic_bytes.len() - timing_tail - tail);
+        old_logic_bytes.truncate(old_logic_bytes.len() - register_tail - timing_tail - tail);
         old_logic_bytes[4..8].copy_from_slice(&5u32.to_le_bytes());
         let old_logic =
             crate::game_logic::GameLogic::decode_camera_continuation(&old_logic_bytes).unwrap();
@@ -910,3 +982,7 @@ mod scalar_time_v7_tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "register_v8_tests.rs"]
+mod register_v8_tests;

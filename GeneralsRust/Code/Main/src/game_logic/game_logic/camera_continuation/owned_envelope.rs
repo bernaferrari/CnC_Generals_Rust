@@ -4,7 +4,7 @@ use super::*;
 // A historical record starts with Option<Vec3>'s 0/1 discriminant. FF cannot
 // prefix a valid old record, so malformed envelopes never fall back to legacy.
 const MAGIC: &[u8; 4] = b"\xffLCF";
-const VERSION: u32 = 7;
+const VERSION: u32 = 8;
 
 /// The first owned envelope is retained byte for byte as an input-only schema.
 #[derive(Serialize, Deserialize)]
@@ -64,6 +64,12 @@ struct EnvelopeV6 {
 struct EnvelopeV7 {
     base: EnvelopeV6,
     rotation_timing: crate::presentation_frame::camera::rotation::RotationTiming,
+}
+
+#[derive(Serialize, Deserialize)]
+struct EnvelopeV8 {
+    base: EnvelopeV7,
+    rotation_registers: crate::presentation_frame::camera::registers::RotationRegistersState,
 }
 
 /// Input/output schema of the original V2 tracking payload, retained exactly.
@@ -175,12 +181,19 @@ pub(super) fn encode(state: &LogicCameraContinuation) -> Result<Vec<u8>, String>
             .shake_policy
             .ok_or("camera shake capture missing")?,
     };
-    let payload = codec().serialize(&EnvelopeV7 {
-        base: v6,
-        rotation_timing: state
+    let payload = codec().serialize(&EnvelopeV8 {
+        base: EnvelopeV7 {
+            base: v6,
+            rotation_timing: state
+                .owned_extras
+                .rotation_timing
+                .ok_or("rotation timing capture missing")?,
+        },
+        rotation_registers: state
             .owned_extras
-            .rotation_timing
-            .ok_or("scalar rotation time capture missing")?,
+            .rotation_registers
+            .clone()
+            .ok_or("rotation registers capture missing")?,
     })?;
     let mut bytes = Vec::with_capacity(payload.len() + 8);
     bytes.extend_from_slice(MAGIC);
@@ -230,10 +243,20 @@ pub(super) fn decode(bytes: &[u8]) -> Result<LogicCameraContinuation, String> {
             decode_filter(&mut state, envelope.filter)?;
             Ok(state)
         }
-        2 | 3 | 4 | 5 | 6 | VERSION => {
+        2 | 3 | 4 | 5 | 6 | 7 | VERSION => {
             let version = u32::from_le_bytes(bytes[4..8].try_into().unwrap());
-            let (v6, rotation_timing) = if version == VERSION {
-                let current: EnvelopeV7 = codec().deserialize(&bytes[8..])?;
+            let (v7, rotation_registers) = if version == VERSION {
+                let current: EnvelopeV8 = codec().deserialize(&bytes[8..])?;
+                current.rotation_registers.validate()?;
+                (Some(current.base), Some(current.rotation_registers))
+            } else {
+                (None, None)
+            };
+            let (v6, rotation_timing) = if version >= 7 {
+                let current: EnvelopeV7 = match v7 {
+                    Some(current) => current,
+                    None => codec().deserialize(&bytes[8..])?,
+                };
                 (Some(current.base), Some(current.rotation_timing))
             } else {
                 (None, None)
@@ -291,6 +314,7 @@ pub(super) fn decode(bytes: &[u8]) -> Result<LogicCameraContinuation, String> {
             };
             let mut state: LogicCameraContinuation =
                 codec().deserialize(&envelope.legacy_record)?;
+            state.owned_extras.rotation_registers = rotation_registers;
             state.owned_extras.pending_focus_previous_target =
                 envelope.pending_focus_previous_target;
             state.owned_extras.motion = envelope.motion;
@@ -351,3 +375,7 @@ mod clip_v6_tests;
 #[cfg(test)]
 #[path = "scalar_time_v7_tests.rs"]
 mod scalar_time_v7_tests;
+
+#[cfg(test)]
+#[path = "rotation_payload_v8_tests.rs"]
+mod rotation_payload_v8_tests;

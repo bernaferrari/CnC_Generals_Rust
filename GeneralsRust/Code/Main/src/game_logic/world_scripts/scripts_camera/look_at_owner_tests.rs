@@ -93,7 +93,7 @@ fn assert_axes(world: &GameLogic, zoom: u32, pitch: u32) {
         "LookAt must preserve independent pitch clock"
     );
     assert!(!world.session_view.scripted.motion.active);
-    assert!(world.session_view.camera.camera_yaw_target.is_none());
+    assert!(!world.session_view.camera.rotation_registers.active());
     assert!(world.pending_camera_rotate.is_none());
 }
 
@@ -474,7 +474,10 @@ fn actual_rotate_completion_clears_stored_freeze_while_independent_axes_remain_u
             );
             assert!(owner.is_script_camera_time_frozen());
             offer_frames(&mut owner, 30);
-            assert_eq!(owner.session_view.camera.camera_yaw_target, None);
+            assert_eq!(
+                owner.session_view.camera.rotation_registers.scalar_target(),
+                None
+            );
             assert_eq!(remaining_frames(&owner, true), 60);
             assert_eq!(remaining_frames(&owner, false), 91);
             assert!(

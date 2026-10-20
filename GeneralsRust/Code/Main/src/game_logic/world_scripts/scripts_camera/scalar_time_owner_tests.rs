@@ -35,7 +35,7 @@ fn authored_scalar_rotation_final_speed_belongs_to_receiving_view() {
             "same-ID peer is not the camera multiplier owner"
         );
     }
-    assert!(first.session_view.camera.camera_yaw_target.is_none());
+    assert!(!first.session_view.camera.rotation_registers.active());
 }
 
 #[test]
@@ -89,7 +89,7 @@ fn authored_scalar_speed_save_continuation_and_peer_interleaving_are_independent
     }
     assert_eq!(source.visual_speed_multiplier, 3.0);
     let saved = source.capture_camera_continuation().unwrap();
-    assert_eq!(&saved[4..8], &7u32.to_le_bytes());
+    assert_eq!(&saved[4..8], &8u32.to_le_bytes());
     let (mut restored, restored_id, _) = world(110.0);
     assert_eq!(source_id, restored_id);
     restored
@@ -130,8 +130,16 @@ fn authored_scalar_speed_save_continuation_and_peer_interleaving_are_independent
         restored.visual_speed_multiplier
     );
     assert_eq!(
-        source.session_view.camera.camera_yaw_target,
-        restored.session_view.camera.camera_yaw_target
+        source
+            .session_view
+            .camera
+            .rotation_registers
+            .scalar_target(),
+        restored
+            .session_view
+            .camera
+            .rotation_registers
+            .scalar_target()
     );
 }
 
@@ -161,8 +169,8 @@ fn authored_waypoint_look_and_freeze_angle_keep_the_same_rotation_time_owner() {
     ));
     let interpreter = run(&mut world, engine(hooks, list));
     assert_eq!(world.visual_speed_multiplier, 1.0);
-    assert!(world.session_view.camera.camera_yaw_target.is_some());
-    assert!(world.session_view.scripted.object_tracking.is_none());
+    assert!(world.session_view.camera.rotation_registers.active());
+    assert!(!world.session_view.camera.rotation_registers.is_tracking());
     let angle = world.session_view.camera.camera_yaw_radians.to_bits();
     for expected in [2.0, 3.0, 4.0, 5.0] {
         world
@@ -196,7 +204,7 @@ fn authored_scalar_rotation_replaces_tracking_identity_before_continuation_captu
     ));
     let hooks = world.mission_scripts.clone();
     run(&mut world, engine(hooks, tracking));
-    assert!(world.session_view.scripted.object_tracking.is_some());
+    assert!(world.session_view.camera.rotation_registers.is_tracking());
     let mut rotate = ScriptList::new();
     rotate.append_script(script(
         "ScalarSecond",
@@ -208,12 +216,13 @@ fn authored_scalar_rotation_replaces_tracking_identity_before_continuation_captu
     ));
     let hooks = world.mission_scripts.clone();
     let interpreter = run(&mut world, engine(hooks, rotate));
-    assert!(world.session_view.scripted.object_tracking.is_none());
+    assert!(!world.session_view.camera.rotation_registers.is_tracking());
     assert!(
         world
             .session_view
-            .scripted
-            .script_look_toward_object_id
+            .camera
+            .rotation_registers
+            .legacy_id()
             .is_none()
     );
     let saved = world.capture_camera_continuation().unwrap();
@@ -256,11 +265,10 @@ fn authored_tracking_freeze_then_near_zero_look_retains_common_curve_and_union_p
         .unwrap();
     let cached = owner
         .session_view
-        .scripted
-        .object_tracking
-        .as_ref()
-        .unwrap()
-        .last_position;
+        .camera
+        .rotation_registers
+        .cached_target()
+        .unwrap();
     let timing = owner.session_view.camera.rotation;
     let frame = owner.session_view.camera.camera_yaw_frame;
     let mut near_zero = ScriptList::new();
@@ -284,16 +292,23 @@ fn authored_tracking_freeze_then_near_zero_look_retains_common_curve_and_union_p
     let foreign_before = peer.capture_camera_continuation().unwrap();
     let owner_interpreter = run(&mut owner, engine(peer.mission_scripts.clone(), near_zero));
     assert_eq!(peer.capture_camera_continuation().unwrap(), foreign_before);
-    assert!(owner.session_view.scripted.object_tracking.is_none());
+    assert!(!owner.session_view.camera.rotation_registers.is_tracking());
     assert!(
         owner
             .session_view
-            .scripted
-            .script_look_toward_object_id
+            .camera
+            .rotation_registers
+            .legacy_id()
             .is_none()
     );
     assert_eq!(
-        owner.session_view.camera.camera_yaw_start.to_bits(),
+        owner
+            .session_view
+            .camera
+            .rotation_registers
+            .scalar_start()
+            .unwrap_or(0.)
+            .to_bits(),
         0,
         "freeze cleared the source ID, not the tracking variant"
     );
@@ -301,7 +316,8 @@ fn authored_tracking_freeze_then_near_zero_look_retains_common_curve_and_union_p
         owner
             .session_view
             .camera
-            .camera_yaw_target
+            .rotation_registers
+            .scalar_target()
             .map(f32::to_bits),
         Some(cached.x.to_bits())
     );
@@ -376,7 +392,7 @@ fn authored_tracking_negative_multiplier_uses_original_nearest_rounding_on_live_
     assert_eq!(owner.session_view.camera.rotation.time.start, 5);
     assert_eq!(owner.session_view.camera.rotation.time.end, 2);
     assert_eq!(
-        owner.session_view.scripted.script_look_toward_object_id,
+        owner.session_view.camera.rotation_registers.legacy_id(),
         Some(owner_id.0)
     );
     assert_eq!(owner.session_view.camera.camera_yaw_frame, 0);
@@ -396,18 +412,17 @@ fn authored_tracking_negative_multiplier_uses_original_nearest_rounding_on_live_
     assert_eq!(
         owner
             .session_view
-            .scripted
-            .object_tracking
-            .as_ref()
-            .unwrap()
-            .last_position,
+            .camera
+            .rotation_registers
+            .cached_target()
+            .unwrap(),
         first_target
     );
     assert_ne!(
         owner.session_view.camera.camera_yaw_radians.to_bits(),
         angle_before.to_bits()
     );
-    assert!(owner.session_view.camera.camera_yaw_target.is_some());
+    assert!(owner.session_view.camera.rotation_registers.active());
     // Original BaseType fast_float_floor under GameLogic's RC_NEAR:
     // delta=-3 * 0.5=-1.5; float(0.5+delta)=-1; subtract almost1 rounds
     // to-2, then truncation gives-2, so the first view multiplier is5-2=3.
@@ -426,14 +441,13 @@ fn authored_tracking_negative_multiplier_uses_original_nearest_rounding_on_live_
     assert_eq!(
         owner
             .session_view
-            .scripted
-            .object_tracking
-            .as_ref()
-            .unwrap()
-            .last_position,
+            .camera
+            .rotation_registers
+            .cached_target()
+            .unwrap(),
         second_target
     );
     assert_eq!(owner.visual_speed_multiplier, 2.);
-    assert!(owner.session_view.camera.camera_yaw_target.is_none());
+    assert!(!owner.session_view.camera.rotation_registers.active());
     assert_eq!(peer.capture_camera_continuation().unwrap(), peer_before);
 }

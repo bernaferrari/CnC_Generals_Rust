@@ -106,7 +106,7 @@ fn camera_mod_final_look_toward_uses_remaining_script_camera_time() {
     game_logic.headless_camera_view_offer(33).unwrap();
     assert_eq!(game_logic.session_view.scripted.motion.elapsed_ms, 33);
     assert!(game_logic.session_view.camera.camera_yaw_radians < 0.);
-    assert!(game_logic.session_view.camera.camera_yaw_target.is_none());
+    assert!(!game_logic.session_view.camera.rotation_registers.active());
 }
 
 #[test]
@@ -777,8 +777,15 @@ fn camera_mod_freeze_angle_pins_in_flight_rotate() {
     game_logic.mission_scripts.push_camera_mod_freeze_angle();
     game_logic.evaluate_and_execute_scripts(0.0);
     let camera = &game_logic.session_view.camera;
-    assert_eq!(camera.camera_yaw_start.to_bits(), pinned.to_bits());
-    assert_eq!(camera.camera_yaw_target, Some(pinned));
+    assert_eq!(
+        camera
+            .rotation_registers
+            .scalar_start()
+            .unwrap_or(0.)
+            .to_bits(),
+        pinned.to_bits()
+    );
+    assert_eq!(camera.rotation_registers.scalar_target(), Some(pinned));
     assert_eq!(camera.rotation.duration_seconds(), 2.);
     assert_eq!(
         camera.camera_yaw_frame, 10,
@@ -788,7 +795,11 @@ fn camera_mod_freeze_angle_pins_in_flight_rotate() {
         game_logic.headless_camera_view_offer(33).unwrap();
     }
     assert_eq!(
-        game_logic.session_view.camera.camera_yaw_target,
+        game_logic
+            .session_view
+            .camera
+            .rotation_registers
+            .scalar_target(),
         Some(pinned)
     );
     assert_eq!(
@@ -796,7 +807,7 @@ fn camera_mod_freeze_angle_pins_in_flight_rotate() {
         pinned.to_bits()
     );
     game_logic.headless_camera_view_offer(33).unwrap();
-    assert!(game_logic.session_view.camera.camera_yaw_target.is_none());
+    assert!(!game_logic.session_view.camera.rotation_registers.active());
     assert_eq!(
         game_logic.session_view.camera.camera_yaw_radians.to_bits(),
         pinned.to_bits()
@@ -963,10 +974,17 @@ fn camera_mod_freeze_angle_pins_already_queued_rotate() {
     game_logic.evaluate_and_execute_scripts(0.0);
     let camera = &game_logic.session_view.camera;
     assert_eq!(
-        camera.camera_yaw_start.to_bits(),
+        camera
+            .rotation_registers
+            .scalar_start()
+            .unwrap_or(0.)
+            .to_bits(),
         camera.camera_yaw_radians.to_bits()
     );
-    assert_eq!(camera.camera_yaw_target, Some(camera.camera_yaw_radians));
+    assert_eq!(
+        camera.rotation_registers.scalar_target(),
+        Some(camera.camera_yaw_radians)
+    );
     assert_eq!(camera.rotation.duration_seconds(), 2.);
     assert_eq!(camera.camera_yaw_frame, 0);
     let pinned = camera.camera_yaw_radians;
@@ -974,7 +992,11 @@ fn camera_mod_freeze_angle_pins_already_queued_rotate() {
         game_logic.headless_camera_view_offer(33).unwrap();
     }
     assert_eq!(
-        game_logic.session_view.camera.camera_yaw_target,
+        game_logic
+            .session_view
+            .camera
+            .rotation_registers
+            .scalar_target(),
         Some(pinned)
     );
     assert_eq!(
@@ -982,7 +1004,7 @@ fn camera_mod_freeze_angle_pins_already_queued_rotate() {
         pinned.to_bits()
     );
     game_logic.headless_camera_view_offer(33).unwrap();
-    assert!(game_logic.session_view.camera.camera_yaw_target.is_none());
+    assert!(!game_logic.session_view.camera.rotation_registers.active());
     assert_eq!(
         game_logic.session_view.camera.camera_yaw_radians.to_bits(),
         pinned.to_bits()

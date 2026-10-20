@@ -63,6 +63,48 @@ impl ValidateCamera for LogicCameraContinuation {
         if let Some(timing) = self.owned_extras.rotation_timing {
             timing.validate()?;
         }
+        if let Some(state) = &self.owned_extras.rotation_registers {
+            // Complete V8 payloads require the whole observation. Historical
+            // records retain their separate, deliberately permissive migration.
+            let camera = self
+                .owned_extras
+                .camera
+                .as_ref()
+                .ok_or("complete camera registers are missing camera")?;
+            self.owned_extras
+                .target
+                .ok_or("complete camera registers are missing target")?;
+            let timing = self
+                .owned_extras
+                .rotation_timing
+                .ok_or("complete camera continuation is missing its rotation timing")?;
+            state.validate_timing(timing)?;
+            camera.validate_rotation_observation(timing)?;
+            let registers =
+                crate::presentation_frame::camera::registers::RotationRegisters::restore(
+                    state.clone(),
+                );
+            camera.validate_register_observation(state)?;
+            let expected = registers.is_tracking().then(|| {
+                (
+                    registers.hold_frames(),
+                    registers
+                        .cached_target()
+                        .unwrap_or(Vec3::ZERO)
+                        .to_array()
+                        .map(f32::to_bits),
+                )
+            });
+            let observed = self.owned_extras.object_tracking.as_ref().map(|tracking| {
+                (
+                    tracking.hold_frames,
+                    tracking.last_position.to_array().map(f32::to_bits),
+                )
+            });
+            if observed != expected || self.script_look_toward_object_id != registers.legacy_id() {
+                return Err("camera tracking projection disagrees with complete registers".into());
+            }
+        }
         self.owned_extras.constraints.validate()?;
         if let Some(shake) = self.owned_extras.shake_policy {
             shake.validate()?;

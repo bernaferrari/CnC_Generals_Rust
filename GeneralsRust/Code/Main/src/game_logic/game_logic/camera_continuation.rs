@@ -70,6 +70,8 @@ struct CameraOwnedExtras {
     target: Option<Vec3>,
     path_arrived: bool,
     object_tracking: Option<CameraObjectTracking>,
+    rotation_registers:
+        Option<crate::presentation_frame::camera::registers::RotationRegistersState>,
     rotation_timing: Option<crate::presentation_frame::camera::rotation::RotationTiming>,
     follow_snap_immediate: bool,
     constraints: crate::presentation_frame::camera::constraints::CameraConstraints,
@@ -83,6 +85,12 @@ fn codec() -> CameraCodec<MAX_BYTES> {
 }
 
 impl LogicCameraContinuation {
+    pub(crate) fn owned_rotation_registers(
+        &self,
+    ) -> Option<&crate::presentation_frame::camera::registers::RotationRegistersState> {
+        self.owned_extras.rotation_registers.as_ref()
+    }
+
     pub(crate) fn owned_rotation_timing(
         &self,
     ) -> Option<crate::presentation_frame::camera::rotation::RotationTiming> {
@@ -163,10 +171,13 @@ mod path_v1;
 impl GameLogic {
     pub(crate) fn capture_camera_continuation(&self) -> Result<Vec<u8>, String> {
         let camera = SessionCameraState::capture(&self.session_view.camera);
-        let [rotate_remaining, zoom_remaining, pitch_remaining] = camera.remaining_axis_seconds(
-            self.session_view.scripted.object_tracking.as_ref(),
-            Some(self.session_view.camera.rotation),
-        );
+        let registers = &self.session_view.camera.rotation_registers;
+        let tracking = registers.is_tracking().then(|| CameraObjectTracking {
+            hold_frames: registers.hold_frames(),
+            last_position: registers.cached_target().unwrap_or(Vec3::ZERO),
+        });
+        let [rotate_remaining, zoom_remaining, pitch_remaining] = camera
+            .remaining_axis_seconds(tracking.as_ref(), Some(self.session_view.camera.rotation));
         let state = LogicCameraContinuation {
             pending_camera_focus: self.pending_camera_focus.clone(),
             script_camera_focus_estimate: self.session_view.target,
@@ -174,15 +185,8 @@ impl GameLogic {
             script_camera_path: None,
             camera_follow_target: self.session_view.scripted.camera_follow_target.clone(),
             camera_tether_play: self.session_view.scripted.camera_tether_play.clone(),
-            script_look_toward_object_id: self
-                .session_view
-                .scripted
-                .script_look_toward_object_id
-                .clone(),
-            script_look_toward_hold_seconds: self
-                .session_view
-                .scripted
-                .object_tracking
+            script_look_toward_object_id: registers.legacy_id(),
+            script_look_toward_hold_seconds: tracking
                 .as_ref()
                 .map_or(0., |tracking| tracking.hold_frames as f32 * 33. / 1000.),
             script_default_camera_pitch: self
@@ -237,7 +241,8 @@ impl GameLogic {
                 camera: Some(camera),
                 target: Some(self.session_view.target),
                 path_arrived: self.session_view.scripted.path_arrived,
-                object_tracking: self.session_view.scripted.object_tracking.clone(),
+                object_tracking: tracking,
+                rotation_registers: Some(registers.capture()),
                 rotation_timing: Some(self.session_view.camera.rotation),
                 follow_snap_immediate: self.session_view.camera.camera_follow_snap_immediate,
                 constraints: self.session_view.camera.constraints,
@@ -292,13 +297,25 @@ impl GameLogic {
         self.pending_camera_focus = state.pending_camera_focus;
         self.session_view.scripted.motion = state.owned_extras.motion;
         self.session_view.scripted.path_arrived = state.owned_extras.path_arrived;
-        self.session_view.scripted.object_tracking = state.owned_extras.object_tracking;
         self.session_view.target = state
             .owned_extras
             .target
             .unwrap_or(state.script_camera_focus_estimate);
         if let Some(camera) = state.owned_extras.camera {
             camera.admit(&mut self.session_view.camera);
+        }
+        if let Some(registers) = state.owned_extras.rotation_registers {
+            self.session_view.camera.rotation_registers =
+                crate::presentation_frame::camera::registers::RotationRegisters::restore(registers);
+        } else if let Some(tracking) = state.owned_extras.object_tracking {
+            let position = tracking.last_position;
+            self.session_view.camera.rotation_registers =
+                crate::presentation_frame::camera::registers::RotationRegisters::import_v7_tracking(
+                    state.script_look_toward_object_id.unwrap_or(0),
+                    [position.x, position.z, position.y],
+                    self.session_view.camera.rotation_registers.active(),
+                    tracking.hold_frames,
+                );
         }
         if let Some(timing) = state.owned_extras.rotation_timing {
             self.session_view.camera.rotation = timing;
@@ -320,8 +337,6 @@ impl GameLogic {
         }
         self.session_view.scripted.camera_follow_target = state.camera_follow_target;
         self.session_view.scripted.camera_tether_play = state.camera_tether_play;
-        self.session_view.scripted.script_look_toward_object_id =
-            state.script_look_toward_object_id;
         self.session_view.scripted.script_default_camera_pitch = state.script_default_camera_pitch;
         self.session_view.scripted.script_default_camera_angle = state.script_default_camera_angle;
         self.session_view.scripted.script_default_camera_max_height =

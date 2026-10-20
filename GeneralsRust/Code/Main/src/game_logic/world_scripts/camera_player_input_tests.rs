@@ -89,7 +89,15 @@ fn delivered_equal_x_rotation_is_a_setter_but_opposite_held_keys_are_not() {
     let mut world = owner();
     let peer = owner();
     let peer_saved = peer.capture_camera_continuation().unwrap();
-    world.session_view.camera.camera_yaw_target = Some(0.4);
+    world.session_view.camera.rotation_registers.begin_scalar(
+        world
+            .session_view
+            .camera
+            .rotation_registers
+            .scalar_start()
+            .unwrap_or(0.),
+        0.4,
+    );
     world.session_view.camera.rotation =
         crate::presentation_frame::camera::rotation::RotationTiming::historical(
             1.,
@@ -128,7 +136,7 @@ fn delivered_equal_x_rotation_is_a_setter_but_opposite_held_keys_are_not() {
         .admit_player_camera_rotation(0., &mut ScriptPresentationEffects::default())
         .unwrap();
     assert_eq!(world.session_view.camera.camera_yaw_radians, yaw);
-    assert!(world.session_view.camera.camera_yaw_target.is_none());
+    assert!(!world.session_view.camera.rotation_registers.active());
     assert!(world.session_view.camera.camera_zoom_target.is_none());
     assert_eq!(
         world.session_view.camera.script_camera_shakers[0].elapsed_seconds,

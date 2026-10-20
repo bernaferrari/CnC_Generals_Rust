@@ -48,7 +48,9 @@ fn owner() -> GameLogic {
     camera.camera_yaw_radians = 0.6;
     camera.camera_pitch_radians = 0.2;
     camera.camera_fx_pitch = 0.4;
-    camera.camera_yaw_target = Some(2.);
+    camera
+        .rotation_registers
+        .begin_scalar(camera.rotation_registers.scalar_start().unwrap_or(0.), 2.);
     camera.camera_zoom_target = Some(2.);
     camera.camera_pitch_target = Some(2.);
     camera.camera_slave_mode = Some(CameraSlaveModeRequest {
@@ -114,7 +116,10 @@ fn short_mmb_defaults_keep_first_setter_motion_then_cancel_second_and_sample_pos
         world.mmb_angle_pitch_defaults(&mut effects).unwrap();
         assert!(world.session_view.scripted.motion.active);
         assert!(world.session_view.scripted.path_arrived);
-        assert_eq!(world.session_view.camera.camera_yaw_target, Some(2.));
+        assert_eq!(
+            world.session_view.camera.rotation_registers.scalar_target(),
+            Some(2.)
+        );
         assert_eq!(world.session_view.camera.camera_zoom_target, Some(2.));
         assert_eq!(world.session_view.camera.camera_pitch_target, Some(2.));
         assert_eq!(world.session_view.camera.camera_yaw_radians, 0.);
@@ -168,7 +173,7 @@ fn short_mmb_defaults_keep_first_setter_motion_then_cancel_second_and_sample_pos
             assert_eq!(after[key], hag_before[key]);
         }
         assert!(
-            camera.camera_yaw_target.is_none()
+            !camera.rotation_registers.active()
                 && camera.camera_pitch_target.is_none()
                 && camera.camera_zoom_target.is_none()
         );
@@ -348,13 +353,33 @@ fn actual_script_default_and_logic_v5_restore_preserve_captures_not_current_inpu
     );
     assert_eq!(before, peer.capture_camera_continuation().unwrap());
     let mut malformed = saved.clone();
-    let shake_len = world.session_view.camera.shake_policy;
-    let shake_len = crate::save_load::camera_codec::CameraCodec::<{ 4 * 1024 * 1024 }>
-        .serialize(&shake_len)
+    assert_eq!(&saved[4..8], &8u32.to_le_bytes());
+    let codec = crate::save_load::camera_codec::CameraCodec::<{ 4 * 1024 * 1024 }>;
+    // V5's final settings field precedes the appended V6-V8 owner payloads.
+    // Identify it explicitly so a new suffix cannot redirect this corruption
+    // into raw rotation words, which can legitimately contain any bit pattern.
+    let suffix_len = codec
+        .serialize(&world.session_view.camera.clip_policy)
         .unwrap()
-        .len();
-    let len = malformed.len() - shake_len;
-    malformed[len - 6..len - 2].copy_from_slice(&f32::NAN.to_le_bytes());
+        .len()
+        + codec
+            .serialize(&world.session_view.camera.shake_policy)
+            .unwrap()
+            .len()
+        + codec
+            .serialize(&world.session_view.camera.rotation)
+            .unwrap()
+            .len()
+        + codec
+            .serialize(&world.session_view.camera.rotation_registers.capture())
+            .unwrap()
+            .len();
+    let settings_end = malformed.len() - suffix_len;
+    assert_eq!(
+        &saved[settings_end - 4..settings_end],
+        &world.session_view.camera.settings.maximum().to_le_bytes()
+    );
+    malformed[settings_end - 4..settings_end].copy_from_slice(&f32::NAN.to_le_bytes());
     assert!(crate::game_logic::GameLogic::decode_camera_continuation(&malformed).is_err());
     assert_eq!(before, peer.capture_camera_continuation().unwrap());
 }

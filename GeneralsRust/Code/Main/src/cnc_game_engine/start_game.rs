@@ -1473,17 +1473,13 @@ impl CnCGameEngine {
         self.game_logic.session_view.camera.camera_pitch_ease_in = 0.0;
         self.game_logic.session_view.camera.camera_pitch_ease_out = 0.0;
 
-        self.game_logic.session_view.camera.camera_yaw_target = None;
-        self.game_logic.session_view.camera.camera_yaw_start =
-            self.game_logic.session_view.camera.camera_yaw_radians;
-        self.game_logic.session_view.camera.rotation =
-            crate::presentation_frame::camera::rotation::RotationTiming::historical(
-                0.,
-                0.,
-                0.,
-                self.game_logic.session_view.camera.rotation.time,
-            );
-        self.game_logic.session_view.camera.camera_yaw_frame = 0;
+        self.game_logic
+            .session_view
+            .camera
+            .rotation_registers
+            .finish();
+        // Positional View restore cancels activity; rcInfo timing and its
+        // persistent union payload are not part of original View::xfer.
 
         if let Err(error) = self.set_native_camera_transform() {
             log::error!("camera transform: {error}");
@@ -2279,7 +2275,11 @@ impl CnCGameEngine {
         self.game_logic.session_view.camera.camera_pitch_radians = 0.0;
         self.game_logic.session_view.camera.camera_yaw_radians = 0.0;
         self.game_logic.session_view.camera.camera_pitch_target = None;
-        self.game_logic.session_view.camera.camera_yaw_target = None;
+        self.game_logic
+            .session_view
+            .camera
+            .rotation_registers
+            .finish();
         if let Err(error) = self.set_native_camera_transform() {
             log::error!("camera transform: {error}");
         }

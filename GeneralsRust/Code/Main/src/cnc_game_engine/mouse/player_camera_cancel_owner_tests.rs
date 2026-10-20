@@ -65,7 +65,7 @@ fn receiving_player_cancel_scopes_preserve_peer_and_foreign_core() {
             let zoom = scrolling.session_view.camera.camera_zoom_target;
             let pitch = scrolling.session_view.camera.camera_pitch_target;
             scrolling.cancel_scripted_camera_from_player_scroll();
-            assert!(scrolling.session_view.camera.camera_yaw_target.is_none());
+            assert!(!scrolling.session_view.camera.rotation_registers.active());
             assert_eq!(
                 scrolling.session_view.camera.rotation.duration_seconds(),
                 5.
@@ -82,14 +82,14 @@ fn receiving_player_cancel_scopes_preserve_peer_and_foreign_core() {
             look.session_view.scripted.path_arrived = true;
             look.cancel_scripted_camera_from_player_look_at();
             assert!(!look.session_view.scripted.path_arrived);
-            assert!(look.session_view.camera.camera_yaw_target.is_none());
+            assert!(!look.session_view.camera.rotation_registers.active());
             assert!(look.session_view.camera.camera_zoom_target.is_some());
             assert!(look.session_view.camera.camera_pitch_target.is_some());
             assert!(look.session_view.scripted.script_camera_freeze_time);
             let mut setting = owner();
             setting.cancel_scripted_camera_from_player_set();
             assert!(!setting.session_view.scripted.motion.active);
-            assert!(setting.session_view.camera.camera_yaw_target.is_none());
+            assert!(!setting.session_view.camera.rotation_registers.active());
             assert!(setting.session_view.camera.camera_pitch_target.is_none());
             assert!(setting.session_view.camera.camera_zoom_target.is_none());
             assert_eq!(setting.session_view.camera.rotation.duration_seconds(), 5.);

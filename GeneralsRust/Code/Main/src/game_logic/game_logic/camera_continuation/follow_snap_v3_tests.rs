@@ -10,7 +10,7 @@ fn pending_snap_v3_roundtrips_without_extending_frozen_v2_or_logic40() {
             .unwrap();
     world.session_view.camera.camera_follow_snap_immediate = true;
     let bytes = world.capture_camera_continuation().unwrap();
-    assert_eq!(&bytes[4..8], &7_u32.to_le_bytes());
+    assert_eq!(&bytes[4..8], &8_u32.to_le_bytes());
     let pending = decode(&bytes).unwrap();
     assert!(pending.owned_follow_snap_immediate());
     assert_eq!(
@@ -22,8 +22,9 @@ fn pending_snap_v3_roundtrips_without_extending_frozen_v2_or_logic40() {
         codec().serialize(&pending.owned_extras.camera).unwrap()
     );
     let v5: EnvelopeV5 = codec()
-        .deserialize::<EnvelopeV7>(&bytes[8..])
+        .deserialize::<EnvelopeV8>(&bytes[8..])
         .unwrap()
+        .base
         .base
         .base;
     let v4 = v5.base;
@@ -59,7 +60,7 @@ fn pending_snap_v3_roundtrips_without_extending_frozen_v2_or_logic40() {
     assert!(!receiving.session_view.camera.camera_follow_snap_immediate);
     assert_eq!(peer_before, peer.capture_camera_continuation().unwrap());
     let unchanged = receiving.capture_camera_continuation().unwrap();
-    // V3 is a frozen V2 prefix followed by this bool. Current V6 retains
+    // V3 is a frozen V2 prefix followed by this bool. Current V8 retains
     // that exact nested prefix but ends in clip/shake rule floats, not snap.
     let snap_offset = 8 + codec().serialize(&v3.base).unwrap().len();
     for mut invalid in [old3, bytes] {

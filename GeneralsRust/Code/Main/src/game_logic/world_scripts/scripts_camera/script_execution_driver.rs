@@ -2145,7 +2145,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
 #[path = "water_owner_tests.rs"]
 mod water_owner_tests;
 
-#[cfg(any(test, feature = "internal"))]
+#[cfg(any(test, feature = "internal", feature = "game_client"))]
 impl GameLogic {
     /// Execute an acceptance interpreter through the actual borrowed Main driver.
     /// No driver or engine is installed into process state.

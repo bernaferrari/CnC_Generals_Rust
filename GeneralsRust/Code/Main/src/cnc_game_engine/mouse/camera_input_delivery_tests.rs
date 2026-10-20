@@ -58,7 +58,15 @@ fn delivered_equal_x_cursor_is_a_setter_while_absent_event_and_idle_keys_are_not
     assert_eq!(modes.mmb_press_frame, 37);
     assert_eq!(modes.last_mouse_move_frame, 777);
     assert!(rotating);
-    world.session_view.camera.camera_yaw_target = Some(0.5);
+    world.session_view.camera.rotation_registers.begin_scalar(
+        world
+            .session_view
+            .camera
+            .rotation_registers
+            .scalar_start()
+            .unwrap_or(0.),
+        0.5,
+    );
     world.session_view.camera.rotation =
         crate::presentation_frame::camera::rotation::RotationTiming::historical(
             1.,
@@ -113,7 +121,7 @@ fn delivered_equal_x_cursor_is_a_setter_while_absent_event_and_idle_keys_are_not
             .unwrap()
     );
     assert_eq!(world.session_view.camera.camera_yaw_radians, yaw);
-    assert!(world.session_view.camera.camera_yaw_target.is_none());
+    assert!(!world.session_view.camera.rotation_registers.active());
     assert_eq!(anchor, Some((100., 101.)));
     assert_eq!(
         world.session_view.camera.script_camera_shakers[0].elapsed_seconds,
@@ -198,7 +206,15 @@ fn actual_winit_wheel_delta_per_detent_and_opposite_keys_share_engine_loan_opera
             modes.take_scripted_camera_player_cancel(),
             ScriptedCameraPlayerCancel::Set
         );
-        world.session_view.camera.camera_yaw_target = Some(0.5);
+        world.session_view.camera.rotation_registers.begin_scalar(
+            world
+                .session_view
+                .camera
+                .rotation_registers
+                .scalar_start()
+                .unwrap_or(0.),
+            0.5,
+        );
         world.session_view.camera.rotation =
             crate::presentation_frame::camera::rotation::RotationTiming::historical(
                 1.,

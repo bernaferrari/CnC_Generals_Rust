@@ -125,7 +125,7 @@ impl GameLogic {
 
         if !camera_focus.move_to_selection.is_empty() {
             // C++ cameraModFinalMoveTo does not alter an active rotate.
-            if self.session_view.camera.camera_yaw_target.is_none() {
+            if !self.session_view.camera.rotation_registers.active() {
                 if let Some(center) = self.selected_objects_center_for_local_player() {
                     self.session_view.scripted.motion.final_move_to(
                         crate::presentation_frame::waypoint::Point::from_world(center),
@@ -406,7 +406,6 @@ impl GameLogic {
                 self.pending_camera_rotate = None;
                 self.install_camera_object_tracking(
                     last.object_id,
-                    position,
                     last.duration_seconds,
                     last.hold_seconds,
                     last.ease_in_seconds,
@@ -815,7 +814,7 @@ impl GameLogic {
 
     fn install_owned_final_zoom(&mut self, factor: f32, ease_in: f32, ease_out: f32) {
         if !self.session_view.scripted.motion.active
-            && self.session_view.camera.camera_yaw_target.is_none()
+            && !self.session_view.camera.rotation_registers.active()
         {
             return;
         }
@@ -849,7 +848,7 @@ impl GameLogic {
     }
     fn install_owned_final_pitch(&mut self, pitch: f32, ease_in: f32, ease_out: f32) {
         if !self.session_view.scripted.motion.active
-            && self.session_view.camera.camera_yaw_target.is_none()
+            && !self.session_view.camera.rotation_registers.active()
         {
             return;
         }

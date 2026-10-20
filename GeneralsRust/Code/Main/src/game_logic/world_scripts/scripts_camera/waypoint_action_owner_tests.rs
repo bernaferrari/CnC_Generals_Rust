@@ -129,7 +129,7 @@ fn assert_effect(world: &GameLogic, kind: ScriptActionType, x: f32, ground: f32)
                 (1.1, 0.2, 0.3)
             );
             assert!(request.reverse_rotation);
-            assert!(native.camera_yaw_target.is_some());
+            assert!(native.rotation_registers.active());
         }
         ScriptActionType::CameraModLookToward | ScriptActionType::CameraModFinalLookToward => {
             assert!(motion.active);

@@ -761,14 +761,8 @@ fn assert_remaining_effect(world: &mut GameLogic, kind: ScriptActionType, id: Ob
             );
             assert_eq!(
                 (
-                    world.session_view.scripted.script_look_toward_object_id,
-                    world
-                        .session_view
-                        .scripted
-                        .object_tracking
-                        .as_ref()
-                        .unwrap()
-                        .hold_frames
+                    world.session_view.camera.rotation_registers.legacy_id(),
+                    world.session_view.camera.rotation_registers.hold_frames()
                 ),
                 (Some(id.0), 60)
             );
@@ -1153,3 +1147,7 @@ mod receiving_view_effect_tests;
 
 #[path = "scalar_time_owner_tests.rs"]
 mod scalar_time_owner_tests;
+
+#[cfg(test)]
+#[path = "persistent_register_owner_tests.rs"]
+mod persistent_register_owner_tests;

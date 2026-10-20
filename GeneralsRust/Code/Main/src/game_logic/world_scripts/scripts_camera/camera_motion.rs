@@ -2,7 +2,6 @@
 //! W3DView.cpp setupWaypointPath/moveAlongWaypointPath/updateCameraMovements.
 use super::*;
 use crate::presentation_frame::camera::motion::MotionAdmission;
-use crate::presentation_frame::scripted::CameraObjectTracking;
 use crate::presentation_frame::waypoint::{Point, WaypointMotion};
 
 const CAMERA_FRAME_MS: i32 = 33;
@@ -57,7 +56,6 @@ impl GameLogic {
         }
         self.pending_camera_rotate = None;
         self.pending_camera_look_toward = None;
-        self.session_view.scripted.script_look_toward_object_id = None;
         let disable_camera_movement = self.camera_movement_disabled();
         self.session_view.install_motion(
             motion,
@@ -118,7 +116,6 @@ impl GameLogic {
         }
         self.pending_camera_rotate = None;
         self.pending_camera_look_toward = None;
-        self.session_view.scripted.script_look_toward_object_id = None;
         let disable_camera_movement = self.camera_movement_disabled();
         self.session_view.install_motion(
             motion,
@@ -154,7 +151,7 @@ impl GameLogic {
     }
     pub(super) fn script_camera_has_orientation_motion(&self) -> bool {
         let camera = &self.session_view.camera;
-        camera.camera_yaw_target.is_some()
+        camera.rotation_registers.active()
             || camera.camera_zoom_target.is_some()
             || camera.camera_pitch_target.is_some()
     }
@@ -162,7 +159,7 @@ impl GameLogic {
         &mut self,
     ) {
         let camera = &mut self.session_view.camera;
-        camera.camera_yaw_target = None;
+        camera.rotation_registers.finish();
         camera.camera_zoom_target = None;
         camera.camera_pitch_target = None;
     }
@@ -172,15 +169,13 @@ impl GameLogic {
     }
     pub(in crate::game_logic::game_logic) fn script_camera_remaining_seconds(&self) -> f32 {
         let camera = &self.session_view.camera;
-        if camera.camera_yaw_target.is_some() {
-            let frames = self
-                .session_view
-                .scripted
-                .object_tracking
-                .as_ref()
-                .map_or(camera.rotation.turn_frames, |tracking| {
-                    camera.rotation.turn_frames + tracking.hold_frames
-                });
+        if camera.rotation_registers.active() {
+            let frames = camera.rotation.turn_frames
+                + if camera.rotation_registers.is_tracking() {
+                    camera.rotation_registers.hold_frames()
+                } else {
+                    0
+                };
             return frames.saturating_sub(camera.camera_yaw_frame) as f32 * CAMERA_FRAME_MS as f32
                 / 1000.0;
         }
@@ -221,13 +216,9 @@ impl GameLogic {
         // there is no armed request applied to a later unrelated movement.
         self.session_view.scripted.motion.freeze_angle();
         let camera = &mut self.session_view.camera;
-        if camera.camera_yaw_target.is_some()
-            && self.session_view.scripted.object_tracking.is_none()
-        {
-            camera.camera_yaw_start = camera.camera_yaw_radians;
-            camera.camera_yaw_target = Some(camera.camera_yaw_radians);
-        }
-        self.session_view.scripted.script_look_toward_object_id = None;
+        camera
+            .rotation_registers
+            .freeze_angle(camera.camera_yaw_radians);
         self.pending_camera_look_toward = None;
     }
     pub(in crate::game_logic::game_logic) fn apply_script_camera_mod_look_toward(
@@ -248,7 +239,7 @@ impl GameLogic {
         &mut self,
         request: &CameraModFinalSpeedMultiplierRequest,
     ) {
-        if self.session_view.camera.camera_yaw_target.is_some() {
+        if self.session_view.camera.rotation_registers.active() {
             self.session_view.camera.rotation.time.end = request.multiplier;
             return;
         }
@@ -315,7 +306,6 @@ impl GameLogic {
     pub(super) fn install_camera_object_tracking(
         &mut self,
         object_id: u32,
-        position: Vec3,
         seconds: f32,
         hold_seconds: f32,
         ease_in: f32,
@@ -326,11 +316,10 @@ impl GameLogic {
         let multiplier = self.visual_speed_multiplier as i32;
         self.session_view.camera.rotation.time =
             crate::presentation_frame::camera::rotation::RotationTime::constant(multiplier);
-        self.session_view.scripted.object_tracking = Some(CameraObjectTracking {
-            hold_frames,
-            last_position: position,
-        });
-        self.session_view.scripted.script_look_toward_object_id = Some(object_id);
+        self.session_view
+            .camera
+            .rotation_registers
+            .begin_tracking(object_id, hold_frames);
         self.session_view.scripted.motion.active = false;
         self.session_view.scripted.path_arrived = false;
         let camera = &mut self.session_view.camera;
@@ -341,31 +330,37 @@ impl GameLogic {
             ease_out,
             camera.rotation.time,
         );
-        camera.camera_yaw_target = Some(camera.camera_yaw_radians);
         self.mark_script_camera_movement_maybe_finished();
     }
     fn advance_camera_object_tracking(&mut self, admission: MotionAdmission) {
-        if !admission.advances() || self.session_view.camera.camera_yaw_target.is_none() {
+        if !admission.advances()
+            || !self.session_view.camera.rotation_registers.active()
+            || !self.session_view.camera.rotation_registers.is_tracking()
+        {
             return;
         }
-        let current = self
-            .session_view
-            .scripted
-            .script_look_toward_object_id
-            .and_then(|id| self.objects.get(&ObjectId(id)))
-            .map(|object| object.get_position());
-        let Some(tracking) = self.session_view.scripted.object_tracking.as_mut() else {
-            return;
-        };
         let camera = &mut self.session_view.camera;
         camera.camera_yaw_frame = camera.camera_yaw_frame.saturating_add(1);
         let frame = camera.camera_yaw_frame;
-        let final_frame = camera.rotation.turn_frames + tracking.hold_frames;
+        let final_frame = camera.rotation.turn_frames + camera.rotation_registers.hold_frames();
         if !admission.disable_camera_movement && frame <= final_frame {
-            if let Some(position) = current {
-                tracking.last_position = position;
-            }
-            let direction = tracking.last_position - self.session_view.target;
+            let current = camera
+                .rotation_registers
+                .tracking_id()
+                .filter(|id| *id != 0)
+                .and_then(|id| self.objects.get(&ObjectId(id)))
+                .map(|object| object.get_position());
+            camera.rotation_registers.observe_tracking(current);
+            let Some(cached) = camera.rotation_registers.cached_target() else {
+                // No C++ initialized target position exists yet. Do not invent
+                // admission/zero/current-pose coordinates. Expire normally.
+                if frame >= final_frame {
+                    camera.rotation_registers.finish();
+                    self.session_view.scripted.script_camera_freeze_time = false;
+                }
+                return;
+            };
+            let direction = cached - self.session_view.target;
             let length =
                 f64::from(direction.x * direction.x + direction.z * direction.z).sqrt() as f32;
             if length >= 0.1 {
@@ -389,7 +384,7 @@ impl GameLogic {
             }
         }
         if frame >= final_frame {
-            camera.camera_yaw_target = None;
+            camera.rotation_registers.finish();
             self.session_view.scripted.script_camera_freeze_time = false;
         }
     }

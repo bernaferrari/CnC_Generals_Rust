@@ -6,8 +6,15 @@ use super::*;
 fn configure_native(world: &mut GameLogic, yaw: f32, zoom: f32, ground: f32, desired: f32) {
     let camera = &mut world.session_view.camera;
     camera.camera_yaw_radians = yaw;
-    camera.camera_yaw_start = yaw - 0.25;
-    camera.camera_yaw_target = Some(yaw + 0.5);
+    camera.rotation_registers =
+        crate::presentation_frame::camera::registers::RotationRegisters::import_v7_scalar(
+            yaw - 0.25,
+            camera.rotation_registers.scalar_target(),
+        );
+    camera.rotation_registers.begin_scalar(
+        camera.rotation_registers.scalar_start().unwrap_or(0.),
+        yaw + 0.5,
+    );
     camera.camera_yaw_frame = 7;
     camera.rotation = crate::presentation_frame::camera::rotation::RotationTiming::historical(
         3.,
@@ -33,8 +40,8 @@ fn native_receipt(world: &GameLogic) -> Vec<u8> {
     let camera = &world.session_view.camera;
     serde_json::to_vec(&(
         camera.camera_yaw_radians,
-        camera.camera_yaw_start,
-        camera.camera_yaw_target,
+        camera.rotation_registers.scalar_start().unwrap_or(0.),
+        camera.rotation_registers.scalar_target(),
         camera.camera_yaw_frame,
         camera.rotation.duration_seconds(),
         camera.camera_zoom,

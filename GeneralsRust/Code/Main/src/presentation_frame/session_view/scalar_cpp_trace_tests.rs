@@ -18,13 +18,13 @@ fn observe(rows: &mut Vec<Value>, scenario: &str, phase: &str, view: &SessionVie
         "scenario":scenario,"phase":phase,
         "cur_frame":view.camera.camera_yaw_frame,
         "num_frames":view.camera.rotation.turn_frames,
-        "hold_frames":view.scripted.object_tracking.as_ref().map_or(0, |value|value.hold_frames),
-        "track_object":u8::from(view.scripted.object_tracking.is_some()),
+        "hold_frames":view.camera.rotation_registers.hold_frames(),
+        "track_object":u8::from(view.camera.rotation_registers.is_tracking()),
         "start_multiplier":view.camera.rotation.time.start,
         "end_multiplier":view.camera.rotation.time.end,
         "multiplier":speed as i32,
         "angle_bits":view.camera.camera_yaw_radians.to_bits(),
-        "active":u8::from(view.camera.camera_yaw_target.is_some()),
+        "active":u8::from(view.camera.rotation_registers.active()),
     }));
 }
 fn offer(view: &mut SessionView, speed: &mut f32, mode: MotionAdmission) {
@@ -47,7 +47,7 @@ fn actual_receiving_scalar_rows_for_original_cpp_comparison() {
             observe(&mut rows, "ordinary", "normal", &view, speed);
         }
         assert_eq!(speed, 5.);
-        assert!(view.camera.camera_yaw_target.is_none());
+        assert!(!view.camera.rotation_registers.active());
     }
     {
         let mut view = SessionView::default();

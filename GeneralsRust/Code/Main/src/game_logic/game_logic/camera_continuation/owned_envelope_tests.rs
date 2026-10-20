@@ -23,14 +23,23 @@ fn v1_bytes(state: &LogicCameraContinuation) -> Vec<u8> {
     bytes
 }
 
+fn v7_bytes_from_current(current: &[u8]) -> Vec<u8> {
+    let current: EnvelopeV8 = codec().deserialize(&current[8..]).unwrap();
+    let mut bytes = MAGIC.to_vec();
+    bytes.extend(7u32.to_le_bytes());
+    bytes.extend(codec().serialize(&current.base).unwrap());
+    bytes
+}
+
 // Input-only historical fixtures are typed projections of the unchanged V2
 // payload. V3 adds snap; V4 wraps V3 with the new constraint cache.
 fn v2_bytes_from_current(current: &[u8]) -> Vec<u8> {
     assert_eq!(&current[..4], MAGIC);
-    assert_eq!(&current[4..8], &7_u32.to_le_bytes());
+    assert_eq!(&current[4..8], &8_u32.to_le_bytes());
     let current: EnvelopeV5 = codec()
-        .deserialize::<EnvelopeV7>(&current[8..])
+        .deserialize::<EnvelopeV8>(&current[8..])
         .unwrap()
+        .base
         .base
         .base;
     let current = current.base;
@@ -41,10 +50,11 @@ fn v2_bytes_from_current(current: &[u8]) -> Vec<u8> {
 }
 fn v3_bytes_from_current(current: &[u8]) -> Vec<u8> {
     assert_eq!(&current[..4], MAGIC);
-    assert_eq!(&current[4..8], &7_u32.to_le_bytes());
+    assert_eq!(&current[4..8], &8_u32.to_le_bytes());
     let current: EnvelopeV5 = codec()
-        .deserialize::<EnvelopeV7>(&current[8..])
+        .deserialize::<EnvelopeV8>(&current[8..])
         .unwrap()
+        .base
         .base
         .base;
     let current = current.base;
@@ -59,8 +69,24 @@ fn camera_owner_v2_is_self_contained_without_a_native_block_and_leaves_peer_unch
     let mut source = GameLogic::new();
     source.session_view.target = Vec3::new(31., 42., 53.);
     source.session_view.camera.camera_yaw_radians = 0.7;
-    source.session_view.camera.camera_yaw_target = Some(1.2);
-    source.session_view.camera.camera_yaw_start = 0.7;
+    source.session_view.camera.rotation_registers.begin_scalar(
+        source
+            .session_view
+            .camera
+            .rotation_registers
+            .scalar_start()
+            .unwrap_or(0.),
+        1.2,
+    );
+    source.session_view.camera.rotation_registers =
+        crate::presentation_frame::camera::registers::RotationRegisters::import_v7_scalar(
+            0.7,
+            source
+                .session_view
+                .camera
+                .rotation_registers
+                .scalar_target(),
+        );
     source.session_view.camera.rotation =
         crate::presentation_frame::camera::rotation::RotationTiming::historical(
             2.0,
@@ -90,8 +116,9 @@ fn camera_owner_v2_is_self_contained_without_a_native_block_and_leaves_peer_unch
     let current = source.capture_camera_continuation().unwrap();
     let v2 = v2_bytes_from_current(&current);
     let frozen_v6 = codec()
-        .deserialize::<EnvelopeV7>(&current[8..])
+        .deserialize::<EnvelopeV8>(&current[8..])
         .unwrap()
+        .base
         .base;
     let mut v6 = MAGIC.to_vec();
     v6.extend_from_slice(&6u32.to_le_bytes());
@@ -100,7 +127,8 @@ fn camera_owner_v2_is_self_contained_without_a_native_block_and_leaves_peer_unch
         (2_u32, v2),
         (3_u32, v3_bytes_from_current(&current)),
         (6_u32, v6),
-        (7_u32, current.clone()),
+        (7_u32, v7_bytes_from_current(&current)),
+        (8_u32, current.clone()),
     ] {
         assert_eq!(&bytes[..4], MAGIC);
         assert_eq!(&bytes[4..8], &version.to_le_bytes());
@@ -114,7 +142,10 @@ fn camera_owner_v2_is_self_contained_without_a_native_block_and_leaves_peer_unch
         let mut receiving = GameLogic::new();
         receiving.admit_camera_continuation(state).unwrap();
         let recaptured = receiving.capture_camera_continuation().unwrap();
-        assert_eq!(recaptured, current);
+        assert_eq!(
+            v7_bytes_from_current(&recaptured),
+            v7_bytes_from_current(&current)
+        );
         if version == 2 {
             // Reproject the admitted state to the historical schema as well:
             // the import must preserve every old V2 field and byte.
@@ -125,13 +156,16 @@ fn camera_owner_v2_is_self_contained_without_a_native_block_and_leaves_peer_unch
             // Compare the admitted state through the frozen V6 schema, while
             // the assertion above independently checks current V7 capture.
             let projected = codec()
-                .deserialize::<EnvelopeV7>(&recaptured[8..])
+                .deserialize::<EnvelopeV8>(&recaptured[8..])
                 .unwrap()
+                .base
                 .base;
             let mut historical = MAGIC.to_vec();
             historical.extend_from_slice(&6u32.to_le_bytes());
             historical.extend(codec().serialize(&projected).unwrap());
             assert_eq!(historical, bytes);
+        } else if version == 7 {
+            assert_eq!(v7_bytes_from_current(&recaptured), bytes);
         } else {
             assert_eq!(recaptured, bytes);
         }
@@ -229,6 +263,7 @@ fn camera_owner_v2_rejects_conflicting_legacy_projection_and_trailing_bytes() {
     for saved in [
         v2_bytes_from_current(&current),
         v3_bytes_from_current(&current),
+        v7_bytes_from_current(&current),
         current,
     ] {
         let version = u32::from_le_bytes(saved[4..8].try_into().unwrap());
@@ -257,6 +292,15 @@ fn camera_owner_v2_rejects_conflicting_legacy_projection_and_trailing_bytes() {
                 codec()
                     .deserialize::<EnvelopeV7>(&saved[8..])
                     .unwrap()
+                    .base
+                    .base
+                    .base
+            }
+            8 => {
+                codec()
+                    .deserialize::<EnvelopeV8>(&saved[8..])
+                    .unwrap()
+                    .base
                     .base
                     .base
                     .base
@@ -299,6 +343,11 @@ fn camera_owner_v2_rejects_conflicting_legacy_projection_and_trailing_bytes() {
                 original.base.base.base = envelope;
                 codec().serialize(&original).unwrap()
             }
+            8 => {
+                let mut original: EnvelopeV8 = codec().deserialize(&saved[8..]).unwrap();
+                original.base.base.base.base = envelope;
+                codec().serialize(&original).unwrap()
+            }
             _ => unreachable!(),
         };
         let mut malformed = saved[..8].to_vec();
@@ -320,14 +369,18 @@ fn camera_owner_v2_preserves_tracking_turn_hold_cache_and_actual_frame_future() 
     let mut source = GameLogic::new();
     source.session_view.camera.rotation.time =
         crate::presentation_frame::camera::rotation::RotationTime { start: 1, end: 3 };
-    source.session_view.scripted.object_tracking = Some(CameraObjectTracking {
-        hold_frames: 4,
-        last_position: Vec3::new(80., 15., 120.),
-    });
+    source
+        .session_view
+        .camera
+        .rotation_registers
+        .begin_tracking(42, 4);
+    source
+        .session_view
+        .camera
+        .rotation_registers
+        .observe_tracking(Some(Vec3::new(80., 15., 120.)));
     // The object has disappeared; the original rotation retains its own last
     // target observation throughout the remaining turn and hold frames.
-    source.session_view.scripted.script_look_toward_object_id = Some(42);
-    source.session_view.camera.camera_yaw_target = Some(0.2);
     source.session_view.camera.camera_yaw_radians = 0.2;
     source.session_view.camera.rotation =
         crate::presentation_frame::camera::rotation::RotationTiming::historical(
@@ -353,17 +406,12 @@ fn camera_owner_v2_preserves_tracking_turn_hold_cache_and_actual_frame_future() 
         );
     }
     assert_eq!(receiving.session_view.camera.camera_yaw_frame, 7);
-    assert!(receiving.session_view.camera.camera_yaw_target.is_none());
+    assert!(!receiving.session_view.camera.rotation_registers.active());
     assert!(!receiving.session_view.scripted.script_camera_freeze_time);
     assert_eq!(receiving.visual_speed_multiplier(), 3.);
-    let tracking = receiving
-        .session_view
-        .scripted
-        .object_tracking
-        .as_ref()
-        .unwrap();
-    assert_eq!(tracking.last_position, Vec3::new(80., 15., 120.));
-    assert_eq!(tracking.hold_frames, 4);
+    let tracking = &receiving.session_view.camera.rotation_registers;
+    assert_eq!(tracking.cached_target().unwrap(), Vec3::new(80., 15., 120.));
+    assert_eq!(tracking.hold_frames(), 4);
 }
 
 #[test]
@@ -409,16 +457,34 @@ fn camera_owner_reset_cancels_actual_scalar_and_tracking_flags_without_replacing
         .camera
         .native_camera
         .set_height(270., 40., 500.);
-    world.session_view.camera.camera_yaw_target = Some(0.7);
+    world.session_view.camera.rotation_registers.begin_scalar(
+        world
+            .session_view
+            .camera
+            .rotation_registers
+            .scalar_start()
+            .unwrap_or(0.),
+        0.7,
+    );
     world.session_view.camera.camera_pitch_target = Some(1.2);
     world.session_view.camera.camera_zoom_target = Some(0.8);
-    world.session_view.camera.rotation.time =
-        crate::presentation_frame::camera::rotation::RotationTime { start: 1, end: 1 };
-    world.session_view.scripted.object_tracking = Some(CameraObjectTracking {
-        hold_frames: 4,
-        last_position: Vec3::new(80., 15., 120.),
-    });
-    world.session_view.scripted.script_look_toward_object_id = Some(42);
+    world.session_view.camera.rotation =
+        crate::presentation_frame::camera::rotation::RotationTiming::milliseconds(
+            99,
+            0.,
+            0.,
+            crate::presentation_frame::camera::rotation::RotationTime { start: 1, end: 1 },
+        );
+    world
+        .session_view
+        .camera
+        .rotation_registers
+        .begin_tracking(42, 4);
+    world
+        .session_view
+        .camera
+        .rotation_registers
+        .observe_tracking(Some(Vec3::new(80., 15., 120.)));
     let peer = GameLogic::new();
     let peer_before = peer.capture_camera_continuation().unwrap();
     let position = world.session_view.camera.camera_position;
@@ -434,16 +500,21 @@ fn camera_owner_reset_cancels_actual_scalar_and_tracking_flags_without_replacing
         )
         .unwrap();
     world.reset();
-    assert!(world.session_view.camera.camera_yaw_target.is_none());
+    assert!(!world.session_view.camera.rotation_registers.active());
     assert!(world.session_view.camera.camera_zoom_target.is_none());
     assert!(world.session_view.camera.camera_pitch_target.is_none());
-    assert!(world.session_view.scripted.object_tracking.is_none());
-    assert!(
-        world
-            .session_view
-            .scripted
-            .script_look_toward_object_id
-            .is_none()
+    assert!(world.session_view.camera.rotation_registers.is_tracking());
+    assert_eq!(
+        world.session_view.camera.rotation_registers.tracking_id(),
+        Some(42)
+    );
+    assert_eq!(
+        world.session_view.camera.rotation_registers.cached_target(),
+        Some(Vec3::new(80., 15., 120.))
+    );
+    assert_eq!(
+        world.session_view.camera.rotation_registers.hold_frames(),
+        4
     );
     assert!(!world.session_view.scripted.motion.active);
     assert_eq!(world.session_view.camera.camera_position, position);
@@ -476,8 +547,9 @@ fn current_v5_to_input_v2_removes_only_owned_settings_cache_and_snap_extensions(
     world.session_view.camera.camera_follow_snap_immediate = true;
     let current = world.capture_camera_continuation().unwrap();
     let saved: EnvelopeV5 = codec()
-        .deserialize::<EnvelopeV7>(&current[8..])
+        .deserialize::<EnvelopeV8>(&current[8..])
         .unwrap()
+        .base
         .base
         .base;
     let saved = saved.base;

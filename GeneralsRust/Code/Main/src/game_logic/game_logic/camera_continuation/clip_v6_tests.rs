@@ -171,8 +171,12 @@ fn v6_preserves_pending_clip_inputs_v5_is_frozen_and_uses_receiving_policy() {
     let saved_shake = source.session_view.camera.shake_policy;
     let installed = source.session_view.camera.projection_matrix;
     let bytes = source.capture_camera_continuation().unwrap();
-    assert_eq!(&bytes[4..8], &7u32.to_le_bytes());
-    let current: EnvelopeV6 = codec().deserialize::<EnvelopeV7>(&bytes[8..]).unwrap().base;
+    assert_eq!(&bytes[4..8], &8u32.to_le_bytes());
+    let current: EnvelopeV6 = codec()
+        .deserialize::<EnvelopeV8>(&bytes[8..])
+        .unwrap()
+        .base
+        .base;
     let mut old = MAGIC.to_vec();
     old.extend_from_slice(&5u32.to_le_bytes());
     old.extend(codec().serialize(&current.base).unwrap());

@@ -70,6 +70,58 @@ pub(crate) fn step_axis(
 ) -> AxisStep {
     step_axis_with_rotation(axis, kind, admission, None)
 }
+pub(crate) fn step_registered_rotation(
+    value: &mut f32,
+    frame: &mut u32,
+    registers: &mut super::registers::RotationRegisters,
+    timing: super::rotation::RotationTiming,
+    admission: MotionAdmission,
+) -> AxisStep {
+    if !registers.active() {
+        return AxisStep {
+            eased_factor: None,
+            was_active: false,
+            changed: false,
+            completed: false,
+        };
+    }
+    let Some([start, end]) = registers.scalar_angles() else {
+        // No complete finite scalar interval is available from the union.
+        // Safe deterministic Rust expires this undefined/nonfinite source
+        // numeric case without fabricating an angle or clock sample.
+        let completed = admission.advances() && {
+            *frame = frame.saturating_add(1);
+            *frame >= timing.turn_frames
+        };
+        if completed {
+            registers.finish();
+        }
+        return AxisStep {
+            eased_factor: None,
+            was_active: true,
+            changed: false,
+            completed,
+        };
+    };
+    let mut target = Some(end);
+    let result = step_rotation(
+        AxisMotion {
+            value,
+            target: &mut target,
+            frame,
+            start,
+            duration_seconds: timing.duration_seconds(),
+            ease_in_seconds: timing.ease_in(),
+            ease_out_seconds: timing.ease_out(),
+        },
+        timing,
+        admission,
+    );
+    if result.completed {
+        registers.finish();
+    }
+    result
+}
 pub(crate) fn step_rotation(
     axis: AxisMotion<'_>,
     timing: super::rotation::RotationTiming,

@@ -294,11 +294,11 @@ fn authored_rotate_cancels_receiving_path_preserves_axes_and_continues_after_res
             // waypoint path. Independent scalar motion and stored freeze survive.
             assert!(!owner.session_view.scripted.motion.active);
             assert!(!owner.session_view.scripted.path_arrived);
-            assert!(owner.session_view.scripted.object_tracking.is_none());
+            assert!(!owner.session_view.camera.rotation_registers.is_tracking());
             assert_eq!(owner.session_view.camera.camera_zoom_target, Some(0.8));
             assert_eq!(owner.session_view.camera.camera_pitch_target, Some(0.7));
             assert!(owner.session_view.scripted.script_camera_freeze_time);
-            assert!(owner.session_view.camera.camera_yaw_target.is_some());
+            assert!(owner.session_view.camera.rotation_registers.active());
             assert_eq!(owner.session_view.target, position);
             assert_eq!(peer.capture_camera_continuation().unwrap(), peer_before);
             let saved = owner.capture_camera_continuation().unwrap();
@@ -321,7 +321,7 @@ fn authored_rotate_cancels_receiving_path_preserves_axes_and_continues_after_res
                     restored.capture_camera_continuation().unwrap()
                 );
             }
-            assert!(owner.session_view.camera.camera_yaw_target.is_none());
+            assert!(!owner.session_view.camera.rotation_registers.active());
             assert!(!owner.session_view.scripted.motion.active);
             assert!(!owner.session_view.scripted.script_camera_freeze_time);
             assert_camera_queues_empty(&peer.mission_scripts);

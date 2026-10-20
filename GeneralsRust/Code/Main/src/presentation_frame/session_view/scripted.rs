@@ -4,8 +4,8 @@ use super::waypoint::WaypointMotion;
 use crate::game_logic::ObjectId;
 use glam::Vec3;
 
-/// Original rcInfo.trackObject payload. The frame counter lives only in
-/// SessionCamera.camera_yaw_frame; an inactive payload retains its last target.
+/// Detached historical tracking observation used only by frozen DTO adapters.
+/// The live source payload belongs to SessionCamera.rotation_registers.
 #[derive(Debug, Clone)]
 pub(crate) struct CameraObjectTracking {
     pub(crate) hold_frames: u32,
@@ -25,10 +25,8 @@ impl CameraObjectTracking {
 pub(crate) struct ScriptCameraState {
     pub(crate) motion: WaypointMotion,
     pub(crate) path_arrived: bool,
-    pub(crate) object_tracking: Option<CameraObjectTracking>,
     pub(crate) camera_follow_target: Option<ObjectId>,
     pub(crate) camera_tether_play: Option<f32>,
-    pub(crate) script_look_toward_object_id: Option<u32>,
     pub(crate) script_default_camera_pitch: f32,
     pub(crate) script_default_camera_angle: f32,
     pub(crate) script_default_camera_max_height: f32,
@@ -40,10 +38,8 @@ impl Default for ScriptCameraState {
         Self {
             motion: WaypointMotion::default(),
             path_arrived: false,
-            object_tracking: None,
             camera_follow_target: None,
             camera_tether_play: None,
-            script_look_toward_object_id: None,
             script_default_camera_pitch: 0.0,
             script_default_camera_angle: 0.0,
             script_default_camera_max_height: 1.0,

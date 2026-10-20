@@ -7,7 +7,7 @@ fn v7_scalar_time_roundtrip_and_v6_current_speed_migration_leave_historical_wire
     source.session_view.install_rotate(0.25, 0.132, 0., 0., 3.);
     source.session_view.camera.rotation.time.end = 7;
     let bytes = source.capture_camera_continuation().unwrap();
-    let current: EnvelopeV7 = codec().deserialize(&bytes[8..]).unwrap();
+    let current: EnvelopeV7 = codec().deserialize::<EnvelopeV8>(&bytes[8..]).unwrap().base;
     assert_eq!(current.rotation_timing.time.start, 3);
     assert_eq!(current.rotation_timing.time.end, 7);
     let old_record = current.base.base.base.base.base.legacy_record.clone();
@@ -56,7 +56,7 @@ fn historical_scalar_raw_curve_bits_survive_old_envelope_admission() {
         source.session_view.camera.rotation =
             RotationTiming::historical(duration, -0.125, 0.033, RotationTime::constant(1));
         let bytes = source.capture_camera_continuation().unwrap();
-        let current: EnvelopeV7 = codec().deserialize(&bytes[8..]).unwrap();
+        let current: EnvelopeV7 = codec().deserialize::<EnvelopeV8>(&bytes[8..]).unwrap().base;
         let expected = codec()
             .serialize(&current.base.base.base.base.base.camera)
             .unwrap();
@@ -208,13 +208,13 @@ fn near_zero_prefix_count_and_retained_curve_survive_save_and_shortened_expiry()
                 source.visual_speed_multiplier,
                 curve_before.time.sample(factor)
             );
-            assert!(source.session_view.camera.camera_yaw_target.is_some());
+            assert!(source.session_view.camera.rotation_registers.active());
         } else {
             assert_eq!(
                 source.visual_speed_multiplier, current_before,
                 "expired interpolation must not publish the endpoint"
             );
-            assert!(source.session_view.camera.camera_yaw_target.is_none());
+            assert!(!source.session_view.camera.rotation_registers.active());
         }
     }
 }
@@ -244,12 +244,25 @@ fn inconsistent_tracking_timing_rejects_capture_and_direct_admission_without_mut
     let mut source = GameLogic::new();
     source.session_view.camera.rotation =
         RotationTiming::milliseconds(132, 0., 0., RotationTime::constant(1));
-    source.session_view.camera.camera_yaw_target = Some(0.2);
-    source.session_view.scripted.object_tracking = Some(CameraObjectTracking {
-        hold_frames: 4,
-        last_position: Vec3::new(100., 0., 0.),
-    });
-    source.session_view.scripted.script_look_toward_object_id = Some(42);
+    source.session_view.camera.rotation_registers.begin_scalar(
+        source
+            .session_view
+            .camera
+            .rotation_registers
+            .scalar_start()
+            .unwrap_or(0.),
+        0.2,
+    );
+    source
+        .session_view
+        .camera
+        .rotation_registers
+        .begin_tracking(42, 4);
+    source
+        .session_view
+        .camera
+        .rotation_registers
+        .observe_tracking(Some(Vec3::new(100., 0., 0.)));
     let saved = source.capture_camera_continuation().unwrap();
     let mut malformed = GameLogic::decode_camera_continuation(&saved).unwrap();
     malformed
@@ -294,14 +307,27 @@ fn old_tracking_integer_authority_still_admits_inconsistent_camera_float_observa
     let mut source = GameLogic::new();
     source.session_view.camera.rotation =
         RotationTiming::milliseconds(132, 0.033, 0.033, RotationTime { start: 1, end: 5 });
-    source.session_view.camera.camera_yaw_target = Some(0.2);
-    source.session_view.scripted.object_tracking = Some(CameraObjectTracking {
-        hold_frames: 4,
-        last_position: Vec3::new(100., 0., 0.),
-    });
-    source.session_view.scripted.script_look_toward_object_id = Some(42);
+    source.session_view.camera.rotation_registers.begin_scalar(
+        source
+            .session_view
+            .camera
+            .rotation_registers
+            .scalar_start()
+            .unwrap_or(0.),
+        0.2,
+    );
+    source
+        .session_view
+        .camera
+        .rotation_registers
+        .begin_tracking(42, 4);
+    source
+        .session_view
+        .camera
+        .rotation_registers
+        .observe_tracking(Some(Vec3::new(100., 0., 0.)));
     let saved = source.capture_camera_continuation().unwrap();
-    let mut current: EnvelopeV7 = codec().deserialize(&saved[8..]).unwrap();
+    let mut current: EnvelopeV7 = codec().deserialize::<EnvelopeV8>(&saved[8..]).unwrap().base;
     // V2-V6 used the explicit integer tracking payload for its actual turn,
     // despite accepting a different redundant raw camera-duration observation.
     // Construct that accepted old shape without changing its tracking record.

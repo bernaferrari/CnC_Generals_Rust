@@ -1346,15 +1346,9 @@ impl GameLogic {
         self.session_view.pending_focus_previous_target = None;
         self.session_view.scripted.motion = Default::default();
         self.session_view.scripted.path_arrived = false;
-        crate::presentation_frame::camera::motion::cancel_scalar_requests([
-            &mut self.session_view.camera.camera_yaw_target,
-            &mut self.session_view.camera.camera_zoom_target,
-            &mut self.session_view.camera.camera_pitch_target,
-        ]);
+        self.session_view.camera.cancel_scalar_movements();
         self.session_view.scripted.camera_follow_target = None;
         self.session_view.scripted.camera_tether_play = None;
-        self.session_view.scripted.script_look_toward_object_id = None;
-        self.session_view.scripted.object_tracking = None;
         self.session_view.pending_letterbox_visibility.clear();
         self.session_view
             .letterbox_visibility_delivered_since_present = false;

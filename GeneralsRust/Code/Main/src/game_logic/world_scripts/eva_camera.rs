@@ -5,13 +5,13 @@
 use super::super::*;
 
 /// Bounded cancellation borrow used by an immediate native postRender LookAt.
-/// The filter and logical target remain separately borrowed canonical fields.
+/// The caller cancels its borrowed SessionCamera activity first; this value
+/// contains only the independent scripted transport side of the operation.
+/// It never borrows a register already owned by the native camera context.
 pub(crate) struct PlayerCameraLookAtCancellation<'a> {
     motion: &'a mut crate::presentation_frame::waypoint::WaypointMotion,
     path_arrived: &'a mut bool,
     look_toward: &'a mut Option<CameraLookTowardWaypointRequest>,
-    look_object: &'a mut Option<u32>,
-    tracking: &'a mut Option<crate::presentation_frame::scripted::CameraObjectTracking>,
     focus: &'a mut Option<Vec3>,
     focus_origin: &'a mut Option<Vec3>,
     rotate: &'a mut Option<CameraRotateRequest>,
@@ -23,8 +23,6 @@ impl PlayerCameraLookAtCancellation<'_> {
         self.motion.active = false;
         *self.path_arrived = false;
         *self.look_toward = None;
-        *self.look_object = None;
-        *self.tracking = None;
         *self.focus = None;
         *self.focus_origin = None;
         *self.rotate = None;
@@ -644,14 +642,14 @@ impl GameLogic {
 
     /// C++ `W3DView::lookAt`: drop rotate + waypoint path + scripted lock.
     pub fn cancel_scripted_camera_from_player_look_at(&mut self) {
-        self.session_view.camera.camera_yaw_target = None;
+        self.session_view.camera.rotation_registers.finish();
         self.player_camera_look_at_cancellation().cancel();
     }
 
     /// C++ scrollBy clears only m_doingRotateCamera. Retain its source timing
     /// data, independent axes, waypoint path, follow and stored freeze flag.
     pub fn cancel_scripted_camera_from_player_scroll(&mut self) {
-        self.session_view.camera.camera_yaw_target = None;
+        self.session_view.camera.rotation_registers.finish();
     }
 
     fn player_camera_look_at_cancellation(&mut self) -> PlayerCameraLookAtCancellation<'_> {
@@ -659,8 +657,6 @@ impl GameLogic {
             motion: &mut self.session_view.scripted.motion,
             path_arrived: &mut self.session_view.scripted.path_arrived,
             look_toward: &mut self.pending_camera_look_toward,
-            look_object: &mut self.session_view.scripted.script_look_toward_object_id,
-            tracking: &mut self.session_view.scripted.object_tracking,
             focus: &mut self.pending_camera_focus,
             focus_origin: &mut self.session_view.pending_focus_previous_target,
             rotate: &mut self.pending_camera_rotate,
@@ -690,8 +686,6 @@ impl GameLogic {
                 motion: &mut self.session_view.scripted.motion,
                 path_arrived: &mut self.session_view.scripted.path_arrived,
                 look_toward: &mut self.pending_camera_look_toward,
-                look_object: &mut self.session_view.scripted.script_look_toward_object_id,
-                tracking: &mut self.session_view.scripted.object_tracking,
                 focus: &mut self.pending_camera_focus,
                 focus_origin: &mut self.session_view.pending_focus_previous_target,
                 rotate: &mut self.pending_camera_rotate,
@@ -713,8 +707,6 @@ impl GameLogic {
     fn clear_in_flight_scripted_camera_move(&mut self) {
         self.session_view.scripted.motion.active = false;
         self.pending_camera_look_toward = None;
-        self.session_view.scripted.script_look_toward_object_id = None;
-        self.session_view.scripted.object_tracking = None;
         self.pending_camera_focus = None;
         self.session_view.pending_focus_previous_target = None;
         self.mission_scripts.set_camera_movement_finished(true);

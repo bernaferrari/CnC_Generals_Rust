@@ -23,21 +23,16 @@ fn authored_tracking(world: &mut GameLogic, foreign: &Arc<MissionScriptHooks>) {
     world.frame += 1;
     let receiving_engine = run(world, engine(Arc::clone(foreign), list));
     world.install_owned_script_engine(receiving_engine);
-    let tracking = world
-        .session_view
-        .scripted
-        .object_tracking
-        .as_ref()
-        .unwrap();
+    let tracking = &world.session_view.camera.rotation_registers;
     assert_eq!(
         (
             world.session_view.camera.rotation.turn_frames,
-            tracking.hold_frames
+            tracking.hold_frames()
         ),
         (3, 4)
     );
     assert_eq!(world.session_view.camera.camera_yaw_frame, 0);
-    assert!(world.session_view.camera.camera_yaw_target.is_some());
+    assert!(world.session_view.camera.rotation_registers.active());
 }
 fn position(world: &mut GameLogic, id: ObjectId, position: Vec3) {
     world.host_object_mut(id).unwrap().set_position(position);
@@ -45,11 +40,10 @@ fn position(world: &mut GameLogic, id: ObjectId, position: Vec3) {
 fn cached(world: &GameLogic) -> Vec3 {
     world
         .session_view
-        .scripted
-        .object_tracking
-        .as_ref()
+        .camera
+        .rotation_registers
+        .cached_target()
         .unwrap()
-        .last_position
 }
 fn angle_to(position: Vec3) -> f32 {
     let length = f64::from(position.x * position.x + position.z * position.z).sqrt() as f32;
@@ -149,7 +143,7 @@ fn authored_tracking_moves_only_receiving_same_id_and_retains_removed_target_thr
                     restored.capture_camera_continuation().unwrap()
                 );
                 assert_eq!(
-                    owner.session_view.camera.camera_yaw_target.is_some(),
+                    owner.session_view.camera.rotation_registers.active(),
                     frame < 7
                 );
                 assert_eq!(owner.is_script_camera_time_frozen(), frame < 7);
@@ -187,7 +181,7 @@ fn authored_tracking_freeze_angle_invalidates_id_but_keeps_last_target_and_origi
             let receiving_engine = run(&mut owner, engine(Arc::clone(&peer.mission_scripts), list));
             owner.install_owned_script_engine(receiving_engine);
             assert_eq!(
-                owner.session_view.scripted.script_look_toward_object_id,
+                owner.session_view.camera.rotation_registers.legacy_id(),
                 None
             );
             assert_eq!(owner.session_view.camera.camera_yaw_frame, 1);
@@ -203,7 +197,7 @@ fn authored_tracking_freeze_angle_invalidates_id_but_keeps_last_target_and_origi
                 owner.headless_camera_view_offer(33).unwrap();
             }
             assert_eq!(owner.session_view.camera.camera_yaw_frame, 7);
-            assert!(owner.session_view.camera.camera_yaw_target.is_none());
+            assert!(!owner.session_view.camera.rotation_registers.active());
             assert_eq!(cached(&owner), target);
             assert_eq!(
                 owner.session_view.camera.camera_yaw_radians.to_bits(),

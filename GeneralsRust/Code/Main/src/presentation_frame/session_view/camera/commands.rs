@@ -34,8 +34,8 @@ impl SessionCamera {
         self.install_heading(target, seconds, ease_in, ease_out);
     }
     fn install_heading(&mut self, target: f32, seconds: f32, ease_in: f32, ease_out: f32) {
-        self.camera_yaw_start = self.camera_yaw_radians;
-        self.camera_yaw_target = Some(target);
+        self.rotation_registers
+            .begin_scalar(self.camera_yaw_radians, target);
         self.rotation = super::rotation::RotationTiming::authored(
             seconds,
             ease_in,
@@ -57,6 +57,7 @@ impl SessionCamera {
     ) -> bool {
         // Source rcInfo.numFrames is updated before the near-zero return.
         // Do not reset curFrame, old angle/ease, or active flag on that path.
+        self.rotation_registers.scalar_prefix();
         self.rotation.update_count(seconds);
         let dx = target.x - from.x;
         let dy = target.z - from.z;

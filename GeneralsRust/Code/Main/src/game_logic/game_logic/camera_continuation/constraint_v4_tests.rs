@@ -10,10 +10,11 @@ fn constraint_v4_preserves_cache_while_v3_defaults_invalid_and_old_dtos_are_froz
         .unwrap();
     world.session_view.camera.camera_follow_snap_immediate = true;
     let bytes = world.capture_camera_continuation().unwrap();
-    assert_eq!(&bytes[4..8], &7u32.to_le_bytes());
+    assert_eq!(&bytes[4..8], &8u32.to_le_bytes());
     let current: EnvelopeV5 = codec()
-        .deserialize::<EnvelopeV7>(&bytes[8..])
+        .deserialize::<EnvelopeV8>(&bytes[8..])
         .unwrap()
+        .base
         .base
         .base;
     let saved = current.base;
@@ -73,8 +74,9 @@ fn legacy_v4_finite_scale_overflow_is_rejected_by_receiving_admission_before_mut
     let source = GameLogic::new();
     let bytes = source.capture_camera_continuation().unwrap();
     let mut current: EnvelopeV5 = codec()
-        .deserialize::<EnvelopeV7>(&bytes[8..])
+        .deserialize::<EnvelopeV8>(&bytes[8..])
         .unwrap()
+        .base
         .base
         .base;
     let mut legacy: LogicCameraContinuation = codec()
@@ -132,8 +134,9 @@ fn snapshot_builder_legacy_overflow_preflight_keeps_entire_persisted_owner_and_p
     let mut incoming = builder.create_world_snapshot(&source).unwrap();
     let raw = source.capture_camera_continuation().unwrap();
     let mut current: EnvelopeV5 = codec()
-        .deserialize::<EnvelopeV7>(&raw[8..])
+        .deserialize::<EnvelopeV8>(&raw[8..])
         .unwrap()
+        .base
         .base
         .base;
     let mut legacy: LogicCameraContinuation = codec()

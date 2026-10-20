@@ -1368,13 +1368,22 @@ impl CnCGameEngine {
                     &self.game_logic.session_view.camera,
                 ),
                 self.game_logic.session_view.camera.rotation,
+                self.game_logic
+                    .session_view
+                    .camera
+                    .rotation_registers
+                    .capture(),
             )
         });
         if let Some(camera) = camera_continuation {
             self.admit_camera_continuation(camera);
-            if let Some((owned, timing)) = owned_camera {
+            if let Some((owned, timing, registers)) = owned_camera {
                 owned.admit(&mut self.game_logic.session_view.camera);
                 self.game_logic.session_view.camera.rotation = timing;
+                self.game_logic.session_view.camera.rotation_registers =
+                    crate::presentation_frame::camera::registers::RotationRegisters::restore(
+                        registers,
+                    );
             }
         } else if !owns_session_camera && let Some(camera) = client_persist.camera() {
             self.game_logic.session_view.target = glam::Vec3::from_array(camera.target);
@@ -1423,11 +1432,10 @@ impl CnCGameEngine {
             );
             self.game_logic.session_view.camera.camera_pitch_radians = 0.0;
             self.game_logic.session_view.camera.camera_yaw_radians = 0.0;
-            super::camera_motion::cancel_scalar_requests([
-                &mut self.game_logic.session_view.camera.camera_zoom_target,
-                &mut self.game_logic.session_view.camera.camera_pitch_target,
-                &mut self.game_logic.session_view.camera.camera_yaw_target,
-            ]);
+            self.game_logic
+                .session_view
+                .camera
+                .cancel_scalar_movements();
             if let Some(camera) = client_persist.camera() {
                 self.game_logic.session_view.camera.camera_position =
                     glam::Vec3::from_array(camera.position);
@@ -2074,7 +2082,7 @@ impl CnCGameEngine {
         Ok(())
     }
 
-    #[cfg(all(feature = "internal", feature = "game_client"))]
+    #[cfg(all(any(test, feature = "internal"), feature = "game_client"))]
     pub(super) fn probe_skirmish_local_command_owner(&mut self) -> Result<(), String> {
         // Exercise the actual native admission boundary, not a second selector.
         game_engine::common::ini::ensure_player_templates_loaded();

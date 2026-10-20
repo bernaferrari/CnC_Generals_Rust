@@ -17,8 +17,6 @@ impl SessionView {
         speed: f32,
     ) {
         self.camera.rotation.time = super::camera::rotation::RotationTime::constant(speed as i32);
-        self.scripted.object_tracking = None;
-        self.scripted.script_look_toward_object_id = None;
         self.scripted.motion.active = false;
         self.scripted.path_arrived = false;
         self.camera
@@ -34,18 +32,6 @@ impl SessionView {
         reverse: bool,
         speed: f32,
     ) -> bool {
-        // Original prefix clears rcInfo.trackObject and hold count before its
-        // direction check. Model the initialized Target/Angle union explicitly.
-        // Rust's cache is initialized at admission; exact source union parity
-        // is defined after an actual tracking offer populates the C++ cache.
-        if let Some(tracking) = self.scripted.object_tracking.take() {
-            let id = self.scripted.script_look_toward_object_id.unwrap_or(0);
-            self.camera.camera_yaw_start = f32::from_bits(id);
-            if self.camera.camera_yaw_target.is_some() {
-                self.camera.camera_yaw_target = Some(tracking.last_position.x);
-            }
-        }
-        self.scripted.script_look_toward_object_id = None;
         if !self
             .camera
             .install_look_toward(from, target, seconds, ease_in, ease_out, reverse)
@@ -53,8 +39,6 @@ impl SessionView {
             return false;
         }
         self.camera.rotation.time = super::camera::rotation::RotationTime::constant(speed as i32);
-        self.scripted.object_tracking = None;
-        self.scripted.script_look_toward_object_id = None;
         self.scripted.motion.active = false;
         self.scripted.path_arrived = false;
         true
@@ -87,7 +71,7 @@ impl SessionView {
         speed: &mut f32,
         disabled: bool,
     ) {
-        self.camera.camera_yaw_target = None;
+        self.camera.rotation_registers.finish();
         self.scripted.path_arrived = false;
         self.scripted.motion = motion;
         if instant {
@@ -102,7 +86,7 @@ impl SessionView {
         speed: &mut f32,
         disabled: bool,
     ) {
-        if self.camera.camera_yaw_target.is_some() {
+        if self.camera.rotation_registers.active() {
             return;
         }
         let (motion, mut view) = self.motion_parts(speed);
@@ -120,19 +104,19 @@ impl SessionView {
     ) -> bool {
         // Capture rotation before stepping it: source uses rotate ELSE path,
         // including the offer on which rotation reaches its final frame.
-        let rotating = self.camera.camera_yaw_target.is_some();
+        let rotating = self.camera.rotation_registers.active();
         let travelling = self.scripted.motion.active;
         let active = self.camera.advance_scalar_movements(
             admission,
             self.target,
-            self.scripted.object_tracking.is_some(),
+            self.camera.rotation_registers.is_tracking(),
             speed,
         );
         if !admission.advances() {
             return active || travelling;
         }
         if rotating {
-            if self.camera.camera_yaw_target.is_none() {
+            if !self.camera.rotation_registers.active() {
                 self.scripted.script_camera_freeze_time = false;
             }
         } else if travelling {
@@ -147,7 +131,7 @@ impl SessionView {
     }
     pub(crate) fn movement_finished(&self) -> bool {
         !self.scripted.motion.active
-            && self.camera.camera_yaw_target.is_none()
+            && !self.camera.rotation_registers.active()
             && self.camera.camera_zoom_target.is_none()
             && self.camera.camera_pitch_target.is_none()
     }
@@ -210,7 +194,7 @@ mod scalar_time_tests {
             &mut speed,
         );
         assert_eq!(speed, 5.);
-        assert!(view.camera.camera_yaw_target.is_none());
+        assert!(!view.camera.rotation_registers.active());
         view.advance_camera_movements(normal, 33, &mut speed);
         assert_eq!(speed, 5., "inactive endpoint cannot publish a late speed");
         view.install_rotate(0.25, 0.033, 0., 0., speed);

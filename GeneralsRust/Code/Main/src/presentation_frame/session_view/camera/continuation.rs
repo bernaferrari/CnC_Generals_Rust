@@ -55,6 +55,30 @@ pub(crate) struct SessionCameraState {
 }
 
 impl SessionCameraState {
+    pub(crate) fn historical_registers(
+        &self,
+    ) -> crate::presentation_frame::camera::registers::RotationRegisters {
+        crate::presentation_frame::camera::registers::RotationRegisters::import_v7_scalar(
+            self.camera_yaw_start,
+            self.camera_yaw_target,
+        )
+    }
+    pub(crate) fn validate_register_observation(
+        &self,
+        state: &crate::presentation_frame::camera::registers::RotationRegistersState,
+    ) -> Result<(), String> {
+        state.validate()?;
+        let registers =
+            crate::presentation_frame::camera::registers::RotationRegisters::restore(state.clone());
+        let (start, target) = registers.legacy_scalar(self.camera_yaw_radians);
+        if start.to_bits() != self.camera_yaw_start.to_bits()
+            || target.map(f32::to_bits) != self.camera_yaw_target.map(f32::to_bits)
+        {
+            return Err("camera register projection disagrees with historical observation".into());
+        }
+        Ok(())
+    }
+
     pub(crate) fn historical_rotation(
         &self,
         time: crate::presentation_frame::camera::rotation::RotationTime,
@@ -125,8 +149,14 @@ impl SessionCameraState {
             camera_pitch_ease_out: camera.camera_pitch_ease_out.clone(),
             camera_fx_pitch: camera.camera_fx_pitch.clone(),
             camera_yaw_radians: camera.camera_yaw_radians.clone(),
-            camera_yaw_target: camera.camera_yaw_target.clone(),
-            camera_yaw_start: camera.camera_yaw_start.clone(),
+            camera_yaw_target: camera
+                .rotation_registers
+                .legacy_scalar(camera.camera_yaw_radians)
+                .1,
+            camera_yaw_start: camera
+                .rotation_registers
+                .legacy_scalar(camera.camera_yaw_radians)
+                .0,
             camera_yaw_duration: camera.rotation.duration_seconds().clone(),
             camera_yaw_frame: camera.camera_yaw_frame.clone(),
             camera_yaw_ease_in: camera.rotation.ease_in().clone(),
@@ -264,8 +294,11 @@ impl SessionCameraState {
         camera.camera_pitch_ease_out = self.camera_pitch_ease_out;
         camera.camera_fx_pitch = self.camera_fx_pitch;
         camera.camera_yaw_radians = self.camera_yaw_radians;
-        camera.camera_yaw_target = self.camera_yaw_target;
-        camera.camera_yaw_start = self.camera_yaw_start;
+        camera.rotation_registers =
+            crate::presentation_frame::camera::registers::RotationRegisters::import_v7_scalar(
+                self.camera_yaw_start,
+                self.camera_yaw_target,
+            );
         camera.rotation = crate::presentation_frame::camera::rotation::RotationTiming::historical(
             self.camera_yaw_duration,
             self.camera_yaw_ease_in,

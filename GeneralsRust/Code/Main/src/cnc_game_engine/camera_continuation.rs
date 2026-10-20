@@ -20,6 +20,8 @@ pub(crate) struct NativeCameraContinuation(CameraState, NativeCameraExtras);
 #[derive(Default)]
 struct NativeCameraExtras {
     rotation_timing: Option<crate::presentation_frame::camera::rotation::RotationTiming>,
+    rotation_registers:
+        Option<crate::presentation_frame::camera::registers::RotationRegistersState>,
     filter: Option<(glam::Vec2, Vec3)>,
     completed_view: Option<glam::Mat4>,
     camera_settings: Option<crate::presentation_frame::camera::settings::CameraSettings>,
@@ -178,8 +180,11 @@ impl CameraState {
         camera.camera_pitch_ease_out = self.camera_pitch_ease_out;
         camera.camera_fx_pitch = self.camera_fx_pitch;
         camera.camera_yaw_radians = self.camera_yaw_radians;
-        camera.camera_yaw_target = self.camera_yaw_target;
-        camera.camera_yaw_start = self.camera_yaw_start;
+        camera.rotation_registers =
+            crate::presentation_frame::camera::registers::RotationRegisters::import_v7_scalar(
+                self.camera_yaw_start,
+                self.camera_yaw_target,
+            );
         camera.rotation = crate::presentation_frame::camera::rotation::RotationTiming::historical(
             self.camera_yaw_duration,
             self.camera_yaw_ease_in,
@@ -216,6 +221,11 @@ impl NativeCameraContinuation {
         &self,
         logic: &crate::game_logic::LogicCameraContinuation,
     ) -> Result<(), String> {
+        if let Some(native) = &self.1.rotation_registers {
+            if logic.owned_rotation_registers() != Some(native) {
+                return Err("logic/native complete camera registers disagree".into());
+            }
+        }
         if let Some(native) = self.1.rotation_timing {
             if logic
                 .owned_rotation_timing()
@@ -417,9 +427,16 @@ impl CnCGameEngine {
                 .game_logic
                 .session_view
                 .camera
-                .camera_yaw_target
-                .clone(),
-            camera_yaw_start: self.game_logic.session_view.camera.camera_yaw_start.clone(),
+                .rotation_registers
+                .legacy_scalar(self.game_logic.session_view.camera.camera_yaw_radians)
+                .1,
+            camera_yaw_start: self
+                .game_logic
+                .session_view
+                .camera
+                .rotation_registers
+                .legacy_scalar(self.game_logic.session_view.camera.camera_yaw_radians)
+                .0,
             camera_yaw_duration: self
                 .game_logic
                 .session_view
@@ -544,6 +561,10 @@ impl CnCGameEngine {
         let state = continuation.0;
         let now = Instant::now();
         state.admit_session_camera_fields(&mut self.game_logic.session_view.camera);
+        if let Some(registers) = continuation.1.rotation_registers {
+            self.game_logic.session_view.camera.rotation_registers =
+                crate::presentation_frame::camera::registers::RotationRegisters::restore(registers);
+        }
         if let Some(time) = continuation.1.rotation_timing {
             self.game_logic.session_view.camera.rotation = time;
         }

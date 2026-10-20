@@ -56,7 +56,10 @@ fn admitted_camera_owner_rejects_pause_and_advances_fast_without_a_logic_tick() 
 #[test]
 fn rotation_completion_does_not_also_consume_a_path_step() {
     let mut view = moving();
-    view.camera.camera_yaw_target = Some(1.);
+    view.camera.rotation_registers.begin_scalar(
+        view.camera.rotation_registers.scalar_start().unwrap_or(0.),
+        1.,
+    );
     view.camera.rotation = crate::presentation_frame::camera::rotation::RotationTiming::historical(
         0.,
         view.camera.rotation.ease_in(),
@@ -65,7 +68,7 @@ fn rotation_completion_does_not_also_consume_a_path_step() {
     );
     let mut speed = 1.;
     view.advance_camera_movements(admission(), 33, &mut speed);
-    assert!(view.camera.camera_yaw_target.is_none());
+    assert!(!view.camera.rotation_registers.active());
     assert_eq!(view.scripted.motion.elapsed_ms, 0);
     view.advance_camera_movements(admission(), 33, &mut speed);
     assert_eq!(view.scripted.motion.elapsed_ms, 33);
@@ -90,7 +93,15 @@ fn receiving_reset_cancels_actual_motion_flags_without_replacing_persistent_pose
     world.session_view.camera.camera_zoom = 0.8;
     world.session_view.camera.camera_zoom_target = Some(0.5);
     world.session_view.camera.camera_pitch_target = Some(0.7);
-    world.session_view.camera.camera_yaw_target = Some(1.);
+    world.session_view.camera.rotation_registers.begin_scalar(
+        world
+            .session_view
+            .camera
+            .rotation_registers
+            .scalar_start()
+            .unwrap_or(0.),
+        1.,
+    );
     peer.session_view.camera.camera_zoom_target = Some(1.5);
     let peer_before = peer.capture_camera_continuation().unwrap();
     world.reset();

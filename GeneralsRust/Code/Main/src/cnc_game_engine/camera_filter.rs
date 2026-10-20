@@ -72,14 +72,7 @@ impl NativeFilterCameraContext<'_> {
         if let Some(point) = point {
             self.look_at_modes
                 .note_scripted_camera_player_cancel(ScriptedCameraPlayerCancel::LookAt);
-            self.native.camera_yaw_target = None;
-            self.native.rotation =
-                crate::presentation_frame::camera::rotation::RotationTiming::historical(
-                    0.,
-                    self.native.rotation.ease_in(),
-                    self.native.rotation.ease_out(),
-                    self.native.rotation.time,
-                );
+            self.native.rotation_registers.finish();
             cancel_scripted_camera();
             *self.target = crate::presentation_frame::receiving_look_at_target(
                 point,
@@ -235,7 +228,7 @@ mod tests {
                     super::super::camera_height::CameraHeight::new(400., 45., 0.);
                 native.camera_zoom = zoom;
                 native.camera_fx_pitch = pitch;
-                native.camera_yaw_target = yaw_target;
+                native.rotation_registers = crate::presentation_frame::camera::registers::RotationRegisters::import_v7_scalar(native.rotation_registers.scalar_start().unwrap_or(0.), yaw_target);
                 native.rotation =
                     crate::presentation_frame::camera::rotation::RotationTiming::historical(
                         yaw_duration,
@@ -280,7 +273,7 @@ mod tests {
                     hag_before
                 );
                 drop(camera);
-                yaw_target = native.camera_yaw_target;
+                yaw_target = native.rotation_registers.scalar_target();
                 yaw_duration = native.rotation.duration_seconds();
                 drop(cancellation);
                 assert!(
@@ -366,7 +359,10 @@ mod tests {
                     assert_eq!(*frame, before + 1, "next admitted phase advances once");
                 }
                 assert_eq!(yaw_target, None);
-                assert_eq!(yaw_duration, 0.);
+                assert_eq!(
+                    yaw_duration, 5.,
+                    "LookAt retains inactive source rcInfo timing"
+                );
                 assert_eq!(peer.capture_camera_continuation().unwrap(), peer_before);
             },
         );
@@ -390,7 +386,11 @@ mod tests {
         let (_, target, impulse, mut cancellation, _, _) = world.split_filter_camera_owner();
         let mut native = crate::presentation_frame::camera::SessionCamera::default();
         native.native_camera = super::super::camera_height::CameraHeight::new(400., 45., 0.);
-        native.camera_yaw_target = yaw_target;
+        native.rotation_registers =
+            crate::presentation_frame::camera::registers::RotationRegisters::import_v7_scalar(
+                native.rotation_registers.scalar_start().unwrap_or(0.),
+                yaw_target,
+            );
         native.rotation = crate::presentation_frame::camera::rotation::RotationTiming::historical(
             yaw_duration,
             native.rotation.ease_in(),
@@ -443,13 +443,16 @@ mod tests {
             basis_before
         );
         drop(camera);
-        yaw_target = native.camera_yaw_target;
+        yaw_target = native.rotation_registers.scalar_target();
         yaw_duration = native.rotation.duration_seconds();
         drop(cancellation);
         assert!(!world.script_camera_path_active());
         assert!(world.peek_pending_camera_rotate().is_none());
         assert_eq!(yaw_target, None);
-        assert_eq!(yaw_duration, 0.);
+        assert_eq!(
+            yaw_duration, 3.,
+            "LookAt retains inactive source rcInfo timing"
+        );
         assert_eq!(peer.session_view.target, peer_target);
     }
 

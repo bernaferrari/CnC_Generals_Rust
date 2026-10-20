@@ -7,13 +7,23 @@ fn public_follow_requests_latch_snap_until_exact_receiving_view_admission() {
     let peer_before = peer.capture_camera_continuation().unwrap();
     a.session_view.scripted.motion.active = true;
     a.session_view.scripted.path_arrived = true;
-    a.session_view.camera.camera_yaw_target = Some(1.2);
+    a.session_view.camera.rotation_registers.begin_scalar(
+        a.session_view
+            .camera
+            .rotation_registers
+            .scalar_start()
+            .unwrap_or(0.),
+        1.2,
+    );
     let handler = MissionScriptActionHandler::new(a.mission_scripts.clone());
     handler.camera_follow_object(42, true).unwrap();
     a.apply_script_action_requests();
     assert_eq!(a.camera_follow_object_id(), Some(ObjectId(42)));
     assert!(a.session_view.scripted.motion.active && a.session_view.scripted.path_arrived);
-    assert_eq!(a.session_view.camera.camera_yaw_target, Some(1.2));
+    assert_eq!(
+        a.session_view.camera.rotation_registers.scalar_target(),
+        Some(1.2)
+    );
     assert_eq!(a.session_view.target, Vec3::ZERO);
     assert!(a.session_view.camera.camera_follow_snap_immediate);
     assert!(
@@ -31,7 +41,7 @@ fn public_follow_requests_latch_snap_until_exact_receiving_view_admission() {
     assert_eq!(a.session_view.target, Vec3::new(80., 0., 90.));
     assert!(!a.session_view.scripted.motion.active && !a.session_view.scripted.path_arrived);
     assert_eq!(
-        a.session_view.camera.camera_yaw_target,
+        a.session_view.camera.rotation_registers.scalar_target(),
         Some(1.2),
         "source independent rotation follows lock admission"
     );

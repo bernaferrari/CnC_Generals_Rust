@@ -860,7 +860,8 @@ impl CnCGameEngine {
                 .game_logic
                 .session_view
                 .camera
-                .camera_yaw_target
+                .rotation_registers
+                .scalar_target()
                 .is_none()
     }
 

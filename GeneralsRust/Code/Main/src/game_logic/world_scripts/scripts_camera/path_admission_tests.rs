@@ -105,7 +105,15 @@ fn nonprogressing_ring_is_an_error_and_resolver_never_cancels_live_state() {
         vec![waypoint(1, "Ring", 1.), waypoint(2, "Other", 2.)],
         vec![(1, 2), (2, 1)],
     );
-    world.session_view.camera.camera_yaw_target = Some(1.);
+    world.session_view.camera.rotation_registers.begin_scalar(
+        world
+            .session_view
+            .camera
+            .rotation_registers
+            .scalar_start()
+            .unwrap_or(0.),
+        1.,
+    );
     world.session_view.camera.rotation =
         crate::presentation_frame::camera::rotation::RotationTiming::historical(
             3.,

@@ -12,6 +12,7 @@ pub(crate) mod motion;
 pub(crate) mod movement_rules;
 pub(crate) mod pose;
 pub(crate) mod projection;
+pub(crate) mod registers;
 pub(crate) mod rotation;
 pub(crate) mod settings;
 pub(crate) mod shake_rules;
@@ -51,8 +52,7 @@ pub(crate) struct SessionCamera {
     pub(crate) camera_pitch_ease_out: f32,
     pub(crate) camera_fx_pitch: f32,
     pub(crate) camera_yaw_radians: f32,
-    pub(crate) camera_yaw_target: Option<f32>,
-    pub(crate) camera_yaw_start: f32,
+    pub(crate) rotation_registers: registers::RotationRegisters,
     pub(crate) rotation: rotation::RotationTiming,
     pub(crate) camera_yaw_frame: u32,
     pub(crate) camera_shake_rotation: Vec3,
@@ -99,8 +99,7 @@ impl Default for SessionCamera {
             camera_pitch_ease_out: 0.,
             camera_fx_pitch: 1.,
             camera_yaw_radians: 0.,
-            camera_yaw_target: None,
-            camera_yaw_start: 0.,
+            rotation_registers: Default::default(),
             rotation: Default::default(),
             camera_yaw_frame: 0,
             camera_shake_rotation: Vec3::ZERO,
@@ -152,25 +151,19 @@ impl SessionCamera {
             admission,
         );
         #[cfg(feature = "game_client")]
-        if self.camera_yaw_target.is_some()
+        if self.rotation_registers.active()
             && (admission.fast_camera_only
                 || (admission.update_views && !admission.paused && !admission.debug_frozen))
         {
             self.native_filter_previous_target = logical_target;
         }
         if skip_yaw {
-            return zoom.was_active || pitch.was_active || self.camera_yaw_target.is_some();
+            return zoom.was_active || pitch.was_active || self.rotation_registers.active();
         }
-        let yaw = motion::step_rotation(
-            AxisMotion {
-                value: &mut self.camera_yaw_radians,
-                target: &mut self.camera_yaw_target,
-                frame: &mut self.camera_yaw_frame,
-                start: self.camera_yaw_start,
-                duration_seconds: self.rotation.duration_seconds(),
-                ease_in_seconds: self.rotation.ease_in(),
-                ease_out_seconds: self.rotation.ease_out(),
-            },
+        let yaw = motion::step_registered_rotation(
+            &mut self.camera_yaw_radians,
+            &mut self.camera_yaw_frame,
+            &mut self.rotation_registers,
             self.rotation,
             admission,
         );
@@ -178,5 +171,13 @@ impl SessionCamera {
             *speed = self.rotation.time.sample(factor);
         }
         zoom.was_active || pitch.was_active || yaw.was_active
+    }
+}
+
+impl SessionCamera {
+    pub(crate) fn cancel_scalar_movements(&mut self) {
+        self.camera_zoom_target = None;
+        self.camera_pitch_target = None;
+        self.rotation_registers.finish();
     }
 }
