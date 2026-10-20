@@ -658,12 +658,45 @@ impl GameLogic {
                 parsed
             }
         };
-        let Some(adjusted) =
-            grid.adjust_destination_on_layer(cell, surfaces, false, 400, None, 0, layer)
-        else {
+        let Some(adjusted) = ({
+            let ground_owner = self.world_services.terrain();
+            let ground_loan = ground_owner
+                .read()
+                .unwrap_or_else(|error| error.into_inner());
+            let ground_source = crate::game_logic::pathfinding::PathfindingGround::for_terrain(
+                &ground_loan,
+                self.map_loaded,
+                self.terrain.as_ref(),
+                self.pathfinding_height_samples.as_ref(),
+                &*grid,
+            );
+            grid.adjust_destination_on_layer(
+                cell,
+                surfaces,
+                false,
+                400,
+                None,
+                0,
+                layer,
+                &ground_source,
+            )
+        }) else {
             return;
         };
-        let world = grid.grid_to_world(adjusted);
+        let world = ({
+            let ground_owner = self.world_services.terrain();
+            let ground_loan = ground_owner
+                .read()
+                .unwrap_or_else(|error| error.into_inner());
+            let ground_source = crate::game_logic::pathfinding::PathfindingGround::for_terrain(
+                &ground_loan,
+                self.map_loaded,
+                self.terrain.as_ref(),
+                self.pathfinding_height_samples.as_ref(),
+                &*grid,
+            );
+            grid.grid_to_world(adjusted, &ground_source)
+        });
         dest.x = world.x;
         dest.z = world.z;
     }
@@ -1565,16 +1598,30 @@ impl GameLogic {
         let is_crusher = obj.crusher_level > 0;
         let seeker = obj.owner_player_id.or(Some(obj.team as u32));
         let crusher_level = obj.crusher_level;
-        let adjusted = self.pathfinding_system.adjust_group_destination(
-            from,
-            dest,
-            group_dest,
-            surfaces,
-            is_crusher,
-            seeker,
-            crusher_level,
-            id.0,
-        );
+        let adjusted = ({
+            let ground_owner = self.world_services.terrain();
+            let ground_loan = ground_owner
+                .read()
+                .unwrap_or_else(|error| error.into_inner());
+            let ground_source = crate::game_logic::pathfinding::PathfindingGround::for_terrain(
+                &ground_loan,
+                self.map_loaded,
+                self.terrain.as_ref(),
+                self.pathfinding_height_samples.as_ref(),
+                &self.pathfinding_system.grid,
+            );
+            self.pathfinding_system.adjust_group_destination(
+                from,
+                dest,
+                group_dest,
+                surfaces,
+                is_crusher,
+                seeker,
+                crusher_level,
+                id.0,
+                &ground_source,
+            )
+        });
         let (old, radius, player) = self
             .objects
             .get(&id)

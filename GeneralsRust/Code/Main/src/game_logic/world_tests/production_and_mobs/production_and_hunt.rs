@@ -1174,10 +1174,23 @@ fn full_vehicle_leaves_the_repair_pad_for_its_rally() {
     );
     let end = unit.movement.path.last().copied().expect("rally path");
     let rally_cell = logic.pathfinding_system.grid.world_to_grid(rally);
-    let cpp_adjusted_rally = logic
-        .pathfinding_system
-        .grid
-        .adjust_coord_to_cell(rally_cell, true);
+    let cpp_adjusted_rally = ({
+        let ground_owner = logic.world_services.terrain();
+        let ground_loan = ground_owner
+            .read()
+            .unwrap_or_else(|error| error.into_inner());
+        let ground_source = crate::game_logic::pathfinding::PathfindingGround::for_terrain(
+            &ground_loan,
+            logic.map_loaded,
+            logic.terrain.as_ref(),
+            logic.pathfinding_height_samples.as_ref(),
+            &logic.pathfinding_system.grid,
+        );
+        logic
+            .pathfinding_system
+            .grid
+            .adjust_coord_to_cell(rally_cell, true, &ground_source)
+    });
     assert!(
         logic.pathfinding_system.grid.world_to_grid(end) == rally_cell
             && end.distance(cpp_adjusted_rally) < 0.1,
@@ -1285,13 +1298,39 @@ fn contact_attack_ignores_the_victim() {
             last_bonus_rof: 0.0,
         });
     }
-    logic
-        .pathfinding_system
-        .apply_structure_static_blocks(&logic.objects, 0.0);
-    logic
-        .pathfinding_system
-        .grid
-        .update_dynamic_obstacles(&logic.objects);
+    ({
+        let ground_owner = logic.world_services.terrain();
+        let ground_loan = ground_owner
+            .read()
+            .unwrap_or_else(|error| error.into_inner());
+        let ground_source = crate::game_logic::pathfinding::PathfindingGround::for_terrain(
+            &ground_loan,
+            logic.map_loaded,
+            logic.terrain.as_ref(),
+            logic.pathfinding_height_samples.as_ref(),
+            &logic.pathfinding_system.grid,
+        );
+        logic
+            .pathfinding_system
+            .apply_structure_static_blocks(&logic.objects, 0.0, &ground_source)
+    });
+    ({
+        let ground_owner = logic.world_services.terrain();
+        let ground_loan = ground_owner
+            .read()
+            .unwrap_or_else(|error| error.into_inner());
+        let ground_source = crate::game_logic::pathfinding::PathfindingGround::for_terrain(
+            &ground_loan,
+            logic.map_loaded,
+            logic.terrain.as_ref(),
+            logic.pathfinding_height_samples.as_ref(),
+            &logic.pathfinding_system.grid,
+        );
+        logic
+            .pathfinding_system
+            .grid
+            .update_dynamic_obstacles(&logic.objects, &ground_source)
+    });
     let target_cell = logic
         .pathfinding_system
         .grid
@@ -1478,7 +1517,20 @@ fn non_final_hop_keeps_the_obstacle_corner() {
     let grid = &logic.pathfinding_system.grid;
     let start_cell = grid.world_to_grid(Vec3::ZERO);
     let corner_cell = grid.world_to_grid(Vec3::new(80.0, 0.0, 0.0));
-    let corner = grid.grid_to_world(corner_cell);
+    let corner = ({
+        let ground_owner = logic.world_services.terrain();
+        let ground_loan = ground_owner
+            .read()
+            .unwrap_or_else(|error| error.into_inner());
+        let ground_source = crate::game_logic::pathfinding::PathfindingGround::for_terrain(
+            &ground_loan,
+            logic.map_loaded,
+            logic.terrain.as_ref(),
+            logic.pathfinding_height_samples.as_ref(),
+            grid,
+        );
+        grid.grid_to_world(corner_cell, &ground_source)
+    });
     let blocked_cell = GridPos::new((start_cell.x + corner_cell.x) / 2, start_cell.y);
     logic.pathfinding_system.grid.set_cell_obstacle_owned(
         blocked_cell,
@@ -2037,7 +2089,20 @@ fn close_arrival_plants_the_goal_cell_not_the_raw_point() {
     let grid = &logic.pathfinding_system.grid;
     let (_, center) = crate::game_logic::PathfindingGrid::radius_and_center(8.0, grid.grid_size());
     let registered_goal = GridPos::new(unit.pathfind_goal_cell.0, unit.pathfind_goal_cell.1);
-    let expected = grid.adjust_coord_to_ground_cell(registered_goal, center);
+    let expected = ({
+        let ground_owner = logic.world_services.terrain();
+        let ground_loan = ground_owner
+            .read()
+            .unwrap_or_else(|error| error.into_inner());
+        let ground_source = crate::game_logic::pathfinding::PathfindingGround::for_terrain(
+            &ground_loan,
+            logic.map_loaded,
+            logic.terrain.as_ref(),
+            logic.pathfinding_height_samples.as_ref(),
+            grid,
+        );
+        grid.adjust_coord_to_ground_cell(registered_goal, center, &ground_source)
+    });
     let planted = unit.final_position;
     assert!(
         (planted.x - expected.x).abs() < 0.01 && (planted.z - expected.z).abs() < 0.01,
@@ -2118,10 +2183,23 @@ fn repair_action_after_filling_the_vehicle_leaves_for_the_rally() {
     );
     let end = unit.movement.path.last().copied().expect("rally path");
     let rally_cell = logic.pathfinding_system.grid.world_to_grid(rally);
-    let cpp_adjusted_rally = logic
-        .pathfinding_system
-        .grid
-        .adjust_coord_to_cell(rally_cell, true);
+    let cpp_adjusted_rally = ({
+        let ground_owner = logic.world_services.terrain();
+        let ground_loan = ground_owner
+            .read()
+            .unwrap_or_else(|error| error.into_inner());
+        let ground_source = crate::game_logic::pathfinding::PathfindingGround::for_terrain(
+            &ground_loan,
+            logic.map_loaded,
+            logic.terrain.as_ref(),
+            logic.pathfinding_height_samples.as_ref(),
+            &logic.pathfinding_system.grid,
+        );
+        logic
+            .pathfinding_system
+            .grid
+            .adjust_coord_to_cell(rally_cell, true, &ground_source)
+    });
     assert!(
         logic.pathfinding_system.grid.world_to_grid(end) == rally_cell
             && end.distance(cpp_adjusted_rally) < 0.1,
@@ -2721,16 +2799,27 @@ fn guard_object_adjusts_off_an_impassable_post() {
         .pathfinding_system
         .grid
         .set_cell_type(blocked, PathfindCellType::Obstacle);
-    let expected = logic
-        .pathfinding_system
-        .grid
-        .adjust_destination(
+    let expected = ({
+        let ground_owner = logic.world_services.terrain();
+        let ground_loan = ground_owner
+            .read()
+            .unwrap_or_else(|error| error.into_inner());
+        let ground_source = crate::game_logic::pathfinding::PathfindingGround::for_terrain(
+            &ground_loan,
+            logic.map_loaded,
+            logic.terrain.as_ref(),
+            logic.pathfinding_height_samples.as_ref(),
+            &logic.pathfinding_system.grid,
+        );
+        logic.pathfinding_system.grid.adjust_destination(
             blocked,
             crate::game_logic::object::LOCO_SURFACE_GROUND,
             false,
             400,
+            &ground_source,
         )
-        .expect("adjustDestination cell");
+    })
+    .expect("adjustDestination cell");
     assert_ne!(expected, blocked);
     logic.force_map_loaded_for_path_test(true);
     assert!(logic.unit_command_guard_object(guard, building));
@@ -2748,16 +2837,27 @@ fn guard_object_adjusts_off_an_impassable_post() {
     let guard2 = logic
         .create_object_for_player("GuardInf", 0, Vec3::new(0.0, 0.0, 20.0))
         .expect("guard2");
-    let expected2 = logic
-        .pathfinding_system
-        .grid
-        .adjust_destination(
+    let expected2 = ({
+        let ground_owner = logic.world_services.terrain();
+        let ground_loan = ground_owner
+            .read()
+            .unwrap_or_else(|error| error.into_inner());
+        let ground_source = crate::game_logic::pathfinding::PathfindingGround::for_terrain(
+            &ground_loan,
+            logic.map_loaded,
+            logic.terrain.as_ref(),
+            logic.pathfinding_height_samples.as_ref(),
+            &logic.pathfinding_system.grid,
+        );
+        logic.pathfinding_system.grid.adjust_destination(
             blocked,
             crate::game_logic::object::LOCO_SURFACE_GROUND,
             false,
             400,
+            &ground_source,
         )
-        .expect("second adjustDestination cell");
+    })
+    .expect("second adjustDestination cell");
     assert!(logic.unit_command_guard_full(guard2, None, Some(building), 100.0, GuardMode::Normal,));
     logic.process_pathfind_queue();
     let unit2 = logic.host_object(guard2).expect("guard2");

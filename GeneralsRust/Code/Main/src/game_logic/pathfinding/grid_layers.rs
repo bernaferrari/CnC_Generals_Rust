@@ -593,13 +593,19 @@ impl PathfindingGrid {
         to_left: Vec3,
         to_right: Vec3,
         destroyed: bool,
+        ground_source: &PathfindingGround<'_>,
     ) {
         let layer = self.alloc_or_find_bridge_layer(from_left, from_right, to_left, to_right);
-        self.stamp_reserved_bridge_layer(layer, destroyed);
+        self.stamp_reserved_bridge_layer(layer, destroyed, ground_source);
     }
 
     /// Classify an already admitted canonical slot; never allocate by geometry.
-    pub(crate) fn stamp_reserved_bridge_layer(&mut self, layer_id: u8, destroyed: bool) {
+    pub(crate) fn stamp_reserved_bridge_layer(
+        &mut self,
+        layer_id: u8,
+        destroyed: bool,
+        ground_source: &PathfindingGround<'_>,
+    ) {
         let Some(layer) = self.bridge_layers.iter().find(|b| b.id == layer_id) else {
             return;
         };
@@ -649,7 +655,7 @@ impl PathfindingGrid {
                 if connect != PathfindLayerEnum::Ground as u8 {
                     let center = self.cell_center_xz(pos);
                     let deck_h = bridge_deck_height(&corners, center.0, center.1);
-                    let ground_h = self.admitted_ground_height(Vec3::new(center.0, 0.0, center.1));
+                    let ground_h = ground_source.height_at(Vec3::new(center.0, 0.0, center.1));
                     if ground_h + LAYER_Z_CLOSE_ENOUGH_F > deck_h
                         && self.cell_type(pos) != PathfindCellType::Obstacle
                     {
@@ -759,13 +765,13 @@ impl PathfindingGrid {
     }
 
     pub(super) fn wall_corner_count(&self, pos: GridPos, pieces: &[HostWallPiece]) -> u32 {
-        let tl = self.grid_to_world(pos);
+        let tl = self.cell_corner_xz(pos);
         let s = self.grid_size;
         let pts = [
-            (tl.x, tl.z),
-            (tl.x, tl.z + s),
-            (tl.x + s, tl.z + s),
-            (tl.x + s, tl.z),
+            (tl.x, tl.y),
+            (tl.x, tl.y + s),
+            (tl.x + s, tl.y + s),
+            (tl.x + s, tl.y),
         ];
         pts.iter()
             .filter(|(x, z)| pieces.iter().any(|p| Self::wall_piece_contains(p, *x, *z)))
@@ -959,8 +965,12 @@ impl PathfindingGrid {
 
     /// C++ `TerrainLogic::getLayerForDestination` (host Y-up).
     /// Nearest deck/ground height among bridges whose quad covers XZ.
-    pub fn layer_for_destination(&self, pos: Vec3) -> PathfindLayerEnum {
-        let ground_y = self.admitted_ground_height(pos);
+    pub fn layer_for_destination(
+        &self,
+        pos: Vec3,
+        ground_source: &PathfindingGround<'_>,
+    ) -> PathfindLayerEnum {
+        let ground_y = ground_source.height_at(pos);
         let mut best_layer = PathfindLayerEnum::Ground;
         let mut best_distance = (pos.y - ground_y).abs();
         // C++ TerrainLogic::getLayerForDestination checks the wall first
@@ -1078,8 +1088,8 @@ impl PathfindingGrid {
     }
 
     pub(super) fn cell_center_xz(&self, pos: GridPos) -> (f32, f32) {
-        let tl = self.grid_to_world(pos);
-        (tl.x + self.grid_size * 0.5, tl.z + self.grid_size * 0.5)
+        let tl = self.cell_corner_xz(pos);
+        (tl.x + self.grid_size * 0.5, tl.y + self.grid_size * 0.5)
     }
 
     pub(super) fn alloc_or_find_bridge_layer(
@@ -1145,13 +1155,13 @@ impl PathfindingGrid {
         to_left: Vec3,
         to_right: Vec3,
     ) -> Option<(PathfindCellType, u8)> {
-        let tl = self.grid_to_world(pos);
+        let tl = self.cell_corner_xz(pos);
         let s = self.grid_size;
         let pts = [
-            (tl.x, tl.z),
-            (tl.x, tl.z + s),
-            (tl.x + s, tl.z + s),
-            (tl.x + s, tl.z),
+            (tl.x, tl.y),
+            (tl.x, tl.y + s),
+            (tl.x + s, tl.y + s),
+            (tl.x + s, tl.y),
         ];
         let mut count = 0u32;
         for (px, pz) in pts {
@@ -1161,9 +1171,9 @@ impl PathfindingGrid {
         }
         let bounds = CellXz {
             lo_x: tl.x,
-            lo_z: tl.z,
+            lo_z: tl.y,
             hi_x: tl.x + s,
-            hi_z: tl.z + s,
+            hi_z: tl.y + s,
         };
         let mut ty = PathfindCellType::Impassable;
         let mut connect = 0u8;

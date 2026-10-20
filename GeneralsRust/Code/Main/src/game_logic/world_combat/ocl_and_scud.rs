@@ -2436,24 +2436,27 @@ impl GameLogic {
 mod tests {
     use super::*;
     use crate::game_logic::ThingTemplate;
-    use std::path::PathBuf;
 
     #[test]
     fn retail_fire_field_ocl_creates_the_authored_object_for_the_source_team() {
-        // Load the actual retail source rather than registering an invented
-        // OCL. This exercises the same parsed store lookup used by a Weapon
-        // FireOCL/ProjectileDetonationOCL in a live game.
-        // extracted_big_files_v2 is the populated extraction on this repo
-        // (v1 is absent); fall back to v1 where it exists.
-        let mut retail = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../..")
-            .join("windows_game/extracted_big_files_v2/INIZH/Data/INI/ObjectCreationList.ini");
-        if !retail.is_file() {
-            retail = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                .join("../../..")
-                .join("windows_game/extracted_big_files/INIZH/Data/INI/ObjectCreationList.ini");
-        }
-        gamelogic::object_creation_list::store::load_object_creation_lists_from_path(&retail)
+        // Use the production asset filesystem's configured roots and BIG reader.
+        // The compiled source directory and private runtime CWD need not contain
+        // any extracted licensed INIs. Parse the owned retail bytes using the
+        // existing OCL parser; absence is a genuine admission failure, not a skip.
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("retail asset IO runtime");
+        let mut assets = crate::assets::archive::ArchiveFileSystem::new();
+        runtime
+            .block_on(assets.init())
+            .expect("retail asset filesystem must initialize");
+        let bytes = assets
+            .open_file_sync("Data/INI/ObjectCreationList.ini")
+            .expect("configured retail ObjectCreationList.ini must be readable");
+        let text = std::str::from_utf8(&bytes)
+            .expect("retail ObjectCreationList.ini must contain valid UTF-8");
+        gamelogic::object_creation_list::store::load_object_creation_lists_from_str(text)
             .expect("retail ObjectCreationList.ini must parse");
 
         let mut logic = GameLogic::new();

@@ -388,13 +388,27 @@ fn bridge_deck_locomotor_ignores_the_water_underneath() {
         .pathfinding_system
         .grid
         .set_cell_type(cell, PathfindCellType::Water);
-    logic.pathfinding_system.grid.stamp_bridge_deck(
-        Vec3::new(-30.0, 20.0, -15.0),
-        Vec3::new(-30.0, 20.0, 15.0),
-        Vec3::new(30.0, 20.0, -15.0),
-        Vec3::new(30.0, 20.0, 15.0),
-        false,
-    );
+    ({
+        let ground_owner = logic.world_services.terrain();
+        let ground_loan = ground_owner
+            .read()
+            .unwrap_or_else(|error| error.into_inner());
+        let ground_source = crate::game_logic::pathfinding::PathfindingGround::for_terrain(
+            &ground_loan,
+            logic.map_loaded,
+            logic.terrain.as_ref(),
+            logic.pathfinding_height_samples.as_ref(),
+            &logic.pathfinding_system.grid,
+        );
+        logic.pathfinding_system.grid.stamp_bridge_deck(
+            Vec3::new(-30.0, 20.0, -15.0),
+            Vec3::new(-30.0, 20.0, 15.0),
+            Vec3::new(30.0, 20.0, -15.0),
+            Vec3::new(30.0, 20.0, 15.0),
+            false,
+            &ground_source,
+        )
+    });
     let layer = logic
         .pathfinding_system
         .grid
@@ -571,19 +585,45 @@ fn ignored_structure_is_not_dynamically_stamped() {
         .create_object_for_player("StampPad", 0, at)
         .expect("pad");
     let cell = logic.pathfinding_system.grid.world_to_grid(at);
-    logic
-        .pathfinding_system
-        .grid
-        .update_dynamic_obstacles(&logic.objects);
+    ({
+        let ground_owner = logic.world_services.terrain();
+        let ground_loan = ground_owner
+            .read()
+            .unwrap_or_else(|error| error.into_inner());
+        let ground_source = crate::game_logic::pathfinding::PathfindingGround::for_terrain(
+            &ground_loan,
+            logic.map_loaded,
+            logic.terrain.as_ref(),
+            logic.pathfinding_height_samples.as_ref(),
+            &logic.pathfinding_system.grid,
+        );
+        logic
+            .pathfinding_system
+            .grid
+            .update_dynamic_obstacles(&logic.objects, &ground_source)
+    });
     assert_eq!(
         logic.pathfinding_system.grid.dynamic_pos_unit(cell),
         pad_id.0,
         "a live structure stamps its cell"
     );
-    logic
-        .pathfinding_system
-        .grid
-        .update_dynamic_obstacles_ignoring(&logic.objects, Some(pad_id));
+    ({
+        let ground_owner = logic.world_services.terrain();
+        let ground_loan = ground_owner
+            .read()
+            .unwrap_or_else(|error| error.into_inner());
+        let ground_source = crate::game_logic::pathfinding::PathfindingGround::for_terrain(
+            &ground_loan,
+            logic.map_loaded,
+            logic.terrain.as_ref(),
+            logic.pathfinding_height_samples.as_ref(),
+            &logic.pathfinding_system.grid,
+        );
+        logic
+            .pathfinding_system
+            .grid
+            .update_dynamic_obstacles_ignoring(&logic.objects, Some(pad_id), &ground_source)
+    });
     assert_eq!(
         logic.pathfinding_system.grid.dynamic_pos_unit(cell),
         0,

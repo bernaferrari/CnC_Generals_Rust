@@ -86,10 +86,29 @@ impl GameLogic {
                     .unwrap_or(p1);
                 (p1, p2, radius, is_human)
             };
-            if let Some(path) = self
-                .pathfinding_system
-                .find_safe_path_from(start, p1, p2, radius, surfaces, is_crusher, is_human)
-            {
+            if let Some(path) = ({
+                let ground_owner = self.world_services.terrain();
+                let ground_loan = ground_owner
+                    .read()
+                    .unwrap_or_else(|error| error.into_inner());
+                let ground_source = crate::game_logic::pathfinding::PathfindingGround::for_terrain(
+                    &ground_loan,
+                    self.map_loaded,
+                    self.terrain.as_ref(),
+                    self.pathfinding_height_samples.as_ref(),
+                    &self.pathfinding_system.grid,
+                );
+                self.pathfinding_system.find_safe_path_from(
+                    start,
+                    p1,
+                    p2,
+                    radius,
+                    surfaces,
+                    is_crusher,
+                    is_human,
+                    &ground_source,
+                )
+            }) {
                 let _ =
                     self.apply_computed_unit_path(req.unit_id, start, req.destination, path, false);
             }
@@ -114,14 +133,28 @@ impl GameLogic {
                 .and_then(|pid| self.players.get(&pid))
                 .map(|player| player.is_local)
                 .unwrap_or(true);
-            if let Some(path) = self.pathfinding_system.find_closest_path(
-                start,
-                req.destination,
-                surfaces,
-                is_crusher,
-                is_human,
-                0.2,
-            ) {
+            if let Some(path) = ({
+                let ground_owner = self.world_services.terrain();
+                let ground_loan = ground_owner
+                    .read()
+                    .unwrap_or_else(|error| error.into_inner());
+                let ground_source = crate::game_logic::pathfinding::PathfindingGround::for_terrain(
+                    &ground_loan,
+                    self.map_loaded,
+                    self.terrain.as_ref(),
+                    self.pathfinding_height_samples.as_ref(),
+                    &self.pathfinding_system.grid,
+                );
+                self.pathfinding_system.find_closest_path(
+                    start,
+                    req.destination,
+                    surfaces,
+                    is_crusher,
+                    is_human,
+                    0.2,
+                    &ground_source,
+                )
+            }) {
                 let last = path.last().copied();
                 let _ =
                     self.apply_computed_unit_path(req.unit_id, start, req.destination, path, false);

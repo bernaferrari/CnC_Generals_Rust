@@ -48,7 +48,10 @@ fn aircraft_goal_projection_uses_half_cell_footprints_on_the_driving_grid() {
         GridPos::new(8, 8),
     ]);
     assert_eq!(claims, expected);
-    grid.update_dynamic_obstacles(&objects);
+    grid.update_dynamic_obstacles(
+        &objects,
+        &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+    );
     for cell in expected {
         assert_eq!(grid.goal_aircraft(cell), 7);
     }
@@ -107,10 +110,13 @@ fn aircraft_attack_query_uses_current_goals_instead_of_old_occupancy() {
     world
         .objects
         .insert(ObjectId(2), aircraft(2, LocomotorAppearance::Wings, dest));
-    world
-        .pathfinding_system
-        .grid
-        .update_dynamic_obstacles(&world.objects);
+    ({
+        let ground_source = crate::game_logic::pathfinding::PathfindingGround::Flat(0.0);
+        world
+            .pathfinding_system
+            .grid
+            .update_dynamic_obstacles(&world.objects, &ground_source)
+    });
     let blocked = adjusted(&world, ObjectId(1), dest);
     world
         .objects
@@ -124,7 +130,10 @@ fn aircraft_attack_query_uses_current_goals_instead_of_old_occupancy() {
         "clearing a live goal takes effect before another occupancy refresh"
     );
     let mut fresh = PathfindingSystem::new(300.0, 300.0);
-    fresh.grid.update_dynamic_obstacles(&world.objects);
+    fresh.grid.update_dynamic_obstacles(
+        &world.objects,
+        &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+    );
     assert_eq!(
         clear,
         fresh.adjust_target_destination(
@@ -248,6 +257,7 @@ Object AmericaVehicleComanche
   GeometryHeight = 12
   Body = ActiveBody ModuleTag_Body
     MaxHealth = 220
+    InitialHealth = 220
   End
   Behavior = AIUpdateInterface ModuleTag_AI
   End
@@ -260,6 +270,7 @@ Object HqAwymWingAircraft
   GeometryHeight = 12
   Body = ActiveBody ModuleTag_Body
     MaxHealth = 220
+    InitialHealth = 220
   End
   Behavior = JetAIUpdate ModuleTag_AI
     NeedsRunway = Yes
@@ -294,6 +305,14 @@ End
     world.override_world_size(600.0, 600.0);
     for id in [hover, wings] {
         let object = world.objects.get_mut(&id).unwrap();
+        assert_eq!(
+            object.health.current, 220.0,
+            "authored InitialHealth owns liveness"
+        );
+        assert_eq!(
+            object.health.maximum, 220.0,
+            "MaxHealth is a separate definition"
+        );
         assert_eq!(
             object.selection_radius, 8.0,
             "authored geometry owns the footprint radius"
@@ -348,25 +367,35 @@ fn authored_same_id_matches_keep_aircraft_goals_and_foreign_core_independent() {
     let (mut second, hover_b, wings_b) = authored_world(Vec3::new(175.0, 40.0, 175.0));
     assert_eq!((hover, wings), (hover_b, wings_b));
     assert_eq!(foreign_goal(), before, "constructors are inert");
-    first
-        .pathfinding_system
-        .grid
-        .update_dynamic_obstacles(&first.objects);
+    ({
+        let ground_source = crate::game_logic::pathfinding::PathfindingGround::Flat(0.0);
+        first
+            .pathfinding_system
+            .grid
+            .update_dynamic_obstacles(&first.objects, &ground_source)
+    });
     assert_eq!(
         foreign_goal(),
         before,
         "owned occupancy cannot publish to Core"
     );
-    second
-        .pathfinding_system
-        .grid
-        .update_dynamic_obstacles(&second.objects);
-    let _ = second.pathfinding_system.adjust_landing_destination_for(
-        hover_b.0,
-        &second.objects,
-        Vec3::ZERO,
-        dest,
-    );
+    ({
+        let ground_source = crate::game_logic::pathfinding::PathfindingGround::Flat(0.0);
+        second
+            .pathfinding_system
+            .grid
+            .update_dynamic_obstacles(&second.objects, &ground_source)
+    });
+    let _ = ({
+        let ground_source = crate::game_logic::pathfinding::PathfindingGround::Flat(0.0);
+        second.pathfinding_system.adjust_landing_destination_for(
+            hover_b.0,
+            &second.objects,
+            Vec3::ZERO,
+            dest,
+            &ground_source,
+        )
+    });
     assert_eq!(adjusted(&first, hover, dest), reference);
     assert_eq!(foreign_goal(), before);
     second
@@ -375,10 +404,13 @@ fn authored_same_id_matches_keep_aircraft_goals_and_foreign_core_independent() {
         .unwrap()
         .movement
         .target_position = Some(dest);
-    second
-        .pathfinding_system
-        .grid
-        .update_dynamic_obstacles(&second.objects);
+    ({
+        let ground_source = crate::game_logic::pathfinding::PathfindingGround::Flat(0.0);
+        second
+            .pathfinding_system
+            .grid
+            .update_dynamic_obstacles(&second.objects, &ground_source)
+    });
     assert_eq!(adjusted(&first, hover, dest), reference);
     second.reset();
     drop(second);
@@ -413,10 +445,13 @@ fn authored_aircraft_save_load_continues_owned_goal_changes() {
     }
     let dest = Vec3::new(75.0, 40.0, 75.0);
     let (mut source, hover, wings) = authored_world(dest);
-    source
-        .pathfinding_system
-        .grid
-        .update_dynamic_obstacles(&source.objects);
+    ({
+        let ground_source = crate::game_logic::pathfinding::PathfindingGround::Flat(0.0);
+        source
+            .pathfinding_system
+            .grid
+            .update_dynamic_obstacles(&source.objects, &ground_source)
+    });
     // These are mutable locomotor values, different from the authored defaults.
     // Reconstructing immutable appearance must not reapply an entire binding.
     {
@@ -485,14 +520,20 @@ fn authored_aircraft_save_load_continues_owned_goal_changes() {
             .unwrap()
             .movement
             .target_position = next;
-        source
-            .pathfinding_system
-            .grid
-            .update_dynamic_obstacles(&source.objects);
-        restored
-            .pathfinding_system
-            .grid
-            .update_dynamic_obstacles(&restored.objects);
+        ({
+            let ground_source = crate::game_logic::pathfinding::PathfindingGround::Flat(0.0);
+            source
+                .pathfinding_system
+                .grid
+                .update_dynamic_obstacles(&source.objects, &ground_source)
+        });
+        ({
+            let ground_source = crate::game_logic::pathfinding::PathfindingGround::Flat(0.0);
+            restored
+                .pathfinding_system
+                .grid
+                .update_dynamic_obstacles(&restored.objects, &ground_source)
+        });
         assert_eq!(
             adjusted(&restored, hover, dest),
             adjusted(&source, hover, dest),
@@ -501,10 +542,13 @@ fn authored_aircraft_save_load_continues_owned_goal_changes() {
     }
     let reference = adjusted(&source, hover, dest);
     restored.reset();
-    restored
-        .pathfinding_system
-        .grid
-        .update_dynamic_obstacles(&restored.objects);
+    ({
+        let ground_source = crate::game_logic::pathfinding::PathfindingGround::Flat(0.0);
+        restored
+            .pathfinding_system
+            .grid
+            .update_dynamic_obstacles(&restored.objects, &ground_source)
+    });
     assert!(
         restored
             .pathfinding_system
@@ -550,7 +594,21 @@ fn authored_aircraft_liveness_ignores_same_id_foreign_shadow_health() {
         .grid
         .aircraft_goal_claims(&driving.objects, wings.0);
     let baseline_attack = adjusted(&driving, wings, dest);
-    assert!(!baseline_claims.is_empty());
+    let owner = &driving.objects[&hover];
+    assert!(
+        !baseline_claims.is_empty(),
+        "owned hover: alive={} immobile={} ground={} reserves={} loco={:?} appearance={:?} surfaces={} goal={:?} radius={} cell={}",
+        owner.is_alive(),
+        owner.is_kind_of(KindOf::Immobile),
+        PathfindingGrid::is_doing_ground_movement(owner),
+        PathfindingGrid::is_aircraft_that_adjusts_destination(owner),
+        owner.cur_locomotor_name,
+        owner.loco_appearance,
+        owner.locomotor_surfaces,
+        owner.movement.target_position,
+        owner.selection_radius,
+        driving.pathfinding_system.grid.grid_size(),
+    );
     shadow
         .world_mut()
         .world_mut()
@@ -576,10 +634,13 @@ fn authored_aircraft_liveness_ignores_same_id_foreign_shadow_health() {
                 baseline_claims
             );
             assert_eq!(adjusted(&driving, wings, dest), baseline_attack);
-            driving
-                .pathfinding_system
-                .grid
-                .update_dynamic_obstacles(&driving.objects);
+            ({
+                let ground_source = crate::game_logic::pathfinding::PathfindingGround::Flat(0.0);
+                driving
+                    .pathfinding_system
+                    .grid
+                    .update_dynamic_obstacles(&driving.objects, &ground_source)
+            });
             for cell in &baseline_claims {
                 assert_eq!(
                     driving.pathfinding_system.grid.goal_aircraft(*cell),
@@ -622,10 +683,13 @@ fn authored_aircraft_liveness_ignores_same_id_foreign_shadow_health() {
                     .is_empty()
             );
             assert_eq!(adjusted(&driving, wings, dest), dead_attack);
-            driving
-                .pathfinding_system
-                .grid
-                .update_dynamic_obstacles(&driving.objects);
+            ({
+                let ground_source = crate::game_logic::pathfinding::PathfindingGround::Flat(0.0);
+                driving
+                    .pathfinding_system
+                    .grid
+                    .update_dynamic_obstacles(&driving.objects, &ground_source)
+            });
             for cell in &baseline_claims {
                 assert_eq!(
                     driving.pathfinding_system.grid.goal_aircraft(*cell),

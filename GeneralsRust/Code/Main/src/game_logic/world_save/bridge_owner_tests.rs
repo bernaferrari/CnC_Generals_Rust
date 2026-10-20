@@ -94,12 +94,46 @@ fn actual_map_admission_keeps_source_layers_across_bounds_and_foreign_ai() {
                 );
                 let tied = Vec3::new(50.0, 38.0, 50.0);
                 assert_eq!(
-                    first.pathfinding_system.grid.layer_for_destination(tied) as u8,
+                    ({
+                        let ground_owner = first.world_services.terrain();
+                        let ground_loan = ground_owner
+                            .read()
+                            .unwrap_or_else(|error| error.into_inner());
+                        let ground_source =
+                            crate::game_logic::pathfinding::PathfindingGround::for_terrain(
+                                &ground_loan,
+                                first.map_loaded,
+                                first.terrain.as_ref(),
+                                first.pathfinding_height_samples.as_ref(),
+                                &first.pathfinding_system.grid,
+                            );
+                        first
+                            .pathfinding_system
+                            .grid
+                            .layer_for_destination(tied, &ground_source)
+                    }) as u8,
                     3,
                     "strict tie keeps prepended source bridge"
                 );
                 assert_eq!(
-                    second.pathfinding_system.grid.layer_for_destination(tied),
+                    ({
+                        let ground_owner = second.world_services.terrain();
+                        let ground_loan = ground_owner
+                            .read()
+                            .unwrap_or_else(|error| error.into_inner());
+                        let ground_source =
+                            crate::game_logic::pathfinding::PathfindingGround::for_terrain(
+                                &ground_loan,
+                                second.map_loaded,
+                                second.terrain.as_ref(),
+                                second.pathfinding_height_samples.as_ref(),
+                                &second.pathfinding_system.grid,
+                            );
+                        second
+                            .pathfinding_system
+                            .grid
+                            .layer_for_destination(tied, &ground_source)
+                    }),
                     PathfindLayerEnum::Ground
                 );
                 second.reset();
@@ -109,7 +143,24 @@ fn actual_map_admission_keeps_source_layers_across_bounds_and_foreign_ai() {
                 first.stamp_live_bridge_decks_and_zones();
                 assert_eq!(bridges(&first), first_rows);
                 assert_eq!(
-                    first.pathfinding_system.grid.layer_for_destination(tied) as u8,
+                    ({
+                        let ground_owner = first.world_services.terrain();
+                        let ground_loan = ground_owner
+                            .read()
+                            .unwrap_or_else(|error| error.into_inner());
+                        let ground_source =
+                            crate::game_logic::pathfinding::PathfindingGround::for_terrain(
+                                &ground_loan,
+                                first.map_loaded,
+                                first.terrain.as_ref(),
+                                first.pathfinding_height_samples.as_ref(),
+                                &first.pathfinding_system.grid,
+                            );
+                        first
+                            .pathfinding_system
+                            .grid
+                            .layer_for_destination(tied, &ground_source)
+                    }) as u8,
                     3
                 );
             });
@@ -179,10 +230,24 @@ fn canonical_body_scaffold_repair_and_delete_ignore_foreign_same_id() {
                 assert!(world.bridge_behavior.span(id).is_none());
                 world.refresh_owned_bridge_pathfinder_states();
                 assert_eq!(
-                    world
-                        .pathfinding_system
-                        .grid
-                        .layer_for_destination(Vec3::new(50.0, 21.0, 50.0)),
+                    ({
+                        let ground_owner = world.world_services.terrain();
+                        let ground_loan = ground_owner
+                            .read()
+                            .unwrap_or_else(|error| error.into_inner());
+                        let ground_source =
+                            crate::game_logic::pathfinding::PathfindingGround::for_terrain(
+                                &ground_loan,
+                                world.map_loaded,
+                                world.terrain.as_ref(),
+                                world.pathfinding_height_samples.as_ref(),
+                                &world.pathfinding_system.grid,
+                            );
+                        world
+                            .pathfinding_system
+                            .grid
+                            .layer_for_destination(Vec3::new(50.0, 21.0, 50.0), &ground_source)
+                    }),
                     PathfindLayerEnum::Ground,
                     "unlinked metadata cannot answer terrain queries or become healthy next frame"
                 );
@@ -301,14 +366,42 @@ fn native_saved_map_reconstructs_layers_and_keeps_scaffold_continuation() {
                         .scaffold_motion_frames
                 );
                 assert_eq!(
-                    restored
-                        .pathfinding_system
-                        .grid
-                        .layer_for_destination(Vec3::new(50.0, 38.0, 50.0)),
-                    source
-                        .pathfinding_system
-                        .grid
-                        .layer_for_destination(Vec3::new(50.0, 38.0, 50.0))
+                    ({
+                        let ground_owner = restored.world_services.terrain();
+                        let ground_loan = ground_owner
+                            .read()
+                            .unwrap_or_else(|error| error.into_inner());
+                        let ground_source =
+                            crate::game_logic::pathfinding::PathfindingGround::for_terrain(
+                                &ground_loan,
+                                restored.map_loaded,
+                                restored.terrain.as_ref(),
+                                restored.pathfinding_height_samples.as_ref(),
+                                &restored.pathfinding_system.grid,
+                            );
+                        restored
+                            .pathfinding_system
+                            .grid
+                            .layer_for_destination(Vec3::new(50.0, 38.0, 50.0), &ground_source)
+                    }),
+                    ({
+                        let ground_owner = source.world_services.terrain();
+                        let ground_loan = ground_owner
+                            .read()
+                            .unwrap_or_else(|error| error.into_inner());
+                        let ground_source =
+                            crate::game_logic::pathfinding::PathfindingGround::for_terrain(
+                                &ground_loan,
+                                source.map_loaded,
+                                source.terrain.as_ref(),
+                                source.pathfinding_height_samples.as_ref(),
+                                &source.pathfinding_system.grid,
+                            );
+                        source
+                            .pathfinding_system
+                            .grid
+                            .layer_for_destination(Vec3::new(50.0, 38.0, 50.0), &ground_source)
+                    })
                 );
             });
             drop(held);

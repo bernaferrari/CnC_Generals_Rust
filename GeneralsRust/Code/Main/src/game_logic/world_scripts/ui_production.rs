@@ -1084,8 +1084,22 @@ impl GameLogic {
         // walls and the source-ordered bridge list (TerrainLogic.cpp:1668-1700).
         // Main's admitted grid owns these layers and the raw ground sampler;
         // Core TerrainLogic's adapter would select a different AI pathfinder.
-        if self.pathfinding_system.grid.layer_for_destination(position)
-            != gamelogic::ai::pathfind_astar::PathfindLayerEnum::Ground
+        if ({
+            let ground_owner = self.world_services.terrain();
+            let ground_loan = ground_owner
+                .read()
+                .unwrap_or_else(|error| error.into_inner());
+            let ground_source = crate::game_logic::pathfinding::PathfindingGround::for_terrain(
+                &ground_loan,
+                self.map_loaded,
+                self.terrain.as_ref(),
+                self.pathfinding_height_samples.as_ref(),
+                &self.pathfinding_system.grid,
+            );
+            self.pathfinding_system
+                .grid
+                .layer_for_destination(position, &ground_source)
+        }) != gamelogic::ai::pathfind_astar::PathfindLayerEnum::Ground
         {
             return true;
         }

@@ -84,9 +84,14 @@ const BASE_A: &str = "AIData\n GuardEnemyScanRate = 500\n GuardEnemyReturnScanRa
 const BASE_B: &str = "AIData\n GuardEnemyScanRate = 1500\n GuardEnemyReturnScanRate = 2000\n GuardChaseUnitsDuration = 4000\n AttackUsesLineOfSight = No\n WallHeight = 55\n RepulsedDistance = 90\n Poor = 7000\n TeamsPoorRate = 2\n End\n";
 
 fn blocked(world: &GameLogic) -> bool {
-    world
-        .pathfinding_system
-        .is_attack_view_blocked(Vec3::new(-200.0, 0.0, 0.0), Vec3::new(200.0, 0.0, 0.0))
+    ({
+        let ground_source = crate::game_logic::pathfinding::PathfindingGround::Flat(0.0);
+        world.pathfinding_system.is_attack_view_blocked(
+            Vec3::new(-200.0, 0.0, 0.0),
+            Vec3::new(200.0, 0.0, 0.0),
+            &ground_source,
+        )
+    })
 }
 
 fn barrier(world: &mut GameLogic) {

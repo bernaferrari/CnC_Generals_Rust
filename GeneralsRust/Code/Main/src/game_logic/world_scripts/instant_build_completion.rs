@@ -146,8 +146,21 @@ impl GameLogic {
         // footprint, scoring, power, AI and CreateModule observations.
         self.script_object_count_changed_frame = self.frame;
         if let Some(object) = self.objects.get(&structure) {
-            self.pathfinding_system
-                .refresh_completed_structure_footprint(object);
+            ({
+                let ground_owner = self.world_services.terrain();
+                let ground_loan = ground_owner
+                    .read()
+                    .unwrap_or_else(|error| error.into_inner());
+                let ground_source = crate::game_logic::pathfinding::PathfindingGround::for_terrain(
+                    &ground_loan,
+                    self.map_loaded,
+                    self.terrain.as_ref(),
+                    self.pathfinding_height_samples.as_ref(),
+                    &self.pathfinding_system.grid,
+                );
+                self.pathfinding_system
+                    .refresh_completed_structure_footprint(object, &ground_source)
+            });
         }
         // No withdrawal here; both ordinary and instant completion record
         // spending. Rebuilding skips ScoreKeeper, as Player.cpp1650 specifies.

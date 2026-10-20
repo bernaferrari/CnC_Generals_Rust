@@ -35,7 +35,10 @@ fn same_cell_on_each_layer() -> [(GridCoord, PathfindLayerEnum); 3] {
 fn searched_layer_conversion_distinguishes_ground_bridge_and_wall_at_same_xy() {
     let system = overlapping_layers(30.0, 50.0);
     assert_eq!(system.grid.host_deck_layer_at(GridPos::new(1, 1)), Some(2));
-    let points = system.crate_path_to_world(&same_cell_on_each_layer());
+    let points = system.crate_path_to_world(
+        &same_cell_on_each_layer(),
+        &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+    );
     assert_eq!(
         points.iter().map(|p| p.y).collect::<Vec<_>>(),
         vec![0.0, 30.0, 50.0]
@@ -47,16 +50,26 @@ fn searched_layer_conversion_distinguishes_ground_bridge_and_wall_at_same_xy() {
 #[test]
 fn searched_layer_conversion_reads_only_its_receiving_grid() {
     let first = overlapping_layers(30.0, 50.0);
-    let expected = first.crate_path_to_world(&same_cell_on_each_layer());
+    let expected = first.crate_path_to_world(
+        &same_cell_on_each_layer(),
+        &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+    );
     let mut second = overlapping_layers(70.0, 90.0);
     assert_eq!(
-        second.crate_path_to_world(&same_cell_on_each_layer())[1].y,
+        second.crate_path_to_world(
+            &same_cell_on_each_layer(),
+            &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0)
+        )[1]
+        .y,
         70.0
     );
     second.grid.bridge_layers.clear();
     second.grid.set_wall_height(100.0);
     assert_eq!(
-        first.crate_path_to_world(&same_cell_on_each_layer()),
+        first.crate_path_to_world(
+            &same_cell_on_each_layer(),
+            &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0)
+        ),
         expected
     );
 }

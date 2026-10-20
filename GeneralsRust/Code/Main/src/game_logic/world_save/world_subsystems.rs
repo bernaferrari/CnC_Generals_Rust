@@ -1049,11 +1049,6 @@ impl GameLogic {
             height,
             values: heights.to_vec(),
         });
-        self.pathfinding_system.set_terrain_height_samples(
-            width as i32,
-            height as i32,
-            heights.to_vec(),
-        );
 
         // Raw loaded bytes remain canonical. Coarse save samples are a
         // mapless/old-save fallback, never replacement authored geometry.
@@ -1087,8 +1082,24 @@ impl GameLogic {
             self.copy_crate_water_into_host_terrain();
             self.seed_pathfinding_from_terrain();
             let wall_height = self.pathfind_ai_rules().wall_height;
-            self.pathfinding_system
-                .apply_structure_static_blocks(&self.objects, wall_height);
+            ({
+                let ground_owner = self.world_services.terrain();
+                let ground_loan = ground_owner
+                    .read()
+                    .unwrap_or_else(|error| error.into_inner());
+                let ground_source = crate::game_logic::pathfinding::PathfindingGround::for_terrain(
+                    &ground_loan,
+                    self.map_loaded,
+                    self.terrain.as_ref(),
+                    self.pathfinding_height_samples.as_ref(),
+                    &self.pathfinding_system.grid,
+                );
+                self.pathfinding_system.apply_structure_static_blocks(
+                    &self.objects,
+                    wall_height,
+                    &ground_source,
+                )
+            });
             true
         }
         #[cfg(not(feature = "game_client"))]
@@ -1115,15 +1126,47 @@ impl GameLogic {
         if had_terrain {
             self.seed_pathfinding_from_terrain();
             let wall_height = self.pathfind_ai_rules().wall_height;
-            self.pathfinding_system
-                .apply_structure_static_blocks(&self.objects, wall_height);
+            ({
+                let ground_owner = self.world_services.terrain();
+                let ground_loan = ground_owner
+                    .read()
+                    .unwrap_or_else(|error| error.into_inner());
+                let ground_source = crate::game_logic::pathfinding::PathfindingGround::for_terrain(
+                    &ground_loan,
+                    self.map_loaded,
+                    self.terrain.as_ref(),
+                    self.pathfinding_height_samples.as_ref(),
+                    &self.pathfinding_system.grid,
+                );
+                self.pathfinding_system.apply_structure_static_blocks(
+                    &self.objects,
+                    wall_height,
+                    &ground_source,
+                )
+            });
         } else {
             self.pathfinding_system.grid.reclassify_ground();
             self.refresh_owned_bridge_pathfinder_states();
         }
         let wall_height = self.pathfind_ai_rules().wall_height;
-        self.pathfinding_system
-            .apply_structure_static_blocks(&self.objects, wall_height);
+        ({
+            let ground_owner = self.world_services.terrain();
+            let ground_loan = ground_owner
+                .read()
+                .unwrap_or_else(|error| error.into_inner());
+            let ground_source = crate::game_logic::pathfinding::PathfindingGround::for_terrain(
+                &ground_loan,
+                self.map_loaded,
+                self.terrain.as_ref(),
+                self.pathfinding_height_samples.as_ref(),
+                &self.pathfinding_system.grid,
+            );
+            self.pathfinding_system.apply_structure_static_blocks(
+                &self.objects,
+                wall_height,
+                &ground_source,
+            )
+        });
     }
 
     /// Block one structure footprint without full rebuild.
@@ -1135,7 +1178,21 @@ impl GameLogic {
         if !obj.is_kind_of(KindOf::Structure) || !obj.is_alive() {
             return;
         }
-        self.pathfinding_system.classify_and_pinch_object(obj);
+        ({
+            let ground_owner = self.world_services.terrain();
+            let ground_loan = ground_owner
+                .read()
+                .unwrap_or_else(|error| error.into_inner());
+            let ground_source = crate::game_logic::pathfinding::PathfindingGround::for_terrain(
+                &ground_loan,
+                self.map_loaded,
+                self.terrain.as_ref(),
+                self.pathfinding_height_samples.as_ref(),
+                &self.pathfinding_system.grid,
+            );
+            self.pathfinding_system
+                .classify_and_pinch_object(obj, &ground_source)
+        });
     }
 
     pub fn set_pathfinding_static_block(&mut self, x: i32, y: i32, blocked: bool) {
@@ -1170,9 +1227,6 @@ impl GameLogic {
             Vec3::new(extent.lo.x, extent.lo.z, extent.lo.y),
             Vec3::new(extent.hi.x, extent.hi.z, extent.hi.y),
         );
-        self.pathfinding_system
-            .grid
-            .admit_raw_terrain(Some(terrain));
         self.pathfinding_system.grid.reclassify_ground();
         let grid = &mut self.pathfinding_system.grid;
         let size = grid.grid_size();
@@ -1205,7 +1259,9 @@ impl GameLogic {
             }
         }
         grid.pinch_tighten_cliffs();
-        self.refresh_owned_bridge_pathfinder_states();
+        self.refresh_owned_bridge_pathfinder_states_with_ground(&PathfindingGround::receiving(
+            logical,
+        ));
         self.pathfinding_system.grid.rebuild_terrain_zones();
         self.pathfinding_system.grid.rebuild_path_zones();
     }

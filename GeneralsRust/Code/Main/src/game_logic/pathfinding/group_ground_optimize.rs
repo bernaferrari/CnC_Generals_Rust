@@ -11,6 +11,7 @@ pub(super) fn build(
     from: Vec3,
     cells: &[Cell],
     objects: &HashMap<ObjectId, Object>,
+    ground_source: &PathfindingGround<'_>,
 ) -> Vec<Vec3> {
     let mut reversed: Vec<Node> = Vec::new();
     for cell in cells.iter().skip(1).rev() {
@@ -24,12 +25,13 @@ pub(super) fn build(
                 continue;
             }
         }
-        let mut position = grid.adjust_coord_to_cell(cell.pos, false);
+        let mut position = grid.adjust_coord_to_cell(cell.pos, false, ground_source);
         position.y = grid.layer_world_height(
             cell.pos,
             PathfindLayerEnum::from_u32(cell.layer as u32),
             position.x,
             position.z,
+            ground_source,
         );
         reversed.push(Node {
             position,
@@ -38,12 +40,13 @@ pub(super) fn build(
     }
     if reversed.is_empty() {
         let cell = cells[0];
-        let mut position = grid.adjust_coord_to_cell(cell.pos, false);
+        let mut position = grid.adjust_coord_to_cell(cell.pos, false, ground_source);
         position.y = grid.layer_world_height(
             cell.pos,
             PathfindLayerEnum::from_u32(cell.layer as u32),
             position.x,
             position.z,
+            ground_source,
         );
         reversed.push(Node {
             position,

@@ -716,8 +716,30 @@ impl GameLogic {
                             }
                             self.seed_pathfinding_from_terrain();
                             let wall_height = self.pathfind_ai_rules().wall_height;
-                            self.pathfinding_system
-                                .apply_structure_static_blocks(&self.objects, wall_height);
+                            ({
+                                let ground_owner = self.world_services.terrain();
+                                let ground_loan = ground_owner
+                                    .read()
+                                    .unwrap_or_else(|error| error.into_inner());
+                                let ground_source = if self.map_loaded
+                                    || ground_loan.has_height_map()
+                                {
+                                    crate::game_logic::pathfinding::PathfindingGround::receiving(
+                                        &ground_loan,
+                                    )
+                                } else {
+                                    crate::game_logic::pathfinding::PathfindingGround::mapless(
+                                        self.terrain.as_ref(),
+                                        self.pathfinding_height_samples.as_ref(),
+                                        &self.pathfinding_system.grid,
+                                    )
+                                };
+                                self.pathfinding_system.apply_structure_static_blocks(
+                                    &self.objects,
+                                    wall_height,
+                                    &ground_source,
+                                )
+                            });
                         }
                     }
                 } else {
@@ -812,8 +834,30 @@ impl GameLogic {
                             }
                             self.seed_pathfinding_from_terrain();
                             let wall_height = self.pathfind_ai_rules().wall_height;
-                            self.pathfinding_system
-                                .apply_structure_static_blocks(&self.objects, wall_height);
+                            ({
+                                let ground_owner = self.world_services.terrain();
+                                let ground_loan = ground_owner
+                                    .read()
+                                    .unwrap_or_else(|error| error.into_inner());
+                                let ground_source = if self.map_loaded
+                                    || ground_loan.has_height_map()
+                                {
+                                    crate::game_logic::pathfinding::PathfindingGround::receiving(
+                                        &ground_loan,
+                                    )
+                                } else {
+                                    crate::game_logic::pathfinding::PathfindingGround::mapless(
+                                        self.terrain.as_ref(),
+                                        self.pathfinding_height_samples.as_ref(),
+                                        &self.pathfinding_system.grid,
+                                    )
+                                };
+                                self.pathfinding_system.apply_structure_static_blocks(
+                                    &self.objects,
+                                    wall_height,
+                                    &ground_source,
+                                )
+                            });
                         } else {
                             log::warn!("Failed to load heightmap '{}'", path_str);
                         }

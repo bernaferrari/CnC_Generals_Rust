@@ -90,13 +90,14 @@ fn garrison_evac_burst_end(
     start: glam::Vec3,
     major: f32,
     grid: &super::super::pathfinding::PathfindingGrid,
+    ground: &PathfindingGround<'_>,
 ) -> glam::Vec3 {
     use gamelogic::ai::pathfind_complete::SURFACE_GROUND;
     let cell_size = grid.grid_size().max(1.0);
     if grid.width() > 0 && grid.height() > 0 {
         let seed = grid.world_to_grid(start);
-        if let Some(adj) = grid.adjust_destination(seed, SURFACE_GROUND, false, 400) {
-            let world = grid.grid_to_world(adj);
+        if let Some(adj) = grid.adjust_destination(seed, SURFACE_GROUND, false, 400, ground) {
+            let world = grid.grid_to_world(adj, ground);
             let dx = world.x - start.x;
             let dz = world.z - start.z;
             if dx * dx + dz * dz > 0.25 {
@@ -604,7 +605,18 @@ impl GameLogic {
                     start.y = gh;
                 }
             }
-            let end = garrison_evac_burst_end(start, major, &self.pathfinding_system.grid);
+            let end = {
+                let owner = self.world_services.terrain();
+                let loan = owner.read().unwrap_or_else(|error| error.into_inner());
+                let ground = PathfindingGround::for_terrain(
+                    &loan,
+                    self.map_loaded,
+                    self.terrain.as_ref(),
+                    self.pathfinding_height_samples.as_ref(),
+                    &self.pathfinding_system.grid,
+                );
+                garrison_evac_burst_end(start, major, &self.pathfinding_system.grid, &ground)
+            };
             let Some(p) = self.objects.get_mut(&unit_id) else {
                 return false;
             };
@@ -921,7 +933,18 @@ impl GameLogic {
                     start.y = gh;
                 }
             }
-            let end = garrison_evac_burst_end(start, major, &self.pathfinding_system.grid);
+            let end = {
+                let owner = self.world_services.terrain();
+                let loan = owner.read().unwrap_or_else(|error| error.into_inner());
+                let ground = PathfindingGround::for_terrain(
+                    &loan,
+                    self.map_loaded,
+                    self.terrain.as_ref(),
+                    self.pathfinding_height_samples.as_ref(),
+                    &self.pathfinding_system.grid,
+                );
+                garrison_evac_burst_end(start, major, &self.pathfinding_system.grid, &ground)
+            };
             (Some(start), Some(end))
         } else {
             (None, None)

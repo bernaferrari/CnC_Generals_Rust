@@ -107,10 +107,18 @@ fn assert_member_heights(world: &mut GameLogic, id: ObjectId, raw: f32, deck: f3
         (Vec3::new(50.0, wall, 120.0), 15, wall),
     ] {
         assert_eq!(
-            world
-                .pathfinding_system
-                .grid
-                .layer_for_destination(destination) as u8,
+            ({
+                let ground_owner = world.world_services.terrain();
+                let ground_loan = ground_owner
+                    .read()
+                    .unwrap_or_else(|error| error.into_inner());
+                let ground_source =
+                    crate::game_logic::pathfinding::PathfindingGround::receiving(&ground_loan);
+                world
+                    .pathfinding_system
+                    .grid
+                    .layer_for_destination(destination, &ground_source)
+            }) as u8,
             expected_layer
         );
         eprintln!("group height request layer{expected_layer} height{expected_height}");
@@ -209,21 +217,14 @@ fn group_goal_samples_final_adjusted_xy_on_authored_cpp_height_plane() {
                     adjusted.x, requested.x,
                     "fixture exercises actual cell adjustment"
                 );
-                // Bytes rise8/sample, source scale10, height0.625, border1.
-                // Thus the independently authored world plane is y=0.5*x+5.
-                // The admitted Rust heightmap stores byte/255 before the original
-                // lower-triangle arithmetic and rescales by255*0.625. Pin
-                // that exact f32 path independently of the production sampler.
-                let x = adjusted.x / 10.0;
-                let fx = x - x.floor();
-                let p0 = ((x.floor() + 1.0) * 8.0) / 255.0;
-                let p1 = ((x.floor() + 2.0) * 8.0) / 255.0;
-                let encoded_height = (p1 + (1.0 - fx) * (p0 - p1)) * (255.0 * 0.625);
-                assert_eq!(adjusted.y, encoded_height);
-                // On this exact plane/cell, normalizing the integer samples
-                // introduces one f32 ULP versus original byte arithmetic.
+                // C++ BaseHeightMap byte arithmetic: the adjusted cell is
+                // world(80,80), border1 gives sample x9, raw byte9*8=72,
+                // and 72*0.625 is exactly 45. The old byte/255 presentation
+                // projection introduced one ULP; it is no longer the owner.
+                assert_eq!((adjusted.x, adjusted.z), (80.0, 80.0));
+                assert_eq!(adjusted.y.to_bits(), 45.0_f32.to_bits());
                 let analytic_height = 0.5 * adjusted.x + 5.0;
-                assert!(adjusted.y.to_bits().abs_diff(analytic_height.to_bits()) <= 1);
+                assert_eq!(adjusted.y.to_bits(), analytic_height.to_bits());
                 assert_ne!(
                     adjusted.y,
                     0.5 * requested.x + 5.0,
@@ -248,11 +249,11 @@ fn group_goal_accepts_owned_zero_and_negative_cache_without_ambient_fallback() {
             let height = world.pathfinding_system.grid.height();
             with_foreign_held(|| {
                 for raw in [-7.0, 0.0] {
-                    world.pathfinding_system.set_terrain_height_samples(
-                        width,
-                        height,
-                        vec![raw; (width * height) as usize],
-                    );
+                    assert!(world.restore_terrain_heights_from_grid(
+                        width as u32,
+                        height as u32,
+                        &vec![raw; (width * height) as usize],
+                    ));
                     let requested = Vec3::new(80.0, raw, 80.0);
                     let adjusted = world.adjust_group_member_goal(id, requested, requested);
                     assert_eq!(

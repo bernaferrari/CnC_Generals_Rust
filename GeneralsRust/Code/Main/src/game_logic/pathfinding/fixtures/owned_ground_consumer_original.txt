@@ -1,0 +1,14 @@
+scaffold_before layer 2 ground 56.25
+scaffold_after layer 0 ground 50
+clearance_below ground_type 0 bridge_type 0 connect 1
+clearance_equal ground_type 0 bridge_type 0 connect 1
+clearance_above ground_type 5 bridge_type 0 connect 1
+clearance_entry ground_type 0 bridge_type 0 connect 0
+clearance_obstacle ground_type 3 bridge_type 0 connect 1
+layer_tie layer 0 ground 50
+adjust_ground_before xyz 55 35 56.25
+adjust_ground_after xyz 55 35 50
+adjust_buried_bridge xyz 55 35 56.25
+water_equal type 0
+water_lower_corner type 2
+water_obstacle type 3

@@ -1054,13 +1054,27 @@ fn retail_harvesters_parse_and_accept_gather_through_live_command_authority() {
             .pathfinding_system
             .grid
             .world_to_grid(Vec3::new(20.0, 0.0, 0.0));
-        let direct_ground_path = game_logic.pathfinding_system.find_path_ex(
-            Vec3::ZERO,
-            Vec3::new(20.0, 0.0, 0.0),
-            &game_logic.objects,
-            false,
-            Some(collector_id),
-        );
+        let direct_ground_path = ({
+            let ground_owner = game_logic.world_services.terrain();
+            let ground_loan = ground_owner
+                .read()
+                .unwrap_or_else(|error| error.into_inner());
+            let ground_source = crate::game_logic::pathfinding::PathfindingGround::for_terrain(
+                &ground_loan,
+                game_logic.map_loaded,
+                game_logic.terrain.as_ref(),
+                game_logic.pathfinding_height_samples.as_ref(),
+                &game_logic.pathfinding_system.grid,
+            );
+            game_logic.pathfinding_system.find_path_ex(
+                Vec3::ZERO,
+                Vec3::new(20.0, 0.0, 0.0),
+                &game_logic.objects,
+                false,
+                Some(collector_id),
+                &ground_source,
+            )
+        });
         assert!(
             direct_ground_path.is_some(),
             "{object_name} ground grid path absent: origin={:?} size={}x{} start={start_cell:?} blocked={} static={} goal={supply_cell:?} blocked={} static={}",

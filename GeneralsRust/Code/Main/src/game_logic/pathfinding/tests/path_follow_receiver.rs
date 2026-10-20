@@ -19,8 +19,14 @@ fn stamp(grid: &mut PathfindingGrid, cell: GridPos, receiver: u32, moving: bool)
 }
 
 fn lead(grid: &PathfindingGrid, receiver: Option<u32>, from: GridPos, to: GridPos) -> Vec3 {
-    let start = grid.grid_to_world(from);
-    let next = grid.grid_to_world(to);
+    let start = grid.grid_to_world(
+        from,
+        &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+    );
+    let next = grid.grid_to_world(
+        to,
+        &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+    );
     PathfindingSystem::compute_point_on_path_for(
         start,
         &[start, next],
@@ -44,9 +50,21 @@ fn path_follow_skips_only_own_fixed_and_moving_footprint() {
         // including a fixed stamp retained from the path-admission phase.
         stamp(&mut grid, from, 7, moving);
         stamp(&mut grid, GridPos::new(3, 2), 7, moving);
-        assert_eq!(lead(&grid, Some(7), from, next), grid.grid_to_world(next));
+        assert_eq!(
+            lead(&grid, Some(7), from, next),
+            grid.grid_to_world(
+                next,
+                &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0)
+            )
+        );
         if !moving {
-            assert_eq!(lead(&grid, None, from, next), grid.grid_to_world(from));
+            assert_eq!(
+                lead(&grid, None, from, next),
+                grid.grid_to_world(
+                    from,
+                    &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0)
+                )
+            );
         }
     }
 }
@@ -58,10 +76,22 @@ fn path_follow_foreign_fixed_footprint_still_blocks() {
     let next = GridPos::new(5, 2);
     stamp(&mut grid, from, 7, false);
     stamp(&mut grid, GridPos::new(3, 2), 8, false);
-    assert_eq!(lead(&grid, Some(7), from, next), grid.grid_to_world(from));
+    assert_eq!(
+        lead(&grid, Some(7), from, next),
+        grid.grid_to_world(
+            from,
+            &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0)
+        )
+    );
     // Even a stale search identifying the blocker cannot admit the caller.
     grid.set_query_seeker_id(8);
-    assert_eq!(lead(&grid, Some(7), from, next), grid.grid_to_world(from));
+    assert_eq!(
+        lead(&grid, Some(7), from, next),
+        grid.grid_to_world(
+            from,
+            &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0)
+        )
+    );
 }
 
 #[test]
@@ -77,19 +107,31 @@ fn path_follow_receiver_is_independent_of_interleaved_search_identity() {
         grid.set_query_seeker_id(stale_search);
         assert_eq!(
             lead(&grid, Some(7), first, first_next),
-            grid.grid_to_world(first_next)
+            grid.grid_to_world(
+                first_next,
+                &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0)
+            )
         );
         assert_eq!(
             lead(&grid, Some(8), second, second_next),
-            grid.grid_to_world(second_next)
+            grid.grid_to_world(
+                second_next,
+                &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0)
+            )
         );
         assert_eq!(
             lead(&grid, Some(8), first, first_next),
-            grid.grid_to_world(first)
+            grid.grid_to_world(
+                first,
+                &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0)
+            )
         );
         assert_eq!(
             lead(&grid, Some(7), second, second_next),
-            grid.grid_to_world(second)
+            grid.grid_to_world(
+                second,
+                &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0)
+            )
         );
     }
 }
@@ -101,7 +143,13 @@ fn path_follow_own_occupancy_does_not_open_terrain_or_pinched_gate() {
     let next = GridPos::new(5, 2);
     stamp(&mut grid, from, 7, false);
     grid.set_cell_type(from, PathfindCellType::Impassable);
-    assert_eq!(lead(&grid, Some(7), from, next), grid.grid_to_world(from));
+    assert_eq!(
+        lead(&grid, Some(7), from, next),
+        grid.grid_to_world(
+            from,
+            &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0)
+        )
+    );
     grid.set_cell_type(from, PathfindCellType::Clear);
     grid.set_pinched(from, true);
     assert!(!grid.line_passable_for_receiver(
@@ -117,5 +165,11 @@ fn path_follow_own_occupancy_does_not_open_terrain_or_pinched_gate() {
         Some(7),
     ));
     // The path-follow route deliberately allows pinched cells, as C++ does.
-    assert_eq!(lead(&grid, Some(7), from, next), grid.grid_to_world(next));
+    assert_eq!(
+        lead(&grid, Some(7), from, next),
+        grid.grid_to_world(
+            next,
+            &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0)
+        )
+    );
 }

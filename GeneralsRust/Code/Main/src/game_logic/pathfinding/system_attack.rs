@@ -44,8 +44,9 @@ impl PathfindingSystem {
         objects: &HashMap<ObjectId, Object>,
         is_crusher: bool,
         mover: Option<ObjectId>,
+        ground_source: &PathfindingGround<'_>,
     ) -> Option<Vec<Vec3>> {
-        self.ensure_dynamic_obstacles(objects);
+        self.ensure_dynamic_obstacles(objects, ground_source);
         // Leftover find_attack_path(obj_id, surfaces, is_human): bind seeker from the attacker.
         self.bind_seeker_from_mover(objects, mover);
         self.apply_seeker_human_flag();
@@ -142,6 +143,7 @@ impl PathfindingSystem {
                             seeker_player,
                             crusher_level,
                             layer,
+                            ground_source,
                         )
                     {
                         break;
@@ -160,6 +162,7 @@ impl PathfindingSystem {
                             victim,
                             attacker_id.and_then(|id| objects.get(&id)),
                             victim_id.and_then(|id| objects.get(&id)),
+                            ground_source,
                         )
                     {
                         let path = self.find_path_ex_surfaces(
@@ -170,6 +173,7 @@ impl PathfindingSystem {
                             surfaces,
                             is_crusher,
                             attacker_id,
+                            ground_source,
                         );
                         self.grid.set_query_is_human(false);
                         return path;
@@ -232,9 +236,9 @@ impl PathfindingSystem {
             }
             closed.insert((cx, cy));
             let cell = GridPos::new(cx, cy);
-            let world = self
-                .grid
-                .adjust_coord_to_cell_on_layer(cell, center_in_cell, layer);
+            let world =
+                self.grid
+                    .adjust_coord_to_cell_on_layer(cell, center_in_cell, layer, ground_source);
             let dest_ok = self.grid.destination_cell_ok(
                 cell,
                 surfaces,
@@ -242,6 +246,7 @@ impl PathfindingSystem {
                 seeker_player,
                 crusher_level,
                 layer,
+                ground_source,
             );
             if dest_ok {
                 let dx = world.x - victim.x;
@@ -262,6 +267,7 @@ impl PathfindingSystem {
                             victim,
                             attacker_id.and_then(|id| objects.get(&id)),
                             victim_id.and_then(|id| objects.get(&id)),
+                            ground_source,
                         )
                     {
                         blocked = true;
@@ -435,9 +441,12 @@ impl PathfindingSystem {
                 }
             }
         }
-        let goal = self
-            .grid
-            .adjust_coord_to_cell_on_layer(goal_cell, center_in_cell, layer);
+        let goal = self.grid.adjust_coord_to_cell_on_layer(
+            goal_cell,
+            center_in_cell,
+            layer,
+            ground_source,
+        );
         let path = self.find_path_ex_surfaces(
             from,
             goal,
@@ -446,6 +455,7 @@ impl PathfindingSystem {
             surfaces,
             is_crusher,
             attacker_id,
+            ground_source,
         );
         self.grid.set_query_is_human(false);
         path
@@ -661,8 +671,9 @@ impl PathfindingSystem {
         start: Vec3,
         goal: Vec3,
         objects: &HashMap<ObjectId, Object>,
+        ground_source: &PathfindingGround<'_>,
     ) -> Option<Vec<Vec3>> {
-        self.find_path_ex(start, goal, objects, false, None)
+        self.find_path_ex(start, goal, objects, false, None, ground_source)
     }
     /// Leftover C++ `circleClipsTallBuilding` / `circle_clips_tall_building`:
     /// AIRCRAFT_PATH_AROUND + normal offset.
@@ -737,32 +748,26 @@ impl PathfindingSystem {
         Vec3::new(c.x, c.z, c.y)
     }
 
-    /// Leftover `TerrainLogic::get_maximum_pathfind_extent` is ready (not 0..0).
-    pub(super) fn leftover_maximum_pathfind_extent_ready() -> bool {
-        gamelogic::terrain::get_terrain_logic()
-            .read()
-            .ok()
-            .map(|t| {
-                let e = t.get_maximum_pathfind_extent();
-                e.hi.x > e.lo.x && e.hi.y > e.lo.y
-            })
-            .unwrap_or(false)
-    }
-
-    /// Leftover `should_force_direct_path_for_off_map_start` (ai_path.rs).
-    /// When leftover TerrainLogic extent is ready, use that C++ region.
-    /// Otherwise leftover-install `getMaximumPathfindExtent` onto live world bounds
-    /// so off-map reinforcements still get computeQuickPath.
+    /// C++ AIUpdate.cpp:1663–1671 observes the receiving maximum boundary.
+    /// Keep the existing adapter's readiness gate; an explicit mapless profile
+    /// uses this grid's declared bounds rather than discovering another world.
     pub fn leftover_should_force_direct_path_for_off_map_start(
         &self,
         start: Vec3,
         dest: Vec3,
+        ground_source: &PathfindingGround<'_>,
     ) -> bool {
-        if Self::leftover_maximum_pathfind_extent_ready() {
-            return gamelogic::object::unit::leftover_should_force_direct_path_for_off_map_start(
-                &Self::leftover_coord_from_host(start),
-                &Self::leftover_coord_from_host(dest),
-            );
+        if let Some(extent) = ground_source
+            .maximum_pathfind_extent()
+            .filter(|extent| extent.hi.x > extent.lo.x && extent.hi.y > extent.lo.y)
+        {
+            let inside = |point| {
+                gamelogic::object::unit::leftover_is_in_region_no_z(
+                    &extent,
+                    &Self::leftover_coord_from_host(point),
+                )
+            };
+            return !inside(dest) && !inside(start);
         }
         !self.leftover_in_live_world_extent(dest) && !self.leftover_in_live_world_extent(start)
     }

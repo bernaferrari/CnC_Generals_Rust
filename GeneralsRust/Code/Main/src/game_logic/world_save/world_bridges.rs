@@ -68,9 +68,25 @@ impl GameLogic {
             // a native map reconstruction assigned fresh IDs before object xfer.
             ids.sort_by_key(|id| (id.0 != info.bridge_object_id, id.0));
             let Some(id) = ids.first().copied() else {
-                self.pathfinding_system
-                    .grid
-                    .stamp_reserved_bridge_layer(layer, true);
+                ({
+                    let ground_owner = self.world_services.terrain();
+                    let ground_loan = ground_owner
+                        .read()
+                        .unwrap_or_else(|error| error.into_inner());
+                    let ground_source =
+                        crate::game_logic::pathfinding::PathfindingGround::for_terrain(
+                            &ground_loan,
+                            self.map_loaded,
+                            self.terrain.as_ref(),
+                            self.pathfinding_height_samples.as_ref(),
+                            &self.pathfinding_system.grid,
+                        );
+                    self.pathfinding_system.grid.stamp_reserved_bridge_layer(
+                        layer,
+                        true,
+                        &ground_source,
+                    )
+                });
                 self.pathfinding_system.grid.deactivate_bridge_layer(layer);
                 owner
                     .write()
@@ -114,24 +130,35 @@ impl GameLogic {
 
     /// Terrain phase reads canonical bodies/scaffolds; no extra behavior tick.
     pub(crate) fn refresh_owned_bridge_pathfinder_states(&mut self) {
-        for (layer, id, old_destroyed, unclassified) in
-            self.pathfinding_system.grid.admitted_bridge_states()
-        {
-            let destroyed = if id == 0 {
-                old_destroyed
-            } else {
-                self.objects.get(&ObjectId(id)).is_none_or(|o| {
-                    o.health.current <= 0.0 || o.health.maximum <= 0.0
-                        || o.body_damage_state == crate::game_logic::host_enum_table_residual::HostBodyDamageType::Rubble
-                        || self.bridge_behavior.is_scaffold_present(ObjectId(id))
-                })
-            };
-            if unclassified || destroyed != old_destroyed {
-                self.pathfinding_system
-                    .grid
-                    .stamp_reserved_bridge_layer(layer, destroyed);
-            }
-        }
+        let owner = self.world_services.terrain();
+        let loan = owner.read().unwrap_or_else(|error| error.into_inner());
+        let ground = PathfindingGround::for_terrain(
+            &loan,
+            self.map_loaded,
+            self.terrain.as_ref(),
+            self.pathfinding_height_samples.as_ref(),
+            &self.pathfinding_system.grid,
+        );
+        refresh_grid_bridge_states(
+            &mut self.pathfinding_system.grid,
+            &self.objects,
+            &self.bridge_behavior,
+            &ground,
+        );
+    }
+
+    /// An existing terrain loan (map/water reclassification) is passed through
+    /// rather than reacquired while an OS writer could be waiting.
+    pub(crate) fn refresh_owned_bridge_pathfinder_states_with_ground(
+        &mut self,
+        ground: &PathfindingGround<'_>,
+    ) {
+        refresh_grid_bridge_states(
+            &mut self.pathfinding_system.grid,
+            &self.objects,
+            &self.bridge_behavior,
+            ground,
+        );
     }
 
     pub(in super::super) fn sync_owned_bridge_body_state(
@@ -158,9 +185,24 @@ impl GameLogic {
             return false;
         };
         let id = ObjectId(bridge.get_bridge_info().bridge_object_id);
-        self.pathfinding_system
-            .grid
-            .stamp_reserved_bridge_layer(bridge.get_layer() as u8, true);
+        ({
+            let ground_owner = self.world_services.terrain();
+            let ground_loan = ground_owner
+                .read()
+                .unwrap_or_else(|error| error.into_inner());
+            let ground_source = crate::game_logic::pathfinding::PathfindingGround::for_terrain(
+                &ground_loan,
+                self.map_loaded,
+                self.terrain.as_ref(),
+                self.pathfinding_height_samples.as_ref(),
+                &self.pathfinding_system.grid,
+            );
+            self.pathfinding_system.grid.stamp_reserved_bridge_layer(
+                bridge.get_layer() as u8,
+                true,
+                &ground_source,
+            )
+        });
         self.pathfinding_system
             .grid
             .deactivate_bridge_layer(bridge.get_layer() as u8);
@@ -168,5 +210,29 @@ impl GameLogic {
         self.bridge_behavior.unregister_span(id);
         drop(bridge);
         true
+    }
+}
+
+fn refresh_grid_bridge_states(
+    grid: &mut PathfindingGrid,
+    objects: &std::collections::HashMap<ObjectId, Object>,
+    bridges: &crate::game_logic::host_bridge_behavior::HostBridgeBehaviorRegistry,
+    ground: &PathfindingGround<'_>,
+) {
+    for (layer, id, old_destroyed, unclassified) in grid.admitted_bridge_states() {
+        let destroyed = if id == 0 {
+            old_destroyed
+        } else {
+            objects.get(&ObjectId(id)).is_none_or(|object| {
+                object.health.current <= 0.0
+                    || object.health.maximum <= 0.0
+                    || object.body_damage_state
+                        == crate::game_logic::host_enum_table_residual::HostBodyDamageType::Rubble
+                    || bridges.is_scaffold_present(ObjectId(id))
+            })
+        };
+        if unclassified || destroyed != old_destroyed {
+            grid.stamp_reserved_bridge_layer(layer, destroyed, ground);
+        }
     }
 }

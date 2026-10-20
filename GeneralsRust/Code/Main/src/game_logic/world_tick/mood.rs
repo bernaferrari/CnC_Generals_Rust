@@ -516,10 +516,27 @@ impl GameLogic {
                 let grid = &self.pathfinding_system.grid;
                 let (_, center) =
                     crate::game_logic::PathfindingGrid::radius_and_center(radius, grid.grid_size());
-                Some(grid.adjust_coord_to_ground_cell(
-                    crate::game_logic::pathfinding::GridPos::new(new_cell.0, new_cell.1),
-                    center,
-                ))
+                Some(
+                    ({
+                        let ground_owner = self.world_services.terrain();
+                        let ground_loan = ground_owner
+                            .read()
+                            .unwrap_or_else(|error| error.into_inner());
+                        let ground_source =
+                            crate::game_logic::pathfinding::PathfindingGround::for_terrain(
+                                &ground_loan,
+                                self.map_loaded,
+                                self.terrain.as_ref(),
+                                self.pathfinding_height_samples.as_ref(),
+                                &*grid,
+                            );
+                        grid.adjust_coord_to_ground_cell(
+                            crate::game_logic::pathfinding::GridPos::new(new_cell.0, new_cell.1),
+                            center,
+                            &ground_source,
+                        )
+                    }),
+                )
             } else {
                 None
             };
@@ -1940,10 +1957,23 @@ mod common_target_parity {
             .pathfinding_system
             .grid
             .cell_for_unit_position(start, center);
-        let expected = logic
-            .pathfinding_system
-            .grid
-            .adjust_coord_to_ground_cell(cell, center);
+        let expected = ({
+            let ground_owner = logic.world_services.terrain();
+            let ground_loan = ground_owner
+                .read()
+                .unwrap_or_else(|error| error.into_inner());
+            let ground_source = crate::game_logic::pathfinding::PathfindingGround::for_terrain(
+                &ground_loan,
+                logic.map_loaded,
+                logic.terrain.as_ref(),
+                logic.pathfinding_height_samples.as_ref(),
+                &logic.pathfinding_system.grid,
+            );
+            logic
+                .pathfinding_system
+                .grid
+                .adjust_coord_to_ground_cell(cell, center, &ground_source)
+        });
         assert!(
             (expected.x - start.x).abs() > 0.1,
             "the fixture must not already sit on the cell point"
@@ -1960,10 +1990,23 @@ mod common_target_parity {
             mask, 0,
             "setGoalUnit must set the player bit path cost reads"
         );
-        logic
-            .pathfinding_system
-            .grid
-            .update_dynamic_obstacles(&logic.objects);
+        ({
+            let ground_owner = logic.world_services.terrain();
+            let ground_loan = ground_owner
+                .read()
+                .unwrap_or_else(|error| error.into_inner());
+            let ground_source = crate::game_logic::pathfinding::PathfindingGround::for_terrain(
+                &ground_loan,
+                logic.map_loaded,
+                logic.terrain.as_ref(),
+                logic.pathfinding_height_samples.as_ref(),
+                &logic.pathfinding_system.grid,
+            );
+            logic
+                .pathfinding_system
+                .grid
+                .update_dynamic_obstacles(&logic.objects, &ground_source)
+        });
         assert_eq!(
             logic.pathfinding_system.grid.ground_goal_unit(cell),
             id.0,
@@ -2032,10 +2075,23 @@ mod common_target_parity {
             o.movement.path = vec![start, far];
             o.movement.target_position = Some(far);
         }
-        logic
-            .pathfinding_system
-            .grid
-            .update_dynamic_obstacles(&logic.objects);
+        ({
+            let ground_owner = logic.world_services.terrain();
+            let ground_loan = ground_owner
+                .read()
+                .unwrap_or_else(|error| error.into_inner());
+            let ground_source = crate::game_logic::pathfinding::PathfindingGround::for_terrain(
+                &ground_loan,
+                logic.map_loaded,
+                logic.terrain.as_ref(),
+                logic.pathfinding_height_samples.as_ref(),
+                &logic.pathfinding_system.grid,
+            );
+            logic
+                .pathfinding_system
+                .grid
+                .update_dynamic_obstacles(&logic.objects, &ground_source)
+        });
         assert_eq!(
             logic.pathfinding_system.grid.ground_goal_unit(idle_cell),
             0,
@@ -2046,10 +2102,23 @@ mod common_target_parity {
             o.movement.target_position = None;
             o.set_position(far);
         }
-        logic
-            .pathfinding_system
-            .grid
-            .update_dynamic_obstacles(&logic.objects);
+        ({
+            let ground_owner = logic.world_services.terrain();
+            let ground_loan = ground_owner
+                .read()
+                .unwrap_or_else(|error| error.into_inner());
+            let ground_source = crate::game_logic::pathfinding::PathfindingGround::for_terrain(
+                &ground_loan,
+                logic.map_loaded,
+                logic.terrain.as_ref(),
+                logic.pathfinding_height_samples.as_ref(),
+                &logic.pathfinding_system.grid,
+            );
+            logic
+                .pathfinding_system
+                .grid
+                .update_dynamic_obstacles(&logic.objects, &ground_source)
+        });
         assert_eq!(
             logic.pathfinding_system.grid.ground_goal_unit(idle_cell),
             0,

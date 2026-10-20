@@ -2,6 +2,17 @@ use super::super::*;
 
 fn owner() -> GameLogic {
     let mut world = GameLogic::new();
+    // Test definitions make each synchronous source Strong impulse observable.
+    world
+        .admit_camera_application_shake(
+            crate::presentation_frame::camera::shake_rules::CameraShakeRules {
+                shake_strong_intensity: 2.0,
+                max_shake_intensity: 100.0,
+                max_shake_range: 1000.0,
+                ..Default::default()
+            },
+        )
+        .unwrap();
     world.add_player(Player::new(1, Team::USA, "RosterOwner", true));
     let mut template = ThingTemplate::new("RosterUnit");
     template.add_kind_of(KindOf::Vehicle).set_health(100.0);
@@ -217,8 +228,7 @@ fn native_authored_merge_uses_borrowed_interpreter_then_retires_source_and_activ
             );
             world.execute_script_team_actions(engine, &merge, None);
             assert_eq!(
-                world.pending_screen_shakes.len(),
-                1,
+                world.session_view.impulse.intensity, 2.0,
                 "callback completes before authored action returns"
             );
         })
@@ -234,6 +244,7 @@ fn native_authored_merge_uses_borrowed_interpreter_then_retires_source_and_activ
         world.host_object(unit).unwrap().team_instance_id,
         Some(team.get_id())
     );
+    assert_eq!(peer.session_view.impulse.intensity, 0.0);
     assert!(peer.pending_screen_shakes.is_empty());
 }
 
@@ -249,10 +260,14 @@ fn native_team_implicit_find_runs_create_shake_in_receiving_interpreter_once() {
     world.host_object_mut(unit).unwrap().team_instance_name = "CreatedTeam".into();
     world.host_object_mut(unit).unwrap().team_instance_id = None;
     world.activate_leftover_team_for_host_object(unit);
-    assert_eq!(world.pending_screen_shakes.len(), 1);
-    assert_eq!(world.pending_screen_shakes[0].intensity, 2);
+    assert_eq!(world.session_view.impulse.intensity, 2.0);
+    assert!(
+        world.pending_screen_shakes.is_empty(),
+        "borrowed callback must not leave a delayed duplicate"
+    );
     world.activate_leftover_team_for_host_object(unit);
-    assert_eq!(world.pending_screen_shakes.len(), 1);
+    assert_eq!(world.session_view.impulse.intensity, 2.0);
+    assert_eq!(peer.session_view.impulse.intensity, 0.0);
     assert!(peer.pending_screen_shakes.is_empty());
 }
 
@@ -330,7 +345,7 @@ fn native_nested_authored_create_keeps_current_interpreter_and_exact_team_identi
     world
         .with_owned_script_engine(|engine, world| {
             world.admit_team_for_host_object(unit, Some(engine), true);
-            assert_eq!(world.pending_screen_shakes.len(), 1);
+            assert_eq!(world.session_view.impulse.intensity, 2.0);
             let factory = world.team_factory.lock().unwrap();
             let inner = factory.find_team_instances("InnerTeam").remove(0);
             let inner = inner.read().unwrap();
@@ -343,6 +358,7 @@ fn native_nested_authored_create_keeps_current_interpreter_and_exact_team_identi
             );
         })
         .unwrap();
+    assert_eq!(peer.session_view.impulse.intensity, 0.0);
     assert!(peer.pending_screen_shakes.is_empty());
     assert!(world.owned_script_engine.is_some());
 }
@@ -389,6 +405,7 @@ fn native_death_notification_never_creates_or_retargets_a_same_name_team() {
         second.read().unwrap().has_member(unit.0),
         "newer same-name sibling is not the resident team"
     );
+    assert_eq!(world.session_view.impulse.intensity, 0.0);
     assert!(world.pending_screen_shakes.is_empty());
 }
 
@@ -530,7 +547,7 @@ fn native_authored_reinforcement_keeps_condition_team_and_runs_callback_before_f
     world.install_owned_script_engine(engine);
     world.scripts_loaded = true;
     world.evaluate_and_execute_scripts(0.0);
-    assert_eq!(world.pending_screen_shakes.len(), 1);
+    assert_eq!(world.session_view.impulse.intensity, 2.0);
     assert_eq!(
         world.host_object(source).unwrap().ai_state,
         AIState::GuardingArea,
@@ -553,6 +570,7 @@ fn native_authored_reinforcement_keeps_condition_team_and_runs_callback_before_f
             Some(team.get_id())
         );
     }
+    assert_eq!(peer.session_view.impulse.intensity, 0.0);
     assert!(peer.pending_screen_shakes.is_empty());
     assert!(
         peer.team_factory
@@ -590,8 +608,11 @@ fn native_merge_missing_source_still_creates_inactive_destination_and_runs_recei
                 .unwrap();
         })
         .unwrap();
-    assert_eq!(world.pending_screen_shakes.len(), 1);
-    assert_eq!(world.pending_screen_shakes[0].intensity, 2);
+    assert_eq!(world.session_view.impulse.intensity, 2.0);
+    assert!(
+        world.pending_screen_shakes.is_empty(),
+        "borrowed callback must not leave a delayed duplicate"
+    );
     let factory = world.team_factory.lock().unwrap();
     let instances = factory.find_team_instances("MissingSourceDestination");
     assert_eq!(instances.len(), 1);
@@ -602,6 +623,7 @@ fn native_merge_missing_source_still_creates_inactive_destination_and_runs_recei
     );
     assert!(destination.get_members().is_empty());
     assert!(factory.find_team_instances("AbsentSource").is_empty());
+    assert_eq!(peer.session_view.impulse.intensity, 0.0);
     assert!(peer.pending_screen_shakes.is_empty());
 }
 

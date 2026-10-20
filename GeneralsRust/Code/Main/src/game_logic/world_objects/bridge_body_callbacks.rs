@@ -134,9 +134,25 @@ impl GameLogic {
                 continue;
             };
             if new == BodyDamageType::Rubble {
-                self.pathfinding_system
-                    .grid
-                    .stamp_reserved_bridge_layer(layer as u8, true);
+                ({
+                    let ground_owner = self.world_services.terrain();
+                    let ground_loan = ground_owner
+                        .read()
+                        .unwrap_or_else(|error| error.into_inner());
+                    let ground_source =
+                        crate::game_logic::pathfinding::PathfindingGround::for_terrain(
+                            &ground_loan,
+                            self.map_loaded,
+                            self.terrain.as_ref(),
+                            self.pathfinding_height_samples.as_ref(),
+                            &self.pathfinding_system.grid,
+                        );
+                    self.pathfinding_system.grid.stamp_reserved_bridge_layer(
+                        layer as u8,
+                        true,
+                        &ground_source,
+                    )
+                });
                 let occupants: Vec<_> = self
                     .objects
                     .iter()
@@ -187,9 +203,25 @@ impl GameLogic {
             if old == BodyDamageType::Rubble {
                 self.bridge_behavior.on_leave_rubble(id);
                 if !self.bridge_behavior.is_scaffold_present(id) {
-                    self.pathfinding_system
-                        .grid
-                        .stamp_reserved_bridge_layer(layer as u8, false);
+                    ({
+                        let ground_owner = self.world_services.terrain();
+                        let ground_loan = ground_owner
+                            .read()
+                            .unwrap_or_else(|error| error.into_inner());
+                        let ground_source =
+                            crate::game_logic::pathfinding::PathfindingGround::for_terrain(
+                                &ground_loan,
+                                self.map_loaded,
+                                self.terrain.as_ref(),
+                                self.pathfinding_height_samples.as_ref(),
+                                &self.pathfinding_system.grid,
+                            );
+                        self.pathfinding_system.grid.stamp_reserved_bridge_layer(
+                            layer as u8,
+                            false,
+                            &ground_source,
+                        )
+                    });
                 }
             }
         }

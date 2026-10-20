@@ -189,10 +189,27 @@ fn live_z_resolves_post_motion_position_and_retains_current_layer_unclipped() {
                 Vec3::new(30.0, 60.0, 20.0),
                 Vec3::new(70.0, 60.0, 20.0),
             ];
-            world
-                .pathfinding_system
-                .grid
-                .stamp_bridge_deck(corners[0], corners[1], corners[2], corners[3], false);
+            ({
+                let ground_owner = world.world_services.terrain();
+                let ground_loan = ground_owner
+                    .read()
+                    .unwrap_or_else(|error| error.into_inner());
+                let ground_source = crate::game_logic::pathfinding::PathfindingGround::for_terrain(
+                    &ground_loan,
+                    world.map_loaded,
+                    world.terrain.as_ref(),
+                    world.pathfinding_height_samples.as_ref(),
+                    &world.pathfinding_system.grid,
+                );
+                world.pathfinding_system.grid.stamp_bridge_deck(
+                    corners[0],
+                    corners[1],
+                    corners[2],
+                    corners[3],
+                    false,
+                    &ground_source,
+                )
+            });
             let grid = &world.pathfinding_system.grid;
             let view = FlightTerrainView {
                 logical: None,
@@ -376,13 +393,28 @@ fn real_same_id_bridge_lift_is_isolated_from_other_worlds_and_held_core_ai() {
         "real_same_id_bridge_lift_is_isolated_from_other_worlds_and_held_core_ai",
         || {
             fn bridge(world: &mut GameLogic, height: f32) {
-                world.pathfinding_system.grid.stamp_bridge_deck(
-                    Vec3::new(-40.0, height, -40.0),
-                    Vec3::new(40.0, height, -40.0),
-                    Vec3::new(-40.0, height, 40.0),
-                    Vec3::new(40.0, height, 40.0),
-                    false,
-                );
+                ({
+                    let ground_owner = world.world_services.terrain();
+                    let ground_loan = ground_owner
+                        .read()
+                        .unwrap_or_else(|error| error.into_inner());
+                    let ground_source =
+                        crate::game_logic::pathfinding::PathfindingGround::for_terrain(
+                            &ground_loan,
+                            world.map_loaded,
+                            world.terrain.as_ref(),
+                            world.pathfinding_height_samples.as_ref(),
+                            &world.pathfinding_system.grid,
+                        );
+                    world.pathfinding_system.grid.stamp_bridge_deck(
+                        Vec3::new(-40.0, height, -40.0),
+                        Vec3::new(40.0, height, -40.0),
+                        Vec3::new(-40.0, height, 40.0),
+                        Vec3::new(40.0, height, 40.0),
+                        false,
+                        &ground_source,
+                    )
+                });
             }
             let (mut first, id) = world(0.0, 3.0);
             let (mut second, second_id) = world(0.0, 7.0);

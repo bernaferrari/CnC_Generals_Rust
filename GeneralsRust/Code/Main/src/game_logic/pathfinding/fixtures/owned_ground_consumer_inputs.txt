@@ -1,0 +1,15 @@
+# tag mode inputs; inputs only, no expected outputs
+scaffold_before layer 56.25 52 55
+scaffold_after layer 50 52 55
+clearance_below clearance 44.375 55 0 0
+clearance_equal clearance 45 55 0 0
+clearance_above clearance 45.625 55 0 0
+clearance_entry clearance 56.25 55 1 0
+clearance_obstacle clearance 56.25 55 0 1
+layer_tie layer 50 52.5 55
+adjust_ground_before adjust 56.25 55 5 3 1 0
+adjust_ground_after adjust 50 55 5 3 1 0
+adjust_buried_bridge adjust 56.25 55 5 3 1 2
+water_equal water 50 50 50 50 50 0 0
+water_lower_corner water 50 50 49.375 50 50 0 0
+water_obstacle water 50 50 49.375 50 50 1 1

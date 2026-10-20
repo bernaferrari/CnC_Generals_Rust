@@ -67,7 +67,6 @@ impl PathfindingGrid {
             occ_obstacle_team: vec![0xFFu8; cells],
             permanent_blast_crater_cells: HashSet::new(),
             bridge_layers: Vec::new(),
-            admitted_raw_terrain: None,
             flight_bridge_order: Vec::new(),
             layer_occ: HashMap::new(),
             wall_pieces: Vec::new(),
@@ -178,30 +177,57 @@ impl PathfindingGrid {
         }
     }
 
-    pub fn grid_to_world(&self, pos: GridPos) -> Vec3 {
+    /// Pure grid geometry; no mutable terrain observation is needed for XZ-only work.
+    pub(super) fn cell_corner_xz(&self, pos: GridPos) -> glam::Vec2 {
+        glam::Vec2::new(
+            self.origin.x + pos.x as f32 * self.grid_size,
+            self.origin.z + pos.y as f32 * self.grid_size,
+        )
+    }
+
+    pub fn grid_to_world(&self, pos: GridPos, ground_source: &PathfindingGround<'_>) -> Vec3 {
         let x = self.origin.x + pos.x as f32 * self.grid_size;
         let z = self.origin.z + pos.y as f32 * self.grid_size;
-        Vec3::new(x, self.cell_world_height(pos, x, z), z)
+        Vec3::new(x, self.cell_world_height(pos, x, z, ground_source), z)
     }
 
     /// C++ `adjustCoordToCell` / `TerrainLogic::getLayerHeight` on a known layer.
-    pub fn grid_to_world_on_layer(&self, pos: GridPos, layer: PathfindLayerEnum) -> Vec3 {
+    pub fn grid_to_world_on_layer(
+        &self,
+        pos: GridPos,
+        layer: PathfindLayerEnum,
+        ground_source: &PathfindingGround<'_>,
+    ) -> Vec3 {
         let x = self.origin.x + pos.x as f32 * self.grid_size;
         let z = self.origin.z + pos.y as f32 * self.grid_size;
-        Vec3::new(x, self.layer_world_height(pos, layer, x, z), z)
+        Vec3::new(
+            x,
+            self.layer_world_height(pos, layer, x, z, ground_source),
+            z,
+        )
     }
 
     /// C++ `Pathfinder::adjustCoordToCell` (AIPathfind.cpp:8936-8946).
     /// Infantry / odd-diameter: cell center (+0.5). Vehicles / even: +0.05 inset.
-    pub fn adjust_coord_to_cell(&self, pos: GridPos, center_in_cell: bool) -> Vec3 {
+    pub fn adjust_coord_to_cell(
+        &self,
+        pos: GridPos,
+        center_in_cell: bool,
+        ground_source: &PathfindingGround<'_>,
+    ) -> Vec3 {
         let bias = if center_in_cell { 0.5 } else { 0.05 };
         let x = self.origin.x + (pos.x as f32 + bias) * self.grid_size;
         let z = self.origin.z + (pos.y as f32 + bias) * self.grid_size;
-        Vec3::new(x, self.cell_world_height(pos, x, z), z)
+        Vec3::new(x, self.cell_world_height(pos, x, z, ground_source), z)
     }
 
     /// C++ `Pathfinder::snapPosition`: adjust this cell only. No neighbor walk.
-    pub fn snap_position(&self, pos: Vec3, center_in_cell: bool) -> Vec3 {
+    pub fn snap_position(
+        &self,
+        pos: Vec3,
+        center_in_cell: bool,
+        ground_source: &PathfindingGround<'_>,
+    ) -> Vec3 {
         let mut adjust = pos;
         if !center_in_cell {
             let half = self.grid_size * 0.5;
@@ -209,12 +235,27 @@ impl PathfindingGrid {
             adjust.z += half;
         }
         let cell = self.world_to_grid(adjust);
-        self.adjust_coord_to_cell_on_layer(cell, center_in_cell, PathfindLayerEnum::Ground)
+        self.adjust_coord_to_cell_on_layer(
+            cell,
+            center_in_cell,
+            PathfindLayerEnum::Ground,
+            ground_source,
+        )
     }
 
     /// C++ `adjustCoordToCell(..., LAYER_GROUND)`.
-    pub fn adjust_coord_to_ground_cell(&self, pos: GridPos, center_in_cell: bool) -> Vec3 {
-        self.adjust_coord_to_cell_on_layer(pos, center_in_cell, PathfindLayerEnum::Ground)
+    pub fn adjust_coord_to_ground_cell(
+        &self,
+        pos: GridPos,
+        center_in_cell: bool,
+        ground_source: &PathfindingGround<'_>,
+    ) -> Vec3 {
+        self.adjust_coord_to_cell_on_layer(
+            pos,
+            center_in_cell,
+            PathfindLayerEnum::Ground,
+            ground_source,
+        )
     }
 
     pub fn adjust_coord_to_cell_on_layer(
@@ -222,21 +263,38 @@ impl PathfindingGrid {
         pos: GridPos,
         center_in_cell: bool,
         layer: PathfindLayerEnum,
+        ground_source: &PathfindingGround<'_>,
     ) -> Vec3 {
         let bias = if center_in_cell { 0.5 } else { 0.05 };
         let x = self.origin.x + (pos.x as f32 + bias) * self.grid_size;
         let z = self.origin.z + (pos.y as f32 + bias) * self.grid_size;
-        Vec3::new(x, self.layer_world_height(pos, layer, x, z), z)
+        Vec3::new(
+            x,
+            self.layer_world_height(pos, layer, x, z, ground_source),
+            z,
+        )
     }
 
-    pub(super) fn cell_world_height(&self, pos: GridPos, x: f32, z: f32) -> f32 {
+    pub(super) fn cell_world_height(
+        &self,
+        pos: GridPos,
+        x: f32,
+        z: f32,
+        ground_source: &PathfindingGround<'_>,
+    ) -> f32 {
         if self.wall_cells.contains_key(&(pos.x, pos.y)) && self.wall_height > 0.0 {
             return self.wall_height;
         }
         if let Some(id) = self.host_deck_layer_at(pos) {
-            return self.layer_world_height(pos, PathfindLayerEnum::from_u32(id as u32), x, z);
+            return self.layer_world_height(
+                pos,
+                PathfindLayerEnum::from_u32(id as u32),
+                x,
+                z,
+                ground_source,
+            );
         }
-        self.admitted_ground_height(Vec3::new(x, 0.0, z))
+        ground_source.height_at(Vec3::new(x, 0.0, z))
     }
 
     pub(super) fn layer_world_height(
@@ -245,10 +303,11 @@ impl PathfindingGrid {
         layer: PathfindLayerEnum,
         x: f32,
         z: f32,
+        ground_source: &PathfindingGround<'_>,
     ) -> f32 {
         let _ = pos;
         let location = Vec3::new(x, 0.0, z);
-        self.layer_height_clipped(location, layer as u8, self.admitted_ground_height(location))
+        self.layer_height_clipped(location, layer as u8, ground_source.height_at(location))
     }
 
     pub fn is_blocked(&self, pos: GridPos) -> bool {
@@ -677,6 +736,7 @@ impl PathfindingGrid {
         &mut self,
         obj: &Object,
         as_rubble: bool,
+        ground_source: &PathfindingGround<'_>,
     ) -> Option<(GridPos, GridPos)> {
         if obj.is_kind_of(KindOf::Mine)
             || obj.is_kind_of(KindOf::Projectile)
@@ -708,7 +768,7 @@ impl PathfindingGrid {
             return None;
         }
         let pos = obj.get_position();
-        let height_above = pos.y - sample_host_ground_height(pos.x, pos.z);
+        let height_above = pos.y - ground_source.height_at(pos);
         let is_blast_crater = obj.is_kind_of(KindOf::BlastCrater);
         // C++ skips airborne bounds unless KINDOF_BLAST_CRATER (AIPathfind.cpp:4168-4171).
         if height_above > self.grid_size && !is_blast_crater {

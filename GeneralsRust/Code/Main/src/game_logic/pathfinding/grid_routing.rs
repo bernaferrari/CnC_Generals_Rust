@@ -39,7 +39,12 @@ impl PathfindingGrid {
     /// Parity notes vs C++ examineNeighboringCells (host simplified grid):
     /// - static blocks hard-reject; dynamic unit occupancy is a soft cost (allyFixed-like)
     /// - diagonal steps require both orthogonal legs open (no corner cut)
-    pub fn find_path(&self, start: GridPos, goal: GridPos) -> Option<Vec<Vec3>> {
+    pub fn find_path(
+        &self,
+        start: GridPos,
+        goal: GridPos,
+        ground_source: &PathfindingGround<'_>,
+    ) -> Option<Vec<Vec3>> {
         if self.width <= 0 || self.height <= 0 {
             return None;
         }
@@ -59,7 +64,7 @@ impl PathfindingGrid {
 
         // Trivial same-cell path.
         if start == goal {
-            return Some(vec![self.grid_to_world(start)]);
+            return Some(vec![self.grid_to_world(start, ground_source)]);
         }
 
         let mut open_set = BinaryHeap::new();
@@ -74,7 +79,7 @@ impl PathfindingGrid {
         while let Some(current) = open_set.pop() {
             if current.pos == goal {
                 // Reconstruct path
-                return Some(self.reconstruct_path(&came_from, current.pos));
+                return Some(self.reconstruct_path(&came_from, current.pos, ground_source));
             }
 
             let Some(cidx) = self.bit_index(current.pos) else {
@@ -175,12 +180,13 @@ impl PathfindingGrid {
         &self,
         came_from: &HashMap<GridPos, GridPos>,
         mut current: GridPos,
+        ground_source: &PathfindingGround<'_>,
     ) -> Vec<Vec3> {
-        let mut path = vec![self.grid_to_world(current)];
+        let mut path = vec![self.grid_to_world(current, ground_source)];
 
         while let Some(&parent) = came_from.get(&current) {
             current = parent;
-            path.push(self.grid_to_world(current));
+            path.push(self.grid_to_world(current, ground_source));
         }
 
         path.reverse();
@@ -188,8 +194,12 @@ impl PathfindingGrid {
     }
 
     /// Update dynamic obstacles based on unit positions
-    pub fn update_dynamic_obstacles(&mut self, objects: &HashMap<ObjectId, Object>) {
-        self.update_dynamic_obstacles_ignoring(objects, None);
+    pub fn update_dynamic_obstacles(
+        &mut self,
+        objects: &HashMap<ObjectId, Object>,
+        ground_source: &PathfindingGround<'_>,
+    ) {
+        self.update_dynamic_obstacles_ignoring(objects, None, ground_source);
     }
 
     /// Same occupancy stamp, skipping `ignore` (C++ `ignoreObstacle(goalObject)`).
@@ -197,6 +207,7 @@ impl PathfindingGrid {
         &mut self,
         objects: &HashMap<ObjectId, Object>,
         ignore: Option<ObjectId>,
+        ground_source: &PathfindingGround<'_>,
     ) {
         self.clear_dynamic_blocks();
 
@@ -252,7 +263,7 @@ impl PathfindingGrid {
                 num_above += 1;
             }
             let pos = obj.get_position();
-            let pos_layer = self.layer_for_destination(pos);
+            let pos_layer = self.layer_for_destination(pos, ground_source);
             let pos_at_end =
                 self.object_interacts_with_bridge_end(pos, obj.selection_radius, pos_layer);
             let pos_do_layer = pos_layer != PathfindLayerEnum::Ground;
@@ -334,7 +345,7 @@ impl PathfindingGrid {
                         }
                     }
                 } else if let Some(goal) = dest {
-                    let goal_layer = self.layer_for_destination(goal);
+                    let goal_layer = self.layer_for_destination(goal, ground_source);
                     let goal_at_end = self.object_interacts_with_bridge_end(
                         pos,
                         obj.selection_radius,
@@ -448,6 +459,7 @@ impl PathfindingGrid {
         seeker_player: Option<u32>,
         crusher_level: u8,
         layer: PathfindLayerEnum,
+        ground_source: &PathfindingGround<'_>,
     ) -> bool {
         if !self.is_valid_pos(pos) {
             return false;
@@ -477,11 +489,11 @@ impl PathfindingGrid {
         // Leftover `check_for_adjust_ex` zone path-exists gate (AIPathfind.cpp:5198-5208).
         if (surfaces & SURFACE_AIR) == 0 {
             if let Some(from) = self.query_from {
-                let from_w = self.grid_to_world(from);
-                let dest_w = self.grid_to_world(pos);
+                let from_w = self.grid_to_world(from, ground_source);
+                let dest_w = self.grid_to_world(pos, ground_source);
                 let orig_w = self
                     .query_orig_dest
-                    .map(|p| self.grid_to_world(p))
+                    .map(|p| self.grid_to_world(p, ground_source))
                     .unwrap_or(dest_w);
                 let path_exists =
                     self.quick_path_exists_for_crusher(from_w, orig_w, surfaces, is_crusher);
@@ -1271,6 +1283,7 @@ impl PathfindingGrid {
         is_crusher: bool,
         seeker_player: Option<u32>,
         crusher_level: u8,
+        ground_source: &PathfindingGround<'_>,
     ) -> bool {
         let mut num_above = radius;
         if center_in_cell {
@@ -1286,6 +1299,7 @@ impl PathfindingGrid {
                     seeker_player,
                     crusher_level,
                     layer,
+                    ground_source,
                 ) {
                     return false;
                 }
@@ -1351,6 +1365,7 @@ impl PathfindingGrid {
         surfaces: u32,
         is_crusher: bool,
         max_cells: i32,
+        ground_source: &PathfindingGround<'_>,
     ) -> Option<GridPos> {
         self.adjust_destination_ex(
             dest,
@@ -1359,6 +1374,7 @@ impl PathfindingGrid {
             max_cells,
             None,
             if is_crusher { 1 } else { 0 },
+            ground_source,
         )
     }
 
@@ -1370,6 +1386,7 @@ impl PathfindingGrid {
         max_cells: i32,
         seeker_player: Option<u32>,
         crusher_level: u8,
+        ground_source: &PathfindingGround<'_>,
     ) -> Option<GridPos> {
         self.adjust_destination_on_layer(
             dest,
@@ -1379,6 +1396,7 @@ impl PathfindingGrid {
             seeker_player,
             crusher_level,
             PathfindLayerEnum::Ground,
+            ground_source,
         )
     }
 
@@ -1392,6 +1410,7 @@ impl PathfindingGrid {
         seeker_player: Option<u32>,
         crusher_level: u8,
         layer: PathfindLayerEnum,
+        ground_source: &PathfindingGround<'_>,
     ) -> Option<GridPos> {
         let origin = self.clamp_pos(dest);
         if self.destination_cell_ok(
@@ -1401,6 +1420,7 @@ impl PathfindingGrid {
             seeker_player,
             crusher_level,
             layer,
+            ground_source,
         ) {
             return Some(origin);
         }
@@ -1420,6 +1440,7 @@ impl PathfindingGrid {
                     seeker_player,
                     crusher_level,
                     layer,
+                    ground_source,
                 ) {
                     return Some(c);
                 }
@@ -1435,6 +1456,7 @@ impl PathfindingGrid {
                     seeker_player,
                     crusher_level,
                     layer,
+                    ground_source,
                 ) {
                     return Some(c);
                 }
@@ -1451,6 +1473,7 @@ impl PathfindingGrid {
                     seeker_player,
                     crusher_level,
                     layer,
+                    ground_source,
                 ) {
                     return Some(c);
                 }
@@ -1466,6 +1489,7 @@ impl PathfindingGrid {
                     seeker_player,
                     crusher_level,
                     layer,
+                    ground_source,
                 ) {
                     return Some(c);
                 }
@@ -1486,6 +1510,7 @@ impl PathfindingGrid {
         layer: PathfindLayerEnum,
         dest: &mut Vec3,
         starting_in_obstacle: bool,
+        ground_source: &PathfindingGround<'_>,
     ) -> bool {
         if !self.is_valid_pos(cell) {
             return false;
@@ -1507,7 +1532,7 @@ impl PathfindingGrid {
         if from_zone != z2 {
             return false;
         }
-        *dest = self.adjust_coord_to_cell_on_layer(cell, center, layer);
+        *dest = self.adjust_coord_to_cell_on_layer(cell, center, layer, ground_source);
         true
     }
 
@@ -1528,6 +1553,7 @@ impl PathfindingGrid {
         surfaces: u32,
         is_crusher: bool,
         unit_radius: f32,
+        ground_source: &PathfindingGround<'_>,
     ) -> bool {
         self.adjust_to_possible_destination_ex(
             start,
@@ -1537,6 +1563,7 @@ impl PathfindingGrid {
             unit_radius,
             None,
             if is_crusher { 1 } else { 0 },
+            ground_source,
         )
     }
 
@@ -1549,6 +1576,7 @@ impl PathfindingGrid {
         unit_radius: f32,
         seeker_player: Option<u32>,
         crusher_level: u8,
+        ground_source: &PathfindingGround<'_>,
     ) -> bool {
         let (radius, center_in_cell) = Self::radius_and_center(unit_radius, self.grid_size);
         // C++: if (!center) adjustDest += PATHFIND_CELL_SIZE_F/2 before worldToCell.
@@ -1562,7 +1590,7 @@ impl PathfindingGrid {
         if !self.is_valid_pos(goal_cell) {
             return false;
         }
-        let destination_layer = self.layer_for_destination(*dest);
+        let destination_layer = self.layer_for_destination(*dest, ground_source);
         let start_cell = self.world_to_grid(start);
         let same_zone = self.zones_connected(start_cell, goal_cell, surfaces, is_crusher);
         if same_zone
@@ -1573,6 +1601,7 @@ impl PathfindingGrid {
                 seeker_player,
                 crusher_level,
                 destination_layer,
+                ground_source,
             )
         {
             // C++ returns true without rewriting dest when seed is already valid.
@@ -1597,6 +1626,7 @@ impl PathfindingGrid {
                     crusher_level,
                     dest,
                     center_in_cell,
+                    ground_source,
                 ) {
                     return true;
                 }
@@ -1613,6 +1643,7 @@ impl PathfindingGrid {
                     crusher_level,
                     dest,
                     center_in_cell,
+                    ground_source,
                 ) {
                     return true;
                 }
@@ -1630,6 +1661,7 @@ impl PathfindingGrid {
                     crusher_level,
                     dest,
                     center_in_cell,
+                    ground_source,
                 ) {
                     return true;
                 }
@@ -1646,6 +1678,7 @@ impl PathfindingGrid {
                     crusher_level,
                     dest,
                     center_in_cell,
+                    ground_source,
                 ) {
                     return true;
                 }
@@ -1667,6 +1700,7 @@ impl PathfindingGrid {
         crusher_level: u8,
         dest: &mut Vec3,
         center_in_cell: bool,
+        ground_source: &PathfindingGround<'_>,
     ) -> bool {
         if !self.is_valid_pos(cell) {
             return false;
@@ -1674,7 +1708,8 @@ impl PathfindingGrid {
         if !self.zones_connected(start_cell, cell, surfaces, is_crusher) {
             return false;
         }
-        let layer = self.layer_for_destination(self.grid_to_world(cell));
+        let layer =
+            self.layer_for_destination(self.grid_to_world(cell, ground_source), ground_source);
         if !self.destination_cell_ok(
             cell,
             surfaces,
@@ -1682,10 +1717,11 @@ impl PathfindingGrid {
             seeker_player,
             crusher_level,
             layer,
+            ground_source,
         ) {
             return false;
         }
-        *dest = self.adjust_coord_to_cell_on_layer(cell, center_in_cell, layer);
+        *dest = self.adjust_coord_to_cell_on_layer(cell, center_in_cell, layer, ground_source);
         true
     }
 
@@ -1701,6 +1737,7 @@ impl PathfindingGrid {
         seeker_player: Option<u32>,
         crusher_level: u8,
         layer: PathfindLayerEnum,
+        ground_source: &PathfindingGround<'_>,
     ) {
         let start = *from;
         let start_cell = self.world_to_grid(start);
@@ -1718,7 +1755,9 @@ impl PathfindingGrid {
         let mut err = dx + dy;
         loop {
             let cell = GridPos::new(x0, y0);
-            if self.layer_for_destination(self.grid_to_world(cell)) != layer {
+            if self.layer_for_destination(self.grid_to_world(cell, ground_source), ground_source)
+                != layer
+            {
                 break;
             }
             if self.destination_cell_ok(
@@ -1728,9 +1767,10 @@ impl PathfindingGrid {
                 seeker_player,
                 crusher_level,
                 layer,
+                ground_source,
             ) {
                 found = true;
-                dest_pos = self.grid_to_world(cell);
+                dest_pos = self.grid_to_world(cell, ground_source);
             } else {
                 break;
             }
@@ -1889,6 +1929,7 @@ impl PathfindingGrid {
         seeker_player: Option<u32>,
         crusher_level: u8,
         layer: PathfindLayerEnum,
+        ground_source: &PathfindingGround<'_>,
     ) -> Option<GridPos> {
         if let Some(adj) = self.adjust_destination_on_layer_group(
             dest,
@@ -1898,6 +1939,7 @@ impl PathfindingGrid {
             seeker_player,
             crusher_level,
             layer,
+            ground_source,
         ) {
             return Some(adj);
         }
@@ -1909,6 +1951,7 @@ impl PathfindingGrid {
             seeker_player,
             crusher_level,
             layer,
+            ground_source,
         )
     }
 
@@ -1921,6 +1964,7 @@ impl PathfindingGrid {
         seeker_player: Option<u32>,
         crusher_level: u8,
         layer: PathfindLayerEnum,
+        ground_source: &PathfindingGround<'_>,
     ) -> bool {
         if !self.destination_cell_ok(
             cell,
@@ -1929,14 +1973,15 @@ impl PathfindingGrid {
             seeker_player,
             crusher_level,
             layer,
+            ground_source,
         ) {
             return false;
         }
         let Some(gd) = group_dest else {
             return true;
         };
-        let mut adjust_dest = self.grid_to_world(cell);
-        let group_w = self.grid_to_world(gd);
+        let mut adjust_dest = self.grid_to_world(cell, ground_source);
+        let group_w = self.grid_to_world(gd, ground_source);
         self.tighten_path(
             &mut adjust_dest,
             group_w,
@@ -1945,6 +1990,7 @@ impl PathfindingGrid {
             seeker_player,
             crusher_level,
             layer,
+            ground_source,
         );
         let cost = self.check_path_cost(surfaces, is_crusher, group_w, adjust_dest);
         let dx = (group_w.x - adjust_dest.x).abs();
@@ -1964,6 +2010,7 @@ impl PathfindingGrid {
         seeker_player: Option<u32>,
         crusher_level: u8,
         layer: PathfindLayerEnum,
+        ground_source: &PathfindingGround<'_>,
     ) -> Option<GridPos> {
         let origin = self.clamp_pos(dest);
         if self.check_for_adjust_group(
@@ -1974,6 +2021,7 @@ impl PathfindingGrid {
             seeker_player,
             crusher_level,
             layer,
+            ground_source,
         ) {
             return Some(origin);
         }
@@ -1994,6 +2042,7 @@ impl PathfindingGrid {
                     seeker_player,
                     crusher_level,
                     layer,
+                    ground_source,
                 ) {
                     return Some(c);
                 }
@@ -2010,6 +2059,7 @@ impl PathfindingGrid {
                     seeker_player,
                     crusher_level,
                     layer,
+                    ground_source,
                 ) {
                     return Some(c);
                 }
@@ -2027,6 +2077,7 @@ impl PathfindingGrid {
                     seeker_player,
                     crusher_level,
                     layer,
+                    ground_source,
                 ) {
                     return Some(c);
                 }
@@ -2043,6 +2094,7 @@ impl PathfindingGrid {
                     seeker_player,
                     crusher_level,
                     layer,
+                    ground_source,
                 ) {
                     return Some(c);
                 }
@@ -2217,6 +2269,7 @@ impl PathfindingGrid {
         waypoints: &[Vec3],
         surfaces: u32,
         is_crusher: bool,
+        ground_source: &PathfindingGround<'_>,
     ) -> Vec<Vec3> {
         self.optimize_ground_path_ex(
             waypoints,
@@ -2224,6 +2277,7 @@ impl PathfindingGrid {
             is_crusher,
             None,
             if is_crusher { 1 } else { 0 },
+            ground_source,
         )
     }
 
@@ -2234,6 +2288,7 @@ impl PathfindingGrid {
         is_crusher: bool,
         seeker_player: Option<u32>,
         crusher_level: u8,
+        ground_source: &PathfindingGround<'_>,
     ) -> Vec<Vec3> {
         if waypoints.len() <= 2 {
             return waypoints.to_vec();
@@ -2243,7 +2298,7 @@ impl PathfindingGrid {
         const ALLOWED_STEPS: usize = 3;
         let layers: Vec<PathfindLayerEnum> = waypoints
             .iter()
-            .map(|p| self.layer_for_destination(*p))
+            .map(|p| self.layer_for_destination(*p, ground_source))
             .collect();
         let mut optimized = vec![waypoints[0]];
         let mut anchor = 0usize;
@@ -2283,8 +2338,8 @@ impl PathfindingGrid {
                 // walked it" bypass only applies within one layer's corridor;
                 // a ground anchor must LOS across a deck span on `layer`,
                 // never shortcut across water via collinearity.
-                let layers_uniform =
-                    (anchor..=far).all(|i| self.layer_for_destination(waypoints[i]) == layer);
+                let layers_uniform = (anchor..=far)
+                    .all(|i| self.layer_for_destination(waypoints[i], ground_source) == layer);
                 if self.line_passable_on_layer(
                     a,
                     b,

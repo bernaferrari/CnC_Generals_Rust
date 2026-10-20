@@ -7,10 +7,11 @@ impl PathfindingSystem {
         from: Vec3,
         to: Vec3,
         objects: &HashMap<ObjectId, Object>,
+        ground_source: &PathfindingGround<'_>,
     ) -> Option<Vec<Vec3>> {
         // A group query has no individual ignored obstacle or seeker. Admit
         // actual receiving occupancy rather than inherit another request's mask.
-        self.grid.update_dynamic_obstacles(objects);
+        self.grid.update_dynamic_obstacles(objects, ground_source);
         self.dynamic_obstacle_frame = self.logic_frame;
         self.sync_crate_astar();
         let jumps = self.hierarchical_bridge_jumps();
@@ -32,6 +33,7 @@ impl PathfindingSystem {
             objects,
             |cell| finder.clip_is_zone_passable(cell.x, cell.y),
             &mut cleanup_cells,
+            ground_source,
         );
         self.note_cells_allocated(cleanup_cells);
         path

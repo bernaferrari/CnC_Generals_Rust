@@ -391,20 +391,20 @@ impl GameLogic {
                         let seeker_player = other.owner_player_id.or(Some(other.team as u32));
                         let crusher_level = other.crusher_level;
                         let can_tunnel = other.can_path_through_units;
-                        let mut yield_path = self.pathfinding_system.get_move_away_from_path(
-                            from,
-                            &a_path,
-                            prev_path.as_deref(),
-                            surfaces,
-                            is_crusher,
-                            unit_radius,
-                            a_radius,
-                            seeker_player,
-                            crusher_level,
-                            false,
-                        );
-                        if yield_path.is_none() && !can_tunnel {
-                            yield_path = self.pathfinding_system.get_move_away_from_path(
+                        let mut yield_path = ({
+                            let ground_owner = self.world_services.terrain();
+                            let ground_loan = ground_owner
+                                .read()
+                                .unwrap_or_else(|error| error.into_inner());
+                            let ground_source =
+                                crate::game_logic::pathfinding::PathfindingGround::for_terrain(
+                                    &ground_loan,
+                                    self.map_loaded,
+                                    self.terrain.as_ref(),
+                                    self.pathfinding_height_samples.as_ref(),
+                                    &self.pathfinding_system.grid,
+                                );
+                            self.pathfinding_system.get_move_away_from_path(
                                 from,
                                 &a_path,
                                 prev_path.as_deref(),
@@ -414,8 +414,43 @@ impl GameLogic {
                                 a_radius,
                                 seeker_player,
                                 crusher_level,
-                                true,
-                            );
+                                false,
+                                &ground_source,
+                            )
+                        });
+                        if yield_path.is_none() && !can_tunnel {
+                            yield_path = ({
+                                let ground_owner = self.world_services.terrain();
+                                let ground_loan = ground_owner
+                                    .read()
+                                    .unwrap_or_else(|error| error.into_inner());
+                                let ground_source = if self.map_loaded
+                                    || ground_loan.has_height_map()
+                                {
+                                    crate::game_logic::pathfinding::PathfindingGround::receiving(
+                                        &ground_loan,
+                                    )
+                                } else {
+                                    crate::game_logic::pathfinding::PathfindingGround::mapless(
+                                        self.terrain.as_ref(),
+                                        self.pathfinding_height_samples.as_ref(),
+                                        &self.pathfinding_system.grid,
+                                    )
+                                };
+                                self.pathfinding_system.get_move_away_from_path(
+                                    from,
+                                    &a_path,
+                                    prev_path.as_deref(),
+                                    surfaces,
+                                    is_crusher,
+                                    unit_radius,
+                                    a_radius,
+                                    seeker_player,
+                                    crusher_level,
+                                    true,
+                                    &ground_source,
+                                )
+                            });
                             if let Some(other) = self.objects.get_mut(&other_id) {
                                 other.can_path_through_units = true;
                             }
@@ -487,20 +522,20 @@ impl GameLogic {
                             gamelogic::ai::pathfind_complete::SURFACE_GROUND
                         };
                         let can_tunnel = me.can_path_through_units;
-                        let mut yield_path = self.pathfinding_system.get_move_away_from_path(
-                            from,
-                            &other_path,
-                            prev_path.as_deref(),
-                            surfaces,
-                            me.crusher_level > 0,
-                            me.selection_radius,
-                            other_radius,
-                            me.owner_player_id.or(Some(me.team as u32)),
-                            me.crusher_level,
-                            false,
-                        );
-                        if yield_path.is_none() && !can_tunnel {
-                            yield_path = self.pathfinding_system.get_move_away_from_path(
+                        let mut yield_path = ({
+                            let ground_owner = self.world_services.terrain();
+                            let ground_loan = ground_owner
+                                .read()
+                                .unwrap_or_else(|error| error.into_inner());
+                            let ground_source =
+                                crate::game_logic::pathfinding::PathfindingGround::for_terrain(
+                                    &ground_loan,
+                                    self.map_loaded,
+                                    self.terrain.as_ref(),
+                                    self.pathfinding_height_samples.as_ref(),
+                                    &self.pathfinding_system.grid,
+                                );
+                            self.pathfinding_system.get_move_away_from_path(
                                 from,
                                 &other_path,
                                 prev_path.as_deref(),
@@ -510,8 +545,43 @@ impl GameLogic {
                                 other_radius,
                                 me.owner_player_id.or(Some(me.team as u32)),
                                 me.crusher_level,
-                                true,
-                            );
+                                false,
+                                &ground_source,
+                            )
+                        });
+                        if yield_path.is_none() && !can_tunnel {
+                            yield_path = ({
+                                let ground_owner = self.world_services.terrain();
+                                let ground_loan = ground_owner
+                                    .read()
+                                    .unwrap_or_else(|error| error.into_inner());
+                                let ground_source = if self.map_loaded
+                                    || ground_loan.has_height_map()
+                                {
+                                    crate::game_logic::pathfinding::PathfindingGround::receiving(
+                                        &ground_loan,
+                                    )
+                                } else {
+                                    crate::game_logic::pathfinding::PathfindingGround::mapless(
+                                        self.terrain.as_ref(),
+                                        self.pathfinding_height_samples.as_ref(),
+                                        &self.pathfinding_system.grid,
+                                    )
+                                };
+                                self.pathfinding_system.get_move_away_from_path(
+                                    from,
+                                    &other_path,
+                                    prev_path.as_deref(),
+                                    surfaces,
+                                    me.crusher_level > 0,
+                                    me.selection_radius,
+                                    other_radius,
+                                    me.owner_player_id.or(Some(me.team as u32)),
+                                    me.crusher_level,
+                                    true,
+                                    &ground_source,
+                                )
+                            });
                             if let Some(me) = self.objects.get_mut(&a_id) {
                                 me.can_path_through_units = true;
                             }
@@ -542,16 +612,50 @@ impl GameLogic {
             if let Some(a) = self.objects.get(&a_id) {
                 if a.ai_state == crate::game_logic::AIState::Idle {
                     let mut dest = a.get_position();
-                    self.pathfinding_system
-                        .adjust_to_possible_destination_for(a, &mut dest);
+                    ({
+                        let ground_owner = self.world_services.terrain();
+                        let ground_loan = ground_owner
+                            .read()
+                            .unwrap_or_else(|error| error.into_inner());
+                        let ground_source =
+                            crate::game_logic::pathfinding::PathfindingGround::for_terrain(
+                                &ground_loan,
+                                self.map_loaded,
+                                self.terrain.as_ref(),
+                                self.pathfinding_height_samples.as_ref(),
+                                &self.pathfinding_system.grid,
+                            );
+                        self.pathfinding_system.adjust_to_possible_destination_for(
+                            a,
+                            &mut dest,
+                            &ground_source,
+                        )
+                    });
                     let _ = self.private_move_to_position(a_id, dest);
                 }
             }
             if let Some(b) = self.objects.get(&b_id) {
                 if b.ai_state == crate::game_logic::AIState::Idle {
                     let mut dest = b.get_position();
-                    self.pathfinding_system
-                        .adjust_to_possible_destination_for(b, &mut dest);
+                    ({
+                        let ground_owner = self.world_services.terrain();
+                        let ground_loan = ground_owner
+                            .read()
+                            .unwrap_or_else(|error| error.into_inner());
+                        let ground_source =
+                            crate::game_logic::pathfinding::PathfindingGround::for_terrain(
+                                &ground_loan,
+                                self.map_loaded,
+                                self.terrain.as_ref(),
+                                self.pathfinding_height_samples.as_ref(),
+                                &self.pathfinding_system.grid,
+                            );
+                        self.pathfinding_system.adjust_to_possible_destination_for(
+                            b,
+                            &mut dest,
+                            &ground_source,
+                        )
+                    });
                     let _ = self.private_move_to_position(b_id, dest);
                 }
             }

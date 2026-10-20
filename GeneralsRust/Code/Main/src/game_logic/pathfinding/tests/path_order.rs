@@ -17,10 +17,24 @@ fn closest_path_equal_cost_candidates_keep_cpp_fifo_order() {
             .set_cell_type(blocked, PathfindCellType::Impassable);
     }
 
-    let start = system.grid.grid_to_world(GridPos::new(1, 2));
-    let goal = system.grid.grid_to_world(GridPos::new(5, 2));
+    let start = system.grid.grid_to_world(
+        GridPos::new(1, 2),
+        &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+    );
+    let goal = system.grid.grid_to_world(
+        GridPos::new(5, 2),
+        &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+    );
     let path = system
-        .find_closest_path(start, goal, SURFACE_GROUND, false, true, 0.2)
+        .find_closest_path(
+            start,
+            goal,
+            SURFACE_GROUND,
+            false,
+            true,
+            0.2,
+            &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+        )
         .expect("closest reachable path");
     let end = system
         .grid

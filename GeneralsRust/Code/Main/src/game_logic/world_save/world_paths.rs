@@ -477,9 +477,19 @@ impl GameLogic {
             let crusher = unit.crusher_level > 0;
             let saved_adjust = self.pathfinding_system.adjusts_goal();
             self.pathfinding_system.set_adjust_goal(false);
-            let path = self
-                .pathfinding_system
-                .find_path_ex_surfaces(
+            let path = ({
+                let ground_owner = self.world_services.terrain();
+                let ground_loan = ground_owner
+                    .read()
+                    .unwrap_or_else(|error| error.into_inner());
+                let ground_source = crate::game_logic::pathfinding::PathfindingGround::for_terrain(
+                    &ground_loan,
+                    self.map_loaded,
+                    self.terrain.as_ref(),
+                    self.pathfinding_height_samples.as_ref(),
+                    &self.pathfinding_system.grid,
+                );
+                self.pathfinding_system.find_path_ex_surfaces(
                     start,
                     destination,
                     &self.objects,
@@ -487,12 +497,14 @@ impl GameLogic {
                     surfaces,
                     crusher,
                     Some(unit_id),
+                    &ground_source,
                 )
-                .unwrap_or_else(|| {
-                    let mut lifted = start;
-                    lifted.y = destination.y;
-                    vec![lifted, destination]
-                });
+            })
+            .unwrap_or_else(|| {
+                let mut lifted = start;
+                lifted.y = destination.y;
+                vec![lifted, destination]
+            });
             self.pathfinding_system.set_adjust_goal(saved_adjust);
             let Some(unit) = self.objects.get_mut(&unit_id) else {
                 return false;
@@ -615,18 +627,34 @@ impl GameLogic {
             let flying = is_aircraft && (loco & gamelogic::ai::pathfind_complete::SURFACE_AIR) != 0;
             let hop_is_final = request_is_final && hop_i + 1 == goal_count;
             let leftover_quick = !flying
-                && (self
-                    .pathfinding_system
-                    .leftover_should_force_direct_path_for_off_map_start(segment_start, goal)
-                    || self
-                        .pathfinding_system
-                        .leftover_should_use_direct_path_for_line_passable_non_final_goal(
-                            hop_is_final,
+                && (({
+                    let ground_owner = self.world_services.terrain();
+                    let ground_loan = ground_owner
+                        .read()
+                        .unwrap_or_else(|error| error.into_inner());
+                    let ground_source =
+                        crate::game_logic::pathfinding::PathfindingGround::for_terrain(
+                            &ground_loan,
+                            self.map_loaded,
+                            self.terrain.as_ref(),
+                            self.pathfinding_height_samples.as_ref(),
+                            &self.pathfinding_system.grid,
+                        );
+                    self.pathfinding_system
+                        .leftover_should_force_direct_path_for_off_map_start(
                             segment_start,
                             goal,
-                            loco,
-                            ignore,
-                        ));
+                            &ground_source,
+                        )
+                }) || self
+                    .pathfinding_system
+                    .leftover_should_use_direct_path_for_line_passable_non_final_goal(
+                        hop_is_final,
+                        segment_start,
+                        goal,
+                        loco,
+                        ignore,
+                    ));
             let straight = horiz(segment_start, goal);
             let (live_adjust, projectile) = self
                 .objects
@@ -653,7 +681,22 @@ impl GameLogic {
                 })
             };
             let dest_cell = self.pathfinding_system.grid.world_to_grid(goal);
-            let dest_layer = self.pathfinding_system.grid.layer_for_destination(goal);
+            let dest_layer = ({
+                let ground_owner = self.world_services.terrain();
+                let ground_loan = ground_owner
+                    .read()
+                    .unwrap_or_else(|error| error.into_inner());
+                let ground_source = crate::game_logic::pathfinding::PathfindingGround::for_terrain(
+                    &ground_loan,
+                    self.map_loaded,
+                    self.terrain.as_ref(),
+                    self.pathfinding_height_samples.as_ref(),
+                    &self.pathfinding_system.grid,
+                );
+                self.pathfinding_system
+                    .grid
+                    .layer_for_destination(goal, &ground_source)
+            });
             let ignore_id = self
                 .pathfinding_system
                 .ignore_obstacle()
@@ -675,24 +718,54 @@ impl GameLogic {
             } else if !dest_ok {
                 None
             } else if let Some(original) = stuck_path {
-                self.pathfinding_system.patch_path(
-                    segment_start,
-                    &original,
-                    loco,
-                    is_crusher,
-                    &self.objects,
-                    Some(unit_id),
-                )
+                ({
+                    let ground_owner = self.world_services.terrain();
+                    let ground_loan = ground_owner
+                        .read()
+                        .unwrap_or_else(|error| error.into_inner());
+                    let ground_source =
+                        crate::game_logic::pathfinding::PathfindingGround::for_terrain(
+                            &ground_loan,
+                            self.map_loaded,
+                            self.terrain.as_ref(),
+                            self.pathfinding_height_samples.as_ref(),
+                            &self.pathfinding_system.grid,
+                        );
+                    self.pathfinding_system.patch_path(
+                        segment_start,
+                        &original,
+                        loco,
+                        is_crusher,
+                        &self.objects,
+                        Some(unit_id),
+                        &ground_source,
+                    )
+                })
             } else {
-                self.pathfinding_system.find_path_ex_surfaces(
-                    segment_start,
-                    goal,
-                    &self.objects,
-                    flying,
-                    loco,
-                    is_crusher,
-                    Some(unit_id),
-                )
+                ({
+                    let ground_owner = self.world_services.terrain();
+                    let ground_loan = ground_owner
+                        .read()
+                        .unwrap_or_else(|error| error.into_inner());
+                    let ground_source =
+                        crate::game_logic::pathfinding::PathfindingGround::for_terrain(
+                            &ground_loan,
+                            self.map_loaded,
+                            self.terrain.as_ref(),
+                            self.pathfinding_height_samples.as_ref(),
+                            &self.pathfinding_system.grid,
+                        );
+                    self.pathfinding_system.find_path_ex_surfaces(
+                        segment_start,
+                        goal,
+                        &self.objects,
+                        flying,
+                        loco,
+                        is_crusher,
+                        Some(unit_id),
+                        &ground_source,
+                    )
+                })
             };
 
             match segment.filter(|path| !path.is_empty()) {
@@ -951,10 +1024,25 @@ impl GameLogic {
         // C++ AIGroup::friend_computeGroundPath uses a fixed ground, non-crusher
         // group search. A member's individual locomotor and footprint do not
         // choose the spine or mutate that member during search admission.
-        let Some(spine) =
-            self.pathfinding_system
-                .find_group_ground_path(start, destination, &self.objects)
-        else {
+        let Some(spine) = ({
+            let ground_owner = self.world_services.terrain();
+            let ground_loan = ground_owner
+                .read()
+                .unwrap_or_else(|error| error.into_inner());
+            let ground_source = crate::game_logic::pathfinding::PathfindingGround::for_terrain(
+                &ground_loan,
+                self.map_loaded,
+                self.terrain.as_ref(),
+                self.pathfinding_height_samples.as_ref(),
+                &self.pathfinding_system.grid,
+            );
+            self.pathfinding_system.find_group_ground_path(
+                start,
+                destination,
+                &self.objects,
+                &ground_source,
+            )
+        }) else {
             return false;
         };
         // C++ group march direction = spine start → destination; the lateral
@@ -1442,14 +1530,28 @@ impl GameLogic {
         } else {
             gamelogic::ai::pathfind_complete::SURFACE_GROUND
         };
-        let found = self.pathfinding_system.find_closest_path(
-            start,
-            destination,
-            loco,
-            is_crusher,
-            is_human,
-            0.0,
-        );
+        let found = ({
+            let ground_owner = self.world_services.terrain();
+            let ground_loan = ground_owner
+                .read()
+                .unwrap_or_else(|error| error.into_inner());
+            let ground_source = crate::game_logic::pathfinding::PathfindingGround::for_terrain(
+                &ground_loan,
+                self.map_loaded,
+                self.terrain.as_ref(),
+                self.pathfinding_height_samples.as_ref(),
+                &self.pathfinding_system.grid,
+            );
+            self.pathfinding_system.find_closest_path(
+                start,
+                destination,
+                loco,
+                is_crusher,
+                is_human,
+                0.0,
+                &ground_source,
+            )
+        });
         if let Some(unit) = self.objects.get_mut(&unit_id) {
             unit.retry_path = true;
         }
@@ -1486,7 +1588,22 @@ impl GameLogic {
             (Vec3::ZERO, true)
         };
         let goal_pos = if stuck_with_path {
-            self.pathfinding_system.grid.snap_position(pos, center)
+            ({
+                let ground_owner = self.world_services.terrain();
+                let ground_loan = ground_owner
+                    .read()
+                    .unwrap_or_else(|error| error.into_inner());
+                let ground_source = crate::game_logic::pathfinding::PathfindingGround::for_terrain(
+                    &ground_loan,
+                    self.map_loaded,
+                    self.terrain.as_ref(),
+                    self.pathfinding_height_samples.as_ref(),
+                    &self.pathfinding_system.grid,
+                );
+                self.pathfinding_system
+                    .grid
+                    .snap_position(pos, center, &ground_source)
+            })
         } else {
             Vec3::ZERO
         };
@@ -1606,8 +1723,21 @@ impl GameLogic {
         let Some(obj) = self.objects.get(&unit_id) else {
             return false;
         };
-        self.pathfinding_system
-            .adjust_to_possible_destination_for(obj, dest)
+        ({
+            let ground_owner = self.world_services.terrain();
+            let ground_loan = ground_owner
+                .read()
+                .unwrap_or_else(|error| error.into_inner());
+            let ground_source = crate::game_logic::pathfinding::PathfindingGround::for_terrain(
+                &ground_loan,
+                self.map_loaded,
+                self.terrain.as_ref(),
+                self.pathfinding_height_samples.as_ref(),
+                &self.pathfinding_system.grid,
+            );
+            self.pathfinding_system
+                .adjust_to_possible_destination_for(obj, dest, &ground_source)
+        })
     }
 
     /// Path toward a firing position with LOS (C++ findAttackPath residual).
@@ -1700,17 +1830,51 @@ impl GameLogic {
             .map(|player| player.is_local)
             .unwrap_or(true);
         let mut path = if contact {
-            self.pathfinding_system
-                .find_closest_path(from, target_pos, surfaces, is_crusher, is_human, 0.2)
+            ({
+                let ground_owner = self.world_services.terrain();
+                let ground_loan = ground_owner
+                    .read()
+                    .unwrap_or_else(|error| error.into_inner());
+                let ground_source = crate::game_logic::pathfinding::PathfindingGround::for_terrain(
+                    &ground_loan,
+                    self.map_loaded,
+                    self.terrain.as_ref(),
+                    self.pathfinding_height_samples.as_ref(),
+                    &self.pathfinding_system.grid,
+                );
+                self.pathfinding_system.find_closest_path(
+                    from,
+                    target_pos,
+                    surfaces,
+                    is_crusher,
+                    is_human,
+                    0.2,
+                    &ground_source,
+                )
+            })
         } else {
-            self.pathfinding_system.find_attack_firing_position(
-                from,
-                target_pos,
-                path_range,
-                &self.objects,
-                is_crusher,
-                Some(unit_id),
-            )
+            ({
+                let ground_owner = self.world_services.terrain();
+                let ground_loan = ground_owner
+                    .read()
+                    .unwrap_or_else(|error| error.into_inner());
+                let ground_source = crate::game_logic::pathfinding::PathfindingGround::for_terrain(
+                    &ground_loan,
+                    self.map_loaded,
+                    self.terrain.as_ref(),
+                    self.pathfinding_height_samples.as_ref(),
+                    &self.pathfinding_system.grid,
+                );
+                self.pathfinding_system.find_attack_firing_position(
+                    from,
+                    target_pos,
+                    path_range,
+                    &self.objects,
+                    is_crusher,
+                    Some(unit_id),
+                    &ground_source,
+                )
+            })
         };
         if contact {
             self.pathfinding_system.set_ignore_obstacle(None);
@@ -1959,8 +2123,21 @@ impl GameLogic {
             }
         }
         // Structure/static obstacle Bresenham residual.
-        self.pathfinding_system
-            .is_attack_view_blocked(from, target_pos)
+        ({
+            let ground_owner = self.world_services.terrain();
+            let ground_loan = ground_owner
+                .read()
+                .unwrap_or_else(|error| error.into_inner());
+            let ground_source = crate::game_logic::pathfinding::PathfindingGround::for_terrain(
+                &ground_loan,
+                self.map_loaded,
+                self.terrain.as_ref(),
+                self.pathfinding_height_samples.as_ref(),
+                &self.pathfinding_system.grid,
+            );
+            self.pathfinding_system
+                .is_attack_view_blocked(from, target_pos, &ground_source)
+        })
     }
 
     pub(crate) fn path_approach_with_state(
@@ -2086,9 +2263,21 @@ impl GameLogic {
 
         let last_goal = current_path.last().copied().unwrap_or(unit_pos);
 
-        let segment = self
-            .pathfinding_system
-            .find_path(last_goal, waypoint, &self.objects);
+        let segment = ({
+            let ground_owner = self.world_services.terrain();
+            let ground_loan = ground_owner
+                .read()
+                .unwrap_or_else(|error| error.into_inner());
+            let ground_source = crate::game_logic::pathfinding::PathfindingGround::for_terrain(
+                &ground_loan,
+                self.map_loaded,
+                self.terrain.as_ref(),
+                self.pathfinding_height_samples.as_ref(),
+                &self.pathfinding_system.grid,
+            );
+            self.pathfinding_system
+                .find_path(last_goal, waypoint, &self.objects, &ground_source)
+        });
 
         let mut appended = current_path;
         match segment {
@@ -2257,10 +2446,26 @@ mod group_lane_tests {
             goals.push((id, Vec3::new(-lateral, 0.0, 420.0)));
         }
         let start = logic.objects[&ObjectId(8605)].get_position();
-        let spine = logic
-            .pathfinding_system
-            .find_group_ground_path(start, destination, &logic.objects)
-            .unwrap();
+        let spine = ({
+            let ground_owner = logic.world_services.terrain();
+            let ground_loan = ground_owner
+                .read()
+                .unwrap_or_else(|error| error.into_inner());
+            let ground_source = crate::game_logic::pathfinding::PathfindingGround::for_terrain(
+                &ground_loan,
+                logic.map_loaded,
+                logic.terrain.as_ref(),
+                logic.pathfinding_height_samples.as_ref(),
+                &logic.pathfinding_system.grid,
+            );
+            logic.pathfinding_system.find_group_ground_path(
+                start,
+                destination,
+                &logic.objects,
+                &ground_source,
+            )
+        })
+        .unwrap();
         let distance_squared = |a: Vec3, b: Vec3| (a.x - b.x).powi(2) + (a.z - b.z).powi(2);
         let corner_index = spine
             .iter()
@@ -2337,10 +2542,23 @@ mod group_lane_tests {
         unit.adjust_destinations = adjust;
         unit.owner_player_id = Some(0);
         logic.objects.insert(ObjectId(8701), unit);
-        logic
-            .pathfinding_system
-            .grid
-            .update_dynamic_obstacles(&logic.objects);
+        ({
+            let ground_owner = logic.world_services.terrain();
+            let ground_loan = ground_owner
+                .read()
+                .unwrap_or_else(|error| error.into_inner());
+            let ground_source = crate::game_logic::pathfinding::PathfindingGround::for_terrain(
+                &ground_loan,
+                logic.map_loaded,
+                logic.terrain.as_ref(),
+                logic.pathfinding_height_samples.as_ref(),
+                &logic.pathfinding_system.grid,
+            );
+            logic
+                .pathfinding_system
+                .grid
+                .update_dynamic_obstacles(&logic.objects, &ground_source)
+        });
         logic
     }
 

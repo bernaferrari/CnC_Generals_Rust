@@ -32,7 +32,6 @@ impl PathfindingSystem {
             seeker_is_dozer: false,
             seeker_downhill_only: false,
             seeker_can_path_through_units: false,
-            terrain_height_samples: None,
             cumulative_cells_allocated: 0,
             pathfind_cells_per_frame: PATHFIND_CELLS_PER_FRAME,
         }
@@ -127,8 +126,13 @@ impl PathfindingSystem {
     }
 
     /// C++ `Pathfinder::adjustToLandingDestination`. Off-map unit+dest is scripted OK.
-    pub fn adjust_to_landing_destination(&self, from: Vec3, dest: Vec3) -> Vec3 {
-        self.adjust_to_landing_destination_radius(from, dest, 0.0)
+    pub fn adjust_to_landing_destination(
+        &self,
+        from: Vec3,
+        dest: Vec3,
+        ground_source: &PathfindingGround<'_>,
+    ) -> Vec3 {
+        self.adjust_to_landing_destination_radius(from, dest, 0.0, ground_source)
     }
 
     pub fn adjust_to_landing_destination_radius(
@@ -136,6 +140,7 @@ impl PathfindingSystem {
         from: Vec3,
         dest: Vec3,
         unit_radius: f32,
+        ground_source: &PathfindingGround<'_>,
     ) -> Vec3 {
         let dest_cell = self.grid.world_to_grid(dest);
         let from_cell = self.grid.world_to_grid(from);
@@ -151,7 +156,7 @@ impl PathfindingSystem {
             adjust.z += half;
         }
         let dest_cell = self.grid.world_to_grid(adjust);
-        let layer = self.grid.layer_for_destination(dest);
+        let layer = self.grid.layer_for_destination(dest, ground_source);
         let Some(adj) = self.grid.adjust_to_landing_destination_for(
             dest_cell,
             400,
@@ -161,7 +166,7 @@ impl PathfindingSystem {
         ) else {
             return dest;
         };
-        let mut world = self.grid.grid_to_world(adj);
+        let mut world = self.grid.grid_to_world(adj, ground_source);
         world.y = dest.y;
         world
     }
@@ -214,14 +219,15 @@ impl PathfindingSystem {
         objects: &HashMap<ObjectId, Object>,
         from: Vec3,
         dest: Vec3,
+        ground_source: &PathfindingGround<'_>,
     ) -> Vec3 {
-        self.grid.update_dynamic_obstacles(objects);
+        self.grid.update_dynamic_obstacles(objects, ground_source);
         self.grid.query_seeker_id = seeker;
         let unit_radius = objects
             .get(&ObjectId(seeker))
             .map(|o| o.selection_radius)
             .unwrap_or(0.0);
-        let adj = self.adjust_to_landing_destination_radius(from, dest, unit_radius);
+        let adj = self.adjust_to_landing_destination_radius(from, dest, unit_radius, ground_source);
         self.grid.query_seeker_id = 0;
         adj
     }
@@ -240,16 +246,23 @@ impl PathfindingSystem {
 
     /// Rebuild vehicle/structure dynamic blocks at most once per logic frame.
     #[inline]
-    pub(super) fn ensure_dynamic_obstacles(&mut self, objects: &HashMap<ObjectId, Object>) {
+    pub(super) fn ensure_dynamic_obstacles(
+        &mut self,
+        objects: &HashMap<ObjectId, Object>,
+        ground_source: &PathfindingGround<'_>,
+    ) {
         if self.ignore_obstacle_id.is_some() {
-            self.grid
-                .update_dynamic_obstacles_ignoring(objects, self.ignore_obstacle_id);
+            self.grid.update_dynamic_obstacles_ignoring(
+                objects,
+                self.ignore_obstacle_id,
+                ground_source,
+            );
             // Do not cache an ignore-filtered occupancy stamp.
             self.dynamic_obstacle_frame = u64::MAX;
             return;
         }
         if self.dynamic_obstacle_frame != self.logic_frame {
-            self.grid.update_dynamic_obstacles(objects);
+            self.grid.update_dynamic_obstacles(objects, ground_source);
             self.dynamic_obstacle_frame = self.logic_frame;
         }
     }
@@ -403,6 +416,7 @@ impl PathfindingSystem {
     pub(super) fn crate_path_to_world(
         &self,
         cells: &[(GridCoord, PathfindLayerEnum)],
+        ground_source: &PathfindingGround<'_>,
     ) -> Vec<Vec3> {
         let center = self.seeker_center_in_cell;
         cells
@@ -412,6 +426,7 @@ impl PathfindingSystem {
                     GridPos::new(cell.x, cell.y),
                     center,
                     *layer,
+                    ground_source,
                 )
             })
             .collect()
@@ -472,6 +487,7 @@ impl PathfindingSystem {
         is_crusher: bool,
         start_layer: PathfindLayerEnum,
         dest_layer: PathfindLayerEnum,
+        ground_source: &PathfindingGround<'_>,
     ) -> Option<Vec<Vec3>> {
         self.sync_crate_astar();
         self.apply_seeker_human_flag();
@@ -498,6 +514,7 @@ impl PathfindingSystem {
                 self.seeker_player,
                 crusher_level,
                 start_layer,
+                ground_source,
             )
             .unwrap_or(start_seed);
         self.grid.query_from = Some(start);
@@ -522,6 +539,7 @@ impl PathfindingSystem {
                     self.seeker_player,
                     crusher_level,
                     dest_layer,
+                    ground_source,
                 )
                 .filter(|c| {
                     !matches!(
@@ -558,8 +576,8 @@ impl PathfindingSystem {
         }
         // C++ ignoreObstacle / tunneling uses terrain zones (AIPathfind.cpp:6544-6550).
         if (surfaces & SURFACE_AIR) == 0 {
-            let from_w = self.grid.grid_to_world(start);
-            let to_w = self.grid.grid_to_world(goal);
+            let from_w = self.grid.grid_to_world(start, ground_source);
+            let to_w = self.grid.grid_to_world(goal, ground_source);
             let ignore_or_tunnel = start_obstacle || ignore_covers(start) || ignore_covers(goal);
             let quick = self
                 .grid
@@ -580,6 +598,7 @@ impl PathfindingSystem {
                 self.seeker_player,
                 crusher_level,
                 dest_layer,
+                ground_source,
             ) {
                 if !self
                     .grid
@@ -611,6 +630,7 @@ impl PathfindingSystem {
                 start,
                 self.seeker_center_in_cell,
                 start_layer,
+                ground_source,
             );
             if from_pos.x == cell_pos.x && from_pos.z == cell_pos.z {
                 return Some(vec![cell_pos]);
@@ -835,8 +855,10 @@ impl PathfindingSystem {
                 )
             };
             let ground_h = |c: GridCoord| {
-                let w = self.grid.grid_to_world(GridPos::new(c.x, c.y));
-                self.sample_terrain_height(w.x, w.z)
+                let w = self
+                    .grid
+                    .grid_to_world(GridPos::new(c.x, c.y), ground_source);
+                self.sample_terrain_height(w.x, w.z, ground_source)
             };
             if is_human
                 && (!self.grid.in_logical_extent(start) || !self.grid.in_logical_extent(goal))
@@ -885,7 +907,8 @@ impl PathfindingSystem {
             // unit and prepends the actual fromPos before optimizeGroundPath.
             // Optimizing from the snapped start and replacing it afterward
             // can make the optimizer accept a segment that crosses an obstacle.
-            let mut world = self.crate_path_to_world(cells.get(1..).unwrap_or_default());
+            let mut world =
+                self.crate_path_to_world(cells.get(1..).unwrap_or_default(), ground_source);
             if world
                 .first()
                 .is_none_or(|first| first.x != from_pos.x || first.z != from_pos.z)
@@ -898,6 +921,7 @@ impl PathfindingSystem {
                 is_crusher,
                 self.seeker_player,
                 crusher_level,
+                ground_source,
             ));
         }
         // C++ Pathfinder::findPath (AIPathfind.cpp:6364-6436) returns NULL
@@ -952,8 +976,13 @@ impl PathfindingSystem {
         self.grid.block_structure_footprint(center, radius_cells);
     }
 
-    pub fn is_attack_view_blocked(&self, from: Vec3, to: Vec3) -> bool {
-        self.is_attack_view_blocked_for(from, to, None, None)
+    pub fn is_attack_view_blocked(
+        &self,
+        from: Vec3,
+        to: Vec3,
+        ground_source: &PathfindingGround<'_>,
+    ) -> bool {
+        self.is_attack_view_blocked_for(from, to, None, None, ground_source)
     }
 
     /// C++ `TheAI->getAiData()->m_attackUsesLineOfSight` (default true).
@@ -978,6 +1007,7 @@ impl PathfindingSystem {
         to: Vec3,
         attacker: Option<&Object>,
         victim: Option<&Object>,
+        ground_source: &PathfindingGround<'_>,
     ) -> bool {
         if !self.attack_uses_line_of_sight() {
             return false;
@@ -1008,10 +1038,11 @@ impl PathfindingSystem {
                     if !self.is_clear_line_of_sight_terrain(
                         Vec3::new(from.x, eye_from, from.z),
                         Vec3::new(to.x, eye_to, to.z),
+                        ground_source,
                     ) {
                         return true;
                     }
-                } else if !self.is_clear_line_of_sight_terrain(from, to) {
+                } else if !self.is_clear_line_of_sight_terrain(from, to, ground_source) {
                     // leftover: no current weapon → terrain.is_clear_line_of_sight
                     return true;
                 }
@@ -1034,7 +1065,7 @@ impl PathfindingSystem {
             }
         }
         let skip_count = if attacker.is_some() {
-            let layer = self.grid.layer_for_destination(from);
+            let layer = self.grid.layer_for_destination(from, ground_source);
             if !matches!(
                 layer,
                 PathfindLayerEnum::Ground | PathfindLayerEnum::Invalid
@@ -1050,24 +1081,13 @@ impl PathfindingSystem {
             .is_attack_view_blocked_static_ex(from, to, skip_count, &skip_ids)
     }
 
-    /// Install coarse pathfind-cell heights for LOS_TERRAIN (tests + save restore).
-    pub fn set_terrain_height_samples(&mut self, width: i32, height: i32, values: Vec<f32>) {
-        if width > 0 && height > 0 && values.len() == (width as usize) * (height as usize) {
-            self.terrain_height_samples = Some((width, height, values));
-        }
-    }
-
-    pub(super) fn sample_terrain_height(&self, x: f32, z: f32) -> f32 {
-        if let Some((w, h, vals)) = &self.terrain_height_samples {
-            let cell = self.grid.world_to_grid(Vec3::new(x, 0.0, z));
-            if cell.x >= 0 && cell.y >= 0 && cell.x < *w && cell.y < *h {
-                let idx = (cell.y * *w + cell.x) as usize;
-                if let Some(&v) = vals.get(idx) {
-                    return v;
-                }
-            }
-        }
-        sample_host_ground_height(x, z)
+    pub(super) fn sample_terrain_height(
+        &self,
+        x: f32,
+        z: f32,
+        ground_source: &PathfindingGround<'_>,
+    ) -> f32 {
+        ground_source.height_at(Vec3::new(x, 0.0, z))
     }
 
     /// Leftover `Weapon::is_clear_goal_firing_line_of_sight_terrain` eye:
@@ -1084,7 +1104,12 @@ impl PathfindingSystem {
 
     /// C++ `Weapon::isClearGoalFiringLineOfSightTerrain` residual (height samples).
     /// Fail-open when leftover terrain is empty and no cache is installed.
-    pub fn is_clear_line_of_sight_terrain(&self, from: Vec3, to: Vec3) -> bool {
+    pub fn is_clear_line_of_sight_terrain(
+        &self,
+        from: Vec3,
+        to: Vec3,
+        ground_source: &PathfindingGround<'_>,
+    ) -> bool {
         let dx = to.x - from.x;
         let dz = to.z - from.z;
         let dist_xz = (dx * dx + dz * dz).sqrt();
@@ -1101,7 +1126,7 @@ impl PathfindingSystem {
             let x = from.x + dx * tfrac;
             let z = from.z + dz * tfrac;
             let expected_y = from_y + (to_y - from_y) * tfrac;
-            if self.sample_terrain_height(x, z) > expected_y + CLEARANCE {
+            if self.sample_terrain_height(x, z, ground_source) > expected_y + CLEARANCE {
                 return false;
             }
         }
@@ -1115,6 +1140,7 @@ impl PathfindingSystem {
         surfaces: u32,
         is_crusher: bool,
         unit_radius: f32,
+        ground_source: &PathfindingGround<'_>,
     ) -> Vec3 {
         let cell_size = self.grid.grid_size();
         let (radius, center_in_cell) = PathfindingGrid::radius_and_center(unit_radius, cell_size);
@@ -1123,7 +1149,7 @@ impl PathfindingSystem {
             adjust.x += cell_size * 0.5;
             adjust.z += cell_size * 0.5;
         }
-        let layer = self.grid.layer_for_destination(pos);
+        let layer = self.grid.layer_for_destination(pos, ground_source);
         let cell = self.grid.world_to_grid(adjust);
         let crusher_level = if is_crusher {
             self.seeker_crusher_level.max(1)
@@ -1131,10 +1157,13 @@ impl PathfindingSystem {
             0
         };
         // Leftover/C++ adjustCoordToCell: first snap LAYER_GROUND, neighborhood on dest layer.
-        let snap_ground = |c: GridPos| self.grid.adjust_coord_to_cell(c, center_in_cell);
+        let snap_ground = |c: GridPos| {
+            self.grid
+                .adjust_coord_to_cell(c, center_in_cell, ground_source)
+        };
         let snap_layer = |c: GridPos| {
             self.grid
-                .adjust_coord_to_cell_on_layer(c, center_in_cell, layer)
+                .adjust_coord_to_cell_on_layer(c, center_in_cell, layer, ground_source)
         };
         let dest_ok = |c: GridPos| {
             self.grid.destination_cell_ok(
@@ -1144,6 +1173,7 @@ impl PathfindingSystem {
                 self.seeker_player,
                 crusher_level,
                 layer,
+                ground_source,
             )
         };
         let mut out = snap_ground(cell);
@@ -1202,13 +1232,14 @@ impl PathfindingSystem {
         seeker: ObjectId,
         seeker_player: Option<u32>,
         objects: &HashMap<ObjectId, Object>,
+        ground_source: &PathfindingGround<'_>,
     ) -> Vec3 {
         self.seeker_id = Some(seeker);
         self.seeker_player = seeker_player;
         self.grid.query_seeker_id = seeker.0;
         self.grid
-            .update_dynamic_obstacles_ignoring(objects, Some(seeker));
-        self.snap_closest_goal_position(pos, surfaces, is_crusher, unit_radius)
+            .update_dynamic_obstacles_ignoring(objects, Some(seeker), ground_source);
+        self.snap_closest_goal_position(pos, surfaces, is_crusher, unit_radius, ground_source)
     }
 
     /// Rebuild structure static obstacles from live objects (map load / bulk sync).
@@ -1218,6 +1249,7 @@ impl PathfindingSystem {
         &mut self,
         objects: &HashMap<ObjectId, Object>,
         wall_height: f32,
+        ground_source: &PathfindingGround<'_>,
     ) {
         let mut lo = GridPos::new(i32::MAX, i32::MAX);
         let mut hi = GridPos::new(i32::MIN, i32::MIN);
@@ -1230,7 +1262,10 @@ impl PathfindingSystem {
                 continue;
             }
             if rubble && obj.is_kind_of(KindOf::Structure) && !blast_crater {
-                if let Some((a, b)) = self.grid.classify_object_footprint(obj, true) {
+                if let Some((a, b)) = self
+                    .grid
+                    .classify_object_footprint(obj, true, ground_source)
+                {
                     PathfindingGrid::expand_stamp_bounds(&mut lo, &mut hi, a);
                     PathfindingGrid::expand_stamp_bounds(&mut lo, &mut hi, b);
                     did = true;
@@ -1240,7 +1275,10 @@ impl PathfindingSystem {
             if !obj.is_alive() && !blast_crater {
                 continue;
             }
-            if let Some((a, b)) = self.grid.classify_object_footprint(obj, false) {
+            if let Some((a, b)) = self
+                .grid
+                .classify_object_footprint(obj, false, ground_source)
+            {
                 PathfindingGrid::expand_stamp_bounds(&mut lo, &mut hi, a);
                 PathfindingGrid::expand_stamp_bounds(&mut lo, &mut hi, b);
                 did = true;
@@ -1256,14 +1294,25 @@ impl PathfindingSystem {
     }
 
     /// Player.cpp1653 removes the old scaffold footprint before re-admission.
-    pub(crate) fn refresh_completed_structure_footprint(&mut self, object: &Object) {
+    pub(crate) fn refresh_completed_structure_footprint(
+        &mut self,
+        object: &Object,
+        ground_source: &PathfindingGround<'_>,
+    ) {
         self.grid.remove_owned_object_footprint(object.id.0);
-        self.classify_and_pinch_object(object);
+        self.classify_and_pinch_object(object, ground_source);
     }
 
     /// Incremental leftover classify + pinch for one live structure (dozer place).
-    pub fn classify_and_pinch_object(&mut self, obj: &Object) {
-        if let Some((lo, hi)) = self.grid.classify_object_footprint(obj, false) {
+    pub fn classify_and_pinch_object(
+        &mut self,
+        obj: &Object,
+        ground_source: &PathfindingGround<'_>,
+    ) {
+        if let Some((lo, hi)) = self
+            .grid
+            .classify_object_footprint(obj, false, ground_source)
+        {
             self.grid.refresh_pinched_bounds(lo, hi);
             self.grid.rebuild_path_zones();
         }

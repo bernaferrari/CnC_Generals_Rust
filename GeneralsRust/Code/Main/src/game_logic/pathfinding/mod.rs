@@ -282,8 +282,6 @@ pub struct PathfindingGrid {
     ground_connect: Vec<u8>,
     /// C++ `Pathfinder::m_layers[2..=14]`.
     bridge_layers: Vec<HostBridgeLayer>,
-    /// Immutable raw owner samples admitted with the map, never globally refreshed.
-    admitted_raw_terrain: Option<std::sync::Arc<super::terrain::TerrainData>>,
     /// Terrain bridge visitation order, separate from pathfinder layer IDs.
     flight_bridge_order: Vec<u8>,
     /// C++ PathfindLayer pos/goal occupancy (updatePos/updateGoal).
@@ -330,6 +328,8 @@ pub struct PathfindingGrid {
     permanent_blast_crater_cells: HashSet<(i32, i32)>,
 }
 
+mod ground;
+pub use ground::PathfindingGround;
 mod grid_bridge_owner;
 mod grid_core;
 mod grid_flight;
@@ -534,14 +534,6 @@ fn bridge_deck_height(corners: &[Vec3; 4], x: f32, z: f32) -> f32 {
         return p1.y;
     }
     p1.y - (n.x * (x - p1.x) + n.z * (z - p1.z)) / n.y
-}
-
-fn sample_host_ground_height(x: f32, z: f32) -> f32 {
-    gamelogic::terrain::get_terrain_logic()
-        .read()
-        .ok()
-        .map(|t| t.get_ground_height(x, z, None))
-        .unwrap_or(0.0)
 }
 
 /// Flow field pathfinding for RTS-style unit movement
@@ -811,8 +803,6 @@ pub struct PathfindingSystem {
     seeker_downhill_only: bool,
     /// C++ `AIUpdateInterface::canPathThroughUnits` for findClosestPath goal accept.
     seeker_can_path_through_units: bool,
-    /// Coarse pathfind-cell heights for LOS_TERRAIN (findAttackPath A*).
-    terrain_height_samples: Option<(i32, i32, Vec<f32>)>,
     /// C++ `m_cumulativeCellsAllocated` this processPathfindQueue call.
     cumulative_cells_allocated: i32,
     /// C++ `PATHFIND_CELLS_PER_FRAME` (test-overridable).
@@ -821,3 +811,9 @@ pub struct PathfindingSystem {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod owned_ground_cpp_tests;
+
+#[cfg(test)]
+mod offmap_extent_owner_tests;

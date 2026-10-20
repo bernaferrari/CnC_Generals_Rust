@@ -629,13 +629,17 @@ End
         &vec![raw; (width * height) as usize]
     ));
     if let Some(deck) = deck {
-        world.pathfinding_system.grid.stamp_bridge_deck(
-            Vec3::new(-40.0, deck, -40.0),
-            Vec3::new(40.0, deck, -40.0),
-            Vec3::new(-40.0, deck, 40.0),
-            Vec3::new(40.0, deck, 40.0),
-            false,
-        );
+        ({
+            let ground_source = crate::game_logic::pathfinding::PathfindingGround::Flat(raw);
+            world.pathfinding_system.grid.stamp_bridge_deck(
+                Vec3::new(-40.0, deck, -40.0),
+                Vec3::new(40.0, deck, -40.0),
+                Vec3::new(-40.0, deck, 40.0),
+                Vec3::new(40.0, deck, 40.0),
+                false,
+                &ground_source,
+            )
+        });
     }
     let transport = world
         .create_object(
@@ -1068,14 +1072,20 @@ fn movement_extent_uses_controlling_human_not_local_presentation() {
             world
                 .templates
                 .insert("ControllerExtentVehicle".into(), template);
-            let from = world
-                .pathfinding_system
-                .grid
-                .grid_to_world(GridPos::new(6, 6));
-            let goal = world
-                .pathfinding_system
-                .grid
-                .grid_to_world(GridPos::new(15, 6));
+            let from = ({
+                let ground_source = crate::game_logic::pathfinding::PathfindingGround::Flat(0.0);
+                world
+                    .pathfinding_system
+                    .grid
+                    .grid_to_world(GridPos::new(6, 6), &ground_source)
+            });
+            let goal = ({
+                let ground_source = crate::game_logic::pathfinding::PathfindingGround::Flat(0.0);
+                world
+                    .pathfinding_system
+                    .grid
+                    .grid_to_world(GridPos::new(15, 6), &ground_source)
+            });
             let human_id = world
                 .create_object_for_player("ControllerExtentVehicle", 0, from)
                 .unwrap();
@@ -1083,10 +1093,14 @@ fn movement_extent_uses_controlling_human_not_local_presentation() {
                 .create_object_for_player(
                     "ControllerExtentVehicle",
                     1,
-                    world
-                        .pathfinding_system
-                        .grid
-                        .grid_to_world(GridPos::new(6, 9)),
+                    ({
+                        let ground_source =
+                            crate::game_logic::pathfinding::PathfindingGround::Flat(0.0);
+                        world
+                            .pathfinding_system
+                            .grid
+                            .grid_to_world(GridPos::new(6, 9), &ground_source)
+                    }),
                 )
                 .unwrap();
             for id in [human_id, computer_id] {
@@ -1097,10 +1111,18 @@ fn movement_extent_uses_controlling_human_not_local_presentation() {
                 .pathfinding_system
                 .grid
                 .set_logical_extent(GridPos::new(5, 5), GridPos::new(10, 10));
-            let human_path = world
-                .pathfinding_system
-                .find_path_ex(from, goal, &world.objects, false, Some(human_id))
-                .expect("human request adjusts to reachable logical extent");
+            let human_path = ({
+                let ground_source = crate::game_logic::pathfinding::PathfindingGround::Flat(0.0);
+                world.pathfinding_system.find_path_ex(
+                    from,
+                    goal,
+                    &world.objects,
+                    false,
+                    Some(human_id),
+                    &ground_source,
+                )
+            })
+            .expect("human request adjusts to reachable logical extent");
             let human_end = world
                 .pathfinding_system
                 .grid
@@ -1110,16 +1132,18 @@ fn movement_extent_uses_controlling_human_not_local_presentation() {
                 "remote human must obey logical extent: {human_end:?}"
             );
             let computer_start = world.host_object(computer_id).unwrap().get_position();
-            let computer_path = world
-                .pathfinding_system
-                .find_path_ex(
+            let computer_path = ({
+                let ground_source = crate::game_logic::pathfinding::PathfindingGround::Flat(0.0);
+                world.pathfinding_system.find_path_ex(
                     computer_start,
                     goal,
                     &world.objects,
                     false,
                     Some(computer_id),
+                    &ground_source,
                 )
-                .expect("computer request may use the border");
+            })
+            .expect("computer request may use the border");
             let computer_end = world
                 .pathfinding_system
                 .grid
@@ -1134,10 +1158,18 @@ fn movement_extent_uses_controlling_human_not_local_presentation() {
             assert_eq!(computer_end, GridPos::new(15, 6));
             world.get_player_mut(0).unwrap().is_human = false;
             world.refresh_pathfind_ally_masks();
-            let no_humans = world
-                .pathfinding_system
-                .find_path_ex(from, goal, &world.objects, false, Some(human_id))
-                .expect("an explicitly admitted zero-human mask permits computer border access");
+            let no_humans = ({
+                let ground_source = crate::game_logic::pathfinding::PathfindingGround::Flat(0.0);
+                world.pathfinding_system.find_path_ex(
+                    from,
+                    goal,
+                    &world.objects,
+                    false,
+                    Some(human_id),
+                    &ground_source,
+                )
+            })
+            .expect("an explicitly admitted zero-human mask permits computer border access");
             let no_human_end = world
                 .pathfinding_system
                 .grid

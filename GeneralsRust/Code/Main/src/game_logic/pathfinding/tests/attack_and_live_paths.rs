@@ -26,14 +26,26 @@ fn attack_los_airborne_and_kindof_gates() {
     atk_t.add_kind_of(KindOf::Infantry);
     let no_los = Object::new(atk_t.clone(), ObjectId(1), Team::USA);
     assert!(
-        !sys.is_attack_view_blocked_for(from, to, Some(&no_los), None),
+        !sys.is_attack_view_blocked_for(
+            from,
+            to,
+            Some(&no_los),
+            None,
+            &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0)
+        ),
         "units without AttackNeedsLineOfSight must not refuse cells behind a building"
     );
 
     atk_t.add_kind_of(KindOf::AttackNeedsLineOfSight);
     let atk = Object::new(atk_t, ObjectId(1), Team::USA);
     assert!(
-        sys.is_attack_view_blocked_for(from, to, Some(&atk), None),
+        sys.is_attack_view_blocked_for(
+            from,
+            to,
+            Some(&atk),
+            None,
+            &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0)
+        ),
         "LOS kind must still see the opaque wall"
     );
 
@@ -47,7 +59,13 @@ fn attack_los_airborne_and_kindof_gates() {
         "control: victim is airborne"
     );
     assert!(
-        !sys.is_attack_view_blocked_for(from, to, Some(&atk), Some(&air)),
+        !sys.is_attack_view_blocked_for(
+            from,
+            to,
+            Some(&atk),
+            Some(&air),
+            &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0)
+        ),
         "airborne victim must not count deck/structure cells as blocked LOS"
     );
 }
@@ -69,7 +87,13 @@ fn attack_los_terrain_blocks_ridge_for_mobile_weapon() {
             heights[(y * w + x) as usize] = 80.0;
         }
     }
-    sys.set_terrain_height_samples(w, h, heights);
+    let ground_source = crate::game_logic::pathfinding::PathfindingGround::Coarse {
+        values: &heights,
+        width: w,
+        height: h,
+        origin: sys.grid.origin(),
+        cell_size: sys.grid.grid_size(),
+    };
 
     let from = Vec3::new(20.0, 0.0, 50.0);
     let to = Vec3::new(150.0, 0.0, 50.0);
@@ -95,13 +119,13 @@ fn attack_los_terrain_blocks_ridge_for_mobile_weapon() {
     victim.selection_radius = 5.0;
 
     assert!(
-        sys.is_attack_view_blocked_for(from, to, Some(&atk), Some(&victim)),
+        sys.is_attack_view_blocked_for(from, to, Some(&atk), Some(&victim), &ground_source),
         "mobile weapon must treat a ridge as blocked LOS_TERRAIN"
     );
 
     let unarmed = Object::new(atk_t, ObjectId(4), Team::USA);
     assert!(
-        sys.is_attack_view_blocked_for(from, to, Some(&unarmed), Some(&victim)),
+        sys.is_attack_view_blocked_for(from, to, Some(&unarmed), Some(&victim), &ground_source),
         "leftover no-weapon mobile still applies terrain LOS"
     );
 
@@ -115,7 +139,7 @@ fn attack_los_terrain_blocks_ridge_for_mobile_weapon() {
         ..Weapon::default()
     });
     assert!(
-        !sys.is_attack_view_blocked_for(from, to, Some(&turret), Some(&victim)),
+        !sys.is_attack_view_blocked_for(from, to, Some(&turret), Some(&victim), &ground_source),
         "immobile attackers skip terrain LOS (cannot path around)"
     );
 
@@ -145,7 +169,13 @@ fn find_attack_path_circles_ridge_to_clear_shot() {
     for x in (mid - 1).max(0)..=(mid + 1).min(w - 1) {
         heights[(5 * w + x) as usize] = 80.0;
     }
-    sys.set_terrain_height_samples(w, h, heights);
+    let ground_source = crate::game_logic::pathfinding::PathfindingGround::Coarse {
+        values: &heights,
+        width: w,
+        height: h,
+        origin: sys.grid.origin(),
+        cell_size: sys.grid.grid_size(),
+    };
 
     let mut objects = HashMap::new();
     let mut atk_t = ThingTemplate::new("Ranger");
@@ -178,13 +208,20 @@ fn find_attack_path_circles_ridge_to_clear_shot() {
             &objects,
             false,
             Some(ObjectId(1)),
+            &ground_source,
         )
         .expect("must find a terrain-clear firing cell");
     let goal = *path.last().unwrap();
     let atk = objects.get(&ObjectId(1)).unwrap();
     let tgt = objects.get(&ObjectId(2)).unwrap();
     assert!(
-        !sys.is_attack_view_blocked_for(goal, Vec3::new(150.0, 0.0, 50.0), Some(atk), Some(tgt)),
+        !sys.is_attack_view_blocked_for(
+            goal,
+            Vec3::new(150.0, 0.0, 50.0),
+            Some(atk),
+            Some(tgt),
+            &ground_source
+        ),
         "chosen firing cell must have leftover LOS_TERRAIN, goal={goal:?}"
     );
 }
@@ -203,7 +240,10 @@ fn attack_step_occupancy_matches_leftover() {
     let mut enemy_t = ThingTemplate::new("Bunker");
     enemy_t.add_kind_of(KindOf::Vehicle);
     let mut enemy = Object::new(enemy_t, ObjectId(1), Team::GLA);
-    enemy.set_position(g.grid_to_world(GridPos::new(5, 5)));
+    enemy.set_position(g.grid_to_world(
+        GridPos::new(5, 5),
+        &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+    ));
     enemy.owner_player_id = Some(2);
     enemy.crushable_level = 0;
     objects.insert(enemy.id, enemy);
@@ -211,7 +251,10 @@ fn attack_step_occupancy_matches_leftover() {
     let mut ally_t = ThingTemplate::new("Humvee");
     ally_t.add_kind_of(KindOf::Vehicle);
     let mut ally = Object::new(ally_t, ObjectId(2), Team::China);
-    ally.set_position(g.grid_to_world(GridPos::new(6, 6)));
+    ally.set_position(g.grid_to_world(
+        GridPos::new(6, 6),
+        &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+    ));
     // selection_radius 1.0 keeps the ally's pos-stamp to ONE cell (radius 0);
     // a default-vehicle 3x3 footprint would overlap (5,5) and evict the
     // enemy's single m_posUnitID (last writer wins, AIPathfind.cpp:1405).
@@ -222,12 +265,21 @@ fn attack_step_occupancy_matches_leftover() {
     let mut goal_t = ThingTemplate::new("Ranger");
     goal_t.add_kind_of(KindOf::Infantry);
     let mut goaled = Object::new(goal_t, ObjectId(3), Team::USA);
-    goaled.set_position(g.grid_to_world(GridPos::new(1, 1)));
+    goaled.set_position(g.grid_to_world(
+        GridPos::new(1, 1),
+        &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+    ));
     goaled.owner_player_id = Some(0);
-    goaled.movement.target_position = Some(g.grid_to_world(GridPos::new(8, 8)));
+    goaled.movement.target_position = Some(g.grid_to_world(
+        GridPos::new(8, 8),
+        &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+    ));
     objects.insert(goaled.id, goaled);
 
-    g.update_dynamic_obstacles(&objects);
+    g.update_dynamic_obstacles(
+        &objects,
+        &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+    );
     let start = GridPos::new(4, 4);
     let layer = PathfindLayerEnum::Ground;
     assert!(
@@ -325,6 +377,7 @@ fn attack_vehicle_strip_back_retreats_off_busy_ally() {
         &objects,
         false,
         Some(ObjectId(1)),
+        &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
     );
     if let Some(p) = path {
         let ally_cell = sys.grid.world_to_grid(Vec3::new(70.0, 0.0, 50.0));
@@ -346,9 +399,13 @@ fn grid_to_world_uses_deck_height() {
         Vec3::new(90.0, 20.0, 40.0),
         Vec3::new(90.0, 20.0, 60.0),
         false,
+        &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
     );
     let deck = GridPos::new(5, 5);
-    let world = g.grid_to_world(deck);
+    let world = g.grid_to_world(
+        deck,
+        &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+    );
     assert!(
         world.y > 10.0,
         "deck cell must emit layer height, got Y={}",
@@ -356,7 +413,11 @@ fn grid_to_world_uses_deck_height() {
     );
     let layered = g.grid_to_world_on_layer(
         deck,
-        g.layer_for_destination(Vec3::new(world.x, 20.0, world.z)),
+        g.layer_for_destination(
+            Vec3::new(world.x, 20.0, world.z),
+            &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+        ),
+        &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
     );
     assert!(
         (layered.y - 20.0).abs() < 2.0 || layered.y > 10.0,
@@ -401,7 +462,10 @@ fn find_closest_path_accepts_occupied_goal_when_can_path_through_units() {
     let mut sys = PathfindingSystem::new(200.0, 200.0);
     let goal = GridPos::new(12, 5);
     let from = Vec3::new(20.0, 0.0, 50.0);
-    let to = sys.grid.grid_to_world(goal);
+    let to = sys.grid.grid_to_world(
+        goal,
+        &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+    );
 
     let mut objects = HashMap::new();
     let mut inf_t = ThingTemplate::new("Ranger");
@@ -420,12 +484,23 @@ fn find_closest_path_accepts_occupied_goal_when_can_path_through_units() {
     parked.selection_radius = 1.0;
     objects.insert(parked.id, parked);
 
-    sys.grid.update_dynamic_obstacles(&objects);
+    sys.grid.update_dynamic_obstacles(
+        &objects,
+        &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+    );
     sys.bind_seeker_from_mover(&objects, Some(ObjectId(1)));
     sys.apply_seeker_human_flag();
 
     let without = sys
-        .find_closest_path(from, to, SURFACE_GROUND, false, true, 0.2)
+        .find_closest_path(
+            from,
+            to,
+            SURFACE_GROUND,
+            false,
+            true,
+            0.2,
+            &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+        )
         .expect("closest without tunnel");
     let without_cell = sys.grid.world_to_grid(*without.last().unwrap());
     assert_ne!(
@@ -443,7 +518,15 @@ fn find_closest_path_accepts_occupied_goal_when_can_path_through_units() {
         "bind must copy leftover canPathThroughUnits"
     );
     let with = sys
-        .find_closest_path(from, to, SURFACE_GROUND, false, true, 0.2)
+        .find_closest_path(
+            from,
+            to,
+            SURFACE_GROUND,
+            false,
+            true,
+            0.2,
+            &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+        )
         .expect("closest with tunnel");
     let with_cell = sys.grid.world_to_grid(*with.last().unwrap());
     assert_eq!(
@@ -473,9 +556,20 @@ fn find_closest_path_does_not_cut_through_building() {
     let goal = GridPos::new(12, 5);
     sys.grid.set_cell_type(goal, PathfindCellType::Impassable);
     let from = Vec3::new(20.0, 0.0, 50.0);
-    let to = sys.grid.grid_to_world(goal);
+    let to = sys.grid.grid_to_world(
+        goal,
+        &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+    );
     let path = sys
-        .find_closest_path(from, to, SURFACE_GROUND, false, true, 0.2)
+        .find_closest_path(
+            from,
+            to,
+            SURFACE_GROUND,
+            false,
+            true,
+            0.2,
+            &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+        )
         .expect("closest path");
     let crosses = path
         .iter()
@@ -496,24 +590,43 @@ fn find_closest_path_hops_connect_layer_onto_deck() {
         Vec3::new(90.0, 20.0, 40.0),
         Vec3::new(90.0, 20.0, 60.0),
         false,
+        &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
     );
     let deck = GridPos::new(5, 5);
-    let world = sys.grid.grid_to_world(deck);
+    let world = sys.grid.grid_to_world(
+        deck,
+        &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+    );
     let on_deck = Vec3::new(world.x, 20.0, world.z);
-    let layer = sys.grid.layer_for_destination(on_deck);
+    let layer = sys.grid.layer_for_destination(
+        on_deck,
+        &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+    );
     assert_ne!(
         layer,
         PathfindLayerEnum::Ground,
         "deck click must pick the span"
     );
-    let from = sys.grid.grid_to_world(GridPos::new(1, 5));
+    let from = sys.grid.grid_to_world(
+        GridPos::new(1, 5),
+        &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+    );
     let path = sys
-        .find_closest_path(from, on_deck, SURFACE_GROUND, false, true, 0.2)
+        .find_closest_path(
+            from,
+            on_deck,
+            SURFACE_GROUND,
+            false,
+            true,
+            0.2,
+            &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+        )
         .expect("closest onto deck");
     let end = *path.last().expect("end");
-    let end_layer = sys
-        .grid
-        .layer_for_destination(Vec3::new(end.x, end.y.max(20.0), end.z));
+    let end_layer = sys.grid.layer_for_destination(
+        Vec3::new(end.x, end.y.max(20.0), end.z),
+        &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+    );
     assert!(
         end_layer != PathfindLayerEnum::Ground || end.y > 5.0,
         "closest dest should be the deck cell, end={end:?} layer={end_layer:?}"
@@ -550,15 +663,27 @@ fn snap_closest_goal_avoids_fixed_occupant() {
     let mut tmpl = ThingTemplate::new("Ranger");
     tmpl.add_kind_of(KindOf::Infantry);
     let mut parked = Object::new(tmpl, ObjectId(7), Team::USA);
-    let pad = sys.grid.grid_to_world(GridPos::new(8, 8));
+    let pad = sys.grid.grid_to_world(
+        GridPos::new(8, 8),
+        &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+    );
     parked.set_position(pad);
     parked.owner_player_id = Some(0);
     parked.selection_radius = 1.0;
     objects.insert(parked.id, parked);
-    sys.grid.update_dynamic_obstacles(&objects);
+    sys.grid.update_dynamic_obstacles(
+        &objects,
+        &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+    );
     sys.seeker_id = Some(ObjectId(8));
     sys.seeker_player = Some(0);
-    let snapped = sys.snap_closest_goal_position(pad, SURFACE_GROUND, false, 0.0);
+    let snapped = sys.snap_closest_goal_position(
+        pad,
+        SURFACE_GROUND,
+        false,
+        0.0,
+        &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+    );
     let snapped_cell = sys.grid.world_to_grid(snapped);
     assert_ne!(
         snapped_cell,
@@ -603,6 +728,7 @@ fn process_pathfind_queue_stops_at_cell_budget() {
             &objects,
             false,
             Some(req.unit_id),
+            &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
         );
         processed += 1;
         if processed > 8 {
@@ -653,6 +779,7 @@ fn ignore_obstacle_walks_through_owned_footprint() {
         SURFACE_GROUND,
         false,
         Some(ObjectId(1)),
+        &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
     );
     assert!(
         blocked.is_none()
@@ -693,6 +820,7 @@ fn ignore_obstacle_walks_through_owned_footprint() {
             SURFACE_GROUND,
             false,
             Some(ObjectId(1)),
+            &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
         )
         .expect("ignoreObstacle must walk the ignored footprint");
     assert!(
@@ -810,6 +938,7 @@ fn find_path_ex_surfaces_uses_mover_not_nearest() {
         SURFACE_GROUND,
         false,
         Some(ObjectId(1)),
+        &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
     );
     assert_eq!(sys.seeker_id, Some(ObjectId(1)));
     assert!(sys.seeker_is_dozer, "mover dozer must keep dozerHack");
@@ -818,7 +947,16 @@ fn find_path_ex_surfaces_uses_mover_not_nearest() {
         "nearest infantry must not steal seeker"
     );
 
-    let _ = sys.find_path_ex_surfaces(hop, goal, &objects, false, SURFACE_GROUND, false, None);
+    let _ = sys.find_path_ex_surfaces(
+        hop,
+        goal,
+        &objects,
+        false,
+        SURFACE_GROUND,
+        false,
+        None,
+        &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+    );
     assert_eq!(sys.seeker_id, None, "no mover → no nearest-object steal");
     assert!(!sys.seeker_is_dozer);
     assert!(!sys.seeker_is_infantry);
@@ -835,6 +973,7 @@ fn find_path_via_crate_notes_cells_allocated() {
         &objects,
         false,
         None,
+        &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
     );
     assert!(
         sys.cumulative_cells_allocated() > 0,
@@ -855,7 +994,11 @@ fn blast_crater_stamps_above_terrain_and_survives_remove() {
     crater.set_position(Vec3::new(80.0, 50.0, 80.0));
     crater.selection_radius = 20.0;
     objects.insert(crater.id, crater);
-    sys.apply_structure_static_blocks(&objects, 0.0);
+    sys.apply_structure_static_blocks(
+        &objects,
+        0.0,
+        &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+    );
     let cell = sys.grid.world_to_grid(Vec3::new(80.0, 50.0, 80.0));
     assert!(
         sys.grid.is_static_blocked(cell),
@@ -868,7 +1011,11 @@ fn blast_crater_stamps_above_terrain_and_survives_remove() {
     floating.set_position(Vec3::new(40.0, 50.0, 40.0));
     floating.selection_radius = 20.0;
     objects.insert(floating.id, floating);
-    sys.apply_structure_static_blocks(&objects, 0.0);
+    sys.apply_structure_static_blocks(
+        &objects,
+        0.0,
+        &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+    );
     let air_cell = sys.grid.world_to_grid(Vec3::new(40.0, 50.0, 40.0));
     assert!(
         !sys.grid.is_static_blocked(air_cell),
@@ -877,7 +1024,11 @@ fn blast_crater_stamps_above_terrain_and_survives_remove() {
 
     objects.clear();
     sys.grid.clear_static_blocks();
-    sys.apply_structure_static_blocks(&objects, 0.0);
+    sys.apply_structure_static_blocks(
+        &objects,
+        0.0,
+        &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+    );
     assert!(
         sys.grid.is_static_blocked(cell),
         "C++ never removes BLAST_CRATER footprints"
@@ -893,7 +1044,14 @@ fn aircraft_path_first_node_uses_dest_altitude() {
     let start = Vec3::new(10.0, 20.0, 10.0);
     let goal = Vec3::new(80.0, 50.0, 90.0);
     let path = sys
-        .find_path_ex(start, goal, &objects, true, None)
+        .find_path_ex(
+            start,
+            goal,
+            &objects,
+            true,
+            None,
+            &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+        )
         .expect("aircraft two-node path");
     assert_eq!(path.len(), 2);
     assert!(
@@ -922,7 +1080,14 @@ fn aircraft_path_first_node_uses_dest_altitude() {
     bldg.selection_radius = 30.0;
     objects.insert(bldg.id, bldg);
     let detoured = sys
-        .find_path_ex(start, goal, &objects, true, Some(ObjectId(1)))
+        .find_path_ex(
+            start,
+            goal,
+            &objects,
+            true,
+            Some(ObjectId(1)),
+            &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+        )
         .expect("wings path");
     assert!(
         (detoured[0].y - goal.y).abs() < 0.01,
@@ -946,10 +1111,21 @@ fn aircraft_path_first_node_uses_dest_altitude() {
 fn adjust_coord_to_cell_centers_infantry_insets_vehicles() {
     let g = open_grid(16, 16);
     let cell = GridPos::new(3, 4);
-    let origin = g.grid_to_world(cell);
+    let origin = g.grid_to_world(
+        cell,
+        &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+    );
     let size = g.grid_size();
-    let center = g.adjust_coord_to_cell(cell, true);
-    let inset = g.adjust_coord_to_cell(cell, false);
+    let center = g.adjust_coord_to_cell(
+        cell,
+        true,
+        &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+    );
+    let inset = g.adjust_coord_to_cell(
+        cell,
+        false,
+        &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+    );
     assert!(
         (center.x - (origin.x + size * 0.5)).abs() < 0.001
             && (center.z - (origin.z + size * 0.5)).abs() < 0.001,
@@ -1014,7 +1190,14 @@ fn crate_path_uses_adjust_coord_to_cell_not_corners() {
     inf.selection_radius = 1.0;
     inf_objects.insert(inf.id, inf);
     let inf_path = sys
-        .find_path_ex(start, goal, &inf_objects, false, Some(ObjectId(1)))
+        .find_path_ex(
+            start,
+            goal,
+            &inf_objects,
+            false,
+            Some(ObjectId(1)),
+            &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+        )
         .expect("infantry path");
     assert!(inf_path.len() >= 2);
     assert!(
@@ -1023,7 +1206,10 @@ fn crate_path_uses_adjust_coord_to_cell_not_corners() {
     );
     for p in &inf_path[1..] {
         let cell = sys.grid.world_to_grid(*p);
-        let origin = sys.grid.grid_to_world(cell);
+        let origin = sys.grid.grid_to_world(
+            cell,
+            &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+        );
         assert!(
             (p.x - origin.x - size * 0.5).abs() < 0.25
                 && (p.z - origin.z - size * 0.5).abs() < 0.25,
@@ -1039,12 +1225,22 @@ fn crate_path_uses_adjust_coord_to_cell_not_corners() {
     veh.selection_radius = 8.0;
     veh_objects.insert(veh.id, veh);
     let veh_path = sys
-        .find_path_ex(start, goal, &veh_objects, false, Some(ObjectId(2)))
+        .find_path_ex(
+            start,
+            goal,
+            &veh_objects,
+            false,
+            Some(ObjectId(2)),
+            &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+        )
         .expect("vehicle path");
     assert!(veh_path.len() >= 2);
     for p in &veh_path[1..] {
         let cell = sys.grid.world_to_grid(*p);
-        let origin = sys.grid.grid_to_world(cell);
+        let origin = sys.grid.grid_to_world(
+            cell,
+            &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+        );
         assert!(
             (p.x - origin.x - size * 0.05).abs() < 0.25
                 && (p.z - origin.z - size * 0.05).abs() < 0.25,
@@ -1062,9 +1258,18 @@ fn crate_path_uses_adjust_coord_to_cell_not_corners() {
 fn patch_path_skips_occupied_ally_waypoints() {
     use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
     let mut sys = PathfindingSystem::new(200.0, 200.0);
-    let from = sys.grid.grid_to_world(GridPos::new(1, 4));
-    let mid = sys.grid.grid_to_world(GridPos::new(8, 4));
-    let dest = sys.grid.grid_to_world(GridPos::new(16, 4));
+    let from = sys.grid.grid_to_world(
+        GridPos::new(1, 4),
+        &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+    );
+    let mid = sys.grid.grid_to_world(
+        GridPos::new(8, 4),
+        &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+    );
+    let dest = sys.grid.grid_to_world(
+        GridPos::new(16, 4),
+        &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+    );
     let mut objects = HashMap::new();
     let mut seeker_t = ThingTemplate::new("Ranger");
     seeker_t.add_kind_of(KindOf::Infantry);
@@ -1088,6 +1293,7 @@ fn patch_path_skips_occupied_ally_waypoints() {
             false,
             &objects,
             Some(ObjectId(1)),
+            &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0)
         )
         .is_none(),
         "C++ returns null when the last node itself is occupied"
@@ -1102,6 +1308,7 @@ fn patch_path_skips_occupied_ally_waypoints() {
             false,
             &objects,
             Some(ObjectId(1)),
+            &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
         )
         .expect("must splice onto a still-clear dest suffix");
     let last_cell = sys.grid.world_to_grid(*patched.last().unwrap());
@@ -1149,6 +1356,7 @@ fn find_attack_path_binds_leftover_seeker() {
         &objects,
         false,
         Some(ObjectId(2)),
+        &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
     );
     assert_eq!(
         sys.seeker_id,
@@ -1171,7 +1379,11 @@ fn find_attack_path_binds_leftover_seeker() {
     if let Some(p) = path {
         let goal = *p.last().unwrap();
         let cell = sys.grid.world_to_grid(goal);
-        let expected = sys.grid.adjust_coord_to_cell(cell, false);
+        let expected = sys.grid.adjust_coord_to_cell(
+            cell,
+            false,
+            &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+        );
         assert!(
             (goal.x - expected.x).abs() < 0.25 && (goal.z - expected.z).abs() < 0.25,
             "bound vehicle goal must be leftover adjustCoordToCell, goal={goal:?} expected={expected:?}"
@@ -1204,12 +1416,20 @@ fn find_attack_path_range_tests_adjust_coord_to_cell() {
             &objects,
             false,
             Some(ObjectId(1)),
+            &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
         )
         .expect("infantry attack path");
     let goal = *path.last().unwrap();
     let cell = sys.grid.world_to_grid(goal);
-    let origin = sys.grid.grid_to_world(cell);
-    let expected = sys.grid.adjust_coord_to_cell(cell, true);
+    let origin = sys.grid.grid_to_world(
+        cell,
+        &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+    );
+    let expected = sys.grid.adjust_coord_to_cell(
+        cell,
+        true,
+        &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+    );
     assert!(
         (goal.x - expected.x).abs() < 0.25 && (goal.z - expected.z).abs() < 0.25,
         "infantry firing cell must be leftover cell center, goal={goal:?} expected={expected:?}"
@@ -1220,10 +1440,18 @@ fn find_attack_path_range_tests_adjust_coord_to_cell() {
         "infantry must not range-test the cell-origin corner, goal={goal:?} origin={origin:?}"
     );
 
-    let plant =
-        sys.snap_closest_goal_position(Vec3::new(35.0, 0.0, 45.0), SURFACE_GROUND, false, 8.0);
+    let plant = sys.snap_closest_goal_position(
+        Vec3::new(35.0, 0.0, 45.0),
+        SURFACE_GROUND,
+        false,
+        8.0,
+        &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+    );
     let plant_cell = sys.grid.world_to_grid(plant);
-    let plant_origin = sys.grid.grid_to_world(plant_cell);
+    let plant_origin = sys.grid.grid_to_world(
+        plant_cell,
+        &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+    );
     assert!(
         (plant.x - plant_origin.x - size * 0.05).abs() < 0.25
             && (plant.z - plant_origin.z - size * 0.05).abs() < 0.25,
@@ -1243,8 +1471,14 @@ fn crusher_zones_join_fence_divided_banks() {
         g.set_cell_obstacle(GridPos::new(4, y), true, false);
     }
     g.rebuild_path_zones();
-    let from = g.grid_to_world(GridPos::new(1, 4));
-    let to = g.grid_to_world(GridPos::new(6, 4));
+    let from = g.grid_to_world(
+        GridPos::new(1, 4),
+        &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+    );
+    let to = g.grid_to_world(
+        GridPos::new(6, 4),
+        &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+    );
     assert!(
         !g.quick_path_exists_for(from, to, SURFACE_GROUND),
         "non-crusher must see two zones across a fence line"
@@ -1266,10 +1500,23 @@ fn adjust_to_possible_destination_spirals_off_obstacle() {
     let mut g = open_grid(16, 16);
     g.set_cell_type(GridPos::new(8, 8), PathfindCellType::Obstacle);
     g.rebuild_path_zones();
-    let start = g.grid_to_world(GridPos::new(2, 8));
-    let mut dest = g.grid_to_world(GridPos::new(8, 8));
+    let start = g.grid_to_world(
+        GridPos::new(2, 8),
+        &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+    );
+    let mut dest = g.grid_to_world(
+        GridPos::new(8, 8),
+        &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+    );
     assert!(
-        g.adjust_to_possible_destination(start, &mut dest, SURFACE_GROUND, false, 0.0),
+        g.adjust_to_possible_destination(
+            start,
+            &mut dest,
+            SURFACE_GROUND,
+            false,
+            0.0,
+            &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0)
+        ),
         "must find a same-zone possible cell near the blocked seed"
     );
     let snapped = g.world_to_grid(dest);
@@ -1307,6 +1554,7 @@ fn find_path_crusher_crosses_fence_line() {
         SURFACE_GROUND,
         true,
         Some(ObjectId(1)),
+        &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
     );
     assert!(
         path.is_some(),
@@ -1325,7 +1573,13 @@ fn create_wall_from_object_stamps_mobile_vehicle() {
     train.set_position(Vec3::new(80.0, 0.0, 80.0));
     train.selection_radius = 15.0;
     assert!(
-        sys.grid.classify_object_footprint(&train, false).is_none(),
+        sys.grid
+            .classify_object_footprint(
+                &train,
+                false,
+                &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0)
+            )
+            .is_none(),
         "regular classify must still skip mobile vehicles"
     );
     sys.create_wall_from_object(&train);
@@ -1375,6 +1629,7 @@ fn leftover_off_map_start_gate_matches_leftover_ai_path() {
         sys.leftover_should_force_direct_path_for_off_map_start(
             Vec3::new(-100.0, 5.0, -100.0),
             Vec3::new(-50.0, 9.0, -25.0),
+            &PathfindingGround::Flat(0.0)
         ),
         "off-map start+dest leftover-installs computeQuickPath on live world bounds"
     );
@@ -1382,6 +1637,7 @@ fn leftover_off_map_start_gate_matches_leftover_ai_path() {
         !sys.leftover_should_force_direct_path_for_off_map_start(
             Vec3::new(10.0, 5.0, 10.0),
             Vec3::new(-50.0, 9.0, -25.0),
+            &PathfindingGround::Flat(0.0)
         ),
         "on-map start does not leftover-install off-map computeQuickPath"
     );
@@ -1469,8 +1725,9 @@ fn compute_assigned_unit_path_leftover_installs_compute_quick_path() {
     );
     let pf = include_str!("../system_routes.rs");
     assert!(
-        pf.contains("leftover_should_force_direct_path_for_off_map_start(start, goal)")
-            && pf.contains("leftover_compute_quick_path_nodes(start, goal)"),
+        pf.split_whitespace().collect::<String>().contains(
+            "leftover_should_force_direct_path_for_off_map_start(start,goal,ground_source)"
+        ) && pf.contains("leftover_compute_quick_path_nodes(start, goal)"),
         "find_path_ex_surfaces must leftover-install off-map computeQuickPath"
     );
 }

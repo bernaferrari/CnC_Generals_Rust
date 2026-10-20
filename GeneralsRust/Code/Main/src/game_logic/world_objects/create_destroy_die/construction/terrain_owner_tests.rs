@@ -195,7 +195,11 @@ fn constructed_raw_height_survives_native_encoded_restore_and_next_creation() {
             let temp = tempfile::tempdir().unwrap();
             let path = temp.path().join("Saved.map");
             let (mut source, builder) = world(&path, &ramp());
+            let member = admit_group_member(&mut source);
             let id = construct(&mut source, builder, Vec3::new(30., 10., 30.));
+            let request = Vec3::new(50., 52., 30.);
+            let adjusted = source.adjust_group_member_goal(member, request, request);
+            assert_eq!((adjusted.x, adjusted.y, adjusted.z), (50., 50., 30.));
             let accepted = bytes(&source);
             let mut saves = SaveFileManager::with_save_directory(temp.path().join("saves"));
             saves.init().unwrap();
@@ -227,6 +231,16 @@ fn constructed_raw_height_survives_native_encoded_restore_and_next_creation() {
                 .restore_from_snapshot(&decoded.snapshot, &mut restored)
                 .unwrap();
             assert_eq!(bytes(&restored), accepted);
+            assert!(
+                crate::game_logic::PathfindingGrid::is_doing_ground_movement(
+                    restored.host_object(member).unwrap()
+                )
+            );
+            assert_eq!(
+                restored.adjust_group_member_goal(member, request, request),
+                adjusted,
+                "encoded restore must expose restored receiving raw bytes to the group, before any next creation"
+            );
             assert_eq!(
                 restored.host_object(id).unwrap().get_position(),
                 source.host_object(id).unwrap().get_position()
@@ -247,6 +261,102 @@ fn constructed_raw_height_survives_native_encoded_restore_and_next_creation() {
             assert_eq!(
                 restored.terrain_ground_height_at(next_position),
                 source.terrain_ground_height_at(next_position)
+            );
+        },
+    );
+}
+
+fn admit_group_member(world: &mut GameLogic) -> ObjectId {
+    game_engine::common::ini::ini_locomotor::load_locomotors_from_str(
+        "Locomotor OwnedFlattenGroupLocomotor\n  Surfaces = GROUND\n  Speed = 30\n  Appearance = TREADS\nEnd\n",
+    ).unwrap();
+    let mut parser = crate::assets::IniParser::new();
+    parser.parse_ini_content(
+        "Object OwnedFlattenGroupMember\n  KindOf = VEHICLE SELECTABLE\n  Geometry = CYLINDER\n  GeometryMajorRadius = 1\n  Body = ActiveBody ModuleTag_Body\n    MaxHealth = 100\n    InitialHealth = 100\n  End\n  Behavior = AIUpdateInterface ModuleTag_AI\n  End\n  Locomotor = SET_NORMAL OwnedFlattenGroupLocomotor\nEnd\n",
+        "owned_flatten_group.ini",
+    ).unwrap();
+    world.templates.insert(
+        "OwnedFlattenGroupMember".into(),
+        GameLogic::build_template_from_object_definition(
+            "OwnedFlattenGroupMember",
+            parser.get_definition("OwnedFlattenGroupMember").unwrap(),
+            None,
+        ),
+    );
+    let id = world
+        .create_object_for_player("OwnedFlattenGroupMember", 0, Vec3::new(60., 0., 30.))
+        .unwrap();
+    let member = world.host_object(id).unwrap();
+    assert!(
+        member.is_alive(),
+        "the actual receiving group member must be live"
+    );
+    assert_eq!(member.health.current, 100.0);
+    assert_eq!(member.health.maximum, 100.0);
+    assert!(
+        crate::game_logic::PathfindingGrid::is_doing_ground_movement(
+            world.host_object(id).unwrap()
+        )
+    );
+    id
+}
+
+fn borrowed_group_layer(world: &GameLogic, destination: Vec3) -> u8 {
+    let owner = world.world_services.terrain();
+    let terrain = owner.read().unwrap();
+    world.pathfinding_system.grid.layer_for_destination(
+        destination,
+        &crate::game_logic::pathfinding::PathfindingGround::receiving(&terrain),
+    ) as u8
+}
+
+#[test]
+fn actual_construction_changes_receiving_group_ground_and_layer_without_peer_writeback() {
+    isolated(
+        "actual_construction_changes_receiving_group_ground_and_layer_without_peer_writeback",
+        || {
+            let temp = tempfile::tempdir().unwrap();
+            let (mut a, builder_a) = world(&temp.path().join("GroupA.map"), &ramp());
+            let (mut b, builder_b) = world(&temp.path().join("GroupB.map"), &[150; 144]);
+            let member_a = admit_group_member(&mut a);
+            let member_b = admit_group_member(&mut b);
+            assert_eq!((builder_a, member_a), (builder_b, member_b));
+            let request = Vec3::new(50., 52., 30.);
+            let bridge = |world: &mut GameLogic| {
+                world.pathfinding_system.grid.reserve_bridge_layer(
+                    Vec3::new(40., 55., 20.),
+                    Vec3::new(70., 55., 20.),
+                    Vec3::new(40., 55., 40.),
+                    Vec3::new(70., 55., 40.),
+                )
+            };
+            let layer_a = bridge(&mut a);
+            let layer_b = bridge(&mut b);
+            assert_eq!(layer_a, layer_b);
+            // TerrainLogic.cpp:1668 compares actual raw ground before bridge planes.
+            assert_eq!(borrowed_group_layer(&a, request), layer_a);
+            let peer_before = bytes(&b);
+            construct(&mut a, builder_a, Vec3::new(30., 10., 30.));
+            assert_eq!(
+                borrowed_group_layer(&a, request),
+                gamelogic::ai::pathfind_astar::PathfindLayerEnum::Ground as u8
+            );
+            assert_eq!(borrowed_group_layer(&b, request), layer_b);
+            let adjusted = a.adjust_group_member_goal(member_a, request, request);
+            assert_eq!((adjusted.x, adjusted.z), (50., 30.));
+            assert_eq!(
+                adjusted.y, 50.,
+                "AIPathfind.cpp:8945 must sample lowered final XY, not the admitted TerrainData clone"
+            );
+            assert_eq!(bytes(&b), peer_before);
+            b.reset();
+            assert_eq!(
+                a.adjust_group_member_goal(member_a, request, request),
+                adjusted
+            );
+            assert_eq!(
+                borrowed_group_layer(&a, request),
+                gamelogic::ai::pathfind_astar::PathfindLayerEnum::Ground as u8
             );
         },
     );

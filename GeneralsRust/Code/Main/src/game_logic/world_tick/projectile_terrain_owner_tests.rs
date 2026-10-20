@@ -13,13 +13,27 @@ fn world(deck: f32) -> (GameLogic, ObjectId) {
         height,
         &vec![0.0; (width * height) as usize]
     ));
-    world.pathfinding_system.grid.stamp_bridge_deck(
-        Vec3::new(10.0, deck, 10.0),
-        Vec3::new(10.0, deck, 30.0),
-        Vec3::new(30.0, deck, 10.0),
-        Vec3::new(30.0, deck, 30.0),
-        false,
-    );
+    ({
+        let ground_owner = world.world_services.terrain();
+        let ground_loan = ground_owner
+            .read()
+            .unwrap_or_else(|error| error.into_inner());
+        let ground_source = crate::game_logic::pathfinding::PathfindingGround::for_terrain(
+            &ground_loan,
+            world.map_loaded,
+            world.terrain.as_ref(),
+            world.pathfinding_height_samples.as_ref(),
+            &world.pathfinding_system.grid,
+        );
+        world.pathfinding_system.grid.stamp_bridge_deck(
+            Vec3::new(10.0, deck, 10.0),
+            Vec3::new(10.0, deck, 30.0),
+            Vec3::new(30.0, deck, 10.0),
+            Vec3::new(30.0, deck, 30.0),
+            false,
+            &ground_source,
+        )
+    });
     let start = Vec3::new(20.0, deck + 1.0, 20.0);
     let layer = world
         .pathfinding_system

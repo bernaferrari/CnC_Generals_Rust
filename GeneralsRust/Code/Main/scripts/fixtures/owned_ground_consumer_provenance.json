@@ -1,0 +1,116 @@
+{
+  "schema": 1,
+  "scope": "14 executed component rows in six case groups; source consumers only, not full pathfinding/construction/map loading or retail x86 FP proof",
+  "source_authority": "Original GeneralsMD source bodies retained verbatim in C++ wrapper; no shared Rust fixture answer printer",
+  "source_bodies": [
+    {
+      "path": "GeneralsMD/Code/GameEngine/Source/GameLogic/Map/TerrainLogic.cpp",
+      "signature": "PathfindLayerEnum TerrainLogic::getLayerForDestination(",
+      "start_line": 1668,
+      "sha256": "6f5651f68de344ce3079a297a295bae6d4fdb571e3dc0fe2c33ecbae28559526"
+    },
+    {
+      "path": "GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameLogic/W3DTerrainLogic.cpp",
+      "signature": "Real W3DTerrainLogic::getLayerHeight(",
+      "start_line": 281,
+      "sha256": "ef1bec9f522ec3db0b01ac80d5d163261828518af120acc8626b1a4cfb2fbd02"
+    },
+    {
+      "path": "GeneralsMD/Code/GameEngine/Source/GameLogic/AI/AIPathfind.cpp",
+      "signature": "void Pathfinder::adjustCoordToCell(",
+      "start_line": 8936,
+      "sha256": "4463909316b88c67d982b1cb71f23da084c497dcccac7de8450d44867bb0d34f"
+    },
+    {
+      "path": "GeneralsMD/Code/GameEngine/Source/GameLogic/AI/AIPathfind.cpp",
+      "signature": "void Pathfinder::classifyMapCell(",
+      "start_line": 4485,
+      "sha256": "a8c3781901209c407f7c78bbc2297f50c8d2d838d4ebe2f04ab16b8c28d26ff0"
+    },
+    {
+      "path": "GeneralsMD/Code/GameEngine/Source/GameLogic/AI/AIPathfind.cpp",
+      "signature": "void PathfindLayer::classifyLayerMapCell(",
+      "start_line": 3647,
+      "sha256": "774c36d5e298ab248febad868ad96387798c849d15e132dbea66c5a7e906557b"
+    },
+    {
+      "path": "GeneralsMD/Code/GameEngine/Source/GameLogic/Map/TerrainLogic.cpp",
+      "signature": "Bool TerrainLogic::isUnderwater(",
+      "start_line": 2119,
+      "sha256": "6fb988c851811719d6a255448af23425032348a5e08a015da5cb0c7c0f28d7a5"
+    }
+  ],
+  "wrapper": {
+    "path": "GeneralsRust/Code/Main/scripts/cpp_oracles/pathfinding_ground_consumer.cpp",
+    "sha256": "dcc7ab12bb30d7ce38dccfe724c7db2f1f633801b61d1bca8177fdfd99e48b5f"
+  },
+  "build_command": "clang++ -std=c++17 -O0 -ffp-contract=off GeneralsRust/Code/Main/scripts/cpp_oracles/pathfinding_ground_consumer.cpp -o /tmp/pathfinding-ground-consumer",
+  "run_protocol": "Feed input_lines via stdin; output_lines are historical executed original component observations, not harness input",
+  "input_sha256": "e1efa3bb4138c16e1f8d46f40116d248843a7601c1a861f99a2e9fa0020529ce",
+  "output_sha256": "afd1b4d3120d6e979c06464fc50630478ce5bae81a8ffda45c95002ede5c3aa7",
+  "input_lines": [
+    "# tag mode inputs; inputs only, no expected outputs",
+    "scaffold_before layer 56.25 52 55",
+    "scaffold_after layer 50 52 55",
+    "clearance_below clearance 44.375 55 0 0",
+    "clearance_equal clearance 45 55 0 0",
+    "clearance_above clearance 45.625 55 0 0",
+    "clearance_entry clearance 56.25 55 1 0",
+    "clearance_obstacle clearance 56.25 55 0 1",
+    "layer_tie layer 50 52.5 55",
+    "adjust_ground_before adjust 56.25 55 5 3 1 0",
+    "adjust_ground_after adjust 50 55 5 3 1 0",
+    "adjust_buried_bridge adjust 56.25 55 5 3 1 2",
+    "water_equal water 50 50 50 50 50 0 0",
+    "water_lower_corner water 50 50 49.375 50 50 0 0",
+    "water_obstacle water 50 50 49.375 50 50 1 1"
+  ],
+  "output_lines": [
+    "scaffold_before layer 2 ground 56.25",
+    "scaffold_after layer 0 ground 50",
+    "clearance_below ground_type 0 bridge_type 0 connect 1",
+    "clearance_equal ground_type 0 bridge_type 0 connect 1",
+    "clearance_above ground_type 5 bridge_type 0 connect 1",
+    "clearance_entry ground_type 0 bridge_type 0 connect 0",
+    "clearance_obstacle ground_type 3 bridge_type 0 connect 1",
+    "layer_tie layer 0 ground 50",
+    "adjust_ground_before xyz 55 35 56.25",
+    "adjust_ground_after xyz 55 35 50",
+    "adjust_buried_bridge xyz 55 35 56.25",
+    "water_equal type 0",
+    "water_lower_corner type 2",
+    "water_obstacle type 3"
+  ],
+  "dependency_substitutions": [
+    "Original bodies appended byte-for-byte (UTF8 source text); methods and class names retained; native global names point to one local fixture only",
+    "Ground sampler is explicit scalar/fourcorner input seam; this witnesses source consumer behavior, NOT original construction or terrain interpolation. Combine actual Rust construction route and separately accepted original height oracle",
+    "Bridge rectangle and water handle discovery use explicit fixture booleans; not a geometry/water resolver oracle",
+    "Cell reset/connect methods model only fields observed by copied bodies; cell enum numeric values local reporting labels, not source wire mapping",
+    "No original path search, zone expansion or map loading executed; source classifyMap full traversal ordering remains pinned plan only",
+    "Default trigonometry/FPU not used by selected bodies; float arithmetic native float under host defaults; no retail x86 FP proof"
+  ],
+  "enum_normalization": {
+    "layer_labels": {
+      "0": "Ground",
+      "1": "Wall",
+      "2": "one fixture Bridge slot"
+    },
+    "cell_labels": {
+      "0": "Clear",
+      "1": "Cliff",
+      "2": "Water",
+      "3": "Obstacle",
+      "4": "Impassable",
+      "5": "BridgeImpassable"
+    },
+    "warning": "Local wrapper enum numbers are diagnostic labels, not original wire discriminants; compare named Rust variants."
+  },
+  "adapter_constant": "FALSE=false supplies original boolean symbol; copied bodies unchanged",
+  "execution_receipt": "Parent executed wrapper B: clang build0/run0; archived external parent-execution.json; this supplemental packaging performed no new build/run",
+  "checked_in_wrapper": {
+    "path": "GeneralsRust/Code/Main/scripts/cpp_oracles/pathfinding_ground_consumer.cpp",
+    "sha256": "0e76db4af1b0af01d964af60a4f8c8c3059b0753aba4a8ecfab55278c5d9c8fb",
+    "executed_B_before_normalization_sha256": "dcc7ab12bb30d7ce38dccfe724c7db2f1f633801b61d1bca8177fdfd99e48b5f",
+    "normalization": "trailing whitespace removed for git diff check; copied original body hashes above pin original source bytes"
+  }
+}

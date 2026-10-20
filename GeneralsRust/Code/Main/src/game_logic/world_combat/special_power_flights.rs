@@ -1779,13 +1779,27 @@ impl GameLogic {
         }
         self.bridge_behavior.bind_scaffold_anims(span_id, anims);
         if let Some(span) = self.bridge_behavior.span(span_id) {
-            self.pathfinding_system.grid.stamp_bridge_deck(
-                span.from_left,
-                span.from_right,
-                span.to_left,
-                span.to_right,
-                true,
-            );
+            ({
+                let ground_owner = self.world_services.terrain();
+                let ground_loan = ground_owner
+                    .read()
+                    .unwrap_or_else(|error| error.into_inner());
+                let ground_source = crate::game_logic::pathfinding::PathfindingGround::for_terrain(
+                    &ground_loan,
+                    self.map_loaded,
+                    self.terrain.as_ref(),
+                    self.pathfinding_height_samples.as_ref(),
+                    &self.pathfinding_system.grid,
+                );
+                self.pathfinding_system.grid.stamp_bridge_deck(
+                    span.from_left,
+                    span.from_right,
+                    span.to_left,
+                    span.to_right,
+                    true,
+                    &ground_source,
+                )
+            });
         }
     }
 
@@ -1799,13 +1813,28 @@ impl GameLogic {
         });
         if !rubble {
             if let Some(span) = self.bridge_behavior.span(span_id) {
-                self.pathfinding_system.grid.stamp_bridge_deck(
-                    span.from_left,
-                    span.from_right,
-                    span.to_left,
-                    span.to_right,
-                    false,
-                );
+                ({
+                    let ground_owner = self.world_services.terrain();
+                    let ground_loan = ground_owner
+                        .read()
+                        .unwrap_or_else(|error| error.into_inner());
+                    let ground_source =
+                        crate::game_logic::pathfinding::PathfindingGround::for_terrain(
+                            &ground_loan,
+                            self.map_loaded,
+                            self.terrain.as_ref(),
+                            self.pathfinding_height_samples.as_ref(),
+                            &self.pathfinding_system.grid,
+                        );
+                    self.pathfinding_system.grid.stamp_bridge_deck(
+                        span.from_left,
+                        span.from_right,
+                        span.to_left,
+                        span.to_right,
+                        false,
+                        &ground_source,
+                    )
+                });
             }
         }
     }
@@ -2103,9 +2132,25 @@ impl GameLogic {
                     self.bridge_behavior.mark_death(id, self.frame);
                     if let Some(layer) = self.pathfinding_system.grid.bridge_layer_for_object(id.0)
                     {
-                        self.pathfinding_system
-                            .grid
-                            .stamp_reserved_bridge_layer(layer, true);
+                        ({
+                            let ground_owner = self.world_services.terrain();
+                            let ground_loan = ground_owner
+                                .read()
+                                .unwrap_or_else(|error| error.into_inner());
+                            let ground_source =
+                                crate::game_logic::pathfinding::PathfindingGround::for_terrain(
+                                    &ground_loan,
+                                    self.map_loaded,
+                                    self.terrain.as_ref(),
+                                    self.pathfinding_height_samples.as_ref(),
+                                    &self.pathfinding_system.grid,
+                                );
+                            self.pathfinding_system.grid.stamp_reserved_bridge_layer(
+                                layer,
+                                true,
+                                &ground_source,
+                            )
+                        });
                     }
                     for uid in occupants {
                         if let Some(unit) = self.objects.get_mut(&uid) {
@@ -2135,9 +2180,25 @@ impl GameLogic {
                 if !self.bridge_behavior.is_scaffold_present(id) {
                     if let Some(layer) = self.pathfinding_system.grid.bridge_layer_for_object(id.0)
                     {
-                        self.pathfinding_system
-                            .grid
-                            .stamp_reserved_bridge_layer(layer, false);
+                        ({
+                            let ground_owner = self.world_services.terrain();
+                            let ground_loan = ground_owner
+                                .read()
+                                .unwrap_or_else(|error| error.into_inner());
+                            let ground_source =
+                                crate::game_logic::pathfinding::PathfindingGround::for_terrain(
+                                    &ground_loan,
+                                    self.map_loaded,
+                                    self.terrain.as_ref(),
+                                    self.pathfinding_height_samples.as_ref(),
+                                    &self.pathfinding_system.grid,
+                                );
+                            self.pathfinding_system.grid.stamp_reserved_bridge_layer(
+                                layer,
+                                false,
+                                &ground_source,
+                            )
+                        });
                     }
                 }
             }
@@ -2338,12 +2399,27 @@ impl GameLogic {
             }
             drop(obj);
             if apply_landing_dest {
-                let adj = self.pathfinding_system.adjust_landing_destination_for(
-                    id.0,
-                    &self.objects,
-                    landing_from,
-                    landing_dest,
-                );
+                let adj = ({
+                    let ground_owner = self.world_services.terrain();
+                    let ground_loan = ground_owner
+                        .read()
+                        .unwrap_or_else(|error| error.into_inner());
+                    let ground_source =
+                        crate::game_logic::pathfinding::PathfindingGround::for_terrain(
+                            &ground_loan,
+                            self.map_loaded,
+                            self.terrain.as_ref(),
+                            self.pathfinding_height_samples.as_ref(),
+                            &self.pathfinding_system.grid,
+                        );
+                    self.pathfinding_system.adjust_landing_destination_for(
+                        id.0,
+                        &self.objects,
+                        landing_from,
+                        landing_dest,
+                        &ground_source,
+                    )
+                });
                 if let Some(obj) = self.objects.get_mut(&id) {
                     if let Some(ai) = obj.chinook_ai.as_mut() {
                         ai.dest = [adj.x, adj.z, adj.y];

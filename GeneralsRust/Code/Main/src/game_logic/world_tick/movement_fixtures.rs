@@ -31,8 +31,20 @@ pub(super) fn admitted_cell_position(logic: &GameLogic, unit: &Object, point: Ve
     // Stay within the admitted cell, near its forward edge. This lets a
     // sub-20-unit order cross an intervening 10-unit column rather than put
     // the goal in the wall, where C++ destination adjustment may succeed.
-    let position = grid.adjust_coord_to_ground_cell(cell, center)
-        + Vec3::new(grid.grid_size() * 0.4, 0.0, 0.0);
+    let position = ({
+        let ground_owner = logic.world_services.terrain();
+        let ground_loan = ground_owner
+            .read()
+            .unwrap_or_else(|error| error.into_inner());
+        let ground_source = crate::game_logic::pathfinding::PathfindingGround::for_terrain(
+            &ground_loan,
+            logic.map_loaded,
+            logic.terrain.as_ref(),
+            logic.pathfinding_height_samples.as_ref(),
+            &*grid,
+        );
+        grid.adjust_coord_to_ground_cell(cell, center, &ground_source)
+    }) + Vec3::new(grid.grid_size() * 0.4, 0.0, 0.0);
     assert_eq!(grid.cell_for_unit_position(position, center), cell);
     assert_eq!(grid.world_to_grid(position), cell);
     position

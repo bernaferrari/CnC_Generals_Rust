@@ -24,8 +24,15 @@ fn raw_group_search_matches_executed_original_cpp() {
         let to = Vec3::new(requested.x as f32 * 10.0, 0.0, requested.y as f32 * 10.0);
         if expected == "null" {
             assert!(
-                grid.find_group_ground_path_owned(from, to, &objects, |_| true, &mut 0)
-                    .is_none(),
+                grid.find_group_ground_path_owned(
+                    from,
+                    to,
+                    &objects,
+                    |_| true,
+                    &mut 0,
+                    &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0)
+                )
+                .is_none(),
                 "{}",
                 case["name"]
             );
@@ -54,7 +61,14 @@ fn raw_group_search_matches_executed_original_cpp() {
             case["name"]
         );
         let optimized = grid
-            .find_group_ground_path_owned(from, to, &objects, |_| true, &mut 0)
+            .find_group_ground_path_owned(
+                from,
+                to,
+                &objects,
+                |_| true,
+                &mut 0,
+                &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+            )
             .expect("original group query succeeds");
         assert_eq!(
             grid.world_to_grid(*optimized.last().unwrap()),
@@ -84,14 +98,36 @@ fn receiving_group_queries_do_not_inherit_individual_ignore_or_peer_cells() {
     let start = Vec3::new(80.0, 0.0, 200.0);
     let goal = Vec3::new(300.0, 0.0, 200.0);
     let objects = HashMap::new();
-    let expected = first.find_group_ground_path(start, goal, &objects).unwrap();
+    let expected = first
+        .find_group_ground_path(
+            start,
+            goal,
+            &objects,
+            &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+        )
+        .unwrap();
     for y in 0..40 {
         peer.grid.set_blocked(GridPos::new(20, y), true);
     }
-    assert!(peer.find_group_ground_path(start, goal, &objects).is_none());
+    assert!(
+        peer.find_group_ground_path(
+            start,
+            goal,
+            &objects,
+            &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0)
+        )
+        .is_none()
+    );
     first.set_ignore_obstacle(Some(ObjectId(91)));
     assert_eq!(
-        first.find_group_ground_path(start, goal, &objects).unwrap(),
+        first
+            .find_group_ground_path(
+                start,
+                goal,
+                &objects,
+                &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0)
+            )
+            .unwrap(),
         expected
     );
     assert_eq!(
@@ -101,7 +137,14 @@ fn receiving_group_queries_do_not_inherit_individual_ignore_or_peer_cells() {
     );
     let _inert = PathfindingSystem::new(600.0, 600.0);
     assert_eq!(
-        first.find_group_ground_path(start, goal, &objects).unwrap(),
+        first
+            .find_group_ground_path(
+                start,
+                goal,
+                &objects,
+                &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0)
+            )
+            .unwrap(),
         expected
     );
 }
@@ -124,10 +167,20 @@ fn fixed_occupants_are_resolved_from_each_receiving_object_map() {
     let peer_objects = HashMap::from([(counterpart.id, counterpart)]);
     first.set_ignore_obstacle(Some(ObjectId(91)));
     let shifted = first
-        .find_group_ground_path(start, goal, &first_objects)
+        .find_group_ground_path(
+            start,
+            goal,
+            &first_objects,
+            &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+        )
         .unwrap();
     let peer_path = peer
-        .find_group_ground_path(start, goal, &peer_objects)
+        .find_group_ground_path(
+            start,
+            goal,
+            &peer_objects,
+            &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+        )
         .unwrap();
     assert_ne!(
         first.grid.world_to_grid(*shifted.last().unwrap()),
@@ -139,12 +192,22 @@ fn fixed_occupants_are_resolved_from_each_receiving_object_map() {
     );
     assert_eq!(
         first
-            .find_group_ground_path(start, goal, &first_objects)
+            .find_group_ground_path(
+                start,
+                goal,
+                &first_objects,
+                &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0)
+            )
             .unwrap(),
         shifted
     );
     let cleared = first
-        .find_group_ground_path(start, goal, &HashMap::new())
+        .find_group_ground_path(
+            start,
+            goal,
+            &HashMap::new(),
+            &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+        )
         .unwrap();
     assert_eq!(
         first.grid.world_to_grid(*cleared.last().unwrap()),
@@ -206,7 +269,12 @@ fn group_cleanup_is_charged_to_the_receiving_queue_budget() {
     assert!(first.pathfind_budget_remaining());
     assert!(
         first
-            .find_group_ground_path(start, goal, &HashMap::new())
+            .find_group_ground_path(
+                start,
+                goal,
+                &HashMap::new(),
+                &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0)
+            )
             .is_some()
     );
     let spent = first.cumulative_cells_allocated();
@@ -216,8 +284,13 @@ fn group_cleanup_is_charged_to_the_receiving_queue_budget() {
         peer.grid.set_blocked(GridPos::new(20, y), true);
     }
     assert!(
-        peer.find_group_ground_path(start, goal, &HashMap::new())
-            .is_none()
+        peer.find_group_ground_path(
+            start,
+            goal,
+            &HashMap::new(),
+            &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0)
+        )
+        .is_none()
     );
     assert!(
         peer.cumulative_cells_allocated() > 0,
@@ -237,6 +310,7 @@ fn off_map_segment_still_uses_cpp_clamped_cell_destination_probe() {
             Vec3::new(420.0, 0.0, 200.0),
             Vec3::new(460.0, 0.0, 200.0),
             &HashMap::new(),
+            &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
         )
         .unwrap();
     // ClipLine2D rejects this wholly exterior segment. worldToCell then clamps
@@ -265,12 +339,18 @@ fn group_search_crosses_owned_bridge_without_ground_pinches_leaking_to_deck() {
         Vec3::new(300.0, 20.0, 150.0),
         Vec3::new(300.0, 20.0, 250.0),
         false,
+        &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
     );
     owner.grid.rebuild_terrain_zones();
     owner.grid.rebuild_path_zones();
     let goal = Vec3::new(320.0, 0.0, 200.0);
     let path = owner
-        .find_group_ground_path(Vec3::new(80.0, 0.0, 200.0), goal, &HashMap::new())
+        .find_group_ground_path(
+            Vec3::new(80.0, 0.0, 200.0),
+            goal,
+            &HashMap::new(),
+            &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+        )
         .expect("connected owned deck route");
     // C++ retains layer independently from position. In prependCells a
     // duplicate bank/deck coordinate keeps its bank height and gains the deck

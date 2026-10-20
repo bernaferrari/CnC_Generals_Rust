@@ -7,27 +7,12 @@ impl PathfindingGrid {
         self.flight_bridge_order.clear();
         self.layer_occ.clear();
         self.ground_connect.fill(0);
-        self.admitted_raw_terrain = None;
-    }
-
-    pub(crate) fn admit_raw_terrain(
-        &mut self,
-        terrain: Option<&super::super::terrain::TerrainData>,
-    ) {
-        self.admitted_raw_terrain = terrain.map(|t| std::sync::Arc::new(t.clone()));
-    }
-
-    pub(super) fn admitted_ground_height(&self, pos: Vec3) -> f32 {
-        self.admitted_raw_terrain
-            .as_ref()
-            .map_or(0.0, |t| t.logic_height_at_world(pos))
     }
 
     /// Bounds changes rebuild cell storage, not original bridge identities.
     pub(crate) fn inherit_bridge_admission(&mut self, previous: &mut Self) {
         self.bridge_layers = std::mem::take(&mut previous.bridge_layers);
         self.flight_bridge_order = std::mem::take(&mut previous.flight_bridge_order);
-        self.admitted_raw_terrain = previous.admitted_raw_terrain.take();
         for bridge in &mut self.bridge_layers {
             bridge.cells.clear();
             bridge.ground_connect_cells.clear();

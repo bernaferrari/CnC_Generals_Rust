@@ -24,6 +24,7 @@ impl PathfindingGrid {
         objects: &HashMap<ObjectId, Object>,
         passable: impl Fn(GridPos) -> bool,
         cleanup_cells: &mut usize,
+        ground_source: &PathfindingGround<'_>,
     ) -> Option<Vec<Vec3>> {
         if !from.is_finite()
             || !to.is_finite()
@@ -33,14 +34,14 @@ impl PathfindingGrid {
         {
             return None;
         }
-        let start_layer = self.layer_for_destination(from) as u8;
+        let start_layer = self.layer_for_destination(from, ground_source) as u8;
         let (clipped_from_pos, clipped_to_pos) = clip::clip(self, from, to);
         // C++ worldToCell clamps after the segment clip, including when the
         // segment lies wholly outside the extent (AIPathfind.h:935-945).
         let clipped_from = self.clamp_pos(self.world_to_grid(clipped_from_pos));
         let mut goal = Cell {
             pos: self.clamp_pos(self.world_to_grid(clipped_to_pos)),
-            layer: self.layer_for_destination(clipped_to_pos) as u8,
+            layer: self.layer_for_destination(clipped_to_pos, ground_source) as u8,
         };
         if self.group_clearance(goal, 6, objects) != 6 {
             let original = goal.pos;
@@ -77,7 +78,7 @@ impl PathfindingGrid {
             return None;
         }
         let (cells, _) = search::find(self, start, goal, objects, &passable, cleanup_cells)?;
-        Some(optimize::build(self, from, &cells, objects))
+        Some(optimize::build(self, from, &cells, objects, ground_source))
     }
 
     #[cfg(test)]

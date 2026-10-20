@@ -22,6 +22,7 @@ impl PathfindingSystem {
         objects: &HashMap<ObjectId, Object>,
         aircraft: bool,
         mover: Option<ObjectId>,
+        ground_source: &PathfindingGround<'_>,
     ) -> Option<Vec<Vec3>> {
         let surfaces = mover
             .and_then(|id| objects.get(&id))
@@ -32,7 +33,16 @@ impl PathfindingSystem {
             } else {
                 SURFACE_GROUND
             });
-        self.find_path_ex_surfaces(start, goal, objects, aircraft, surfaces, false, mover)
+        self.find_path_ex_surfaces(
+            start,
+            goal,
+            objects,
+            aircraft,
+            surfaces,
+            false,
+            mover,
+            ground_source,
+        )
     }
 
     /// Live path: crate `AStarPathfinder::find_path_ex` (AIPathfind.cpp:6438).
@@ -45,8 +55,9 @@ impl PathfindingSystem {
         surfaces: u32,
         is_crusher: bool,
         mover: Option<ObjectId>,
+        ground_source: &PathfindingGround<'_>,
     ) -> Option<Vec<Vec3>> {
-        self.ensure_dynamic_obstacles(objects);
+        self.ensure_dynamic_obstacles(objects, ground_source);
         self.bind_seeker_from_mover(objects, mover);
         self.apply_seeker_human_flag();
         // Live seeker CrusherLevel wins so find_path / find_path_ex still crush.
@@ -65,7 +76,7 @@ impl PathfindingSystem {
             .is_some_and(PathfindingGrid::is_aircraft_that_adjusts_destination);
         if self.adjust_goal && aircraft && seeker_adjusts {
             self.grid.query_check_for_aircraft = true;
-            let dest_layer = self.grid.layer_for_destination(goal);
+            let dest_layer = self.grid.layer_for_destination(goal, ground_source);
             if let Some(adj) = self.grid.adjust_destination_on_layer(
                 self.grid.world_to_grid(goal),
                 surfaces,
@@ -74,8 +85,9 @@ impl PathfindingSystem {
                 self.seeker_player,
                 0,
                 dest_layer,
+                ground_source,
             ) {
-                let mut snapped = self.grid.grid_to_world(adj);
+                let mut snapped = self.grid.grid_to_world(adj, ground_source);
                 snapped.y = goal.y;
                 goal = snapped;
             }
@@ -108,16 +120,23 @@ impl PathfindingSystem {
             let dest_ok = ignored_goal
                 || self.grid.check_destination_for(
                     cell,
-                    self.grid.layer_for_destination(goal),
+                    self.grid.layer_for_destination(goal, ground_source),
                     0,
                     true,
                     surfaces,
                     is_crusher,
                     self.seeker_player,
                     crusher_level,
+                    ground_source,
                 );
             if !dest_ok {
-                goal = self.snap_closest_goal_position(goal, surfaces, is_crusher, unit_radius);
+                goal = self.snap_closest_goal_position(
+                    goal,
+                    surfaces,
+                    is_crusher,
+                    unit_radius,
+                    ground_source,
+                );
             }
         }
         let start_grid = self
@@ -129,9 +148,12 @@ impl PathfindingSystem {
         let start_layer = self
             .seeker_id
             .and_then(|id| objects.get(&id))
-            .map(|o| self.grid.layer_for_destination(o.get_position()))
-            .unwrap_or_else(|| self.grid.layer_for_destination(start));
-        let dest_layer = self.grid.layer_for_destination(goal);
+            .map(|o| {
+                self.grid
+                    .layer_for_destination(o.get_position(), ground_source)
+            })
+            .unwrap_or_else(|| self.grid.layer_for_destination(start, ground_source));
+        let dest_layer = self.grid.layer_for_destination(goal, ground_source);
 
         // C++ getAircraftPath: circleClips only when appearance == LOCO_WINGS.
         // segmentIntersectsTallBuilding walk runs for every aircraft (hover/thrust).
@@ -155,7 +177,7 @@ impl PathfindingSystem {
             // start are off the pathfind extent, pathfinding is impossible —
             // computeQuickPath builds the direct two-node path instead of
             // consulting A* (which cannot seed an off-map cell).
-            if self.leftover_should_force_direct_path_for_off_map_start(start, goal)
+            if self.leftover_should_force_direct_path_for_off_map_start(start, goal, ground_source)
                 && self.ignored_obstacle_cells().is_none()
             {
                 Self::leftover_compute_quick_path_nodes(start, goal)
@@ -168,6 +190,7 @@ impl PathfindingSystem {
                     is_crusher,
                     start_layer,
                     dest_layer,
+                    ground_source,
                 ) {
                     Some(p) => p,
                     None => {
@@ -185,13 +208,14 @@ impl PathfindingSystem {
                             surfaces,
                             is_crusher,
                             unit_radius,
+                            ground_source,
                         ) {
                             return None;
                         }
                         let retry_grid = self
                             .grid
                             .cell_for_unit_position(possible, self.seeker_center_in_cell);
-                        let retry_layer = self.grid.layer_for_destination(possible);
+                        let retry_layer = self.grid.layer_for_destination(possible, ground_source);
                         self.find_path_via_crate(
                             start_grid,
                             retry_grid,
@@ -200,6 +224,7 @@ impl PathfindingSystem {
                             is_crusher,
                             start_layer,
                             retry_layer,
+                            ground_source,
                         )?
                     }
                 }
@@ -256,6 +281,7 @@ impl PathfindingSystem {
         surfaces: u32,
         is_crusher: bool,
         unit_radius: f32,
+        ground_source: &PathfindingGround<'_>,
     ) -> bool {
         let crusher_level = if is_crusher {
             self.seeker_crusher_level.max(1)
@@ -270,11 +296,17 @@ impl PathfindingSystem {
             unit_radius,
             self.seeker_player,
             crusher_level,
+            ground_source,
         )
     }
 
     /// C++ `adjustToPossibleDestination(obj, locomotorSet, dest)`.
-    pub fn adjust_to_possible_destination_for(&self, obj: &Object, dest: &mut Vec3) -> bool {
+    pub fn adjust_to_possible_destination_for(
+        &self,
+        obj: &Object,
+        dest: &mut Vec3,
+        ground_source: &PathfindingGround<'_>,
+    ) -> bool {
         let surfaces = if obj.locomotor_surfaces != 0 {
             obj.locomotor_surfaces
         } else {
@@ -286,6 +318,7 @@ impl PathfindingSystem {
             surfaces,
             obj.crusher_level > 0,
             obj.selection_radius,
+            ground_source,
         )
     }
 
@@ -300,6 +333,7 @@ impl PathfindingSystem {
         layer: PathfindLayerEnum,
         dest: &mut Vec3,
         starting_in_obstacle: bool,
+        ground_source: &PathfindingGround<'_>,
     ) -> bool {
         self.grid.check_for_possible(
             is_crusher,
@@ -310,6 +344,7 @@ impl PathfindingSystem {
             layer,
             dest,
             starting_in_obstacle,
+            ground_source,
         )
     }
 
@@ -322,12 +357,16 @@ impl PathfindingSystem {
         is_crusher: bool,
         objects: &HashMap<ObjectId, Object>,
         mover: Option<ObjectId>,
+        ground_source: &PathfindingGround<'_>,
     ) -> Option<Vec<Vec3>> {
         if self.ignore_obstacle_id.is_some() {
-            self.grid
-                .update_dynamic_obstacles_ignoring(objects, self.ignore_obstacle_id);
+            self.grid.update_dynamic_obstacles_ignoring(
+                objects,
+                self.ignore_obstacle_id,
+                ground_source,
+            );
         } else {
-            self.grid.update_dynamic_obstacles(objects);
+            self.grid.update_dynamic_obstacles(objects, ground_source);
         }
         self.bind_seeker_from_mover(objects, mover);
         if original.len() < 2 {
@@ -362,7 +401,9 @@ impl PathfindingSystem {
         let mut goal_delta = xz_dist_sq(goal_pos, from);
         for idx in (1..original.len()).rev() {
             let cell = self.grid.world_to_grid(original[idx]);
-            let layer = self.grid.layer_for_destination(original[idx]);
+            let layer = self
+                .grid
+                .layer_for_destination(original[idx], ground_source);
             if !self
                 .grid
                 .cell_passable_for_layer(cell, layer, surfaces, is_crusher)
@@ -398,10 +439,10 @@ impl PathfindingSystem {
             return None;
         }
 
-        let start_layer = self.grid.layer_for_destination(from);
+        let start_layer = self.grid.layer_for_destination(from, ground_source);
         let mut try_goal = |goal: Vec3| -> Option<Vec<Vec3>> {
             let goal_cell = self.grid.world_to_grid(goal);
-            let dest_layer = self.grid.layer_for_destination(goal);
+            let dest_layer = self.grid.layer_for_destination(goal, ground_source);
             self.find_path_via_crate(
                 start,
                 goal_cell,
@@ -410,6 +451,7 @@ impl PathfindingSystem {
                 is_crusher,
                 start_layer,
                 dest_layer,
+                ground_source,
             )
         };
         let mut prefix = try_goal(goal_pos);
@@ -453,6 +495,7 @@ impl PathfindingSystem {
             is_crusher,
             self.seeker_player,
             crusher_level,
+            ground_source,
         );
         if optimized.is_empty() {
             None
@@ -475,6 +518,7 @@ impl PathfindingSystem {
         seeker_player: Option<u32>,
         crusher_level: u8,
         tunnel: bool,
+        ground_source: &PathfindingGround<'_>,
     ) -> Option<Vec<Vec3>> {
         if path_to_avoid.len() < 2 {
             return None;
@@ -496,7 +540,7 @@ impl PathfindingSystem {
         if other_center {
             box_half += cell / 2.0;
         }
-        let layer = self.grid.layer_for_destination(from);
+        let layer = self.grid.layer_for_destination(from, ground_source);
         let mut open: BinaryHeap<std::cmp::Reverse<(i32, i32, i32)>> = BinaryHeap::new();
         let mut g_score: HashMap<GridPos, i32> = HashMap::new();
         let mut closed: HashSet<GridPos> = HashSet::new();
@@ -506,7 +550,7 @@ impl PathfindingSystem {
         let mut expanded = 0i32;
         const MAX_EXPAND: i32 = 2500;
         let overlaps = |cell_pos: GridPos| -> bool {
-            let mut center = self.grid.grid_to_world(cell_pos);
+            let mut center = self.grid.grid_to_world(cell_pos, ground_source);
             if center_in_cell {
                 center.x += cell * 0.5;
                 center.z += cell * 0.5;
@@ -543,6 +587,7 @@ impl PathfindingSystem {
                     is_crusher,
                     seeker_player,
                     crusher_level,
+                    ground_source,
                 )
             {
                 found = Some(cell_pos);
@@ -578,7 +623,7 @@ impl PathfindingSystem {
             return None;
         }
         let world_dest = {
-            let mut w = self.grid.grid_to_world(dest);
+            let mut w = self.grid.grid_to_world(dest, ground_source);
             if center_in_cell {
                 w.x += cell * 0.5;
                 w.z += cell * 0.5;
@@ -586,9 +631,16 @@ impl PathfindingSystem {
             w.y = from.y;
             w
         };
-        if let Some(path) =
-            self.find_path_via_crate(start, dest, from, surfaces, is_crusher, layer, layer)
-        {
+        if let Some(path) = self.find_path_via_crate(
+            start,
+            dest,
+            from,
+            surfaces,
+            is_crusher,
+            layer,
+            layer,
+            ground_source,
+        ) {
             if path.len() >= 2 {
                 return Some(path);
             }
@@ -605,6 +657,7 @@ impl PathfindingSystem {
         repulsor_radius: f32,
         surfaces: u32,
         is_crusher: bool,
+        ground_source: &PathfindingGround<'_>,
     ) -> Option<Vec<Vec3>> {
         self.find_safe_path_from(
             from,
@@ -614,6 +667,7 @@ impl PathfindingSystem {
             surfaces,
             is_crusher,
             true,
+            ground_source,
         )
     }
 
@@ -628,6 +682,7 @@ impl PathfindingSystem {
         surfaces: u32,
         is_crusher: bool,
         is_human: bool,
+        ground_source: &PathfindingGround<'_>,
     ) -> Option<Vec<Vec3>> {
         self.sync_crate_astar();
         let start = self
@@ -643,7 +698,7 @@ impl PathfindingSystem {
             0
         };
         let seeker_player = self.seeker_player;
-        let start_layer = self.grid.layer_for_destination(from);
+        let start_layer = self.grid.layer_for_destination(from, ground_source);
         let start_lid = start_layer as u8;
         const MAX_CELLS: i32 = 2000;
         const COST_ORTHO: i32 = 10;
@@ -676,7 +731,7 @@ impl PathfindingSystem {
             // C++ findSafePath measures from adjustCoordToCell (cell center
             // when centerInCell); grid_to_world returns the cell CORNER.
             let world = {
-                let mut w = self.grid.grid_to_world_on_layer(cell, layer);
+                let mut w = self.grid.grid_to_world_on_layer(cell, layer, ground_source);
                 if self.seeker_center_in_cell {
                     w.x += self.grid.grid_size() * 0.5;
                     w.z += self.grid.grid_size() * 0.5;
@@ -716,6 +771,7 @@ impl PathfindingSystem {
                     seeker_player,
                     crusher_level,
                     layer,
+                    ground_source,
                 )
                 && self.grid.human_extent_allows(cell, is_human)
             {
@@ -785,6 +841,7 @@ impl PathfindingSystem {
                 seeker_player,
                 crusher_level,
                 layer,
+                ground_source,
             ) || d <= radius_sqr
             {
                 return None;
@@ -808,6 +865,7 @@ impl PathfindingSystem {
             is_crusher,
             start_layer,
             dest_layer,
+            ground_source,
         )?;
         if path.len() < 2 {
             return None;
@@ -826,6 +884,7 @@ impl PathfindingSystem {
         is_crusher: bool,
         is_human: bool,
         path_cost_multiplier: f32,
+        ground_source: &PathfindingGround<'_>,
     ) -> Option<Vec<Vec3>> {
         self.sync_crate_astar();
         self.grid.query_seeker_id = self.seeker_id.map(|id| id.0).unwrap_or(0);
@@ -858,7 +917,7 @@ impl PathfindingSystem {
                             .is_some_and(|(owner_id, _, _)| owner_id == ignored_id)
                 })
         };
-        let start_layer = self.grid.layer_for_destination(from);
+        let start_layer = self.grid.layer_for_destination(from, ground_source);
         let tunnel = !self.grid.valid_movement_position(
             start,
             start_layer,
@@ -881,6 +940,7 @@ impl PathfindingSystem {
                 seeker_player,
                 crusher_level,
                 start_layer,
+                ground_source,
             )
             || is_ignored_owned_obstacle(goal_grid, start_layer);
         let mut closest_cell: Option<(GridPos, PathfindLayerEnum, f32)> = None;
@@ -960,6 +1020,7 @@ impl PathfindingSystem {
                 seeker_player,
                 crusher_level,
                 layer,
+                ground_source,
             ) || is_ignored_owned_obstacle(cell, layer)
             {
                 let dx = (goal_grid.x - cx).abs() as f32;
@@ -1038,7 +1099,8 @@ impl PathfindingSystem {
         let to_pos = if found_goal_cell && best_cell == goal_grid {
             goal
         } else {
-            self.grid.grid_to_world_on_layer(best_cell, best_layer)
+            self.grid
+                .grid_to_world_on_layer(best_cell, best_layer, ground_source)
         };
         let to_cell = self
             .grid
@@ -1053,6 +1115,7 @@ impl PathfindingSystem {
             is_crusher,
             start_layer,
             best_layer,
+            ground_source,
         ) {
             let mut world = path;
             if let Some(first) = world.first_mut() {
@@ -1061,7 +1124,12 @@ impl PathfindingSystem {
             if let Some(last) = world.last_mut() {
                 *last = to_pos;
             }
-            return Some(self.grid.optimize_ground_path(&world, surfaces, is_crusher));
+            return Some(self.grid.optimize_ground_path(
+                &world,
+                surfaces,
+                is_crusher,
+                ground_source,
+            ));
         }
         // Leftover returns none when internalFindPath fails — no fail-open line.
         if start == to_cell {
@@ -1082,8 +1150,9 @@ impl PathfindingSystem {
         seeker_player: Option<u32>,
         crusher_level: u8,
         seeker_id: u32,
+        ground_source: &PathfindingGround<'_>,
     ) -> Vec3 {
-        let layer = self.grid.layer_for_destination(group_dest);
+        let layer = self.grid.layer_for_destination(group_dest, ground_source);
         let dest_cell = self.grid.world_to_grid(dest);
         let group_cell = self.grid.world_to_grid(group_dest);
         self.grid.query_from = Some(self.grid.world_to_grid(from));
@@ -1097,28 +1166,16 @@ impl PathfindingSystem {
             seeker_player,
             crusher_level,
             layer,
+            ground_source,
         );
         self.grid.query_from = None;
         self.grid.query_orig_dest = None;
         self.grid.query_seeker_id = 0;
-        let mut adjusted = adj.map_or(dest, |cell| self.grid.grid_to_world(cell));
+        let mut adjusted = adj.map_or(dest, |cell| self.grid.grid_to_world(cell, ground_source));
         // AIPathfind.cpp:8945 samples the selected layer at the final adjusted
-        // XY, not the original request. This immutable content/grid is owned
-        // by the receiving match; no Core terrain/AI selection is necessary.
-        let raw_ground = self.grid.admitted_raw_terrain.as_ref().map_or_else(
-            || {
-                let cell = self.grid.world_to_grid(adjusted);
-                self.terrain_height_samples
-                    .as_ref()
-                    .and_then(|(width, height, values)| {
-                        (cell.x >= 0 && cell.y >= 0 && cell.x < *width && cell.y < *height)
-                            .then(|| values.get((cell.y * *width + cell.x) as usize).copied())
-                            .flatten()
-                    })
-                    .unwrap_or(0.0)
-            },
-            |terrain| terrain.logic_height_at_world(adjusted),
-        );
+        // XY, not the original request. Observe the receiving logical terrain
+        // through this operation's existing borrow; the grid retains no height copy.
+        let raw_ground = ground_source.height_at(adjusted);
         adjusted.y = self
             .grid
             .layer_height_clipped(adjusted, layer as u8, raw_ground);
@@ -1495,9 +1552,10 @@ impl PathfindingSystem {
         goal_object_id: ObjectId,
         goal_pos: Vec3,
         objects: &HashMap<ObjectId, Object>,
+        ground_source: &PathfindingGround<'_>,
     ) {
         // Update obstacles and create flow field (once per logic frame).
-        self.ensure_dynamic_obstacles(objects);
+        self.ensure_dynamic_obstacles(objects, ground_source);
 
         let goal_grid = self.grid.world_to_grid(goal_pos);
         let mut flow_field = FlowField::new_with_origin(
@@ -1564,8 +1622,9 @@ impl PathfindingSystem {
         &mut self,
         path_requests: Vec<(ObjectId, Vec3, Vec3)>, // (unit_id, start, goal)
         objects: &HashMap<ObjectId, Object>,
+        ground_source: &PathfindingGround<'_>,
     ) -> Vec<(ObjectId, Option<Vec<Vec3>>)> {
-        self.ensure_dynamic_obstacles(objects);
+        self.ensure_dynamic_obstacles(objects, ground_source);
 
         // Process all pathfinding requests sequentially
         let mut results = Vec::new();
@@ -1574,7 +1633,7 @@ impl PathfindingSystem {
             let start_grid = self.grid.world_to_grid(start);
             let goal_grid = self.grid.world_to_grid(goal);
 
-            let path = self.grid.find_path(start_grid, goal_grid);
+            let path = self.grid.find_path(start_grid, goal_grid, ground_source);
             results.push((unit_id, path));
         }
 
@@ -1610,8 +1669,15 @@ mod closest_path_ignored_footprint_tests {
         let mut objects = HashMap::new();
         objects.insert(mover.id, mover);
         objects.insert(victim.id, victim);
-        system.apply_structure_static_blocks(&objects, 0.0);
-        system.grid.update_dynamic_obstacles(&objects);
+        system.apply_structure_static_blocks(
+            &objects,
+            0.0,
+            &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+        );
+        system.grid.update_dynamic_obstacles(
+            &objects,
+            &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+        );
         system.bind_seeker_from_mover(&objects, Some(ObjectId(1)));
         system.apply_seeker_human_flag();
 
@@ -1623,7 +1689,15 @@ mod closest_path_ignored_footprint_tests {
         );
 
         let without_ignore = system
-            .find_closest_path(start, goal, SURFACE_GROUND, false, true, 0.2)
+            .find_closest_path(
+                start,
+                goal,
+                SURFACE_GROUND,
+                false,
+                true,
+                0.2,
+                &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+            )
             .expect("ordinary closest path can stop beside the target");
         assert_ne!(
             system.grid.world_to_grid(*without_ignore.last().unwrap()),
@@ -1633,7 +1707,15 @@ mod closest_path_ignored_footprint_tests {
 
         system.set_ignore_obstacle(Some(ObjectId(9)));
         let through_victim = system
-            .find_closest_path(start, goal, SURFACE_GROUND, false, true, 0.2)
+            .find_closest_path(
+                start,
+                goal,
+                SURFACE_GROUND,
+                false,
+                true,
+                0.2,
+                &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+            )
             .expect("ignoreObstacle must admit the victim's target cell");
         assert_eq!(
             through_victim.last().copied(),

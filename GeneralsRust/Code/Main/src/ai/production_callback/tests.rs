@@ -370,7 +370,10 @@ fn supply_spawn_notifies_ai_before_exit_without_replaying_create_or_draining_pai
                 output.selection_radius,
                 grid.grid_size(),
             );
-            let expected_exit = grid.snap_position(Vec3::new(30.0, 0.0, 0.0), center);
+            let expected_exit = ({
+                let ground_source = crate::game_logic::pathfinding::PathfindingGround::Flat(0.0);
+                grid.snap_position(Vec3::new(30.0, 0.0, 0.0), center, &ground_source)
+            });
             assert_eq!(
                 output.movement.path.last(),
                 Some(&expected_exit),

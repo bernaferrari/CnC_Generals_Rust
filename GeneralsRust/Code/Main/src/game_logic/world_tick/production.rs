@@ -1393,16 +1393,45 @@ impl GameLogic {
             shifted.z += cell_size * 0.5;
         }
         let cell = self.pathfinding_system.grid.world_to_grid(shifted);
-        let layer = self.pathfinding_system.grid.layer_for_destination(dest);
-        let adj = self.pathfinding_system.grid.adjust_destination_on_layer(
-            cell,
-            surfaces,
-            is_crusher,
-            400,
-            seeker_player,
-            crusher_level,
-            layer,
-        )?;
+        let layer = ({
+            let ground_owner = self.world_services.terrain();
+            let ground_loan = ground_owner
+                .read()
+                .unwrap_or_else(|error| error.into_inner());
+            let ground_source = crate::game_logic::pathfinding::PathfindingGround::for_terrain(
+                &ground_loan,
+                self.map_loaded,
+                self.terrain.as_ref(),
+                self.pathfinding_height_samples.as_ref(),
+                &self.pathfinding_system.grid,
+            );
+            self.pathfinding_system
+                .grid
+                .layer_for_destination(dest, &ground_source)
+        });
+        let adj = ({
+            let ground_owner = self.world_services.terrain();
+            let ground_loan = ground_owner
+                .read()
+                .unwrap_or_else(|error| error.into_inner());
+            let ground_source = crate::game_logic::pathfinding::PathfindingGround::for_terrain(
+                &ground_loan,
+                self.map_loaded,
+                self.terrain.as_ref(),
+                self.pathfinding_height_samples.as_ref(),
+                &self.pathfinding_system.grid,
+            );
+            self.pathfinding_system.grid.adjust_destination_on_layer(
+                cell,
+                surfaces,
+                is_crusher,
+                400,
+                seeker_player,
+                crusher_level,
+                layer,
+                &ground_source,
+            )
+        })?;
         Some(self.factory_exit_coord_to_cell(adj, center_in_cell, dest.y))
     }
 

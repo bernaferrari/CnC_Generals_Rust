@@ -104,10 +104,26 @@ fn scene_for_weapon(template: ThingTemplate, weapon: &str) -> (GameLogic, Object
         source_object.is_within_attack_range_for_slot(slot, logic.host_object(target).unwrap())
     );
     set_line_blocked(&mut logic, source, target, true);
-    assert!(logic.pathfinding_system.is_attack_view_blocked(
-        logic.host_object(source).unwrap().get_position(),
-        logic.host_object(target).unwrap().get_position(),
-    ));
+    assert!(
+        ({
+            let ground_owner = logic.world_services.terrain();
+            let ground_loan = ground_owner
+                .read()
+                .unwrap_or_else(|error| error.into_inner());
+            let ground_source = crate::game_logic::pathfinding::PathfindingGround::for_terrain(
+                &ground_loan,
+                logic.map_loaded,
+                logic.terrain.as_ref(),
+                logic.pathfinding_height_samples.as_ref(),
+                &logic.pathfinding_system.grid,
+            );
+            logic.pathfinding_system.is_attack_view_blocked(
+                logic.host_object(source).unwrap().get_position(),
+                logic.host_object(target).unwrap().get_position(),
+                &ground_source,
+            )
+        })
+    );
     (logic, source, target)
 }
 

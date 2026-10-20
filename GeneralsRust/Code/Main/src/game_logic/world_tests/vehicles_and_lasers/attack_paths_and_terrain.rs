@@ -158,7 +158,23 @@ fn host_attack_los_gates_fire_through_building() {
                 logic.set_pathfinding_static_block(x0, y0, true);
             }
             assert!(
-                logic.pathfinding_system.is_attack_view_blocked(from, to),
+                ({
+                    let ground_owner = logic.world_services.terrain();
+                    let ground_loan = ground_owner
+                        .read()
+                        .unwrap_or_else(|error| error.into_inner());
+                    let ground_source =
+                        crate::game_logic::pathfinding::PathfindingGround::for_terrain(
+                            &ground_loan,
+                            logic.map_loaded,
+                            logic.terrain.as_ref(),
+                            logic.pathfinding_height_samples.as_ref(),
+                            &logic.pathfinding_system.grid,
+                        );
+                    logic
+                        .pathfinding_system
+                        .is_attack_view_blocked(from, to, &ground_source)
+                }),
                 "static wall must block attack view start={start:?} goal={goal:?}"
             );
             if let Some(o) = logic.objects.get_mut(&atk) {
@@ -436,7 +452,22 @@ fn find_attack_path_picks_los_cell_not_target_footprint() {
         "attack path should end on a firing cell, not victim footprint"
     );
     assert!(
-        !logic.pathfinding_system.is_attack_view_blocked(dest, to),
+        !({
+            let ground_owner = logic.world_services.terrain();
+            let ground_loan = ground_owner
+                .read()
+                .unwrap_or_else(|error| error.into_inner());
+            let ground_source = crate::game_logic::pathfinding::PathfindingGround::for_terrain(
+                &ground_loan,
+                logic.map_loaded,
+                logic.terrain.as_ref(),
+                logic.pathfinding_height_samples.as_ref(),
+                &logic.pathfinding_system.grid,
+            );
+            logic
+                .pathfinding_system
+                .is_attack_view_blocked(dest, to, &ground_source)
+        }),
         "firing cell must have clear LOS to victim"
     );
 }
