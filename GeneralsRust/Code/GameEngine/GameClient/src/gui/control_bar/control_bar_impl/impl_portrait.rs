@@ -1,7 +1,6 @@
 // Split from `gui/control_bar/control_bar.rs` dump. Included by `control_bar_impl/mod.rs`.
 
 impl ControlBar {
-
     // ---------------------------------------------------------------------------
     // Star image / general button flash
     // C++ ControlBar.cpp:1621-1647
@@ -62,9 +61,7 @@ impl ControlBar {
         let current_points = if leftover_points > 0 {
             leftover_points
         } else {
-            self.science_state
-                .live_science_purchase_points
-                .unwrap_or(0)
+            self.science_state.live_science_purchase_points.unwrap_or(0)
         };
 
         if self.last_flashed_at_point_value > current_points || current_points <= 0 {
@@ -78,8 +75,7 @@ impl ControlBar {
             self.leftover_apply_button_general_image(false);
             return;
         }
-        let highlight =
-            self.current_frame % LOGICFRAMES_PER_SECOND > LOGICFRAMES_PER_SECOND / 2;
+        let highlight = self.current_frame % LOGICFRAMES_PER_SECOND > LOGICFRAMES_PER_SECOND / 2;
         self.leftover_apply_button_general_image(highlight);
     }
 
@@ -153,8 +149,7 @@ impl ControlBar {
             y: loc[1],
             z: loc[2],
         };
-        gamelogic::helpers::TheGameClient
-            .set_drawable_position(self.rally_point_drawable_id, &pos);
+        gamelogic::helpers::TheGameClient.set_drawable_position(self.rally_point_drawable_id, &pos);
         let data = game_engine::common::global_data::read();
         let downwind = data.downwind_angle;
         let night = matches!(
@@ -335,13 +330,19 @@ impl ControlBar {
     }
 
     fn update_observer_portrait(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        self.update_observer_portrait_preserving_target(false)
+    }
+    fn update_observer_portrait_preserving_target(
+        &mut self,
+        native_target: bool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         if !self
             .current_frame
             .is_multiple_of(LOGICFRAMES_PER_SECOND / 2)
         {
             return Ok(());
         }
-        self.update_context_observer()?;
+        self.update_context_observer_preserving_target(native_target)?;
 
         let obj_id = {
             self.context
@@ -463,7 +464,9 @@ impl ControlBar {
                 // host-residual lane has no OBJECT_REGISTRY module, so resolve
                 // the selected object's authored command set from its template.
                 if let Some(command_set) = primary_template_name
-                    .and_then(|name| gamelogic::helpers::TheThingFactory::find_template_initialized(name))
+                    .and_then(|name| {
+                        gamelogic::helpers::TheThingFactory::find_template_initialized(name)
+                    })
                     .map(|template| template.get_command_set_string().to_string())
                     .filter(|command_set| !command_set.is_empty())
                 {
@@ -474,9 +477,9 @@ impl ControlBar {
                         .any(|name| name.eq_ignore_ascii_case(&command_set))
                     {
                         self.presentation_command_set_names.push(command_set);
+                    }
                 }
             }
-                }
             _ => {
                 self.portrait_state = PortraitDisplayState::default();
                 if let Ok(mut context) = self.context.write() {
@@ -541,9 +544,8 @@ impl ControlBar {
             .read()
             .ok()
             .map(|ctx| ctx.available_commands.clone());
-        let leftover_slots = leftover_authored_upgrade_cameo_names(
-            &self.portrait_state.portrait_image,
-        );
+        let leftover_slots =
+            leftover_authored_upgrade_cameo_names(&self.portrait_state.portrait_image);
         let authored: Vec<String> = if !authored_cameos.is_empty() {
             authored_cameos
                 .iter()
@@ -889,7 +891,13 @@ pub fn leftover_authored_upgrade_cameo_names(template_name: &str) -> [String; 5]
     let Some(template) = factory.find_template(trimmed, false) else {
         return Default::default();
     };
-    let mut names = [String::new(), String::new(), String::new(), String::new(), String::new()];
+    let mut names = [
+        String::new(),
+        String::new(),
+        String::new(),
+        String::new(),
+        String::new(),
+    ];
     for (i, slot) in names.iter_mut().enumerate() {
         let name = template.get_upgrade_cameo_name(i);
         let text = name.as_str().trim();
@@ -902,9 +910,9 @@ pub fn leftover_authored_upgrade_cameo_names(template_name: &str) -> [String; 5]
 
 /// C++ `obj->hasUpgrade(ut) || player->hasUpgradeComplete(ut)`.
 fn leftover_object_or_player_has_upgrade(obj: &gamelogic::object::Object, name: &str) -> bool {
-    let Some(upgrade) = gamelogic::upgrade::center::with_upgrade_center(|center| {
-        center.find_upgrade(name)
-    }) else {
+    let Some(upgrade) =
+        gamelogic::upgrade::center::with_upgrade_center(|center| center.find_upgrade(name))
+    else {
         return false;
     };
     if obj.has_upgrade(upgrade.as_ref()) {

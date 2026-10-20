@@ -370,6 +370,8 @@ impl MenuCallbacks for SinglePlayerMenu {
 pub struct OptionsCameraInputObservation {
     pub scroll_factor: f32,
     pub default_scroll_factor: f32,
+    pub save_camera: bool,
+    pub use_camera: bool,
 }
 impl OptionsCameraInputObservation {
     pub fn observe(
@@ -379,6 +381,8 @@ impl OptionsCameraInputObservation {
         Self {
             scroll_factor: rules.keyboard_scroll_factor(preferences),
             default_scroll_factor: rules.keyboard_default_scroll_factor,
+            save_camera: preferences.save_camera_in_replays(),
+            use_camera: preferences.use_camera_in_replays(),
         }
     }
 }
@@ -776,8 +780,12 @@ impl OptionsMenu {
             pref.get_bool_or("UseDoubleClickAttackMove", global.double_click_attack_move);
         let language_filter = pref.get_bool_or("LanguageFilter", global.language_filter_pref);
         let send_delay = pref.get_bool_or("SendDelay", global.firewall_send_delay);
-        let save_camera = pref.get_bool_or("SaveCameraInReplays", true);
-        let use_camera = pref.get_bool_or("UseCameraInReplays", true);
+        let save_camera = owned
+            .map(|(_, view)| view.save_camera)
+            .unwrap_or_else(|| pref.save_camera_in_replays());
+        let use_camera = owned
+            .map(|(_, view)| view.use_camera)
+            .unwrap_or_else(|| pref.use_camera_in_replays());
         let draw_anchor = game_engine::common::user_preferences::scroll_anchor_pref_enabled(
             pref.get_string("DrawScrollAnchor")
                 .map(|value| value.as_str()),
@@ -913,8 +921,28 @@ impl OptionsMenu {
         );
         Self::set_checkbox(self.check_language_filter_id, language_filter);
         Self::set_checkbox(self.check_send_delay_id, send_delay);
-        Self::set_checkbox(self.check_save_camera_id, save_camera);
-        Self::set_checkbox(self.check_use_camera_id, use_camera);
+        if let Some((layout, _)) = owned {
+            for (name, checked) in [
+                ("OptionsMenu.wnd:CheckBoxSaveCamera", save_camera),
+                ("OptionsMenu.wnd:CheckBoxUseCamera", use_camera),
+            ] {
+                let id =
+                    game_engine::common::name_key_generator::NameKeyGenerator::name_to_key(name)
+                        as i32;
+                if let Some(window) = layout
+                    .windows()
+                    .iter()
+                    .find(|window| window.borrow().get_id() == id)
+                {
+                    if let Some(checkbox) = window.borrow_mut().check_box_mut() {
+                        checkbox.set_checked(checked);
+                    }
+                }
+            }
+        } else {
+            Self::set_checkbox(self.check_save_camera_id, save_camera);
+            Self::set_checkbox(self.check_use_camera_id, use_camera);
+        }
         Self::set_checkbox(self.check_draw_anchor_id, draw_anchor);
         Self::set_checkbox(self.check_move_anchor_id, move_anchor);
         // C++ OptionsMenuInit applies these to TheInGameUI on open.
@@ -1085,14 +1113,20 @@ impl OptionsMenu {
             .map(|h| h.language_filter)
             .unwrap_or_else(|| Self::checkbox_value(self.check_language_filter_id));
         let send_delay = Self::checkbox_value(self.check_send_delay_id);
-        let save_camera = host
-            .as_ref()
-            .map(|h| h.save_camera)
-            .unwrap_or_else(|| Self::checkbox_value(self.check_save_camera_id));
-        let use_camera = host
-            .as_ref()
-            .map(|h| h.use_camera)
-            .unwrap_or_else(|| Self::checkbox_value(self.check_use_camera_id));
+        let save_camera = host.as_ref().map(|h| h.save_camera).unwrap_or_else(|| {
+            if owns_camera_preferences {
+                pref.save_camera_in_replays()
+            } else {
+                Self::checkbox_value(self.check_save_camera_id)
+            }
+        });
+        let use_camera = host.as_ref().map(|h| h.use_camera).unwrap_or_else(|| {
+            if owns_camera_preferences {
+                pref.use_camera_in_replays()
+            } else {
+                Self::checkbox_value(self.check_use_camera_id)
+            }
+        });
         let draw_anchor = host
             .as_ref()
             .map(|h| h.draw_anchor)
@@ -1276,8 +1310,10 @@ impl OptionsMenu {
             global.double_click_attack_move = double_click_attack_move;
             global.language_filter_pref = language_filter;
             global.firewall_send_delay = send_delay;
-            global.save_camera_in_replay = save_camera;
-            global.use_camera_in_replay = use_camera;
+            if !owns_camera_preferences {
+                global.save_camera_in_replay = save_camera;
+                global.use_camera_in_replay = use_camera;
+            }
             global.display_gamma = display_gamma;
             global.anti_alias_box_value = anti_aliasing;
             if !owns_camera_preferences {

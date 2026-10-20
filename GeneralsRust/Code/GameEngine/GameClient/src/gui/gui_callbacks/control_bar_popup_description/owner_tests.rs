@@ -57,6 +57,7 @@ fn actual_owned_command_tooltip_hover_and_delete_use_receiving_bar_and_window_tr
     let mut viewport = Viewport;
     {
         let mut context = ControlBarInputContext {
+            observer_roster: None,
             camera_options: None,
             control_bar: &mut bar,
             viewport: &mut viewport,
@@ -111,6 +112,7 @@ fn actual_owned_command_tooltip_hover_and_delete_use_receiving_bar_and_window_tr
     bar.tooltip.wait_start = Some(Instant::now() - Duration::from_millis(101));
     for _ in 0..4 {
         let mut context = ControlBarInputContext {
+            observer_roster: None,
             camera_options: None,
             control_bar: &mut bar,
             viewport: &mut viewport,
@@ -135,6 +137,7 @@ fn actual_owned_command_tooltip_hover_and_delete_use_receiving_bar_and_window_tr
     }
     {
         let mut context = ControlBarInputContext {
+            observer_roster: None,
             camera_options: None,
             control_bar: &mut bar,
             viewport: &mut viewport,

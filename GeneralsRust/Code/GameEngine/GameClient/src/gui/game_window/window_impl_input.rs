@@ -446,12 +446,58 @@ impl GameWindow {
             }
             if single_push_button_notification
                 && owned_options
-                && msg == WindowMessage::GadgetSelected
+                && matches!(
+                    msg,
+                    WindowMessage::GadgetSelected | WindowMessage::GadgetRightClick
+                )
+                && let Some(owner) = target_owner.as_ref()
+                && owner.borrow().callbacks.control_bar_observer_system
+            {
+                let key = game_engine::common::name_key_generator::NameKeyGenerator::name_to_key;
+                let cancel = data1 as u32 == key("ControlBar.wnd:ButtonCancel");
+                let player_slot = (0..8)
+                    .find(|i| data1 as u32 == key(&format!("ControlBar.wnd:ButtonPlayer{i}")));
+                if cancel || player_slot.is_some() {
+                    *notification = Some(ControlBarNotification {
+                        owner: owner.clone(),
+                        action: SelectedOwnerAction::ObserverButtonSlot(if cancel {
+                            None
+                        } else {
+                            player_slot
+                        }),
+                        control_id: data1,
+                    });
+                    return WindowMsgHandled::Handled;
+                }
+            }
+            if owned_control_bar
+                && (single_push_button_notification || is_checkbox_message)
+                && owned_options
+                && matches!(
+                    msg,
+                    WindowMessage::GadgetSelected | WindowMessage::GadgetRightClick
+                )
                 && let Some(owner) = target_owner.as_ref()
             {
                 let callbacks = &owner.borrow().callbacks;
                 let key = game_engine::common::name_key_generator::NameKeyGenerator::name_to_key;
                 let action = if callbacks.options_menu_system
+                    && is_checkbox_message
+                    && [
+                        key("OptionsMenu.wnd:CheckBoxUseCamera"),
+                        key("OptionsMenu.wnd:CheckBoxSaveCamera"),
+                    ]
+                    .contains(&(data1 as u32))
+                {
+                    let checked = match self.widget.as_ref() {
+                        Some(WindowWidget::CheckBox(boxed)) => boxed.is_checked(),
+                        _ => unreachable!("checked widget kind"),
+                    };
+                    Some(SelectedOwnerAction::OptionsReplayPreference {
+                        use_camera: data1 as u32 == key("OptionsMenu.wnd:CheckBoxUseCamera"),
+                        checked,
+                    })
+                } else if callbacks.options_menu_system
                     && data1 as u32 == key("OptionsMenu.wnd:ButtonAccept")
                 {
                     Some(SelectedOwnerAction::OptionsAccept)

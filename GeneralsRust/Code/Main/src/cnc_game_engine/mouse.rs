@@ -493,11 +493,15 @@ pub(crate) fn lookat_view_slot(key: NamedKey) -> Option<usize> {
     }
 }
 
-fn should_emit_host_replay_camera(state: GameState, mode: crate::game_logic::GameMode) -> bool {
+fn should_emit_host_replay_camera(
+    state: GameState,
+    mode: crate::game_logic::GameMode,
+    save_camera: bool,
+) -> bool {
     if !matches!(state, GameState::InGame) {
         return false;
     }
-    if !game_engine::common::global_data::read().save_camera_in_replay {
+    if !save_camera {
         return false;
     }
     if crate::command_system::host_recorder_is_playback() {
@@ -510,8 +514,14 @@ fn should_emit_host_replay_camera(state: GameState, mode: crate::game_logic::Gam
     )
 }
 
-fn should_apply_host_replay_camera(player_index: i32) -> bool {
-    crate::command_system::host_should_apply_replay_camera(player_index)
+impl CnCGameEngine {
+    fn receiving_replay_camera_for_player(&self, player_index: i32) -> bool {
+        // Recorder lifecycle remains a distinct capability (hq-e2zpa), not
+        // equivalent to the receiving GameMode enum at start/stop boundaries.
+        crate::command_system::host_recorder_is_playback()
+            && self.ui_manager.replay_camera_preferences().1
+            && self.receiving_observer_look_at_player() == Some(player_index)
+    }
 }
 
 fn lookat_bookmark_message(slot_one_based: usize) -> String {

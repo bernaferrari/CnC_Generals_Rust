@@ -104,7 +104,7 @@ impl CnCGameEngine {
 
     /// C++ GameLogicDispatch.cpp:1970-1984 deselectAllDrawables + selectDrawable.
     fn remirror_host_replay_observer_selection(&mut self, player_index: i32) {
-        if !crate::command_system::host_should_remirror_observer_selection(player_index) {
+        if !self.receiving_replay_camera_for_player(player_index) {
             return;
         }
         let live = self.game_logic.player_selected_objects(player_index as u32);
@@ -114,7 +114,7 @@ impl CnCGameEngine {
     }
 
     fn remirror_host_replay_leftover_selection(&mut self, player_index: i32) {
-        if !crate::command_system::host_should_remirror_observer_selection(player_index) {
+        if !self.receiving_replay_camera_for_player(player_index) {
             return;
         }
         let leftover = crate::command_system::leftover_player_current_selection_ids(player_index);
@@ -270,7 +270,7 @@ impl CnCGameEngine {
         }
         if self.host_camera_movement_finished() {
             if let Some(pose) = self.game_logic.replay_pending.take_camera() {
-                if should_apply_host_replay_camera(pose.player_index) {
+                if self.receiving_replay_camera_for_player(pose.player_index) {
                     // C++ GameLogicDispatch.cpp:1801-1823 setLocation always applies pitch.
                     if let Err(error) =
                         self.apply_native_camera_location(pose.pos, pose.yaw, pose.pitch, pose.zoom)
@@ -298,8 +298,7 @@ impl CnCGameEngine {
                     slot,
                     ids,
                 } => {
-                    if crate::command_system::host_should_remirror_observer_selection(player_index)
-                    {
+                    if self.receiving_replay_camera_for_player(player_index) {
                         if ids.is_empty() {
                             self.control_groups.remove(&slot);
                         } else {
@@ -382,7 +381,11 @@ impl CnCGameEngine {
                 self.sync_context_mouse_cursor();
             }
         }
-        if should_emit_host_replay_camera(self.current_state, self.game_logic.game_mode()) {
+        if should_emit_host_replay_camera(
+            self.current_state,
+            self.game_logic.game_mode(),
+            self.ui_manager.replay_camera_preferences().0,
+        ) {
             let cursor = {
                 #[cfg(feature = "game_client")]
                 {
@@ -458,13 +461,7 @@ impl CnCGameEngine {
             return false;
         };
         let rules = self.game_logic.session_view.camera.settings.height_rules();
-        let use_camera_in_replay = self
-            .game_logic
-            .session_view
-            .camera
-            .settings
-            .current()
-            .use_camera_in_replay;
+        let use_camera_in_replay = self.ui_manager.replay_camera_preferences().1;
         let step = super::super::camera_height::HeightStep {
             terrain,
             paused: self.native_view_is_paused(),

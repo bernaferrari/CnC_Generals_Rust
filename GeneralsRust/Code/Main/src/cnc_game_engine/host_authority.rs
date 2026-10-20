@@ -100,6 +100,8 @@ impl CnCGameEngine {
     /// failed staged/load attempt must leave the active associations valid.
     #[inline]
     pub(super) fn host_advance_direct_visual_world_epoch(&mut self) {
+        #[cfg(feature = "game_client")]
+        self.control_bar.clear_observer_target_owned();
         let next = self.host_direct_visual_world_epoch.wrapping_add(1);
         self.host_direct_visual_world_epoch = if next == 0 { 1 } else { next };
         self.native_display

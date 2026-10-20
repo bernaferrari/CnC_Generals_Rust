@@ -95,6 +95,7 @@ fn click_options(
         writes: Vec::new(),
     };
     let mut context = ControlBarInputContext {
+        observer_roster: None,
         camera_options: Some(CameraOptionsInputContext::new(prefs, rules)),
         control_bar: &mut bar,
         viewport: &mut viewport,
@@ -106,7 +107,11 @@ fn click_options(
     for message in [WindowMessage::LeftDown, WindowMessage::LeftUp] {
         assert_eq!(
             manager.process_mouse_event_with_control_bar(message, x, y, data, &mut context),
-            WindowInputReturnCode::Used
+            WindowInputReturnCode::Used,
+            "{message:?} for control {} at ({x}, {y}), hidden={}, enabled={}",
+            button.borrow().get_id(),
+            button.borrow().is_hidden(),
+            button.borrow().is_enabled()
         );
         // Same completion boundary as the actual OS dispatch, after manager/widget loans end.
         context.complete_options_accept();
@@ -303,4 +308,96 @@ fn actual_quit_and_no_save_options_buttons_select_borrowed_camera_admission() {
     let wiring: String = open.split_whitespace().collect();
     assert!(wiring.contains("camera_input.as_ref()"));
     assert!(open.find("run_init(").unwrap() < open.find("layout.hide(false)").unwrap());
+}
+
+#[test]
+#[cfg(not(target_arch = "wasm32"))]
+fn receiving_replay_checkbox_actual_wnd_commits_only_own_store_before_accept() {
+    const NAME: &str = "receiving_replay_checkbox_actual_wnd_commits_only_own_store_before_accept";
+    const MARKER: &str = "GENERALS_RECEIVING_REPLAY_OPTIONS_CHILD";
+    if std::env::var(MARKER).as_deref() != Ok(NAME) {
+        let module = module_path!().split_once("::").unwrap().1;
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                &format!("{module}::{NAME}"),
+                "--test-threads=1",
+                "--nocapture",
+            ])
+            .env(MARKER, NAME)
+            .output()
+            .unwrap();
+        assert!(String::from_utf8_lossy(&output.stdout).contains("running 1 test"));
+        assert!(
+            output.status.success(),
+            "{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return;
+    }
+    let directory = tempfile::tempdir().unwrap();
+    game_engine::common::ini::ini_game_data::ensure_global_data()
+        .write()
+        .set_path_user_data(
+            directory
+                .path()
+                .join("legacy")
+                .to_string_lossy()
+                .into_owned(),
+        );
+    let path = directory.path().join("A.ini");
+    std::fs::write(
+        &path,
+        "UseCameraInReplays = yes\nSaveCameraInReplays = yes\n",
+    )
+    .unwrap();
+    let mut owner = UserPreferences::new();
+    owner.load(path.to_str().unwrap());
+    let mut peer = UserPreferences::new();
+    peer.set_string("UseCameraInReplays", "yes".into());
+    let (mut manager, mut layout, accept, defaults, back, _) = options_wnd();
+    // Layout insertion order is not hierarchy: attach to the actual Options parent.
+    let parent = accept.borrow().get_parent().unwrap();
+    let id = NameKeyGenerator::name_to_key("OptionsMenu.wnd:CheckBoxUseCamera") as i32;
+    let checkbox = manager
+        .create_window_with_id(Some(&parent), 10, 180, 30, 30, id)
+        .unwrap();
+    checkbox
+        .borrow_mut()
+        .set_widget(WindowWidget::CheckBox(crate::gui::gadgets::CheckBox::new(
+            id as u32, 0, 0, 24,
+        )));
+    manager.bind_window_callbacks(
+        &mut checkbox.borrow_mut(),
+        &WindowDefinition {
+            input_callback: "GadgetCheckBoxInput".into(),
+            ..Default::default()
+        },
+    );
+    // Authored OptionsMenu.wnd uses CHECKBOX+MOUSETRACK; entering arms release.
+    checkbox.borrow_mut().instance_data_mut().style |= GWS_CHECK_BOX | GWS_MOUSE_TRACK;
+    layout.add_window(checkbox.clone());
+    let rules = CameraInputRules::default();
+    let observation = OptionsCameraInputObservation::observe(rules, &owner);
+    layout.run_init(Some(&observation));
+    assert!(checkbox.borrow_mut().check_box_mut().unwrap().is_checked());
+    game_engine::common::global_data::write().use_camera_in_replay = true;
+    click_options(&mut manager, &checkbox, &mut owner, rules);
+    assert!(
+        !owner.use_camera_in_replays(),
+        "actual WND checkbox must commit before Accept"
+    );
+    assert!(peer.use_camera_in_replays());
+    assert!(game_engine::common::global_data::read().use_camera_in_replay);
+    let disk = std::fs::read(&path).unwrap();
+    click_options(&mut manager, &defaults, &mut owner, rules);
+    assert!(!owner.use_camera_in_replays());
+    click_options(&mut manager, &back, &mut owner, rules);
+    assert!(!owner.use_camera_in_replays());
+    assert_eq!(std::fs::read(&path).unwrap(), disk);
+    // Reuse the real kernel after Back destroys its layout, without pretending
+    // a destroyed button is a fresh input: source shared-store Apply is covered
+    // separately by Main's actual custom Apply test.
+    let _ = accept;
 }

@@ -47,6 +47,7 @@ pub struct WindowCallbacks {
     pub input: Option<InputCallback>,
     pub system: Option<SystemCallback>,
     pub(crate) control_bar_system: bool,
+    pub(crate) control_bar_observer_system: bool,
     pub(crate) options_menu_system: bool,
     pub(crate) main_menu_system: bool,
     pub(crate) quit_menu_system: bool,
@@ -176,8 +177,10 @@ impl Default for GameWindow {
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SelectedOwnerAction {
     ControlBarToggle,
+    ObserverButtonSlot(Option<usize>),
     OptionsAccept,
     OptionsDefaults,
+    OptionsReplayPreference { use_camera: bool, checked: bool },
     ShowOptions,
     ShowQuitOptions,
 }

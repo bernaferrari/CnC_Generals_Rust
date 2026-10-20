@@ -29,6 +29,7 @@ impl GameWindow {
                 input: Some(Box::new(default_input_callback)),
                 system: Some(Box::new(default_system_callback)),
                 control_bar_system: false,
+                control_bar_observer_system: false,
                 options_menu_system: false,
                 main_menu_system: false,
                 quit_menu_system: false,
@@ -1725,6 +1726,7 @@ impl GameWindow {
     {
         self.callbacks.system = Some(Box::new(callback));
         self.callbacks.control_bar_system = false;
+        self.callbacks.control_bar_observer_system = false;
         self.callbacks.options_menu_system = false;
         self.callbacks.main_menu_system = false;
         self.callbacks.quit_menu_system = false;
@@ -1742,6 +1744,7 @@ impl GameWindow {
     pub fn reset_system_callback(&mut self) {
         self.callbacks.system = Some(Box::new(default_system_callback));
         self.callbacks.control_bar_system = false;
+        self.callbacks.control_bar_observer_system = false;
         self.callbacks.options_menu_system = false;
         self.callbacks.main_menu_system = false;
         self.callbacks.quit_menu_system = false;
@@ -1857,6 +1860,9 @@ impl GameWindow {
     }
     pub(crate) fn mark_options_menu_system_callback(&mut self) {
         self.callbacks.options_menu_system = true;
+    }
+    pub(crate) fn mark_control_bar_observer_system_callback(&mut self) {
+        self.callbacks.control_bar_observer_system = true;
     }
     pub(crate) fn mark_control_bar_system_callback(&mut self) {
         self.callbacks.control_bar_system = true;

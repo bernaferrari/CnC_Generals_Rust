@@ -268,6 +268,9 @@ pub fn populate_observer_list() {
 
 /// C++ `ControlBar::populateObserverInfoWindow`.
 pub fn populate_observer_info_window() {
+    populate_observer_info_window_for_target(observer_look_at_player_index());
+}
+pub(crate) fn populate_observer_info_window_for_target(target: Option<i32>) {
     if !observer_controls_ready() {
         init_observer_controls();
     }
@@ -282,7 +285,7 @@ pub fn populate_observer_info_window() {
         return;
     }
 
-    let Some(index) = observer_look_at_player_index() else {
+    let Some(index) = target else {
         hide_named("ControlBar.wnd:ObserverPlayerInfoWindow", true);
         hide_named("ControlBar.wnd:ObserverPlayerListWindow", false);
         populate_observer_list();
@@ -454,4 +457,78 @@ pub fn simulate_populate_observer_list() -> bool {
 pub fn simulate_populate_observer_info_window() -> bool {
     populate_observer_info_window();
     true
+}
+
+/// Immutable receiving roster admitted for one native UI operation. It is never
+/// retained by ControlBar or published through the standalone Core observer.
+#[derive(Clone, Debug)]
+pub struct NativeObserverPlayer {
+    pub index: i32,
+    pub observer: bool,
+    pub human: bool,
+    pub display_name: String,
+}
+#[derive(Clone, Debug)]
+pub struct NativeObserverRoster {
+    pub players: Vec<NativeObserverPlayer>,
+    /// Actual Recorder metadata; GameMode::Replay does not imply multiplayer.
+    pub multiplayer: bool,
+    pub frame: u32,
+}
+impl NativeObserverRoster {
+    pub fn selectable(&self) -> impl Iterator<Item = &NativeObserverPlayer> {
+        self.players
+            .iter()
+            .filter(|p| !p.observer && (self.multiplayer || p.human))
+            .take(if self.multiplayer {
+                MAX_OBSERVER_BUTTONS
+            } else {
+                1
+            })
+    }
+    pub fn contains_target(&self, index: i32) -> bool {
+        self.players.iter().any(|p| p.index == index && !p.observer)
+    }
+}
+pub(crate) fn refresh_observer_windows_in_manager(
+    manager: &mut crate::gui::window_manager::WindowManager,
+    roster: &NativeObserverRoster,
+    target: Option<i32>,
+) {
+    for (name, hidden) in [
+        ("ControlBar.wnd:ObserverPlayerInfoWindow", target.is_none()),
+        ("ControlBar.wnd:ObserverPlayerListWindow", target.is_some()),
+    ] {
+        if let Some(window) = manager.find_window_by_name(name) {
+            let _ = window.borrow_mut().hide(hidden);
+        }
+    }
+    for slot in 0..MAX_OBSERVER_BUTTONS {
+        let player = roster.selectable().nth(slot);
+        if let Some(button) =
+            manager.find_window_by_name(&format!("ControlBar.wnd:ButtonPlayer{slot}"))
+        {
+            let mut button = button.borrow_mut();
+            let _ = button.hide(player.is_none());
+            if let Some(player) = player {
+                button.set_user_data(player.index);
+                button.set_tooltip(&player.display_name);
+                button.set_status(WindowStatus::USE_OVERLAY_STATES);
+            }
+        }
+        if let Some(text) =
+            manager.find_window_by_name(&format!("ControlBar.wnd:StaticTextPlayer{slot}"))
+        {
+            let mut text = text.borrow_mut();
+            let _ = text.hide(player.is_none());
+            // Multiplayer labels also include actual GameInfo team metadata.
+            // Preserve the existing compatibility label until that UI adapter
+            // is explicitly migrated; do not replace it with a fabricated name.
+            if !roster.multiplayer {
+                if let Some(player) = player {
+                    let _ = text.set_text(&player.display_name);
+                }
+            }
+        }
+    }
 }

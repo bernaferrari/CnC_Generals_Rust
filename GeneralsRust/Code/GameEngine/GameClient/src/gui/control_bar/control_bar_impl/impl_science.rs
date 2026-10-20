@@ -1318,10 +1318,19 @@ impl ControlBar {
         player_side: &str,
         viewport: &mut dyn crate::gui::callbacks::control_bar_callbacks::ControlBarViewport,
         replay: bool,
+        observer: bool,
         parent: Option<std::rc::Rc<std::cell::RefCell<crate::gui::GameWindow>>>,
     ) {
         self.apply_control_bar_scheme_for_side(player_side);
-        self.apply_scheme_context();
+        self.observer_mode = observer;
+        self.clear_observer_target_owned();
+        if observer {
+            super::control_bar_observer::init_observer_controls();
+            super::control_bar_observer::ensure_gen_arrow_from_mapped_images();
+            let _ = self.switch_to_context(ControlBarState::Observer, None);
+        } else {
+            let _ = self.switch_to_context(ControlBarState::None, None);
+        }
         self.switch_control_bar_stage_on_window_owned(
             ControlBarStage::Default,
             viewport,

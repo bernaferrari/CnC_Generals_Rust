@@ -22,7 +22,18 @@ pub struct UserPreferences {
     filename: Option<PathBuf>,
 }
 
+/// Exact replay-camera OptionPreferences decoder; independent of broad bool settings.
+pub fn replay_camera_preference(raw: Option<&str>) -> bool {
+    raw.is_none_or(|raw| raw.eq_ignore_ascii_case("yes"))
+}
 impl UserPreferences {
+    /// OptionsMenu.cpp361-382: missing means true; only "yes" means true.
+    pub fn save_camera_in_replays(&self) -> bool {
+        replay_camera_preference(self.get_string("SaveCameraInReplays").map(String::as_str))
+    }
+    pub fn use_camera_in_replays(&self) -> bool {
+        replay_camera_preference(self.get_string("UseCameraInReplays").map(String::as_str))
+    }
     pub fn configured_path(&self) -> Option<&Path> {
         self.filename.as_deref()
     }
@@ -261,5 +272,28 @@ mod tests {
         assert!(scroll_anchor_pref_enabled(None, true));
         assert!(scroll_anchor_pref_enabled(Some(""), true));
         assert!(!scroll_anchor_pref_enabled(Some(""), false));
+    }
+}
+
+#[cfg(test)]
+mod replay_camera_tests {
+    use super::*;
+    #[test]
+    fn replay_camera_preference_uses_original_yes_only_and_absent_true() {
+        assert!(replay_camera_preference(None));
+        for text in ["yes", "YES", "Yes"] {
+            assert!(replay_camera_preference(Some(text)));
+        }
+        for text in ["true", "1", "t", "y", "ok", "no", "garbage", "", " yes "] {
+            assert!(!replay_camera_preference(Some(text)), "{text}");
+        }
+        let mut owner = UserPreferences::new();
+        let mut peer = UserPreferences::new();
+        owner.set_string("UseCameraInReplays", "no".into());
+        peer.set_string("SaveCameraInReplays", "no".into());
+        assert!(!owner.use_camera_in_replays());
+        assert!(owner.save_camera_in_replays());
+        assert!(peer.use_camera_in_replays());
+        assert!(!peer.save_camera_in_replays());
     }
 }

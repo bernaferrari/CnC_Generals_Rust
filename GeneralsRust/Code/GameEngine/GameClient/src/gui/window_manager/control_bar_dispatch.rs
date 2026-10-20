@@ -14,6 +14,7 @@ enum PendingCameraOptions {
     Defaults(Option<Rc<RefCell<GameWindow>>>),
     Open(Rc<RefCell<GameWindow>>),
     OpenQuit(WindowMsgData),
+    ReplayPreference { use_camera: bool, checked: bool },
 }
 pub struct CameraOptionsInputContext<'a> {
     preferences: &'a mut game_engine::common::user_preferences::UserPreferences,
@@ -33,6 +34,19 @@ impl<'a> CameraOptionsInputContext<'a> {
     }
     fn complete(&mut self) {
         match self.pending.take() {
+            Some(PendingCameraOptions::ReplayPreference {
+                use_camera,
+                checked,
+            }) => {
+                self.preferences.set_string(
+                    if use_camera {
+                        "UseCameraInReplays"
+                    } else {
+                        "SaveCameraInReplays"
+                    },
+                    if checked { "yes" } else { "no" }.into(),
+                );
+            }
             Some(PendingCameraOptions::Accept(scroll)) => {
                 crate::gui::callbacks::menu_callbacks::complete_options_accept_with_preferences(
                     self.preferences,
@@ -46,6 +60,15 @@ impl<'a> CameraOptionsInputContext<'a> {
                 )
             }
             Some(PendingCameraOptions::Open(window)) => {
+                if let Some(path) = self
+                    .preferences
+                    .configured_path()
+                    .map(|path| path.to_path_buf())
+                {
+                    if let Some(path) = path.to_str() {
+                        let _ = self.preferences.load(path);
+                    }
+                }
                 let observation = crate::gui::callbacks::OptionsCameraInputObservation::observe(
                     self.rules,
                     self.preferences,
@@ -55,6 +78,15 @@ impl<'a> CameraOptionsInputContext<'a> {
                     .select_options_with_camera_input(window_id, observation);
             }
             Some(PendingCameraOptions::OpenQuit(control_id)) => {
+                if let Some(path) = self
+                    .preferences
+                    .configured_path()
+                    .map(|path| path.to_path_buf())
+                {
+                    if let Some(path) = path.to_str() {
+                        let _ = self.preferences.load(path);
+                    }
+                }
                 let observation = crate::gui::callbacks::OptionsCameraInputObservation::observe(
                     self.rules,
                     self.preferences,
@@ -70,6 +102,8 @@ impl<'a> CameraOptionsInputContext<'a> {
 }
 pub struct ControlBarInputContext<'a> {
     pub camera_options: Option<CameraOptionsInputContext<'a>>,
+    pub observer_roster:
+        Option<&'a crate::gui::control_bar::control_bar_observer::NativeObserverRoster>,
     pub control_bar: &'a mut ControlBar,
     pub viewport: &'a mut dyn ControlBarViewport,
     pub replay: bool,
@@ -110,10 +144,34 @@ impl WindowManager {
                     msg,
                     data1,
                     data2,
-                    context.camera_options.is_some(),
+                    context.camera_options.is_some() || context.observer_roster.is_some(),
                 )
         };
         if let Some(notification) = notification {
+            if let SelectedOwnerAction::ObserverButtonSlot(slot) = notification.action {
+                if let Some(roster) = context.observer_roster {
+                    // Resolve the authored button slot against this operation's
+                    // fresh receiving roster; stale Core/userdata IDs never select.
+                    let index = match slot {
+                        Some(slot) => {
+                            let Some(player) = roster.selectable().nth(slot) else {
+                                return handled;
+                            };
+                            Some(player.index)
+                        }
+                        None => None,
+                    };
+                    context
+                        .control_bar
+                        .admit_observer_button_owned(index, roster);
+                    crate::gui::control_bar::control_bar_observer::refresh_observer_windows_in_manager(self, roster, index);
+                } else {
+                    log::warn!(
+                        "native observer callback has no receiving Recorder/roster capability"
+                    );
+                }
+                return handled;
+            }
             if notification.action != SelectedOwnerAction::ControlBarToggle {
                 if !notification
                     .owner
@@ -137,6 +195,13 @@ impl WindowManager {
                             SelectedOwnerAction::OptionsAccept => {
                                 Some(PendingCameraOptions::Accept(scroll))
                             }
+                            SelectedOwnerAction::OptionsReplayPreference {
+                                use_camera,
+                                checked,
+                            } => Some(PendingCameraOptions::ReplayPreference {
+                                use_camera,
+                                checked,
+                            }),
                             SelectedOwnerAction::OptionsDefaults => Some(
                                 PendingCameraOptions::Defaults(self.get_window_by_id(slider_id)),
                             ),
@@ -146,7 +211,8 @@ impl WindowManager {
                             SelectedOwnerAction::ShowQuitOptions => {
                                 Some(PendingCameraOptions::OpenQuit(notification.control_id))
                             }
-                            SelectedOwnerAction::ControlBarToggle => None,
+                            SelectedOwnerAction::ControlBarToggle
+                            | SelectedOwnerAction::ObserverButtonSlot(_) => None,
                         };
                     }
                 }

@@ -131,18 +131,32 @@ impl ControlBar {
         }
     }
 
-
     /// C++ ControlBar.cpp:1410-1433: refresh observer info window every half-second.
     /// C++ ControlBarObserver.cpp:271 populateObserverInfoWindow: units, buildings, kills, losses.
     fn update_context_observer(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        let frame = TheGameLogic::get_frame();
+        self.update_context_observer_preserving_target(false)
+    }
+    fn update_context_observer_preserving_target(
+        &mut self,
+        native_target: bool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let frame = if native_target {
+            self.current_frame
+        } else {
+            TheGameLogic::get_frame()
+        };
         if !frame.is_multiple_of(15) {
             return Ok(());
         }
 
         super::control_bar_observer::init_observer_controls();
-        if super::control_bar_observer::observer_look_at_player_index().is_some() {
-            super::control_bar_observer::populate_observer_info_window();
+        let target = if native_target {
+            self.observer_target_index_owned()
+        } else {
+            super::control_bar_observer::observer_look_at_player_index()
+        };
+        if target.is_some() {
+            super::control_bar_observer::populate_observer_info_window_for_target(target);
         } else {
             super::control_bar_observer::populate_observer_list();
         }
@@ -201,8 +215,10 @@ impl ControlBar {
 
         if let Ok(mut ctx) = self.context.write() {
             ctx.observer_player_stats = observer_stats;
-            ctx.observer_look_at_player =
-                super::control_bar_observer::observer_look_at_player_index();
+            if !native_target {
+                ctx.observer_look_at_player =
+                    super::control_bar_observer::observer_look_at_player_index();
+            }
         }
 
         Ok(())
@@ -310,7 +326,8 @@ impl ControlBar {
         let Some(object_arc) = OBJECT_REGISTRY.get_object(object_id) else {
             // Host presentation residual: beacon UI when command-set freeze says BEACON.
             // Wave 1030: peel translator catalog template/command-set residual too.
-            let catalog = crate::presentation_translator_residual::translator_catalog_entry(object_id);
+            let catalog =
+                crate::presentation_translator_residual::translator_catalog_entry(object_id);
             let catalog_beacon = catalog
                 .as_ref()
                 .map(|e| {
@@ -328,10 +345,7 @@ impl ControlBar {
                     .portrait_image
                     .to_ascii_uppercase()
                     .contains("BEACON");
-            let caption = catalog
-                .as_ref()
-                .map(|e| e.caption.as_str())
-                .unwrap_or("");
+            let caption = catalog.as_ref().map(|e| e.caption.as_str()).unwrap_or("");
             let local = catalog
                 .as_ref()
                 .map(crate::presentation_translator_residual::translator_entry_is_local)
@@ -397,16 +411,17 @@ impl ControlBar {
             Some(count[0])
         })()
         .unwrap_or(0);
-        let catalog_count = crate::presentation_translator_residual::with_translator_catalog(|cat| {
-            cat.iter()
-                .filter(|e| {
-                    crate::presentation_translator_residual::translator_entry_is_local(e)
-                        && !e.destroyed
-                        && (e.template_name.to_ascii_uppercase().contains("BEACON")
-                            || e.command_set_name.to_ascii_uppercase().contains("BEACON"))
-                })
-                .count() as i32
-        });
+        let catalog_count =
+            crate::presentation_translator_residual::with_translator_catalog(|cat| {
+                cat.iter()
+                    .filter(|e| {
+                        crate::presentation_translator_residual::translator_entry_is_local(e)
+                            && !e.destroyed
+                            && (e.template_name.to_ascii_uppercase().contains("BEACON")
+                                || e.command_set_name.to_ascii_uppercase().contains("BEACON"))
+                    })
+                    .count() as i32
+            });
         leftover_count.max(catalog_count) < max_beacons
     }
 
@@ -577,27 +592,22 @@ impl ControlBar {
             }
         }
 
-        let (seconds, percent) = if let (Some(frames), Some(pct)) =
-            (remaining_frames, countdown_percent)
-        {
-            (
-                frames / game_engine::common::game_common::LOGICFRAMES_PER_SECOND,
-                pct,
-            )
-        } else {
-            (self.presentation_ocl_timer_seconds, 0.0)
-        };
+        let (seconds, percent) =
+            if let (Some(frames), Some(pct)) = (remaining_frames, countdown_percent) {
+                (
+                    frames / game_engine::common::game_common::LOGICFRAMES_PER_SECOND,
+                    pct,
+                )
+            } else {
+                (self.presentation_ocl_timer_seconds, 0.0)
+            };
 
         let button_kind = super::control_bar_ocl_timer::ocl_timer_kind_for_object(obj_id);
         if seconds != self.displayed_ocl_timer_seconds {
             self.displayed_ocl_timer_seconds = seconds;
             let (text, progress) =
                 super::control_bar_ocl_timer::format_ocl_timer_display(seconds, percent);
-            super::control_bar_ocl_timer::apply_ocl_timer_windows(
-                &text,
-                progress,
-                button_kind,
-            );
+            super::control_bar_ocl_timer::apply_ocl_timer_windows(&text, progress, button_kind);
             self.mark_ui_dirty();
         } else {
             // Still reveal the context window even when the second latch is unchanged.
@@ -608,5 +618,66 @@ impl ControlBar {
             );
         }
         Ok(())
+    }
+}
+
+impl ControlBar {
+    /// The native target is the existing receiving ControlBarContext value.
+    /// Standalone Core's observer target is deliberately not consulted.
+    pub fn observer_target_owned(
+        &self,
+        roster: &super::control_bar_observer::NativeObserverRoster,
+    ) -> Option<i32> {
+        if !self.observer_mode {
+            return None;
+        }
+        self.context
+            .read()
+            .expect("receiving observer context poisoned")
+            .observer_look_at_player
+            .filter(|id| roster.contains_target(*id))
+    }
+    pub fn admit_observer_button_owned(
+        &mut self,
+        index: Option<i32>,
+        roster: &super::control_bar_observer::NativeObserverRoster,
+    ) {
+        if index.is_some_and(|id| !roster.contains_target(id)) {
+            return;
+        }
+        let next = index;
+        self.context
+            .write()
+            .expect("receiving observer context poisoned")
+            .observer_look_at_player = next;
+    }
+    pub fn observer_target_index_owned(&self) -> Option<i32> {
+        if !self.observer_mode {
+            return None;
+        }
+        self.context
+            .read()
+            .expect("receiving observer context poisoned")
+            .observer_look_at_player
+    }
+    pub fn clear_observer_target_owned(&mut self) {
+        self.context
+            .write()
+            .expect("receiving observer context poisoned")
+            .observer_look_at_player = None;
+    }
+    pub fn refresh_observer_windows_owned(
+        &mut self,
+        roster: &super::control_bar_observer::NativeObserverRoster,
+    ) {
+        let target = self.observer_target_owned(roster);
+        if target.is_none() {
+            self.clear_observer_target_owned();
+        }
+        with_window_manager(|manager| {
+            super::control_bar_observer::refresh_observer_windows_in_manager(
+                manager, roster, target,
+            )
+        });
     }
 }

@@ -1500,8 +1500,7 @@ impl CnCGameEngine {
                 self.update_owned_control_bar_animations();
                 pres.apply_to_control_bar(&mut self.control_bar);
                 let _ = self
-                    .control_bar
-                    .update_owned(std::time::Duration::from_millis(33));
+                    .update_receiving_observer_control_bar(std::time::Duration::from_millis(33));
             }
             // Keep last_presentation aligned with pipeline freeze when it was the source.
             self.last_presentation_frame = Some(pres.into());
@@ -1595,9 +1594,8 @@ impl CnCGameEngine {
         {
             self.update_owned_control_bar_animations();
             pres.apply_to_control_bar(&mut self.control_bar);
-            let _ = self
-                .control_bar
-                .update_owned(std::time::Duration::from_millis(33));
+            let _ =
+                self.update_receiving_observer_control_bar(std::time::Duration::from_millis(33));
         }
         let mut ui = GameUIState::default();
         pres.apply_to_ui_state(&mut ui);
@@ -2213,8 +2211,7 @@ impl CnCGameEngine {
                 self.update_owned_control_bar_animations();
                 pres.apply_to_control_bar(&mut self.control_bar);
                 let _ = self
-                    .control_bar
-                    .update_owned(std::time::Duration::from_millis(33));
+                    .update_receiving_observer_control_bar(std::time::Duration::from_millis(33));
             }
         } else {
             // Wave 238: boot residual via ui_local_economy (no &Player dual-read).

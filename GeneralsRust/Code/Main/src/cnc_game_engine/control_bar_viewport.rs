@@ -3,6 +3,35 @@ use super::*;
 
 #[cfg(feature = "game_client")]
 impl CnCGameEngine {
+    pub(super) fn receiving_observer_roster(
+        &self,
+    ) -> Option<game_client::gui::control_bar::control_bar_observer::NativeObserverRoster> {
+        receiving_observer_roster_from_world(
+            &self.game_logic,
+            game_engine::common::recorder::with_recorder(|recorder| recorder.is_multiplayer())?,
+        )
+    }
+    pub(super) fn receiving_observer_look_at_player(&self) -> Option<i32> {
+        let index = self.control_bar.observer_target_index_owned()?;
+        let id = u32::try_from(index).ok()?;
+        self.game_logic
+            .get_player(id)
+            .filter(|p| !p.is_observer)
+            .map(|_| index)
+    }
+    pub(super) fn update_receiving_observer_control_bar(
+        &mut self,
+        delta: std::time::Duration,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        if !receiving_local_player_is_observer(&self.game_logic) {
+            // A regular ControlBar update does not require replay metadata.
+            return self.control_bar.update_owned(delta);
+        }
+        let roster = self
+            .receiving_observer_roster()
+            .ok_or("receiving Recorder metadata unavailable for native observer")?;
+        self.control_bar.update_owned_with_observers(delta, &roster)
+    }
     fn control_bar_parent_handle(
         &self,
     ) -> Option<std::rc::Rc<std::cell::RefCell<game_client::gui::GameWindow>>> {
@@ -30,7 +59,9 @@ impl CnCGameEngine {
             .unwrap_or(true);
         let cursor_mouse = self.game_client.input_mouse_handle();
         let (x, y) = self.mouse_position;
+        let observer_roster = self.receiving_observer_roster();
         let mut context = game_client::gui::window_manager::ControlBarInputContext {
+            observer_roster: observer_roster.as_ref(),
             camera_options: None,
             control_bar: &mut self.control_bar,
             viewport: &mut self.game_logic.session_view.camera,
@@ -55,11 +86,13 @@ impl CnCGameEngine {
             crate::game_logic::GameMode::Replay
         );
         let side = if replay { "Observer" } else { side };
+        let observer = receiving_local_player_is_observer(&self.game_logic);
         self.control_bar
             .set_control_bar_scheme_by_player_side_owned(
                 side,
                 &mut self.game_logic.session_view.camera,
                 replay,
+                observer,
                 parent,
             );
     }
@@ -228,3 +261,142 @@ impl crate::game_logic::ScriptUiEffects for NativeScriptUi<'_> {
 #[cfg(all(test, feature = "game_client"))]
 #[path = "control_bar_viewport_tests.rs"]
 mod script_ui_tests;
+
+#[cfg(feature = "game_client")]
+fn receiving_local_player_is_observer(world: &crate::game_logic::GameLogic) -> bool {
+    world
+        .local_player_id()
+        .and_then(|id| world.get_player(id))
+        .is_some_and(|player| player.is_observer)
+}
+#[cfg(feature = "game_client")]
+fn receiving_observer_roster_from_world(
+    world: &crate::game_logic::GameLogic,
+    multiplayer: bool,
+) -> Option<game_client::gui::control_bar::control_bar_observer::NativeObserverRoster> {
+    use game_client::gui::control_bar::control_bar_observer::{
+        NativeObserverPlayer, NativeObserverRoster,
+    };
+    let mut players: Vec<_> = world.get_players().values().collect();
+    players.sort_by_key(|p| p.id);
+    if multiplayer {
+        // Source multiplayer walks named player0..player7, not arbitrary IDs or
+        // the replay observer/neutral owners. The same receiving Main dict name
+        // was admitted by the actual SidesList/GameSlot path.
+        players = (0..8)
+            .filter_map(|slot| {
+                let name = format!("player{slot}");
+                world
+                    .get_players()
+                    .values()
+                    .find(|p| p.map_side.map_player_name == name)
+            })
+            .collect();
+    }
+    Some(NativeObserverRoster {
+        players: players
+            .into_iter()
+            .map(|p| {
+                Some(NativeObserverPlayer {
+                    index: i32::try_from(p.id).ok()?,
+                    observer: p.is_observer,
+                    human: p.is_human,
+                    display_name: p.name.clone(),
+                })
+            })
+            .collect::<Option<Vec<_>>>()?,
+        multiplayer,
+        frame: world.frame,
+    })
+}
+#[cfg(not(feature = "game_client"))]
+impl CnCGameEngine {
+    pub(super) fn receiving_observer_look_at_player(&self) -> Option<i32> {
+        None
+    }
+}
+
+#[cfg(all(test, feature = "game_client"))]
+mod receiving_observer_roster_tests {
+    use super::*;
+    #[test]
+    fn actual_same_id_world_players_drive_native_observer_roster_and_target() {
+        use crate::game_logic::{GameLogic, Player, Team};
+        let mut owner = GameLogic::new();
+        let mut peer = GameLogic::new();
+        for (world, name) in [(&mut owner, "Receiving"), (&mut peer, "Foreign")] {
+            let mut ai = Player::new(0, Team::USA, "AI", false);
+            ai.is_human = false;
+            let mut observer = Player::new(1, Team::USA, "Observer", true);
+            observer.is_observer = true;
+            let mut human = Player::new(2, Team::USA, name, true);
+            human.is_human = true;
+            human.map_side.map_player_name = "player0".into();
+            world.add_player(ai);
+            world.add_player(observer);
+            world.add_player(human);
+        }
+        let roster = receiving_observer_roster_from_world(&owner, false).unwrap();
+        let other = receiving_observer_roster_from_world(&peer, false).unwrap();
+        assert_eq!(
+            roster
+                .selectable()
+                .map(|p| (p.index, p.display_name.as_str()))
+                .collect::<Vec<_>>(),
+            vec![(2, "Receiving")]
+        );
+        assert_eq!(
+            other
+                .selectable()
+                .map(|p| (p.index, p.display_name.as_str()))
+                .collect::<Vec<_>>(),
+            vec![(2, "Foreign")]
+        );
+        let mut bar = game_client::gui::control_bar::ControlBar::new();
+        bar.set_observer_mode(true);
+        bar.admit_observer_button_owned(Some(2), &roster);
+        peer.get_player_mut(2).unwrap().is_observer = true;
+        let peer_changed = receiving_observer_roster_from_world(&peer, false).unwrap();
+        assert!(peer_changed.selectable().next().is_none());
+        assert_eq!(bar.observer_target_owned(&roster), Some(2));
+        game_client::gui::control_bar::control_bar_observer::set_observer_look_at_player(Some(999));
+        bar.update_owned_with_observers(std::time::Duration::from_millis(33), &roster)
+            .unwrap();
+        assert_eq!(bar.observer_target_owned(&roster), Some(2));
+        assert_eq!(
+            game_client::gui::control_bar::control_bar_observer::observer_look_at_player_index(),
+            Some(999)
+        );
+        game_client::gui::control_bar::control_bar_observer::set_observer_look_at_player(None);
+        let multi = receiving_observer_roster_from_world(&owner, true).unwrap();
+        assert_eq!(
+            multi.selectable().map(|p| p.index).collect::<Vec<_>>(),
+            vec![2]
+        );
+        bar.clear_observer_target_owned();
+        assert_eq!(bar.observer_target_owned(&roster), None);
+    }
+}
+
+#[cfg(all(test, feature = "game_client"))]
+mod native_observer_local_identity_tests {
+    use super::*;
+    #[test]
+    fn receiving_observer_mode_uses_actual_local_player_not_engine_command_player_zero() {
+        use crate::game_logic::{GameLogic, Player, Team};
+        let mut world = GameLogic::new();
+        let mut command = Player::new(0, Team::USA, "RecordedPlayer", true);
+        command.is_local = false;
+        world.add_player(command);
+        let mut observer = Player::new(17, Team::Neutral, "ReplayObserver", false);
+        observer.is_local = true;
+        observer.is_observer = true;
+        world.add_player(observer);
+        assert_eq!(world.local_player_id(), Some(17));
+        assert!(!world.get_player(0).unwrap().is_observer);
+        assert!(receiving_local_player_is_observer(&world));
+        world.get_player_mut(17).unwrap().is_local = false;
+        world.get_player_mut(0).unwrap().is_local = true;
+        assert!(!receiving_local_player_is_observer(&world));
+    }
+}

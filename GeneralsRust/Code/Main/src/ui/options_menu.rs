@@ -298,6 +298,25 @@ impl OptionsMenu {
         }
         self.original_values
             .insert("controls.scroll_speed".into(), value);
+        let replay = [
+            (
+                "controls.save_camera",
+                self.preferences.save_camera_in_replays(),
+            ),
+            (
+                "controls.use_camera",
+                self.preferences.use_camera_in_replays(),
+            ),
+        ];
+        for (key, enabled) in replay {
+            for control in self.iter_controls_mut() {
+                if control.key == key {
+                    control.value = OptionValue::Boolean(enabled);
+                }
+            }
+            self.original_values
+                .insert(key.into(), OptionValue::Boolean(enabled));
+        }
     }
     pub(crate) fn preferences(&self) -> &game_engine::common::user_preferences::UserPreferences {
         &self.preferences
@@ -866,14 +885,18 @@ impl OptionsMenu {
                     }
                 }
                 "controls.save_camera" => {
-                    if let Some(v) = flat.get("SaveCameraInReplays") {
-                        control.value = OptionValue::Boolean(Self::parse_yes_no(v));
-                    }
+                    control.value = OptionValue::Boolean(
+                        game_engine::common::user_preferences::replay_camera_preference(
+                            flat.get("SaveCameraInReplays").map(String::as_str),
+                        ),
+                    );
                 }
                 "controls.use_camera" => {
-                    if let Some(v) = flat.get("UseCameraInReplays") {
-                        control.value = OptionValue::Boolean(Self::parse_yes_no(v));
-                    }
+                    control.value = OptionValue::Boolean(
+                        game_engine::common::user_preferences::replay_camera_preference(
+                            flat.get("UseCameraInReplays").map(String::as_str),
+                        ),
+                    );
                 }
                 "controls.draw_anchor" => {
                     let fallback =
@@ -971,6 +994,17 @@ impl OptionsMenu {
                 match &mut control.value {
                     OptionValue::Boolean(val) => {
                         *val = !*val;
+                        // C++ GBM_SELECTED changes replay preference immediately;
+                        // Back never undoes its live effect, only skips disk write.
+                        let preference = match key {
+                            "controls.save_camera" => Some("SaveCameraInReplays"),
+                            "controls.use_camera" => Some("UseCameraInReplays"),
+                            _ => None,
+                        };
+                        if let Some(preference) = preference {
+                            self.preferences
+                                .set_string(preference, if *val { "yes" } else { "no" }.into());
+                        }
                     }
                     OptionValue::Integer(val) => {
                         *val = if *val >= 100 { 0 } else { (*val + 10).min(100) };
@@ -1242,6 +1276,9 @@ impl OptionsMenu {
         );
         let originals = self.original_values.clone();
         for control in self.iter_controls_mut() {
+            if ["controls.save_camera", "controls.use_camera"].contains(&control.key.as_str()) {
+                continue;
+            }
             if let Some(value) = originals.get(&control.key).cloned() {
                 control.value = value;
             }

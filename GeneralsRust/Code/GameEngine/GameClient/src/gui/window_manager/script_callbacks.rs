@@ -566,6 +566,7 @@ impl WindowManager {
                             callbacks.system(window, msg, data1, data2)
                         })
                     });
+                    window.mark_control_bar_observer_system_callback();
                 }
                 "DiplomacySystem" => {
                     window.set_system_callback(|window, msg, data1, data2| {

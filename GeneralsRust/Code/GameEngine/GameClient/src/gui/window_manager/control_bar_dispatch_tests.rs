@@ -75,6 +75,7 @@ fn click(
     let (x, y) = (x + 5, y + 5);
     let data = (((y as u32) << 16) | ((x as u32) & 0xffff)) as WindowMsgData;
     let mut context = ControlBarInputContext {
+        observer_roster: None,
         camera_options: None,
         control_bar: bar,
         viewport,
@@ -149,6 +150,7 @@ fn wnd_large_button_keyboard_and_ending_replay_guards_use_receiving_context() {
     manager.set_focus(Some(&button)).unwrap();
     {
         let mut context = ControlBarInputContext {
+            observer_roster: None,
             camera_options: None,
             control_bar: &mut bar,
             viewport: &mut viewport,
@@ -165,6 +167,7 @@ fn wnd_large_button_keyboard_and_ending_replay_guards_use_receiving_context() {
     assert_eq!(bar.get_control_bar_stage(), ControlBarStage::Default);
     {
         let mut context = ControlBarInputContext {
+            observer_roster: None,
             camera_options: None,
             control_bar: &mut bar,
             viewport: &mut viewport,
@@ -180,6 +183,7 @@ fn wnd_large_button_keyboard_and_ending_replay_guards_use_receiving_context() {
     assert!(viewport.writes.is_empty());
     {
         let mut context = ControlBarInputContext {
+            observer_roster: None,
             camera_options: None,
             control_bar: &mut bar,
             viewport: &mut viewport,
@@ -276,4 +280,152 @@ fn wnd_restoring_default_applies_receiving_context_visibility_before_parent_borr
         assert_eq!(actual.borrow().is_hidden(), final_hidden);
         assert_eq!(foreign.borrow().is_hidden(), initial);
     }
+}
+
+#[test]
+fn native_observer_button_and_cancel_admit_only_receiving_roster_target() {
+    use crate::gui::control_bar::control_bar_observer::{
+        NativeObserverPlayer, NativeObserverRoster,
+    };
+    let roster = NativeObserverRoster {
+        players: vec![
+            NativeObserverPlayer {
+                index: 7,
+                observer: false,
+                human: true,
+                display_name: "Receiving".into(),
+            },
+            NativeObserverPlayer {
+                index: 13,
+                observer: false,
+                human: true,
+                display_name: "OtherValidReceivingPlayer".into(),
+            },
+        ],
+        multiplayer: false,
+        frame: 30,
+    };
+    let peer = NativeObserverRoster {
+        players: vec![NativeObserverPlayer {
+            index: 7,
+            observer: false,
+            human: true,
+            display_name: "Foreign".into(),
+        }],
+        multiplayer: false,
+        frame: 30,
+    };
+    let mut bar = ControlBar::new();
+    bar.set_observer_mode(true);
+    let mut other = ControlBar::new();
+    other.set_observer_mode(true);
+    other.admit_observer_button_owned(Some(7), &peer);
+    let mut manager = WindowManager::new();
+    let parent = manager
+        .create_window_with_id(None, 0, 0, 200, 100, 42)
+        .unwrap();
+    manager.bind_window_callbacks(
+        &mut parent.borrow_mut(),
+        &WindowDefinition {
+            system_callback: "ControlBarObserverSystem".into(),
+            ..Default::default()
+        },
+    );
+    let id = NameKeyGenerator::name_to_key("ControlBar.wnd:ButtonPlayer0") as i32;
+    let button = manager
+        .create_window_with_id(Some(&parent), 0, 0, 40, 20, id)
+        .unwrap();
+    // A stale/foreign userdata identity must not override authored slot0.
+    button.borrow_mut().set_user_data(13_i32);
+    assert!(
+        roster.contains_target(13),
+        "control must use another valid receiving ID"
+    );
+    button
+        .borrow_mut()
+        .set_widget(WindowWidget::PushButton(PushButton::new(
+            id as u32, 0, 0, 40, 20,
+        )));
+    manager.bind_window_callbacks(
+        &mut button.borrow_mut(),
+        &WindowDefinition {
+            input_callback: "GadgetPushButtonInput".into(),
+            ..Default::default()
+        },
+    );
+    let mut viewport = Viewport {
+        width: 800,
+        height: 600,
+        view_height: 600,
+        writes: Vec::new(),
+    };
+    {
+        let mut context = ControlBarInputContext {
+            camera_options: None,
+            observer_roster: Some(&roster),
+            control_bar: &mut bar,
+            viewport: &mut viewport,
+            replay: true,
+            game_ending: false,
+            tooltips_disabled: false,
+            cursor_mouse: None,
+        };
+        // Actual gadget consumes down/up and selected native notification.
+        for message in [WindowMessage::LeftDown, WindowMessage::LeftUp] {
+            let _ = manager.send_input_selected(&button, message, 0, 0, false, Some(&mut context));
+        }
+    }
+    assert_eq!(bar.observer_target_owned(&roster), Some(7));
+    assert_eq!(other.observer_target_owned(&peer), Some(7));
+    bar.update_owned_with_observers(std::time::Duration::from_millis(33), &roster)
+        .unwrap();
+    assert_eq!(
+        bar.observer_target_owned(&roster),
+        Some(7),
+        "native update must not overwrite receiving target with Core target"
+    );
+    let cancel_id = NameKeyGenerator::name_to_key("ControlBar.wnd:ButtonCancel") as i32;
+    let cancel = manager
+        .create_window_with_id(Some(&parent), 0, 0, 40, 20, cancel_id)
+        .unwrap();
+    cancel
+        .borrow_mut()
+        .set_widget(WindowWidget::PushButton(PushButton::new(
+            cancel_id as u32,
+            0,
+            0,
+            40,
+            20,
+        )));
+    manager.bind_window_callbacks(
+        &mut cancel.borrow_mut(),
+        &WindowDefinition {
+            input_callback: "GadgetPushButtonInput".into(),
+            ..Default::default()
+        },
+    );
+    {
+        let mut context = ControlBarInputContext {
+            camera_options: None,
+            observer_roster: Some(&roster),
+            control_bar: &mut bar,
+            viewport: &mut viewport,
+            replay: true,
+            game_ending: false,
+            tooltips_disabled: false,
+            cursor_mouse: None,
+        };
+        for message in [WindowMessage::LeftDown, WindowMessage::LeftUp] {
+            let _ = manager.send_input_selected(&cancel, message, 0, 0, false, Some(&mut context));
+        }
+    }
+    assert_eq!(
+        bar.observer_target_owned(&roster),
+        None,
+        "actual Cancel gadget clears only the receiving target"
+    );
+    assert_eq!(other.observer_target_owned(&peer), Some(7));
+    bar.admit_observer_button_owned(Some(7), &roster);
+    bar.clear_observer_target_owned();
+    assert_eq!(bar.observer_target_owned(&roster), None);
 }

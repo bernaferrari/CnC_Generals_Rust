@@ -159,6 +159,13 @@ impl UIManager {
     ) {
         self.options_menu.admit_preferences(preferences);
     }
+    pub(crate) fn replay_camera_preferences(&self) -> (bool, bool) {
+        let preferences = self.options_menu.preferences();
+        (
+            preferences.save_camera_in_replays(),
+            preferences.use_camera_in_replays(),
+        )
+    }
     pub(crate) fn camera_keyboard_scroll_factor(
         &self,
         rules: game_engine::common::ini::ini_game_data::CameraInputRules,
@@ -678,6 +685,8 @@ impl UIManager {
     /// Transition to a new screen
     pub(crate) fn transition_to_screen(&mut self, screen: Screen) {
         if screen == Screen::Options && self.current_screen != Some(screen) {
+            // C++ creates and reloads OptionPreferences on every Options open.
+            self.options_menu.reload_preferences();
             self.options_menu.refresh_options_controls();
         }
         if Some(screen) != self.current_screen {

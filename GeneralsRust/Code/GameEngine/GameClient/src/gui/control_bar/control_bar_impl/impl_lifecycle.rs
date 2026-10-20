@@ -118,7 +118,7 @@ impl ControlBar {
         // live instance ticks. Apply it so CommandWindow HIDDEN is cleared InGame.
         self.apply_pending_control_bar_stage();
         self.apply_live_hook_events(true);
-        self.update_body(delta_time)
+        self.update_body(delta_time, true, None)
     }
 
     /// Native viewport/stage changes are already admitted on this instance.
@@ -126,10 +126,29 @@ impl ControlBar {
     /// compatibility intake until their receiving-owner migration is complete.
     pub fn update_owned(&mut self, delta_time: Duration) -> Result<(), Box<dyn std::error::Error>> {
         self.apply_live_hook_events(false);
-        self.update_body(delta_time)
+        self.update_body(delta_time, false, None)
     }
 
-    fn update_body(&mut self, delta_time: Duration) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn update_owned_with_observers(
+        &mut self,
+        delta_time: Duration,
+        roster: &super::control_bar_observer::NativeObserverRoster,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        self.apply_live_hook_events(false);
+        self.update_body(delta_time, false, Some(roster))?;
+        if self.observer_mode {
+            // Legacy art/stat refresh may enumerate its compatibility players.
+            // Reassert only native selectable identities from the receiving map.
+            self.refresh_observer_windows_owned(roster);
+        }
+        Ok(())
+    }
+    fn update_body(
+        &mut self,
+        delta_time: Duration,
+        publish_standalone: bool,
+        native_roster: Option<&super::control_bar_observer::NativeObserverRoster>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         crate::gui::w3d_gadget_draw::ensure_scheme_draw_registered();
         crate::gui::w3d_gadget_draw::ensure_control_bar_wnd_draw_callbacks();
         super::control_bar_observer::init_observer_controls();
@@ -170,16 +189,19 @@ impl ControlBar {
             }
         }
 
-        self.current_frame = TheGameLogic::get_frame();
+        self.current_frame =
+            native_roster.map_or_else(TheGameLogic::get_frame, |roster| roster.frame);
         self.update_star_image();
         self.update_radar_attack_glow();
         // C++ InGameUI.cpp:1776-1815 writes MoneyDisplay / PowerWindow hide
         // immediately before TheControlBar->update(). Live host ticks ControlBar
         // from presentation apply, so this is the live InGameUI money path.
-        self.update_money_and_power_windows();
+        self.update_money_and_power_windows_with_target(
+            native_roster.map(|_| self.observer_target_index_owned()),
+        );
 
         if self.observer_mode {
-            self.update_observer_portrait()?;
+            self.update_observer_portrait_preserving_target(native_roster.is_some())?;
             return Ok(());
         }
 
@@ -275,7 +297,7 @@ impl ControlBar {
                 self.update_context_ocl_timer(delta_time)?;
             }
             ControlBarState::Observer => {
-                self.update_context_observer()?;
+                self.update_context_observer_preserving_target(native_roster.is_some())?;
             }
             ControlBarState::MultiSelect => {
                 self.update_context_multi_select()?;
@@ -298,7 +320,9 @@ impl ControlBar {
 
         self.update_special_power_shortcut_availability();
 
-        set_live_control_bar_observer_look_at(self.get_observer_look_at_player_index());
+        if publish_standalone {
+            set_live_control_bar_observer_look_at(self.get_observer_look_at_player_index());
+        }
 
         Ok(())
     }
@@ -315,13 +339,18 @@ impl ControlBar {
     /// match, so the frozen host presentation supplies the local player's cash.
     /// Keep that input separate from the last value actually written to a WND.
     pub fn update_money_and_power_windows(&mut self) {
+        self.update_money_and_power_windows_with_target(None);
+    }
+    fn update_money_and_power_windows_with_target(&mut self, native_target: Option<Option<i32>>) {
         let money_player = if self.observer_mode {
-            self.get_observer_look_at_player_index().and_then(|idx| {
-                logic_player_list()
-                    .read()
-                    .ok()
-                    .and_then(|list| list.get_player(idx as PlayerIndex).cloned())
-            })
+            native_target
+                .unwrap_or_else(|| self.get_observer_look_at_player_index())
+                .and_then(|idx| {
+                    logic_player_list()
+                        .read()
+                        .ok()
+                        .and_then(|list| list.get_player(idx as PlayerIndex).cloned())
+                })
         } else {
             logic_player_list()
                 .read()

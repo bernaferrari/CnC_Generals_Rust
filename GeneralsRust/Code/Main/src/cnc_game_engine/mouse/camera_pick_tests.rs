@@ -539,15 +539,18 @@ fn host_replay_camera_emit_matches_cpp_look_at_gates() {
     // C++ LookAtXlat.cpp:459 — saveCameraInReplay && (SP || skirmish).
     assert!(!should_emit_host_replay_camera(
         GameState::Menu,
-        crate::game_logic::GameMode::Skirmish
+        crate::game_logic::GameMode::Skirmish,
+        true
     ));
     assert!(!should_emit_host_replay_camera(
         GameState::InGame,
-        crate::game_logic::GameMode::Multiplayer
+        crate::game_logic::GameMode::Multiplayer,
+        true
     ));
     assert!(!should_emit_host_replay_camera(
         GameState::InGame,
-        crate::game_logic::GameMode::Shell
+        crate::game_logic::GameMode::Shell,
+        true
     ));
 }
 

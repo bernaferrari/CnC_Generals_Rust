@@ -226,7 +226,9 @@ impl CnCGameEngine {
             let game_ending = self.game_logic.owned_script_game_ending();
             let tooltips_disabled = self.receiving_tooltips_disabled();
             let cursor_mouse = self.game_client.input_mouse_handle();
+            let observer_roster = self.receiving_observer_roster();
             let mut context = game_client::gui::window_manager::ControlBarInputContext {
+                observer_roster: observer_roster.as_ref(),
                 camera_options: Some(
                     game_client::gui::window_manager::CameraOptionsInputContext::new(
                         self.ui_manager.options_preferences_mut(),
@@ -395,7 +397,9 @@ impl CnCGameEngine {
         let game_ending = self.game_logic.owned_script_game_ending();
         let tooltips_disabled = self.receiving_tooltips_disabled();
         let cursor_mouse = self.game_client.input_mouse_handle();
+        let observer_roster = self.receiving_observer_roster();
         let mut context = game_client::gui::window_manager::ControlBarInputContext {
+            observer_roster: observer_roster.as_ref(),
             camera_options: Some(
                 game_client::gui::window_manager::CameraOptionsInputContext::new(
                     self.ui_manager.options_preferences_mut(),

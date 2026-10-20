@@ -1558,9 +1558,8 @@ impl CnCGameEngine {
         {
             self.update_owned_control_bar_animations();
             pres.apply_to_control_bar(&mut self.control_bar);
-            let _ = self
-                .control_bar
-                .update_owned(std::time::Duration::from_millis(33));
+            let _ =
+                self.update_receiving_observer_control_bar(std::time::Duration::from_millis(33));
         }
         true
     }
