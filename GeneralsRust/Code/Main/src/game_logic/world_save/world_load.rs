@@ -180,6 +180,20 @@ impl GameLogic {
     where
         F: FnMut(f32, &str),
     {
+        // The interpreter belongs to the session even when map decoding fails.
+        // A loan must be returned before destructive map admission can begin.
+        let Some(engine) = self.owned_script_engine.as_mut() else {
+            log::error!("Map admission requires the receiving ScriptEngine to be returned");
+            return false;
+        };
+        // ScriptEngine.cpp5252–5405 resets map runtime/lists, not the owning
+        // interpreter or its difficulty/debug controls. Core reset currently
+        // clears those controls too, so preserve their actual receiving values.
+        let retained_difficulty = engine.get_global_difficulty();
+        let retained_debug = engine.is_time_frozen_debug();
+        engine.reset();
+        engine.set_global_difficulty(retained_difficulty);
+        engine.set_time_frozen_debug(retained_debug);
         report_progress(0.26, "Preparing map data");
         log::info!("Loading map: {}", map_name);
         let load_started = Instant::now();
@@ -209,7 +223,8 @@ impl GameLogic {
         self.loaded_script_lists.clear();
         // The admission retains actual interpreter difficulty even across a
         // failed selected-map attempt. C++ reset/newMap do not reset it.
-        self.owned_script_engine = None;
+        // Keep the reset receiving interpreter installed through decode errors.
+        // Successful script-definition admission replaces it at its existing phase.
         self.objects_receive_difficulty_bonus = true;
         self.set_script_input_enabled(true);
         self.script_source_path = None;
@@ -1088,8 +1103,8 @@ impl GameLogic {
     where
         F: FnMut(f32, &str),
     {
-        // One admission owns both attempts. The first failure may already
-        // have retired its interpreter; never recapture from that dirty world.
+        // One admission owns both attempts. Capture the receiving difficulty
+        // before either attempt resets map runtime.
         let difficulty = self
             .owned_script_engine
             .as_ref()
@@ -1318,3 +1333,7 @@ pub(in super::super) fn apply_cpp_heightmap_xy_and_border(
     heightmap.scale = MAP_XY_FACTOR;
     heightmap.border_size = map_border;
 }
+
+#[cfg(test)]
+#[path = "map_interpreter_lifetime_tests.rs"]
+mod map_interpreter_lifetime_tests;

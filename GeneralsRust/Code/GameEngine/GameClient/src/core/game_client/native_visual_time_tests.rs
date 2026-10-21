@@ -458,3 +458,71 @@ fn fallible_native_observation_rejects_at_late_boundary_without_consuming_visual
         .unwrap();
     assert!(step.frozen);
 }
+
+#[test]
+fn native_presentation_prefix_does_not_reactivate_hidden_shell_or_replace_match() {
+    if crate::core::game_client::global_boundary_fixture::run_in_private_child(
+        module_path!(),
+        "native_presentation_prefix_does_not_reactivate_hidden_shell_or_replace_match",
+    ) {
+        return;
+    }
+    let global = game_engine::common::ini::ini_game_data::ensure_global_data();
+    {
+        let mut data = global.write();
+        data.initial_file.clear();
+        data.shell_map_on = true;
+        data.shell_map_name = "Maps\\ShellMap\\ShellMap.map".into();
+        data.pending_file = "receiving-match.map".into();
+    }
+    gamelogic::system::game_logic::get_game_logic()
+        .lock()
+        .unwrap()
+        .set_game_mode(gamelogic::system::game_logic::GAME_NONE);
+    get_shell().init().unwrap();
+    get_shell().set_shell_active(false);
+    assert!(!get_shell().is_shell_active());
+    {
+        THE_MESSAGE_STREAM.write().unwrap().clear_messages();
+    }
+    let mut a = client(1);
+    let mut b = client(1);
+    for receiving in [&mut a, &mut b] {
+        let prepared = receiving
+            .begin_presentation_shell_with_owned_visual_time(0.033, frames(1), &[], || {
+                NativeVisualTime {
+                    frozen: false,
+                    visual_speed: 1.,
+                }
+            })
+            .unwrap();
+        drop(prepared);
+        let stream = THE_MESSAGE_STREAM.read().unwrap();
+        assert!(
+            !stream.get_messages().iter().any(|message| matches!(
+                message.get_type(),
+                crate::message_stream::GameMessageType::NewGame
+                    | crate::message_stream::GameMessageType::ClearGameData
+            )),
+            "an ordinary native Client prefix must not queue a Shell game replacement"
+        );
+        assert!(!get_shell().is_shell_active());
+        assert_eq!(global.read().pending_file, "receiving-match.map");
+    }
+    // Explicit Menu admission remains available; do not suppress valid Shell starts.
+    a.ensure_shell_visible().unwrap();
+    let stream = THE_MESSAGE_STREAM.read().unwrap();
+    assert_eq!(
+        stream
+            .get_messages()
+            .iter()
+            .filter(|message| matches!(
+                message.get_type(),
+                crate::message_stream::GameMessageType::NewGame
+            ))
+            .count(),
+        1
+    );
+    assert!(get_shell().is_shell_active());
+    assert_eq!(global.read().pending_file, "Maps\\ShellMap\\ShellMap.map");
+}

@@ -1781,8 +1781,9 @@ impl GameClient {
             }
         }
 
-        // Startup movies remain Main/runtime-host owned; skip movie branch here.
-        self.ensure_shell_visible()?;
+        // Native Main owns Menu admission and startup movie completion.
+        // A hidden shell during a match must stay hidden: showing its map
+        // here would enqueue GAME_SHELL and replace the receiving game.
         // Snow/Anim2D: C++ runs every GameClient::update. Live host ticks
         // them from cnc_game_engine residuals in every state (including when
         // this shell is skipped). Dual-world `update()` still ticks above.
