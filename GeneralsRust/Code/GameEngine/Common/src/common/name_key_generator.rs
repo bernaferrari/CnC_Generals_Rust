@@ -21,22 +21,24 @@ struct BucketEntry {
     name: String,
 }
 
-/// Internal state for the name-key registry.
-#[derive(Debug)]
-struct NameKeyGeneratorState {
+/// Explicitly owned instance of the original name-key table.
+/// Move this value across content-loading threads; numeric keys are meaningful
+/// only with this same namespace. Construction never installs ambient state.
+#[derive(Debug, Clone)]
+pub struct NameKeyNamespace {
     buckets: Vec<Vec<BucketEntry>>,
     next_id: NameKeyType,
     reverse_lookup: HashMap<NameKeyType, String>,
 }
 
-impl Default for NameKeyGeneratorState {
+impl Default for NameKeyNamespace {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl NameKeyGeneratorState {
-    fn new() -> Self {
+impl NameKeyNamespace {
+    pub fn new() -> Self {
         let mut buckets = Vec::with_capacity(SOCKET_COUNT);
         buckets.resize_with(SOCKET_COUNT, Vec::new);
         Self {
@@ -66,9 +68,13 @@ impl NameKeyGeneratorState {
         key
     }
 
-    fn name_to_key(&mut self, name: &str) -> NameKeyType {
+    pub fn name_to_key(&mut self, name: &str) -> NameKeyType {
         let index = calc_hash(name, false);
-        if let Some(entry) = self.buckets[index].iter().rev().find(|entry| entry.name == name) {
+        if let Some(entry) = self.buckets[index]
+            .iter()
+            .rev()
+            .find(|entry| entry.name == name)
+        {
             return entry.key;
         }
 
@@ -80,7 +86,7 @@ impl NameKeyGeneratorState {
         key
     }
 
-    fn name_to_lowercase_key(&mut self, name: &str) -> NameKeyType {
+    pub fn name_to_lowercase_key(&mut self, name: &str) -> NameKeyType {
         let index = calc_hash(name, true);
         if let Some(entry) = self.buckets[index]
             .iter()
@@ -98,7 +104,7 @@ impl NameKeyGeneratorState {
         key
     }
 
-    fn key_to_name(&self, key: NameKeyType) -> Option<String> {
+    pub fn key_to_name(&self, key: NameKeyType) -> Option<String> {
         self.reverse_lookup.get(&key).cloned()
     }
 }
@@ -106,8 +112,8 @@ impl NameKeyGeneratorState {
 // Shared state for the generator.
 // THREAD: C++ plain static; driven only by the single game/client thread.
 thread_local! {
-    static NAME_KEY_STATE: RefCell<NameKeyGeneratorState> =
-        RefCell::new(NameKeyGeneratorState::new());
+    static NAME_KEY_STATE: RefCell<NameKeyNamespace> =
+        RefCell::new(NameKeyNamespace::new());
 }
 
 /// Name key generator mirroring the original C++ behaviour.
@@ -272,5 +278,28 @@ mod tests {
         let newest = NameKeyGenerator::name_to_key(variant);
         assert_ne!(first, newest);
         assert_eq!(NameKeyGenerator::name_to_key_lowercase(lower), newest);
+    }
+    #[test]
+    fn owned_namespaces_keep_original_case_allocation_and_worker_handoff() {
+        let mut first = NameKeyNamespace::new();
+        let original = first.name_to_key("ModelA");
+        let lower = first.name_to_key("modela");
+        assert_ne!(original, lower);
+        let (mut first, worker_key) = std::thread::spawn(move || {
+            let key = first.name_to_key("WorkerBone");
+            (first, key)
+        })
+        .join()
+        .unwrap();
+        let mut peer = NameKeyNamespace::new();
+        peer.name_to_key("PeerFirst");
+        peer.name_to_key("PeerSecond");
+        peer.name_to_key("PeerThird");
+        peer.name_to_key("WorkerBone");
+        assert_eq!(first.name_to_key("WorkerBone"), worker_key);
+        assert_eq!(first.key_to_name(original).as_deref(), Some("ModelA"));
+        assert_eq!(first.name_to_key("AfterWorker"), worker_key + 1);
+        assert_ne!(peer.name_to_key("WorkerBone"), worker_key);
+        assert_eq!(first.name_to_lowercase_key("MODELA"), lower);
     }
 }

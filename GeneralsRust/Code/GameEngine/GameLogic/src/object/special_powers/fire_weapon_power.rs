@@ -78,7 +78,13 @@ impl Default for FireWeaponPowerModuleData {
 
 impl FireWeaponPowerModuleData {
     pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
-        ini.init_from_ini_with_fields(self, FIRE_WEAPON_POWER_FIELDS)
+        // The C++ subclass adds its leaf table after SpecialPowerModuleData.
+        ini.init_from_ini_with_inherited_fields(
+            self,
+            |data| &mut data.base,
+            crate::object::special_power_module::SPECIAL_POWER_MODULE_FIELDS,
+            FIRE_WEAPON_POWER_FIELDS,
+        )
     }
 }
 
@@ -335,18 +341,6 @@ impl Snapshotable for FireWeaponPower {
 
 // INI field parsers
 
-fn parse_special_power_template_field(
-    _ini: &mut INI,
-    data: &mut FireWeaponPowerModuleData,
-    tokens: &[&str],
-) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
-    let name = crate::common::AsciiString::from(*token);
-    data.base.special_power_template =
-        Some(crate::object::special_power_template::find_or_create_special_power_template(&name));
-    Ok(())
-}
-
 fn parse_max_shots_to_fire(
     _ini: &mut INI,
     data: &mut FireWeaponPowerModuleData,
@@ -360,16 +354,10 @@ fn parse_max_shots_to_fire(
     Ok(())
 }
 
-const FIRE_WEAPON_POWER_FIELDS: &[FieldParse<FireWeaponPowerModuleData>] = &[
-    FieldParse {
-        token: "SpecialPowerTemplate",
-        parse: parse_special_power_template_field,
-    },
-    FieldParse {
-        token: "MaxShotsToFire",
-        parse: parse_max_shots_to_fire,
-    },
-];
+const FIRE_WEAPON_POWER_FIELDS: &[FieldParse<FireWeaponPowerModuleData>] = &[FieldParse {
+    token: "MaxShotsToFire",
+    parse: parse_max_shots_to_fire,
+}];
 
 #[cfg(test)]
 mod tests {

@@ -13,6 +13,7 @@ fn sync_entry(
     orientation: f32,
 ) -> game_client::core::PresentationDrawableSync {
     game_client::core::PresentationDrawableSync {
+        receiving_science_player: None,
         object_id,
         host_epoch,
         resident,
@@ -52,6 +53,12 @@ fn sync_entry(
         emoticon_frames_left: 0,
         formation_id: 0,
         caption: String::new(),
+        module_admission:
+            game_client::core::game_client::PresentationModuleAdmission::Compatibility,
+        draw_logic_frame: 0,
+        draw_indicator_color: [0, 0, 0],
+        draw_physics: Default::default(),
+        draw_velocity_magnitude_squared: 0.0,
         draw_module_names: std::sync::Arc::new(Vec::new()),
         health_box_width: 0.0,
         health_box_z_offset: 0.0,

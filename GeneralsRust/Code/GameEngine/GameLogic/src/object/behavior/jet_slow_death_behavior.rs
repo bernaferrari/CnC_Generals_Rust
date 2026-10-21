@@ -17,7 +17,8 @@ use crate::modules::{
     UpdateSleepTime,
 };
 use crate::object::Object as GameObject;
-use crate::object::behavior::behavior_module::{BehaviorModuleData, xfer_update_module_base_state};
+use crate::object::behavior::behavior_module::xfer_update_module_base_state;
+use crate::object::behavior::slow_death_behavior::{self, SlowDeathBehaviorModuleData};
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
@@ -28,7 +29,8 @@ use std::sync::{Arc, RwLock, Weak};
 
 #[derive(Clone, Debug)]
 pub struct JetSlowDeathBehaviorModuleData {
-    pub base: BehaviorModuleData,
+    // C++ JetSlowDeathBehaviorModuleData derives from SlowDeathBehaviorModuleData.
+    pub base: SlowDeathBehaviorModuleData,
     pub fx_on_ground_death: Option<FXList>,
     pub ocl_on_ground_death: Option<Arc<ObjectCreationList>>,
     pub fx_initial_death: Option<FXList>,
@@ -51,7 +53,7 @@ pub struct JetSlowDeathBehaviorModuleData {
 impl Default for JetSlowDeathBehaviorModuleData {
     fn default() -> Self {
         Self {
-            base: BehaviorModuleData::default(),
+            base: SlowDeathBehaviorModuleData::new(),
             fx_on_ground_death: None,
             ocl_on_ground_death: None,
             fx_initial_death: None,
@@ -73,11 +75,35 @@ impl Default for JetSlowDeathBehaviorModuleData {
     }
 }
 
-crate::impl_behavior_module_data_via_base!(JetSlowDeathBehaviorModuleData, base);
+crate::impl_legacy_module_data_via_base!(JetSlowDeathBehaviorModuleData, base);
+
+// Retain the existing Rust module-data snapshot contract while correcting the
+// parser inheritance. Runtime Jet/SlowDeath snapshots are a separate contract;
+// this does not serialize immutable authored configuration as runtime state.
+impl Snapshotable for JetSlowDeathBehaviorModuleData {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        self.base.base.crc(xfer)
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        self.base.base.xfer(xfer)
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
+        self.base.base.load_post_process()
+    }
+}
 
 impl JetSlowDeathBehaviorModuleData {
     pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
-        ini.init_from_ini_with_fields(self, JET_SLOW_DEATH_FIELDS)
+        // C++ JetSlowDeathBehavior.cpp:63-108 adds the complete SlowDeath
+        // table before Jet's fields, including the inherited DieMuxData fields.
+        ini.init_from_ini_with_inherited_fields(
+            self,
+            |data| &mut data.base,
+            slow_death_behavior::SLOW_DEATH_BEHAVIOR_FIELDS,
+            JET_SLOW_DEATH_FIELDS,
+        )
     }
 }
 
@@ -734,5 +760,160 @@ impl BehaviorModuleInterface for JetSlowDeathBehaviorModule {
 
     fn get_slow_death_behavior_interface(&mut self) -> Option<&mut dyn SlowDeathBehaviorInterface> {
         Some(&mut self.behavior)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::object::behavior::behavior_module::BehaviorModuleData;
+    use game_engine::system::{xfer_load::XferLoad, xfer_save::XferSave};
+    use std::io::Cursor;
+
+    #[test]
+    fn jet_slow_death_inherits_cpp_defaults_and_one_module_tag() {
+        // JetSlowDeathBehavior.cpp:35-61 and SlowDeathBehavior.cpp:40-59.
+        let mut data = JetSlowDeathBehaviorModuleData::default();
+        assert_eq!(data.base.sink_rate, 0.0);
+        assert_eq!(data.base.probability_modifier, 10);
+        assert_eq!(data.base.destruction_altitude, -10.0);
+        assert_eq!(data.base.destruction_delay, 0);
+        assert_eq!(data.roll_rate, 0.0);
+        assert_eq!(data.roll_rate_delta, 1.0);
+        assert_eq!(data.pitch_rate, 0.0);
+        assert_eq!(data.fall_how_fast, 0.0);
+        assert_eq!(data.delay_secondary_from_initial_death, 0);
+        assert_eq!(data.delay_final_blow_up_from_hit_ground, 0);
+        assert_eq!(data.death_loop_sound.get_event_name(), "");
+        assert_eq!(EngineModuleData::get_module_tag_name_key(&data), 0);
+        EngineModuleData::set_module_tag_name_key(&mut data, 173);
+        assert_eq!(EngineModuleData::get_module_tag_name_key(&data), 173);
+        assert_eq!(EngineModuleData::get_module_tag_name_key(&data.base), 173);
+        assert_eq!(
+            EngineModuleData::get_module_tag_name_key(&data.base.base),
+            173
+        );
+        EngineModuleData::set_module_tag_name_key(&mut data.base, 194);
+        assert_eq!(EngineModuleData::get_module_tag_name_key(&data), 194);
+    }
+
+    #[test]
+    fn jet_slow_death_parses_the_complete_cpp_inherited_table_with_original_units() {
+        let mut data = JetSlowDeathBehaviorModuleData::default();
+        INI::new()
+            .with_inline_source(
+                "SinkRate = 60\n\
+             ProbabilityModifier = 23\n\
+             ModifierBonusPerOverkillPercent = 125%\n\
+             SinkDelay = 1500ms\n\
+             SinkDelayVariance = 500ms\n\
+             DestructionDelay = 2s\n\
+             DestructionDelayVariance = 1s\n\
+             DestructionAltitude = -23.5\n\
+             FX = INITIAL None None\n\
+             OCL = MIDPOINT None\n\
+             Weapon = FINAL None\n\
+             FlingForce = 14.5\n\
+             FlingForceVariance = 2.25\n\
+             FlingPitch = 90\n\
+             FlingPitchVariance = 45\n\
+             DeathTypes = ALL -SUICIDED\n\
+             VeterancyLevels = ALL -HEROIC\n\
+             ExemptStatus = UNSELECTABLE\n\
+             RequiredStatus = AIRBORNE_TARGET\n\
+             DeathLoopSound = JetDeathLoop\n\
+             RollRate = 0.125\n\
+             RollRateDelta = 105%\n\
+             PitchRate = -0.25\n\
+             FallHowFast = 110%\n\
+             End\n",
+                |ini| data.parse_from_ini(ini),
+            )
+            .expect("C++ inherited and leaf fields");
+        // SlowDeath uses parseVelocityReal, unlike Jet's deliberately raw rates.
+        assert_eq!(data.base.sink_rate, 2.0);
+        assert_eq!(data.base.probability_modifier, 23);
+        assert_eq!(data.base.modifier_bonus_per_overkill_percent, 1.25);
+        assert_eq!(data.base.sink_delay, 45);
+        assert_eq!(data.base.sink_delay_variance, 15);
+        assert_eq!(data.base.destruction_delay, 60);
+        assert_eq!(data.base.destruction_delay_variance, 30);
+        assert_eq!(data.base.destruction_altitude, -23.5);
+        assert_eq!(data.base.fx[0].len(), 2);
+        assert!(data.base.fx[0].iter().all(Option::is_none));
+        assert_eq!(data.base.ocls[1].len(), 1);
+        assert!(data.base.ocls[1][0].is_none());
+        assert_eq!(data.base.weapons[2].len(), 1);
+        assert!(data.base.weapons[2][0].is_none());
+        assert_eq!(data.base.mask_of_loaded_effects, 0);
+        assert_eq!(data.base.fling_force, 14.5);
+        assert_eq!(data.base.fling_force_variance, 2.25);
+        assert_eq!(data.base.fling_pitch, 90_f32.to_radians());
+        assert_eq!(data.base.fling_pitch_variance, 45_f32.to_radians());
+        assert!(!crate::damage::get_death_type_flag(
+            data.base.die_mux_data.death_types,
+            crate::damage::DeathType::Suicided
+        ));
+        assert!(crate::damage::get_death_type_flag(
+            data.base.die_mux_data.death_types,
+            crate::damage::DeathType::Normal
+        ));
+        assert_eq!(data.base.die_mux_data.veterancy_levels & (1 << 3), 0);
+        assert_ne!(data.base.die_mux_data.veterancy_levels & 1, 0);
+        assert_eq!(data.base.die_mux_data.exempt_status.bits(), 1 << 4);
+        assert_eq!(data.base.die_mux_data.required_status.bits(), 1 << 7);
+        assert_eq!(data.death_loop_sound.get_event_name(), "JetDeathLoop");
+        assert_eq!(data.roll_rate, 0.125);
+        assert!((data.roll_rate_delta - 1.05).abs() < f32::EPSILON);
+        assert_eq!(data.pitch_rate, -0.25);
+        assert!((data.fall_how_fast - 1.1).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn jet_slow_death_parser_rejects_unknown_and_malformed_inherited_fields() {
+        for (body, expected) in [
+            ("NotAJetDeathField = 1\nEnd\n", INIError::UnknownToken),
+            ("DestructionDelay = nonsense\nEnd\n", INIError::InvalidData),
+            ("SinkRate = nonsense\nEnd\n", INIError::InvalidData),
+            ("DeathTypes = +UNKNOWN\nEnd\n", INIError::InvalidData),
+            ("RollRate =\nEnd\n", INIError::InvalidData),
+        ] {
+            let mut data = JetSlowDeathBehaviorModuleData::default();
+            let error = INI::new()
+                .with_inline_source(body, |ini| data.parse_from_ini(ini))
+                .expect_err(body);
+            assert_eq!(error, expected, "{body}");
+        }
+    }
+
+    #[test]
+    fn jet_slow_death_parser_inheritance_preserves_existing_module_data_snapshot_payload() {
+        let mut data = JetSlowDeathBehaviorModuleData::default();
+        EngineModuleData::set_module_tag_name_key(&mut data, 173);
+        data.base.sink_rate = 2.0;
+        data.base.destruction_delay = 60;
+        let mut actual = Vec::new();
+        data.xfer(&mut XferSave::new(Cursor::new(&mut actual), 1))
+            .unwrap();
+        let mut metadata = BehaviorModuleData::new();
+        EngineModuleData::set_module_tag_name_key(&mut metadata, 173);
+        let mut expected = Vec::new();
+        metadata
+            .xfer(&mut XferSave::new(Cursor::new(&mut expected), 1))
+            .unwrap();
+        assert_eq!(
+            actual, expected,
+            "parser inheritance adds no runtime/config payload"
+        );
+        let mut loaded = JetSlowDeathBehaviorModuleData::default();
+        loaded
+            .xfer(&mut XferLoad::new(Cursor::new(actual), 1))
+            .unwrap();
+        assert_eq!(EngineModuleData::get_module_tag_name_key(&loaded), 0);
+        assert_eq!(EngineModuleData::get_module_tag_name_key(&loaded.base), 0);
+        assert_eq!(
+            loaded.base.sink_rate, 0.0,
+            "immutable content is not restored by this API"
+        );
     }
 }

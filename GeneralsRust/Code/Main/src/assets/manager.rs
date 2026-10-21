@@ -1752,6 +1752,18 @@ impl AssetManager {
         self.archive_system.open_file(filename).await
     }
 
+    /// Strict receiving definition admission preserves missing/read-error identity.
+    pub(crate) fn read_optional_definition_source(
+        &mut self,
+        filename: &str,
+    ) -> Result<Option<Vec<u8>>> {
+        if !self.initialized {
+            return Err(anyhow!("AssetManager not initialized"));
+        }
+        self.archive_system
+            .read_optional_definition_source(filename)
+    }
+
     /// List all available files in archives
     pub fn list_all_files(&self) -> Vec<String> {
         if !self.initialized {

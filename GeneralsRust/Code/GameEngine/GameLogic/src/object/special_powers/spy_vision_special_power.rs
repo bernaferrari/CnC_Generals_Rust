@@ -47,7 +47,13 @@ impl Default for SpyVisionSpecialPowerModuleData {
 
 impl SpyVisionSpecialPowerModuleData {
     pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
-        ini.init_from_ini_with_fields(self, SPY_VISION_SPECIAL_POWER_FIELDS)
+        // The C++ subclass adds its leaf table after SpecialPowerModuleData.
+        ini.init_from_ini_with_inherited_fields(
+            self,
+            |data| &mut data.base,
+            crate::object::special_power_module::SPECIAL_POWER_MODULE_FIELDS,
+            SPY_VISION_SPECIAL_POWER_FIELDS,
+        )
     }
 }
 
@@ -109,11 +115,14 @@ impl SpyVisionSpecialPower {
     /// Matches C++ SpyVisionSpecialPower::doSpecialPower().
     pub fn do_special_power(&self, _command_options: u32) {
         // Check if disabled
-        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_object_id, |owner_guard| {
-            if owner_guard.is_disabled() {
-                return;
-            }
-            });
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(
+            self.owner_object_id,
+            |owner_guard| {
+                if owner_guard.is_disabled() {
+                    return;
+                }
+            },
+        );
 
         // Calculate duration from module data
         // Matches C++ SpyVisionSpecialPower::doSpecialPower() duration calculation
@@ -169,7 +178,9 @@ impl SpyVisionSpecialPower {
             module.behavior_mut().activate_spy_vision(duration);
         });
         if activated.is_none() {
-            log::warn!("SpyVisionSpecialPower found SpyVisionUpdate but the module type did not match");
+            log::warn!(
+                "SpyVisionSpecialPower found SpyVisionUpdate but the module type did not match"
+            );
         }
     }
 
@@ -179,7 +190,11 @@ impl SpyVisionSpecialPower {
     ) {
         // C++ returns before SpecialPowerModule::doSpecialPower when the object is disabled.
         if let Some(owner) = TheGameLogic::find_object_by_id(self.owner_object_id) {
-            if owner.read().map(|guard| guard.is_disabled()).unwrap_or(false) {
+            if owner
+                .read()
+                .map(|guard| guard.is_disabled())
+                .unwrap_or(false)
+            {
                 return;
             }
         }
@@ -321,23 +336,7 @@ fn parse_max_duration(
     Ok(())
 }
 
-fn parse_special_power_template_field(
-    _ini: &mut INI,
-    data: &mut SpyVisionSpecialPowerModuleData,
-    tokens: &[&str],
-) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
-    let name = crate::common::AsciiString::from(*token);
-    data.base.special_power_template =
-        Some(crate::object::special_power_template::find_or_create_special_power_template(&name));
-    Ok(())
-}
-
 const SPY_VISION_SPECIAL_POWER_FIELDS: &[FieldParse<SpyVisionSpecialPowerModuleData>] = &[
-    FieldParse {
-        token: "SpecialPowerTemplate",
-        parse: parse_special_power_template_field,
-    },
     FieldParse {
         token: "BaseDuration",
         parse: parse_base_duration,

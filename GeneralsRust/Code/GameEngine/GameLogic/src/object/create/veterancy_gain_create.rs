@@ -174,14 +174,22 @@ fn parse_starting_level(
 }
 
 fn parse_science_required(
-    _ini: &mut INI,
+    ini: &mut INI,
     data: &mut VeterancyGainCreateModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
     let token = tokens.first().ok_or(INIError::InvalidData)?;
-    let store = get_science_store().ok_or(INIError::InvalidData)?;
-    let science = store.get_science_from_internal_name(token.trim());
-    data.science_required = science;
+    if let Some(sciences) = ini.receiving_science_names() {
+        // CPP INI::parseScience -> scanScience -> friend_lookupScience throws
+        // for an unknown authored name; do not invent an ID in the module keys.
+        data.science_required = sciences
+            .science(token.trim())
+            .ok_or(INIError::InvalidData)?;
+    } else {
+        // Explicit standalone compatibility parser retains its application store.
+        let store = get_science_store().ok_or(INIError::InvalidData)?;
+        data.science_required = store.get_science_from_internal_name(token.trim());
+    }
     Ok(())
 }
 

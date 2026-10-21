@@ -1,6 +1,6 @@
 //! C++ `W3DStatusCircle::Render` camera-fade overlay.
 
-use gamelogic::scripting::{get_script_engine, TFade};
+use gamelogic::scripting::{TFade, get_script_engine};
 use std::cell::{Cell, RefCell};
 
 /// Fullscreen camera-fade overlay produced by `W3DStatusCircle::Render`.
@@ -42,21 +42,6 @@ pub fn render_camera_fade() -> Option<CameraFadeOverlay> {
 /// Last fade overlay computed this frame.
 pub fn current_camera_fade() -> Option<CameraFadeOverlay> {
     LAST_OVERLAY.get()
-}
-
-thread_local! {
-    static QUEUED_LIVE_FADE: Cell<Option<CameraFadeOverlay>> = Cell::new(None);
-}
-
-/// Stamp a frozen presentation fade for the live overlay / render_pipeline blit.
-pub fn queue_live_camera_fade(fade: u8, intensity: f32, diffuse: u32) {
-    let overlay = overlay_from_packed(fade, intensity, diffuse);
-    QUEUED_LIVE_FADE.set(overlay);
-}
-
-/// Consume the overlay queued by the live letterbox/cinematic pass.
-pub fn take_queued_live_camera_fade() -> Option<CameraFadeOverlay> {
-    QUEUED_LIVE_FADE.take()
 }
 
 fn overlay_from_packed(fade: u8, intensity: f32, diffuse: u32) -> Option<CameraFadeOverlay> {
@@ -335,10 +320,15 @@ mod tests {
 
     #[test]
     fn packed_fade_maps_cpp_tfade_discriminants() {
-        queue_live_camera_fade(0, 1.0, 0);
-        assert!(take_queued_live_camera_fade().is_none());
-        queue_live_camera_fade(4, 0.25, 0xff40_4040);
-        let overlay = take_queued_live_camera_fade().expect("multiply fade");
+        // Exercise the same packed conversion that record_camera_fade uses.
+        assert!(overlay_from_packed(0, 1.0, 0).is_none());
+        for (code, fade) in [(1, TFade::Subtract), (2, TFade::Add), (3, TFade::Saturate)] {
+            assert_eq!(
+                overlay_from_packed(code, 0.25, 0xff40_4040).unwrap().fade,
+                fade
+            );
+        }
+        let overlay = overlay_from_packed(4, 0.25, 0xff40_4040).expect("multiply fade");
         assert_eq!(overlay.fade, TFade::Multiply);
         assert!((overlay.intensity - 0.25).abs() < f32::EPSILON);
         assert_eq!(overlay.diffuse, 0xff40_4040);

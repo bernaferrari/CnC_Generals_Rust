@@ -44,7 +44,13 @@ impl Default for CleanupAreaPowerModuleData {
 
 impl CleanupAreaPowerModuleData {
     pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
-        ini.init_from_ini_with_fields(self, CLEANUP_AREA_POWER_FIELDS)
+        // The C++ subclass adds its leaf table after SpecialPowerModuleData.
+        ini.init_from_ini_with_inherited_fields(
+            self,
+            |data| &mut data.base,
+            crate::object::special_power_module::SPECIAL_POWER_MODULE_FIELDS,
+            CLEANUP_AREA_POWER_FIELDS,
+        )
     }
 }
 
@@ -243,18 +249,6 @@ impl Snapshotable for CleanupAreaPower {
 
 // INI field parsers
 
-fn parse_special_power_template_field(
-    _ini: &mut INI,
-    data: &mut CleanupAreaPowerModuleData,
-    tokens: &[&str],
-) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
-    let name = crate::common::AsciiString::from(*token);
-    data.base.special_power_template =
-        Some(crate::object::special_power_template::find_or_create_special_power_template(&name));
-    Ok(())
-}
-
 fn parse_max_move_distance_from_location(
     _ini: &mut INI,
     data: &mut CleanupAreaPowerModuleData,
@@ -268,16 +262,10 @@ fn parse_max_move_distance_from_location(
     Ok(())
 }
 
-const CLEANUP_AREA_POWER_FIELDS: &[FieldParse<CleanupAreaPowerModuleData>] = &[
-    FieldParse {
-        token: "SpecialPowerTemplate",
-        parse: parse_special_power_template_field,
-    },
-    FieldParse {
-        token: "MaxMoveDistanceFromLocation",
-        parse: parse_max_move_distance_from_location,
-    },
-];
+const CLEANUP_AREA_POWER_FIELDS: &[FieldParse<CleanupAreaPowerModuleData>] = &[FieldParse {
+    token: "MaxMoveDistanceFromLocation",
+    parse: parse_max_move_distance_from_location,
+}];
 
 #[cfg(test)]
 mod tests {

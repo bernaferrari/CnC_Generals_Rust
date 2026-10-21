@@ -2,9 +2,17 @@
 use super::*;
 use crate::presentation_frame::PresentationFrame;
 
+fn source(name: &str, modules: &str) -> String {
+    format!(
+        "Object {name}\nKindOf = IMMOBILE\nBody = ActiveBody BodyTag\nMaxHealth = 40\nInitialHealth = 40\nEnd\n{modules}\nEnd"
+    )
+}
+
 fn definition(name: &str, modules: &str) -> ObjectDefinition {
     let mut parser = crate::assets::IniParser::new();
-    parser.parse_ini_content(&format!("Object {name}\nKindOf = IMMOBILE\nBody = ActiveBody BodyTag\nMaxHealth = 40\nInitialHealth = 40\nEnd\n{modules}\nEnd"), "model-less.ini").unwrap();
+    parser
+        .parse_ini_content(&source(name, modules), "model-less.ini")
+        .unwrap();
     parser.get_definition(name).unwrap().clone()
 }
 
@@ -17,6 +25,12 @@ fn receiving(name: &str, modules: &str) -> GameLogic {
         )]),
         1
     );
+    let content = crate::assets::ReceivingObjectContent::from_sources([(
+        "model-less.ini".into(),
+        source(name, modules),
+    )])
+    .unwrap();
+    world.admit_receiving_module_content(content).unwrap();
     world
 }
 
@@ -127,5 +141,88 @@ fn model_less_template_refresh_removes_curated_alias_and_keeps_explicit_none_sta
             1u128 << crate::game_logic::host_enum_table_residual::MC_BIT_DAMAGED
         ),
         "ExactDamaged"
+    );
+}
+
+#[test]
+fn curated_receiving_body_uses_own_maximum_initial_and_saved_reset_baseline() {
+    fn body(maximum: f32, initial: f32) -> GameLogic {
+        let text = format!(
+            "Object USA_Ranger\nKindOf = IMMOBILE\nBody = ActiveBody AuthoredBody\nMaxHealth = {maximum}f\nInitialHealth = {initial}F\nEnd\nClientUpdate = SwayClientUpdate ClientTag\nEnd\nEnd\n"
+        );
+        let content =
+            crate::assets::ReceivingObjectContent::from_sources([("body-owner.ini".into(), text)])
+                .unwrap();
+        let mut world = GameLogic::new();
+        world.admit_receiving_module_content(content).unwrap();
+        world
+    }
+    let mut first = body(40.0, 25.0);
+    let mut peer = body(90.0, 60.0);
+    let id = first
+        .create_object("USA_Ranger", Team::USA, Vec3::ZERO)
+        .unwrap();
+    let peer_id = peer
+        .create_object("USA_Ranger", Team::USA, Vec3::ZERO)
+        .unwrap();
+    assert_eq!(id, peer_id);
+    assert_eq!(
+        (
+            first.host_object(id).unwrap().health.current,
+            first.host_object(id).unwrap().health.maximum
+        ),
+        (25.0, 40.0)
+    );
+    assert_eq!(
+        (
+            peer.host_object(peer_id).unwrap().health.current,
+            peer.host_object(peer_id).unwrap().health.maximum
+        ),
+        (60.0, 90.0)
+    );
+    let builder = crate::save_load::SnapshotBuilder::new();
+    let saved = builder.create_world_snapshot(&first).unwrap();
+    let bytes = bincode_legacy::serialize(&saved).unwrap();
+    let decoded = crate::save_load::snapshot::decode_bincode_world_snapshot(&bytes).unwrap();
+    let mut restored = body(40.0, 25.0);
+    builder
+        .restore_from_snapshot(&decoded, &mut restored)
+        .unwrap();
+    assert_eq!(
+        (
+            restored.host_object(id).unwrap().health.current,
+            restored.host_object(id).unwrap().health.maximum
+        ),
+        (25.0, 40.0)
+    );
+    first.apply_receiving_module_overrides(&["Object USA_Ranger\nReplaceModule AuthoredBody\nBody = ActiveBody MapAuthoredBody\nMaxHealth = 55\nInitialHealth = 31\nEnd\nEnd\nEnd\n".into()]).unwrap();
+    let map_id = first
+        .create_object("USA_Ranger", Team::USA, Vec3::ZERO)
+        .unwrap();
+    assert_eq!(
+        (
+            first.host_object(map_id).unwrap().health.current,
+            first.host_object(map_id).unwrap().health.maximum
+        ),
+        (31.0, 55.0)
+    );
+    first.apply_receiving_module_overrides(&[]).unwrap();
+    let baseline = first
+        .create_object("USA_Ranger", Team::USA, Vec3::ZERO)
+        .unwrap();
+    assert_eq!(
+        (
+            first.host_object(baseline).unwrap().health.current,
+            first.host_object(baseline).unwrap().health.maximum
+        ),
+        (25.0, 40.0)
+    );
+    peer.reset();
+    assert_eq!(
+        (
+            restored.host_object(id).unwrap().health.current,
+            restored.host_object(id).unwrap().health.maximum
+        ),
+        (25.0, 40.0)
     );
 }

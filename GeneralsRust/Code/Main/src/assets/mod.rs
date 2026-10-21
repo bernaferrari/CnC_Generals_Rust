@@ -42,3 +42,9 @@ pub use resolver::LiveAssetResolver;
 pub use sound_effects::*;
 pub use textures::*;
 pub use ww3d_asset_manager::*;
+
+mod receiving_object_definitions;
+pub(crate) use receiving_object_definitions::ReceivingObjectDefinitions;
+
+mod receiving_object_content;
+pub(crate) use receiving_object_content::ReceivingObjectContent;

@@ -1193,7 +1193,7 @@ impl CnCGameEngine {
                         #[cfg(feature = "game_client")]
                         if let Some(kind) = active_load_screen {
                             let progress = progress.clamp(0.0, 1.0);
-                            Self::pump_cpp_load_screen_progress(kind, progress, phase);
+                            Self::pump_cpp_load_screen_progress(kind, progress);
                             last_load_screen_progress = Some((progress, phase.to_string()));
                         }
                         #[cfg(not(feature = "game_client"))]
@@ -1212,7 +1212,7 @@ impl CnCGameEngine {
                             DEFAULT_SKIRMISH_MAP,
                             |progress, phase| {
                                 let progress = progress.clamp(0.0, 1.0);
-                                Self::pump_cpp_load_screen_progress(kind, progress, phase);
+                                Self::pump_cpp_load_screen_progress(kind, progress);
                                 last_load_screen_progress = Some((progress, phase.to_string()));
                             },
                             native,
@@ -1246,7 +1246,7 @@ impl CnCGameEngine {
                 // its map work. The direct host path has no later loading-loop
                 // callback, so finish the visible sequence before presentation
                 // seeding can move the engine to InGame.
-                Self::pump_cpp_load_screen_progress(kind, 1.0, "Map load complete");
+                Self::pump_cpp_load_screen_progress(kind, 1.0);
                 last_load_screen_progress = Some((1.0, "Map load complete".to_string()));
             }
         }

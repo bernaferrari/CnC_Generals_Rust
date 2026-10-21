@@ -228,10 +228,10 @@ fn repair_cache_structural_decoder_rejects_truncation_version_and_duplicates() {
 fn repair_cache_save_load_continues_real_docked_action_without_recomputing_rate() {
     use crate::game_logic::{AIState, Player};
     let mut parser = crate::assets::IniParser::new();
-    parser.parse_ini_content(
-        "Object SavedRepairDock\n KindOf = VEHICLE REPAIR_PAD\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 20\n End\n Behavior = RepairDockUpdate RepairTag\n TimeForFullHeal = 100\n End\nEnd\n",
-        "saved-repair-dock.ini",
-    ).unwrap();
+    let source_text = "Object SavedRepairDock\n KindOf = VEHICLE REPAIR_PAD\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 20\n End\n Behavior = RepairDockUpdate RepairTag\n TimeForFullHeal = 100\n End\nEnd\n";
+    parser
+        .parse_ini_content(source_text, "saved-repair-dock.ini")
+        .unwrap();
     let template = GameLogic::build_template_from_object_definition(
         "SavedRepairDock",
         parser.get_definition("SavedRepairDock").unwrap(),
@@ -241,6 +241,15 @@ fn repair_cache_save_load_continues_real_docked_action_without_recomputing_rate(
     let mut source = GameLogic::new();
     source.add_player(Player::new(1, Team::USA, "SavedRepairOwner", true));
     source.templates.insert(template.name.clone(), template);
+    source
+        .admit_receiving_module_content(
+            crate::assets::ReceivingObjectContent::from_sources([(
+                "saved-repair-dock.ini".into(),
+                source_text.to_owned(),
+            )])
+            .unwrap(),
+        )
+        .unwrap();
     let dock = source
         .create_object_for_player("SavedRepairDock", 1, glam::Vec3::ZERO)
         .unwrap();
@@ -275,6 +284,15 @@ fn repair_cache_save_load_continues_real_docked_action_without_recomputing_rate(
             None,
         ),
     );
+    restored
+        .admit_receiving_module_content(
+            crate::assets::ReceivingObjectContent::from_sources([(
+                "saved-repair-dock.ini".into(),
+                source_text.to_owned(),
+            )])
+            .unwrap(),
+        )
+        .unwrap();
     builder
         .restore_from_snapshot(&decoded, &mut restored)
         .unwrap();

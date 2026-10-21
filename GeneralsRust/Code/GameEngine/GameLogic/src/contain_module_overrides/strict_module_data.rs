@@ -78,7 +78,13 @@ macro_rules! register_parsed {
             let mut data = <$data>::$new();
             if let Some(ini) = ini {
                 data.parse_from_ini(ini).map_err(|error| {
-                    format!("{} data at line {}: {}", $name, ini.get_line_num(), error)
+                    format!(
+                        "{} data at line {} [{}]: {}",
+                        $name,
+                        ini.get_line_num(),
+                        ini.get_line_tokens().join(" "),
+                        error
+                    )
                 })?;
             }
             Ok(Box::new(data))
@@ -98,7 +104,13 @@ macro_rules! register_empty {
                 // consumes End and rejects unknown authored fields.
                 ini.init_from_ini_with_fields(&mut data, &[])
                     .map_err(|error| {
-                        format!("{} data at line {}: {}", $name, ini.get_line_num(), error)
+                        format!(
+                            "{} data at line {} [{}]: {}",
+                            $name,
+                            ini.get_line_num(),
+                            ini.get_line_tokens().join(" "),
+                            error
+                        )
                     })?;
             }
             Ok(Box::new(data))
@@ -112,7 +124,13 @@ macro_rules! register_crate {
             let mut data = <$data>::$new();
             if let Some(ini) = ini {
                 data.parse_from_ini(ini).map_err(|error| {
-                    format!("{} data at line {}: {}", $name, ini.get_line_num(), error)
+                    format!(
+                        "{} data at line {} [{}]: {}",
+                        $name,
+                        ini.get_line_num(),
+                        ini.get_line_tokens().join(" "),
+                        error
+                    )
                 })?;
             }
             Ok(super::super::collide_crates::adapted_crate_data(data))
@@ -126,7 +144,13 @@ macro_rules! register_contain {
             let mut data = <$data>::default();
             if let Some(ini) = ini {
                 data.parse_from_ini(ini).map_err(|error| {
-                    format!("{} data at line {}: {}", $name, ini.get_line_num(), error)
+                    format!(
+                        "{} data at line {} [{}]: {}",
+                        $name,
+                        ini.get_line_num(),
+                        ini.get_line_tokens().join(" "),
+                        error
+                    )
                 })?;
             }
             Ok(Box::new(

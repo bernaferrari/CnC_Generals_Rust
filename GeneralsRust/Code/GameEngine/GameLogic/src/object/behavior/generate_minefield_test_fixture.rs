@@ -145,6 +145,7 @@ impl MinefieldFixture {
             self.id,
             GenerateMinefieldBehaviorModuleData {
                 base: BehaviorModuleData::default(),
+                upgrade_mux_data: crate::upgrade::UpgradeMuxData::default(),
                 mine_name: self.template.clone(),
                 mine_name_upgraded: None,
                 mine_upgrade_trigger: None,

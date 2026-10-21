@@ -87,12 +87,6 @@ impl NetworkClock {
     fn clear_override() {}
 }
 
-#[cfg(feature = "game_client")]
-thread_local! {
-    static LOADING_PROGRESS: std::cell::Cell<f32> = const { std::cell::Cell::new(0.0) };
-    static LOADING_PHASE: std::cell::RefCell<String> = const { std::cell::RefCell::new(String::new()) };
-}
-
 mod audio;
 mod audio_view;
 mod boot;

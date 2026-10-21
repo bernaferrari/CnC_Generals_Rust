@@ -9422,7 +9422,17 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini/coordinate.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini/field_parsing.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini/receiving_science_scope_tests.rs"
             },
             {
               "cargo_reachable": true,
@@ -18796,6 +18806,16 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/receiving_module_content.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/receiving_module_content_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/sparse_match_finder.rs"
             },
             {
@@ -18817,6 +18837,11 @@
               "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/thing_template.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/thing_template/frozen_override_tests.rs"
             },
             {
               "cargo_reachable": true,
@@ -19080,6 +19105,11 @@
               "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/thing_template.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/thing_template/frozen_override_tests.rs"
             },
             {
               "cargo_reachable": true,
@@ -21458,6 +21488,11 @@
               "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/template_modules.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/template_modules/receiving_owner_tests.rs"
             },
             {
               "cargo_reachable": true,
@@ -189952,7 +189987,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "6588d2ee743d164166308b868446b0dd9372f3c261482fca11cc4ca668d6b379",
+  "provenance_input_digest": "ae69f10081db448377997194bf3566c3f8df2294b553465c69a3d321dc7f63d9",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,

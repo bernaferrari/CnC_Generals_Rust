@@ -142,6 +142,9 @@ impl UpgradeMuxData {
 
     /// Parse `TriggeredBy` tokens into activation names.
     pub fn parse_triggered_by_tokens(&mut self, tokens: &[&str]) -> Result<(), INIError> {
+        // UpgradeModule.h:73-76 uses INI.cpp:649-657's replacing vector
+        // parser, including an empty field clearing the previously read list.
+        self.activation_upgrade_names.clear();
         for token in tokens.iter().skip_while(|t| **t == "=") {
             if !token.is_empty() {
                 self.activation_upgrade_names
@@ -153,6 +156,7 @@ impl UpgradeMuxData {
 
     /// Parse `ConflictsWith` tokens into conflicting names.
     pub fn parse_conflicts_with_tokens(&mut self, tokens: &[&str]) -> Result<(), INIError> {
+        self.conflicting_upgrade_names.clear();
         for token in tokens.iter().skip_while(|t| **t == "=") {
             if !token.is_empty() {
                 self.conflicting_upgrade_names
@@ -164,6 +168,7 @@ impl UpgradeMuxData {
 
     /// Parse `RemovesUpgrades` tokens into removal names.
     pub fn parse_removes_upgrades_tokens(&mut self, tokens: &[&str]) -> Result<(), INIError> {
+        self.removal_upgrade_names.clear();
         for token in tokens.iter().skip_while(|t| **t == "=") {
             if !token.is_empty() {
                 self.removal_upgrade_names.push(AsciiString::from(*token));
@@ -577,5 +582,99 @@ mod tests {
             mux.test_upgrade_conditions(UpgradeMask::none()),
             "C++ onDie only skips when object/player completed mask intersects ConflictsWith"
         );
+    }
+
+    #[test]
+    fn upgrade_mux_repeated_vector_fields_replace_instead_of_append() {
+        let mut data = UpgradeMuxData {
+            trigger_upgrade_names: vec![AsciiString::from("LegacyTrigger")],
+            activation_upgrade_names: vec![AsciiString::from("StaleActivation")],
+            conflicting_upgrade_names: vec![AsciiString::from("StaleConflict")],
+            removal_upgrade_names: vec![AsciiString::from("StaleRemoval")],
+            ..Default::default()
+        };
+        // The actual canonical field table invokes parseAsciiStringVector's
+        // replacement operation for every occurrence, in source order.
+        INI::new()
+            .with_inline_source(
+                "TriggeredBy = FirstA FirstB\nConflictsWith = FirstConflict\n\
+                 RemovesUpgrades = FirstRemoval\nTriggeredBy = FinalA FinalB\n\
+                 ConflictsWith = FinalConflict\nRemovesUpgrades = FinalRemoval\n\
+                 RequiresAllTriggers = Yes\nEnd\nFollowingBlock\n",
+                |ini| {
+                    data.parse_from_ini(ini)?;
+                    ini.read_line()?;
+                    assert_eq!(ini.get_line_tokens(), ["FollowingBlock"]);
+                    Ok(())
+                },
+            )
+            .unwrap();
+        let names = |values: &[AsciiString]| {
+            values
+                .iter()
+                .map(|v| v.as_str().to_owned())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            (
+                names(&data.activation_upgrade_names),
+                names(&data.conflicting_upgrade_names),
+                names(&data.removal_upgrade_names),
+            ),
+            (
+                vec!["FinalA".to_owned(), "FinalB".to_owned()],
+                vec!["FinalConflict".to_owned()],
+                vec!["FinalRemoval".to_owned()],
+            ),
+            "C++ replacing vector fields keep only each last authored list"
+        );
+        assert_eq!(names(&data.trigger_upgrade_names), ["LegacyTrigger"]);
+        assert!(data.requires_all_triggers);
+    }
+
+    #[test]
+    fn upgrade_mux_empty_vector_fields_clear_only_the_selected_lists() {
+        let mut data = UpgradeMuxData {
+            trigger_upgrade_names: vec![AsciiString::from("LegacyTrigger")],
+            ..Default::default()
+        };
+        data.parse_triggered_by_tokens(&["=", "BeforeA"]).unwrap();
+        data.parse_conflicts_with_tokens(&["=", "BeforeConflict"])
+            .unwrap();
+        data.parse_removes_upgrades_tokens(&["=", "BeforeRemoval"])
+            .unwrap();
+        INI::new()
+            .with_inline_source(
+                "TriggeredBy =\nConflictsWith =\nRemovesUpgrades =\nEnd\n",
+                |ini| data.parse_from_ini(ini),
+            )
+            .unwrap();
+        assert_eq!(
+            (
+                data.activation_upgrade_names.len(),
+                data.conflicting_upgrade_names.len(),
+                data.removal_upgrade_names.len(),
+            ),
+            (0, 0, 0),
+            "C++ empty vector fields clear all three previously populated lists"
+        );
+        // The direct token adapters retain '=' handling and clear only their
+        // target. No legacy trigger list, mask resolution, world, or FX owner
+        // is mutated to exercise definition parsing.
+        data.parse_triggered_by_tokens(&["=", "KeepA"]).unwrap();
+        data.parse_conflicts_with_tokens(&["=", "KeepConflict"])
+            .unwrap();
+        data.parse_removes_upgrades_tokens(&["=", "KeepRemoval"])
+            .unwrap();
+        data.parse_conflicts_with_tokens(&["="]).unwrap();
+        assert_eq!(data.activation_upgrade_names[0].as_str(), "KeepA");
+        assert!(data.conflicting_upgrade_names.is_empty());
+        assert_eq!(data.removal_upgrade_names[0].as_str(), "KeepRemoval");
+        data.parse_triggered_by_tokens(&[]).unwrap();
+        data.parse_removes_upgrades_tokens(&["="]).unwrap();
+        assert!(data.activation_upgrade_names.is_empty());
+        assert!(data.removal_upgrade_names.is_empty());
+        assert_eq!(data.trigger_upgrade_names.len(), 1);
+        assert_eq!(data.trigger_upgrade_names[0].as_str(), "LegacyTrigger");
     }
 }

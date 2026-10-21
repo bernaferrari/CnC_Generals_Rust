@@ -293,6 +293,8 @@ pub trait DrawModule: Module {
 ///
 /// Reference: ObjectDrawInterface in DrawModule.h
 pub trait ObjectDrawInterface {
+    /// Receiving native Object facts, before original onObjectCreated callbacks.
+    fn bind_native_owner(&mut self, _owner_id: ObjectID, _indicator_rgb: [u8; 3]) {}
     fn native_state_particle_count(&self) -> usize {
         0
     }

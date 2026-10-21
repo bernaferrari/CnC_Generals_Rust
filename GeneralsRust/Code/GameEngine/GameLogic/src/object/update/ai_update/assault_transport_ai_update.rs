@@ -61,7 +61,12 @@ impl Default for AssaultTransportAIUpdateModuleData {
 
 impl AssaultTransportAIUpdateModuleData {
     pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
-        ini.init_from_ini_with_fields(self, ASSAULT_TRANSPORT_AI_UPDATE_FIELDS)
+        ini.init_from_ini_with_inherited_fields(
+            self,
+            |data| &mut data.base,
+            crate::object::update::ai_update_interface::AI_UPDATE_FIELDS,
+            ASSAULT_TRANSPORT_AI_UPDATE_FIELDS,
+        )
     }
 }
 
@@ -568,16 +573,19 @@ impl AssaultTransportAIUpdate {
             }
 
             self.member_ids[self.current_members] = passenger_id;
-            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(passenger_id, |passenger_guard| {
-                if let Some(ai) = passenger_guard.get_ai() {
-                    if let Ok(mut ai_guard) = ai.lock() {
-                        ai_guard.set_allow_chase(true);
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(
+                passenger_id,
+                |passenger_guard| {
+                    if let Some(ai) = passenger_guard.get_ai() {
+                        if let Ok(mut ai_guard) = ai.lock() {
+                            ai_guard.set_allow_chase(true);
+                        }
                     }
-                }
-                if self.is_member_wounded(&passenger_guard) {
-                    self.member_healing[self.current_members] = true;
-                }
-                });
+                    if self.is_member_wounded(&passenger_guard) {
+                        self.member_healing[self.current_members] = true;
+                    }
+                },
+            );
 
             if self.new_occupants_are_new_members {
                 self.new_member[self.current_members] = true;

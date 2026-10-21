@@ -49,6 +49,113 @@ fn validate_receiving_weapon_rule(
 }
 
 impl GameLogic {
+    /// Admit the actual companion stream once into a detached receiving owner.
+    /// None is explicit programmatic compatibility; Some(empty) remains authority.
+    pub(in crate::game_logic) fn apply_receiving_module_overrides(
+        &mut self,
+        sources: &[String],
+    ) -> Result<(), String> {
+        let Some(current) = self.receiving_module_content.as_ref() else {
+            return Ok(());
+        };
+        let projections = self
+            .receiving_object_definitions
+            .as_ref()
+            .ok_or("Receiving typed content has no matching host Object definitions")?;
+        let mut candidate = current.clone();
+        candidate.reset_map_overrides();
+        for source in sources {
+            candidate.load_ini_text(
+                source,
+                game_engine::common::ini::INILoadType::CreateOverrides,
+            )?;
+        }
+        let projection_candidate = projections.map_override_draft(sources)?;
+        let baseline = self
+            .receiving_template_baseline
+            .as_ref()
+            .ok_or("Receiving typed content has no accepted host template baseline")?;
+        let mut templates = baseline.clone();
+        Self::refresh_receiving_host_definition_templates(
+            &mut templates,
+            &projection_candidate,
+            &candidate,
+        )?;
+        Self::bind_receiving_production_templates(&mut templates, &candidate)?;
+        self.receiving_module_content = Some(candidate);
+        self.receiving_object_definitions = Some(projection_candidate);
+        self.templates = templates;
+        self.refresh_receiving_client_templates();
+        Ok(())
+    }
+
+    /// Existing host behavior kernels consume projections from this exact owner.
+    /// New map-only names are admitted too, before the factory can create them.
+    fn refresh_receiving_host_definition_templates(
+        templates: &mut HashMap<String, ThingTemplate>,
+        definitions: &crate::assets::ReceivingObjectDefinitions,
+        receiving: &game_engine::common::thing::receiving_module_content::ReceivingModuleContent,
+    ) -> Result<(), String> {
+        let rows = definitions.rows().cloned().collect::<Vec<_>>();
+        for definition in rows {
+            let name = definition.name.clone();
+            let existing_key = templates.contains_key(&name).then(|| name.clone());
+            if let Some(key) = existing_key {
+                let template = templates
+                    .get_mut(&key)
+                    .expect("receiving template key retained");
+                Self::apply_object_definition_create_overrides_with_receiving(
+                    template,
+                    &definition,
+                    Some(receiving),
+                )?;
+                template.receiving_object_definition = Some(definition);
+            } else {
+                let mut template = Self::build_template_from_object_definition_with_receiving(
+                    &name,
+                    &definition,
+                    definition.get_primary_texture(),
+                    Some(receiving),
+                )?;
+                template.receiving_object_definition = Some(definition);
+                templates.insert(name, template);
+            }
+        }
+        Ok(())
+    }
+    pub(in crate::game_logic) fn bind_receiving_production_templates(
+        templates: &mut HashMap<String, ThingTemplate>,
+        content: &game_engine::common::thing::receiving_module_content::ReceivingModuleContent,
+    ) -> Result<(), String> {
+        for (name, template) in templates {
+            if let Some(plan) = content.admitted_template(name) {
+                template.bind_receiving_production_facts(&plan, content)?;
+            } else if template.receiving_object_definition.is_some() {
+                return Err(format!(
+                    "Authored host production template '{name}' has no originating definition"
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    /// Observations are immutable capabilities from this catalog's exact version.
+    /// No legacy ThingFactory lookup, raw source replay or fresh Arc allocation.
+    pub(in crate::game_logic) fn refresh_receiving_client_templates(&mut self) {
+        let Some(content) = self.receiving_module_content.as_ref() else {
+            return;
+        };
+        for (name, template) in &mut self.templates {
+            let source_name = template
+                .receiving_object_definition
+                .as_ref()
+                .map_or(name.as_str(), |definition| definition.name.as_str());
+            template.receiving_client_template = content
+                .admitted_template(source_name)
+                .map(crate::game_logic::thing::ReceivingClientTemplate::new);
+        }
+    }
+
     /// Seed templates for retail Object INI entries that the hand-authored
     /// bootstrap does not already cover.
     ///
@@ -182,6 +289,33 @@ impl GameLogic {
     where
         I: IntoIterator<Item = (String, ObjectDefinition)>,
     {
+        self.seed_asset_definition_templates_from_snapshot_with_receiving(
+            definitions,
+            available_models,
+            None,
+        )
+        .expect("Compatibility production admission is infallible")
+    }
+
+    pub(super) fn seed_asset_definition_templates_from_snapshot_with_receiving<I>(
+        &mut self,
+        definitions: I,
+        available_models: Option<&HashSet<String>>,
+        receiving: Option<
+            &game_engine::common::thing::receiving_module_content::ReceivingModuleContent,
+        >,
+    ) -> Result<usize, String>
+    where
+        I: IntoIterator<Item = (String, ObjectDefinition)>,
+    {
+        let definitions = definitions.into_iter().collect::<Vec<_>>();
+        // Capture the complete resolved content before curated/model filters.
+        // A later partial refresh must never replace the admitted base catalog.
+        if self.receiving_object_definitions.is_none() {
+            self.receiving_object_definitions = Some(
+                crate::assets::ReceivingObjectDefinitions::new(definitions.iter().cloned()),
+            );
+        }
         let mut inserted = 0usize;
         for (name, definition) in definitions {
             let name = name.trim();
@@ -195,6 +329,11 @@ impl GameLogic {
             // starter silently retained 1.0 even when the retail object said
             // `Scale = ...`.
             if let Some(template) = self.templates.get_mut(name) {
+                if receiving.is_some() {
+                    // The admitted source owns Body, even when the host retains
+                    // a curated movement/behavior adapter for this same name.
+                    Self::apply_authored_body_definition(template, &definition);
+                }
                 if let Some(kind_of) = Self::object_definition_attr(&definition, "kindof") {
                     Self::apply_authored_semantic_kind_bits(template, &kind_of);
                     // C++ ThingTemplate::parseKindOf carries EVERY authored token
@@ -322,15 +461,20 @@ impl GameLogic {
             }
 
             let texture_hint = definition.get_primary_texture().map(str::to_string);
-            let template = Self::build_template_from_object_definition(
+            let template = Self::build_template_from_object_definition_with_receiving(
                 name,
                 &definition,
                 texture_hint.as_deref(),
-            );
+                receiving,
+            )?;
             self.templates.insert(name.to_string(), template);
             inserted = inserted.saturating_add(1);
         }
-        inserted
+        if let Some(content) = receiving {
+            Self::bind_receiving_production_templates(&mut self.templates, content)?;
+        }
+        self.refresh_receiving_client_templates();
+        Ok(inserted)
     }
 
     pub(in super::super::super) fn register_leftover_object_create_overrides_overlay() {
@@ -340,6 +484,10 @@ impl GameLogic {
     }
 
     pub(in super::super::super) fn apply_all_leftover_object_create_overrides(&mut self) -> usize {
+        if self.receiving_module_content.is_some() {
+            self.refresh_receiving_client_templates();
+            return 0;
+        }
         Self::register_leftover_object_create_overrides_overlay();
         let overrides = game_engine::common::thing::leftover_object_create_overrides();
         for entry in &overrides {
@@ -356,6 +504,10 @@ impl GameLogic {
         &mut self,
         template_name: &str,
     ) {
+        if self.receiving_module_content.is_some() {
+            self.refresh_receiving_client_templates();
+            return;
+        }
         if let Some(entry) =
             game_engine::common::thing::leftover_object_create_override(template_name)
         {
@@ -373,6 +525,9 @@ impl GameLogic {
         reskin_from: &str,
         properties: &std::collections::HashMap<String, String>,
     ) {
+        if self.receiving_module_content.is_some() {
+            return;
+        }
         if let Some(manager_arc) = get_asset_manager() {
             if let Ok(mut manager) = manager_arc.try_lock() {
                 manager.overlay_object_create_overrides(name, reskin_from, properties);
@@ -406,6 +561,10 @@ impl GameLogic {
         template.armor_definitions.get_or_insert_with(|| {
             std::sync::Arc::new(gamelogic::object::armor::ArmorDefinitions::new())
         });
+        template.receiving_object_definition = definition
+            .source_declarations
+            .as_ref()
+            .map(|_| std::sync::Arc::new(definition.clone()));
         template.client_module_declarations =
             Some(definition.client_modules.clone().into_boxed_slice());
         if definition.source_declarations.is_some()
@@ -427,6 +586,17 @@ impl GameLogic {
         template: &mut ThingTemplate,
         definition: &crate::assets::ObjectDefinition,
     ) {
+        Self::apply_object_definition_create_overrides_with_receiving(template, definition, None)
+            .expect("Compatibility production admission is infallible");
+    }
+
+    pub(super) fn apply_object_definition_create_overrides_with_receiving(
+        template: &mut ThingTemplate,
+        definition: &crate::assets::ObjectDefinition,
+        receiving: Option<
+            &game_engine::common::thing::receiving_module_content::ReceivingModuleContent,
+        >,
+    ) -> Result<(), String> {
         Self::apply_authored_ghost_draw_metadata(template, definition);
         if !definition.display_name.is_empty() {
             template.display_name = definition.display_name.clone();
@@ -435,6 +605,9 @@ impl GameLogic {
             if hit_points.is_finite() {
                 template.set_health(hit_points);
             }
+        }
+        if receiving.is_some() {
+            Self::apply_authored_body_definition(template, definition);
         }
         if definition.scale_was_specified {
             template.set_asset_scale(definition.scale);
@@ -542,7 +715,8 @@ impl GameLogic {
         Self::apply_authored_structure_death_metadata(template, definition);
         Self::apply_authored_geometry(template, definition);
         Self::apply_authored_stealth_update_metadata(template, definition);
-        apply_production_prerequisites_from_definition(template, definition);
+        apply_production_prerequisites_from_definition(template, definition, receiving)?;
+        Ok(())
     }
 
     pub(in super::super::super) fn add_faction_structure_kind_bits(

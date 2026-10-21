@@ -55,6 +55,42 @@ impl GameClient {
         phase: NativeDrawPhase,
         lifecycle: Option<&mut crate::effects::particle_manager::NativeParticleObjectLifecycle<'_>>,
     ) -> GameClientResult<()> {
+        self.draw_native_views_with_name_keys(frames, materials, views, phase, lifecycle, None)
+    }
+
+    pub fn draw_native_views_with_object_lifecycle_and_content(
+        &mut self,
+        frames: NativeParticleFrames,
+        materials: &[NativeMaterialObservation],
+        views: &[NativeDrawView],
+        phase: NativeDrawPhase,
+        lifecycle: Option<&mut crate::effects::particle_manager::NativeParticleObjectLifecycle<'_>>,
+        content: &mut game_engine::common::thing::module_factory::ModuleFactory,
+    ) -> GameClientResult<()> {
+        let keys = content.receiving_name_keys_mut().ok_or_else(|| {
+            GameClientError::InvalidOperation(
+                "native Draw requires its receiving name-key owner".to_owned(),
+            )
+        })?;
+        self.draw_native_views_with_name_keys(
+            frames,
+            materials,
+            views,
+            phase,
+            lifecycle,
+            Some(keys),
+        )
+    }
+
+    fn draw_native_views_with_name_keys(
+        &mut self,
+        frames: NativeParticleFrames,
+        materials: &[NativeMaterialObservation],
+        views: &[NativeDrawView],
+        phase: NativeDrawPhase,
+        lifecycle: Option<&mut crate::effects::particle_manager::NativeParticleObjectLifecycle<'_>>,
+        keys: Option<&mut game_engine::common::name_key_generator::NameKeyNamespace>,
+    ) -> GameClientResult<()> {
         if frames.client_frame != self.frame {
             return Err(GameClientError::InvalidOperation(
                 "native view Client frame mismatch".into(),
@@ -83,7 +119,7 @@ impl GameClient {
         let manager = manager_guard.as_mut().ok_or_else(|| {
             GameClientError::SubsystemError("native view particle owner absent".into())
         })?;
-        self.run_native_views_with_object_lifecycle(
+        self.run_native_views_with_keys(
             manager,
             assets.as_ref().map(|bridge| bridge.asset_manager()),
             &public_bones,
@@ -92,6 +128,7 @@ impl GameClient {
             views,
             phase,
             lifecycle,
+            keys,
         )?;
         // FX retirement can reenter drawable teardown and its particle owner.
         // Preserve the prior boundary: no service guard crosses those callbacks.
@@ -134,6 +171,31 @@ impl GameClient {
         phase: NativeDrawPhase,
         lifecycle: Option<&mut crate::effects::particle_manager::NativeParticleObjectLifecycle<'_>>,
     ) -> GameClientResult<()> {
+        self.run_native_views_with_keys(
+            particles,
+            assets,
+            public_bones,
+            frames,
+            materials,
+            views,
+            phase,
+            lifecycle,
+            None,
+        )
+    }
+
+    fn run_native_views_with_keys(
+        &mut self,
+        particles: &mut crate::effects::particle_manager::ParticleSystemManager,
+        assets: Option<&ww3d_assets::AssetManager>,
+        public_bones: &[String],
+        frames: NativeParticleFrames,
+        materials: &[NativeMaterialObservation],
+        views: &[NativeDrawView],
+        phase: NativeDrawPhase,
+        lifecycle: Option<&mut crate::effects::particle_manager::NativeParticleObjectLifecycle<'_>>,
+        mut keys: Option<&mut game_engine::common::name_key_generator::NameKeyNamespace>,
+    ) -> GameClientResult<()> {
         if frames.client_frame != self.frame {
             return Err(GameClientError::InvalidOperation(
                 "native view Client frame mismatch".into(),
@@ -151,12 +213,13 @@ impl GameClient {
                 // visiting the next receiver; this is not a union or GPU cull.
                 for id in self.native_roster_for_view(view)? {
                     self.advance_material_drawable(id, &facts)?;
-                    self.prepare_native_drawable_particles_with_assets(
+                    self.prepare_native_drawable_particles_with_assets_and_keys(
                         id,
                         particles,
                         assets,
                         public_bones,
                         frames.client_frame,
+                        keys.as_deref_mut(),
                     )?;
                 }
             }

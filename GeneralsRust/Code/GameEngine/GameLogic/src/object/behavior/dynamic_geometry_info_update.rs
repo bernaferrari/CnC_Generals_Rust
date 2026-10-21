@@ -70,7 +70,9 @@ fn required_value<'a>(tokens: &'a [&'a str]) -> Result<&'a str, INIError> {
         .ok_or(INIError::InvalidData)
 }
 
-const DYNAMIC_GEOMETRY_INFO_UPDATE_FIELDS: &[FieldParse<DynamicGeometryInfoUpdateModuleData>] = &[
+pub(super) const DYNAMIC_GEOMETRY_INFO_UPDATE_FIELDS: &[FieldParse<
+    DynamicGeometryInfoUpdateModuleData,
+>] = &[
     FieldParse {
         token: "InitialDelay",
         parse: |_, data, tokens| {

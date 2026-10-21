@@ -93,6 +93,7 @@ fn model() -> W3DModel {
 // go through actual GameClient and the production native receiver methods.
 fn entry(unit: &UnitRenderInput) -> PresentationDrawableSync {
     PresentationDrawableSync {
+        receiving_science_player: None,
         object_id: ID.0,
         host_epoch: 19,
         resident: true,
@@ -132,6 +133,12 @@ fn entry(unit: &UnitRenderInput) -> PresentationDrawableSync {
         emoticon_frames_left: 0,
         formation_id: 0,
         caption: String::new(),
+        module_admission:
+            game_client::core::game_client::PresentationModuleAdmission::Compatibility,
+        draw_logic_frame: 0,
+        draw_indicator_color: [0, 0, 0],
+        draw_physics: Default::default(),
+        draw_velocity_magnitude_squared: 0.0,
         draw_module_names: Arc::new(vec!["W3DModelDraw".into()]),
         health_box_width: 0.,
         health_box_z_offset: 0.,

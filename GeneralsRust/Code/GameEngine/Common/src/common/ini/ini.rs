@@ -187,6 +187,9 @@ impl Read for IniInput {
 
 /// INI Reader interface
 pub struct INI {
+    // Temporarily owned by this exact parser operation, never published.
+    name_key_namespace: Option<crate::common::name_key_generator::NameKeyNamespace>,
+    receiving_science_names: Option<Arc<crate::common::rts::science::ScienceNameFacts>>,
     file: Option<IniInput>,
     staged_temp_file: Option<PathBuf>,
     read_buffer: [u8; INI_READ_BUFFER],
@@ -214,6 +217,8 @@ pub struct INI {
     /// archives interleave binary fragments mid-file; plain [`Self::load`]
     /// stays strict — only asset loaders that opt in get recovery.
     tolerant_blocks: bool,
+    // This operation receives Object definitions already admitted by its owner.
+    object_definitions_admitted: bool,
     /// C++ INI.cpp:458-463 feeds the active load's CRC, in line order.
     /// This parser already has exclusive access through `&mut self`.
     xfer: Option<XferCRC<XferLoad<Cursor<Vec<u8>>>>>,
@@ -1201,8 +1206,63 @@ fn archive_virtual_ini_name(path: &Path) -> String {
 
 impl INI {
     /// Create a new INI reader
+    /// Resolve an authored name in this receiving parse's namespace.
+    /// Standalone INI entry points preserve their existing compatibility registry.
+    pub fn name_to_key(&mut self, name: &str) -> crate::common::name_key_generator::NameKeyType {
+        match self.name_key_namespace.as_mut() {
+            Some(keys) => keys.name_to_key(name),
+            None => crate::common::name_key_generator::NameKeyGenerator::name_to_key(name),
+        }
+    }
+
+    /// Immutable facts supplied by this exact receiving catalog. Some(empty)
+    /// remains authoritative; None selects only the standalone compatibility path.
+    pub fn receiving_science_names(
+        &self,
+    ) -> Option<&crate::common::rts::science::ScienceNameFacts> {
+        self.receiving_science_names.as_deref()
+    }
+
+    pub(crate) fn with_receiving_science_names<T>(
+        &mut self,
+        sciences: Arc<crate::common::rts::science::ScienceNameFacts>,
+        run: impl FnOnce(&mut Self) -> T,
+    ) -> T {
+        let previous = self.receiving_science_names.replace(sciences);
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| run(self)));
+        self.receiving_science_names = previous;
+        match result {
+            Ok(result) => result,
+            Err(payload) => std::panic::resume_unwind(payload),
+        }
+    }
+
+    pub(crate) fn with_name_key_namespace<T>(
+        &mut self,
+        keys: crate::common::name_key_generator::NameKeyNamespace,
+        run: impl FnOnce(&mut Self) -> T,
+    ) -> (crate::common::name_key_generator::NameKeyNamespace, T) {
+        let previous = self.name_key_namespace.replace(keys);
+        let result = run(self);
+        let keys = self
+            .name_key_namespace
+            .take()
+            .expect("parse retains its owned name namespace");
+        self.name_key_namespace = previous;
+        (keys, result)
+    }
+
+    /// The receiving content producer has already validated and committed these
+    /// Object blocks. Consume their grammar without re-parsing ModuleData or
+    /// publishing a compatibility factory/override registry.
+    pub fn set_object_definitions_admitted(&mut self) {
+        self.object_definitions_admitted = true;
+    }
+
     pub fn new() -> Self {
         Self {
+            name_key_namespace: None,
+            receiving_science_names: None,
             file: None,
             staged_temp_file: None,
             read_buffer: [0; INI_READ_BUFFER],
@@ -1221,6 +1281,7 @@ impl INI {
             end_of_file: false,
             eof_pending: false,
             tolerant_blocks: false,
+            object_definitions_admitted: false,
             xfer: None,
             script_template_definitions: Vec::new(),
             ai_data_store_target: None,
@@ -1597,6 +1658,16 @@ impl INI {
                 // A new block header ends the skip region and is dispatched
                 // below like any other block.
                 skipping_corrupt_block = false;
+            }
+
+            if self.object_definitions_admitted
+                && matches!(
+                    first_token.to_ascii_lowercase().as_str(),
+                    "object" | "objectreskin" | "childobject"
+                )
+            {
+                let _ = crate::common::thing::thing_factory::consume_ini_properties(self);
+                continue;
             }
 
             // Look up the block parser for this token type
@@ -2873,3 +2944,10 @@ mod inline_source_owner_boundary_tests;
 #[cfg(test)]
 #[path = "ini_crc_owner_tests.rs"]
 mod ini_crc_owner_tests;
+
+#[cfg(test)]
+#[path = "ini/receiving_science_scope_tests.rs"]
+mod receiving_science_scope_tests;
+
+#[path = "ini/coordinate.rs"]
+mod coordinate;

@@ -17,6 +17,35 @@ mod structure_topple_admission_tests;
 mod armor_definition_owner_tests;
 
 impl SnapshotBuilder {
+    pub(super) fn validate_receiving_object_templates(
+        &self,
+        objects: &HashMap<ObjectId, ObjectSnapshot>,
+        game_logic: &GameLogic,
+    ) -> SaveLoadResult<()> {
+        // Validate every original template before clearing a receiving roster.
+        // A missing authored definition cannot be reconstructed from saved HP.
+        if let Some(content) = &game_logic.receiving_module_content {
+            let projections = game_logic
+                .receiving_object_definitions
+                .as_ref()
+                .ok_or_else(|| {
+                    SaveLoadError::Corrupted("Receiving restore lacks host definitions".into())
+                })?;
+            for snapshot in objects.values() {
+                if content.admitted_template(&snapshot.template_name).is_none()
+                    || projections.get(&snapshot.template_name).is_none()
+                {
+                    return Err(SaveLoadError::Corrupted(format!(
+                        "Saved Object '{}' is absent from receiving content",
+                        snapshot.template_name,
+                    )));
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     // Private helper methods for snapshot restoration
 
     #[allow(dead_code)] // Save system: will be wired to full save/load integration
@@ -50,6 +79,7 @@ impl SnapshotBuilder {
         game_logic: &mut GameLogic,
     ) -> SaveLoadResult<()> {
         super::object_order_persist::validate(saved_order, objects)?;
+        self.validate_receiving_object_templates(objects, game_logic)?;
         let ids: Vec<ObjectId> = match saved_order {
             Some(order) => order.to_vec(),
             None => {
@@ -161,10 +191,32 @@ impl SnapshotBuilder {
         // may not have the full INI catalog — synthesize a minimal template so
         // retail map saves remain restorable. Queued unit definitions are
         // validated against the loaded catalog before this fallback can run.
+        if game_logic.receiving_module_content.is_some()
+            && !game_logic.ensure_host_spawn_template(&snapshot.template_name)
+        {
+            return Err(SaveLoadError::Corrupted(format!(
+                "Saved Object '{}' has no receiving template",
+                snapshot.template_name,
+            )));
+        }
+        if game_logic
+            .templates
+            .contains_key(snapshot.template_name.as_str())
+        {
+            game_logic
+                .admit_object_client_template(&snapshot.template_name)
+                .map_err(SaveLoadError::Corrupted)?;
+        }
         let mut template =
             if let Some(t) = game_logic.templates.get(snapshot.template_name.as_str()) {
                 t.clone()
             } else {
+                if game_logic.receiving_module_content.is_some() {
+                    return Err(SaveLoadError::Corrupted(format!(
+                        "Receiving template '{}' was not admitted",
+                        snapshot.template_name,
+                    )));
+                }
                 let mut t = ThingTemplate::new(&snapshot.template_name);
                 t.set_health(snapshot.health.maximum.max(1.0));
                 game_logic

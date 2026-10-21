@@ -6,7 +6,7 @@
 
 use std::sync::Arc;
 
-use game_engine::common::ini::{FieldParse, INI, INIError};
+use game_engine::common::ini::{INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::Snapshotable;
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
@@ -23,7 +23,13 @@ pub struct SpecialAbilityModuleData {
 
 impl SpecialAbilityModuleData {
     pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
-        ini.init_from_ini_with_fields(self, SPECIAL_ABILITY_FIELDS)
+        // The C++ subclass adds its leaf table after SpecialPowerModuleData.
+        ini.init_from_ini_with_inherited_fields(
+            self,
+            |data| &mut data.base,
+            crate::object::special_power_module::SPECIAL_POWER_MODULE_FIELDS,
+            &[],
+        )
     }
 }
 
@@ -219,61 +225,4 @@ impl Snapshotable for SpecialAbility {
     fn load_post_process(&mut self) -> Result<(), String> {
         super::interface::load_post_process_special_power_subclass(&mut self.base_module)
     }
-}
-
-fn parse_special_power_template_field(
-    _ini: &mut INI,
-    data: &mut SpecialAbilityModuleData,
-    tokens: &[&str],
-) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
-    let name = crate::common::AsciiString::from(*token);
-    data.base.special_power_template =
-        Some(crate::object::special_power_template::find_or_create_special_power_template(&name));
-    Ok(())
-}
-
-const SPECIAL_ABILITY_FIELDS: &[FieldParse<SpecialAbilityModuleData>] = &[
-    FieldParse {
-        token: "SpecialPowerTemplate",
-        parse: parse_special_power_template_field,
-    },
-    FieldParse {
-        token: "UpdateModuleStartsAttack",
-        parse: |_, data, tokens| {
-            parse_ability_bool_field(&mut |v| data.base.update_module_starts_attack = v, tokens)
-        },
-    },
-    FieldParse {
-        token: "StartsPaused",
-        parse: |_, data, tokens| {
-            parse_ability_bool_field(&mut |v| data.base.starts_paused = v, tokens)
-        },
-    },
-    FieldParse {
-        token: "InitiateSound",
-        parse: parse_ability_initiate_sound,
-    },
-    FieldParse {
-        token: "ScriptedSpecialPowerOnly",
-        parse: |_, data, tokens| {
-            parse_ability_bool_field(&mut |v| data.base.scripted_special_power_only = v, tokens)
-        },
-    },
-];
-
-fn parse_ability_bool_field(setter: &mut dyn FnMut(bool), tokens: &[&str]) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
-    setter(INI::parse_bool(token)?);
-    Ok(())
-}
-
-fn parse_ability_initiate_sound(
-    _ini: &mut INI,
-    data: &mut SpecialAbilityModuleData,
-    tokens: &[&str],
-) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
-    data.base.initiate_sound = crate::object::special_power_template::AudioEventRts::new(*token);
-    Ok(())
 }

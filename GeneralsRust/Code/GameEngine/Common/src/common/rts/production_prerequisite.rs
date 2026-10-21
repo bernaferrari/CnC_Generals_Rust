@@ -212,24 +212,30 @@ impl ProductionPrerequisite {
     ///
     /// Matches C++ ProductionPrerequisite.cpp lines 49-73: resolveNames
     pub fn resolve_names(&mut self) {
-        for unit_rec in &mut self.prereq_units {
-            if !unit_rec.name.is_empty() {
-                // C++ line 61: Find template at "top most" level (not override sub-templates)
-                // This means we conceptually only have one template for any given thing,
-                // only the data is overridden.
-                //
-                let resolved = resolve_thing_template_handle_by_name(&unit_rec.name);
-                debug_assert!(
-                    resolved.is_some(),
-                    "could not find prereq template '{}'",
-                    unit_rec.name
-                );
-                unit_rec.unit = resolved;
+        let _ = self.resolve_names_with(|name| {
+            let resolved = resolve_thing_template_handle_by_name(name);
+            debug_assert!(
+                resolved.is_some(),
+                "could not find prereq template '{}'",
+                name
+            );
+            Ok(resolved)
+        });
+    }
 
-                // C++ line 68: Clear the name as we're done with it
-                unit_rec.name.clear();
+    /// Same original resolution loop with the driving definition catalog supplied.
+    /// A strict receiving caller rejects a missing name before publishing its draft.
+    pub fn resolve_names_with(
+        &mut self,
+        mut resolve: impl FnMut(&str) -> Result<Option<ThingTemplateHandle>, String>,
+    ) -> Result<(), String> {
+        for unit in &mut self.prereq_units {
+            if !unit.name.is_empty() {
+                unit.unit = resolve(&unit.name)?;
+                unit.name.clear();
             }
         }
+        Ok(())
     }
 
     /// Calculate how many of each prerequisite unit the player owns

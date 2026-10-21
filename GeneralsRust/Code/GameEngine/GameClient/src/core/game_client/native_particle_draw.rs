@@ -256,6 +256,25 @@ impl GameClient {
         public_bones: &[String],
         frame: u32,
     ) -> GameClientResult<()> {
+        self.prepare_native_drawable_particles_with_assets_and_keys(
+            id,
+            particles,
+            assets,
+            public_bones,
+            frame,
+            None,
+        )
+    }
+
+    fn prepare_native_drawable_particles_with_assets_and_keys(
+        &mut self,
+        id: DrawableId,
+        particles: &mut crate::effects::particle_manager::ParticleSystemManager,
+        assets: Option<&ww3d_assets::AssetManager>,
+        public_bones: &[String],
+        frame: u32,
+        keys: Option<&mut game_engine::common::name_key_generator::NameKeyNamespace>,
+    ) -> GameClientResult<()> {
         let drawable = self
             .drawables
             .drawable_map
@@ -268,7 +287,13 @@ impl GameClient {
                 return Ok(());
             }
             let outcomes = drawable
-                .prepare_native_state_particles(particles, assets, public_bones, frame)
+                .prepare_native_state_particles_with_keys(
+                    particles,
+                    assets,
+                    public_bones,
+                    frame,
+                    keys,
+                )
                 .map_err(GameClientError::InvalidOperation)?;
             for (module_index, outcome) in outcomes {
                 use gamelogic::object::draw::draw_module::NativeStateParticlePreparation;

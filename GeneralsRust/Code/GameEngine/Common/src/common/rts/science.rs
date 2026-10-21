@@ -368,6 +368,29 @@ pub struct ScienceStore {
     name_to_science: HashMap<NameKeyType, ScienceType>,
 }
 
+/// Frozen names from the application science owner, not the module namespace.
+#[derive(Debug, Clone, Default)]
+pub struct ScienceNameFacts {
+    by_name: HashMap<String, ScienceType>,
+    by_id: HashMap<ScienceType, String>,
+}
+impl ScienceNameFacts {
+    pub fn from_store(store: &ScienceStore) -> Self {
+        let mut facts = Self::default();
+        for (&id, row) in store.iter() {
+            facts.by_name.insert(row.name.clone(), id);
+            facts.by_id.insert(id, row.name.clone());
+        }
+        facts
+    }
+    pub fn science(&self, name: &str) -> Option<ScienceType> {
+        self.by_name.get(name).copied()
+    }
+    pub fn name(&self, id: ScienceType) -> Option<&str> {
+        self.by_id.get(&id).map(String::as_str)
+    }
+}
+
 /// Minimal interface required for science prerequisite checks.
 pub trait ScienceAccess {
     fn has_science(&self, science: ScienceType) -> bool;
@@ -607,6 +630,33 @@ impl ScienceStore {
             }
         }
 
+        self.rebuild_root_sciences();
+        Ok(())
+    }
+
+    /// Read the same Science file grammar from already selected archive bytes.
+    /// This initializes only this store; it never publishes the application store.
+    pub fn load_from_sources(
+        &mut self,
+        sources: &[(&str, &[u8], bool)],
+    ) -> Result<(), ScienceLoadError> {
+        let mut definitions = HashMap::new();
+        let mut order = Vec::new();
+        for &(path, bytes, is_override) in sources {
+            ingest_science_reader(
+                Path::new(path),
+                std::io::Cursor::new(bytes),
+                is_override,
+                &mut definitions,
+                &mut order,
+            )?;
+        }
+        self.init();
+        for id in order {
+            if let Some(definition) = definitions.remove(&id) {
+                self.ingest_definition(definition);
+            }
+        }
         self.rebuild_root_sciences();
         Ok(())
     }
@@ -869,10 +919,24 @@ fn ingest_science_file(
         }
     };
 
-    trace!("ScienceStore: loading sciences from {:?}", path);
+    ingest_science_reader(
+        path,
+        BufReader::new(file),
+        is_override,
+        definitions,
+        definition_order,
+    )
+}
 
+fn ingest_science_reader(
+    path: &Path,
+    mut reader: impl BufRead,
+    is_override: bool,
+    definitions: &mut HashMap<ScienceType, ScienceDefinition>,
+    definition_order: &mut Vec<ScienceType>,
+) -> Result<(), ScienceLoadError> {
+    trace!("ScienceStore: loading sciences from {:?}", path);
     let mut current: Option<ScienceDefinition> = None;
-    let mut reader = BufReader::new(file);
     let mut line = String::new();
     let mut line_no = 0usize;
 

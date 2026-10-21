@@ -125,6 +125,13 @@ impl Module for SwayClientUpdateModule {
         self.module_name_key
     }
 
+    fn get_module_name_key_with_namespace(
+        &self,
+        keys: &mut game_engine::common::name_key_generator::NameKeyNamespace,
+    ) -> NameKeyType {
+        keys.name_to_key("SwayClientUpdate")
+    }
+
     fn get_module_tag_name_key(&self) -> NameKeyType {
         self.module_data.get_module_tag_name_key()
     }

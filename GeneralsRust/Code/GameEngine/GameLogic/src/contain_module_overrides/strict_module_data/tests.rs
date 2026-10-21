@@ -123,6 +123,10 @@ fn every_native_data_parser_propagates_unknown_fields_including_empty_tables() {
         .expect_err(name);
         assert!(error.contains(name), "class diagnostic: {error}");
         assert!(error.contains("line"), "source diagnostic: {error}");
+        assert!(
+            error.contains("NotAnAuthoredModuleField = 4"),
+            "actual rejected field and value: {error}"
+        );
     }
 }
 
@@ -433,3 +437,415 @@ fn native_catalog_records_actual_class_masks_before_authored_validation() {
         assert_eq!(actual, expected, "actual class registration order");
     }
 }
+
+#[test]
+fn strict_jet_slow_death_admits_the_real_airforce_spectre_declaration_and_rejects_unknowns() {
+    // Licensed INIZH.big Data/INI/Object/AirforceGeneral.ini:521, the first
+    // Jet declaration in actual ordered receiving admission. C++ Jet's base
+    // parser admits DestructionDelay before these leaf fields.
+    const BODY: &str = r#"    DestructionDelay                = 99999999  ; destruction will happen when we
+    RollRate                        = 0.0
+    RollRateDelta                   = 100%      ;each frame, rollrate = rollrate * rollrateDelta
+    PitchRate                       = 0.0
+    FallHowFast                     = 110.0%    ;Bigger is faster (can be over 100%,it's a fraction of gravity)
+    FXInitialDeath                  = FX_SpectreGunshipExplosionLight
+    OCLInitialDeath                 = None
+    DelaySecondaryFromInitialDeath  = 500       ; in milliseconds
+    FXSecondary                     = FX_spectreDeathExplosion
+    OCLSecondary                    = None
+    FXHitGround                     = FX_spectreGunshipDeathExplosion
+    OCLHitGround                    = OCL_A10DeathHitGround
+    DelayFinalBlowUpFromHitGround   = 200       ; in milliseconds
+  ; FXFinalBlowUp                   = FX_spectreGunshipDeathExplosion
+    OCLFinalBlowUp                  = OCL_SpectreDeathFinalBlowUp
+  End
+"#;
+    let mut factory = catalog();
+    let data = parse(
+        &mut factory,
+        ModuleType::Behavior,
+        "JetSlowDeathBehavior",
+        BODY,
+    )
+    .expect("genuine full retail JetSlowDeath declaration");
+    let jet = data.as_any().downcast_ref::<
+        crate::object::behavior::jet_slow_death_behavior::JetSlowDeathBehaviorModuleData
+    >().expect("actual typed Jet data, not a generic fallback");
+    assert_eq!(jet.base.destruction_delay, 3_000_000);
+    assert_eq!(jet.base.probability_modifier, 10);
+    assert_eq!(jet.roll_rate, 0.0);
+    assert_eq!(jet.roll_rate_delta, 1.0);
+    assert_eq!(jet.pitch_rate, 0.0);
+    assert!((jet.fall_how_fast - 1.1).abs() < f32::EPSILON);
+    assert_eq!(jet.delay_secondary_from_initial_death, 15);
+    assert_eq!(jet.delay_final_blow_up_from_hit_ground, 6);
+    assert_eq!(
+        jet.fx_initial_death.as_ref().map(|fx| fx.name()),
+        Some("FX_SpectreGunshipExplosionLight")
+    );
+    assert_eq!(
+        jet.fx_secondary.as_ref().map(|fx| fx.name()),
+        Some("FX_spectreDeathExplosion")
+    );
+    assert_eq!(
+        jet.fx_hit_ground.as_ref().map(|fx| fx.name()),
+        Some("FX_spectreGunshipDeathExplosion")
+    );
+    assert!(
+        jet.fx_final_blow_up.is_none(),
+        "the retail field is commented out"
+    );
+    assert!(jet.ocl_initial_death.is_none(), "authored None stays None");
+    let rejected = BODY.replacen("  End", "    UnknownJetField = 73\n  End", 1);
+    let error = parse(
+        &mut factory,
+        ModuleType::Behavior,
+        "JetSlowDeathBehavior",
+        &rejected,
+    )
+    .expect_err("retail acceptance must remain strict");
+    assert!(error.contains("JetSlowDeathBehavior"), "{error}");
+    assert!(error.contains("UnknownJetField = 73"), "{error}");
+    assert!(error.contains("line"), "{error}");
+}
+
+#[test]
+fn strict_countermeasures_admits_the_real_airforce_spectre_upgrade_and_rejects_unknowns() {
+    // Licensed INIZH.big Data/INI/Object/AirforceGeneral.ini:617. The C++
+    // CountermeasuresBehavior.h:54-75 table includes UpgradeMuxData at once.
+    const BODY: &str = r#"    TriggeredBy           = Upgrade_AmericaCountermeasures
+    FlareTemplateName     = CountermeasureFlare
+    FlareBoneBaseName     = Flare ; Name of the base flare bone (Flare01, Flare02, Flare03)
+    VolleySize            = 4     ; Number of flares launched per volley (requires bones)
+    VolleyArcAngle        = 90.0  ; Max angle of flare relative to forward direction (with VolleySize of 1, flare will always goes straight back).
+    VolleyVelocityFactor  = 2.0   ; Shoots out flares at a stronger velocity with a higher value.
+    DelayBetweenVolleys   = 1000  ; Time between flare volleys
+    NumberOfVolleys       = 5     ; Number of times the volleys will fire before reloading
+    ReloadTime            = 0     ; After all volleys launched, then reloading must occur. If 0, then reloading occurs at airstrip only.
+    EvasionRate           = 30%   ; With active flares, the specified percentage will be diverted.
+    ReactionLaunchLatency = 0     ; Reaction between getting shot at and the firing of the first volley of countermeasures.
+    MissileDecoyDelay     = 200   ; A reported missile that has been determined to hit a decoy will wait this long before acquiring countermeasures.
+  End
+"#;
+    let mut factory = catalog();
+    let data = parse(
+        &mut factory,
+        ModuleType::Behavior,
+        "CountermeasuresBehavior",
+        BODY,
+    )
+    .expect("genuine full retail Countermeasures declaration");
+    let countermeasures = data.as_any().downcast_ref::<
+        crate::object::behavior::countermeasures_behavior::CountermeasuresBehaviorModuleData
+    >().expect("actual typed Countermeasures data");
+    assert_eq!(
+        countermeasures
+            .upgrade_mux_data
+            .activation_upgrade_names
+            .iter()
+            .map(|name| name.as_str())
+            .collect::<Vec<_>>(),
+        ["Upgrade_AmericaCountermeasures"]
+    );
+    assert!(!countermeasures.upgrade_mux_data.requires_all_triggers);
+    assert_eq!(
+        countermeasures.flare_template_name.as_str(),
+        "CountermeasureFlare"
+    );
+    assert_eq!(countermeasures.flare_bone_base_name.as_str(), "Flare");
+    assert_eq!(countermeasures.volley_size, 4);
+    assert_eq!(countermeasures.volley_arc_angle, 90_f32.to_radians());
+    assert_eq!(countermeasures.volley_velocity_factor, 2.0);
+    assert_eq!(countermeasures.frames_between_volleys, 30);
+    assert_eq!(countermeasures.number_of_volleys, 5);
+    assert_eq!(countermeasures.reload_frames, 0);
+    assert!((countermeasures.evasion_rate - 0.3).abs() < f32::EPSILON);
+    assert_eq!(countermeasures.countermeasure_reaction_frames, 0);
+    assert_eq!(countermeasures.missile_decoy_frames, 6);
+    let rejected = BODY.replacen("  End", "    UnknownCountermeasureField = 79\n  End", 1);
+    let error = parse(
+        &mut factory,
+        ModuleType::Behavior,
+        "CountermeasuresBehavior",
+        &rejected,
+    )
+    .expect_err("retail admission remains strict after mux inheritance");
+    assert!(error.contains("CountermeasuresBehavior"), "{error}");
+    assert!(error.contains("UnknownCountermeasureField = 79"), "{error}");
+}
+
+#[test]
+fn strict_special_power_subclasses_share_the_original_base_table_and_owned_values() {
+    use crate::object::special_powers::*;
+    // SpecialPowerModule.cpp:53-68 is inherited by each source subclass.
+    const BODY: &str = "StartsPaused = Yes\n\
+        InitiateSound = SourceInitiateSound\n\
+        UpdateModuleStartsAttack = Yes\n\
+        ScriptedSpecialPowerOnly = Yes\n\
+        End\n";
+    let mut factory = catalog();
+    for name in [
+        "BaikonurLaunchPower",
+        "CashBountyPower",
+        "CashHackSpecialPower",
+        "CleanupAreaPower",
+        "FireWeaponPower",
+        "OCLSpecialPower",
+        "SpecialAbility",
+        "SpyVisionSpecialPower",
+        "DefectorSpecialPower",
+    ] {
+        let data = parse(&mut factory, ModuleType::Behavior, name, BODY).expect(name);
+        let base = match name {
+            "BaikonurLaunchPower" => {
+                &data
+                    .as_any()
+                    .downcast_ref::<BaikonurLaunchPowerModuleData>()
+                    .expect("BaikonurLaunchPower typed data")
+                    .base
+            }
+            "CashBountyPower" => {
+                &data
+                    .as_any()
+                    .downcast_ref::<CashBountyPowerModuleData>()
+                    .expect("CashBountyPower typed data")
+                    .base
+            }
+            "CashHackSpecialPower" => {
+                &data
+                    .as_any()
+                    .downcast_ref::<CashHackSpecialPowerModuleData>()
+                    .expect("CashHackSpecialPower typed data")
+                    .base
+            }
+            "CleanupAreaPower" => {
+                &data
+                    .as_any()
+                    .downcast_ref::<CleanupAreaPowerModuleData>()
+                    .expect("CleanupAreaPower typed data")
+                    .base
+            }
+            "FireWeaponPower" => {
+                &data
+                    .as_any()
+                    .downcast_ref::<FireWeaponPowerModuleData>()
+                    .expect("FireWeaponPower typed data")
+                    .base
+            }
+            "OCLSpecialPower" => {
+                &data
+                    .as_any()
+                    .downcast_ref::<OclSpecialPowerModuleData>()
+                    .expect("OCLSpecialPower typed data")
+                    .base
+            }
+            "SpecialAbility" => {
+                &data
+                    .as_any()
+                    .downcast_ref::<SpecialAbilityModuleData>()
+                    .expect("SpecialAbility typed data")
+                    .base
+            }
+            "SpyVisionSpecialPower" => {
+                &data
+                    .as_any()
+                    .downcast_ref::<SpyVisionSpecialPowerModuleData>()
+                    .expect("SpyVisionSpecialPower typed data")
+                    .base
+            }
+            "DefectorSpecialPower" => {
+                &data
+                    .as_any()
+                    .downcast_ref::<DefectorSpecialPowerModuleData>()
+                    .expect("DefectorSpecialPower typed data")
+                    .base
+            }
+            _ => unreachable!(),
+        };
+        assert!(base.starts_paused, "{name}");
+        assert!(base.update_module_starts_attack, "{name}");
+        assert!(base.scripted_special_power_only, "{name}");
+        assert_eq!(
+            base.initiate_sound.get_event_name(),
+            "SourceInitiateSound",
+            "{name}"
+        );
+        let error = parse(
+            &mut factory,
+            ModuleType::Behavior,
+            name,
+            "StartsPaused = nonsense\nEnd\n",
+        )
+        .expect_err("strict inherited bool");
+        assert!(error.contains("StartsPaused = nonsense"), "{name}: {error}");
+        let error = parse(
+            &mut factory,
+            ModuleType::Behavior,
+            name,
+            "UnknownSpecialPowerField = 91\nEnd\n",
+        )
+        .expect_err("unknown still rejected");
+        assert!(
+            error.contains("UnknownSpecialPowerField = 91"),
+            "{name}: {error}"
+        );
+    }
+    // This data class is not registered in the supported native catalog.
+    // Fix its same source inheritance without enabling a production module.
+    let mut demoralize = DemoralizeSpecialPowerModuleData::default();
+    INI::new()
+        .with_inline_source(BODY, |ini| demoralize.parse_from_ini(ini))
+        .expect("existing Demoralize data API inherits the same table");
+    assert!(demoralize.base.starts_paused);
+    assert!(demoralize.base.update_module_starts_attack);
+    assert!(demoralize.base.scripted_special_power_only);
+    assert_eq!(
+        demoralize.base.initiate_sound.get_event_name(),
+        "SourceInitiateSound"
+    );
+    assert!(
+        factory
+            .construct(None, "DemoralizeSpecialPower", ModuleType::Behavior)
+            .is_err()
+    );
+}
+
+#[test]
+fn strict_special_powers_admit_the_real_airforce_ocl_and_cleanup_declarations() {
+    use crate::object::special_powers::{CleanupAreaPowerModuleData, OclSpecialPowerModuleData};
+    // Licensed INIZH.big AirforceGeneral.ini:1481 and :5730, respectively.
+    const OCL_BODY: &str = r#"    SpecialPowerTemplate = SuperweaponDaisyCutter  ;@@KRIS@@
+    OCL                  = SUPERWEAPON_DaisyCutter
+    CreateLocation       = USE_OWNER_OBJECT
+    ScriptedSpecialPowerOnly = Yes
+  End
+"#;
+    const CLEANUP_BODY: &str = r#"    SpecialPowerTemplate          = SpecialAbilityAmbulanceCleanupArea
+    MaxMoveDistanceFromLocation   = 300.0 ;allows the unit to move around while cleaning up
+    InitiateSound = AmbulanceVoiceDetox
+  End
+"#;
+    let mut factory = catalog();
+    let data = parse(
+        &mut factory,
+        ModuleType::Behavior,
+        "OCLSpecialPower",
+        OCL_BODY,
+    )
+    .expect("actual retail OCL leaf plus inherited script-only field");
+    let ocl = data
+        .as_any()
+        .downcast_ref::<OclSpecialPowerModuleData>()
+        .unwrap();
+    assert!(ocl.base.scripted_special_power_only);
+    assert!(!ocl.base.starts_paused);
+    assert_eq!(
+        ocl.base
+            .special_power_template
+            .as_ref()
+            .map(|value| value.get_name()),
+        Some("SuperweaponDaisyCutter")
+    );
+    assert_eq!(ocl.default_ocl.as_str(), "SUPERWEAPON_DaisyCutter");
+    assert_eq!(
+        ocl.create_loc,
+        crate::object::special_powers::ocl_special_power::OCLCreateLocType::UseOwnerObject
+    );
+    let data = parse(
+        &mut factory,
+        ModuleType::Behavior,
+        "CleanupAreaPower",
+        CLEANUP_BODY,
+    )
+    .expect("actual retail Cleanup leaf plus inherited initiate sound");
+    let cleanup = data
+        .as_any()
+        .downcast_ref::<CleanupAreaPowerModuleData>()
+        .unwrap();
+    assert_eq!(cleanup.cleanup_move_range, 300.0);
+    assert_eq!(
+        cleanup.base.initiate_sound.get_event_name(),
+        "AmbulanceVoiceDetox"
+    );
+    assert_eq!(
+        cleanup
+            .base
+            .special_power_template
+            .as_ref()
+            .map(|value| value.get_name()),
+        Some("SpecialAbilityAmbulanceCleanupArea")
+    );
+    for (name, body) in [
+        ("OCLSpecialPower", OCL_BODY),
+        ("CleanupAreaPower", CLEANUP_BODY),
+    ] {
+        let body = body.replacen("  End", "    UnknownRetailPowerField = 97\n  End", 1);
+        let error = parse(&mut factory, ModuleType::Behavior, name, &body)
+            .expect_err("real retail admission must remain strict");
+        assert!(error.contains(name), "{error}");
+        assert!(error.contains("UnknownRetailPowerField = 97"), "{error}");
+    }
+}
+
+#[test]
+fn strict_deliver_payload_admits_genuine_labeled_drop_coordinates_and_rejects_bad_components() {
+    use crate::common::Coord3D;
+    use crate::object::update::ai_update::deliver_payload_ai_update::DeliverPayloadAIUpdateModuleData;
+    let mut factory = catalog();
+    // C++ getSepsColon includes both ':' and '=' as separators.
+    for coordinates in [
+        "X:0 Y:0 Z:-10",
+        "x=0 y=0 z=-10",
+        "X:=0 Y:=0 Z:=-10",
+        "X : 0 Y : 0 Z : -10",
+    ] {
+        let data = parse(
+            &mut factory,
+            ModuleType::Behavior,
+            "DeliverPayloadAIUpdate",
+            &format!("DropOffset = {coordinates}\nDropVariance = X:10 Y:20 Z:30\nEnd\n"),
+        )
+        .expect("actual registered DeliverPayloadAIUpdate labeled retail coordinates");
+        let data = data
+            .as_any()
+            .downcast_ref::<DeliverPayloadAIUpdateModuleData>()
+            .expect("actual typed payload AI data");
+        assert_eq!(data.drop_offset, Coord3D::new(0.0, 0.0, -10.0));
+        assert_eq!(data.drop_variance, Coord3D::new(10.0, 20.0, 30.0));
+    }
+    for body in [
+        "DropOffset = X:0 Y:bad Z:-10\nEnd\n",
+        "DropVariance = X:1 Y:2\nEnd\n",
+        "DropOffset = Y:1 X:2 Z:3\nEnd\n",
+        "DropOffset = X:1 Q:2 Z:3\nEnd\n",
+    ] {
+        assert!(
+            parse(
+                &mut factory,
+                ModuleType::Behavior,
+                "DeliverPayloadAIUpdate",
+                body
+            )
+            .is_err(),
+            "malformed labeled component must reject: {body}"
+        );
+    }
+}
+
+#[path = "ai_parser_tests.rs"]
+mod ai_parser_tests;
+
+#[path = "railroad_parser_tests.rs"]
+mod railroad_parser_tests;
+
+#[path = "inherited_behavior_parser_tests.rs"]
+mod inherited_behavior_parser_tests;
+
+#[path = "coordinate_decal_parser_tests.rs"]
+mod coordinate_decal_parser_tests;
+
+#[path = "draw_condition_parser_tests.rs"]
+mod draw_condition_parser_tests;
+
+#[path = "veterancy_science_owner_tests.rs"]
+mod veterancy_science_owner_tests;

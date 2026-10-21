@@ -8,6 +8,30 @@ use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType, TimeOfDay};
 use std::any::Any;
 
+/// The full local player's science membership frozen by the receiving world.
+/// Shared immutable frame data; actual modules retain only their resulting bool.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ReceivingSciencePlayer {
+    active: bool,
+    sciences: Box<[ScienceType]>,
+}
+impl ReceivingSciencePlayer {
+    pub fn new(active: bool, sciences: impl IntoIterator<Item = ScienceType>) -> Self {
+        let mut sciences = sciences.into_iter().collect::<Vec<_>>();
+        sciences.sort_unstable();
+        sciences.dedup();
+        Self {
+            active,
+            sciences: sciences.into_boxed_slice(),
+        }
+    }
+    /// W3DScienceModelDraw.cpp50-70: invalid always hides, inactive observers draw.
+    pub fn should_hide(&self, required: ScienceType) -> bool {
+        required == SCIENCE_INVALID
+            || (self.active && self.sciences.binary_search(&required).is_err())
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct W3DScienceModelDrawModuleData {
     pub base: W3DModelDrawModuleData,
@@ -29,9 +53,10 @@ impl W3DScienceModelDrawModuleData {
                 return Err(INIError::EndOfFile);
             }
             let tokens = ini
-                .get_line_tokens()
-                .into_iter()
-                .map(|t| t.to_string())
+                .get_buffer()
+                .split(|character: char| character.is_ascii_whitespace() || character == '=')
+                .filter(|token| !token.is_empty())
+                .map(str::to_owned)
                 .collect::<Vec<_>>();
             let Some(key) = tokens.first().cloned() else {
                 continue;
@@ -47,9 +72,14 @@ impl W3DScienceModelDrawModuleData {
                 .collect::<Vec<_>>();
             match key.to_ascii_uppercase().as_str() {
                 "REQUIREDSCIENCE" => {
-                    let store = get_science_store().ok_or(INIError::InvalidData)?;
-                    self.required_science =
-                        store.get_science_from_internal_name(required_value(&value_tokens)?);
+                    let name = required_value(&value_tokens)?;
+                    self.required_science = if let Some(facts) = ini.receiving_science_names() {
+                        facts.science(name).ok_or(INIError::InvalidData)?
+                    } else {
+                        // Explicit standalone parser retains application compatibility.
+                        let store = get_science_store().ok_or(INIError::InvalidData)?;
+                        store.get_science_from_internal_name(name)
+                    };
                 }
                 _ => {
                     if !self
@@ -79,6 +109,11 @@ impl Default for W3DScienceModelDrawModuleData {
     }
 }
 impl ModuleData for W3DScienceModelDrawModuleData {
+    fn get_minimum_required_game_lod(
+        &self,
+    ) -> game_engine::common::thing::module::StaticGameLodLevel {
+        self.base.get_minimum_required_game_lod()
+    }
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -109,13 +144,35 @@ impl Snapshotable for W3DScienceModelDrawModuleData {
 pub struct W3DScienceModelDraw {
     data: W3DScienceModelDrawModuleData,
     base: W3DModelDraw,
+    // Runtime receiving observation, rebound before the actual draw; not Xfer state.
+    receiving_hidden: Option<bool>,
 }
 impl W3DScienceModelDraw {
     pub fn new(data: W3DScienceModelDrawModuleData) -> Self {
         Self {
             base: W3DModelDraw::new(data.base.clone()),
             data,
+            receiving_hidden: None,
         }
+    }
+    /// Last frozen receiving decision; applying hidden remains a draw-phase effect.
+    pub fn receiving_science_hidden(&self) -> Option<bool> {
+        self.receiving_hidden
+    }
+    pub fn bind_receiving_science_player(
+        &mut self,
+        player: Option<&ReceivingSciencePlayer>,
+    ) -> Result<(), &'static str> {
+        // C++ rejects invalid data before it queries any local player.
+        let hidden = if self.data.required_science == SCIENCE_INVALID {
+            true
+        } else {
+            player
+                .ok_or("valid authored science requires its receiving local player")?
+                .should_hide(self.data.required_science)
+        };
+        self.receiving_hidden = Some(hidden);
+        Ok(())
     }
     pub fn bind_owner_id(&mut self, owner_id: ObjectID) {
         self.base.bind_owner_id(owner_id);
@@ -138,6 +195,13 @@ impl Module for W3DScienceModelDraw {
         game_engine::common::name_key_generator::NameKeyGenerator::name_to_key(
             "W3DScienceModelDraw",
         )
+    }
+
+    fn get_module_name_key_with_namespace(
+        &self,
+        keys: &mut game_engine::common::name_key_generator::NameKeyNamespace,
+    ) -> NameKeyType {
+        keys.name_to_key("W3DScienceModelDraw")
     }
     fn get_module_tag_name_key(&self) -> NameKeyType {
         self.base.get_module_tag_name_key()
@@ -172,11 +236,13 @@ impl DrawModule for W3DScienceModelDraw {
         driver: Option<&crate::object::drawable::DrawableRenderOwner<'_>>,
         time: &crate::helpers::DrawTimeObservation,
     ) {
-        if leftover_science_model_should_hide(self.data.required_science) {
+        let hidden = self
+            .receiving_hidden
+            .unwrap_or_else(|| leftover_science_model_should_hide(self.data.required_science));
+        if hidden {
             DrawModule::set_hidden(self, true);
             return;
         }
-        DrawModule::set_hidden(self, false);
         self.base
             .do_draw_module_for_owner(transform_mtx, driver, time);
     }
@@ -300,6 +366,50 @@ pub fn tick_live_host_science_model_hide(
 mod tests {
     use super::*;
     use game_engine::common::name_key_generator::NameKeyGenerator;
+
+    #[test]
+    fn receiving_science_gate_preserves_original_initial_hidden_and_observer_cases() {
+        // Actual original W3DScienceModelDraw.cpp50-70 component outputs. The
+        // component's base is a phase witness, not a replacement renderer.
+        let rows = include_str!("fixtures/science_model_gate_cpp.jsonl")
+            .lines()
+            .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(rows.len(), 16);
+        for row in rows {
+            let tag = row["tag"].as_str().unwrap();
+            let fields = tag.split('_').collect::<Vec<_>>();
+            let required = fields[0][1..].parse::<i32>().unwrap();
+            let active = fields[1] == "a1";
+            let owns = fields[2] == "h1";
+            let initial_hidden = fields[3] == "initial1";
+            let observation = ReceivingSciencePlayer::new(active, owns.then_some(7));
+            let hide = !row["base_called"].as_bool().unwrap();
+            assert_eq!(observation.should_hide(required), hide, "{tag}");
+            let mut data = W3DScienceModelDrawModuleData::new();
+            data.required_science = required;
+            let mut state = ModelConditionInfo::new();
+            state.model_name = AsciiString::from("ReceivingScienceProbe");
+            data.base.condition_states.push(state);
+            data.base.default_state = 0;
+            let mut draw = W3DScienceModelDraw::new(data);
+            Module::on_drawable_bound_to_object(&mut draw);
+            DrawModule::set_hidden(&mut draw, initial_hidden);
+            draw.bind_receiving_science_player(Some(&observation))
+                .unwrap();
+            DrawModule::do_draw_module(
+                &mut draw,
+                &Matrix3D::IDENTITY,
+                &crate::helpers::DrawTimeObservation::new(None, false, false, true),
+            );
+            assert_eq!(draw.receiving_science_hidden(), Some(hide), "{tag}");
+            assert_eq!(
+                DrawModule::is_visible(&draw),
+                !row["hidden"].as_bool().unwrap(),
+                "{tag}"
+            );
+        }
+    }
 
     #[test]
     fn module_data_defaults_required_science_to_invalid() {

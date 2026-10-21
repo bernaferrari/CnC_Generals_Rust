@@ -286,37 +286,18 @@ fn parse_radius_decal_color(
     data: &mut RadiusDecalTemplate,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    if tokens.is_empty() {
-        return Err(INIError::InvalidData);
-    }
-    if tokens.len() == 1 {
-        if let Ok(value) = tokens[0].parse::<u32>() {
-            data.color = value;
-            return Ok(());
+    // Retain the existing single packed-u32 Rust fixture adapter separately
+    // from C++ RadiusDecal.cpp:94-109's ordered INI::parseColorInt grammar.
+    let mut values = tokens.iter().copied().filter(|value| *value != "=");
+    if let Some(value) = values.next() {
+        if values.next().is_none() {
+            if let Ok(packed) = value.parse::<u32>() {
+                data.color = packed;
+                return Ok(());
+            }
         }
     }
-
-    let mut r: u8 = 0;
-    let mut g: u8 = 0;
-    let mut b: u8 = 0;
-    let mut a: u8 = 255;
-
-    for token in tokens {
-        let (key, value) = match token.split_once(':') {
-            Some((k, v)) => (k.trim(), v.trim()),
-            None => ("", token.trim()),
-        };
-        let parsed = value.parse::<u8>().map_err(|_| INIError::InvalidData)?;
-        match key.to_ascii_uppercase().as_str() {
-            "R" => r = parsed,
-            "G" => g = parsed,
-            "B" => b = parsed,
-            "A" => a = parsed,
-            _ => {}
-        }
-    }
-
-    data.color = ((a as u32) << 24) | ((b as u32) << 16) | ((g as u32) << 8) | (r as u32);
+    data.color = INI::parse_color_int_ordered(tokens)?;
     Ok(())
 }
 

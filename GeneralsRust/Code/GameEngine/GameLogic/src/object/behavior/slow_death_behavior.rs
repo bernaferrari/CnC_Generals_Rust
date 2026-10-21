@@ -40,7 +40,7 @@ use crate::modules::{
     UPDATE_SLEEP_FOREVER, UPDATE_SLEEP_NONE, UpdateModule, UpdateModuleInterface, UpdateModulePtr,
     UpdateSleepTime,
 };
-use crate::object::behavior::behavior_module::xfer_update_module_base_state;
+use crate::object::behavior::behavior_module::{BehaviorModuleData, xfer_update_module_base_state};
 use crate::weapon::with_weapon_store;
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 pub type DieMuxData = crate::object::die::DieMuxData;
@@ -88,6 +88,8 @@ impl SlowDeathPhaseType {
 /// Module data for SlowDeathBehavior
 #[derive(Debug, Clone)]
 pub struct SlowDeathBehaviorModuleData {
+    // The one inherited Behavior metadata owner, shared by SlowDeath subclasses.
+    pub base: BehaviorModuleData,
     pub die_mux_data: DieMuxData,
     pub sink_rate: Real,
     pub probability_modifier: Int,
@@ -179,10 +181,12 @@ impl Snapshotable for SlowDeathBehaviorModuleData {
 }
 
 impl EngineModuleData for SlowDeathBehaviorModuleData {
-    fn set_module_tag_name_key(&mut self, _key: NameKeyType) {}
+    fn set_module_tag_name_key(&mut self, key: NameKeyType) {
+        self.base.set_module_tag_name_key(key);
+    }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        0
+        self.base.get_module_tag_name_key()
     }
 
     fn as_any(&self) -> &dyn std::any::Any {
@@ -199,6 +203,7 @@ impl SlowDeathBehaviorModuleData {
 
     pub fn new() -> Self {
         Self {
+            base: BehaviorModuleData::new(),
             die_mux_data: DieMuxData::default(),
             sink_rate: 0.0,
             probability_modifier: 10,
@@ -323,7 +328,8 @@ pub(crate) fn parse_sink_rate(
     tokens: &[&str],
 ) -> Result<(), INIError> {
     let token = tokens.first().ok_or(INIError::InvalidData)?;
-    data.sink_rate = INI::parse_real(token)?;
+    // C++ SlowDeathBehavior.cpp:110 uses parseVelocityReal (units/second).
+    data.sink_rate = INI::parse_velocity_real(token)?;
     Ok(())
 }
 
@@ -469,7 +475,7 @@ pub(crate) fn parse_required_status(
     Ok(())
 }
 
-const SLOW_DEATH_BEHAVIOR_FIELDS: &[FieldParse<SlowDeathBehaviorModuleData>] = &[
+pub(super) const SLOW_DEATH_BEHAVIOR_FIELDS: &[FieldParse<SlowDeathBehaviorModuleData>] = &[
     FieldParse {
         token: "SinkRate",
         parse: parse_sink_rate,

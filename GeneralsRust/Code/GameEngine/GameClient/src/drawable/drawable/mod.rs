@@ -88,6 +88,11 @@ pub struct BasicDrawable {
     /// C++ `m_drawableInfo` — W3D user-data binding (IDs, not raw Drawable*).
     drawable_info: DrawableInfo,
     template_name: Option<String>,
+    /// Exact immutable authored definition; Some with absent audio forbids
+    /// compatibility lookup by name in a foreign process-wide factory.
+    receiving_template: Option<
+        std::sync::Arc<game_engine::common::thing::thing_template::AdmittedReceivingTemplate>,
+    >,
     position: Vector3,
     instance_transform: Matrix4,
     instance_scale: f32,
@@ -235,6 +240,7 @@ impl BasicDrawable {
             // C++ Drawable.cpp: m_drawableInfo.m_drawable = this; m_ghostObject = NULL;
             drawable_info: DrawableInfo::for_drawable(id.0),
             template_name: None,
+            receiving_template: None,
             position: Vector3::zero(),
             instance_transform: Matrix4::identity(),
             instance_scale: 1.0,

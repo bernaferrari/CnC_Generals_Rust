@@ -315,6 +315,7 @@ impl SnapshotBuilder {
         game_logic: &mut GameLogic,
     ) -> SaveLoadResult<()> {
         validate_direct_world_snapshot_version(snapshot.version)?;
+        self.validate_receiving_object_templates(&snapshot.objects, game_logic)?;
         let initial_skirmish = super::super::initial_skirmish::read_for_restore(snapshot)?;
         if let Some(initial) = &initial_skirmish {
             initial

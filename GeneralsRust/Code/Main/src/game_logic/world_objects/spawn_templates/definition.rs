@@ -2,6 +2,154 @@
 use super::*;
 
 impl GameLogic {
+    /// The effective receiving Body initializes maximum/current health before
+    /// callbacks, independently of any curated host adapter for the same name.
+    pub(super) fn apply_authored_body_definition(
+        template: &mut ThingTemplate,
+        definition: &ObjectDefinition,
+    ) {
+        template.body_initial_health = None;
+        template.body_definition_error = None;
+        // ActiveBody is initialized before any onCreate/onBuildComplete callback.
+        // Retain the effective receiving module rather than discovering InitialHealth
+        // from whichever Core factory happens to be installed at construction.
+        template.body_kind = definition.behavior_modules.iter().find_map(|module| {
+            crate::game_logic::thing::BodyKind::from_module_class(&module.class_name)
+        });
+        if let Some(body) = definition.behavior_modules.iter().find(|module| {
+            [
+                "ActiveBody",
+                "StructureBody",
+                "HighlanderBody",
+                "ImmortalBody",
+                "HiveStructureBody",
+                "UndeadBody",
+            ]
+            .iter()
+            .any(|name| module.class_name.eq_ignore_ascii_case(name))
+        }) {
+            // Both Body values default independently to zero in C++.
+            // A native zero maximum is data, not a missing bootstrap health.
+            // Resolved inherited modules already contain inherited values here.
+            match body.attribute("MaxHealth") {
+                None => {
+                    template.set_health(0.0);
+                }
+                Some(value) => match game_engine::common::ini::INI::parse_real(value.trim()) {
+                    Ok(health) if health.is_finite() => {
+                        template.set_health(health);
+                    }
+                    _ => {
+                        template.body_definition_error =
+                            Some(format!("invalid {} MaxHealth: {value}", body.class_name));
+                    }
+                },
+            }
+            match body.attribute("InitialHealth") {
+                None => template.body_initial_health = Some(0.0),
+                Some(value) => match game_engine::common::ini::INI::parse_real(value.trim()) {
+                    Ok(health) if health.is_finite() => template.body_initial_health = Some(health),
+                    _ => {
+                        template.body_definition_error = Some(format!(
+                            "invalid {} InitialHealth: {value}",
+                            body.class_name
+                        ))
+                    }
+                },
+            }
+        }
+    }
+
+    /// Move the actual ordered producer into a fresh initialized session.
+    /// Captured definitions and their namespace are never recovered by name
+    /// from a process-wide factory or rebuilt during Object creation.
+    pub(crate) fn admit_receiving_module_content(
+        &mut self,
+        source: crate::assets::ReceivingObjectContent,
+    ) -> Result<(), String> {
+        if self.receiving_module_content.is_some() || !self.objects.is_empty() {
+            return Err("Receiving module content must be admitted before live Objects".into());
+        }
+        // The opaque producer pairs both projections from identical ordered
+        // source bytes. Reject a missing incoming authored identity before
+        // replacing even the fresh world's current definition projection.
+        for (name, template) in &self.templates {
+            if template.receiving_object_definition.is_some()
+                && source.module_content().admitted_template(name).is_none()
+            {
+                return Err(format!(
+                    "Authored host template '{name}' is absent from its originating module content"
+                ));
+            }
+        }
+        let (content, projections) = source.into_parts();
+        let definitions = projections
+            .rows()
+            .map(|row| (row.name.clone(), (**row).clone()))
+            .collect::<Vec<_>>();
+        // Weapon definitions retain their existing separate application adapter.
+        // Object definitions below never come from that application's registry.
+        if let Some(manager) = get_asset_manager() {
+            let weapons = manager
+                .lock()
+                .map_err(|_| "Cannot admit initial weapon definitions: asset manager poisoned")?
+                .weapon_definitions_snapshot();
+            self.admit_weapon_content_snapshot(weapons, &definitions)?;
+        }
+        self.templates.clear();
+        self.setup_templates();
+        self.receiving_object_definitions = Some(projections);
+        self.seed_asset_definition_templates_from_snapshot_with_receiving(
+            definitions,
+            None,
+            Some(&content),
+        )?;
+        Self::bind_receiving_production_templates(&mut self.templates, &content)?;
+        self.receiving_module_content = Some(content);
+        self.refresh_receiving_client_templates();
+        self.receiving_template_baseline = Some(self.templates.clone());
+        Ok(())
+    }
+
+    /// Resolve an already admitted immutable definition before Object creation.
+    /// An authored miss is an error; only uncaptured programmatic definitions
+    /// can select the explicit Compatibility presentation route.
+    pub(crate) fn admit_object_client_template(&mut self, name: &str) -> Result<(), String> {
+        let template = self
+            .templates
+            .get(name)
+            .ok_or_else(|| format!("Missing receiving Object template {name}"))?;
+        if self.receiving_module_content.is_none() {
+            if template.receiving_object_definition.is_none() {
+                return Ok(());
+            }
+            return Err(format!(
+                "Authored Object '{name}' has no admitted receiving module definition"
+            ));
+        }
+        let plan = self
+            .receiving_module_content
+            .as_ref()
+            .and_then(|content| content.admitted_template(name))
+            .ok_or_else(|| {
+                format!("Authored Object '{name}' has no admitted receiving module definition")
+            })?;
+
+        let template = self
+            .templates
+            .get_mut(name)
+            .expect("template loan ended above");
+        template.bind_receiving_production_facts(
+            &plan,
+            self.receiving_module_content
+                .as_ref()
+                .expect("receiving branch retained owner"),
+        )?;
+        template.receiving_client_template =
+            Some(crate::game_logic::thing::ReceivingClientTemplate::new(plan));
+        Ok(())
+    }
+
     /// C++ parity: veterancy-level XP multiplier. In C++ each template
     /// defines per-level ExperienceValue; we approximate by scaling the
     /// base value.  C++ values are modest multipliers, not large ones.
@@ -182,6 +330,23 @@ impl GameLogic {
         definition: &ObjectDefinition,
         texture_hint: Option<&str>,
     ) -> ThingTemplate {
+        Self::build_template_from_object_definition_with_receiving(
+            template_name,
+            definition,
+            texture_hint,
+            None,
+        )
+        .expect("Compatibility production admission is infallible")
+    }
+
+    pub(crate) fn build_template_from_object_definition_with_receiving(
+        template_name: &str,
+        definition: &ObjectDefinition,
+        texture_hint: Option<&str>,
+        receiving: Option<
+            &game_engine::common::thing::receiving_module_content::ReceivingModuleContent,
+        >,
+    ) -> Result<ThingTemplate, String> {
         let mut template = ThingTemplate::new(template_name);
         template.armor_definitions = Some(std::sync::Arc::new(
             gamelogic::object::armor::ArmorDefinitions::new(),
@@ -285,54 +450,7 @@ impl GameLogic {
             }
         }
 
-        // ActiveBody is initialized before any onCreate/onBuildComplete callback.
-        // Retain the effective receiving module rather than discovering InitialHealth
-        // from whichever Core factory happens to be installed at construction.
-        template.body_kind = definition.behavior_modules.iter().find_map(|module| {
-            crate::game_logic::thing::BodyKind::from_module_class(&module.class_name)
-        });
-        if let Some(body) = definition.behavior_modules.iter().find(|module| {
-            [
-                "ActiveBody",
-                "StructureBody",
-                "HighlanderBody",
-                "ImmortalBody",
-                "HiveStructureBody",
-                "UndeadBody",
-            ]
-            .iter()
-            .any(|name| module.class_name.eq_ignore_ascii_case(name))
-        }) {
-            // Both Body values default independently to zero in C++.
-            // A native zero maximum is data, not a missing bootstrap health.
-            // Resolved inherited modules already contain inherited values here.
-            match body.attribute("MaxHealth") {
-                None => {
-                    template.set_health(0.0);
-                }
-                Some(value) => match value.trim().parse::<f32>() {
-                    Ok(health) if health.is_finite() => {
-                        template.set_health(health);
-                    }
-                    _ => {
-                        template.body_definition_error =
-                            Some(format!("invalid {} MaxHealth: {value}", body.class_name));
-                    }
-                },
-            }
-            match body.attribute("InitialHealth") {
-                None => template.body_initial_health = Some(0.0),
-                Some(value) => match value.trim().parse::<f32>() {
-                    Ok(health) if health.is_finite() => template.body_initial_health = Some(health),
-                    _ => {
-                        template.body_definition_error = Some(format!(
-                            "invalid {} InitialHealth: {value}",
-                            body.class_name
-                        ))
-                    }
-                },
-            }
-        }
+        Self::apply_authored_body_definition(&mut template, definition);
 
         if let Some(model_name) = definition.model_name.as_deref() {
             let model_name = model_name.trim();
@@ -840,8 +958,8 @@ impl GameLogic {
             &mut template,
             definition,
         );
-        apply_production_prerequisites_from_definition(&mut template, definition);
+        apply_production_prerequisites_from_definition(&mut template, definition, receiving)?;
 
-        template
+        Ok(template)
     }
 }

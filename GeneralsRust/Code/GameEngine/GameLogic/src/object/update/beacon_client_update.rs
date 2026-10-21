@@ -156,12 +156,26 @@ impl BeaconClientUpdateModule {
         module_data: Arc<BeaconClientUpdateModuleData>,
         owner_id: ObjectID,
     ) -> Self {
+        Self::new_at(
+            module_name_key,
+            module_data,
+            owner_id,
+            TheGameLogic::get_frame(),
+        )
+    }
+
+    pub fn new_at(
+        module_name_key: NameKeyType,
+        module_data: Arc<BeaconClientUpdateModuleData>,
+        owner_id: ObjectID,
+        logic_frame: u32,
+    ) -> Self {
         Self {
             module_name_key,
             module_data,
             owner_id,
             particle_system_id: None,
-            last_radar_pulse: TheGameLogic::get_frame(),
+            last_radar_pulse: logic_frame,
         }
     }
 
@@ -295,6 +309,13 @@ impl Module for BeaconClientUpdateModule {
         self.module_name_key
     }
 
+    fn get_module_name_key_with_namespace(
+        &self,
+        keys: &mut game_engine::common::name_key_generator::NameKeyNamespace,
+    ) -> NameKeyType {
+        keys.name_to_key("BeaconClientUpdate")
+    }
+
     fn get_module_tag_name_key(&self) -> NameKeyType {
         self.module_data.get_module_tag_name_key()
     }
@@ -409,6 +430,35 @@ mod tests {
             resolved,
             Some(("BeaconSmokeFFFFFF".to_string(), Some(color)))
         );
+    }
+
+    #[test]
+    fn beacon_constructor_observes_receiving_frame_and_load_restores_saved_pulse() {
+        let data = Arc::new(BeaconClientUpdateModuleData::default());
+        let mut first = BeaconClientUpdateModule::new_at(11, Arc::clone(&data), 22, u32::MAX);
+        let peer = BeaconClientUpdateModule::new_at(11, Arc::clone(&data), 22, 37);
+        assert_eq!(first.last_radar_pulse, u32::MAX);
+        assert_eq!(peer.last_radar_pulse, 37);
+        assert_eq!(first.get_module_name_key(), 11);
+        assert_eq!(peer.get_module_name_key(), 11);
+        assert!(Arc::ptr_eq(&first.module_data, &peer.module_data));
+        let mut bytes = Vec::new();
+        {
+            let mut save = XferSave::new(Cursor::new(&mut bytes), 1);
+            save.open("beacon_receiving_constructor").unwrap();
+            first.xfer(&mut save).unwrap();
+            save.close().unwrap();
+        }
+        let mut restored = BeaconClientUpdateModule::new_at(11, data, 22, 4);
+        {
+            let mut load = XferLoad::new(Cursor::new(bytes), 1);
+            load.open("beacon_receiving_constructor").unwrap();
+            restored.xfer(&mut load).unwrap();
+            load.close().unwrap();
+        }
+        assert_eq!(restored.last_radar_pulse, u32::MAX);
+        assert_eq!(first.last_radar_pulse, u32::MAX);
+        assert_eq!(peer.last_radar_pulse, 37);
     }
 
     #[test]

@@ -216,8 +216,12 @@ impl Default for JetAIUpdateModuleData {
 
 impl JetAIUpdateModuleData {
     pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
-        self.base.parse_from_ini(ini)?;
-        ini.init_from_ini_with_fields(self, JET_AI_UPDATE_FIELDS)
+        ini.init_from_ini_with_inherited_fields(
+            self,
+            |data| &mut data.base,
+            crate::object::update::ai_update_interface::AI_UPDATE_FIELDS,
+            JET_AI_UPDATE_FIELDS,
+        )
     }
 }
 

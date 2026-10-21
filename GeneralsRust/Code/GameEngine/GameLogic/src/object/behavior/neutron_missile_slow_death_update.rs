@@ -12,7 +12,7 @@ use crate::modules::{
     BehaviorModuleInterface, SlowDeathBehaviorInterface, UpdateModuleInterface, UpdateSleepTime,
 };
 use crate::object::Object as GameObject;
-use crate::object::behavior::behavior_module::{BehaviorModuleData, xfer_update_module_base_state};
+use crate::object::behavior::behavior_module::xfer_update_module_base_state;
 use crate::object::behavior::slow_death_behavior::SlowDeathPhaseType;
 use crate::object::behavior::topple_update::{TOPPLE_OPTIONS_NO_BOUNCE, TOPPLE_OPTIONS_NO_FX};
 use crate::object::registry::OBJECT_REGISTRY;
@@ -67,8 +67,7 @@ impl Default for BlastInfo {
 
 #[derive(Clone, Debug)]
 pub struct NeutronMissileSlowDeathUpdateModuleData {
-    pub base: BehaviorModuleData,
-    pub probability_modifier: i32,
+    pub base: crate::object::behavior::slow_death_behavior::SlowDeathBehaviorModuleData,
     pub scorch_size: Real,
     pub fx_list: Option<FXList>,
     pub blast_info: [BlastInfo; MAX_NEUTRON_BLASTS],
@@ -77,8 +76,7 @@ pub struct NeutronMissileSlowDeathUpdateModuleData {
 impl Default for NeutronMissileSlowDeathUpdateModuleData {
     fn default() -> Self {
         Self {
-            base: BehaviorModuleData::default(),
-            probability_modifier: 1,
+            base: crate::object::behavior::slow_death_behavior::SlowDeathBehaviorModuleData::new(),
             scorch_size: 0.0,
             fx_list: None,
             blast_info: std::array::from_fn(|_| BlastInfo::default()),
@@ -86,11 +84,29 @@ impl Default for NeutronMissileSlowDeathUpdateModuleData {
     }
 }
 
-crate::impl_behavior_module_data_via_base!(NeutronMissileSlowDeathUpdateModuleData, base);
+crate::impl_legacy_module_data_via_base!(NeutronMissileSlowDeathUpdateModuleData, base);
+// Preserve existing immutable-module metadata payload; parser inheritance must
+// not append SlowDeath configuration to this API's historical Xfer layout.
+impl Snapshotable for NeutronMissileSlowDeathUpdateModuleData {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        self.base.base.crc(xfer)
+    }
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        self.base.base.xfer(xfer)
+    }
+    fn load_post_process(&mut self) -> Result<(), String> {
+        self.base.base.load_post_process()
+    }
+}
 
 impl NeutronMissileSlowDeathUpdateModuleData {
     pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
-        ini.init_from_ini_with_fields(self, NEUTRON_MISSILE_SLOW_DEATH_FIELDS)
+        ini.init_from_ini_with_inherited_fields(
+            self,
+            |data| &mut data.base,
+            crate::object::behavior::slow_death_behavior::SLOW_DEATH_BEHAVIOR_FIELDS,
+            NEUTRON_MISSILE_SLOW_DEATH_FIELDS,
+        )
     }
 }
 
@@ -235,14 +251,6 @@ macro_rules! blast_field {
 }
 
 const NEUTRON_MISSILE_SLOW_DEATH_FIELDS: &[FieldParse<NeutronMissileSlowDeathUpdateModuleData>] = &[
-    FieldParse {
-        token: "ProbabilityModifier",
-        parse: |_, data, tokens| {
-            let token = tokens.first().ok_or(INIError::InvalidData)?;
-            data.probability_modifier = INI::parse_int(token)?;
-            Ok(())
-        },
-    },
     FieldParse {
         token: "ScorchMarkSize",
         parse: |_, data, tokens| {
@@ -581,7 +589,7 @@ impl SlowDeathBehaviorInterface for NeutronMissileSlowDeathUpdate {
     }
 
     fn get_probability_modifier(&self, _damage_info: &DamageInfo) -> i32 {
-        self.module_data.probability_modifier.max(1)
+        self.module_data.base.probability_modifier.max(1)
     }
 
     fn is_die_applicable(&self, _damage_info: &DamageInfo) -> bool {

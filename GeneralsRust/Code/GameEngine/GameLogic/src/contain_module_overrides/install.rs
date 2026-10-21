@@ -1348,6 +1348,7 @@ pub fn register_module_overrides(
 pub fn register_native_module_overrides(
     factory: &mut game_engine::common::thing::module_factory::ModuleFactory,
 ) -> Result<(), String> {
+    super::receiving_registration_keys::admit_original_registration_keys(factory);
     register_module_overrides(factory)?;
     super::register_inert_auto_heal(factory)?;
     super::register_owned_death_constructors(factory)?;

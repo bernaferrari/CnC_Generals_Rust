@@ -110,6 +110,11 @@ impl Default for W3DProjectileDrawModuleData {
 }
 
 impl ModuleData for W3DProjectileDrawModuleData {
+    fn get_minimum_required_game_lod(
+        &self,
+    ) -> game_engine::common::thing::module::StaticGameLodLevel {
+        self.base.get_minimum_required_game_lod()
+    }
     fn as_any(&self) -> &dyn Any {
         self
     }

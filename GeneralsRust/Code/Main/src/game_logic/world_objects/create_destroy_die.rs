@@ -1370,10 +1370,39 @@ impl GameLogic {
     /// is the equivalent already-loaded set. Never call
     /// `TheThingFactory::find_template` here: that helper lazy-inits every
     /// Object INI (14s+ on Lone Eagle).
-    pub(in crate::game_logic) fn ensure_host_spawn_template(
-        &mut self,
-        template_name: &str,
-    ) -> bool {
+    pub(crate) fn ensure_host_spawn_template(&mut self, template_name: &str) -> bool {
+        // The production receiving route resolves only its admitted content.
+        // Global asset aliases/pending overrides are compatibility adapters.
+        if let Some(content) = &self.receiving_module_content {
+            let Some(plan) = content.admitted_template(template_name) else {
+                return false;
+            };
+            if let Some(template) = self.templates.get_mut(template_name) {
+                template.receiving_client_template =
+                    Some(crate::game_logic::thing::ReceivingClientTemplate::new(plan));
+                return true;
+            }
+            let Some(definition) = self
+                .receiving_object_definitions
+                .as_ref()
+                .and_then(|definitions| definitions.get(template_name))
+                .cloned()
+            else {
+                log::error!("Receiving Object '{template_name}' has no host definition projection");
+                return false;
+            };
+            let mut template = Self::build_template_from_object_definition(
+                template_name,
+                &definition,
+                definition.get_primary_texture(),
+            );
+            template.receiving_object_definition = Some(definition);
+            template.receiving_client_template =
+                Some(crate::game_logic::thing::ReceivingClientTemplate::new(plan));
+            self.templates.insert(template_name.to_owned(), template);
+            self.unresolved_spawn_templates.remove(template_name);
+            return true;
+        }
         if self.templates.contains_key(template_name) {
             self.apply_pending_leftover_object_override(template_name);
             return true;
@@ -1589,6 +1618,11 @@ impl GameLogic {
                     template_name
                 );
             }
+            return None;
+        }
+
+        if let Err(error) = self.admit_object_client_template(template_name) {
+            log::error!("Rejecting object {template_name}: {error}");
             return None;
         }
 

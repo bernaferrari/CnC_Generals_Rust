@@ -1093,6 +1093,12 @@ pub struct PresentationDirectHostDrawable {
     /// `disguise_as_template`; otherwise this is the immutable ThingTemplate
     /// name, never the mutable Object `template_name` bookkeeping field.
     pub visual_template_name: String,
+    pub(crate) receiving_client_template: Option<crate::game_logic::thing::ReceivingClientTemplate>,
+    pub(crate) authored_client_template_required: bool,
+    pub(crate) draw_indicator_color: [u8; 3],
+    #[cfg(feature = "game_client")]
+    pub(crate) draw_physics: game_client::core::game_client::PresentationDrawPhysics,
+    pub(crate) draw_velocity_magnitude_squared: f32,
     pub(crate) receiving_visual_draw_models:
         Option<std::sync::Arc<crate::game_logic::thing::ReceivingDrawModels>>,
     /// Authored instance scale of `visual_template_name`.  C++ destroys and

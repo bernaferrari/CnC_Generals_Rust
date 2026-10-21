@@ -819,7 +819,6 @@ fn stop_attack_decision_authority_clears_via_writeback() {
 #[test]
 fn fire_spawn_authority_defers_queue_until_shadow() {
     use crate::game_logic::combat::{self, DamageType, PendingProjectile};
-    use crate::game_logic::host_fire_spawn_log;
     use crate::game_logic::host_usa_pilot::HostDeathType;
 
     let prev_shadow = std::env::var("GENERALS_GAMEWORLD_SHADOW").ok();
@@ -843,8 +842,7 @@ fn fire_spawn_authority_defers_queue_until_shadow() {
             .unwrap(),
         ObjectId(2)
     );
-    host_fire_spawn_log::clear();
-    // Fire-spawn defers only while a coupled shadow tick is live (Wave 682).
+    // The accepted shot belongs to its actual CombatSystem in either mode.
 
     combat::queue_projectile(
         &mut logic.combat_system,
@@ -916,7 +914,6 @@ fn fire_spawn_authority_defers_queue_until_shadow() {
 #[test]
 fn fire_spawn_authority_enqueues_host_when_shadow_disabled() {
     use crate::game_logic::combat::{self, DamageType, PendingProjectile};
-    use crate::game_logic::host_fire_spawn_log;
     use crate::game_logic::host_usa_pilot::HostDeathType;
 
     let prev_shadow = std::env::var("GENERALS_GAMEWORLD_SHADOW").ok();
@@ -924,7 +921,6 @@ fn fire_spawn_authority_enqueues_host_when_shadow_disabled() {
     let mut logic = GameLogic::new();
 
     // Projectile ownership is independent of the diagnostic observation flag.
-    host_fire_spawn_log::clear();
     combat::clear_pending_projectile_queue_for_test(&mut logic.combat_system);
     combat::queue_projectile(
         &mut logic.combat_system,
@@ -969,9 +965,11 @@ fn fire_spawn_authority_enqueues_host_when_shadow_disabled() {
             die_on_detonate: false,
         },
     );
-    assert!(
-        host_fire_spawn_log::drain().is_empty(),
-        "host-only must not defer into fire_spawn_log"
+    let peer = GameLogic::new();
+    assert_eq!(
+        combat::pending_projectile_queue_len_for_test(&peer.combat_system),
+        0,
+        "accepted shots cannot leak into a second receiving CombatSystem"
     );
     assert!(
         combat::pending_projectile_queue_len_for_test(&logic.combat_system) >= 1,

@@ -69,7 +69,12 @@ impl Default for RailedTransportDockUpdateData {
 
 impl RailedTransportDockUpdateData {
     pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
-        ini.init_from_ini_with_fields(self, RAILED_TRANSPORT_DOCK_UPDATE_FIELDS)
+        ini.init_from_ini_with_inherited_fields(
+            self,
+            |data| &mut data.base,
+            super::dock_update::DOCK_UPDATE_FIELDS,
+            RAILED_TRANSPORT_DOCK_UPDATE_FIELDS,
+        )
     }
 }
 
@@ -817,6 +822,25 @@ impl Module for RailedTransportDockUpdateModule {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn railed_dock_parses_inherited_and_leaf_fields_in_one_original_body() {
+        let mut data = RailedTransportDockUpdateData::default();
+        let mut ini = INI::new();
+        ini.with_inline_source("NumberApproachPositions = 5\nPullInsideDuration = 1500ms\nAllowsPassthrough = No\nToleranceDistance = 12.5\nPushOutsideDuration = 2s\nEnd\n", |ini| data.parse_from_ini(ini)).unwrap();
+        assert_eq!(data.base.number_approach_positions_data, 5);
+        assert!(!data.base.is_allow_passthrough);
+        assert_eq!(data.pull_inside_duration_frames, 45);
+        assert_eq!(data.push_outside_duration_frames, 60);
+        assert_eq!(data.tolerance_distance, 12.5);
+        assert!(
+            ini.with_inline_source(
+                "PullInsideDuration = 10\nNumberApproachPositions = 2\nUnknownDockField = 3\nEnd\n",
+                |ini| data.parse_from_ini(ini)
+            )
+            .is_err()
+        );
+    }
 
     #[test]
     fn railed_transport_defaults_match_cpp() {

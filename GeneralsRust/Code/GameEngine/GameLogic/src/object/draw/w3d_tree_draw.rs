@@ -461,6 +461,13 @@ impl Module for W3DTreeDraw {
     fn get_module_name_key(&self) -> NameKeyType {
         game_engine::common::name_key_generator::NameKeyGenerator::name_to_key("W3DTreeDraw")
     }
+
+    fn get_module_name_key_with_namespace(
+        &self,
+        keys: &mut game_engine::common::name_key_generator::NameKeyNamespace,
+    ) -> NameKeyType {
+        keys.name_to_key("W3DTreeDraw")
+    }
     fn get_module_tag_name_key(&self) -> NameKeyType {
         self.data.module_tag_name_key
     }

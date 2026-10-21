@@ -64,7 +64,12 @@ impl Default for DeployStyleAIUpdateModuleData {
 
 impl DeployStyleAIUpdateModuleData {
     pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
-        ini.init_from_ini_with_fields(self, DEPLOY_STYLE_AI_UPDATE_FIELDS)
+        ini.init_from_ini_with_inherited_fields(
+            self,
+            |data| &mut data.base,
+            crate::object::update::ai_update_interface::AI_UPDATE_FIELDS,
+            DEPLOY_STYLE_AI_UPDATE_FIELDS,
+        )
     }
 }
 
@@ -417,21 +422,21 @@ impl DeployStyleAIUpdate {
                         );
                     }
                 } else if let Some(pos) = ai.get_current_victim_pos() {
-                    is_in_range = weapon.is_within_attack_range(
-                        owner_guard.get_id(),
-                        None,
-                        Some(&pos),
-                    );
+                    is_in_range =
+                        weapon.is_within_attack_range(owner_guard.get_id(), None, Some(&pos));
                 }
             }
         }
         drop(owner_guard);
 
-
         if self.frame_to_wait_for_deploy != 0 && now >= self.frame_to_wait_for_deploy {
             match self.state {
-                DeployStateType::Deploy => self.set_my_state(ai, DeployStateType::ReadyToAttack, false),
-                DeployStateType::Undeploy => self.set_my_state(ai, DeployStateType::ReadyToMove, false),
+                DeployStateType::Deploy => {
+                    self.set_my_state(ai, DeployStateType::ReadyToAttack, false)
+                }
+                DeployStateType::Undeploy => {
+                    self.set_my_state(ai, DeployStateType::ReadyToMove, false)
+                }
                 _ => {}
             }
         }
@@ -526,7 +531,12 @@ impl DeployStyleAIUpdate {
         self.data.pack_time
     }
 
-    fn set_my_state(&mut self, ai: &mut dyn AIUpdateInterface, state: DeployStateType, reverse_deploy: Bool) {
+    fn set_my_state(
+        &mut self,
+        ai: &mut dyn AIUpdateInterface,
+        state: DeployStateType,
+        reverse_deploy: Bool,
+    ) {
         self.state = state;
         let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) else {
             return;

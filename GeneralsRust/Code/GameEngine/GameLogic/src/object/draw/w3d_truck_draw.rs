@@ -218,6 +218,11 @@ impl Default for W3DTruckDrawModuleData {
     }
 }
 impl ModuleData for W3DTruckDrawModuleData {
+    fn get_minimum_required_game_lod(
+        &self,
+    ) -> game_engine::common::thing::module::StaticGameLodLevel {
+        self.base.get_minimum_required_game_lod()
+    }
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -343,6 +348,17 @@ impl W3DTruckDraw {
         if powerslide.is_some() {
             self.powerslide_sound = powerslide;
         }
+    }
+
+    /// Exact receiving template observation; absent authored sounds remain absent.
+    pub fn on_created_with_receiving_sounds(
+        &mut self,
+        landing: Option<&str>,
+        powerslide: Option<&str>,
+    ) {
+        self.base.on_object_created();
+        self.landing_sound = landing.map(crate::common::audio::AudioEventRts::new);
+        self.powerslide_sound = powerslide.map(crate::common::audio::AudioEventRts::new);
     }
 
     /// Bind `TruckLandingSound` / `TruckPowerslideSound` from leftover ThingFactory.
@@ -507,6 +523,19 @@ impl W3DTruckDraw {
         } else {
             physics.accel_x = delta;
             physics.accel_y = 0.0;
+        }
+        self.tick_live_host_with_receiving_sounds(physics, hidden);
+    }
+
+    /// Native caller already supplied this receiving template's sounds at creation.
+    pub fn tick_live_host_with_receiving_sounds(
+        &mut self,
+        mut physics: TruckDrawLivePhysics,
+        hidden: bool,
+    ) {
+        if hidden {
+            self.enable_emitters(false);
+            return;
         }
         self.tick_live(physics);
     }
@@ -799,6 +828,13 @@ impl Module for W3DTruckDraw {
     }
     fn get_module_name_key(&self) -> NameKeyType {
         NameKeyGenerator::name_to_key("W3DTruckDraw")
+    }
+
+    fn get_module_name_key_with_namespace(
+        &self,
+        keys: &mut game_engine::common::name_key_generator::NameKeyNamespace,
+    ) -> NameKeyType {
+        keys.name_to_key("W3DTruckDraw")
     }
     fn get_module_tag_name_key(&self) -> NameKeyType {
         self.base.get_module_tag_name_key()

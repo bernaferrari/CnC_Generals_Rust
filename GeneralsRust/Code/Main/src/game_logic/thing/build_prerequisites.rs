@@ -31,6 +31,46 @@ impl PrerequisiteDefinitions {
         )
     }
 
+    pub(crate) fn admit_receiving(
+        prereqs: &mut [ProductionPrerequisite],
+        content: &game_engine::common::thing::receiving_module_content::ReceivingModuleContent,
+    ) -> Result<Self, String> {
+        for prerequisite in prereqs.iter_mut() {
+            prerequisite.resolve_names_with(|name| {
+                let plan = content
+                    .admitted_template(name)
+                    .ok_or_else(|| format!("Missing receiving prerequisite '{name}'"))?;
+                Ok(Some(ThingTemplateHandle::new(plan.template_id() as u32)))
+            })?;
+            for unit in prerequisite.get_unit_prereqs() {
+                let id = unit
+                    .unit
+                    .filter(|id| id.is_valid())
+                    .and_then(|id| u16::try_from(id.value()).ok())
+                    .ok_or("Receiving prerequisite has no resolved template identity")?;
+                if content.template_name_for_id(id).is_none() {
+                    return Err(format!(
+                        "Unknown receiving prerequisite template identity {id}"
+                    ));
+                }
+            }
+            for &science in prerequisite.get_science_prereqs() {
+                if content.science_name(science).is_none() {
+                    return Err(format!("Unknown receiving science identity {science}"));
+                }
+            }
+        }
+        Ok(Self::resolve(
+            prereqs,
+            |handle| {
+                content
+                    .template_name_for_id(u16::try_from(handle.value()).ok()?)
+                    .map(str::to_owned)
+            },
+            |science| content.science_name(science).map(str::to_owned),
+        ))
+    }
+
     pub(crate) fn resolve(
         prereqs: &[ProductionPrerequisite],
         template_name: impl Fn(ThingTemplateHandle) -> Option<String>,
@@ -62,7 +102,7 @@ impl ThingTemplate {
     /// CPP ThingTemplate.cpp:1454–1492; catalog lookup has already selected
     /// the final override. Reskin and build-variation identities remain data.
     pub(crate) fn is_equivalent_to(&self, other: &Self) -> bool {
-        self.name.eq_ignore_ascii_case(&other.name)
+        self.name == other.name
             || self
                 .reskinned_from
                 .as_deref()
@@ -80,6 +120,20 @@ impl ThingTemplate {
                 .build_variations
                 .iter()
                 .any(|name| name.eq_ignore_ascii_case(&self.name))
+    }
+
+    pub(crate) fn bind_receiving_production_facts(
+        &mut self,
+        plan: &game_engine::common::thing::thing_template::AdmittedReceivingTemplate,
+        content: &game_engine::common::thing::receiving_module_content::ReceivingModuleContent,
+    ) -> Result<(), String> {
+        let mut prereqs = plan.production_prerequisites().to_vec();
+        let definitions = PrerequisiteDefinitions::admit_receiving(&mut prereqs, content)?;
+        self.production_prerequisites = prereqs;
+        self.prerequisite_definitions = definitions;
+        self.reskinned_from = plan.reskin_name().map(str::to_owned);
+        self.build_variations = plan.build_variations().map(str::to_owned).collect();
+        Ok(())
     }
 
     pub(crate) fn prerequisites_satisfied(&self, world: &GameLogic, player: &Player) -> bool {

@@ -365,14 +365,14 @@ impl CnCGameEngine {
             let pending = self.native_display.pending.take();
             if let Some(pending) = pending {
                 self.with_native_particle_object_lifecycle(
-                    |client, lifecycle, pending_commands| {
+                    |client, lifecycle, pending_commands, content| {
                         let mut receive = |messages| {
                             pending_commands
                                 .receive_client_messages(messages)
                                 .map_err(game_client::core::GameClientError::InvalidOperation)
                         };
-                        client
-                            .finish_presentation_shell_with_receiving_commands_and_object_lifecycle(
+                        if let Some(content) = content {
+                            client.finish_presentation_shell_with_receiving_commands_and_object_lifecycle_and_content(
                                 pending.step,
                                 &pending.facts,
                                 &views,
@@ -380,7 +380,14 @@ impl CnCGameEngine {
                                 pending_commands.recorder_owned(),
                                 &mut receive,
                                 lifecycle,
+                                content,
                             )
+                        } else {
+                            client.finish_presentation_shell_with_receiving_commands_and_object_lifecycle(
+                                pending.step, &pending.facts, &views, phase,
+                                pending_commands.recorder_owned(), &mut receive, lifecycle,
+                            )
+                        }
                     },
                 )
                 .map_err(|error| error.to_string())?;
@@ -391,14 +398,25 @@ impl CnCGameEngine {
                     client_frame: current_frame,
                 };
                 self.with_native_particle_object_lifecycle(
-                    |client, lifecycle, _pending_commands| {
-                        client.draw_native_views_with_object_lifecycle(
-                            frames,
-                            &facts,
-                            &views,
-                            phase,
-                            Some(lifecycle),
-                        )
+                    |client, lifecycle, _pending_commands, content| {
+                        if let Some(content) = content {
+                            client.draw_native_views_with_object_lifecycle_and_content(
+                                frames,
+                                &facts,
+                                &views,
+                                phase,
+                                Some(lifecycle),
+                                content,
+                            )
+                        } else {
+                            client.draw_native_views_with_object_lifecycle(
+                                frames,
+                                &facts,
+                                &views,
+                                phase,
+                                Some(lifecycle),
+                            )
+                        }
                     },
                 )
                 .map_err(|error| error.to_string())?;
@@ -414,13 +432,15 @@ impl CnCGameEngine {
             &mut game_client::core::game_client::GameClient,
             &mut game_client::effects::particle_manager::NativeParticleObjectLifecycle<'_>,
             &mut crate::command_system::ReplayPendingState,
+            Option<&mut game_engine::common::thing::module_factory::ModuleFactory>,
         ) -> R,
     ) -> R {
         let client = &mut self.game_client;
-        self.game_logic
-            .with_native_particle_object_lifecycle(|lifecycle, pending_commands| {
-                operation(client, lifecycle, pending_commands)
-            })
+        self.game_logic.with_native_particle_object_lifecycle(
+            |lifecycle, pending_commands, content| {
+                operation(client, lifecycle, pending_commands, content)
+            },
+        )
     }
 
     /// Shared final camera commitment. Rendering consumes these exact matrices.

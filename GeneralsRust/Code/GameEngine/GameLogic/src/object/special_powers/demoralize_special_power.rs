@@ -65,7 +65,13 @@ impl Default for DemoralizeSpecialPowerModuleData {
 
 impl DemoralizeSpecialPowerModuleData {
     pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
-        ini.init_from_ini_with_fields(self, DEMORALIZE_SPECIAL_POWER_FIELDS)
+        // The C++ subclass adds its leaf table after SpecialPowerModuleData.
+        ini.init_from_ini_with_inherited_fields(
+            self,
+            |data| &mut data.base,
+            crate::object::special_power_module::SPECIAL_POWER_MODULE_FIELDS,
+            DEMORALIZE_SPECIAL_POWER_FIELDS,
+        )
     }
 }
 
@@ -134,29 +140,32 @@ impl DemoralizeSpecialPower {
         let mut range = self.data.base_range;
 
         // Check contained units for bonuses
-        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_object_id, |owner_guard| {
-            if let Some(contain) = owner_guard.get_contain() {
-                if let Ok(contain_guard) = contain.lock() {
-                    let contain_count = contain_guard.get_contained_count() as UnsignedInt;
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(
+            self.owner_object_id,
+            |owner_guard| {
+                if let Some(contain) = owner_guard.get_contain() {
+                    if let Ok(contain_guard) = contain.lock() {
+                        let contain_count = contain_guard.get_contained_count() as UnsignedInt;
 
-                    // Bonus duration per captured unit, capped at max
-                    duration = duration.saturating_add(
-                        self.data
-                            .bonus_duration_per_captured_in_frames
-                            .saturating_mul(contain_count),
-                    );
-                    if duration > self.data.max_duration_in_frames {
-                        duration = self.data.max_duration_in_frames;
-                    }
+                        // Bonus duration per captured unit, capped at max
+                        duration = duration.saturating_add(
+                            self.data
+                                .bonus_duration_per_captured_in_frames
+                                .saturating_mul(contain_count),
+                        );
+                        if duration > self.data.max_duration_in_frames {
+                            duration = self.data.max_duration_in_frames;
+                        }
 
-                    // Bonus range per captured unit, capped at max
-                    range += self.data.bonus_range_per_captured * contain_count as Real;
-                    if range > self.data.max_range {
-                        range = self.data.max_range;
+                        // Bonus range per captured unit, capped at max
+                        range += self.data.bonus_range_per_captured * contain_count as Real;
+                        if range > self.data.max_range {
+                            range = self.data.max_range;
+                        }
                     }
                 }
-            }
-            });
+            },
+        );
 
         (range, duration)
     }
@@ -400,18 +409,6 @@ impl Snapshotable for DemoralizeSpecialPower {
 
 // INI field parsers
 
-fn parse_special_power_template_field(
-    _ini: &mut INI,
-    data: &mut DemoralizeSpecialPowerModuleData,
-    tokens: &[&str],
-) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
-    let name = crate::common::AsciiString::from(*token);
-    data.base.special_power_template =
-        Some(crate::object::special_power_template::find_or_create_special_power_template(&name));
-    Ok(())
-}
-
 fn parse_base_range(
     _ini: &mut INI,
     data: &mut DemoralizeSpecialPowerModuleData,
@@ -505,10 +502,6 @@ fn parse_fx_list(
 }
 
 const DEMORALIZE_SPECIAL_POWER_FIELDS: &[FieldParse<DemoralizeSpecialPowerModuleData>] = &[
-    FieldParse {
-        token: "SpecialPowerTemplate",
-        parse: parse_special_power_template_field,
-    },
     FieldParse {
         token: "BaseRange",
         parse: parse_base_range,

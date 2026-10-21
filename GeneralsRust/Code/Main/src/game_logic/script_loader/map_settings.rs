@@ -15,6 +15,62 @@ pub(crate) fn read_weapon_override_companions(source: &str) -> Vec<(PathBuf, Str
         .collect()
 }
 
+/// Native receiving definitions distinguish missing optional companions from
+/// selected-source read or decoding failures. Selection is Map then Solo.
+pub(crate) fn read_receiving_definition_companions(
+    source: &str,
+) -> Result<Vec<(PathBuf, String)>, String> {
+    let Some(path) = resolve_map_companion_source(source) else {
+        return Ok(Vec::new());
+    };
+    let Some(directory) = path.parent() else {
+        return Ok(Vec::new());
+    };
+    let mut sources = Vec::new();
+    for names in [["Map.ini", "map.ini"], ["Solo.ini", "solo.ini"]] {
+        for name in names {
+            let path = directory.join(name);
+            match fs::read_to_string(&path) {
+                Ok(contents) => {
+                    sources.push((path, contents));
+                    break;
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(error) => {
+                    return Err(format!(
+                        "Cannot read definition '{}': {error}",
+                        path.display()
+                    ));
+                }
+            }
+        }
+    }
+    Ok(sources)
+}
+
+fn selected_map_definition_companion(
+    directory: &Path,
+    names: &[&str],
+    admitted_sources: Option<&[(PathBuf, String)]>,
+) -> Option<(PathBuf, String)> {
+    if let Some(sources) = admitted_sources {
+        sources
+            .iter()
+            .find(|(path, _)| {
+                path.file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| {
+                        names
+                            .iter()
+                            .any(|candidate| name.eq_ignore_ascii_case(candidate))
+                    })
+            })
+            .cloned()
+    } else {
+        first_readable_map_ini_companion(directory, names)
+    }
+}
+
 #[cfg(test)]
 mod weapon_override_companion_tests {
     use super::*;
@@ -51,7 +107,7 @@ pub fn parse_map_settings(map_name: &str) -> LoaderResult<MapMetadata> {
     let Some(chunky) = load_chunky_map(map_name)? else {
         return Ok(meta);
     };
-    parse_map_settings_from_loaded_chunky(map_name, &chunky, meta, None)
+    parse_map_settings_from_loaded_chunky(map_name, &chunky, meta, None, None)
 }
 
 /// C++ `WorldHeightMap::ParseLightingDataChunk` (WorldHeightMap.cpp:758-829).
@@ -357,7 +413,13 @@ pub fn overlay_map_ini_weather(contents: &str) -> bool {
 /// Parse settings from an already-decompressed chunky map.
 pub fn parse_map_settings_from_chunky(chunky: &ChunkyMap) -> LoaderResult<MapMetadata> {
     let map_name = chunky.source.to_string_lossy();
-    parse_map_settings_from_loaded_chunky(map_name.as_ref(), chunky, MapMetadata::default(), None)
+    parse_map_settings_from_loaded_chunky(
+        map_name.as_ref(),
+        chunky,
+        MapMetadata::default(),
+        None,
+        None,
+    )
 }
 
 /// Production map and Solo overrides parse only into the driving draft.
@@ -469,6 +531,7 @@ pub(crate) fn parse_map_settings_from_chunky_with_owned_terrain_definitions(
             ..MapMetadata::default()
         },
         Some(draft),
+        None,
     )
 }
 
@@ -483,6 +546,7 @@ pub(crate) fn parse_map_settings_from_chunky_with_owned_definition_catalogs(
     camera_shake_rules: Option<game_engine::common::ini::ini_game_data::CameraShakeRules>,
     terrain_definitions: std::sync::Arc<game_engine::common::ini::ini_terrain::TerrainTypes>,
     armor_definitions: Option<std::sync::Arc<gamelogic::object::armor::ArmorDefinitions>>,
+    admitted_object_sources: Option<&[(PathBuf, String)]>,
 ) -> LoaderResult<MapMetadata> {
     parse_map_settings_from_loaded_chunky(
         definition_source,
@@ -498,6 +562,7 @@ pub(crate) fn parse_map_settings_from_chunky_with_owned_definition_catalogs(
             ..MapMetadata::default()
         },
         Some(draft),
+        admitted_object_sources,
     )
 }
 
@@ -508,6 +573,7 @@ fn parse_map_settings_from_loaded_chunky(
     ai_data_target: Option<
         std::sync::Arc<std::sync::RwLock<game_engine::common::ini::ini_ai_data::AIDataStore>>,
     >,
+    admitted_object_sources: Option<&[(PathBuf, String)]>,
 ) -> LoaderResult<MapMetadata> {
     let mut terrain_definitions = meta
         .terrain_definitions
@@ -585,11 +651,15 @@ fn parse_map_settings_from_loaded_chunky(
         .flatten();
 
     // Heightmap hint: look for common heightmap filenames next to the .map.
-    if let Some(map_path) = resolve_map_companion_source(map_name) {
+    if let Some(map_path) = resolve_map_companion_source(map_name)
+        .or_else(|| admitted_object_sources.map(|_| PathBuf::from(map_name)))
+    {
         if let Some(dir) = map_path.parent() {
-            if let Some((_, contents)) =
-                first_readable_map_ini_companion(dir, &["Map.ini", "map.ini"])
-            {
+            if let Some((_, contents)) = selected_map_definition_companion(
+                dir,
+                &["Map.ini", "map.ini"],
+                admitted_object_sources,
+            ) {
                 if let Some(rules) = meta.camera_shake_rules {
                     meta.camera_shake_rules = Some(
                         rules
@@ -630,11 +700,12 @@ fn parse_map_settings_from_loaded_chunky(
                 // C++ GameLogic.cpp:2404-2408 loadMapINI — full block table
                 // via INI_LOAD_CREATE_OVERRIDES (CommandSet/CommandButton/Upgrade).
                 let (_, updated, armor) =
-                    gamelogic::system::load_map_ini_ui_overrides_with_armor_definition_targets(
+                    gamelogic::system::game_initialization::load_map_ini_ui_overrides_with_receiving_definitions(
                         &contents,
                         ai_data_target.as_ref().map(std::sync::Arc::clone),
                         terrain_definitions,
                         armor_definitions.to_parsed(),
+                        admitted_object_sources.is_some(),
                     )
                     .map_err(GameLogicError::Configuration)?;
                 terrain_definitions = updated;
@@ -685,9 +756,11 @@ fn parse_map_settings_from_loaded_chunky(
             }
 
             // C++ loadMapINI also loads companion solo.ini CREATE_OVERRIDES.
-            if let Some((_, contents)) =
-                first_readable_map_ini_companion(dir, &["Solo.ini", "solo.ini"])
-            {
+            if let Some((_, contents)) = selected_map_definition_companion(
+                dir,
+                &["Solo.ini", "solo.ini"],
+                admitted_object_sources,
+            ) {
                 if let Some(rules) = meta.camera_shake_rules {
                     meta.camera_shake_rules = Some(
                         rules
@@ -726,11 +799,12 @@ fn parse_map_settings_from_loaded_chunky(
                 meta.default_starting_cash =
                     parse_map_default_starting_cash(&contents)?.or(meta.default_starting_cash);
                 let (_, updated, armor) =
-                    gamelogic::system::load_map_ini_ui_overrides_with_armor_definition_targets(
+                    gamelogic::system::game_initialization::load_map_ini_ui_overrides_with_receiving_definitions(
                         &contents,
                         ai_data_target.as_ref().map(std::sync::Arc::clone),
                         terrain_definitions,
                         armor_definitions.to_parsed(),
+                        admitted_object_sources.is_some(),
                     )
                     .map_err(GameLogicError::Configuration)?;
                 terrain_definitions = updated;
@@ -944,3 +1018,7 @@ mod owned_weather_tests {
         assert_eq!(updates[1].snow_velocity, 4.);
     }
 }
+
+#[cfg(test)]
+#[path = "receiving_definition_companion_tests.rs"]
+mod receiving_definition_companion_tests;

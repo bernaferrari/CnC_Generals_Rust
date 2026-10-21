@@ -4,6 +4,8 @@
 //! Validate the entire borrowed plan before constructing callbacks or assigning
 //! a receiving Drawable identity. Invalid data never manufactures a default.
 use super::*;
+use game_engine::common::name_key_generator::NameKeyNamespace;
+use game_engine::common::thing::module::StaticGameLodLevel;
 use game_engine::common::thing::module::{BaseModuleData, Module, ModuleData, ModuleInterfaceType};
 use game_engine::common::thing::thing_template::ModuleInfoEntry;
 use gamelogic::object::draw::{
@@ -14,6 +16,14 @@ use gamelogic::object::draw::{
 };
 use gamelogic::object::update::BeaconClientUpdateModuleData;
 use std::collections::HashSet;
+
+/// Original Drawable constructor options, captured from the receiving application.
+#[derive(Debug, Clone, Copy)]
+pub struct ReceivingDrawablePolicy {
+    pub use_draw_module_lod: bool,
+    pub static_game_lod: StaticGameLodLevel,
+    pub use_tree_sway: bool,
+}
 
 fn invalid_entry(entry: ModuleInfoEntry<'_>, reason: &str) -> GameClientError {
     GameClientError::InvalidOperation(format!(
@@ -144,21 +154,28 @@ impl<'a> ClientData<'a> {
         }
     }
 
-    fn construct(self, name_key: u32) -> GameClientResult<Box<dyn Module>> {
+    fn construct(
+        self,
+        name_key: u32,
+        owner: Option<(u32, u32)>,
+    ) -> GameClientResult<Box<dyn Module>> {
         Ok(match self {
             Self::Laser(data) => Box::new(GameClient::make_owned_laser_module(name_key, data)?),
-            Self::Beacon(data) => {
-                Box::new(BeaconClientUpdateModule::new(name_key, data, INVALID_ID))
-            }
+            Self::Beacon(data) => match owner {
+                Some((id, frame)) => {
+                    Box::new(BeaconClientUpdateModule::new_at(name_key, data, id, frame))
+                }
+                None => Box::new(BeaconClientUpdateModule::new(name_key, data, INVALID_ID)),
+            },
             Self::Sway(data) => Box::new(SwayClientUpdateModule::new(
                 name_key,
                 Arc::clone(data),
-                INVALID_ID,
+                owner.map_or(INVALID_ID, |(id, _)| id),
             )),
             Self::AnimatedBones(data) => Box::new(AnimatedParticleSysBoneClientUpdateModule::new(
                 name_key,
                 Arc::clone(data),
-                INVALID_ID,
+                owner.map_or(INVALID_ID, |(id, _)| id),
             )),
         })
     }
@@ -168,16 +185,63 @@ impl GameClient {
     pub(super) fn create_snapshot_modules_from_template(
         template: &ThingTemplate,
     ) -> GameClientResult<Vec<Box<dyn DrawModule>>> {
+        Self::create_modules_from_entries(
+            template.get_draw_module_info(),
+            template.get_client_update_module_info(),
+            None,
+            None,
+            false,
+            None,
+        )
+    }
+
+    pub(super) fn create_receiving_modules_from_plan(
+        plan: &game_engine::common::thing::thing_template::AdmittedReceivingTemplate,
+        keys: &mut NameKeyNamespace,
+        policy: ReceivingDrawablePolicy,
+        owner: (u32, u32),
+    ) -> GameClientResult<Vec<Box<dyn DrawModule>>> {
+        Self::create_modules_from_entries(
+            plan.draw_modules(),
+            plan.client_update_modules(),
+            Some(keys),
+            Some(policy),
+            plan.is_shrubbery(),
+            Some(owner),
+        )
+    }
+
+    fn create_modules_from_entries(
+        draws_info: &game_engine::common::thing::thing_template::ModuleInfo,
+        clients_info: &game_engine::common::thing::thing_template::ModuleInfo,
+        keys: Option<&mut NameKeyNamespace>,
+        policy: Option<ReceivingDrawablePolicy>,
+        shrubbery: bool,
+        owner: Option<(u32, u32)>,
+    ) -> GameClientResult<Vec<Box<dyn DrawModule>>> {
         let mut tags = HashSet::new();
         let mut draws = Vec::new();
         let mut clients = Vec::new();
         let mut lasers = 0;
-        for entry in template.get_draw_module_info().iter() {
+        for entry in draws_info.iter() {
             validate_entry(entry, ModuleInterfaceType::DRAW, &mut tags)?;
+            if policy.is_some_and(|policy| {
+                policy.use_draw_module_lod
+                    && (entry.data.get_minimum_required_game_lod() as i32)
+                        > (policy.static_game_lod as i32)
+            }) {
+                continue;
+            }
             draws.push((entry.module_tag.as_str(), DrawData::from_entry(entry)?));
         }
-        for entry in template.get_client_update_module_info().iter() {
+        for entry in clients_info.iter() {
             validate_entry(entry, ModuleInterfaceType::CLIENT_UPDATE, &mut tags)?;
+            if shrubbery
+                && policy.is_some_and(|policy| !policy.use_tree_sway)
+                && entry.name.as_str() == "SwayClientUpdate"
+            {
+                continue;
+            }
             let data = ClientData::from_entry(entry)?;
             if matches!(data, ClientData::Laser(_)) {
                 lasers += 1;
@@ -199,9 +263,19 @@ impl GameClient {
             )));
         }
         for (name, tag, data) in clients {
-            let key = NameKeyGenerator::name_to_key(name);
+            // Module.h getModuleNameKey allocates lazily at an actual query.
+            // Receiving callers use get_module_name_key_with_namespace; the
+            // context-free compatibility key is never used on that route.
+            let key = if keys.is_some() {
+                game_engine::common::name_key_generator::NAMEKEY_INVALID
+            } else {
+                NameKeyGenerator::name_to_key(name)
+            };
             modules.push(Box::new(
-                LogicDrawModuleSnapshotAdapter::client_update_module(tag, data.construct(key)?),
+                LogicDrawModuleSnapshotAdapter::client_update_module(
+                    tag,
+                    data.construct(key, owner)?,
+                ),
             ));
         }
         Ok(modules)
@@ -210,3 +284,7 @@ impl GameClient {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+#[path = "template_modules/receiving_owner_tests.rs"]
+mod receiving_owner_tests;

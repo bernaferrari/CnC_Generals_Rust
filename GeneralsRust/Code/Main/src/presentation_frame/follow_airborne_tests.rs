@@ -8,9 +8,7 @@ fn world(raw_ground: u8, water: Option<i32>) -> (GameLogic, ObjectId, ObjectId) 
     world.add_player(Player::new(0, Team::USA, "FollowOwner", true));
     terrain(&world, raw_ground, water);
     let mut parser = crate::assets::IniParser::new();
-    parser
-        .parse_ini_content(
-            r#"
+    let source_text = r#"
 Object GroundFollow
  KindOf = VEHICLE SELECTABLE
  Locomotor = SET_NORMAL CrusaderLocomotor
@@ -23,9 +21,9 @@ Object AirFollow
  Behavior = AIUpdateInterface AirAI
  End
 End
-"#,
-            "follow-airborne.ini",
-        )
+"#;
+    parser
+        .parse_ini_content(source_text, "follow-airborne.ini")
         .unwrap();
     for name in ["GroundFollow", "AirFollow"] {
         let template = GameLogic::build_template_from_object_definition(
@@ -36,6 +34,15 @@ End
         assert_eq!(template.authored_ai_update_interface(), Some(true));
         world.templates.insert(name.into(), template);
     }
+    world
+        .admit_receiving_module_content(
+            crate::assets::ReceivingObjectContent::from_sources([(
+                "follow-airborne.ini".into(),
+                source_text.to_owned(),
+            )])
+            .unwrap(),
+        )
+        .unwrap();
     let position = Vec3::new(40., 37., 40.);
     let ground = world
         .create_object_for_player("GroundFollow", 0, position)

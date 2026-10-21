@@ -11,9 +11,16 @@ struct ReceivingStateParticles<'a> {
     assets: Option<&'a ww3d_assets::AssetManager>,
     public_bones: &'a [String],
     scale: f32,
+    keys: Option<&'a mut game_engine::common::name_key_generator::NameKeyNamespace>,
 }
 
 impl ClientParticleStateRuntime for ReceivingStateParticles<'_> {
+    fn name_to_key(&mut self, name: &str) -> u32 {
+        match self.keys.as_deref_mut() {
+            Some(keys) => keys.name_to_key(name),
+            None => game_engine::common::name_key_generator::NameKeyGenerator::name_to_key(name),
+        }
+    }
     fn standard_public_bones(&self) -> Vec<String> {
         self.public_bones.to_vec()
     }
@@ -113,6 +120,7 @@ impl BasicDrawable {
             assets: None,
             public_bones: &[],
             scale: self.instance_scale,
+            keys: None,
         };
         for slot in &mut self.draw_modules {
             if slot.drawable_module_type_index() != 0 {
@@ -135,6 +143,7 @@ impl BasicDrawable {
             assets: None,
             public_bones: &[],
             scale: self.instance_scale,
+            keys: None,
         };
         for slot in &mut self.draw_modules {
             if slot.drawable_module_type_index() != 0 {
@@ -152,6 +161,23 @@ impl BasicDrawable {
         assets: Option<&ww3d_assets::AssetManager>,
         public_bones: &[String],
         creation_frame: u32,
+    ) -> Result<Vec<(usize, NativeStateParticlePreparation)>, String> {
+        self.prepare_native_state_particles_with_keys(
+            particles,
+            assets,
+            public_bones,
+            creation_frame,
+            None,
+        )
+    }
+
+    pub(crate) fn prepare_native_state_particles_with_keys(
+        &mut self,
+        particles: &mut ParticleSystemManager,
+        assets: Option<&ww3d_assets::AssetManager>,
+        public_bones: &[String],
+        creation_frame: u32,
+        keys: Option<&mut game_engine::common::name_key_generator::NameKeyNamespace>,
     ) -> Result<Vec<(usize, NativeStateParticlePreparation)>, String> {
         // C++ Drawable::draw requests Draw modules after visibility/admission.
         // Ordinary CU updates must not substitute for this Draw-entry phase.
@@ -179,6 +205,7 @@ impl BasicDrawable {
             assets,
             public_bones,
             scale: self.instance_scale,
+            keys,
         };
         for (module_index, slot) in self.draw_modules.iter_mut().enumerate() {
             if slot.drawable_module_type_index() != 0 {

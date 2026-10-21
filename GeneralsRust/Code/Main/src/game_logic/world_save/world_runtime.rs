@@ -326,18 +326,27 @@ impl GameLogic {
                 loco_seeded
             );
         }
-        self.setup_templates();
-        let asset_template_count = self.seed_asset_definition_templates();
-        if asset_template_count > 0 {
-            log::info!(
-                "Seeded {asset_template_count} missing templates from resolved retail Object INI data"
-            );
-        }
-        let leftover_object_overrides = self.apply_all_leftover_object_create_overrides();
-        if leftover_object_overrides > 0 {
-            log::info!(
-                "Applied {leftover_object_overrides} leftover map.ini Object CREATE_OVERRIDES to live catalog"
-            );
+        if self.receiving_module_content.is_some() {
+            let Some(baseline) = &self.receiving_template_baseline else {
+                log::error!("Receiving NewGame has no accepted host template baseline");
+                return;
+            };
+            self.templates = baseline.clone();
+            self.refresh_receiving_client_templates();
+        } else {
+            self.setup_templates();
+            let asset_template_count = self.seed_asset_definition_templates();
+            if asset_template_count > 0 {
+                log::info!(
+                    "Seeded {asset_template_count} missing templates from resolved retail Object INI data"
+                );
+            }
+            let leftover_object_overrides = self.apply_all_leftover_object_create_overrides();
+            if leftover_object_overrides > 0 {
+                log::info!(
+                    "Applied {leftover_object_overrides} leftover map.ini Object CREATE_OVERRIDES to live catalog"
+                );
+            }
         }
         self.create_default_players();
         if matches!(mode, GameMode::Skirmish | GameMode::Replay) {

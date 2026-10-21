@@ -27,6 +27,11 @@ impl W3DPoliceCarDrawModuleData {
     }
 }
 impl ModuleData for W3DPoliceCarDrawModuleData {
+    fn get_minimum_required_game_lod(
+        &self,
+    ) -> game_engine::common::thing::module::StaticGameLodLevel {
+        self.base.get_minimum_required_game_lod()
+    }
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -82,6 +87,24 @@ impl W3DPoliceCarDraw {
     }
 
     /// Live host dust/dirt/powerslide on the embedded truck draw.
+    pub fn on_created_with_receiving_sounds(
+        &mut self,
+        landing: Option<&str>,
+        powerslide: Option<&str>,
+    ) {
+        self.base
+            .on_created_with_receiving_sounds(landing, powerslide);
+    }
+
+    pub fn tick_live_host_dust_with_receiving_sounds(
+        &mut self,
+        physics: TruckDrawLivePhysics,
+        hidden: bool,
+    ) {
+        self.base
+            .tick_live_host_with_receiving_sounds(physics, hidden);
+    }
+
     pub fn tick_live_host_dust(
         &mut self,
         template_name: &str,
@@ -145,6 +168,13 @@ impl Module for W3DPoliceCarDraw {
     }
     fn get_module_name_key(&self) -> NameKeyType {
         game_engine::common::name_key_generator::NameKeyGenerator::name_to_key("W3DPoliceCarDraw")
+    }
+
+    fn get_module_name_key_with_namespace(
+        &self,
+        keys: &mut game_engine::common::name_key_generator::NameKeyNamespace,
+    ) -> NameKeyType {
+        keys.name_to_key("W3DPoliceCarDraw")
     }
     fn get_module_tag_name_key(&self) -> NameKeyType {
         self.base.get_module_tag_name_key()

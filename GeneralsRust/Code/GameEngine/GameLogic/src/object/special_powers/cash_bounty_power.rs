@@ -40,7 +40,13 @@ impl Default for CashBountyPowerModuleData {
 
 impl CashBountyPowerModuleData {
     pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
-        ini.init_from_ini_with_fields(self, CASH_BOUNTY_POWER_FIELDS)
+        // The C++ subclass adds its leaf table after SpecialPowerModuleData.
+        ini.init_from_ini_with_inherited_fields(
+            self,
+            |data| &mut data.base,
+            crate::object::special_power_module::SPECIAL_POWER_MODULE_FIELDS,
+            CASH_BOUNTY_POWER_FIELDS,
+        )
     }
 }
 
@@ -263,28 +269,10 @@ fn parse_bounty(
     Ok(())
 }
 
-fn parse_special_power_template_field(
-    _ini: &mut INI,
-    data: &mut CashBountyPowerModuleData,
-    tokens: &[&str],
-) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
-    let name = crate::common::AsciiString::from(*token);
-    data.base.special_power_template =
-        Some(crate::object::special_power_template::find_or_create_special_power_template(&name));
-    Ok(())
-}
-
-const CASH_BOUNTY_POWER_FIELDS: &[FieldParse<CashBountyPowerModuleData>] = &[
-    FieldParse {
-        token: "SpecialPowerTemplate",
-        parse: parse_special_power_template_field,
-    },
-    FieldParse {
-        token: "Bounty",
-        parse: parse_bounty,
-    },
-];
+const CASH_BOUNTY_POWER_FIELDS: &[FieldParse<CashBountyPowerModuleData>] = &[FieldParse {
+    token: "Bounty",
+    parse: parse_bounty,
+}];
 
 #[cfg(test)]
 mod tests {

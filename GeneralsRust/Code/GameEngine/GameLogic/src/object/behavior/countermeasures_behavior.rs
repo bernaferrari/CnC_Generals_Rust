@@ -216,7 +216,11 @@ fn parse_reaction_launch_latency_field(
     Ok(())
 }
 
-const COUNTERMEASURES_BEHAVIOR_FIELDS: &[FieldParse<CountermeasuresBehaviorModuleData>] = &[
+// C++ CountermeasuresBehavior.h:54-75 adds UpgradeMuxData's table to the
+// same body. A second parser pass would begin after End and lose inheritance.
+crate::impl_upgrade_mux_field_parsers!(CountermeasuresBehaviorModuleData);
+
+const COUNTERMEASURES_BEHAVIOR_FIELDS: &[FieldParse<CountermeasuresBehaviorModuleData>] = crate::upgrade_mux_field_table!(
     FieldParse {
         token: "FlareTemplateName",
         parse: parse_flare_template_name_field,
@@ -265,7 +269,7 @@ const COUNTERMEASURES_BEHAVIOR_FIELDS: &[FieldParse<CountermeasuresBehaviorModul
         token: "ReactionLaunchLatency",
         parse: parse_reaction_launch_latency_field,
     },
-];
+);
 
 /// Minimal Update module data carrier until the shared implementation lands.
 #[derive(Clone, Debug, Default)]
@@ -355,9 +359,7 @@ impl CountermeasuresBehaviorModuleData {
     }
 
     pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
-        ini.init_from_ini_with_fields(self, COUNTERMEASURES_BEHAVIOR_FIELDS)?;
-        self.upgrade_mux_data.parse_from_ini(ini)?;
-        Ok(())
+        ini.init_from_ini_with_fields(self, COUNTERMEASURES_BEHAVIOR_FIELDS)
     }
 }
 
@@ -1084,6 +1086,60 @@ mod tests {
         data.evasion_rate = 0.5;
         let data_arc = Arc::new(data);
         CountermeasuresBehavior::new(1, data_arc)
+    }
+
+    #[test]
+    fn countermeasures_parses_mux_and_leaf_fields_in_one_body_and_keeps_end_boundary() {
+        let mut data = CountermeasuresBehaviorModuleData::default();
+        INI::new()
+            .with_inline_source(
+                "VolleySize = 3\n\
+             TriggeredBy = Upgrade_A Upgrade_B\n\
+             NumberOfVolleys = 5\n\
+             ConflictsWith = Upgrade_Conflict\n\
+             RemovesUpgrades = Upgrade_Remove\n\
+             RequiresAllTriggers = Yes\n\
+             FXListUpgrade = FX_Upgrade\n\
+             End\n",
+                |ini| data.parse_from_ini(ini),
+            )
+            .expect("one mixed C++ module body");
+        assert_eq!(data.volley_size, 3);
+        assert_eq!(data.number_of_volleys, 5);
+        assert_eq!(
+            data.upgrade_mux_data
+                .activation_upgrade_names
+                .iter()
+                .map(|name| name.as_str())
+                .collect::<Vec<_>>(),
+            ["Upgrade_A", "Upgrade_B"]
+        );
+        assert_eq!(
+            data.upgrade_mux_data.conflicting_upgrade_names[0].as_str(),
+            "Upgrade_Conflict"
+        );
+        assert_eq!(
+            data.upgrade_mux_data.removal_upgrade_names[0].as_str(),
+            "Upgrade_Remove"
+        );
+        assert!(data.upgrade_mux_data.requires_all_triggers);
+        assert_eq!(
+            data.upgrade_mux_data
+                .fx_list_upgrade
+                .as_ref()
+                .map(|fx| fx.name()),
+            Some("FX_Upgrade")
+        );
+        // The old second parser also rejected a valid empty body after End.
+        INI::new()
+            .with_inline_source("End\n", |ini| data.parse_from_ini(ini))
+            .expect("End completes this single module body");
+        let error = INI::new()
+            .with_inline_source("RequiresAllTriggers = nonsense\nEnd\n", |ini| {
+                data.parse_from_ini(ini)
+            })
+            .expect_err("inherited fields retain their strict value parser");
+        assert_eq!(error, INIError::InvalidData);
     }
 
     #[test]

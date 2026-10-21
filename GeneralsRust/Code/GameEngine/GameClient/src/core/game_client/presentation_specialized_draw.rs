@@ -522,6 +522,13 @@ impl DrawModule for PresentationSpecializedDrawModule {
 }
 
 fn presentation_draw_module_names_for(e: &PresentationDrawableSync) -> Vec<String> {
+    if let Some(admitted) = e.module_admission.authored_template() {
+        return admitted
+            .draw_modules()
+            .iter()
+            .map(|entry| entry.name.as_str().to_owned())
+            .collect();
+    }
     let mut names: Vec<String> = e
         .draw_module_names
         .iter()
@@ -604,6 +611,29 @@ impl GameClient {
     }
 
     fn tick_specialized_from_sync(drawable: &mut BasicDrawable, e: &PresentationDrawableSync) {
+        if e.module_admission.authored_template().is_some() {
+            for slot in drawable.get_draw_modules_mut() {
+                if let Some(module) = slot.logic_module_mut() {
+                    gamelogic::object::drawable::bind_native_draw_module_owner(
+                        module,
+                        e.object_id,
+                        e.draw_indicator_color,
+                    );
+                    if let Some(science) =
+                        game_engine::common::thing::module::Module::as_any_mut(module)
+                            .downcast_mut::<W3DScienceModelDraw>()
+                    {
+                        science
+                            .bind_receiving_science_player(e.receiving_science_player.as_deref())
+                            .expect("authored science observation validated before mutation");
+                    }
+                }
+            }
+            // Only actual typed modules may run on admitted content. Never synthesize
+            // an inferred module or replace authored data with presentation defaults.
+            tick_persistent_live_host_draws(drawable, e, None);
+            return;
+        }
         let names = presentation_draw_module_names_for(e);
         let Some(name) = names.first() else {
             return;
@@ -841,44 +871,73 @@ fn apply_live_host_draw(
     module: &mut dyn game_engine::common::thing::module::Module,
     kind: PresentationSpecializedDrawKind,
     ctx: &LiveHostTick,
+    receiving: bool,
 ) {
     use game_engine::common::thing::module::Module;
     if kind.has_tread_debris() {
         if let Some(draw) = Module::as_any_mut(module).downcast_mut::<W3DTankDraw>() {
-            draw.bind_owner_id(ctx.object_id);
+            if !receiving {
+                draw.bind_owner_id(ctx.object_id);
+            }
             draw.tick_live_move_debris(ctx.position, ctx.vel_mag_sq, ctx.hidden, false);
             return;
         }
         if let Some(draw) = Module::as_any_mut(module).downcast_mut::<W3DOverlordTankDraw>() {
-            draw.bind_owner_id(ctx.object_id);
+            if !receiving {
+                draw.bind_owner_id(ctx.object_id);
+            }
             draw.tick_live_tread_debris(ctx.position, ctx.vel_mag_sq, ctx.hidden, false);
             return;
         }
     }
     if kind.has_police_light() {
         if let Some(draw) = Module::as_any_mut(module).downcast_mut::<W3DPoliceCarDraw>() {
-            draw.bind_owner_id(ctx.object_id);
+            if !receiving {
+                draw.bind_owner_id(ctx.object_id);
+            }
             draw.tick_live_host_light(ctx.position, ctx.hidden);
             if kind.has_truck_dust() {
-                draw.tick_live_host_dust(&ctx.visual, ctx.physics, ctx.hidden);
+                if receiving {
+                    draw.tick_live_host_dust_with_receiving_sounds(ctx.physics, ctx.hidden);
+                } else {
+                    draw.tick_live_host_dust(&ctx.visual, ctx.physics, ctx.hidden);
+                }
             }
         }
         return;
     }
     if kind.has_truck_dust() {
         if let Some(draw) = Module::as_any_mut(module).downcast_mut::<W3DTruckDraw>() {
-            draw.bind_owner_id(ctx.object_id);
-            draw.tick_live_host(&ctx.visual, ctx.physics, ctx.hidden);
+            if !receiving {
+                draw.bind_owner_id(ctx.object_id);
+            }
+            if receiving {
+                draw.tick_live_host_with_receiving_sounds(ctx.physics, ctx.hidden);
+            } else {
+                draw.tick_live_host(&ctx.visual, ctx.physics, ctx.hidden);
+            }
             return;
         }
         if let Some(draw) = Module::as_any_mut(module).downcast_mut::<W3DOverlordTruckDraw>() {
-            draw.bind_owner_id(ctx.object_id);
-            draw.tick_live_host_dust(&ctx.visual, ctx.physics, ctx.hidden);
+            if !receiving {
+                draw.bind_owner_id(ctx.object_id);
+            }
+            if receiving {
+                draw.tick_live_host_dust_with_receiving_sounds(ctx.physics, ctx.hidden);
+            } else {
+                draw.tick_live_host_dust(&ctx.visual, ctx.physics, ctx.hidden);
+            }
             return;
         }
         if let Some(draw) = Module::as_any_mut(module).downcast_mut::<W3DTankTruckDraw>() {
-            draw.bind_owner_id(ctx.object_id);
-            draw.tick_live_host_dust(&ctx.visual, ctx.physics, ctx.hidden);
+            if !receiving {
+                draw.bind_owner_id(ctx.object_id);
+            }
+            if receiving {
+                draw.tick_live_host_dust_with_receiving_sounds(ctx.physics, ctx.hidden);
+            } else {
+                draw.tick_live_host_dust(&ctx.visual, ctx.physics, ctx.hidden);
+            }
         }
     }
 }
@@ -895,12 +954,47 @@ fn tick_persistent_live_host_draws(
     let Some(kind) = PresentationSpecializedDrawKind::from_module_name(name) else {
         return;
     };
-    ensure_live_host_draw(drawable, e, kind);
-    let ctx = live_host_tick_from_sync(e, previous_pose);
+    if e.module_admission.authored_template().is_none() {
+        ensure_live_host_draw(drawable, e, kind);
+    }
+    let ctx = if e.module_admission.authored_template().is_some() {
+        let source = e.draw_physics;
+        LiveHostTick {
+            object_id: e.object_id,
+            position: e.position,
+            vel_mag_sq: e.draw_velocity_magnitude_squared,
+            hidden: e.scene_hidden_by_stealth || e.destroyed,
+            visual: String::new(),
+            physics: TruckDrawLivePhysics {
+                speed: source.speed,
+                vel_x: source.vel_x,
+                vel_y: source.vel_y,
+                accel_x: source.accel_x,
+                accel_y: source.accel_y,
+                is_motive: source.is_motive,
+                airborne: source.airborne,
+                frames_airborne: drawable
+                    .get_wheel_info()
+                    .map(|wheel| wheel.frames_airborne)
+                    .unwrap_or(0),
+                turning: source.turning,
+            },
+        }
+    } else {
+        live_host_tick_from_sync(e, previous_pose)
+    };
     for module in drawable.get_draw_modules_mut() {
         let Some(logic) = module.logic_module_mut() else {
             continue;
         };
-        apply_live_host_draw(logic, kind, &ctx);
+        let receiving = e.module_admission.authored_template().is_some();
+        if receiving {
+            gamelogic::object::drawable::bind_native_draw_module_owner(
+                logic,
+                e.object_id,
+                e.draw_indicator_color,
+            );
+        }
+        apply_live_host_draw(logic, kind, &ctx, receiving);
     }
 }

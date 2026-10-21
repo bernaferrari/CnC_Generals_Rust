@@ -353,11 +353,7 @@ pub struct PendingProjectile {
 /// Queue a projectile for spawning. Called from Object::fire_at().
 pub fn queue_projectile(combat: &mut CombatSystem, mut pending: PendingProjectile) {
     stamp_pending_projectile_lifecycle(&mut pending);
-    // Defer only when a live shadow session will drain host_fire_spawn_log.
-    // Host-only (shadow off) must enqueue immediately or combat never spawns shots.
-    // Wave 682: under coupled tick, host_fire_spawn_log is drained immediately
-    // after the host logic frame (eager post-logic apply) — still record here.
-    {}
+    // Accepted shots already belong to this receiving CombatSystem.
     combat.pending_projectiles.push(pending);
 }
 

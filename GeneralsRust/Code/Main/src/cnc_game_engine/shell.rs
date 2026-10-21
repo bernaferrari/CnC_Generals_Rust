@@ -318,8 +318,6 @@ impl CnCGameEngine {
             }
 
             self.loading_overlay_active = true;
-            LOADING_PROGRESS.with(|p| p.set(0.0));
-            LOADING_PHASE.with(|p| *p.borrow_mut() = self.startup_loading_phase.clone());
             info!("Loading screen overlay created as {:?}", kind);
         }
     }
@@ -515,9 +513,6 @@ impl CnCGameEngine {
 
         #[cfg(feature = "game_client")]
         {
-            LOADING_PROGRESS.with(|p| p.set(self.startup_last_reported_progress));
-            LOADING_PHASE.with(|p| *p.borrow_mut() = self.startup_loading_phase.clone());
-
             if let Some(kind) = self.active_load_screen {
                 let percent = self.startup_last_reported_progress * 100.0;
                 game_client::gui::load_screen::update_load_screen(kind, percent);
@@ -525,23 +520,15 @@ impl CnCGameEngine {
         }
     }
 
-    /// Drive the C++ load-screen frame work from a synchronous map-load
-    /// milestone without borrowing the host engine. `host_load_map_or_default`
-    /// holds `self.game_logic` mutably while it invokes this path, so keeping
-    /// this state in the already-existing thread-local presentation bridge is
-    /// what lets every real milestone update the visible .wnd screen.
+    /// Deliver the C++ load-screen frame work synchronously while map loading
+    /// borrows `self.game_logic`. The caller retains the last progress/phase
+    /// and updates the existing engine fields after that borrow ends.
     #[cfg(feature = "game_client")]
     pub(super) fn pump_cpp_load_screen_progress(
         kind: game_client::gui::load_screen::LoadScreenKind,
         progress: f32,
-        phase: &str,
     ) {
         let progress = progress.clamp(0.0, 1.0);
-        LOADING_PROGRESS.with(|value| value.set(progress));
-        let phase = phase.trim();
-        if !phase.is_empty() {
-            LOADING_PHASE.with(|value| *value.borrow_mut() = phase.to_string());
-        }
         game_client::gui::load_screen::update_load_screen(kind, progress * 100.0);
     }
 
@@ -1527,38 +1514,31 @@ impl CnCGameEngine {
                         }
                     }
 
-                    // W3DModuleFactory registration precedes authored Object
-                    // parsing. Keep its catalog local; templates retain typed data.
-                    let mut native_module_catalog = game_engine::common::thing::module_factory::ModuleFactory::new();
-                    gamelogic::contain_module_overrides::register_native_module_overrides(&mut native_module_catalog)
-                        .expect("native startup module constructor catalog must be complete");
-                    if let Err(err) = game_engine::common::thing::init_thing_system_with_module_factory(&mut native_module_catalog) {
-                        warn!("Thing system init failed during startup bootstrap: {err}. Continuing without thing system.");
-                    }
-                    if !game_engine::common::thing::thing_factory::ensure_system_ini_drawable_only_templates()
-                    {
-                        warn!(
-                            "System.ini GenericTracer (DRAWABLE_ONLY + W3DTracerDraw) failed to register"
-                        );
-                    }
-
-                    {
-                        let object_ini_paths =
-                            super::object_ini_boot::collect_object_ini_virtual_paths();
-                        let mut total_loaded = 0usize;
-                        for ini_path in &object_ini_paths {
-                            if let Some(content) = extract_ini_text_from_archives(ini_path) {
-                                total_loaded += game_engine::common::thing::thing_factory::load_templates_from_ini_text_with_module_factory(
-                                    &content,
-                                    ini_path,
-                                    &mut native_module_catalog,
-                                );
-                            }
-                        }
-                        if total_loaded > 0 {
-                            info!("Bootstrapped {} object templates from Default/Object + FileSystem dir", total_loaded);
-                        }
-                    }
+                    // Parse each actual Object declaration once, preserving the existing
+                    // Default/Object + current-directory + nested archive source order.
+                    // System.ini is already in this list; no synthetic tracer replay.
+                    let object_ini_paths = super::object_ini_boot::collect_object_ini_virtual_paths();
+                    let science_names = {
+                        let store = game_engine::common::rts::science::get_science_store()
+                            .ok_or("Receiving Object admission requires initialized application Science definitions")?;
+                        std::sync::Arc::new(game_engine::common::rts::science::ScienceNameFacts::from_store(&store))
+                    };
+                    let receiving_module_content = super::object_ini_boot::load_receiving_object_content_with_sciences(
+                        &object_ini_paths,
+                        |path| super::object_ini_boot::read_receiving_object_source(
+                            path, &Self::startup_ini_disk_roots(), |path| {
+                                let manager_arc = crate::assets::manager::get_asset_manager()
+                                    .ok_or("Receiving Object source requires initialized asset service")?;
+                                let mut manager = manager_arc.try_lock()
+                                    .map_err(|error| format!("Receiving Object source '{path}' asset service unavailable: {error}"))?;
+                                manager.read_optional_definition_source(path)
+                                    .map_err(|error| format!("Receiving Object source '{path}': {error}"))
+                            }),
+                        science_names,
+                    )?;
+                    let total_loaded = receiving_module_content.module_content().admitted_templates().count();
+                    let compatibility_view = receiving_module_content.module_content().compatibility_template_view();
+                    info!("Bootstrapped {} receiving object templates from ordered archive sources", total_loaded);
 
                     {
                         let crc = super::ini_crc_boot::calculate_game_engine_ini_crc(
@@ -1670,6 +1650,12 @@ impl CnCGameEngine {
                     worker_stop_if_abandoned()?;
                     Self::emit_startup_load_progress(&sender, 0.18, "Creating game session");
                     let mut game_logic = GameLogic::initialize();
+                    game_logic.admit_receiving_module_content(receiving_module_content)?;
+                    // Remaining legacy prerequisite/build-variation readers observe only
+                    // an accepted detached view. Native plans move with their exact owner.
+                    *game_engine::common::thing::thing_factory::get_thing_factory()
+                        .map_err(|_| "Thing factory compatibility publication lock poisoned".to_owned())? =
+                        Some(compatibility_view);
                     game_logic.admit_terrain_definitions(terrain_definitions)?;
                     game_logic.admit_armor_definitions(Arc::clone(&armor_definition_seed));
                     recorder_inputs.seed = game_logic.logic_base_seed;

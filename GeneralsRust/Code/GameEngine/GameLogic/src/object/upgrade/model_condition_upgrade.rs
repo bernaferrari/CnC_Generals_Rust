@@ -206,11 +206,8 @@ fn parse_model_condition_flag(token: &str) -> Option<ModelConditionFlags> {
         other => other,
     };
 
-    if let Some(bit) = game_engine::common::bit_flags::ModelConditionFlags::BIT_NAMES
-        .iter()
-        .position(|name| name.eq_ignore_ascii_case(canonical))
-    {
-        return ModelConditionFlags::from_bits(1u128 << bit);
+    if let Some(flag) = ModelConditionFlags::from_ini_name(canonical) {
+        return Some(flag);
     }
 
     // Extra GameLogic-only names (not in C++ ModelConditionType).

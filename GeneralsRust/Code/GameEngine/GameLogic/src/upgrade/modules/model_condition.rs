@@ -263,6 +263,9 @@ pub(crate) fn parse_model_condition_flag(value: &str) -> Option<ModelConditionFl
     if let Some(stripped) = upper.strip_prefix("MODELCONDITION_") {
         upper = stripped.to_string();
     }
+    if let Some(flag) = ModelConditionFlags::from_ini_name(&upper) {
+        return Some(flag);
+    }
     let normalized = upper.replace('_', "");
     match normalized.as_str() {
         "INVALID" => Some(ModelConditionFlags::Invalid),

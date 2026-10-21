@@ -49,7 +49,7 @@ fn world_and_manager(delay: u32) -> (GameLogic, ParticleSystemManager, ObjectId,
     (world, manager, owner, host, client)
 }
 fn update(world: &mut GameLogic, manager: &mut ParticleSystemManager, frame: u32) {
-    world.with_native_particle_object_lifecycle(|lifecycle, _pending_commands| {
+    world.with_native_particle_object_lifecycle(|lifecycle, _pending_commands, _content| {
         manager.update_with_object_lifecycle(0, frame, frame, lifecycle)
     });
 }

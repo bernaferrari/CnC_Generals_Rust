@@ -1459,7 +1459,7 @@ fn required_value<'a>(tokens: &'a [&'a str]) -> Result<&'a str, INIError> {
         .ok_or(INIError::InvalidData)
 }
 
-const PHYSICS_BEHAVIOR_FIELDS: &[FieldParse<PhysicsBehaviorModuleData>] = &[
+pub(crate) const PHYSICS_BEHAVIOR_FIELDS: &[FieldParse<PhysicsBehaviorModuleData>] = &[
     FieldParse {
         token: "Mass",
         parse: |ini, data, tokens| parse_positive_non_zero_real(ini, &mut data.mass, tokens),

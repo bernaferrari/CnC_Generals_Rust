@@ -202,7 +202,7 @@ fn record_object_create_override(
 /// `WeaponSet ... End`) are consumed but their contents are stored under a
 /// compound key like `"WeaponSet0.Conditions"` so that dedicated parsers can
 /// pick them up later.
-fn consume_ini_properties(ini: &mut INI) -> HashMap<String, String> {
+pub(crate) fn consume_ini_properties(ini: &mut INI) -> HashMap<String, String> {
     let mut properties = HashMap::new();
     let mut block_key_prefix: Option<String> = None;
     let mut block_depth = 0u32;
@@ -521,6 +521,25 @@ impl ThingFactory {
             next_template_id: 1, // Not zero!
             template_hash_map: HashMap::with_capacity(TEMPLATE_HASH_SIZE),
         }
+    }
+
+    /// Compatibility read view of already-admitted receiving definitions.
+    /// Copies fresh identity links and shares immutable typed ModuleData. This
+    /// never parses content, allocates name keys, or publishes a factory.
+    pub(super) fn from_receiving_versions<'a>(
+        versions: impl IntoIterator<Item = &'a ThingTemplate>,
+        next_template_id: UnsignedShort,
+    ) -> Self {
+        let mut view = Self::new();
+        for source in versions {
+            let mut template = ThingTemplate::new();
+            template.set_template_id(source.get_template_id());
+            template.set_template_name(source.get_name().clone());
+            template.copy_from(source);
+            view.add_template(Arc::new(template));
+        }
+        view.next_template_id = next_template_id;
+        view
     }
 
     /// Create a new template with the given name
@@ -1344,6 +1363,26 @@ pub(super) fn parse_object_block_properties(
     lines: &[&str],
     start: usize,
 ) -> (HashMap<String, String>, usize) {
+    let (fields, next, _) = capture_object_block_properties(lines, start);
+    (fields, next)
+}
+
+pub(super) fn try_parse_object_block_properties(
+    lines: &[&str],
+    start: usize,
+) -> Result<(HashMap<String, String>, usize), String> {
+    let (fields, next, terminated) = capture_object_block_properties(lines, start);
+    if terminated {
+        Ok((fields, next))
+    } else {
+        Err("Unterminated receiving Object declaration".to_owned())
+    }
+}
+
+fn capture_object_block_properties(
+    lines: &[&str],
+    start: usize,
+) -> (HashMap<String, String>, usize, bool) {
     let mut properties = HashMap::new();
     let mut block_key_prefix: Option<String> = None;
     let mut depth: u32 = 0;
@@ -1377,7 +1416,7 @@ pub(super) fn parse_object_block_properties(
                 index += 1;
                 continue;
             }
-            return (properties, index + 1);
+            return (properties, index + 1, true);
         }
 
         if depth == 0 {
@@ -1443,7 +1482,7 @@ pub(super) fn parse_object_block_properties(
         index += 1;
     }
 
-    (properties, index)
+    (properties, index, false)
 }
 
 fn load_runtime_object_templates_with_module_factory(
@@ -1656,7 +1695,7 @@ fn push_object_ini_dir(files: &mut Vec<PathBuf>, seen: &mut HashSet<PathBuf>, di
     }
 }
 
-fn strip_ini_comment(line: &str) -> &str {
+pub(super) fn strip_ini_comment(line: &str) -> &str {
     line.split_once(';')
         .map(|(prefix, _)| prefix)
         .unwrap_or(line)

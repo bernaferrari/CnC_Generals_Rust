@@ -667,7 +667,29 @@ pub fn load_map_ini_ui_overrides_with_armor_definition_targets(
     ),
     String,
 > {
+    load_map_ini_ui_overrides_with_receiving_definitions(contents, target, terrain, armor, false)
+}
+
+pub fn load_map_ini_ui_overrides_with_receiving_definitions(
+    contents: &str,
+    target: Option<
+        std::sync::Arc<std::sync::RwLock<game_engine::common::ini::ini_ai_data::AIDataStore>>,
+    >,
+    terrain: game_engine::common::ini::ini_terrain::TerrainTypes,
+    armor: game_engine::common::ini::ini::armor_definitions::ArmorDefinitions,
+    object_definitions_admitted: bool,
+) -> Result<
+    (
+        usize,
+        game_engine::common::ini::ini_terrain::TerrainTypes,
+        game_engine::common::ini::ini::armor_definitions::ArmorDefinitions,
+    ),
+    String,
+> {
     let mut ini = INI::new();
+    if object_definitions_admitted {
+        ini.set_object_definitions_admitted();
+    }
     if let Some(target) = target {
         ini.set_ai_data_store_target(target);
     }
@@ -1784,3 +1806,7 @@ mod tests {
         assert_eq!(Difficulty::from(GameDifficulty::Brutal), Difficulty::Brutal);
     }
 }
+
+#[cfg(test)]
+#[path = "receiving_map_definition_tests.rs"]
+mod receiving_map_definition_tests;

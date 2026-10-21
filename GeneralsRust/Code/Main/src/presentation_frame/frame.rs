@@ -41,6 +41,11 @@ pub struct PresentationFrame {
     #[cfg(feature = "game_client")]
     #[serde(skip)]
     pub(crate) host_physics_visuals: physics_visual_host::FrozenHostPhysicsVisuals,
+    /// Full native Draw science membership; transient immutable receiving facts.
+    #[serde(skip)]
+    pub(crate) receiving_science_player: Option<
+        std::sync::Arc<gamelogic::object::draw::w3d_science_model_draw::ReceivingSciencePlayer>,
+    >,
     pub local_player_id: u32,
     /// Local player team frozen at snapshot time (selection/hotkey residual).
     /// Prefer this over live `GameLogic::get_player` dual-reads when a frame is installed.

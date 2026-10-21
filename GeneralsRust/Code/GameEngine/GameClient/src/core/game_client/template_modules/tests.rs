@@ -99,6 +99,9 @@ fn basic(client: &mut GameClient, id: DrawableId) -> &mut BasicDrawable {
 fn real_factory_constructs_all_nineteen_draw_and_four_client_update_classes_in_order() {
     let mut a = GameClient::new().unwrap();
     let mut b = GameClient::new().unwrap();
+    let mut a_keys = NameKeyNamespace::new();
+    let mut b_keys = NameKeyNamespace::new();
+    b_keys.name_to_key("ForeignPrefix");
     let template = complete_template();
     let a_id = a.create_drawable_from_template(&template).unwrap();
     let b_id = b.create_drawable_from_template(&template).unwrap();
@@ -137,6 +140,16 @@ fn real_factory_constructs_all_nineteen_draw_and_four_client_update_classes_in_o
         let b_logic = b_module.logic_module_mut().unwrap();
         assert!(is_expected(a_logic), "actual module class {name}");
         assert!(is_expected(b_logic), "peer actual module class {name}");
+        {
+            let a_key = a_logic.get_module_name_key_with_namespace(&mut a_keys);
+            let b_key = b_logic.get_module_name_key_with_namespace(&mut b_keys);
+            assert_eq!(a_keys.key_to_name(a_key).as_deref(), Some(name));
+            assert_eq!(b_keys.key_to_name(b_key).as_deref(), Some(name));
+            assert_ne!(
+                a_key, b_key,
+                "{name} must query the supplied owner namespace"
+            );
+        }
         if index >= 20 {
             let admitted = template
                 .get_client_update_module_info()

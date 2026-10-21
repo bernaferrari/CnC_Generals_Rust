@@ -950,6 +950,12 @@ mod tests {
         orientation: f32,
     ) -> PresentationDrawableSync {
         PresentationDrawableSync {
+            receiving_science_player: None,
+            module_admission: PresentationModuleAdmission::Compatibility,
+            draw_indicator_color: [255; 3],
+            draw_physics: crate::core::game_client::PresentationDrawPhysics::default(),
+            draw_velocity_magnitude_squared: 0.0,
+            draw_logic_frame: 0,
             object_id,
             host_epoch,
             resident,

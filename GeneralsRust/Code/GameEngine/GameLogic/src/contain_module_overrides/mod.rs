@@ -407,6 +407,7 @@ mod factory_gaps;
 mod install;
 mod leftover;
 mod production;
+mod receiving_registration_keys;
 mod strict_module_data;
 mod template_locomotor;
 mod update_modules;

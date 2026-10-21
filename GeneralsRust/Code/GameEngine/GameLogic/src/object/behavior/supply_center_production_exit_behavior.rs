@@ -3,7 +3,6 @@
 //! Matches C++ SupplyCenterProductionExitUpdate.cpp/.h.
 
 use crate::ai::the_ai;
-use crate::object::ProductionBehaviorRallyKindMut;
 use crate::common::*;
 use crate::helpers::{TheGameLogic, TheTerrainLogic};
 use crate::modules::{
@@ -11,6 +10,7 @@ use crate::modules::{
     ExitDoorType as ModuleExitDoorType, ExitInterface as ModuleExitInterface,
     SupplyTruckAIInterface, UPDATE_SLEEP_FOREVER, UpdateModuleInterface, UpdateSleepTime,
 };
+use crate::object::ProductionBehaviorRallyKindMut;
 use crate::object::behavior::behavior_module::{BehaviorModuleData, xfer_update_module_base_state};
 use crate::path::PATHFIND_CELL_SIZE_F;
 use game_engine::common::ini::{FieldParse, INI, INIError};
@@ -154,7 +154,8 @@ impl SupplyCenterProductionExitBehavior {
             guard.set_orientation(exit_angle)?;
         }
 
-        let ai_store = the_ai(); if let Ok(ai_guard) = ai_store.read() {
+        let ai_store = the_ai();
+        if let Ok(ai_guard) = ai_store.read() {
             if let Some(pathfinder) = ai_guard.pathfinder() {
                 if let Ok(mut pf) = pathfinder.write() {
                     pf.add_object_to_map(
@@ -360,15 +361,10 @@ impl Module for SupplyCenterProductionExitBehaviorModule {
 }
 
 fn parse_coord3d(tokens: &[&str]) -> Result<Coord3D, INIError> {
-    let values: Vec<&str> = tokens.iter().copied().filter(|t| *t != "=").collect();
-    if values.len() < 3 {
-        return Err(INIError::InvalidData);
-    }
-    let mut coords = [0.0f32; 3];
-    for (idx, token) in values.iter().take(3).enumerate() {
-        coords[idx] = INI::parse_real(token)?;
-    }
-    Ok(Coord3D::new(coords[0], coords[1], coords[2]))
+    // SupplyCenterProductionExitUpdate.h:31-40 uses INI::parseCoord3D,
+    // preserving the authored local X/Y/Z axes for both exit points.
+    let (x, y, z) = INI::parse_coord_3d_ordered(tokens)?;
+    Ok(Coord3D::new(x, y, z))
 }
 
 fn parse_unit_create_point(

@@ -99,7 +99,7 @@ fn stage(m: &mut SaveFileManager, slot: &str, w: &GameLogic) -> Result<StagedRes
         m,
         slot,
         GameMode::Skirmish,
-        &w.templates,
+        RestoreTemplateCatalog::from_world(w),
         &w.weapon_definition_base,
         &w.projectile_definitions,
         &w.ocl_application_definitions(),

@@ -65,6 +65,7 @@
 pub mod draw_module;
 pub mod module;
 pub mod module_factory;
+pub mod receiving_module_content;
 pub mod sparse_match_finder;
 pub mod thing;
 pub mod thing_factory;

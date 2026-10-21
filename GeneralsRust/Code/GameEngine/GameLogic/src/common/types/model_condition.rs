@@ -9,7 +9,7 @@ bitflags! {
     /// Authoritative source: Common/src/common/bit_flags.rs
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
     pub struct ModelConditionFlags: u128 {
-        // --- C++ ModelConditionType enum values 0-117 (authoritative) ---
+        // --- C++ no-ALLOW_SURRENDER ModelConditionType values 0-116 ---
         // Bit 0: TOPPLED
         const TOPPLED = 1 << 0;
         // Bit 1: FRONTCRUSHED
@@ -242,9 +242,8 @@ bitflags! {
         const USER_1 = 1u128 << 114;
         // Bit 115: USER_2
         const USER_2 = 1u128 << 115;
-        // Bit 116: (reserved)
-        // Bit 117: DISGUISED
-        const DISGUISED = 1u128 << 117;
+        // Bit 116: DISGUISED (immediately after USER_2; no reserved slot).
+        const DISGUISED = 1u128 << 116;
 
         // --- PascalCase / compatibility aliases (same bits as above) ---
         // Door aliases (PascalCase)
@@ -330,6 +329,14 @@ bitflags! {
 }
 
 impl ModelConditionFlags {
+    /// C++ BitFlags.cpp's complete model-condition vocabulary and bit positions.
+    pub(crate) fn from_ini_name(name: &str) -> Option<Self> {
+        let bit = game_engine::common::bit_flags::ModelConditionFlags::BIT_NAMES
+            .iter()
+            .position(|candidate| candidate.eq_ignore_ascii_case(name))?;
+        Self::from_bits(1u128 << bit)
+    }
+
     pub fn clear(&mut self) {
         *self = Self::empty();
     }

@@ -2114,18 +2114,6 @@ impl CnCGameEngine {
                     10_000.0,
                 );
             }
-            if let Some(pres) = self.last_presentation_frame.as_ref() {
-                // C++ W3DStatusCircle.cpp:284-287 renders the fade only for a
-                // live (non-GAME_SHELL) game; never queue it for the shell menu
-                // or it blacks out the shell-map world behind the main menu.
-                if !pres.fow_shell_bypass {
-                    game_client::display::status_circle::queue_live_camera_fade(
-                        pres.camera_fade.fade,
-                        pres.camera_fade.intensity,
-                        pres.camera_fade.diffuse,
-                    );
-                }
-            }
             if let Some((text, font, _frames)) = self.game_client.cinematic_overlay() {
                 let font_size = Self::cinematic_font_size(font);
                 let y = height * 0.9;

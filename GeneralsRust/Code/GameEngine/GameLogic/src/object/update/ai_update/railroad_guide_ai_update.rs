@@ -594,8 +594,15 @@ const RAILROAD_BEHAVIOR_FIELDS: &[FieldParse<RailroadBehaviorModuleData>] = &[
 
 impl RailroadBehaviorModuleData {
     pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
-        self.base.parse_from_ini(ini)?;
-        ini.init_from_ini_with_fields(self, RAILROAD_BEHAVIOR_FIELDS)
+        // C++ RailroadGuideAIUpdate.h:28-56 adds PhysicsUpdate.cpp:140-173's
+        // table before Railroad's fields in one MultiIniFieldParse. Both use
+        // the same owned base value and consume this body's single End.
+        ini.init_from_ini_with_inherited_fields(
+            self,
+            |data| &mut data.base,
+            crate::object::behavior::physics_update::PHYSICS_BEHAVIOR_FIELDS,
+            RAILROAD_BEHAVIOR_FIELDS,
+        )
     }
 }
 

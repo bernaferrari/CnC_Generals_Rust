@@ -23,9 +23,6 @@ pub mod host_weapon_discharge_log;
 #[path = "host_fire_sound_loop_log.rs"]
 pub mod host_fire_sound_loop_log;
 
-#[path = "host_fire_spawn_log.rs"]
-pub mod host_fire_spawn_log;
-
 #[path = "host_heal_log.rs"]
 pub mod host_heal_log;
 

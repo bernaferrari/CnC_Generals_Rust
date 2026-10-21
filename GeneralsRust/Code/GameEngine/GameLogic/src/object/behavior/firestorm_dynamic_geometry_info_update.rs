@@ -36,7 +36,7 @@ pub struct FirestormDynamicGeometryInfoUpdateModuleData {
     pub particle_systems: [Option<String>; MAX_FIRESTORM_SYSTEMS],
     pub particle_offset_z: Real,
     pub scorch_size: Real,
-    pub delay_between_damage_frames: u32,
+    pub delay_between_damage_frames: Real,
     pub damage_amount: Real,
     pub max_height_for_damage: Real,
 }
@@ -49,7 +49,7 @@ impl Default for FirestormDynamicGeometryInfoUpdateModuleData {
             particle_systems: Default::default(),
             particle_offset_z: 0.0,
             scorch_size: 0.0,
-            delay_between_damage_frames: 0,
+            delay_between_damage_frames: 0.0,
             damage_amount: 0.0,
             max_height_for_damage: 20.0,
         }
@@ -59,9 +59,18 @@ impl Default for FirestormDynamicGeometryInfoUpdateModuleData {
 crate::impl_behavior_module_data_via_base!(FirestormDynamicGeometryInfoUpdateModuleData, base);
 
 impl FirestormDynamicGeometryInfoUpdateModuleData {
+    // Original update uses an unsigned frame difference promoted to Real.
+    fn damage_due_since(&self, frame: u32, previous: u32) -> bool {
+        frame.wrapping_sub(previous) as Real >= self.delay_between_damage_frames
+    }
+
     pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
-        self.base.parse_from_ini(ini)?;
-        ini.init_from_ini_with_fields(self, FIRESTORM_DYNAMIC_GEOMETRY_INFO_UPDATE_FIELDS)
+        ini.init_from_ini_with_inherited_fields(
+            self,
+            |data| &mut data.base,
+            super::dynamic_geometry_info_update::DYNAMIC_GEOMETRY_INFO_UPDATE_FIELDS,
+            FIRESTORM_DYNAMIC_GEOMETRY_INFO_UPDATE_FIELDS,
+        )
     }
 }
 
@@ -79,8 +88,7 @@ const FIRESTORM_DYNAMIC_GEOMETRY_INFO_UPDATE_FIELDS: &[FieldParse<
     FieldParse {
         token: "DelayBetweenDamageFrames",
         parse: |_, data, tokens| {
-            data.delay_between_damage_frames =
-                INI::parse_duration_unsigned_int(required_value(tokens)?)?;
+            data.delay_between_damage_frames = INI::parse_duration_real(required_value(tokens)?)?;
             Ok(())
         },
     },
@@ -406,7 +414,10 @@ impl UpdateModuleInterface for FirestormDynamicGeometryInfoUpdate {
 
         // Periodic damage scan
         let current_frame = TheGameLogic::get_frame();
-        if current_frame - self.last_damage_frame >= self.module_data.delay_between_damage_frames {
+        if self
+            .module_data
+            .damage_due_since(current_frame, self.last_damage_frame)
+        {
             self.do_damage_scan(&obj);
             self.last_damage_frame = current_frame;
         }
@@ -495,5 +506,49 @@ impl FirestormDynamicGeometryInfoUpdateFactory {
             thing,
             module_data,
         )?))
+    }
+}
+
+#[cfg(test)]
+mod receiving_parser_tests {
+    use super::*;
+
+    #[test]
+    fn firestorm_parses_mixed_original_base_and_leaf_fields_in_one_body() {
+        let mut data = FirestormDynamicGeometryInfoUpdateModuleData::default();
+        let mut ini = INI::new();
+        ini.with_inline_source("ScorchSize = 50\nInitialHeight = 8\nParticleSystem16 = ActualFire\nInitialDelay = 1500ms\nDamageAmount = 4\nTransitionTime = 2s\nDelayBetweenDamageFrames = 50ms\nReverseAtTransitionTime = Yes\nEnd\n", |ini| data.parse_from_ini(ini)).unwrap();
+        assert_eq!(data.base.initial_height, 8.0);
+        assert_eq!(data.base.initial_delay, 45);
+        assert_eq!(data.base.transition_time, 60);
+        assert!(data.base.reverse_at_transition_time);
+        assert_eq!(data.scorch_size, 50.0);
+        assert_eq!(data.damage_amount, 4.0);
+        assert_eq!(data.particle_systems[15].as_deref(), Some("ActualFire"));
+        assert_eq!(
+            data.delay_between_damage_frames, 1.5,
+            "CPP parseDurationReal preserves fractional logic frames"
+        );
+        assert_eq!(data.max_height_for_damage, 20.0);
+        assert!(
+            ini.with_inline_source(
+                "InitialHeight = 1\nScorchSize = 2\nUnknownFirestormField = 3\nEnd\n",
+                |ini| data.parse_from_ini(ini)
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn firestorm_damage_guard_uses_original_real_interval_and_unsigned_frame_delta() {
+        let data = FirestormDynamicGeometryInfoUpdateModuleData {
+            delay_between_damage_frames: 1.5,
+            ..Default::default()
+        };
+        assert!(!data.damage_due_since(10, 10));
+        assert!(!data.damage_due_since(11, 10));
+        assert!(data.damage_due_since(12, 10));
+        assert!(!data.damage_due_since(0, u32::MAX));
+        assert!(data.damage_due_since(1, u32::MAX));
     }
 }

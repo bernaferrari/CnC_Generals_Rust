@@ -144,6 +144,20 @@ impl BasicDrawable {
         &self,
         dt: gamelogic::common::types::BodyDamageType,
     ) -> Option<AudioEventRts> {
+        if let Some(template) = &self.receiving_template {
+            use game_engine::common::thing::thing_template::ThingTemplateAudioType;
+            use gamelogic::common::types::BodyDamageType;
+            let kind = match dt {
+                BodyDamageType::Damaged => ThingTemplateAudioType::SoundAmbientDamaged,
+                BodyDamageType::ReallyDamaged => ThingTemplateAudioType::SoundAmbientReallyDamaged,
+                BodyDamageType::Rubble => ThingTemplateAudioType::SoundAmbientRubble,
+                _ => ThingTemplateAudioType::SoundAmbient,
+            };
+            return template
+                .audio_event(kind)
+                .filter(|event| !event.get_event_name().is_empty())
+                .cloned();
+        }
         if let Some(event) = self.ambient_from_object_template(dt) {
             return Some(event);
         }
@@ -152,7 +166,9 @@ impl BasicDrawable {
 
     fn current_body_damage_type(&self) -> gamelogic::common::types::BodyDamageType {
         use gamelogic::common::types::BodyDamageType;
-        if dual_world_registry_unavailable() {
+        // Authored native Drawables already carry the receiving object's condition
+        // state. A compatibility Core registry may belong to a different world.
+        if self.receiving_template.is_some() || dual_world_registry_unavailable() {
             if self.model_condition_flags.test(ModelConditionFlags::RUBBLE) {
                 return BodyDamageType::Rubble;
             }
@@ -640,7 +656,39 @@ impl BasicDrawable {
 
     /// Set template name. C++ ctor then `startAmbientSound()` once the template is known.
     pub fn set_template_name(&mut self, name: Option<String>) {
-        let changed = self.template_name != name;
+        self.set_template_name_with_receiving(name, None);
+    }
+
+    pub(crate) fn receiving_template_matches(
+        &self,
+        expected: Option<
+            &std::sync::Arc<game_engine::common::thing::thing_template::AdmittedReceivingTemplate>,
+        >,
+    ) -> bool {
+        match (self.receiving_template.as_ref(), expected) {
+            (None, None) => true,
+            (Some(actual), Some(expected)) => std::sync::Arc::ptr_eq(actual, expected),
+            _ => false,
+        }
+    }
+
+    /// Bind the driving immutable definition before the original synchronous
+    /// ambient start. A same-name replacement is a different definition, while
+    /// repeated observations of the same Arc do not restart its event.
+    pub(crate) fn set_template_name_with_receiving(
+        &mut self,
+        name: Option<String>,
+        template: Option<
+            std::sync::Arc<game_engine::common::thing::thing_template::AdmittedReceivingTemplate>,
+        >,
+    ) {
+        let same_definition = match (&self.receiving_template, &template) {
+            (None, None) => true,
+            (Some(old), Some(new)) => std::sync::Arc::ptr_eq(old, new),
+            _ => false,
+        };
+        let changed = self.template_name != name || !same_definition;
+        self.receiving_template = template;
         self.template_name = name;
         if changed && self.template_name.is_some() {
             self.start_ambient_sound(false);

@@ -38,6 +38,11 @@ impl Default for W3DOverlordTankDrawModuleData {
 }
 
 impl ModuleData for W3DOverlordTankDrawModuleData {
+    fn get_minimum_required_game_lod(
+        &self,
+    ) -> game_engine::common::thing::module::StaticGameLodLevel {
+        self.base.get_minimum_required_game_lod()
+    }
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -132,6 +137,13 @@ impl Module for W3DOverlordTankDraw {
         game_engine::common::name_key_generator::NameKeyGenerator::name_to_key(
             "W3DOverlordTankDraw",
         )
+    }
+
+    fn get_module_name_key_with_namespace(
+        &self,
+        keys: &mut game_engine::common::name_key_generator::NameKeyNamespace,
+    ) -> NameKeyType {
+        keys.name_to_key("W3DOverlordTankDraw")
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {

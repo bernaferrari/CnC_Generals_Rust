@@ -572,6 +572,15 @@ pub trait Module: ModuleAny + Snapshotable + Send + Sync + Any {
         );
         0
     }
+    /// Resolve the class in the explicit receiving namespace at the query phase.
+    /// Unknown compatibility implementations are not valid owned class queries.
+    fn get_module_name_key_with_namespace(
+        &self,
+        _keys: &mut crate::common::name_key_generator::NameKeyNamespace,
+    ) -> NameKeyType {
+        crate::common::name_key_generator::NAMEKEY_INVALID
+    }
+
     fn get_module_tag_name_key(&self) -> NameKeyType {
         self.get_module_data().get_module_tag_name_key()
     }

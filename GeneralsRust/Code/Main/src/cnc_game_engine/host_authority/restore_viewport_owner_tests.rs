@@ -138,7 +138,7 @@ fn unavailable_map_staging_preserves_actual_receiver_and_peer_viewports() {
                 &mut saves,
                 "viewport_missing_map",
                 GameMode::Shell,
-                &receiver.templates,
+                RestoreTemplateCatalog::from_world(&receiver),
                 &receiver.weapon_definition_base,
                 &receiver.projectile_definitions,
                 &receiver.ocl_application_definitions(),

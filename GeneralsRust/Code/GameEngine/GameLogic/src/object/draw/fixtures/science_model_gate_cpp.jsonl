@@ -1,0 +1,16 @@
+{"tag":"s-1_a0_h0_initial0","base_called":false,"hidden":true,"hidden_at_base":null,"trace":["data","assert_false","set_hidden:true"]}
+{"tag":"s-1_a0_h0_initial1","base_called":false,"hidden":true,"hidden_at_base":null,"trace":["data","assert_false","set_hidden:true"]}
+{"tag":"s-1_a0_h1_initial0","base_called":false,"hidden":true,"hidden_at_base":null,"trace":["data","assert_false","set_hidden:true"]}
+{"tag":"s-1_a0_h1_initial1","base_called":false,"hidden":true,"hidden_at_base":null,"trace":["data","assert_false","set_hidden:true"]}
+{"tag":"s-1_a1_h0_initial0","base_called":false,"hidden":true,"hidden_at_base":null,"trace":["data","assert_false","set_hidden:true"]}
+{"tag":"s-1_a1_h0_initial1","base_called":false,"hidden":true,"hidden_at_base":null,"trace":["data","assert_false","set_hidden:true"]}
+{"tag":"s-1_a1_h1_initial0","base_called":false,"hidden":true,"hidden_at_base":null,"trace":["data","assert_false","set_hidden:true"]}
+{"tag":"s-1_a1_h1_initial1","base_called":false,"hidden":true,"hidden_at_base":null,"trace":["data","assert_false","set_hidden:true"]}
+{"tag":"s7_a0_h0_initial0","base_called":true,"hidden":false,"hidden_at_base":false,"trace":["data","local_player","has_science:7","local_player","active","base_draw"]}
+{"tag":"s7_a0_h0_initial1","base_called":true,"hidden":true,"hidden_at_base":true,"trace":["data","local_player","has_science:7","local_player","active","base_draw"]}
+{"tag":"s7_a0_h1_initial0","base_called":true,"hidden":false,"hidden_at_base":false,"trace":["data","local_player","has_science:7","base_draw"]}
+{"tag":"s7_a0_h1_initial1","base_called":true,"hidden":true,"hidden_at_base":true,"trace":["data","local_player","has_science:7","base_draw"]}
+{"tag":"s7_a1_h0_initial0","base_called":false,"hidden":true,"hidden_at_base":null,"trace":["data","local_player","has_science:7","local_player","active","set_hidden:true"]}
+{"tag":"s7_a1_h0_initial1","base_called":false,"hidden":true,"hidden_at_base":null,"trace":["data","local_player","has_science:7","local_player","active","set_hidden:true"]}
+{"tag":"s7_a1_h1_initial0","base_called":true,"hidden":false,"hidden_at_base":false,"trace":["data","local_player","has_science:7","base_draw"]}
+{"tag":"s7_a1_h1_initial1","base_called":true,"hidden":true,"hidden_at_base":true,"trace":["data","local_player","has_science:7","base_draw"]}

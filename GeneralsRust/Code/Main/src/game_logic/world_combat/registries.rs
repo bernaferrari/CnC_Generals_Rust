@@ -3840,6 +3840,7 @@ impl crate::game_logic::GameLogic {
         operation: impl FnOnce(
             &mut game_client::effects::particle_manager::NativeParticleObjectLifecycle<'_>,
             &mut crate::command_system::ReplayPendingState,
+            Option<&mut game_engine::common::thing::module_factory::ModuleFactory>,
         ) -> R,
     ) -> R {
         let objects = &self.objects;
@@ -3853,6 +3854,12 @@ impl crate::game_logic::GameLogic {
             object_is_live: &exists,
             attached_object_lost: &mut lost,
         };
-        operation(&mut lifecycle, &mut self.replay_pending)
+        operation(
+            &mut lifecycle,
+            &mut self.replay_pending,
+            self.receiving_module_content
+                .as_mut()
+                .map(|content| content.module_factory_mut()),
+        )
     }
 }

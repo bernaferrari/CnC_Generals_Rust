@@ -44,6 +44,10 @@ pub struct NativeStateParticleContext {
 
 /// Selected static-model state/emitter operations on explicit receiving owners.
 pub trait ClientParticleStateRuntime {
+    /// Original NAMEKEY phase, supplied by the same receiving content namespace.
+    fn name_to_key(&mut self, name: &str) -> game_engine::common::name_key_generator::NameKeyType {
+        game_engine::common::name_key_generator::NameKeyGenerator::name_to_key(name)
+    }
     fn standard_public_bones(&self) -> Vec<String>;
     fn pristine_bone(
         &mut self,

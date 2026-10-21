@@ -1125,6 +1125,16 @@ pub struct GameLogic {
     pub(super) accumulated_time: f32,
     pub(super) last_fixed_step_diagnostics: FixedStepDiagnostics,
 
+    /// Receiving typed module data and its one plain content name-key namespace.
+    /// Startup moves the actual producer here before admitting host templates.
+    pub(crate) receiving_module_content:
+        Option<game_engine::common::thing::receiving_module_content::ReceivingModuleContent>,
+    /// Immutable host projections travel with the originating typed content.
+    pub(crate) receiving_object_definitions: Option<crate::assets::ReceivingObjectDefinitions>,
+
+    /// Accepted immutable host definitions restored before each map admission.
+    pub(crate) receiving_template_baseline: Option<HashMap<String, ThingTemplate>>,
+
     /// Thing templates registry
     pub templates: HashMap<String, ThingTemplate>,
     /// Names that already failed host-template + already-loaded Object INI lookup.

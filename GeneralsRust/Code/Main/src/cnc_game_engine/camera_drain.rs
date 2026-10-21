@@ -1726,12 +1726,24 @@ impl CnCGameEngine {
         let draw_module_cache = &self.draw_module_name_cache;
         // Materialize every borrowed presentation fact before mutating
         // GameClient, preserving the immutable host→client boundary.
+        for direct in &pres.direct_host_drawables {
+            if direct.resident
+                && direct.authored_client_template_required
+                && direct.receiving_client_template.is_none()
+            {
+                return Err(format!(
+                    "Authored visual template '{}' has no admitted receiving module data",
+                    direct.visual_template_name
+                ));
+            }
+        }
         let sync_entries = pres
             .direct_host_drawables
             .iter()
             .map(|direct| {
                 let o = &direct.object;
                 game_client::core::game_client::PresentationDrawableSync {
+                    receiving_science_player: pres.receiving_science_player.clone(),
                     object_id: o.id.0,
                     host_epoch,
                     // The direct-host roster was frozen from actual host
@@ -1802,6 +1814,15 @@ impl CnCGameEngine {
                             String::new()
                         }
                     },
+                    module_admission: direct
+                        .receiving_client_template
+                        .as_ref()
+                        .map(crate::game_logic::thing::ReceivingClientTemplate::client_admission)
+                        .unwrap_or(game_client::core::game_client::PresentationModuleAdmission::Compatibility),
+                    draw_logic_frame: logic_frame,
+                    draw_indicator_color: direct.draw_indicator_color,
+                    draw_physics: direct.draw_physics,
+                    draw_velocity_magnitude_squared: direct.draw_velocity_magnitude_squared,
                     draw_module_names: Self::presentation_draw_module_names_from_template(
                         draw_module_cache,
                         if direct.visual_template_name.trim().is_empty() {
@@ -1842,15 +1863,45 @@ impl CnCGameEngine {
             .map(|unit| (unit.id.0, unit))
             .collect();
         let sync_ms = self.render_pipeline.current_animation_sync_ms();
+        let draw_policy = {
+            use game_engine::common::thing::module::StaticGameLodLevel;
+            let current = game_engine::common::game_lod::get_static_lod();
+            let data = game_engine::common::global_data::read();
+            game_client::core::game_client::ReceivingDrawablePolicy {
+                use_draw_module_lod: data.use_draw_module_lod,
+                use_tree_sway: data.use_tree_sway,
+                static_game_lod: match current.to_ascii_uppercase().as_str() {
+                    "LOW" => StaticGameLodLevel::Low,
+                    "HIGH" => StaticGameLodLevel::High,
+                    _ => StaticGameLodLevel::Medium,
+                },
+            }
+        };
         let native_owner = &mut self.render_pipeline;
         let graphics = &mut self.graphics_system;
-        let (created, updated, pruned) = self
-            .game_client
-            .sync_presentation_drawables_observed(sync_entries, sync_ms, |mutation| {
-                let source = native_source_inputs.get(&mutation.object_id());
-                native_owner.receive_native_drawable_mutation(mutation, source, graphics);
-            })
-            .map_err(|error| error.to_string())?;
+        let (created, updated, pruned) = if let Some(content) =
+            &mut self.game_logic.receiving_module_content
+        {
+            self.game_client
+                .sync_presentation_drawables_observed_with_content(
+                    sync_entries,
+                    sync_ms,
+                    content.module_factory_mut(),
+                    draw_policy,
+                    |mutation| {
+                        let source = native_source_inputs.get(&mutation.object_id());
+                        native_owner.receive_native_drawable_mutation(mutation, source, graphics);
+                    },
+                )
+                .map_err(|error| error.to_string())?
+        } else {
+            self.game_client
+                .sync_presentation_drawables_observed(sync_entries, sync_ms, |mutation| {
+                    let source = native_source_inputs.get(&mutation.object_id());
+                    native_owner.receive_native_drawable_mutation(mutation, source, graphics);
+                })
+                .map_err(|error| error.to_string())?
+        };
         if created + updated + pruned > 0 {
             log::trace!(
                 "presentation drawable sync created={created} updated={updated} pruned={pruned}"

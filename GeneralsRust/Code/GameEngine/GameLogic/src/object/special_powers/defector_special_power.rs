@@ -41,7 +41,13 @@ impl Default for DefectorSpecialPowerModuleData {
 
 impl DefectorSpecialPowerModuleData {
     pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
-        ini.init_from_ini_with_fields(self, DEFECTOR_SPECIAL_POWER_FIELDS)
+        // The C++ subclass adds its leaf table after SpecialPowerModuleData.
+        ini.init_from_ini_with_inherited_fields(
+            self,
+            |data| &mut data.base,
+            crate::object::special_power_module::SPECIAL_POWER_MODULE_FIELDS,
+            DEFECTOR_SPECIAL_POWER_FIELDS,
+        )
     }
 }
 
@@ -103,7 +109,9 @@ impl DefectorSpecialPower {
     pub fn do_special_power_at_object(&self, target_object_id: ObjectID) -> Result<(), String> {
         // Check if the owner is disabled
         let owner_disabled = crate::object::registry::OBJECT_REGISTRY
-            .with_object(self.owner_object_id, |owner_guard| owner_guard.is_disabled())
+            .with_object(self.owner_object_id, |owner_guard| {
+                owner_guard.is_disabled()
+            })
             .unwrap_or(false);
         if owner_disabled {
             return Ok(());
@@ -272,28 +280,11 @@ fn parse_fat_cursor_radius(
     Ok(())
 }
 
-fn parse_special_power_template_field(
-    _ini: &mut INI,
-    data: &mut DefectorSpecialPowerModuleData,
-    tokens: &[&str],
-) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
-    let name = crate::common::AsciiString::from(*token);
-    data.base.special_power_template =
-        Some(crate::object::special_power_template::find_or_create_special_power_template(&name));
-    Ok(())
-}
-
-const DEFECTOR_SPECIAL_POWER_FIELDS: &[FieldParse<DefectorSpecialPowerModuleData>] = &[
-    FieldParse {
-        token: "SpecialPowerTemplate",
-        parse: parse_special_power_template_field,
-    },
-    FieldParse {
+const DEFECTOR_SPECIAL_POWER_FIELDS: &[FieldParse<DefectorSpecialPowerModuleData>] =
+    &[FieldParse {
         token: "FatCursorRadius",
         parse: parse_fat_cursor_radius,
-    },
-];
+    }];
 
 #[cfg(test)]
 mod tests {

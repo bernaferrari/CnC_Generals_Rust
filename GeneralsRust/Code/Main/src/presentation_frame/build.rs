@@ -374,6 +374,8 @@ impl PresentationFrame {
         // C++ always draws the controlling player's units; host FOW membership can
         // miss builders when sight_range / ObjectManager dual-world is incomplete.
         let local_team = super::live_draw_source::receiving_local_team(logic, local_player_id);
+        let world_env =
+            PresentationWorldEnv::from_logic_with_runtime_heightmap(logic, runtime_heightmap);
         // Freeze team base proximity once (camera snap / host residual).
         let local_team_base_position = logic.team_base_position(local_team);
         // Freeze terrain FOW grid once for this presentation frame (local player only).
@@ -1180,6 +1182,62 @@ impl PresentationFrame {
             };
             direct_host_drawables.push(PresentationDirectHostDrawable {
                 object: renderable.clone(),
+                receiving_client_template: logic
+                    .receiving_module_content
+                    .as_ref()
+                    .and_then(|content| content.admitted_template(&visual_template_name))
+                    .map(crate::game_logic::thing::ReceivingClientTemplate::new)
+                    .or_else(|| {
+                        (visual_template_name == obj.get_template().name)
+                            .then(|| obj.get_template().receiving_client_template.clone())
+                            .flatten()
+                    }),
+                authored_client_template_required: obj
+                    .get_template()
+                    .receiving_object_definition
+                    .is_some(),
+                #[cfg(feature = "game_client")]
+                draw_physics: {
+                    let velocity = obj.movement.velocity;
+                    let acceleration = obj.previous_acceleration();
+                    game_client::core::game_client::PresentationDrawPhysics {
+                        // Original Coord3D accumulation is X/Y/Z, with Main's
+                        // corresponding horizontal X/Z and vertical Y.
+                        speed: (velocity.x * velocity.x
+                            + velocity.z * velocity.z
+                            + velocity.y * velocity.y)
+                            .sqrt(),
+                        vel_x: velocity.x,
+                        vel_y: velocity.z,
+                        accel_x: acceleration.x,
+                        accel_y: acceleration.z,
+                        is_motive: obj.is_motive(),
+                        airborne: obj.is_above_terrain(),
+                        turning: match obj.physics_turning {
+                            crate::game_logic::object::PhysicsTurningType::TurnNegative => -1.0,
+                            crate::game_logic::object::PhysicsTurningType::TurnNone => 0.0,
+                            crate::game_logic::object::PhysicsTurningType::TurnPositive => 1.0,
+                        },
+                    }
+                },
+                draw_velocity_magnitude_squared: {
+                    let velocity = obj.movement.velocity;
+                    velocity.x * velocity.x + velocity.z * velocity.z + velocity.y * velocity.y
+                },
+                draw_indicator_color: if let Some(raw) = obj.custom_indicator_color {
+                    [(raw >> 16) as u8, (raw >> 8) as u8, raw as u8]
+                } else if let Some(player) = obj.owner_player_id.and_then(|id| logic.get_player(id))
+                {
+                    let (r, g, b) = if world_env.is_night {
+                        player.color_night_rgb
+                    } else {
+                        player.color_rgb
+                    };
+                    [r, g, b]
+                } else {
+                    // Object.cpp1621-1667: absent controlling Player is black.
+                    [0, 0, 0]
+                },
                 receiving_visual_draw_models: logic
                     .templates
                     .get(&visual_template_name)
@@ -1205,6 +1263,19 @@ impl PresentationFrame {
         direct_host_drawables.sort_by_key(|drawable| drawable.object.id.0);
 
         let local = logic.get_player(local_player_id);
+        let receiving_science_player = local.and_then(|player| {
+            logic.receiving_module_content.as_ref().map(|content| {
+                std::sync::Arc::new(
+                    gamelogic::object::draw::w3d_science_model_draw::ReceivingSciencePlayer::new(
+                        player.is_alive && !player.is_observer,
+                        player
+                            .unlocked_sciences
+                            .iter()
+                            .filter_map(|name| content.science_type(name)),
+                    ),
+                )
+            })
+        });
         // local_team already resolved above for FOW residual (may fall back to
         // the first is_local non-Neutral team when the slot is Neutral/missing).
         let _local_team_check = local.map(|p| p.team).unwrap_or(Team::Neutral);
@@ -1999,6 +2070,7 @@ impl PresentationFrame {
             local_science_purchase_points,
             local_rank_progress_percent,
             local_unlocked_sciences,
+            receiving_science_player,
             superweapon_timers,
             can_make_cameos,
             can_make_producer_id,
@@ -2268,10 +2340,7 @@ impl PresentationFrame {
             floating_texts,
             world_anims,
             dual_tick,
-            world_env: PresentationWorldEnv::from_logic_with_runtime_heightmap(
-                logic,
-                runtime_heightmap,
-            ),
+            world_env,
             gameworld_overlay_stamped: 0,
             gameworld_appended: 0,
             gameworld_rebuilt: 0,
@@ -2351,6 +2420,7 @@ impl PresentationFrame {
             facts.position.to_array().map(f32::to_bits).hash(&mut h);
             facts.airborne_orientation.map(f32::to_bits).hash(&mut h);
         }
+        self.receiving_science_player.hash(&mut h);
         self.frame.0.hash(&mut h);
         self.objects.len().hash(&mut h);
         for o in &self.objects {

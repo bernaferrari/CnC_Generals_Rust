@@ -94,7 +94,12 @@ impl Default for DeliverPayloadAIUpdateModuleData {
 
 impl DeliverPayloadAIUpdateModuleData {
     pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
-        ini.init_from_ini_with_fields(self, DELIVER_PAYLOAD_AI_UPDATE_FIELDS)
+        ini.init_from_ini_with_inherited_fields(
+            self,
+            |data| &mut data.base,
+            crate::object::update::ai_update_interface::AI_UPDATE_FIELDS,
+            DELIVER_PAYLOAD_AI_UPDATE_FIELDS,
+        )
     }
 }
 
@@ -187,26 +192,7 @@ fn parse_int_field(setter: &mut dyn FnMut(Int), tokens: &[&str]) -> Result<(), I
 }
 
 fn parse_coord3d_field(setter: &mut dyn FnMut(Coord3D), tokens: &[&str]) -> Result<(), INIError> {
-    let values = value_tokens(tokens);
-    let coord = if values.len() >= 3 {
-        let x = INI::parse_real(values[0])?;
-        let y = INI::parse_real(values[1])?;
-        let z = INI::parse_real(values[2])?;
-        Coord3D::new(x, y, z)
-    } else {
-        let token = required_value(tokens)?;
-        let parts: Vec<&str> = token
-            .split(|c: char| c == ',' || c.is_whitespace())
-            .filter(|part| !part.is_empty())
-            .collect();
-        if parts.len() != 3 {
-            return Err(INIError::InvalidData);
-        }
-        let x = INI::parse_real(parts[0])?;
-        let y = INI::parse_real(parts[1])?;
-        let z = INI::parse_real(parts[2])?;
-        Coord3D::new(x, y, z)
-    };
+    let coord = super::deliver_payload_data::parse_coord3d(tokens)?;
     setter(coord);
     Ok(())
 }

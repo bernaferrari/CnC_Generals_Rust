@@ -359,6 +359,26 @@ impl ArchiveFileSystem {
         Ok(data)
     }
 
+    /// Definition admission distinguishes true absence from a selected source
+    /// that cannot be read. Never substitute BIG bytes after a local read error.
+    pub(crate) fn read_optional_definition_source(
+        &mut self,
+        filename: &str,
+    ) -> Result<Option<Vec<u8>>> {
+        if let Some(path) = self.resolve_local_file(filename) {
+            return std::fs::read(&path).map(Some).map_err(|error| {
+                anyhow!(
+                    "Failed to read selected definition source '{}': {error}",
+                    path.display()
+                )
+            });
+        }
+        if !self.core.does_file_exist(filename) {
+            return Ok(None);
+        }
+        self.open_file_sync(filename).map(Some)
+    }
+
     /// Borrow a streaming reader for the specified archive entry.
     pub fn open_reader(&mut self, filename: &str) -> Result<Box<dyn Read + Send>> {
         if let Some(path) = self.resolve_local_file(filename) {
@@ -1011,6 +1031,48 @@ mod tests {
         Ok(())
     }
 
+    #[test]
+    fn strict_definition_read_keeps_selected_local_before_same_named_big_and_true_missing() {
+        let archive_root = tempfile::tempdir().unwrap();
+        let local_root = tempfile::tempdir().unwrap();
+        let name = "Data/INI/Object/OwnedStrictSource.ini";
+        let archive = b"Object ArchiveVersion\nScale = 3\nEnd\n";
+        let local = b"Object LocalVersion\nScale = 2\nEnd\n";
+        create_single_file_big(
+            &archive_root.path().join("OwnedStrictSource.big"),
+            name,
+            archive,
+        )
+        .unwrap();
+        let path = local_root.path().join(name);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, local).unwrap();
+        let mut files = ArchiveFileSystem::new();
+        files.add_search_path(archive_root.path());
+        pollster::block_on(files.init()).unwrap();
+        files.set_local_search_roots([local_root.path().to_owned()]);
+        assert_eq!(
+            files
+                .read_optional_definition_source(name)
+                .unwrap()
+                .unwrap(),
+            local
+        );
+        std::fs::remove_file(&path).unwrap();
+        assert_eq!(
+            files
+                .read_optional_definition_source(name)
+                .unwrap()
+                .unwrap(),
+            archive
+        );
+        assert!(
+            files
+                .read_optional_definition_source("Data/INI/Object/OwnedDefinitelyAbsent.ini")
+                .unwrap()
+                .is_none()
+        );
+    }
     #[test]
     fn invalid_generated_ini_skips_to_genuine_loose_then_actual_big_member() {
         let archive_root = tempfile::tempdir().unwrap();

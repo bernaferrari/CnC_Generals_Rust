@@ -135,7 +135,12 @@ fn foreign_client_scale_cannot_replace_receiving_absolute_host_scale() {
 fn parsed_zero_and_negative_scale_reach_factory_frame_and_ghost_source_without_geometry_changes() {
     for scale in [0.0_f32, -2.0] {
         let mut parser = crate::assets::IniParser::new();
-        parser.parse_ini_content(&format!("Object AuthoredScaleDomain\nScale = {scale}\nKindOf = IMMOBILE\nGeometry = BOX\nGeometryMajorRadius = 9\nGeometryMinorRadius = 6\nGeometryHeight = 12\nBody = ActiveBody BodyTag\nMaxHealth = 40\nInitialHealth = 40\nEnd\nEnd"), "authored-scale-domain.ini").unwrap();
+        let source_text = format!(
+            "Object AuthoredScaleDomain\nScale = {scale}\nKindOf = IMMOBILE\nGeometry = BOX\nGeometryMajorRadius = 9\nGeometryMinorRadius = 6\nGeometryHeight = 12\nBody = ActiveBody BodyTag\nMaxHealth = 40\nInitialHealth = 40\nEnd\nEnd"
+        );
+        parser
+            .parse_ini_content(&source_text, "authored-scale-domain.ini")
+            .unwrap();
         let definition = parser
             .get_definition("AuthoredScaleDomain")
             .unwrap()
@@ -150,6 +155,15 @@ fn parsed_zero_and_negative_scale_reach_factory_frame_and_ghost_source_without_g
         world
             .templates
             .insert("AuthoredScaleDomain".into(), template);
+        world
+            .admit_receiving_module_content(
+                crate::assets::ReceivingObjectContent::from_sources([(
+                    "authored-scale-domain.ini".into(),
+                    source_text,
+                )])
+                .unwrap(),
+            )
+            .unwrap();
         let id = world
             .create_object("AuthoredScaleDomain", Team::USA, glam::Vec3::ZERO)
             .unwrap();

@@ -127,7 +127,19 @@ fn leftover_thing_template_for_prereq(
 fn apply_production_prerequisites_from_definition(
     template: &mut crate::game_logic::ThingTemplate,
     definition: &crate::assets::ObjectDefinition,
-) {
+    receiving: Option<
+        &game_engine::common::thing::receiving_module_content::ReceivingModuleContent,
+    >,
+) -> Result<(), String> {
+    if let Some(content) = receiving {
+        let plan = content.admitted_template(&definition.name).ok_or_else(|| {
+            format!(
+                "Missing receiving production definition '{}'",
+                definition.name
+            )
+        })?;
+        return template.bind_receiving_production_facts(&plan, content);
+    }
     if let Some(leftover) = leftover_thing_template_for_prereq(&template.name)
         .or_else(|| leftover_thing_template_for_prereq(&definition.name))
     {
@@ -140,10 +152,10 @@ fn apply_production_prerequisites_from_definition(
             .map(ToString::to_string)
             .collect();
         template.set_production_prerequisites(leftover.get_prereqs().to_vec());
-        return;
+        return Ok(());
     }
     if definition.prerequisite_lines.is_empty() {
-        return;
+        return Ok(());
     }
     let lines: Vec<String> = definition
         .prerequisite_lines
@@ -151,6 +163,7 @@ fn apply_production_prerequisites_from_definition(
         .map(|(key, value)| format!("{key} = {value}"))
         .collect();
     template.parse_prerequisites_from_ini_lines(&lines);
+    Ok(())
 }
 
 fn apply_locomotor_set_names_from_definition(
@@ -306,3 +319,9 @@ mod client_module_admission_tests;
 
 #[cfg(test)]
 mod model_less_template_tests;
+
+#[cfg(test)]
+mod receiving_content_owner_tests;
+
+#[cfg(test)]
+mod receiving_prerequisite_owner_tests;

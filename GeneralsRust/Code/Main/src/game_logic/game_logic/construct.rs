@@ -553,6 +553,9 @@ impl GameLogic {
             sim_time_seconds: 0.0,
             accumulated_time: 0.0,
             last_fixed_step_diagnostics: FixedStepDiagnostics::default(),
+            receiving_module_content: None,
+            receiving_object_definitions: None,
+            receiving_template_baseline: None,
             templates: HashMap::new(),
             unresolved_spawn_templates: HashSet::new(),
 
@@ -775,6 +778,16 @@ impl GameLogic {
         );
         self.native_hulk_max_lifetime_override = -1;
         self.weapon_definitions = self.weapon_definition_base.clone();
+        if let Some(baseline) = &self.receiving_template_baseline {
+            self.templates = baseline.clone();
+        }
+        if let Some(content) = &mut self.receiving_module_content {
+            content.reset_map_overrides();
+        }
+        if let Some(definitions) = &mut self.receiving_object_definitions {
+            definitions.reset_map_overrides();
+        }
+        self.refresh_receiving_client_templates();
         log::debug!("GameLogic::reset() - resetting game state");
         self.session_view.camera.settings.clear_map_rules();
         self.session_view.camera.clip_policy = self.session_view.camera.clip_policy.reset_seed();

@@ -180,6 +180,10 @@ impl GameLogic {
     where
         F: FnMut(f32, &str),
     {
+        if self.receiving_module_content.is_some() && self.receiving_template_baseline.is_none() {
+            log::error!("Receiving map admission has no accepted host template baseline");
+            return false;
+        }
         // The interpreter belongs to the session even when map decoding fails.
         // A loan must be returned before destructive map admission can begin.
         let Some(engine) = self.owned_script_engine.as_mut() else {
@@ -205,6 +209,20 @@ impl GameLogic {
         self.map_loaded = false;
         self.finish_all_building_sounds();
         self.objects.clear();
+        if self.receiving_module_content.is_some() {
+            if let Some(baseline) = &self.receiving_template_baseline {
+                self.templates = baseline.clone();
+            }
+        }
+        // Direct map admission also enters without the broader engine reset.
+        // Restore original base versions before ordered Map/Solo declarations.
+        if let Some(content) = self.receiving_module_content.as_mut() {
+            content.reset_map_overrides();
+        }
+        if let Some(definitions) = self.receiving_object_definitions.as_mut() {
+            definitions.reset_map_overrides();
+        }
+        self.refresh_receiving_client_templates();
         self.physics_definitions.effective = self.physics_definitions.base;
         self.reset_ocl_map_definitions();
         self.named_unit_history.clear();
@@ -262,11 +280,27 @@ impl GameLogic {
                     str::to_string,
                 );
                 self.map_definition_source = Some(definition_source.clone());
-                let weapon_overrides: Vec<_> =
+                let companion_sources = if self.receiving_module_content.is_some() {
+                    match super::script_loader::read_receiving_definition_companions(
+                        &definition_source,
+                    ) {
+                        Ok(sources) => sources,
+                        Err(error) => {
+                            log::error!("Cannot read receiving map definitions: {error}");
+                            return false;
+                        }
+                    }
+                } else {
                     super::script_loader::read_weapon_override_companions(&definition_source)
-                        .into_iter()
-                        .map(|(_, text)| text)
-                        .collect();
+                };
+                let weapon_overrides: Vec<_> = companion_sources
+                    .iter()
+                    .map(|(_, text)| text.clone())
+                    .collect();
+                if let Err(error) = self.apply_receiving_module_overrides(&weapon_overrides) {
+                    log::error!("Cannot admit receiving map Object modules: {error}");
+                    return false;
+                }
                 if let Err(error) = self.apply_camera_input_overrides(&weapon_overrides) {
                     log::error!("Cannot admit receiving map camera input overrides: {error}");
                     return false;
@@ -314,6 +348,7 @@ impl GameLogic {
                         Some(self.session_view.camera.shake_policy.current()),
                         Arc::clone(self.effective_terrain_definitions()),
                         self.current_armor_definitions().cloned(),
+                        self.receiving_module_content.as_ref().map(|_| companion_sources.as_slice()),
                     );
                 let parsed_settings = match parsed {
                     Ok(meta) => match self.admit_ai_map_overrides(ai_draft) {

@@ -415,7 +415,7 @@ fn parse_bool_field(setter: &mut dyn FnMut(Bool), tokens: &[&str]) -> Result<(),
     Ok(())
 }
 
-const AI_UPDATE_FIELDS: &[FieldParse<AIUpdateModuleData>] = &[
+pub(crate) const AI_UPDATE_FIELDS: &[FieldParse<AIUpdateModuleData>] = &[
     FieldParse {
         token: "Turret",
         parse: parse_turret_field,

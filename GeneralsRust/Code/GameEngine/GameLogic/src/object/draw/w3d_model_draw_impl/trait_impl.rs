@@ -35,6 +35,13 @@ impl Module for W3DModelDraw {
         NameKeyGenerator::name_to_key("W3DModelDraw")
     }
 
+    fn get_module_name_key_with_namespace(
+        &self,
+        keys: &mut game_engine::common::name_key_generator::NameKeyNamespace,
+    ) -> NameKeyType {
+        keys.name_to_key("W3DModelDraw")
+    }
+
     fn get_module_tag_name_key(&self) -> NameKeyType {
         self.data.module_tag_name_key
     }
@@ -247,6 +254,14 @@ impl DrawModule for W3DModelDraw {
 }
 
 impl ObjectDrawInterface for W3DModelDraw {
+    fn bind_native_owner(&mut self, owner_id: ObjectID, indicator_rgb: [u8; 3]) {
+        self.owner_id = Some(owner_id);
+        self.hex_color = packed_indicator_hex(crate::common::Color::rgb(
+            indicator_rgb[0],
+            indicator_rgb[1],
+            indicator_rgb[2],
+        ));
+    }
     fn native_state_particle_count(&self) -> usize {
         W3DModelDraw::native_state_particle_count(self)
     }

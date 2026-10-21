@@ -9,8 +9,9 @@ fn parse_model_draw_module_data_block(
         }
 
         let tokens = ini
-            .get_line_tokens()
-            .into_iter()
+            .get_buffer()
+            .split(|character: char| character.is_ascii_whitespace() || character == '=')
+            .filter(|token| !token.is_empty())
             .map(|token| token.to_string())
             .collect::<Vec<_>>();
         let Some(key) = tokens.first().cloned() else {
@@ -43,7 +44,13 @@ fn parse_model_condition_info_block(
             return Err(INIError::EndOfFile);
         }
 
-        let tokens = ini.get_line_tokens();
+        let owned_tokens = ini
+            .get_buffer()
+            .split(|character: char| character.is_ascii_whitespace() || character == '=')
+            .filter(|token| !token.is_empty())
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        let tokens = owned_tokens.iter().map(String::as_str).collect::<Vec<_>>();
         let Some(key) = tokens.first().copied() else {
             continue;
         };
@@ -56,7 +63,9 @@ fn parse_model_condition_info_block(
             .skip(1)
             .filter(|token| *token != "=")
             .collect();
-        if !parse_model_condition_info_field(info, key, &value_tokens)? {
+        if !parse_model_condition_info_field_with_keys(info, key, &value_tokens, &mut |name| {
+            ini.name_to_key(name)
+        })? {
             return Err(INIError::UnknownToken);
         }
     }
@@ -68,6 +77,15 @@ fn parse_model_condition_info_field(
     key: &str,
     tokens: &[&str],
 ) -> Result<bool, INIError> {
+    parse_model_condition_info_field_with_keys(info, key, tokens, &mut name_key_generate)
+}
+
+fn parse_model_condition_info_field_with_keys(
+    info: &mut ModelConditionInfo,
+    key: &str,
+    tokens: &[&str],
+    name_to_key: &mut dyn FnMut(&str) -> NameKeyType,
+) -> Result<bool, INIError> {
     match key.to_ascii_uppercase().as_str() {
         "MODEL" => {
             let model = parse_ascii_lower(parse_required_value(tokens)?)?;
@@ -75,7 +93,8 @@ fn parse_model_condition_info_field(
             Ok(true)
         }
         "TURRET" => {
-            let bone_key = parse_bone_name_key(&mut info.public_bones, tokens)?;
+            let bone_key =
+                parse_bone_name_key_with_keys(&mut info.public_bones, tokens, name_to_key)?;
             let turret = ensure_turret_slot(info, 0);
             turret.turret_angle_name_key = bone_key;
             Ok(true)
@@ -86,7 +105,8 @@ fn parse_model_condition_info_field(
             Ok(true)
         }
         "TURRETPITCH" => {
-            let bone_key = parse_bone_name_key(&mut info.public_bones, tokens)?;
+            let bone_key =
+                parse_bone_name_key_with_keys(&mut info.public_bones, tokens, name_to_key)?;
             let turret = ensure_turret_slot(info, 0);
             turret.turret_pitch_name_key = bone_key;
             Ok(true)
@@ -97,7 +117,8 @@ fn parse_model_condition_info_field(
             Ok(true)
         }
         "ALTTURRET" => {
-            let bone_key = parse_bone_name_key(&mut info.public_bones, tokens)?;
+            let bone_key =
+                parse_bone_name_key_with_keys(&mut info.public_bones, tokens, name_to_key)?;
             let turret = ensure_turret_slot(info, 1);
             turret.turret_angle_name_key = bone_key;
             Ok(true)
@@ -108,7 +129,8 @@ fn parse_model_condition_info_field(
             Ok(true)
         }
         "ALTTURRETPITCH" => {
-            let bone_key = parse_bone_name_key(&mut info.public_bones, tokens)?;
+            let bone_key =
+                parse_bone_name_key_with_keys(&mut info.public_bones, tokens, name_to_key)?;
             let turret = ensure_turret_slot(info, 1);
             turret.turret_pitch_name_key = bone_key;
             Ok(true)
@@ -175,11 +197,13 @@ fn parse_model_condition_info_field(
             Ok(true)
         }
         "TRANSITIONKEY" => {
-            info.transition_key = parse_name_key_value(parse_required_value(tokens)?)?;
+            info.transition_key =
+                parse_name_key_value_with_keys(parse_required_value(tokens)?, name_to_key)?;
             Ok(true)
         }
         "WAITFORSTATETOFINISHIFPOSSIBLE" => {
-            info.allow_to_finish_key = parse_name_key_value(parse_required_value(tokens)?)?;
+            info.allow_to_finish_key =
+                parse_name_key_value_with_keys(parse_required_value(tokens)?, name_to_key)?;
             Ok(true)
         }
         "FLAGS" => {
@@ -241,11 +265,18 @@ fn parse_static_game_lod_level(token: &str) -> Result<i32, INIError> {
 }
 
 fn parse_name_key_value(token: &str) -> Result<NameKeyType, INIError> {
+    parse_name_key_value_with_keys(token, &mut name_key_generate)
+}
+
+fn parse_name_key_value_with_keys(
+    token: &str,
+    name_to_key: &mut dyn FnMut(&str) -> NameKeyType,
+) -> Result<NameKeyType, INIError> {
     let value = parse_ascii_lower(token)?;
     if value.is_empty() || value == "none" {
         return Ok(NAMEKEY_INVALID);
     }
-    Ok(name_key_generate(&value))
+    Ok(name_to_key(&value))
 }
 
 fn parse_weapon_slot_mask(tokens: &[&str]) -> u32 {
@@ -363,12 +394,20 @@ fn parse_bone_name_key(
     public_bones: &mut Vec<AsciiString>,
     tokens: &[&str],
 ) -> Result<NameKeyType, INIError> {
+    parse_bone_name_key_with_keys(public_bones, tokens, &mut name_key_generate)
+}
+
+fn parse_bone_name_key_with_keys(
+    public_bones: &mut Vec<AsciiString>,
+    tokens: &[&str],
+    name_to_key: &mut dyn FnMut(&str) -> NameKeyType,
+) -> Result<NameKeyType, INIError> {
     let value = parse_ascii_lower(parse_required_value(tokens)?)?;
     add_public_bone(public_bones, &value);
     if value.is_empty() || value == "none" {
         return Ok(NAMEKEY_INVALID);
     }
-    Ok(name_key_generate(&value))
+    Ok(name_to_key(&value))
 }
 
 fn parse_show_hide_sub_objects(

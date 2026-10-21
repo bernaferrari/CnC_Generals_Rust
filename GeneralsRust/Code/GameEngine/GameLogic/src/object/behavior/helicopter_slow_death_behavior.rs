@@ -709,17 +709,12 @@ impl HelicopterSlowDeathBehavior {
         if !self.module_data.attach_particle_bone.is_empty() {
             // C++ lines 225-234: pristine bone offset from the object center;
             // a missing bone/drawable leaves the system at the object center.
-            if let Some(pos) =
-                self.pristine_bone_position(&self.module_data.attach_particle_bone)
-            {
+            if let Some(pos) = self.pristine_bone_position(&self.module_data.attach_particle_bone) {
                 manager.set_particle_system_position(system_id, &pos);
             }
         } else {
             // C++ line 241: given location coord (zero = center of obj anyway)
-            manager.set_particle_system_position(
-                system_id,
-                &self.module_data.attach_particle_loc,
-            );
+            manager.set_particle_system_position(system_id, &self.module_data.attach_particle_loc);
         }
 
         // C++ line 246: attach the particle system to the object
@@ -976,9 +971,13 @@ impl Snapshotable for HelicopterSlowDeathBehavior {
             .map_err(|e| format!("HelicopterSlowDeathBehavior xfer hit_ground_frame: {:?}", e))?;
         xfer.xfer_bool(&mut self.active)
             .map_err(|e| format!("HelicopterSlowDeathBehavior xfer active: {:?}", e))?;
-        xfer.xfer_bool(&mut self.pending_particle_attach).map_err(|e| {
-            format!("HelicopterSlowDeathBehavior xfer pending_particle_attach: {:?}", e)
-        })?;
+        xfer.xfer_bool(&mut self.pending_particle_attach)
+            .map_err(|e| {
+                format!(
+                    "HelicopterSlowDeathBehavior xfer pending_particle_attach: {:?}",
+                    e
+                )
+            })?;
         Ok(())
     }
 
@@ -1116,7 +1115,7 @@ mod tests {
         )
         .expect("helicopter slow death ini parses");
 
-        assert!((data.base.sink_rate - 0.33).abs() < f32::EPSILON);
+        assert!((data.base.sink_rate - (0.33 / 30.0)).abs() < f32::EPSILON);
         assert_eq!(data.base.probability_modifier, 7);
         assert!(
             (data.spiral_orbit_turn_rate - (0.11_f32.to_radians() / 30.0)).abs() < f32::EPSILON

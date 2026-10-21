@@ -4,6 +4,114 @@ use super::*;
 mod tests {
     use super::*;
 
+    fn admit_fixture_content(
+        logic: &mut GameLogic,
+        content: crate::assets::ReceivingObjectContent,
+        names: &[&str],
+    ) {
+        logic
+            .admit_receiving_module_content(content)
+            .expect("actual owned fixture Object admission");
+        for name in names {
+            let template = logic
+                .templates
+                .get(*name)
+                .expect("admitted fixture template");
+            assert!(template.receiving_object_definition.is_some(), "{name}");
+            assert!(template.receiving_client_template.is_some(), "{name}");
+        }
+    }
+
+    fn admit_fixture_source(logic: &mut GameLogic, path: &str, text: &str, names: &[&str]) {
+        let content = crate::assets::ReceivingObjectContent::from_sources([(
+            path.to_owned(),
+            text.to_owned(),
+        )])
+        .expect("complete source grammar through the actual typed factory");
+        admit_fixture_content(logic, content, names);
+    }
+
+    fn retail_receiving_fixture(extra: &[(&str, &str)]) -> crate::assets::ReceivingObjectContent {
+        use std::collections::BTreeSet;
+        use std::path::Path;
+        use std::sync::Arc;
+        // GameEngine.cpp:458 loads Default/Object.ini then the complete Object
+        // directory. Partial retail files cannot supply prerequisite/reskin
+        // identity. The archive, Science facts, and receiving owner stay local.
+        let retail = std::env::var_os("GENERALS_RETAIL_CONTENT_ROOT")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| {
+                Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .ancestors()
+                    .nth(3)
+                    .unwrap()
+                    .join("windows_game")
+            });
+        let mut files = crate::assets::ArchiveFileSystem::new();
+        files.add_search_path(retail.join("Command & Conquer Generals Zero Hour/Data"));
+        pollster::block_on(files.init()).expect("licensed retail archive mounts");
+        let mut current = BTreeSet::new();
+        let mut nested = BTreeSet::new();
+        for path in files.list_all_files() {
+            let path = path.replace('\\', "/");
+            let lower = path.to_ascii_lowercase();
+            if lower.starts_with("data/ini/object/") && lower.ends_with(".ini") {
+                if path["Data/INI/Object/".len()..].contains('/') {
+                    nested.insert(path);
+                } else {
+                    current.insert(path);
+                }
+            }
+        }
+        let paths = std::iter::once("Data/INI/Default/Object.ini".to_owned())
+            .chain(current)
+            .chain(nested)
+            .collect::<Vec<_>>();
+        assert_eq!(paths.len(), 45, "complete licensed retail Object namespace");
+        let mut sciences = game_engine::common::rts::science::ScienceStore::new();
+        let science_sources = ["Data/INI/Default/Science.ini", "Data/INI/Science.ini"]
+            .into_iter()
+            .filter_map(|path| {
+                files
+                    .read_optional_definition_source(path)
+                    .expect("retail Science source read")
+                    .map(|bytes| (path.to_owned(), bytes))
+            })
+            .collect::<Vec<_>>();
+        assert!(
+            science_sources
+                .iter()
+                .any(|(path, _)| path == "Data/INI/Science.ini")
+        );
+        let refs = science_sources
+            .iter()
+            .map(|(path, bytes)| (path.as_str(), bytes.as_slice(), false))
+            .collect::<Vec<_>>();
+        sciences
+            .load_from_sources(&refs)
+            .expect("owned retail Science definitions");
+        let mut sources = paths
+            .into_iter()
+            .map(|path| {
+                let bytes = files
+                    .read_optional_definition_source(&path)
+                    .expect("retail Object source read")
+                    .expect("listed retail Object source exists");
+                (path, String::from_utf8(bytes).expect("retail Object UTF-8"))
+            })
+            .collect::<Vec<_>>();
+        sources.extend(
+            extra
+                .iter()
+                .map(|(path, text)| ((*path).to_owned(), (*text).to_owned())),
+        );
+        crate::assets::ReceivingObjectContent::from_sources_with_sciences(
+            sources,
+            Arc::new(game_engine::common::rts::science::ScienceNameFacts::from_store(&sciences)),
+        )
+        .expect("actual complete retail receiving content, no partial namespace fallback")
+    }
+
     #[test]
     fn retail_service_and_dozer_kindof_tags_survive_object_ini_parsing() {
         use std::path::Path;
@@ -53,40 +161,19 @@ mod tests {
     #[test]
     fn retail_hack_internet_metadata_drives_field_and_contained_income() {
         use glam::Vec3;
-        use std::path::Path;
 
         // This is deliberately a retail parser-to-runtime proof, rather than
         // a `TestHacker` basename fixture.  ChinaInfantryHacker carries the
         // exact HackInternetAIUpdate and MONEY_HACKER KindOf; ChinaInternetCenter
         // carries InternetHackContain's eight transport slots and one-kind
         // admission mask.
-        let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .ancestors()
-            .nth(3)
-            .expect("Main crate must remain three levels below repository root");
-        let china_infantry =
-            std::fs::read_to_string(repo_root.join(
-                "windows_game/extracted_big_files_v2/INIZH/Data/INI/Object/ChinaInfantry.ini",
-            ))
-            .expect("retail ChinaInfantry.ini");
-        let faction_buildings =
-            std::fs::read_to_string(repo_root.join(
-                "windows_game/extracted_big_files_v2/INIZH/Data/INI/Object/FactionBuilding.ini",
-            ))
-            .expect("retail FactionBuilding.ini");
-
-        let mut parser = crate::assets::IniParser::new();
-        parser
-            .parse_ini_content(&china_infantry, "ChinaInfantry.ini")
-            .expect("parse retail China infantry");
-        parser
-            .parse_ini_content(&faction_buildings, "FactionBuilding.ini")
-            .expect("parse retail faction buildings");
+        let content = retail_receiving_fixture(&[]);
 
         let hacker_template = GameLogic::build_template_from_object_definition(
             "ChinaInfantryHacker",
-            parser
-                .get_definition("ChinaInfantryHacker")
+            content
+                .projections()
+                .get("ChinaInfantryHacker")
                 .expect("retail China hacker definition"),
             None,
         );
@@ -107,8 +194,9 @@ mod tests {
 
         let center_template = GameLogic::build_template_from_object_definition(
             "ChinaInternetCenter",
-            parser
-                .get_definition("ChinaInternetCenter")
+            content
+                .projections()
+                .get("ChinaInternetCenter")
                 .expect("retail China Internet Center definition"),
             None,
         );
@@ -126,12 +214,11 @@ mod tests {
         let mut china = Player::new(1, Team::China, "China", true);
         china.resources.supplies = 0;
         logic.add_player(china);
-        logic
-            .templates
-            .insert("ChinaInfantryHacker".to_string(), hacker_template);
-        logic
-            .templates
-            .insert("ChinaInternetCenter".to_string(), center_template);
+        admit_fixture_content(
+            &mut logic,
+            content,
+            &["ChinaInfantryHacker", "ChinaInternetCenter"],
+        );
 
         let field_hacker = logic
             .create_object_for_player("ChinaInfantryHacker", 1, Vec3::new(16.0, 0.0, 0.0))
@@ -321,7 +408,6 @@ End
     fn retail_superweapon_modules_drive_arm_limit_energy_and_presentation_not_names() {
         use glam::Vec3;
         use std::collections::HashMap;
-        use std::path::Path;
 
         // The fixture uses the actual retail FactionBuilding declarations and
         // only seeds the corresponding loaded SpecialPower records when the
@@ -357,36 +443,24 @@ End
             }
         }
 
-        let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .ancestors()
-            .nth(3)
-            .expect("Main crate must remain three levels below repository root");
-        let faction_buildings =
-            std::fs::read_to_string(repo_root.join(
-                "windows_game/extracted_big_files_v2/INIZH/Data/INI/Object/FactionBuilding.ini",
-            ))
-            .expect("retail FactionBuilding.ini");
-        let mut parser = crate::assets::IniParser::new();
-        parser
-            .parse_ini_content(&faction_buildings, "FactionBuilding.ini")
-            .expect("parse retail faction structures");
-        parser
-            .parse_ini_content(
-                r#"
+        const SPOOF_SOURCE: &str = r#"
 Object AmericaParticleCannonUplinkNamedButNoModule
-  Type = Structure
   KindOf = STRUCTURE SELECTABLE POWERED FS_SUPERWEAPON
 End
-"#,
-                "superweapon_name_spoof.ini",
-            )
-            .expect("parse name spoof");
+"#;
+        let standalone = crate::assets::ReceivingObjectDefinitions::from_boot_sources(&[(
+            "superweapon_name_spoof.ini".into(),
+            SPOOF_SOURCE.into(),
+        )])
+        .expect("standalone authored-absence projection");
+        let content = retail_receiving_fixture(&[("superweapon_name_spoof.ini", SPOOF_SOURCE)]);
 
         let parsed = |name| {
             GameLogic::build_template_from_object_definition(
                 name,
-                parser
-                    .get_definition(name)
+                content
+                    .projections()
+                    .get(name)
                     .unwrap_or_else(|| panic!("missing retail Object {name}")),
                 None,
             )
@@ -418,15 +492,33 @@ End
         );
         assert!(particle.max_simultaneous_determined_by_superweapon_restriction);
         assert!(spoof.special_power_modules.is_empty());
-        assert_eq!(spoof.energy_production, None);
+        // Without Default/Object.ini, this exact source authors no power field;
+        // a superweapon-shaped name must not invent one. The actual receiving
+        // namespace also includes DefaultThingTemplate EnergyProduction = 0
+        // (ThingFactory.cpp114-120 copies that template before the Object body).
+        let standalone_spoof = GameLogic::build_template_from_object_definition(
+            "AmericaParticleCannonUplinkNamedButNoModule",
+            standalone
+                .get("AmericaParticleCannonUplinkNamedButNoModule")
+                .unwrap(),
+            None,
+        );
+        assert_eq!(standalone_spoof.energy_production, None);
+        assert_eq!(spoof.energy_production, Some(0));
         assert!(!spoof.has_superweapon_restriction_link_key());
 
         let mut logic = GameLogic::new();
         logic.add_player(Player::new(1, Team::USA, "USA", true));
-        logic.templates.insert(particle.name.clone(), particle);
-        logic.templates.insert(scud.name.clone(), scud);
-        logic.templates.insert(nuke.name.clone(), nuke);
-        logic.templates.insert(spoof.name.clone(), spoof);
+        admit_fixture_content(
+            &mut logic,
+            content,
+            &[
+                "AmericaParticleCannonUplink",
+                "GLAScudStorm",
+                "ChinaNuclearMissileLauncher",
+                "AmericaParticleCannonUplinkNamedButNoModule",
+            ],
+        );
         logic.skirmish_rules.limit_superweapons = true;
 
         let particle_id = logic
@@ -439,6 +531,15 @@ End
                 Vec3::new(40.0, 0.0, 0.0),
             )
             .expect("name spoof structure");
+        assert_eq!(
+            logic
+                .host_object(spoof_id)
+                .unwrap()
+                .get_template()
+                .energy_production,
+            Some(0),
+            "the live paired spoof retains its original inherited zero"
+        );
         use crate::command_system::SpecialPowerType as P;
         assert!(
             logic
@@ -1493,17 +1594,17 @@ End
 
         // SpecialAbilityUpdate.cpp:391-400 faces before entering unpack;
         // :614-640 counts unpack frames only after that phase begins.
-        let mut parser = crate::assets::IniParser::new();
-        parser
-            .parse_ini_content(
-                r#"
+        const SOURCE: &str = r#"
 Object BurtonChargeUnpackProbe
-  Type = Infantry
   KindOf = INFANTRY SELECTABLE CAN_ATTACK
-  Locomotor = SET_NORMAL ColonelBurtonGroundLocomotor
+  Body = ActiveBody ModuleTag_Body
+    MaxHealth = 100
+    InitialHealth = 100
+  End
   Behavior = AIUpdateInterface ModuleTag_AI
     AutoAcquireEnemiesWhenIdle = No
   End
+  Locomotor = SET_NORMAL ColonelBurtonGroundLocomotor
   Behavior = SpecialAbilityUpdate ModuleTag_Timed
     SpecialPowerTemplate = SpecialAbilityColonelBurtonTimedCharges
     UnpackTime = 200
@@ -1513,12 +1614,16 @@ Object BurtonChargeUnpackProbe
   End
 End
 Object ChargePlantTargetProbe
-  Type = Structure
   KindOf = STRUCTURE SELECTABLE
+  Body = ActiveBody ModuleTag_Body
+    MaxHealth = 500
+    InitialHealth = 500
+  End
 End
-"#,
-                "burton_charge_live_probe.ini",
-            )
+"#;
+        let mut parser = crate::assets::IniParser::new();
+        parser
+            .parse_ini_content(SOURCE, "burton_charge_live_probe.ini")
             .expect("parse live charge probe");
 
         let mut logic = GameLogic::new();
@@ -1540,20 +1645,17 @@ End
             burton_tpl.locomotor_name.as_deref(),
             Some("ColonelBurtonGroundLocomotor")
         );
-        logic
-            .templates
-            .insert("BurtonChargeUnpackProbe".into(), burton_tpl);
-        let mut target_tpl = GameLogic::build_template_from_object_definition(
-            "ChargePlantTargetProbe",
-            parser
-                .get_definition("ChargePlantTargetProbe")
-                .expect("target probe"),
-            None,
+        // The effect creates a real TimedC4Charge through the receiving
+        // factory. Admit its retail definition alongside the two probes.
+        admit_fixture_content(
+            &mut logic,
+            retail_receiving_fixture(&[("burton_charge_live_probe.ini", SOURCE)]),
+            &[
+                "BurtonChargeUnpackProbe",
+                "ChargePlantTargetProbe",
+                crate::game_logic::host_mines::BURTON_TIMED_CHARGE_OBJECT,
+            ],
         );
-        target_tpl.set_health(500.0);
-        logic
-            .templates
-            .insert("ChargePlantTargetProbe".into(), target_tpl);
 
         let burton_id = logic
             .create_object(
@@ -1955,12 +2057,8 @@ End
         // remain only when Object INI was never loaded (unit tests).
         use glam::Vec3;
 
-        let mut parser = crate::assets::IniParser::new();
-        parser
-            .parse_ini_content(
-                r#"
+        const SOURCE: &str = r#"
 Object AmericaStrategyCenter
-  Type = Building
   KindOf = PRELOAD STRUCTURE SELECTABLE IMMOBILE FS_STRATEGY_CENTER
   WeaponSet
     Conditions = None
@@ -1969,7 +2067,6 @@ Object AmericaStrategyCenter
   End
 End
 Object GLAVehicleQuadCannon
-  Type = Vehicle
   KindOf = SELECTABLE CAN_ATTACK VEHICLE
   WeaponSet
     Conditions = None
@@ -1978,7 +2075,6 @@ Object GLAVehicleQuadCannon
   End
 End
 Object GLAVehicleToxinTruck
-  Type = Vehicle
   KindOf = SELECTABLE CAN_ATTACK VEHICLE
   WeaponSet
     Conditions = None
@@ -1993,7 +2089,6 @@ Object GLAVehicleToxinTruck
   End
 End
 Object ChemSpillSprayer
-  Type = Vehicle
   KindOf = SELECTABLE CAN_ATTACK VEHICLE
   Behavior = FireOCLAfterWeaponCooldownUpdate ModuleTag_01
     WeaponSlot = SECONDARY
@@ -2001,12 +2096,12 @@ Object ChemSpillSprayer
   End
 End
 Object OrdinaryAttackableBunker
-  Type = Building
   KindOf = STRUCTURE SELECTABLE CAN_ATTACK
 End
-"#,
-                "create_policy_probe.ini",
-            )
+"#;
+        let mut parser = crate::assets::IniParser::new();
+        parser
+            .parse_ini_content(SOURCE, "create_policy_probe.ini")
             .expect("parse create-policy probes");
 
         let parsed = |name: &str| {
@@ -2052,15 +2147,18 @@ End
         crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
 
         let mut logic = GameLogic::new();
-        for name in [
-            "AmericaStrategyCenter",
-            "GLAVehicleQuadCannon",
-            "GLAVehicleToxinTruck",
-            "ChemSpillSprayer",
-            "OrdinaryAttackableBunker",
-        ] {
-            logic.templates.insert(name.to_string(), parsed(name));
-        }
+        admit_fixture_source(
+            &mut logic,
+            "create_policy_probe.ini",
+            SOURCE,
+            &[
+                "AmericaStrategyCenter",
+                "GLAVehicleQuadCannon",
+                "GLAVehicleToxinTruck",
+                "ChemSpillSprayer",
+                "OrdinaryAttackableBunker",
+            ],
+        );
 
         let center_id = logic
             .create_object("AmericaStrategyCenter", Team::USA, Vec3::new(0.0, 0.0, 0.0))
@@ -2132,8 +2230,11 @@ End
             }
         }
 
-        // Missing-INI fallback: name residual still binds when Object INI
-        // never set has_fire_ocl_after_weapon_cooldown.
+        // Missing-INI fallback is an independent programmatic fixture. The
+        // authored world above keeps its receiving owner; an uncaptured
+        // template cannot be added to that owner's immutable namespace.
+        let mut logic = GameLogic::new();
+        // Name residual still binds when Object INI never supplied the module.
         let mut fallback = ThingTemplate::new("TestToxinTruck");
         fallback
             .add_kind_of(KindOf::Vehicle)
@@ -2241,12 +2342,8 @@ End
         // C++ HealContain.cpp:68-157 heals then auto-exits.
         // C++ TunnelTracker.cpp:225-268 healObjects sliver / snap-to-max.
         // Pre-fix: spawn_templates mapped Heal/Cave/Tunnel to ContainModuleKind::None.
-        let mut parser = crate::assets::IniParser::new();
-        parser
-            .parse_ini_content(
-                r#"
+        const SOURCE: &str = r#"
 Object ProbeHealContainBarracks
-  Type = Structure
   KindOf = STRUCTURE SELECTABLE HEAL_PAD
   Body = ActiveBody ModuleTag_01
     MaxHealth = 1000.0
@@ -2262,7 +2359,6 @@ Object ProbeHealContainBarracks
   End
 End
 Object ProbeCaveContain
-  Type = Structure
   KindOf = STRUCTURE SELECTABLE
   Behavior = CaveContain ModuleTag_Cave
     ContainMax = 10
@@ -2270,7 +2366,6 @@ Object ProbeCaveContain
   End
 End
 Object ProbeTunnelContain
-  Type = Structure
   KindOf = STRUCTURE SELECTABLE
   Body = ActiveBody ModuleTag_Body
     MaxHealth = 100.0
@@ -2281,7 +2376,6 @@ Object ProbeTunnelContain
   End
 End
 Object ProbeHealInfantry
-  Type = Infantry
   KindOf = INFANTRY SELECTABLE
   TransportSlotCount = 1
   Body = ActiveBody ModuleTag_01
@@ -2290,9 +2384,10 @@ Object ProbeHealInfantry
   End
 End
 
-"#,
-                "heal_cave_tunnel_contain_probe.ini",
-            )
+"#;
+        let mut parser = crate::assets::IniParser::new();
+        parser
+            .parse_ini_content(SOURCE, "heal_cave_tunnel_contain_probe.ini")
             .expect("parse contain kind probe");
 
         let barracks = GameLogic::build_template_from_object_definition(
@@ -2331,26 +2426,19 @@ End
         assert_eq!(tunnel.contain_module.kind, ContainModuleKind::Tunnel);
         assert_eq!(tunnel.contain_module.frames_for_full_heal, Some(150));
 
-        let infantry = GameLogic::build_template_from_object_definition(
-            "ProbeHealInfantry",
-            parser
-                .get_definition("ProbeHealInfantry")
-                .expect("infantry"),
-            None,
-        );
-
         let mut logic = GameLogic::new();
         let usa = Player::new(1, Team::USA, "USA", true);
         logic.add_player(usa);
-        logic
-            .templates
-            .insert("ProbeHealContainBarracks".to_string(), barracks);
-        logic
-            .templates
-            .insert("ProbeHealInfantry".to_string(), infantry);
-        logic
-            .templates
-            .insert("ProbeTunnelContain".to_string(), tunnel);
+        admit_fixture_source(
+            &mut logic,
+            "heal_cave_tunnel_contain_probe.ini",
+            SOURCE,
+            &[
+                "ProbeHealContainBarracks",
+                "ProbeHealInfantry",
+                "ProbeTunnelContain",
+            ],
+        );
 
         let pad = logic
             .create_object_for_player("ProbeHealContainBarracks", 1, Vec3::ZERO)
@@ -2469,26 +2557,21 @@ End
         // AllowInsideKindOf = INFANTRY VEHICLE,
         // ForbidInsideKindOf = AIRCRAFT HUGE_VEHICLE.
         // Infantry and Humvees board; Overlord (HUGE_VEHICLE) does not.
-        let mut parser = crate::assets::IniParser::new();
-        parser
-            .parse_ini_content(
-                r#"
+        const SOURCE: &str = r#"
 Object ProbeCombatChinook
-  Type = Vehicle
   KindOf = VEHICLE SELECTABLE TRANSPORT
   TransportSlotCount = 1
   Body = ActiveBody ModuleTag_01
     MaxHealth = 300.0
     InitialHealth = 300.0
   End
-  Behavior = TransportContain ModuleTag_01
+  Behavior = TransportContain ModuleTag_Contain
     Slots = 8
     AllowInsideKindOf = INFANTRY VEHICLE
     ForbidInsideKindOf = AIRCRAFT HUGE_VEHICLE
   End
 End
 Object ProbeChinookRanger
-  Type = Infantry
   KindOf = INFANTRY SELECTABLE
   TransportSlotCount = 1
   Body = ActiveBody ModuleTag_01
@@ -2497,7 +2580,6 @@ Object ProbeChinookRanger
   End
 End
 Object ProbeChinookHumvee
-  Type = Vehicle
   KindOf = VEHICLE SELECTABLE
   TransportSlotCount = 1
   Body = ActiveBody ModuleTag_01
@@ -2506,7 +2588,6 @@ Object ProbeChinookHumvee
   End
 End
 Object ProbeChinookOverlord
-  Type = Vehicle
   KindOf = VEHICLE SELECTABLE HUGE_VEHICLE
   TransportSlotCount = 1
   Body = ActiveBody ModuleTag_01
@@ -2514,9 +2595,10 @@ Object ProbeChinookOverlord
     InitialHealth = 1100.0
   End
 End
-"#,
-                "chinook_huge_vehicle_enter.ini",
-            )
+"#;
+        let mut parser = crate::assets::IniParser::new();
+        parser
+            .parse_ini_content(SOURCE, "chinook_huge_vehicle_enter.ini")
             .expect("parse chinook huge-vehicle probe");
 
         let chinook = GameLogic::build_template_from_object_definition(
@@ -2537,16 +2619,6 @@ End
             "ForbidInsideKindOf HUGE_VEHICLE must survive parse"
         );
 
-        let ranger = GameLogic::build_template_from_object_definition(
-            "ProbeChinookRanger",
-            parser.get_definition("ProbeChinookRanger").expect("ranger"),
-            None,
-        );
-        let humvee = GameLogic::build_template_from_object_definition(
-            "ProbeChinookHumvee",
-            parser.get_definition("ProbeChinookHumvee").expect("humvee"),
-            None,
-        );
         let overlord = GameLogic::build_template_from_object_definition(
             "ProbeChinookOverlord",
             parser
@@ -2561,18 +2633,17 @@ End
 
         let mut logic = GameLogic::new();
         logic.add_player(Player::new(1, Team::USA, "USA", true));
-        logic
-            .templates
-            .insert("ProbeCombatChinook".to_string(), chinook);
-        logic
-            .templates
-            .insert("ProbeChinookRanger".to_string(), ranger);
-        logic
-            .templates
-            .insert("ProbeChinookHumvee".to_string(), humvee);
-        logic
-            .templates
-            .insert("ProbeChinookOverlord".to_string(), overlord);
+        admit_fixture_source(
+            &mut logic,
+            "chinook_huge_vehicle_enter.ini",
+            SOURCE,
+            &[
+                "ProbeCombatChinook",
+                "ProbeChinookRanger",
+                "ProbeChinookHumvee",
+                "ProbeChinookOverlord",
+            ],
+        );
 
         let bird = logic
             .create_object_for_player("ProbeCombatChinook", 1, Vec3::ZERO)
@@ -2625,12 +2696,8 @@ End
         // C++ GarrisonContain.cpp / TransportContain.cpp / MobNexusContain.cpp
         // ctors and leftover Defaults: allow_inside = KINDOF_INFANTRY.
         // Un-authored AllowInsideKindOf must not become AnyMobile.
-        let mut parser = crate::assets::IniParser::new();
-        parser
-            .parse_ini_content(
-                r#"
+        const SOURCE: &str = r#"
 Object ProbeDefaultGarrison
-  Type = Structure
   KindOf = STRUCTURE SELECTABLE
   Body = ActiveBody ModuleTag_Body
     MaxHealth = 100.0
@@ -2641,7 +2708,6 @@ Object ProbeDefaultGarrison
   End
 End
 Object ProbeDefaultTransport
-  Type = Vehicle
   KindOf = VEHICLE SELECTABLE TRANSPORT
   TransportSlotCount = 1
   Body = ActiveBody ModuleTag_Body
@@ -2653,7 +2719,6 @@ Object ProbeDefaultTransport
   End
 End
 Object ProbeDefaultCave
-  Type = Structure
   KindOf = STRUCTURE SELECTABLE
   Behavior = CaveContain ModuleTag_Cave
     ContainMax = 10
@@ -2661,7 +2726,6 @@ Object ProbeDefaultCave
   End
 End
 Object ProbeDefaultRanger
-  Type = Infantry
   KindOf = INFANTRY SELECTABLE
   TransportSlotCount = 1
   Body = ActiveBody ModuleTag_01
@@ -2670,7 +2734,6 @@ Object ProbeDefaultRanger
   End
 End
 Object ProbeDefaultHumvee
-  Type = Vehicle
   KindOf = VEHICLE SELECTABLE
   TransportSlotCount = 1
   Body = ActiveBody ModuleTag_01
@@ -2678,9 +2741,10 @@ Object ProbeDefaultHumvee
     InitialHealth = 200.0
   End
 End
-"#,
-                "unauthored_allow_inside_kindof_probe.ini",
-            )
+"#;
+        let mut parser = crate::assets::IniParser::new();
+        parser
+            .parse_ini_content(SOURCE, "unauthored_allow_inside_kindof_probe.ini")
             .expect("parse unauthored allow-inside probe");
 
         let garrison = GameLogic::build_template_from_object_definition(
@@ -2726,31 +2790,19 @@ End
         assert_eq!(cave.contain_module.admission, ContainAdmission::AnyMobile);
         assert_eq!(cave.contain_module.allow_inside_kind_of, 0);
 
-        let ranger = GameLogic::build_template_from_object_definition(
-            "ProbeDefaultRanger",
-            parser.get_definition("ProbeDefaultRanger").expect("ranger"),
-            None,
-        );
-        let humvee = GameLogic::build_template_from_object_definition(
-            "ProbeDefaultHumvee",
-            parser.get_definition("ProbeDefaultHumvee").expect("humvee"),
-            None,
-        );
-
         let mut logic = GameLogic::new();
         logic.add_player(Player::new(1, Team::USA, "USA", true));
-        logic
-            .templates
-            .insert("ProbeDefaultGarrison".to_string(), garrison);
-        logic
-            .templates
-            .insert("ProbeDefaultTransport".to_string(), transport);
-        logic
-            .templates
-            .insert("ProbeDefaultRanger".to_string(), ranger);
-        logic
-            .templates
-            .insert("ProbeDefaultHumvee".to_string(), humvee);
+        admit_fixture_source(
+            &mut logic,
+            "unauthored_allow_inside_kindof_probe.ini",
+            SOURCE,
+            &[
+                "ProbeDefaultGarrison",
+                "ProbeDefaultTransport",
+                "ProbeDefaultRanger",
+                "ProbeDefaultHumvee",
+            ],
+        );
 
         let bunker = logic
             .create_object_for_player("ProbeDefaultGarrison", 1, Vec3::ZERO)
@@ -2908,13 +2960,13 @@ End
     fn garrison_heal_objects_parses_and_heals_occupants() {
         use glam::Vec3;
 
-        let mut parser = crate::assets::IniParser::new();
-        parser
-            .parse_ini_content(
-                r#"
+        const SOURCE: &str = r#"
 Object ProbeGarrisonHealBunker
-  Type = Structure
   KindOf = STRUCTURE SELECTABLE
+  Body = ActiveBody ModuleTag_Body
+    MaxHealth = 100
+    InitialHealth = 100
+  End
   Behavior = GarrisonContain ModuleTag_Garrison
     ContainMax = 5
     HealObjects = Yes
@@ -2922,16 +2974,17 @@ Object ProbeGarrisonHealBunker
   End
 End
 Object ProbeGarrisonHealInfantry
-  Type = Infantry
   KindOf = INFANTRY SELECTABLE
   TransportSlotCount = 1
   Body = ActiveBody ModuleTag_01
     MaxHealth = 80.0
+    InitialHealth = 80.0
   End
 End
-"#,
-                "garrison_heal_objects_probe.ini",
-            )
+"#;
+        let mut parser = crate::assets::IniParser::new();
+        parser
+            .parse_ini_content(SOURCE, "garrison_heal_objects_probe.ini")
             .expect("parse garrison heal probe");
 
         let bunker = GameLogic::build_template_from_object_definition(
@@ -2944,21 +2997,14 @@ End
         assert!(bunker.contain_module.heal_objects);
         assert_eq!(bunker.contain_module.frames_for_full_heal, Some(60));
 
-        let infantry = GameLogic::build_template_from_object_definition(
-            "ProbeGarrisonHealInfantry",
-            parser
-                .get_definition("ProbeGarrisonHealInfantry")
-                .expect("heal infantry"),
-            None,
+        let mut logic = GameLogic::new();
+        admit_fixture_source(
+            &mut logic,
+            "garrison_heal_objects_probe.ini",
+            SOURCE,
+            &["ProbeGarrisonHealBunker", "ProbeGarrisonHealInfantry"],
         );
 
-        let mut logic = GameLogic::new();
-        logic
-            .templates
-            .insert("ProbeGarrisonHealBunker".to_string(), bunker);
-        logic
-            .templates
-            .insert("ProbeGarrisonHealInfantry".to_string(), infantry);
         let pad = logic
             .create_object("ProbeGarrisonHealBunker", Team::USA, Vec3::ZERO)
             .expect("heal bunker");

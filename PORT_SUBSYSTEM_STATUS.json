@@ -1,127 +1,91 @@
 {
-  "input_digest": "6588d2ee743d164166308b868446b0dd9372f3c261482fca11cc4ca668d6b379",
-  "metric_contract": {
-    "behavior_requires_explicit_evidence": true,
-    "candidate_mapping_is_reviewed": false,
-    "inventory_is_behavior_parity": false,
-    "test_shim_telemetry_credit_implementation": false
+  "generated_at_utc": "2026-10-21T13:29:06.369545+00:00",
+  "inputs": {
+    "cpp_include_root": "GeneralsMD/Code/GameEngine/Include",
+    "cpp_source_root": "GeneralsMD/Code/GameEngine/Source",
+    "rust_root": "GeneralsRust/Code/GameEngine"
   },
-  "schema_version": 1,
-  "source": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "summary": {
-    "all_inventory_entries": 2961,
-    "behavior_evidence": {
-      "by_confidence": {
-        "exact": 1,
-        "tolerance": 0
+  "source": "generate_port_tracking.py",
+  "subsystems": {
+    "Common": {
+      "include": {
+        "found": 138,
+        "found_by_basename": 0,
+        "missing": 0,
+        "parity_percent": 100.0,
+        "total": 138
       },
-      "by_evidence_scope": {
-        "original_cpp": 1
-      },
-      "by_provenance_scope": {
-        "game_engine": {
-          "units_with_records": 1,
-          "verified_units": 1
-        },
-        "game_engine_device": {
-          "units_with_records": 0,
-          "verified_units": 0
-        },
-        "libraries": {
-          "units_with_records": 0,
-          "verified_units": 0
-        },
-        "main": {
-          "units_with_records": 0,
-          "verified_units": 0
-        },
-        "tools": {
-          "units_with_records": 0,
-          "verified_units": 0
-        }
-      },
-      "informational_records": 0,
-      "rejected_records": 0,
-      "units_with_records": 1,
-      "unmatched_units": [],
-      "verified_units": 1
-    },
-    "behavior_verified": 1,
-    "blockers_by_kind": {
-      "duplicate_implementation_destination": 705,
-      "missing_mapping": 23,
-      "no_reachable_implementation": 686,
-      "ownership_symbol": 6,
-      "unreviewed_mapping": 1381,
-      "unreviewed_source_range_ownership": 61,
-      "unreviewed_symbol_ownership": 1388
-    },
-    "by_scope": {
-      "game_engine": {
-        "behavior_evidence_units": 1,
-        "behavior_verified": 1,
-        "deferred_network": 47,
-        "reachable_implementation_candidates": 487,
-        "required": 539,
-        "reviewed_path_implementations": 8,
-        "source_range_ownership_reviewed": 3,
-        "symbol_ownership_reviewed": 1,
-        "translation_units": 586
-      },
-      "game_engine_device": {
-        "behavior_evidence_units": 0,
-        "behavior_verified": 0,
-        "deferred_network": 0,
-        "reachable_implementation_candidates": 46,
-        "required": 103,
-        "reviewed_path_implementations": 0,
-        "source_range_ownership_reviewed": 0,
-        "symbol_ownership_reviewed": 0,
-        "translation_units": 103
-      },
-      "libraries": {
-        "behavior_evidence_units": 0,
-        "behavior_verified": 0,
-        "deferred_network": 0,
-        "reachable_implementation_candidates": 177,
-        "required": 378,
-        "reviewed_path_implementations": 0,
-        "source_range_ownership_reviewed": 0,
-        "symbol_ownership_reviewed": 0,
-        "translation_units": 378
-      },
-      "main": {
-        "behavior_evidence_units": 0,
-        "behavior_verified": 0,
-        "deferred_network": 0,
-        "reachable_implementation_candidates": 1,
-        "required": 1,
-        "reviewed_path_implementations": 0,
-        "source_range_ownership_reviewed": 0,
-        "symbol_ownership_reviewed": 0,
-        "translation_units": 1
-      },
-      "tools": {
-        "behavior_evidence_units": 0,
-        "behavior_verified": 0,
-        "deferred_network": 0,
-        "reachable_implementation_candidates": 14,
-        "required": 368,
-        "reviewed_path_implementations": 0,
-        "source_range_ownership_reviewed": 0,
-        "symbol_ownership_reviewed": 0,
-        "translation_units": 368
+      "source": {
+        "found": 132,
+        "found_by_basename": 0,
+        "missing": 0,
+        "parity_percent": 100.0,
+        "total": 132
       }
     },
-    "deferred_network_translation_units": 47,
-    "duplicate_implementation_destinations": 332,
-    "orphan_ownership_records": 0,
-    "reachable_implementation_candidates": 703,
-    "required_translation_units": 1389,
-    "reviewed_path_implementations": 8,
-    "source_range_ownership_reviewed": 3,
-    "strict_blockers": 4250,
-    "symbol_ownership_reviewed": 1,
-    "translation_units": 1436
+    "GameClient": {
+      "include": {
+        "found": 93,
+        "found_by_basename": 1,
+        "missing": 0,
+        "parity_percent": 100.0,
+        "total": 94
+      },
+      "source": {
+        "found": 146,
+        "found_by_basename": 1,
+        "missing": 0,
+        "parity_percent": 100.0,
+        "total": 147
+      }
+    },
+    "GameLogic": {
+      "include": {
+        "found": 268,
+        "found_by_basename": 0,
+        "missing": 0,
+        "parity_percent": 100.0,
+        "total": 268
+      },
+      "source": {
+        "found": 259,
+        "found_by_basename": 0,
+        "missing": 0,
+        "parity_percent": 100.0,
+        "total": 259
+      }
+    },
+    "GameNetwork": {
+      "include": {
+        "found": 52,
+        "found_by_basename": 0,
+        "missing": 0,
+        "parity_percent": 100.0,
+        "total": 52
+      },
+      "source": {
+        "found": 47,
+        "found_by_basename": 0,
+        "missing": 0,
+        "parity_percent": 100.0,
+        "total": 47
+      }
+    },
+    "Precompiled": {
+      "include": {
+        "found": 1,
+        "found_by_basename": 0,
+        "missing": 0,
+        "parity_percent": 100.0,
+        "total": 1
+      },
+      "source": {
+        "found": 1,
+        "found_by_basename": 0,
+        "missing": 0,
+        "parity_percent": 100.0,
+        "total": 1
+      }
+    }
   }
 }

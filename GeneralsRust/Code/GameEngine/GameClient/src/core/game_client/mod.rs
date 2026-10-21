@@ -157,6 +157,7 @@ use ww3d_core::w3d_io::{W3DChunk, W3DReader};
 include!("ids.rs");
 mod drawable_world;
 mod template_modules;
+pub use template_modules::ReceivingDrawablePolicy;
 include!("presentation_specialized_draw.rs");
 
 include!("live_slot.rs");

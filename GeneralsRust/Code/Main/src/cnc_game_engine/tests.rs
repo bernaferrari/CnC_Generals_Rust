@@ -546,34 +546,67 @@ fn apply_presentation_to_huds_single_rendered_hud() {
 
 #[test]
 fn live_letterbox_overlay_queues_scripted_camera_fade() {
-    let src = crate::cnc_game_engine::ENGINE_SRC;
-    let i = src
-        .find("fn queue_live_letterbox_and_cinematic_overlays")
-        .expect("letterbox overlay helper");
-    let body = &src[i..src.len().min(i + 1800)];
+    // Historical test name retained: the actual receiving compositor consumes
+    // the frozen fade directly, independently of letterbox/caption staging.
+    let src = include_str!("../graphics/render_pipeline/pipeline_execute.rs");
+    let frozen = src
+        .split("let camera_fade = if shell_scene")
+        .nth(1)
+        .and_then(|body| body.split("let skip_filter_scene").next())
+        .expect("receiving camera fade selection");
     assert!(
-        body.contains("queue_live_camera_fade"),
-        "live overlay queue must stamp scripted CAMERA_FADE for the 3D blit"
-    );
-    assert!(
-        body.contains("pres.camera_fade"),
+        frozen.contains("frame.camera_fade"),
         "fade overlay must read frozen PresentationFrame.camera_fade"
+    );
+    let overlay = src
+        .split("let mut finish_overlay =")
+        .nth(1)
+        .and_then(|body| body.split("let projected_shroud =").next())
+        .expect("same-frame receiving fade compositor");
+    assert!(
+        overlay.contains("status_circle::record_camera_fade(")
+            && overlay.contains("camera_fade.fade,")
+            && overlay.contains("camera_fade.intensity,")
+            && overlay.contains("camera_fade.diffuse,"),
+        "the compositor must consume every frozen camera fade field"
+    );
+    assert!(src.contains("Some(&mut finish_overlay)"));
+    let forward = include_str!("../graphics/render_pipeline/forward_render.rs");
+    let finish_scene = forward
+        .split("let mut finish_scene =")
+        .nth(1)
+        .and_then(|body| body.split("// Scene effects finish").next())
+        .expect("same-frame scene completion");
+    assert!(
+        finish_scene.find("overlay(frame)?").unwrap()
+            < finish_scene.find("flush_ui_to_frame_observed(").unwrap(),
+        "C++ scene fade is composed before the letterbox/caption UI flush"
     );
 }
 
 #[test]
 fn shell_scene_never_queues_camera_fade() {
-    // C++ W3DStatusCircle.cpp:284-287: the fade overlay renders only for a
-    // live non-GAME_SHELL game. Queuing it on the shell menu blits the
-    // ScriptEngine's startup Multiply fade (black) over the shell-map world.
-    let src = crate::cnc_game_engine::ENGINE_SRC;
-    let i = src
-        .find("fn queue_live_letterbox_and_cinematic_overlays")
-        .expect("letterbox overlay helper");
-    let body = &src[i..src.len().min(i + 1800)];
+    // C++ W3DStatusCircle.cpp:282-283 returns before any fade for GAME_SHELL.
+    // Assert the actual receiving compositor gate, which has no queued copy.
+    let src = include_str!("../graphics/render_pipeline/pipeline_execute.rs");
+    let shell_selection = src
+        .split("let shell_scene =")
+        .nth(1)
+        .and_then(|body| body.split("if render_world_scene").next())
+        .expect("receiving shell policy");
+    assert!(shell_selection.contains("p.fow_shell_bypass"));
+    let fade_selection = src
+        .split("let camera_fade = if shell_scene {")
+        .nth(1)
+        .expect("receiving camera fade shell gate");
+    let (shell, live) = fade_selection.split_once("} else {").unwrap();
     assert!(
-        body.contains("!pres.fow_shell_bypass"),
-        "camera fade queue must be gated off in shell (GAME_SHELL) scenes"
+        shell.contains("PresentationCameraFade::default()"),
+        "camera fade must be disabled in shell (GAME_SHELL) scenes"
+    );
+    assert!(
+        !shell.contains("frame.camera_fade") && live.contains("frame.camera_fade"),
+        "only a live scene may consume the frozen scripted fade"
     );
 }
 

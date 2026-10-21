@@ -18,7 +18,8 @@ mod receiving_candidate;
 #[cfg(test)]
 use module_fields::lookup_module_interface_mask;
 pub use receiving_candidate::{
-    ReceivingTemplateCandidate, ReceivingTemplateKind, ReceivingTemplateSummary,
+    AdmittedReceivingTemplate, ReceivingTemplateCandidate, ReceivingTemplateKind,
+    ReceivingTemplateSummary,
 };
 
 use crate::common::system::Snapshotable;
@@ -1375,14 +1376,23 @@ impl SparseMatchCandidate<ArmorSetBitFlags> for ArmorTemplateSet {
     }
 }
 
-/// Thing template - contains all data needed to create things
+/// ReceivingModuleContent owns base/current versions directly. Only detached
+/// compatibility factories need a mutable C++ Overridable link. Cloning a real
+/// compatibility template must still share that link with its existing readers.
+#[derive(Debug, Clone)]
+enum TemplateOverrideLink {
+    Frozen,
+    Compatibility(Arc<RwLock<Option<Arc<ThingTemplate>>>>),
+}
+
+// Thing template - contains all data needed to create things
 #[derive(Debug, Clone)]
 pub struct ThingTemplate {
     // Identification
     template_id: UnsignedShort,
     name_string: AsciiString,
     next_thing_template: Option<Arc<ThingTemplate>>,
-    next_override: Arc<RwLock<Option<Arc<ThingTemplate>>>>,
+    next_override: TemplateOverrideLink,
     is_override: bool,
     reskinned_from: Option<Arc<ThingTemplate>>,
 
@@ -1504,11 +1514,22 @@ impl ThingTemplate {
     }
 
     pub fn new() -> Self {
+        let link = Arc::new(RwLock::new(None));
+        Self::with_override_link(TemplateOverrideLink::Compatibility(link))
+    }
+
+    /// Receiving versions are selected by their catalog, without a compatible
+    /// factory's independently mutable override-link allocation.
+    pub(super) fn new_receiving() -> Self {
+        Self::with_override_link(TemplateOverrideLink::Frozen)
+    }
+
+    fn with_override_link(next_override: TemplateOverrideLink) -> Self {
         Self {
             template_id: 0,
             name_string: AsciiString::new(),
             next_thing_template: None,
-            next_override: Arc::new(RwLock::new(None)),
+            next_override,
             is_override: false,
             reskinned_from: None,
 
@@ -2374,10 +2395,11 @@ impl ThingTemplate {
         properties: &HashMap<String, String>,
         prefix: &str,
         load_type: crate::common::ini::INILoadType,
-    ) {
+        sciences: Option<&crate::common::rts::science::ScienceNameFacts>,
+    ) -> Result<(), String> {
         let fields = collect_named_subblock_fields(properties, prefix);
         if fields.is_empty() && !properties.contains_key(prefix) {
-            return;
+            return Ok(());
         }
 
         let lines = fields
@@ -2387,10 +2409,12 @@ impl ThingTemplate {
         if properties.contains_key(prefix)
             && load_type != crate::common::ini::INILoadType::CreateOverrides
         {
-            self.append_prerequisites_block(&lines);
+            self.append_prerequisites_block_with_sciences(&lines, sciences)?;
         } else {
-            self.parse_prerequisites_block(&lines);
+            self.prereq_info.clear();
+            self.append_prerequisites_block_with_sciences(&lines, sciences)?;
         }
+        Ok(())
     }
 
     /// C++ `AIUpdateModuleData::parseLocomotorSet` via ThingTemplate Locomotor field.
@@ -2511,6 +2535,8 @@ impl ThingTemplate {
         let id = self.template_id;
         let name = self.name_string.clone();
         let next = self.next_thing_template.clone();
+        // A source's static data does not choose this destination's owner or
+        // override capability (ThingTemplate.cpp:1195 preserves identity).
         let next_override = self.next_override.clone();
         let is_override = self.is_override;
 
@@ -2694,6 +2720,14 @@ impl ThingTemplate {
     }
 
     fn append_prerequisites_block(&mut self, lines: &[String]) {
+        // Compatibility lookup has the historical warn/empty behavior and no Err.
+        let _ = self.append_prerequisites_block_with_sciences(lines, None);
+    }
+    fn append_prerequisites_block_with_sciences(
+        &mut self,
+        lines: &[String],
+        sciences: Option<&crate::common::rts::science::ScienceNameFacts>,
+    ) -> Result<(), String> {
         for line in lines {
             let trimmed = line.trim();
             if trimmed.is_empty() {
@@ -2709,6 +2743,9 @@ impl ThingTemplate {
                     // C++ parsePrerequisiteUnit: each token is OR'd with previous
                     let mut prereq = ProductionPrerequisite::new();
                     let tokens: Vec<&str> = value.split_whitespace().collect();
+                    if sciences.is_some() && tokens.is_empty() {
+                        return Err("Receiving Object prerequisite requires a template name".into());
+                    }
                     for (i, token) in tokens.iter().enumerate() {
                         prereq.add_unit_prereq(token.to_string(), i > 0);
                     }
@@ -2716,7 +2753,16 @@ impl ThingTemplate {
                 } else if key.eq_ignore_ascii_case("Science") {
                     // C++ parsePrerequisiteScience: lookup science by name
                     let mut prereq = ProductionPrerequisite::new();
-                    if let Some(science_store) = get_science_store() {
+                    if let Some(sciences) = sciences {
+                        let name = value
+                            .split_whitespace()
+                            .next()
+                            .ok_or("Receiving Science prerequisite requires a science name")?;
+                        let science = sciences.science(name).ok_or_else(|| {
+                            format!("Unknown receiving science prerequisite '{name}'")
+                        })?;
+                        prereq.add_science_prereq(science);
+                    } else if let Some(science_store) = get_science_store() {
                         let science_type = science_store.get_science_from_internal_name(value);
                         if science_type != SCIENCE_INVALID {
                             prereq.add_science_prereq(science_type);
@@ -2730,6 +2776,7 @@ impl ThingTemplate {
                 // C++ only supports Object and Science in Prerequisites block
             }
         }
+        Ok(())
     }
 
     pub fn validate(&self) {
@@ -2842,7 +2889,7 @@ impl ThingTemplate {
     pub fn get_final_override(template: &Arc<ThingTemplate>) -> Arc<ThingTemplate> {
         let mut current = template.clone();
         loop {
-            let next = current.next_override.read().unwrap().clone();
+            let next = current.get_next_override();
             if let Some(next) = next {
                 current = next;
             } else {
@@ -2852,15 +2899,30 @@ impl ThingTemplate {
     }
 
     pub fn get_next_override(&self) -> Option<Arc<ThingTemplate>> {
-        self.next_override.read().unwrap().clone()
+        match &self.next_override {
+            TemplateOverrideLink::Frozen => None,
+            TemplateOverrideLink::Compatibility(link) => link.read().unwrap().clone(),
+        }
     }
 
     pub fn set_next_override(&self, override_template: Option<Arc<ThingTemplate>>) {
-        *self.next_override.write().unwrap() = override_template;
+        match &self.next_override {
+            TemplateOverrideLink::Frozen => {
+                panic!("immutable receiving template cannot mutate compatibility override links")
+            }
+            TemplateOverrideLink::Compatibility(link) => {
+                *link.write().unwrap() = override_template;
+            }
+        }
     }
 
     pub fn delete_overrides(&self) {
-        *self.next_override.write().unwrap() = None;
+        self.set_next_override(None);
+    }
+
+    #[cfg(test)]
+    pub(super) fn has_frozen_override_link(&self) -> bool {
+        matches!(&self.next_override, TemplateOverrideLink::Frozen)
     }
 
     pub fn is_null_template(&self) -> bool {
@@ -3001,8 +3063,25 @@ impl ThingTemplate {
         &mut self,
         properties: &HashMap<String, String>,
         load_type: crate::common::ini::INILoadType,
+        module_factory: Option<&mut ModuleFactory>,
+        strict: bool,
+    ) -> Result<(), String> {
+        self.parse_object_fields_with_scalar_policy(
+            properties,
+            load_type,
+            module_factory,
+            strict,
+            !strict,
+        )
+    }
+
+    fn parse_object_fields_with_scalar_policy(
+        &mut self,
+        properties: &HashMap<String, String>,
+        load_type: crate::common::ini::INILoadType,
         mut module_factory: Option<&mut ModuleFactory>,
         strict: bool,
+        receiving_scalars: bool,
     ) -> Result<(), String> {
         if !strict {
             // Compatibility for explicit flattened HashMaps without captured
@@ -3020,7 +3099,12 @@ impl ThingTemplate {
                 self.load_per_unit_fx_from_properties(properties, "UnitSpecificFX");
             }
             if !has_object_field(properties, "Prerequisites") {
-                self.load_prerequisites_from_properties(properties, "Prerequisites", load_type);
+                self.load_prerequisites_from_properties(
+                    properties,
+                    "Prerequisites",
+                    load_type,
+                    None,
+                )?;
             }
         }
 
@@ -3058,7 +3142,7 @@ impl ThingTemplate {
                 if !is_cpp_object_field(base_key, true) {
                     return Err(format!("Unknown Object field '{base_key}'"));
                 }
-                if !matches!(base_key, "KindOf" | "IsTrainable") {
+                if !receiving_scalars && !matches!(base_key, "KindOf" | "IsTrainable") {
                     continue;
                 }
             }
@@ -3086,7 +3170,17 @@ impl ThingTemplate {
                     continue;
                 }
                 "Prerequisites" => {
-                    self.load_prerequisites_from_properties(properties, key, load_type);
+                    let sciences = if strict && receiving_scalars {
+                        Some(
+                            module_factory
+                                .as_deref()
+                                .ok_or("Receiving prerequisites require content owner")?
+                                .receiving_science_names(),
+                        )
+                    } else {
+                        None
+                    };
+                    self.load_prerequisites_from_properties(properties, key, load_type, sciences)?;
                     continue;
                 }
                 _ => {}
@@ -3368,6 +3462,14 @@ impl ThingTemplate {
                 "MaxSimultaneousLinkKey" => {
                     self.max_simultaneous_link_key = if trimmed.is_empty() {
                         0
+                    } else if strict && receiving_scalars {
+                        // Same namespace lent to typed INI module constructors.
+                        // Scalar and nested keys keep their actual source order.
+                        module_factory
+                            .as_deref_mut()
+                            .and_then(ModuleFactory::receiving_name_keys_mut)
+                            .ok_or("Receiving scalar key requires its originating name namespace")?
+                            .name_to_key(trimmed)
                     } else {
                         NameKeyGenerator::name_to_key(trimmed)
                     };
@@ -3466,22 +3568,29 @@ fn parse_color_int(s: &str) -> Result<Color, ()> {
 }
 
 fn parse_editor_sorting(s: &str) -> Result<EditorSortingType, String> {
-    match s.trim() {
-        "NONE" | "None" | "Invalid" => Ok(EditorSortingType::None),
-        "STRUCTURE" | "Structure" | "Building" => Ok(EditorSortingType::Structure),
-        "INFANTRY" | "Infantry" | "Unit" => Ok(EditorSortingType::Infantry),
-        "VEHICLE" | "Vehicle" => Ok(EditorSortingType::Vehicle),
-        "SHRUBBERY" | "Shrubbery" => Ok(EditorSortingType::Shrubbery),
-        "MISC_MAN_MADE" | "MiscManMade" | "Infrastructure" => Ok(EditorSortingType::MiscManMade),
-        "MISC_NATURAL" | "MiscNatural" | "Civilian" => Ok(EditorSortingType::MiscNatural),
-        "DEBRIS" | "Debris" => Ok(EditorSortingType::Debris),
-        "SYSTEM" | "System" => Ok(EditorSortingType::System),
-        "AUDIO" | "Audio" => Ok(EditorSortingType::Audio),
-        "TEST" | "Test" => Ok(EditorSortingType::Test),
-        "FOR_REVIEW" | "ForReview" => Ok(EditorSortingType::ForReview),
-        "ROAD" | "Road" => Ok(EditorSortingType::Road),
-        "WAYPOINT" | "Waypoint" => Ok(EditorSortingType::Waypoint),
-        _ => Err(format!("Unknown EditorSorting token '{}'", s)),
+    // ThingTemplate.cpp:130 uses parseByteSizedIndexList. INI.cpp:1388-1397
+    // consumes one standard-separated token and scanIndexList compares without
+    // case; later tokens belong to no additional EditorSorting value.
+    let token = s
+        .split([' ', '\n', '\r', '\t', '='])
+        .find(|token| !token.is_empty())
+        .unwrap_or("");
+    match token.to_ascii_uppercase().as_str() {
+        "NONE" | "INVALID" => Ok(EditorSortingType::None),
+        "STRUCTURE" | "BUILDING" => Ok(EditorSortingType::Structure),
+        "INFANTRY" | "UNIT" => Ok(EditorSortingType::Infantry),
+        "VEHICLE" => Ok(EditorSortingType::Vehicle),
+        "SHRUBBERY" => Ok(EditorSortingType::Shrubbery),
+        "MISC_MAN_MADE" | "MISCMANMADE" | "INFRASTRUCTURE" => Ok(EditorSortingType::MiscManMade),
+        "MISC_NATURAL" | "MISCNATURAL" | "CIVILIAN" => Ok(EditorSortingType::MiscNatural),
+        "DEBRIS" => Ok(EditorSortingType::Debris),
+        "SYSTEM" => Ok(EditorSortingType::System),
+        "AUDIO" => Ok(EditorSortingType::Audio),
+        "TEST" => Ok(EditorSortingType::Test),
+        "FOR_REVIEW" | "FORREVIEW" => Ok(EditorSortingType::ForReview),
+        "ROAD" => Ok(EditorSortingType::Road),
+        "WAYPOINT" => Ok(EditorSortingType::Waypoint),
+        _ => Err(format!("Unknown EditorSorting token '{}'", token)),
     }
 }
 
@@ -3584,3 +3693,7 @@ mod module_declaration_order_tests;
 #[cfg(test)]
 #[path = "module_operation_order_tests.rs"]
 mod module_operation_order_tests;
+
+#[cfg(test)]
+#[path = "thing_template/frozen_override_tests.rs"]
+mod frozen_override_tests;

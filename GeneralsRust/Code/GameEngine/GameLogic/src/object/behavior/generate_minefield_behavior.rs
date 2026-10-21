@@ -182,6 +182,7 @@ fn smart_border_ring_count(
 /// Configuration data for generate minefield behavior
 #[derive(Debug, Clone)]
 pub struct GenerateMinefieldBehaviorModuleData {
+    pub upgrade_mux_data: crate::upgrade::UpgradeMuxData,
     pub base: BehaviorModuleData,
     /// Name of the mine template to create
     pub mine_name: MineTemplateId,
@@ -227,6 +228,7 @@ impl Default for GenerateMinefieldBehaviorModuleData {
 
         Self {
             base: BehaviorModuleData::default(),
+            upgrade_mux_data: crate::upgrade::UpgradeMuxData::default(),
             mine_name: String::new(),
             mine_name_upgraded: None,
             mine_upgrade_trigger: None,
@@ -404,7 +406,9 @@ fn parse_skip_if_this_much_under_structure(
     Ok(())
 }
 
-const GENERATE_MINEFIELD_BEHAVIOR_FIELDS: &[FieldParse<GenerateMinefieldBehaviorModuleData>] = &[
+crate::impl_upgrade_mux_field_parsers!(GenerateMinefieldBehaviorModuleData);
+
+const GENERATE_MINEFIELD_BEHAVIOR_FIELDS: &[FieldParse<GenerateMinefieldBehaviorModuleData>] = crate::upgrade_mux_field_table!(
     FieldParse {
         token: "MineName",
         parse: parse_mine_name,
@@ -461,7 +465,7 @@ const GENERATE_MINEFIELD_BEHAVIOR_FIELDS: &[FieldParse<GenerateMinefieldBehavior
         token: "SkipIfThisMuchUnderStructure",
         parse: parse_skip_if_this_much_under_structure,
     },
-];
+);
 
 /// Result type for behavior operations
 pub type BehaviorResult<T> = Result<T, BehaviorError>;

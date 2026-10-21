@@ -97,6 +97,28 @@ fn admit_staged_session_view(
 #[path = "host_authority/restore_viewport_owner_tests.rs"]
 mod restore_viewport_owner_tests;
 
+/// Definitions and their actual numeric-name namespace travel together into
+/// a detached saved-world candidate. This borrow cannot select another world.
+#[derive(Clone, Copy)]
+pub(super) struct RestoreTemplateCatalog<'a> {
+    templates: &'a std::collections::HashMap<String, crate::game_logic::ThingTemplate>,
+    modules:
+        &'a Option<game_engine::common::thing::receiving_module_content::ReceivingModuleContent>,
+    object_definitions: &'a Option<crate::assets::ReceivingObjectDefinitions>,
+    baseline: &'a Option<std::collections::HashMap<String, crate::game_logic::ThingTemplate>>,
+}
+
+impl<'a> RestoreTemplateCatalog<'a> {
+    pub(super) fn from_world(world: &'a crate::game_logic::GameLogic) -> Self {
+        Self {
+            templates: &world.templates,
+            modules: &world.receiving_module_content,
+            object_definitions: &world.receiving_object_definitions,
+            baseline: &world.receiving_template_baseline,
+        }
+    }
+}
+
 impl CnCGameEngine {
     /// Begin a new transient direct-visual world identity.
     ///
@@ -1762,7 +1784,7 @@ impl CnCGameEngine {
         save_file_manager: &mut SaveFileManager,
         slot: &str,
         active_mode: crate::game_logic::GameMode,
-        template_catalog: &std::collections::HashMap<String, crate::game_logic::ThingTemplate>,
+        template_catalog: RestoreTemplateCatalog<'_>,
         weapon_catalog: &Option<
             std::collections::HashMap<String, Arc<gamelogic::weapon::WeaponTemplate>>,
         >,
@@ -1865,7 +1887,12 @@ impl CnCGameEngine {
             terrain_visual_xfer,
             slot,
             live.game_mode(),
-            &live.templates,
+            RestoreTemplateCatalog {
+                templates: &live.templates,
+                modules: &live.receiving_module_content,
+                object_definitions: &live.receiving_object_definitions,
+                baseline: &live.receiving_template_baseline,
+            },
             &live.weapon_definition_base,
             &live.projectile_definitions,
             &live.ocl_application_definitions(),
@@ -1958,6 +1985,9 @@ impl CnCGameEngine {
             .upgrade_center()
             .write()
             .unwrap_or_else(|error| error.into_inner()) = upgrade_definitions;
+        candidate.receiving_module_content = live.receiving_module_content.clone();
+        candidate.receiving_object_definitions = live.receiving_object_definitions.clone();
+        candidate.receiving_template_baseline = live.receiving_template_baseline.clone();
         candidate.templates.extend(live.templates.clone());
         candidate.weapon_definition_base = live.weapon_definition_base.clone();
         candidate.weapon_definitions = live.weapon_definition_base.clone();
@@ -2029,7 +2059,7 @@ impl CnCGameEngine {
         terrain_visual_xfer_bytes: Option<Vec<u8>>,
         slot: &str,
         active_mode: crate::game_logic::GameMode,
-        template_catalog: &std::collections::HashMap<String, crate::game_logic::ThingTemplate>,
+        template_catalog: RestoreTemplateCatalog<'_>,
         weapon_catalog: &Option<
             std::collections::HashMap<String, Arc<gamelogic::weapon::WeaponTemplate>>,
         >,
@@ -2092,7 +2122,7 @@ impl CnCGameEngine {
         terrain_visual_xfer_bytes: Option<Vec<u8>>,
         slot: &str,
         active_mode: crate::game_logic::GameMode,
-        template_catalog: &std::collections::HashMap<String, crate::game_logic::ThingTemplate>,
+        template_catalog: RestoreTemplateCatalog<'_>,
         weapon_catalog: &Option<
             std::collections::HashMap<String, Arc<gamelogic::weapon::WeaponTemplate>>,
         >,
@@ -2213,7 +2243,10 @@ impl CnCGameEngine {
         // Map object restoration needs the live INI/template catalog.  Keep
         // custom/mod templates from the source match while retaining the fresh
         // world's standard startup catalog.
-        staged.templates.extend(template_catalog.clone());
+        staged.receiving_module_content = template_catalog.modules.clone();
+        staged.receiving_object_definitions = template_catalog.object_definitions.clone();
+        staged.receiving_template_baseline = template_catalog.baseline.clone();
+        staged.templates.extend(template_catalog.templates.clone());
         staged.weapon_definition_base = weapon_catalog.clone();
         staged.weapon_definitions = weapon_catalog.clone();
         staged.projectile_definitions = projectile_definitions.clone();
@@ -2330,7 +2363,12 @@ impl CnCGameEngine {
             &mut self.save_file_manager,
             slot,
             active_mode,
-            &template_catalog,
+            RestoreTemplateCatalog {
+                templates: &template_catalog,
+                modules: &self.game_logic.receiving_module_content,
+                object_definitions: &self.game_logic.receiving_object_definitions,
+                baseline: &self.game_logic.receiving_template_baseline,
+            },
             &self.game_logic.weapon_definition_base,
             &self.game_logic.projectile_definitions,
             &self.game_logic.ocl_application_definitions(),

@@ -353,6 +353,10 @@ fn module_maps<T>() -> ModuleMap<T> {
 
 #[derive(Clone)]
 pub struct ModuleFactory {
+    // Present only for an explicitly admitted receiving content owner.
+    // This plain value moves with the loader; it is never installed globally.
+    runtime_name_keys: Option<crate::common::name_key_generator::NameKeyNamespace>,
+    receiving_sciences: Arc<crate::common::rts::science::ScienceNameFacts>,
     module_template_map: ModuleMap<ModuleTemplate>,
     module_overrides: ModuleMap<ModuleOverride>,
     module_data_list: Vec<Arc<dyn ModuleData>>,
@@ -547,7 +551,33 @@ impl ModuleFactory {
     /// Construct an independent catalog. Startup registration is explicit;
     /// construction neither publishes a catalog nor allocates ambient name keys.
     pub fn new() -> Self {
+        Self::new_with_name_keys(None)
+    }
+
+    /// Inert receiving content owner. Metadata discovery does not allocate keys;
+    /// the actual original registration phase supplies its ordered class names.
+    pub fn new_receiving(namespace: crate::common::name_key_generator::NameKeyNamespace) -> Self {
+        Self::new_with_name_keys(Some(namespace))
+    }
+
+    pub fn new_receiving_with_sciences(
+        namespace: crate::common::name_key_generator::NameKeyNamespace,
+        sciences: Arc<crate::common::rts::science::ScienceNameFacts>,
+    ) -> Self {
+        let mut factory = Self::new_receiving(namespace);
+        factory.receiving_sciences = sciences;
+        factory
+    }
+    pub fn receiving_science_names(&self) -> &crate::common::rts::science::ScienceNameFacts {
+        &self.receiving_sciences
+    }
+
+    fn new_with_name_keys(
+        runtime_name_keys: Option<crate::common::name_key_generator::NameKeyNamespace>,
+    ) -> Self {
         let mut factory = Self {
+            runtime_name_keys,
+            receiving_sciences: Arc::new(crate::common::rts::science::ScienceNameFacts::default()),
             module_template_map: module_maps(),
             module_overrides: module_maps(),
             module_data_list: Vec::new(),
@@ -557,6 +587,19 @@ impl ModuleFactory {
         };
         factory.seed_builtin_descriptors();
         factory
+    }
+
+    /// C++ ModuleFactory::makeDecoratedNameKey, called by actual registration/find.
+    /// Descriptor advertisements deliberately do not enter this phase.
+    pub fn admit_module_registration_key(&mut self, name: &str, module_type: ModuleType) {
+        if let Some(keys) = self.runtime_name_keys.as_mut() {
+            keys.name_to_key(&format!("{}{}", module_type as u8, name));
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn retained_module_data_count(&self) -> usize {
+        self.module_data_list.len()
     }
 
     /// Allocate a new module given the name and data
@@ -588,6 +631,31 @@ impl ModuleFactory {
         Ok(module)
     }
 
+    /// Fork immutable constructor registrations into a new explicit content owner.
+    /// Existing runtime ModuleData is not copied into the new owner's retention list.
+    pub fn receiving_catalog(
+        &self,
+        namespace: crate::common::name_key_generator::NameKeyNamespace,
+    ) -> Self {
+        let mut catalog = self.clone();
+        catalog.module_data_list.clear();
+        catalog.runtime_name_keys = Some(namespace);
+        catalog
+    }
+
+    pub fn receiving_name_keys_mut(
+        &mut self,
+    ) -> Option<&mut crate::common::name_key_generator::NameKeyNamespace> {
+        self.runtime_name_keys.as_mut()
+    }
+
+    pub(crate) fn validation_catalog(&self) -> Self {
+        let mut catalog = self.clone();
+        catalog.runtime_name_keys = None;
+        catalog.module_data_list.clear();
+        catalog
+    }
+
     /// Install validation on this catalog only; no ambient registration.
     pub fn register_fallible_data_constructor(
         &mut self,
@@ -608,18 +676,39 @@ impl ModuleFactory {
         module_type: ModuleType,
         module_tag: &str,
     ) -> Result<Arc<dyn ModuleData>, String> {
+        self.admit_module_registration_key(name, module_type);
         let constructor = self.fallible_data_constructors[module_type as usize]
             .get(name)
             .copied()
             .ok_or_else(|| {
                 format!("Module '{name}' ({module_type:?}) has no fallible data constructor")
             })?;
-        let mut data = constructor(ini)?;
+        // Move the one receiving namespace through the actual typed parser.
+        // Detached validation receives a private throw-away namespace and remains
+        // non-runnable; neither path selects the thread's compatibility registry.
+        let receiving = self.runtime_name_keys.is_some();
+        let keys = self.runtime_name_keys.take().unwrap_or_default();
+        let (keys, result) = match ini {
+            Some(ini) => ini.with_receiving_science_names(self.receiving_sciences.clone(), |ini| {
+                ini.with_name_key_namespace(keys, |ini| constructor(Some(ini)))
+            }),
+            None => (keys, constructor(None)),
+        };
+        if receiving {
+            self.runtime_name_keys = Some(keys);
+        }
+        let mut data = result?;
         // Validation preserves exact tag strings in ModuleInfo. Numeric tag
         // identity is admitted only by the receiving runtime's key owner;
         // detached validation must never allocate from the ambient registry.
         let _ = module_tag;
-        data.set_module_tag_name_key(crate::common::name_key_generator::NAMEKEY_INVALID);
+        let tag_key = self
+            .runtime_name_keys
+            .as_mut()
+            .map_or(crate::common::name_key_generator::NAMEKEY_INVALID, |keys| {
+                keys.name_to_key(module_tag)
+            });
+        data.set_module_tag_name_key(tag_key);
         let data: Arc<dyn ModuleData> = Arc::from(data);
         self.module_data_list.push(data.clone());
         Ok(data)
@@ -633,6 +722,9 @@ impl ModuleFactory {
         module_type: ModuleType,
         module_tag: &str,
     ) -> Result<Arc<dyn ModuleData>, String> {
+        if self.runtime_name_keys.is_some() {
+            return self.new_module_data_from_ini_strict(ini, name, module_type, module_tag);
+        }
         if name.is_empty() {
             return Err("Module name cannot be empty".to_string());
         }
@@ -826,8 +918,11 @@ impl ModuleFactory {
     }
 
     /// Convert string to name key (simplified implementation)
-    fn string_to_name_key(&self, s: &str) -> NameKeyType {
-        NameKeyGenerator::name_to_key(s)
+    fn string_to_name_key(&mut self, s: &str) -> NameKeyType {
+        match self.runtime_name_keys.as_mut() {
+            Some(keys) => keys.name_to_key(s),
+            None => NameKeyGenerator::name_to_key(s),
+        }
     }
 }
 

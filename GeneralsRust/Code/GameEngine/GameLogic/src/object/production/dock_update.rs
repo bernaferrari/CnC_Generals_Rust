@@ -77,7 +77,7 @@ fn parse_allows_passthrough(
     Ok(())
 }
 
-const DOCK_UPDATE_FIELDS: &[FieldParse<DockUpdateModuleData>] = &[
+pub(super) const DOCK_UPDATE_FIELDS: &[FieldParse<DockUpdateModuleData>] = &[
     FieldParse {
         token: "NumberApproachPositions",
         parse: parse_number_approach_positions,
@@ -931,7 +931,12 @@ impl RepairDockUpdateData {
     }
 
     pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
-        ini.init_from_ini_with_fields(self, REPAIR_DOCK_UPDATE_FIELDS)
+        ini.init_from_ini_with_inherited_fields(
+            self,
+            |data| &mut data.base,
+            DOCK_UPDATE_FIELDS,
+            REPAIR_DOCK_UPDATE_FIELDS,
+        )
     }
 }
 
@@ -957,22 +962,6 @@ impl Snapshotable for RepairDockUpdateData {
 
 crate::impl_legacy_module_data_via_base!(RepairDockUpdateData, base);
 
-fn parse_repair_number_approach_positions(
-    ini: &mut INI,
-    data: &mut RepairDockUpdateData,
-    tokens: &[&str],
-) -> Result<(), INIError> {
-    parse_number_approach_positions(ini, &mut data.base, tokens)
-}
-
-fn parse_repair_allows_passthrough(
-    ini: &mut INI,
-    data: &mut RepairDockUpdateData,
-    tokens: &[&str],
-) -> Result<(), INIError> {
-    parse_allows_passthrough(ini, &mut data.base, tokens)
-}
-
 fn parse_time_for_full_heal(
     _ini: &mut INI,
     data: &mut RepairDockUpdateData,
@@ -983,20 +972,10 @@ fn parse_time_for_full_heal(
     Ok(())
 }
 
-const REPAIR_DOCK_UPDATE_FIELDS: &[FieldParse<RepairDockUpdateData>] = &[
-    FieldParse {
-        token: "NumberApproachPositions",
-        parse: parse_repair_number_approach_positions,
-    },
-    FieldParse {
-        token: "AllowsPassthrough",
-        parse: parse_repair_allows_passthrough,
-    },
-    FieldParse {
-        token: "TimeForFullHeal",
-        parse: parse_time_for_full_heal,
-    },
-];
+const REPAIR_DOCK_UPDATE_FIELDS: &[FieldParse<RepairDockUpdateData>] = &[FieldParse {
+    token: "TimeForFullHeal",
+    parse: parse_time_for_full_heal,
+}];
 
 /// Repair dock module
 #[derive(Debug)]
@@ -1270,7 +1249,12 @@ impl SupplyCenterDockUpdateData {
     }
 
     pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
-        ini.init_from_ini_with_fields(self, SUPPLY_CENTER_DOCK_UPDATE_FIELDS)
+        ini.init_from_ini_with_inherited_fields(
+            self,
+            |data| &mut data.base,
+            DOCK_UPDATE_FIELDS,
+            SUPPLY_CENTER_DOCK_UPDATE_FIELDS,
+        )
     }
 }
 
@@ -1296,22 +1280,6 @@ impl Snapshotable for SupplyCenterDockUpdateData {
 
 crate::impl_legacy_module_data_via_base!(SupplyCenterDockUpdateData, base);
 
-fn parse_supply_center_number_approach_positions(
-    ini: &mut INI,
-    data: &mut SupplyCenterDockUpdateData,
-    tokens: &[&str],
-) -> Result<(), INIError> {
-    parse_number_approach_positions(ini, &mut data.base, tokens)
-}
-
-fn parse_supply_center_allows_passthrough(
-    ini: &mut INI,
-    data: &mut SupplyCenterDockUpdateData,
-    tokens: &[&str],
-) -> Result<(), INIError> {
-    parse_allows_passthrough(ini, &mut data.base, tokens)
-}
-
 fn parse_grant_temporary_stealth(
     _ini: &mut INI,
     data: &mut SupplyCenterDockUpdateData,
@@ -1322,20 +1290,10 @@ fn parse_grant_temporary_stealth(
     Ok(())
 }
 
-const SUPPLY_CENTER_DOCK_UPDATE_FIELDS: &[FieldParse<SupplyCenterDockUpdateData>] = &[
-    FieldParse {
-        token: "NumberApproachPositions",
-        parse: parse_supply_center_number_approach_positions,
-    },
-    FieldParse {
-        token: "AllowsPassthrough",
-        parse: parse_supply_center_allows_passthrough,
-    },
-    FieldParse {
-        token: "GrantTemporaryStealth",
-        parse: parse_grant_temporary_stealth,
-    },
-];
+const SUPPLY_CENTER_DOCK_UPDATE_FIELDS: &[FieldParse<SupplyCenterDockUpdateData>] = &[FieldParse {
+    token: "GrantTemporaryStealth",
+    parse: parse_grant_temporary_stealth,
+}];
 
 /// Supply center dock module
 #[derive(Debug)]
@@ -1837,3 +1795,33 @@ impl Module for SupplyCenterDockUpdateModule {
 #[cfg(test)]
 #[path = "dock_update/repair_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+mod inherited_parser_tests {
+    use super::*;
+    #[test]
+    fn repair_and_supply_docks_share_original_base_table_with_their_own_leaf_data() {
+        let mut ini = INI::new();
+        let mut repair = RepairDockUpdateData::default();
+        ini.with_inline_source(
+            "TimeForFullHeal = 1500ms\nNumberApproachPositions = 4\nAllowsPassthrough = No\nEnd\n",
+            |ini| repair.parse_from_ini(ini),
+        )
+        .unwrap();
+        assert_eq!(repair.frames_for_full_heal, 45.0);
+        assert_eq!(repair.base.number_approach_positions_data, 4);
+        assert!(!repair.base.is_allow_passthrough);
+        let mut supply = SupplyCenterDockUpdateData::default();
+        ini.with_inline_source("AllowsPassthrough = No\nGrantTemporaryStealth = 2s\nNumberApproachPositions = 6\nEnd\n", |ini| supply.parse_from_ini(ini)).unwrap();
+        assert_eq!(supply.grant_temporary_stealth_frames, 60);
+        assert_eq!(supply.base.number_approach_positions_data, 6);
+        assert!(!supply.base.is_allow_passthrough);
+        assert!(
+            ini.with_inline_source(
+                "GrantTemporaryStealth = 1s\nUnknownDockField = 3\nEnd\n",
+                |ini| supply.parse_from_ini(ini)
+            )
+            .is_err()
+        );
+    }
+}

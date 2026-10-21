@@ -1350,7 +1350,7 @@ fn parse_audio_event(
     Ok(())
 }
 
-const SPECIAL_POWER_MODULE_FIELDS: &[FieldParse<SpecialPowerModuleData>] = &[
+pub(crate) const SPECIAL_POWER_MODULE_FIELDS: &[FieldParse<SpecialPowerModuleData>] = &[
     FieldParse {
         token: "SpecialPowerTemplate",
         parse: parse_special_power_template_field,

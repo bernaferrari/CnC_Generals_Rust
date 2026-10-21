@@ -665,6 +665,49 @@ fn with_draw_module_kind(
     }
 }
 
+/// Bind known receiving identity, then call original creation callbacks without rediscovery.
+pub fn create_native_draw_module_for_owner(
+    module: &mut dyn Module,
+    owner_id: ObjectID,
+    indicator_rgb: [u8; 3],
+    landing_sound: Option<&str>,
+    powerslide_sound: Option<&str>,
+) {
+    bind_native_draw_module_owner(module, owner_id, indicator_rgb);
+    if let Some(draw) =
+        Module::as_any_mut(module).downcast_mut::<crate::object::draw::W3DTruckDraw>()
+    {
+        draw.on_created_with_receiving_sounds(landing_sound, powerslide_sound);
+    } else if let Some(draw) =
+        Module::as_any_mut(module).downcast_mut::<crate::object::draw::W3DOverlordTruckDraw>()
+    {
+        draw.on_created_with_receiving_sounds(landing_sound, powerslide_sound);
+    } else if let Some(draw) =
+        Module::as_any_mut(module).downcast_mut::<crate::object::draw::W3DPoliceCarDraw>()
+    {
+        draw.on_created_with_receiving_sounds(landing_sound, powerslide_sound);
+    } else if let Some(draw) =
+        Module::as_any_mut(module).downcast_mut::<crate::object::draw::W3DTankTruckDraw>()
+    {
+        draw.on_created_with_receiving_sounds(landing_sound, powerslide_sound);
+    } else {
+        module.on_object_created();
+    }
+}
+
+/// Refresh receiving Object identity/color without a process object lookup.
+pub fn bind_native_draw_module_owner(
+    module: &mut dyn Module,
+    owner_id: ObjectID,
+    indicator_rgb: [u8; 3],
+) {
+    let _ = with_draw_module_kind(module, |draw| {
+        if let Some(interface) = draw.into_draw_module().get_object_draw_interface_mut() {
+            interface.bind_native_owner(owner_id, indicator_rgb);
+        }
+    });
+}
+
 /// Count systems owned by the installed native module; this does not clone it.
 pub fn native_state_particle_count(module: &mut dyn Module) -> usize {
     let mut count = 0;

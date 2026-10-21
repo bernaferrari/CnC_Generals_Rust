@@ -14,7 +14,6 @@ use crate::modules::BehaviorModuleInterface;
 use crate::object::special_power_module::{
     SpecialPowerCommandOptions, SpecialPowerModule, SpecialPowerModuleData,
 };
-use crate::object::special_power_template::{AudioEventRts, find_or_create_special_power_template};
 
 #[derive(Debug, Clone)]
 pub struct BaikonurLaunchPowerModuleData {
@@ -33,7 +32,13 @@ impl Default for BaikonurLaunchPowerModuleData {
 
 impl BaikonurLaunchPowerModuleData {
     pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
-        ini.init_from_ini_with_fields(self, BAIKONUR_LAUNCH_POWER_FIELDS)
+        // The C++ subclass adds its leaf table after SpecialPowerModuleData.
+        ini.init_from_ini_with_inherited_fields(
+            self,
+            |data| &mut data.base,
+            crate::object::special_power_module::SPECIAL_POWER_MODULE_FIELDS,
+            BAIKONUR_LAUNCH_POWER_FIELDS,
+        )
     }
 }
 
@@ -255,33 +260,6 @@ impl Snapshotable for BaikonurLaunchPower {
     }
 }
 
-fn parse_special_power_template_field(
-    _ini: &mut INI,
-    data: &mut BaikonurLaunchPowerModuleData,
-    tokens: &[&str],
-) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
-    let name = AsciiString::from(*token);
-    data.base.special_power_template = Some(find_or_create_special_power_template(&name));
-    Ok(())
-}
-
-fn parse_bool_field(setter: &mut dyn FnMut(bool), tokens: &[&str]) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
-    setter(INI::parse_bool(token)?);
-    Ok(())
-}
-
-fn parse_audio_event(
-    _ini: &mut INI,
-    data: &mut BaikonurLaunchPowerModuleData,
-    tokens: &[&str],
-) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
-    data.base.initiate_sound = AudioEventRts::new(*token);
-    Ok(())
-}
-
 fn parse_ascii_string_field(
     setter: &mut dyn FnMut(AsciiString),
     tokens: &[&str],
@@ -291,35 +269,7 @@ fn parse_ascii_string_field(
     Ok(())
 }
 
-const BAIKONUR_LAUNCH_POWER_FIELDS: &[FieldParse<BaikonurLaunchPowerModuleData>] = &[
-    FieldParse {
-        token: "SpecialPowerTemplate",
-        parse: parse_special_power_template_field,
-    },
-    FieldParse {
-        token: "UpdateModuleStartsAttack",
-        parse: |_, data, tokens| {
-            parse_bool_field(&mut |v| data.base.update_module_starts_attack = v, tokens)
-        },
-    },
-    FieldParse {
-        token: "StartsPaused",
-        parse: |_, data, tokens| parse_bool_field(&mut |v| data.base.starts_paused = v, tokens),
-    },
-    FieldParse {
-        token: "InitiateSound",
-        parse: parse_audio_event,
-    },
-    FieldParse {
-        token: "ScriptedSpecialPowerOnly",
-        parse: |_, data, tokens| {
-            parse_bool_field(&mut |v| data.base.scripted_special_power_only = v, tokens)
-        },
-    },
-    FieldParse {
-        token: "DetonationObject",
-        parse: |_, data, tokens| {
-            parse_ascii_string_field(&mut |v| data.detonation_object = v, tokens)
-        },
-    },
-];
+const BAIKONUR_LAUNCH_POWER_FIELDS: &[FieldParse<BaikonurLaunchPowerModuleData>] = &[FieldParse {
+    token: "DetonationObject",
+    parse: |_, data, tokens| parse_ascii_string_field(&mut |v| data.detonation_object = v, tokens),
+}];

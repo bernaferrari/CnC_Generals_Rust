@@ -26,11 +26,21 @@ fn remove_structural_native_capsule(bytes: &mut Vec<u8>, target: &[u8; 4]) {
     }
 }
 
+fn lifecycle_source(name: &str, delay: u32) -> String {
+    format!(
+        "Object {name}\nKindOf = IMMOBILE\nBody = ActiveBody BodyTag\nMaxHealth = 100\nInitialHealth = 100\nEnd\nBehavior = LifetimeUpdate LifeA\nMinLifetime = {delay}\nMaxLifetime = {delay}\nEnd\nBehavior = DeletionUpdate DeleteB\nMinLifetime = 7000\nMaxLifetime = 7000\nEnd\nBehavior = HeightDieUpdate HeightC\nTargetHeight = 4\nOnlyWhenMovingDown = Yes\nInitialDelay = 1000\nEnd\nEnd"
+    )
+}
+fn admit_source(world: &mut GameLogic, text: String, path: &str) {
+    let content =
+        crate::assets::ReceivingObjectContent::from_sources([(path.to_owned(), text)]).unwrap();
+    world.admit_receiving_module_content(content).unwrap();
+}
 fn template(name: &str, delay: u32) -> ThingTemplate {
     let mut parser = crate::assets::IniParser::new();
-    parser.parse_ini_content(&format!(
-        "Object {name}\nKindOf = IMMOBILE\nBody = ActiveBody BodyTag\nMaxHealth = 100\nInitialHealth = 100\nEnd\nBehavior = LifetimeUpdate LifeA\nMinLifetime = {delay}\nMaxLifetime = {delay}\nEnd\nBehavior = DeletionUpdate DeleteB\nMinLifetime = 7000\nMaxLifetime = 7000\nEnd\nBehavior = HeightDieUpdate HeightC\nTargetHeight = 4\nOnlyWhenMovingDown = Yes\nInitialDelay = 1000\nEnd\nEnd"
-    ), "native-lifecycle-save.ini").unwrap();
+    parser
+        .parse_ini_content(&lifecycle_source(name, delay), "native-lifecycle-save.ini")
+        .unwrap();
     GameLogic::build_template_from_object_definition(
         name,
         parser.get_definition(name).unwrap(),
@@ -45,6 +55,11 @@ fn encoded_native_modules_restore_fresh_and_in_place_without_constructor_draws()
     source.frame = 11;
     source.native_hulk_max_lifetime_override = 77;
     source.templates.insert(name.into(), template(name, 5000));
+    admit_source(
+        &mut source,
+        lifecycle_source(name, 5000),
+        "native-lifecycle-save.ini",
+    );
     let id = source
         .create_object(name, Team::USA, Vec3::new(3.0, 50.0, 7.0))
         .unwrap();
@@ -74,6 +89,11 @@ fn encoded_native_modules_restore_fresh_and_in_place_without_constructor_draws()
             receiving
                 .templates
                 .insert(name.into(), template(name, 5000));
+            admit_source(
+                &mut receiving,
+                lifecycle_source(name, 5000),
+                "native-lifecycle-save.ini",
+            );
         } else {
             // The lifecycle capsule still reconstructs its own definitions.
             // Die execution requires an independently admitted immutable roster.
@@ -128,6 +148,11 @@ fn receiving_definition_mismatch_keeps_world_and_override_unchanged() {
     let name = "SavedLifecycleMismatch";
     let mut source = GameLogic::new();
     source.templates.insert(name.into(), template(name, 5000));
+    admit_source(
+        &mut source,
+        lifecycle_source(name, 5000),
+        "native-lifecycle-save.ini",
+    );
     source.create_object(name, Team::USA, Vec3::ZERO).unwrap();
     source.native_hulk_max_lifetime_override = 77;
     let builder = super::super::SnapshotBuilder::new();
@@ -136,6 +161,11 @@ fn receiving_definition_mismatch_keeps_world_and_override_unchanged() {
     receiving
         .templates
         .insert(name.into(), template(name, 6000));
+    admit_source(
+        &mut receiving,
+        lifecycle_source(name, 6000),
+        "native-lifecycle-save.ini",
+    );
     receiving.frame = 99;
     receiving.native_hulk_max_lifetime_override = 123;
     let id = receiving
@@ -160,7 +190,12 @@ fn receiving_definition_mismatch_keeps_world_and_override_unchanged() {
 fn bound_empty_deceptive_name_stays_empty_after_fresh_encoded_restore() {
     let name = "PoisonFieldSmall";
     let mut parser = crate::assets::IniParser::new();
-    parser.parse_ini_content(&format!("Object {name}\nKindOf = IMMOBILE\nBody = ActiveBody BodyTag\nMaxHealth = 100\nEnd\nEnd"), "native-empty-save.ini").unwrap();
+    let source_text = format!(
+        "Object {name}\nKindOf = IMMOBILE\nBody = ActiveBody BodyTag\nMaxHealth = 100\nEnd\nEnd"
+    );
+    parser
+        .parse_ini_content(&source_text, "native-empty-save.ini")
+        .unwrap();
     let mut source = GameLogic::new();
     source.templates.insert(
         name.into(),
@@ -170,6 +205,7 @@ fn bound_empty_deceptive_name_stays_empty_after_fresh_encoded_restore() {
             None,
         ),
     );
+    admit_source(&mut source, source_text.clone(), "native-empty-save.ini");
     let id = source.create_object(name, Team::USA, Vec3::ZERO).unwrap();
     let builder = super::super::SnapshotBuilder::new();
     let saved = builder.create_world_snapshot(&source).unwrap();
@@ -179,6 +215,7 @@ fn bound_empty_deceptive_name_stays_empty_after_fresh_encoded_restore() {
     receiving
         .templates
         .insert(name.into(), source.templates[name].clone());
+    admit_source(&mut receiving, source_text, "native-empty-save.ini");
     builder
         .restore_from_snapshot(&decoded, &mut receiving)
         .unwrap();
@@ -190,9 +227,16 @@ fn bound_empty_deceptive_name_stays_empty_after_fresh_encoded_restore() {
     assert!(object.height_die.is_none());
 }
 
+fn single_lifetime_source(name: &str) -> String {
+    format!(
+        "Object {name}\nBody = ActiveBody BodyTag\nMaxHealth = 100\nEnd\nBehavior = LifetimeUpdate SavedLife\nMinLifetime = 5000\nMaxLifetime = 5000\nEnd\nEnd"
+    )
+}
 fn single_lifetime_template(name: &str) -> ThingTemplate {
     let mut parser = crate::assets::IniParser::new();
-    parser.parse_ini_content(&format!("Object {name}\nBody = ActiveBody BodyTag\nMaxHealth = 100\nEnd\nBehavior = LifetimeUpdate SavedLife\nMinLifetime = 5000\nMaxLifetime = 5000\nEnd\nEnd"), "legacy-lifecycle-save.ini").unwrap();
+    parser
+        .parse_ini_content(&single_lifetime_source(name), "legacy-lifecycle-save.ini")
+        .unwrap();
     GameLogic::build_template_from_object_definition(
         name,
         parser.get_definition(name).unwrap(),
@@ -225,6 +269,11 @@ fn old_singleton_load_resave_and_reload_keeps_one_legacy_adapter() {
     receiving
         .templates
         .insert(name.into(), single_lifetime_template(name));
+    admit_source(
+        &mut receiving,
+        single_lifetime_source(name),
+        "legacy-lifecycle-save.ini",
+    );
     builder.restore_from_snapshot(&old, &mut receiving).unwrap();
     assert!(receiving.objects[&id].native_lifecycle.is_none());
     assert_eq!(
@@ -244,6 +293,11 @@ fn old_singleton_load_resave_and_reload_keeps_one_legacy_adapter() {
             final_world
                 .templates
                 .insert(name.into(), single_lifetime_template(name));
+            admit_source(
+                &mut final_world,
+                single_lifetime_source(name),
+                "legacy-lifecycle-save.ini",
+            );
         } else {
             let mut receiving_definition = ThingTemplate::new(name);
             receiving_definition.native_die_declarations =
@@ -274,9 +328,13 @@ fn old_singleton_load_resave_and_reload_keeps_one_legacy_adapter() {
     }
     // Missing, mismatched and multiple receiving modules are rejected while
     // the direct receiver still describes its pre-load world.
-    for (receiving_template, remove_runtime) in [
-        (single_lifetime_template(name), true),
-        (template(name, 5000), false),
+    for (receiving_template, source_text, remove_runtime) in [
+        (
+            single_lifetime_template(name),
+            single_lifetime_source(name),
+            true,
+        ),
+        (template(name, 5000), lifecycle_source(name, 5000), false),
         (
             {
                 let mut t = single_lifetime_template(name);
@@ -286,10 +344,12 @@ fn old_singleton_load_resave_and_reload_keeps_one_legacy_adapter() {
                     );
                 t
             },
+            single_lifetime_source(name),
             false,
         ),
     ] {
         let mut candidate = GameLogic::new();
+        admit_source(&mut candidate, source_text, "legacy-lifecycle-save.ini");
         candidate.templates.insert(name.into(), receiving_template);
         candidate.frame = 99;
         candidate.native_hulk_max_lifetime_override = 123;

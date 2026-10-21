@@ -127,12 +127,23 @@ fn parse_ascii(tokens: &[&str]) -> Result<AsciiString, INIError> {
     Ok(AsciiString::from(required_value(tokens)?))
 }
 
-fn parse_coord3d(tokens: &[&str]) -> Result<Coord3D, INIError> {
+pub(super) fn parse_coord3d(tokens: &[&str]) -> Result<Coord3D, INIError> {
     let values: Vec<&str> = tokens
         .iter()
         .copied()
         .filter(|token| *token != "=")
         .collect();
+    // INI.cpp:1079-1087 and getNextSubToken:1648-1654 consume X, Y, Z
+    // in order, case-insensitively, then scan each real. Keep the existing
+    // unlabeled Rust fixture adapter separate from that original grammar.
+    if values.iter().any(|token| token.contains([':', '=']))
+        || values
+            .first()
+            .is_some_and(|token| token.eq_ignore_ascii_case("X"))
+    {
+        let (x, y, z) = INI::parse_coord_3d_ordered(&values)?;
+        return Ok(Coord3D::new(x, y, z));
+    }
     if values.len() >= 3 {
         let x = INI::parse_real(values[0])?;
         let y = INI::parse_real(values[1])?;
@@ -249,42 +260,18 @@ fn parse_radius_decal_color(
     data: &mut RadiusDecalTemplate,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let values: Vec<&str> = tokens
-        .iter()
-        .copied()
-        .filter(|token| *token != "=")
-        .collect();
-    if values.is_empty() {
-        return Err(INIError::InvalidData);
-    }
-    if values.len() == 1 {
-        if let Ok(value) = values[0].parse::<u32>() {
-            data.color = value;
-            return Ok(());
+    // Retain the existing single packed-u32 Rust fixture adapter separately
+    // from C++ RadiusDecal.cpp:94-109's ordered INI::parseColorInt grammar.
+    let mut values = tokens.iter().copied().filter(|value| *value != "=");
+    if let Some(value) = values.next() {
+        if values.next().is_none() {
+            if let Ok(packed) = value.parse::<u32>() {
+                data.color = packed;
+                return Ok(());
+            }
         }
     }
-
-    let mut r: u8 = 0;
-    let mut g: u8 = 0;
-    let mut b: u8 = 0;
-    let mut a: u8 = 255;
-
-    for token in values {
-        let (key, value) = match token.split_once(':') {
-            Some((k, v)) => (k.trim(), v.trim()),
-            None => ("", token.trim()),
-        };
-        let parsed = value.parse::<u8>().map_err(|_| INIError::InvalidData)?;
-        match key.to_ascii_uppercase().as_str() {
-            "R" => r = parsed,
-            "G" => g = parsed,
-            "B" => b = parsed,
-            "A" => a = parsed,
-            _ => {}
-        }
-    }
-
-    data.color = ((a as u32) << 24) | ((b as u32) << 16) | ((g as u32) << 8) | (r as u32);
+    data.color = INI::parse_color_int_ordered(tokens)?;
     Ok(())
 }
 
@@ -582,7 +569,35 @@ mod tests {
         assert!((decal.min_opacity - 0.25).abs() < f32::EPSILON);
         assert!((decal.max_opacity - 0.5).abs() < f32::EPSILON);
         assert_eq!(decal.opacity_throb_time, 15);
-        assert_eq!(decal.color, 0xff009cff);
+        // C++ Color.h:37-40 GameMakeColor(255, 156, 0, 255).
+        assert_eq!(decal.color, 0xffff9c00);
         assert!(decal.only_visible_to_owning_player);
+    }
+}
+
+#[cfg(test)]
+mod labeled_coordinate_tests {
+    use super::*;
+    #[test]
+    fn deliver_payload_data_parses_original_labeled_coordinates_without_axis_conversion() {
+        let mut data = DeliverPayloadData::default();
+        let mut ini = INI::new();
+        ini.with_inline_source(
+            "DropOffset = X:0 Y:0 Z:-10\nDropVariance = X:5 Y:6 Z:7\nEnd\n",
+            |ini| ini.init_from_ini_with_fields(&mut data, DELIVER_PAYLOAD_DATA_FIELDS),
+        )
+        .unwrap();
+        assert_eq!(data.drop_offset, Coord3D::new(0.0, 0.0, -10.0));
+        assert_eq!(data.drop_variance, Coord3D::new(5.0, 6.0, 7.0));
+        assert!(
+            ini.with_inline_source("DropOffset = X:0 Y:bad Z:-10\nEnd\n", |ini| ini
+                .init_from_ini_with_fields(&mut data, DELIVER_PAYLOAD_DATA_FIELDS))
+                .is_err()
+        );
+        assert!(
+            ini.with_inline_source("DropVariance = X:0 Y:1\nEnd\n", |ini| ini
+                .init_from_ini_with_fields(&mut data, DELIVER_PAYLOAD_DATA_FIELDS))
+                .is_err()
+        );
     }
 }

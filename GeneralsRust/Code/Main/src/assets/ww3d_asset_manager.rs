@@ -212,7 +212,7 @@ impl WW3DAssetManager {
         Some(resolved)
     }
 
-    fn merge_definition_inheritance(
+    pub(crate) fn merge_definition_inheritance(
         mut parent: ObjectDefinition,
         child: ObjectDefinition,
     ) -> ObjectDefinition {
@@ -234,10 +234,9 @@ impl WW3DAssetManager {
         if child.draw_module.is_some() {
             parent.draw_module = child.draw_module;
         }
-        // C++ ObjectReskin/ChildObject draw data replaces the inherited module
-        // only when the child actually declares Draw data.  Do not merge
-        // unrelated state lists: that would fabricate a hybrid model table
-        // which never existed in the Object INIs.
+        let inherited_draw_modules = parent.draw_modules.clone();
+        let authored_draw_modules = child.draw_modules.clone();
+        // Uncaptured programmatic definitions retain the compatibility policy.
         if !child.draw_modules.is_empty() {
             parent.draw_modules = child.draw_modules;
         }
@@ -332,6 +331,13 @@ impl WW3DAssetManager {
         }
 
         parent.resolve_client_modules(&inherited_client_modules, initial_context);
+        if parent.source_declarations.is_some() {
+            parent.draw_modules = Self::resolved_draw_module_bodies(
+                &parent.client_modules,
+                &inherited_draw_modules,
+                &authored_draw_modules,
+            );
+        }
         parent
     }
 
@@ -347,16 +353,43 @@ impl WW3DAssetManager {
     /// Copy DefaultThingTemplate scalars/collections the way C++
     /// `ThingFactory::newTemplate` does (`*newTemplate = *defaultT`).
     ///
-    /// This is not ChildObject module merge: default DestroyDie / InactiveBody
-    /// / W3DDefaultDraw must not append onto every authored object. Inheritable
-    /// AutoHeal and Overrideable StealthUpdate stay on leftover ThingFactory.
-    fn merge_default_thing_template(
+    /// A declared Draw follows the existing replacement policy. Without one,
+    /// the default Draw and its model remain the effective source definition,
+    /// matching the copied template before any Object-local fields are parsed.
+    pub(crate) fn merge_default_thing_template(
         default: ObjectDefinition,
         mut child: ObjectDefinition,
     ) -> ObjectDefinition {
         child.source_declarations =
             ObjectDefinition::inherited_source_declarations(&default, &child);
         child.resolve_client_modules(&default.client_modules, default.client_module_parse_context);
+        if child.source_declarations.is_some() {
+            child.draw_modules = Self::resolved_draw_module_bodies(
+                &child.client_modules,
+                &default.draw_modules,
+                &child.draw_modules,
+            );
+        }
+        if child.source_declarations.is_none()
+            && child.draw_modules.is_empty()
+            && child.draw_module.is_none()
+        {
+            child.draw_modules = default.draw_modules.clone();
+            child.draw_module = default.draw_module.clone();
+            if child.model_name.is_none() {
+                child.model_name = default.model_name.clone();
+            }
+        }
+
+        if child.draw_module.is_none() {
+            child.draw_module = child
+                .draw_modules
+                .first()
+                .map(|module| module.declaration.clone());
+            if child.model_name.is_none() && !child.draw_modules.is_empty() {
+                child.model_name = default.model_name.clone();
+            }
+        }
         child.attributes = Self::overlay_ini_attributes(default.attributes, child.attributes);
 
         if child.weapon_sets.is_empty() {
@@ -400,6 +433,32 @@ impl WW3DAssetManager {
             child.locomotor_sets = default.locomotor_sets;
         }
         child
+    }
+
+    /// Project only the Draw bodies selected by the existing original-policy
+    /// resolver. A copied Inheritable/like-kind survivor is not an all-parent
+    /// append; removals and replacements already determined the exact order.
+    fn resolved_draw_module_bodies(
+        resolved: &[crate::assets::ClientModuleDeclaration],
+        inherited: &[crate::assets::DrawModuleDefinition],
+        authored: &[crate::assets::DrawModuleDefinition],
+    ) -> Vec<crate::assets::DrawModuleDefinition> {
+        resolved
+            .iter()
+            .filter(|entry| entry.kind == crate::assets::ClientModuleKind::Draw)
+            .filter_map(|entry| {
+                // A replacement reusing a tag selects its authored body.
+                authored
+                    .iter()
+                    .chain(inherited.iter())
+                    .find(|body| {
+                        let mut tokens = body.declaration.split_whitespace();
+                        tokens.next() == Some(entry.class_name.as_str())
+                            && tokens.next() == entry.module_tag.as_deref()
+                    })
+                    .cloned()
+            })
+            .collect()
     }
 
     fn overlay_ini_attributes(
@@ -1055,7 +1114,10 @@ mod body_inheritance_tests {
     #[test]
     fn inherited_initial_body_health_binds_before_receiving_construction() {
         let mut parser = IniParser::new();
-        parser.parse_ini_content("Object BodyParent\nBody = ActiveBody BodyTag\nMaxHealth = 260\nInitialHealth = 90\nEnd\nEnd\nChildObject BodyChild BodyParent\nEnd", "inherited-body.ini").unwrap();
+        let body_source = "Object BodyParent\nBody = ActiveBody BodyTag\nMaxHealth = 260\nInitialHealth = 90\nEnd\nEnd\nChildObject BodyChild BodyParent\nEnd";
+        parser
+            .parse_ini_content(body_source, "inherited-body.ini")
+            .unwrap();
         let parent = parser.get_definition("BodyParent").unwrap().clone();
         let child = parser.get_definition("BodyChild").unwrap().clone();
         let effective = WW3DAssetManager::merge_definition_inheritance(parent, child);
@@ -1067,6 +1129,15 @@ mod body_inheritance_tests {
         assert_eq!(template.body_initial_health, Some(90.0));
         let mut world = crate::game_logic::GameLogic::new();
         world.templates.insert("BodyChild".into(), template);
+        world
+            .admit_receiving_module_content(
+                crate::assets::ReceivingObjectContent::from_sources([(
+                    "inherited-body.ini".into(),
+                    body_source.to_owned(),
+                )])
+                .unwrap(),
+            )
+            .unwrap();
         let id = world
             .create_object("BodyChild", crate::game_logic::Team::USA, glam::Vec3::ZERO)
             .unwrap();
@@ -1342,10 +1413,8 @@ mod strict_receiving_source_tests {
 
     #[test]
     fn strict_receiving_source_uses_actual_typed_catalog_and_leaves_same_name_worlds_untouched() {
-        let valid = parse(
-            "Receiving",
-            "Body = ActiveBody BodyTag\nMaxHealth = 40\nInitialHealth = 40\nEnd\nClientUpdate = SwayClientUpdate ClientTag\nEnd",
-        );
+        let valid_body = "Body = ActiveBody BodyTag\nMaxHealth = 40\nInitialHealth = 40\nEnd\nClientUpdate = SwayClientUpdate ClientTag\nEnd";
+        let valid = parse("Receiving", valid_body);
         let factory = catalog();
         let candidate = valid.validate_receiving_module_source(&factory).unwrap();
         let summary = candidate.summary();
@@ -1361,14 +1430,21 @@ mod strict_receiving_source_tests {
                 None,
             ),
         );
+        world
+            .admit_receiving_module_content(
+                crate::assets::ReceivingObjectContent::from_sources([(
+                    "strict-receiving.ini".into(),
+                    format!("Object Receiving\n{valid_body}\nEnd"),
+                )])
+                .unwrap(),
+            )
+            .unwrap();
         let id = world
             .create_object("Receiving", crate::game_logic::Team::USA, glam::Vec3::ZERO)
             .unwrap();
         let previous = world.host_object(id).unwrap().clone();
-        let peer_definition = parse(
-            "Receiving",
-            "Body = ActiveBody PeerBody\nMaxHealth = 90\nInitialHealth = 70\nEnd\nClientUpdate = SwayClientUpdate PeerTag\nEnd",
-        );
+        let peer_body = "Body = ActiveBody PeerBody\nMaxHealth = 90\nInitialHealth = 70\nEnd\nClientUpdate = SwayClientUpdate PeerTag\nEnd";
+        let peer_definition = parse("Receiving", peer_body);
         let mut peer = crate::game_logic::GameLogic::new();
         peer.templates.insert(
             "Receiving".into(),
@@ -1378,6 +1454,14 @@ mod strict_receiving_source_tests {
                 None,
             ),
         );
+        peer.admit_receiving_module_content(
+            crate::assets::ReceivingObjectContent::from_sources([(
+                "strict-receiving.ini".into(),
+                format!("Object Receiving\n{peer_body}\nEnd"),
+            )])
+            .unwrap(),
+        )
+        .unwrap();
         let peer_id = peer
             .create_object("Receiving", crate::game_logic::Team::USA, glam::Vec3::ZERO)
             .unwrap();
@@ -1460,3 +1544,7 @@ mod strict_receiving_source_tests {
 #[cfg(all(test, feature = "game_client"))]
 #[path = "ww3d_asset_manager/native_template_data_tests.rs"]
 mod native_template_data_tests;
+
+#[cfg(test)]
+#[path = "ww3d_asset_manager/draw_survivor_projection_tests.rs"]
+mod draw_survivor_projection_tests;

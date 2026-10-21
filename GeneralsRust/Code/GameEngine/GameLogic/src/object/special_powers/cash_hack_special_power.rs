@@ -81,7 +81,13 @@ impl Default for CashHackSpecialPowerModuleData {
 
 impl CashHackSpecialPowerModuleData {
     pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
-        ini.init_from_ini_with_fields(self, CASH_HACK_SPECIAL_POWER_FIELDS)
+        // The C++ subclass adds its leaf table after SpecialPowerModuleData.
+        ini.init_from_ini_with_inherited_fields(
+            self,
+            |data| &mut data.base,
+            crate::object::special_power_module::SPECIAL_POWER_MODULE_FIELDS,
+            CASH_HACK_SPECIAL_POWER_FIELDS,
+        )
     }
 }
 
@@ -397,18 +403,6 @@ super::interface::impl_special_power_subclass!(CashHackSpecialPower);
 
 // INI field parsers
 
-fn parse_special_power_template_field(
-    _ini: &mut INI,
-    data: &mut CashHackSpecialPowerModuleData,
-    tokens: &[&str],
-) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
-    let name = crate::common::AsciiString::from(*token);
-    data.base.special_power_template =
-        Some(crate::object::special_power_template::find_or_create_special_power_template(&name));
-    Ok(())
-}
-
 fn parse_money_amount(
     _ini: &mut INI,
     data: &mut CashHackSpecialPowerModuleData,
@@ -455,10 +449,6 @@ fn parse_upgrade_money_amount(
 }
 
 const CASH_HACK_SPECIAL_POWER_FIELDS: &[FieldParse<CashHackSpecialPowerModuleData>] = &[
-    FieldParse {
-        token: "SpecialPowerTemplate",
-        parse: parse_special_power_template_field,
-    },
     FieldParse {
         token: "MoneyAmount",
         parse: parse_money_amount,

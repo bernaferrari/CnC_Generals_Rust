@@ -250,12 +250,12 @@ impl W3DModelDrawModuleData {
                         info.transition_from_key = if from_name.is_empty() || from_name == "none" {
                             NAMEKEY_INVALID
                         } else {
-                            name_key_generate(&from_name)
+                            ini.name_to_key(&from_name)
                         };
                         info.transition_to_key = if to_name.is_empty() || to_name == "none" {
                             NAMEKEY_INVALID
                         } else {
-                            name_key_generate(&to_name)
+                            ini.name_to_key(&to_name)
                         };
                     }
                     ParseCondStateType::Normal => {
@@ -576,4 +576,3 @@ impl Snapshotable for W3DModelDrawModuleData {
         Ok(())
     }
 }
-

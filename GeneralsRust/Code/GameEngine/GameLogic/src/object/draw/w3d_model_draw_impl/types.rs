@@ -293,13 +293,32 @@ impl ModelConditionInfo {
         if bone_name.is_empty() {
             return None;
         }
-        let bone_key = name_key_generate(bone_name);
+        self.find_pristine_bone_by_name_with_keys(bone_name, &mut name_key_generate)
+    }
+
+    fn find_pristine_bone_by_name_with_keys(
+        &self,
+        bone_name: &str,
+        name_to_key: &mut dyn FnMut(&str) -> NameKeyType,
+    ) -> Option<(NameKeyType, &PristineBoneInfo)> {
+        if bone_name.is_empty() {
+            return None;
+        }
+        let bone_key = name_to_key(bone_name);
         self.find_pristine_bone(bone_key)
             .map(|info| (bone_key, info))
     }
 
     fn pristine_bone_index_by_name(&self, bone_name: &str) -> i32 {
-        self.find_pristine_bone_by_name(bone_name)
+        self.pristine_bone_index_by_name_with_keys(bone_name, &mut name_key_generate)
+    }
+
+    fn pristine_bone_index_by_name_with_keys(
+        &self,
+        bone_name: &str,
+        name_to_key: &mut dyn FnMut(&str) -> NameKeyType,
+    ) -> i32 {
+        self.find_pristine_bone_by_name_with_keys(bone_name, name_to_key)
             .map(|(_, info)| info.bone_index)
             .unwrap_or(0)
     }
@@ -324,6 +343,18 @@ impl ModelConditionInfo {
         scale: Real,
         standard: &[String],
         lookup: &mut dyn FnMut(&str, Real, i32, &str) -> Option<(i32, Matrix3D)>,
+    ) {
+        self.validate_cached_bones_with_keys(scale, standard, &mut |model, scale, frame, name| {
+            let (index, transform) = lookup(model, scale, frame, name)?;
+            Some((name_key_generate(name), index, transform))
+        });
+    }
+
+    fn validate_cached_bones_with_keys(
+        &mut self,
+        scale: Real,
+        standard: &[String],
+        lookup: &mut dyn FnMut(&str, Real, i32, &str) -> Option<(NameKeyType, i32, Matrix3D)>,
     ) {
         if (self.valid_stuff & MODEL_CONDITION_PRISTINE_BONES_VALID) != 0 {
             return;
@@ -351,7 +382,7 @@ impl ModelConditionInfo {
         let public_bones = self.public_bones.clone();
 
         for bone in standard {
-            let _ = do_single_bone_name_with(
+            let _ = do_single_bone_name_with_keys(
                 &mut self.pristine_bones,
                 &model,
                 scale,
@@ -361,7 +392,7 @@ impl ModelConditionInfo {
             );
         }
         for bone in &public_bones {
-            let _ = do_single_bone_name_with(
+            let _ = do_single_bone_name_with_keys(
                 &mut self.pristine_bones,
                 &model,
                 scale,
@@ -415,6 +446,13 @@ impl ModelConditionInfo {
     }
 
     fn validate_weapon_barrel_info(&mut self) {
+        self.validate_weapon_barrel_info_with_keys(&mut name_key_generate);
+    }
+
+    fn validate_weapon_barrel_info_with_keys(
+        &mut self,
+        name_to_key: &mut dyn FnMut(&str) -> NameKeyType,
+    ) {
         if self.barrels_are_valid() {
             return;
         }
@@ -442,17 +480,19 @@ impl ModelConditionInfo {
 
                 if !recoil_bone_name.is_empty() {
                     let name = format!("{recoil_bone_name}{index:02}");
-                    info.recoil_bone = self.pristine_bone_index_by_name(&name);
+                    info.recoil_bone =
+                        self.pristine_bone_index_by_name_with_keys(&name, name_to_key);
                 }
 
                 if !muzzle_flash_name.is_empty() {
                     let name = format!("{muzzle_flash_name}{index:02}");
-                    info.muzzle_flash_bone = self.pristine_bone_index_by_name(&name);
+                    info.muzzle_flash_bone =
+                        self.pristine_bone_index_by_name_with_keys(&name, name_to_key);
                 }
 
                 if !fx_bone_name.is_empty() {
                     let name = format!("{fx_bone_name}{index:02}");
-                    info.fx_bone = self.pristine_bone_index_by_name(&name);
+                    info.fx_bone = self.pristine_bone_index_by_name_with_keys(&name, name_to_key);
                     if info.fx_bone == 0 && info.muzzle_flash_bone != 0 {
                         info.fx_bone = prev_fx_bone;
                     }
@@ -461,7 +501,9 @@ impl ModelConditionInfo {
                 let mut projectile_launch_bone = 0;
                 if !projectile_launch_name.is_empty() {
                     let name = format!("{projectile_launch_name}{index:02}");
-                    if let Some((_, bone)) = self.find_pristine_bone_by_name(&name) {
+                    if let Some((_, bone)) =
+                        self.find_pristine_bone_by_name_with_keys(&name, name_to_key)
+                    {
                         projectile_launch_bone = bone.bone_index;
                         info.projectile_offset_mtx = bone.transform;
                     }
@@ -483,22 +525,26 @@ impl ModelConditionInfo {
                 let mut info = WeaponBarrelInfo::new();
 
                 if !recoil_bone_name.is_empty() {
-                    info.recoil_bone = self.pristine_bone_index_by_name(recoil_bone_name);
+                    info.recoil_bone =
+                        self.pristine_bone_index_by_name_with_keys(recoil_bone_name, name_to_key);
                 }
 
                 if !muzzle_flash_name.is_empty() {
-                    info.muzzle_flash_bone = self.pristine_bone_index_by_name(muzzle_flash_name);
+                    info.muzzle_flash_bone =
+                        self.pristine_bone_index_by_name_with_keys(muzzle_flash_name, name_to_key);
                 }
 
                 if !projectile_launch_name.is_empty() {
-                    if let Some((_, bone)) = self.find_pristine_bone_by_name(projectile_launch_name)
+                    if let Some((_, bone)) = self
+                        .find_pristine_bone_by_name_with_keys(projectile_launch_name, name_to_key)
                     {
                         info.projectile_offset_mtx = bone.transform;
                     }
                 }
 
                 if !fx_bone_name.is_empty() {
-                    info.fx_bone = self.pristine_bone_index_by_name(fx_bone_name);
+                    info.fx_bone =
+                        self.pristine_bone_index_by_name_with_keys(fx_bone_name, name_to_key);
                 }
 
                 if info.fx_bone != 0
@@ -556,11 +602,12 @@ impl ModelConditionInfo {
     ) {
         self.validate_public_bones(extra_public_bones);
         let standard = receiver.standard_public_bones();
-        self.validate_cached_bones_with(scale, &standard, &mut |model, scale, frame, name| {
-            receiver.pristine_bone(model, scale, frame, name)
+        self.validate_cached_bones_with_keys(scale, &standard, &mut |model, scale, frame, name| {
+            let (index, transform) = receiver.pristine_bone(model, scale, frame, name)?;
+            Some((receiver.name_to_key(name), index, transform))
         });
         self.validate_turret_info();
-        self.validate_weapon_barrel_info();
+        self.validate_weapon_barrel_info_with_keys(&mut |name| receiver.name_to_key(name));
     }
 
     fn refresh_projectile_valid_bit(&mut self) {
@@ -712,14 +759,35 @@ fn do_single_bone_name_with(
     bone_name: &str,
     lookup: &mut dyn FnMut(&str, Real, i32, &str) -> Option<(i32, Matrix3D)>,
 ) -> bool {
+    do_single_bone_name_with_keys(
+        map,
+        model,
+        scale,
+        frame,
+        bone_name,
+        &mut |model, scale, frame, name| {
+            let (index, transform) = lookup(model, scale, frame, name)?;
+            Some((name_key_generate(name), index, transform))
+        },
+    )
+}
+
+fn do_single_bone_name_with_keys(
+    map: &mut HashMap<NameKeyType, PristineBoneInfo>,
+    model: &str,
+    scale: Real,
+    frame: i32,
+    bone_name: &str,
+    lookup: &mut dyn FnMut(&str, Real, i32, &str) -> Option<(NameKeyType, i32, Matrix3D)>,
+) -> bool {
     if bone_name.is_empty() || bone_name.eq_ignore_ascii_case("none") {
         return false;
     }
     let bone_name = bone_name.to_ascii_lowercase();
     let mut found = false;
-    if let Some((bone_index, transform)) = lookup(model, scale, frame, &bone_name) {
+    if let Some((key, bone_index, transform)) = lookup(model, scale, frame, &bone_name) {
         map.insert(
-            name_key_generate(&bone_name),
+            key,
             PristineBoneInfo {
                 transform,
                 bone_index,
@@ -729,9 +797,9 @@ fn do_single_bone_name_with(
     }
     for index in 1..=99 {
         let numbered = format!("{bone_name}{index:02}");
-        if let Some((bone_index, transform)) = lookup(model, scale, frame, &numbered) {
+        if let Some((key, bone_index, transform)) = lookup(model, scale, frame, &numbered) {
             map.insert(
-                name_key_generate(&numbered),
+                key,
                 PristineBoneInfo {
                     transform,
                     bone_index,

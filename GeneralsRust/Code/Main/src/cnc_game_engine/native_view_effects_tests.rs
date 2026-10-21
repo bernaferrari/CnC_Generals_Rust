@@ -59,6 +59,7 @@ fn frame_source(world: &mut GameLogic) -> crate::presentation_frame::UnitRenderI
 // behavior below uses the actual production Client and renderer operations.
 fn entry(unit: &crate::presentation_frame::UnitRenderInput) -> PresentationDrawableSync {
     PresentationDrawableSync {
+        receiving_science_player: None,
         object_id: ID.0,
         host_epoch: EPOCH,
         resident: true,
@@ -98,6 +99,12 @@ fn entry(unit: &crate::presentation_frame::UnitRenderInput) -> PresentationDrawa
         emoticon_frames_left: 0,
         formation_id: 0,
         caption: String::new(),
+        module_admission:
+            game_client::core::game_client::PresentationModuleAdmission::Compatibility,
+        draw_logic_frame: 0,
+        draw_indicator_color: [0, 0, 0],
+        draw_physics: Default::default(),
+        draw_velocity_magnitude_squared: 0.0,
         draw_module_names: Arc::new(vec!["W3DModelDraw".into()]),
         health_box_width: 0.,
         health_box_z_offset: 0.,

@@ -611,6 +611,15 @@ impl GameClient {
         let sync = entries
             .into_iter()
             .map(|(id, tmpl, pos, ori)| PresentationDrawableSync {
+                receiving_science_player: None,
+                module_admission:
+                    crate::core::game_client::PresentationModuleAdmission::Compatibility,
+                // The explicit tuple Compatibility adapter has no simulation
+                // observations. Authored native admission supplies these facts.
+                draw_logic_frame: 0,
+                draw_indicator_color: [0; 3],
+                draw_physics: Default::default(),
+                draw_velocity_magnitude_squared: 0.,
                 object_id: id,
                 host_epoch: 0,
                 resident: true,
@@ -684,6 +693,41 @@ impl GameClient {
     where
         I: IntoIterator<Item = PresentationDrawableSync>,
     {
+        self.sync_presentation_drawables_with_content_inner(entries, sync_ms, None, None, observe)
+    }
+
+    /// Exact authored admission. The same mutable content owner crosses loading-worker handoff.
+    pub fn sync_presentation_drawables_observed_with_content<I>(
+        &mut self,
+        entries: I,
+        sync_ms: u32,
+        content: &mut game_engine::common::thing::module_factory::ModuleFactory,
+        policy: ReceivingDrawablePolicy,
+        observe: impl FnMut(PresentationDrawableMutation<'_>),
+    ) -> GameClientResult<(usize, usize, usize)>
+    where
+        I: IntoIterator<Item = PresentationDrawableSync>,
+    {
+        self.sync_presentation_drawables_with_content_inner(
+            entries,
+            sync_ms,
+            Some(content),
+            Some(policy),
+            observe,
+        )
+    }
+
+    fn sync_presentation_drawables_with_content_inner<I>(
+        &mut self,
+        entries: I,
+        sync_ms: u32,
+        mut content: Option<&mut game_engine::common::thing::module_factory::ModuleFactory>,
+        policy: Option<ReceivingDrawablePolicy>,
+        mut observe: impl FnMut(PresentationDrawableMutation<'_>),
+    ) -> GameClientResult<(usize, usize, usize)>
+    where
+        I: IntoIterator<Item = PresentationDrawableSync>,
+    {
         use crate::drawable::DrawableExt;
 
         let mut created = 0usize;
@@ -695,11 +739,13 @@ impl GameClient {
                 continue;
             }
             let visual_template_name = Self::presentation_visual_template_name(&e).to_string();
-            live_bindings.insert((e.host_epoch, e.object_id));
-
-            let mut inherited_material_opacity = None;
-            if let Some(&drawable_id) = self.drawables.drawable_object_map.get(&e.object_id) {
-                let retains_binding = self
+            let existing_drawable_id = self
+                .drawables
+                .drawable_object_map
+                .get(&e.object_id)
+                .copied();
+            let retains_binding = existing_drawable_id.is_some_and(|drawable_id| {
+                self
                     .drawables
                     .presentation_direct_drawable_bindings
                     .get(&drawable_id)
@@ -709,11 +755,74 @@ impl GameClient {
                             && binding.binding_key.drawable_id == drawable_id
                             && binding.visual_template_name == visual_template_name
                             && self.drawables.drawable_map.get(&drawable_id).is_some_and(
-                                |drawable| drawable.get_object_id() == Some(e.object_id),
+                                |drawable| drawable.get_object_id() == Some(e.object_id)
+                                    && drawable.as_any().downcast_ref::<BasicDrawable>().is_some_and(|basic| {
+                                        basic.receiving_template_matches(match &e.module_admission {
+                                            PresentationModuleAdmission::Authored(plan) => Some(plan),
+                                            PresentationModuleAdmission::Compatibility => None,
+                                        })
+                                    }),
                             )
                     })
-                    .unwrap_or(false);
+                    .unwrap_or(false)
+            });
+            if e.module_admission.authored_template().is_some()
+                && e.receiving_science_player.is_none()
+            {
+                let requires_player = if retains_binding {
+                    // LOD is a constructor choice. A retained High-LOD module
+                    // still needs facts after the receiving policy becomes Low.
+                    self.drawables
+                        .drawable_map
+                        .get_mut(&existing_drawable_id.expect("retained binding has an id"))
+                        .and_then(|drawable| drawable.as_any_mut().downcast_mut::<BasicDrawable>())
+                        .is_some_and(|drawable| {
+                            drawable.get_draw_modules_mut().iter_mut().any(|slot| {
+                                slot.logic_module_mut().is_some_and(|module| {
+                                    module
+                                        .get_module_data()
+                                        .as_any()
+                                        .downcast_ref::<W3DScienceModelDrawModuleData>()
+                                        .is_some_and(|data| {
+                                            data.required_science
+                                                != game_engine::common::rts::SCIENCE_INVALID
+                                        })
+                                })
+                            })
+                        })
+                } else {
+                    // Same selection as create_modules_from_entries: filtered
+                    // Science modules never instantiate or consume player facts.
+                    e.module_admission
+                        .authored_template()
+                        .is_some_and(|template| {
+                            template.draw_modules().iter().any(|entry| {
+                                !policy.is_some_and(|policy| {
+                                    policy.use_draw_module_lod
+                                        && (entry.data.get_minimum_required_game_lod() as i32)
+                                            > (policy.static_game_lod as i32)
+                                }) && entry
+                                    .data
+                                    .as_any()
+                                    .downcast_ref::<W3DScienceModelDrawModuleData>()
+                                    .is_some_and(|data| {
+                                        data.required_science
+                                            != game_engine::common::rts::SCIENCE_INVALID
+                                    })
+                            })
+                        })
+                };
+                if requires_player {
+                    return Err(GameClientError::InvalidOperation(
+                        "authored science Drawable requires its receiving local-player observation"
+                            .into(),
+                    ));
+                }
+            }
+            live_bindings.insert((e.host_epoch, e.object_id));
 
+            let mut inherited_material_opacity = None;
+            if let Some(drawable_id) = existing_drawable_id {
                 if retains_binding {
                     let Some(drawable) = self.drawables.drawable_map.get_mut(&drawable_id) else {
                         continue;
@@ -738,7 +847,15 @@ impl GameClient {
                     }
                     if let Some(basic) = drawable.downcast_mut::<BasicDrawable>() {
                         if !visual_template_name.is_empty() {
-                            basic.set_template_name(Some(visual_template_name.clone()));
+                            basic.set_template_name_with_receiving(
+                                Some(visual_template_name.clone()),
+                                match &e.module_admission {
+                                    PresentationModuleAdmission::Authored(template) => {
+                                        Some(template.clone())
+                                    }
+                                    PresentationModuleAdmission::Compatibility => None,
+                                },
+                            );
                         }
                         Self::stamp_presentation_object_residual(basic, &e);
                         let flags = basic.get_model_condition_flags();
@@ -800,7 +917,13 @@ impl GameClient {
                 drawable.set_second_material_pass_opacity(opacity);
             }
             if !visual_template_name.is_empty() {
-                drawable.set_template_name(Some(visual_template_name.clone()));
+                drawable.set_template_name_with_receiving(
+                    Some(visual_template_name.clone()),
+                    match &e.module_admission {
+                        PresentationModuleAdmission::Authored(template) => Some(template.clone()),
+                        PresentationModuleAdmission::Compatibility => None,
+                    },
+                );
             }
             drawable.set_object_id(Some(e.object_id));
             // C++ Drawable ctor allocates DrawModules from ThingTemplate
@@ -812,7 +935,43 @@ impl GameClient {
                 initial_transform: drawable.native_base_transform(),
                 sync_ms,
             });
-            Self::attach_presentation_specialized_draw_modules(&mut drawable, &e);
+            if let Some(admitted) = e.module_admission.authored_template() {
+                let keys = content
+                    .as_deref_mut()
+                    .and_then(|owner| owner.receiving_name_keys_mut())
+                    .ok_or_else(|| {
+                        GameClientError::InvalidOperation(
+                            "authored Drawable requires its receiving name-key owner".to_owned(),
+                        )
+                    })?;
+                let policy = policy.ok_or_else(|| {
+                    GameClientError::InvalidOperation(
+                        "authored Drawable requires receiving LOD policy".to_owned(),
+                    )
+                })?;
+                let mut modules = Self::create_receiving_modules_from_plan(
+                    admitted,
+                    keys,
+                    policy,
+                    (e.object_id, e.draw_logic_frame),
+                )?;
+                for module in &mut modules {
+                    if let Some(logic) = module.logic_module_mut() {
+                        gamelogic::object::drawable::create_native_draw_module_for_owner(
+                            logic,
+                            e.object_id,
+                            e.draw_indicator_color,
+                            admitted.per_unit_sound_event("TruckLandingSound"),
+                            admitted.per_unit_sound_event("TruckPowerslideSound"),
+                        );
+                    }
+                }
+                for module in modules {
+                    drawable.add_draw_module(module);
+                }
+            } else {
+                Self::attach_presentation_specialized_draw_modules(&mut drawable, &e);
+            }
             let position = Vector3::new(e.position[0], e.position[1], e.position[2]);
             drawable.set_position(position);
             observe(PresentationDrawableMutation::TransformInstalled {
@@ -993,15 +1152,15 @@ impl GameClient {
         } else {
             e.visual_template_name.as_str()
         };
-        if leftover_science_model_data(visual).is_some()
-            && tick_live_host_science_model_hide(
-                visual,
-                leftover_science_model_data(visual).as_ref(),
-            )
-        {
-            // C++ W3DScienceModelDraw::doDrawModule setHidden(TRUE).
-            drawable.set_drawable_hidden(true);
+        if e.module_admission.authored_template().is_none() {
+            if let Some(data) = leftover_science_model_data(visual) {
+                if tick_live_host_science_model_hide(visual, Some(&data)) {
+                    drawable.set_drawable_hidden(true);
+                }
+            }
         }
+        // Authored science gates its actual typed module at doDrawModule, not
+        // this whole Drawable or an unbound temporary compatibility module.
     }
 
     /// Apply presentation cinematic letterbox residual to GraphicsDisplay.
@@ -1850,7 +2009,7 @@ impl GameClient {
         phase: NativeDrawPhase,
     ) -> GameClientResult<()> {
         self.finish_presentation_shell_with_native_views_routed(
-            prepared, materials, views, phase, None, None,
+            prepared, materials, views, phase, None, None, None,
         )
     }
 
@@ -1869,6 +2028,7 @@ impl GameClient {
             views,
             phase,
             Some((recorder, receive)),
+            None,
             None,
         )
     }
@@ -1890,6 +2050,29 @@ impl GameClient {
             phase,
             Some((recorder, receive)),
             Some(lifecycle),
+            None,
+        )
+    }
+
+    pub fn finish_presentation_shell_with_receiving_commands_and_object_lifecycle_and_content(
+        &mut self,
+        prepared: PreparedPresentationShell,
+        materials: &[NativeMaterialObservation],
+        views: &[NativeDrawView],
+        phase: NativeDrawPhase,
+        recorder: &game_engine::common::recorder::Recorder,
+        receive: &mut dyn FnMut(Vec<GameMessage>) -> GameClientResult<()>,
+        lifecycle: &mut crate::effects::particle_manager::NativeParticleObjectLifecycle<'_>,
+        content: &mut game_engine::common::thing::module_factory::ModuleFactory,
+    ) -> GameClientResult<()> {
+        self.finish_presentation_shell_with_native_views_routed(
+            prepared,
+            materials,
+            views,
+            phase,
+            Some((recorder, receive)),
+            Some(lifecycle),
+            Some(content),
         )
     }
 
@@ -1904,6 +2087,7 @@ impl GameClient {
             &mut dyn FnMut(Vec<GameMessage>) -> GameClientResult<()>,
         )>,
         lifecycle: Option<&mut crate::effects::particle_manager::NativeParticleObjectLifecycle<'_>>,
+        content: Option<&mut game_engine::common::thing::module_factory::ModuleFactory>,
     ) -> GameClientResult<()> {
         if !std::sync::Arc::ptr_eq(&prepared.owner, &self.presentation_shell_owner)
             || prepared.generation != self.presentation_shell_generation
@@ -1914,13 +2098,24 @@ impl GameClient {
             ));
         }
         if !prepared.skip_draw {
-            self.draw_native_views_with_object_lifecycle(
-                prepared.frames,
-                materials,
-                views,
-                phase,
-                lifecycle,
-            )?;
+            if let Some(content) = content {
+                self.draw_native_views_with_object_lifecycle_and_content(
+                    prepared.frames,
+                    materials,
+                    views,
+                    phase,
+                    lifecycle,
+                    content,
+                )?;
+            } else {
+                self.draw_native_views_with_object_lifecycle(
+                    prepared.frames,
+                    materials,
+                    views,
+                    phase,
+                    lifecycle,
+                )?;
+            }
         }
         self.finish_presentation_shell_routed(prepared, receive)
     }

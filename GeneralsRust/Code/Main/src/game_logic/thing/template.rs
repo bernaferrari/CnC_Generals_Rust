@@ -77,6 +77,39 @@ impl ReceivingDrawModels {
     }
 }
 
+/// An immutable typed definition admitted by this content producer. Ordinary
+/// template/frame clones retain the same definition identity. The mutable
+/// namespace remains on GameLogic, never inside this shared value.
+#[derive(Debug, Clone)]
+pub(crate) struct ReceivingClientTemplate(
+    std::sync::Arc<game_engine::common::thing::thing_template::AdmittedReceivingTemplate>,
+);
+
+impl PartialEq for ReceivingClientTemplate {
+    fn eq(&self, other: &Self) -> bool {
+        std::sync::Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl ReceivingClientTemplate {
+    pub(crate) fn new(
+        template: std::sync::Arc<
+            game_engine::common::thing::thing_template::AdmittedReceivingTemplate,
+        >,
+    ) -> Self {
+        Self(template)
+    }
+
+    #[cfg(feature = "game_client")]
+    pub(crate) fn client_admission(
+        &self,
+    ) -> game_client::core::game_client::PresentationModuleAdmission {
+        game_client::core::game_client::PresentationModuleAdmission::Authored(
+            std::sync::Arc::clone(&self.0),
+        )
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ThingTemplate {
     pub name: String,
@@ -89,6 +122,11 @@ pub struct ThingTemplate {
     /// Not serialized into the historical positional template wire format.
     #[serde(skip)]
     pub(crate) client_module_declarations: Option<Box<[crate::assets::ClientModuleDeclaration]>>,
+    /// Complete effective source retained for receiving map overrides and rebind.
+    #[serde(skip)]
+    pub(crate) receiving_object_definition: Option<std::sync::Arc<crate::assets::ObjectDefinition>>,
+    #[serde(skip)]
+    pub(crate) receiving_client_template: Option<ReceivingClientTemplate>,
     #[serde(skip)]
     pub(crate) native_die_declarations:
         Option<Box<[crate::game_logic::native_die_definition::NativeDieDeclaration]>>,
@@ -684,6 +722,8 @@ impl ThingTemplate {
             default_draw_without_fog_memory: false,
             max_health: 100.0,
             client_module_declarations: None,
+            receiving_object_definition: None,
+            receiving_client_template: None,
             body_kind: None,
             native_lifecycle_definitions: None,
             native_lifecycle_error: None,

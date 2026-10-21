@@ -108,9 +108,51 @@ pub struct FrozenDirectSceneShroudDecision {
     pub decision: crate::drawable::SceneShroudDecision,
 }
 
+/// Immutable logic-owned physics observations. Client wheel counters are not copied here.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct PresentationDrawPhysics {
+    pub speed: f32,
+    pub vel_x: f32,
+    pub vel_y: f32,
+    pub accel_x: f32,
+    pub accel_y: f32,
+    pub is_motive: bool,
+    pub airborne: bool,
+    pub turning: f32,
+}
+
+/// Provenance of this visual's Draw and ClientUpdate definitions.
+#[derive(Debug, Clone)]
+pub enum PresentationModuleAdmission {
+    Authored(std::sync::Arc<game_engine::common::thing::thing_template::AdmittedReceivingTemplate>),
+    Compatibility,
+}
+
+impl PresentationModuleAdmission {
+    fn authored_template(
+        &self,
+    ) -> Option<&game_engine::common::thing::thing_template::AdmittedReceivingTemplate> {
+        match self {
+            Self::Authored(template) => Some(template),
+            Self::Compatibility => None,
+        }
+    }
+}
+
 /// Wave 963: presentation → drawable sync residual (host path, no dual-world registry).
 #[derive(Debug, Clone)]
 pub struct PresentationDrawableSync {
+    /// Authored empty declarations remain authoritative; compatibility is explicit.
+    pub module_admission: PresentationModuleAdmission,
+    /// Full receiving local-player facts, independent of UI list caps.
+    pub receiving_science_player: Option<
+        std::sync::Arc<gamelogic::object::draw::w3d_science_model_draw::ReceivingSciencePlayer>,
+    >,
+    /// Object custom/player day-or-night indicator color selected by the receiving world.
+    pub draw_indicator_color: [u8; 3],
+    pub draw_physics: PresentationDrawPhysics,
+    pub draw_velocity_magnitude_squared: f32,
+    pub draw_logic_frame: u32,
     pub object_id: u32,
     /// Runtime host-world identity supplied by Main for this direct visual.
     pub host_epoch: u64,

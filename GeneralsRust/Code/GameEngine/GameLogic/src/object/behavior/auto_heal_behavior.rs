@@ -228,7 +228,7 @@ fn parse_int(value: &str) -> Result<Int, INIError> {
 }
 
 fn parse_real(value: &str) -> Result<Real, INIError> {
-    value.parse::<Real>().map_err(|_| INIError::InvalidData)
+    INI::parse_real(value)
 }
 
 fn parse_starts_active_field(
