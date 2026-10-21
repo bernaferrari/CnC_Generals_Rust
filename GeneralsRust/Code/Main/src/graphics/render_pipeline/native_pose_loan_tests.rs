@@ -39,8 +39,10 @@ fn same_id_peer_reset_and_replacement_cannot_query_or_consume_installed_owner() 
     let mut failed = pipeline_collect::FailedModelResolutions::default();
     let mut pending = None;
     let mut imports = HashMap::new();
+    let mut playback = HashMap::new();
     {
         let mut loan = NativeInstalledPoseLoan {
+            live_draw_playback: &mut playback,
             drawable_visual_states: &mut states,
             failed_model_resolutions: &mut failed,
             pending_client_drawable_restore: &mut pending,
@@ -81,7 +83,9 @@ fn residual_same_id_sibling_from_prior_generation_rejects_whole_source_query() {
     let mut failed = pipeline_collect::FailedModelResolutions::default();
     let mut pending = None;
     let mut imports = HashMap::new();
+    let mut playback = HashMap::new();
     let loan = NativeInstalledPoseLoan {
+        live_draw_playback: &mut playback,
         drawable_visual_states: &mut states,
         failed_model_resolutions: &mut failed,
         pending_client_drawable_restore: &mut pending,
@@ -129,7 +133,9 @@ fn same_object_same_template_client_replacement_requires_actual_constructor_befo
     let mut failed = pipeline_collect::FailedModelResolutions::default();
     let mut pending = None;
     let mut imports = HashMap::new();
+    let mut playback = HashMap::new();
     let mut loan = NativeInstalledPoseLoan {
+        live_draw_playback: &mut playback,
         drawable_visual_states: &mut states,
         failed_model_resolutions: &mut failed,
         pending_client_drawable_restore: &mut pending,
@@ -159,4 +165,57 @@ fn same_object_same_template_client_replacement_requires_actual_constructor_befo
         loan.validate_binding(&actual, key(3), 2),
         Err(NativeCameraPoseUnavailable::UnadmittedDrawableLifecycle)
     );
+}
+
+#[test]
+fn native_destroy_loan_retires_only_its_actual_render_and_playback_owner() {
+    use super::super::native_draw_world::NativeDrawWorld;
+    let actual = identity(&Arc::new(()), &Arc::new(()), 9);
+    let peer_identity = identity(&Arc::new(()), &Arc::new(()), 9);
+    let sibling = LiveDrawPlaybackIdentity::new(Arc::new(()), Arc::new(()), 7, 43, 1);
+    let mut world = NativeDrawWorld::default();
+    world.drawable_visual_states = HashMap::from([
+        ((42, 2), admitted(actual.clone())),
+        ((43, 2), admitted(sibling.clone())),
+    ]);
+    world.live_draw_playback = HashMap::from([
+        (
+            actual.playback_key(2),
+            crate::assets::LiveDrawPlayback::default(),
+        ),
+        (
+            sibling.playback_key(2),
+            crate::assets::LiveDrawPlayback::default(),
+        ),
+    ]);
+    let mut peer = NativeDrawWorld::default();
+    peer.drawable_visual_states
+        .insert((42, 2), admitted(peer_identity.clone()));
+    peer.live_draw_playback
+        .insert(peer_identity.playback_key(2), Default::default());
+    let peer_before = peer.drawable_visual_states.clone();
+    let mut failed = pipeline_collect::FailedModelResolutions::default();
+    world
+        .borrow_installed_poses(&mut failed, 999)
+        .retire_native_drawable(crate::game_logic::ObjectId(42));
+    assert!(!world.drawable_visual_states.contains_key(&(42, 2)));
+    assert!(world.drawable_visual_states.contains_key(&(43, 2)));
+    assert!(
+        !world
+            .live_draw_playback
+            .contains_key(&actual.playback_key(2))
+    );
+    assert!(
+        world
+            .live_draw_playback
+            .contains_key(&sibling.playback_key(2))
+    );
+    assert_eq!(peer.drawable_visual_states, peer_before);
+    assert_eq!(peer.live_draw_playback.len(), 1);
+    assert!(
+        peer.live_draw_playback
+            .contains_key(&peer_identity.playback_key(2))
+    );
+    assert!(world.pending_client_drawable_restore.is_none());
+    assert!(world.pending_client_drawable_imports.is_empty());
 }

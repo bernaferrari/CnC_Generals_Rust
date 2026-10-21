@@ -1141,7 +1141,7 @@ fn presentation_unit_pass_records_zero_live_identity_reads() {
         .split_once("let mut unit_inputs: Vec<crate::presentation_frame::UnitRenderInput>")
         .expect("typed frozen inputs")
         .1
-        .split_once("self.live_draw_playback.retain")
+        .split_once("self.native_draw_world.live_draw_playback.retain")
         .expect("input admission boundary")
         .0;
     assert!(

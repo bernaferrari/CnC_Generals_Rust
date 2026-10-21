@@ -148,6 +148,7 @@ impl RenderPipeline {
         binding: Option<crate::assets::W3dAnimationBinding>,
     ) {
         let state = self
+            .native_draw_world
             .drawable_visual_states
             .entry((id.0, module_index))
             .or_default();
@@ -162,7 +163,8 @@ impl RenderPipeline {
         id: crate::game_logic::ObjectId,
         module_index: u32,
     ) {
-        self.drawable_visual_states
+        self.native_draw_world
+            .drawable_visual_states
             .entry((id.0, module_index))
             .or_default()
             .installed_draw_pose = InstalledDrawObject::NoRenderObject;
@@ -176,7 +178,11 @@ impl RenderPipeline {
         module_index: u32,
         world: Mat4,
     ) {
-        if let Some(state) = self.drawable_visual_states.get_mut(&(id.0, module_index)) {
+        if let Some(state) = self
+            .native_draw_world
+            .drawable_visual_states
+            .get_mut(&(id.0, module_index))
+        {
             if let InstalledDrawObject::Ready(pose) = &mut state.installed_draw_pose {
                 pose.install_transform(world);
             }
@@ -196,6 +202,7 @@ impl RenderPipeline {
         controls_requested: bool,
     ) {
         let state = self
+            .native_draw_world
             .drawable_visual_states
             .entry((id.0, module_index))
             .or_default();

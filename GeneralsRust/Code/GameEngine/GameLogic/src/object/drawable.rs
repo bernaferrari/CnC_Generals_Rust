@@ -665,7 +665,7 @@ fn with_draw_module_kind(
     }
 }
 
-/// Bind known receiving identity, then call original creation callbacks without rediscovery.
+/// Complete original unbound creation callbacks, then bind receiving Object identity.
 pub fn create_native_draw_module_for_owner(
     module: &mut dyn Module,
     owner_id: ObjectID,
@@ -673,7 +673,16 @@ pub fn create_native_draw_module_for_owner(
     landing_sound: Option<&str>,
     powerslide_sound: Option<&str>,
 ) {
+    create_native_draw_module_unbound(module, landing_sound, powerslide_sound);
     bind_native_draw_module_owner(module, owner_id, indicator_rgb);
+}
+
+/// Original Drawable constructor callbacks execute before Object association.
+pub fn create_native_draw_module_unbound(
+    module: &mut dyn Module,
+    landing_sound: Option<&str>,
+    powerslide_sound: Option<&str>,
+) {
     if let Some(draw) =
         Module::as_any_mut(module).downcast_mut::<crate::object::draw::W3DTruckDraw>()
     {

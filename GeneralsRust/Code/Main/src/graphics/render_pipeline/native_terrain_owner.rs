@@ -8,13 +8,9 @@ impl RenderPipeline {
         native_pose_loan::NativeInstalledPoseLoan<'_>,
         Option<&mut game_client::terrain::terrain_visual::TerrainVisualImpl>,
     ) {
-        let poses = native_pose_loan::NativeInstalledPoseLoan {
-            drawable_visual_states: &mut self.drawable_visual_states,
-            failed_model_resolutions: &mut self.failed_model_resolutions,
-            pending_client_drawable_restore: &mut self.pending_client_drawable_restore,
-            pending_client_drawable_imports: &mut self.pending_client_drawable_imports,
-            animation_sync_ms: self.animation_sync_ms,
-        };
+        let poses = self
+            .native_draw_world
+            .borrow_installed_poses(&mut self.failed_model_resolutions, self.animation_sync_ms);
         (poses, self.native_terrain.as_mut())
     }
     #[cfg(feature = "game_client")]

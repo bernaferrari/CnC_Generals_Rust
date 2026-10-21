@@ -280,7 +280,7 @@ fn real_receiver_owns_constructor_dirty_setters_and_peer_reset_lifetimes_before_
     let dirty = source(&mut a);
     sync(&mut client, &mut pipeline, &mut graphics, &dirty, 2000);
     assert!(
-        pipeline.drawable_visual_states[&(42, 0)]
+        pipeline.native_draw_world.drawable_visual_states[&(42, 0)]
             .native_pending_condition
             .is_some()
     );
@@ -291,7 +291,7 @@ fn real_receiver_owns_constructor_dirty_setters_and_peer_reset_lifetimes_before_
         3.
     );
     assert!(
-        pipeline.drawable_visual_states[&(42, 0)]
+        pipeline.native_draw_world.drawable_visual_states[&(42, 0)]
             .native_pending_condition
             .is_none()
     );
@@ -375,7 +375,7 @@ fn real_receiver_owns_constructor_dirty_setters_and_peer_reset_lifetimes_before_
         Err(NativeCameraPoseUnavailable::NoRenderObject)
     );
     assert!(matches!(
-        pipeline.drawable_visual_states[&(42, 1)].installed_draw_pose,
+        pipeline.native_draw_world.drawable_visual_states[&(42, 1)].installed_draw_pose,
         installed_draw_pose::InstalledDrawObject::Ready(_)
     ));
 }

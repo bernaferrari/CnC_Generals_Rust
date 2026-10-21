@@ -14,6 +14,48 @@ impl RenderPipeline {
         source: Option<&crate::presentation_frame::UnitRenderInput>,
         graphics: &mut GraphicsSystem,
     ) {
+        self.borrow_native_installed_poses()
+            .receive_native_drawable_mutation(mutation, source, graphics);
+    }
+
+    /// Source getDrawModules on the same installed owner, through a bounded loan.
+    pub(crate) fn consume_native_camera_conditions(
+        &mut self,
+        id: crate::game_logic::ObjectId,
+        graphics: &mut GraphicsSystem,
+    ) {
+        self.borrow_native_installed_poses()
+            .consume_native_camera_conditions(id, graphics);
+    }
+    fn install_native_condition(
+        &mut self,
+        id: crate::game_logic::ObjectId,
+        index: u32,
+        world: Mat4,
+        sync_ms: u32,
+        graphics: &mut GraphicsSystem,
+    ) {
+        self.borrow_native_installed_poses()
+            .install_native_condition(id, index, world, sync_ms, graphics);
+    }
+}
+
+impl super::native_pose_loan::NativeInstalledPoseLoan<'_> {
+    /// Retire this receiver's render state and playback at one destroy boundary.
+    /// Numeric ObjectIds in other pipeline owners are independent.
+    pub(super) fn retire_native_drawable(&mut self, id: crate::game_logic::ObjectId) {
+        self.drawable_visual_states
+            .retain(|(object, _), _| *object != id.0);
+        self.live_draw_playback
+            .retain(|key, _| key.object_id() != id.0);
+    }
+
+    pub(crate) fn receive_native_drawable_mutation(
+        &mut self,
+        mutation: PresentationDrawableMutation<'_>,
+        source: Option<&crate::presentation_frame::UnitRenderInput>,
+        graphics: &mut GraphicsSystem,
+    ) {
         let id = crate::game_logic::ObjectId(mutation.object_id());
         // Frozen admission leases distinguish restore/reset/id reuse even when
         // the receiving Client mirror can retain its numeric drawable binding.
@@ -40,10 +82,7 @@ impl RenderPipeline {
         }
         match mutation {
             PresentationDrawableMutation::Destroyed { .. } => {
-                self.drawable_visual_states
-                    .retain(|(object, _), _| *object != id.0);
-                self.live_draw_playback
-                    .retain(|key, _| key.object_id() != id.0);
+                self.retire_native_drawable(id);
             }
             PresentationDrawableMutation::Creating {
                 initial_transform,
@@ -82,7 +121,7 @@ impl RenderPipeline {
             }
             PresentationDrawableMutation::TransformInstalled { .. } => {
                 let Some(source) = source else { return };
-                for ((object, _), state) in &mut self.drawable_visual_states {
+                for ((object, _), state) in &mut *self.drawable_visual_states {
                     if *object == id.0 {
                         state.receive_native_source_transform(source);
                     }
@@ -96,7 +135,7 @@ impl RenderPipeline {
                 let Ok(models) = receiving.object_draws(bits) else {
                     // A malformed sibling cannot leave an earlier module's
                     // previous condition looking like a successful admission.
-                    for ((object, _), state) in &mut self.drawable_visual_states {
+                    for ((object, _), state) in &mut *self.drawable_visual_states {
                         if *object == id.0 {
                             state.native_condition_supported = false;
                             state.native_pending_condition = None;
@@ -116,29 +155,6 @@ impl RenderPipeline {
         }
     }
 
-    /// Source getDrawModules on the same installed owner, through a bounded loan.
-    pub(crate) fn consume_native_camera_conditions(
-        &mut self,
-        id: crate::game_logic::ObjectId,
-        graphics: &mut GraphicsSystem,
-    ) {
-        self.borrow_native_installed_poses()
-            .consume_native_camera_conditions(id, graphics);
-    }
-    fn install_native_condition(
-        &mut self,
-        id: crate::game_logic::ObjectId,
-        index: u32,
-        world: Mat4,
-        sync_ms: u32,
-        graphics: &mut GraphicsSystem,
-    ) {
-        self.borrow_native_installed_poses()
-            .install_native_condition(id, index, world, sync_ms, graphics);
-    }
-}
-
-impl super::native_pose_loan::NativeInstalledPoseLoan<'_> {
     /// Source getDrawModules: consume dirty selections only for the actual
     /// named camera target. This does not run Draw pause/completion/recoil.
     pub(super) fn consume_native_camera_conditions(

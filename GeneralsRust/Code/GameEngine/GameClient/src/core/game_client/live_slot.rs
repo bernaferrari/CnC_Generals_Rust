@@ -666,6 +666,25 @@ impl GameClient {
             },
         )
     }
+    pub fn split_frame_snow_and_drawable_owner(
+        &mut self,
+    ) -> (
+        ClientFrameWriter<'_>,
+        &mut crate::snow::SnowManager,
+        NativeDrawableOwner<'_>,
+    ) {
+        let identity = std::ptr::from_mut(self) as usize;
+        (
+            ClientFrameWriter {
+                frame: &mut self.frame,
+                identity,
+            },
+            &mut self.snow,
+            NativeDrawableOwner {
+                drawables: &mut self.drawables,
+            },
+        )
+    }
     pub fn snow_mut(&mut self) -> &mut crate::snow::SnowManager {
         &mut self.snow
     }

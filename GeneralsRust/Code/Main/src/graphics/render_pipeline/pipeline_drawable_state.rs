@@ -590,6 +590,7 @@ impl RenderPipeline {
         visual_world: &gamelogic::helpers::ClientVisualHandle,
     ) -> ClientDrawableWorldSnapshot {
         let mut drawables = self
+            .native_draw_world
             .drawable_visual_states
             .iter()
             .filter_map(|(&(object_id, draw_module_index), state)| {
@@ -631,9 +632,11 @@ impl RenderPipeline {
                     && seen.insert((saved.object_id, saved.draw_module_index))
             })
             .collect::<Vec<_>>();
-        self.pending_client_drawable_restore =
+        self.native_draw_world.pending_client_drawable_restore =
             (!drawables.is_empty()).then_some(ClientDrawableWorldSnapshot { drawables });
-        self.pending_client_drawable_imports.clear();
+        self.native_draw_world
+            .pending_client_drawable_imports
+            .clear();
     }
 
     /// Convert a staged payload to source-identity candidates against one full
@@ -645,8 +648,8 @@ impl RenderPipeline {
         frame: &crate::presentation_frame::PresentationFrame,
     ) {
         prepare_client_drawable_restore_for_collection(
-            &mut self.pending_client_drawable_restore,
-            &mut self.pending_client_drawable_imports,
+            &mut self.native_draw_world.pending_client_drawable_restore,
+            &mut self.native_draw_world.pending_client_drawable_imports,
             frame,
         );
     }
@@ -696,15 +699,22 @@ impl RenderPipeline {
             frozen_visual_identity_for_draw_model(source_template_name, draw_model)
         else {
             Self::notify_unplayable_transition_complete(
-                &mut self.live_draw_playback,
+                &mut self.native_draw_world.live_draw_playback,
                 completion_target,
                 draw_model,
             );
             return (None, 0.0, Vec::new());
         };
-        retain_fire_starts_from_plans(&mut self.drawable_visual_states, visual_plans);
+        retain_fire_starts_from_plans(
+            &mut self.native_draw_world.drawable_visual_states,
+            visual_plans,
+        );
         let key = (object_id.0, draw_module_index);
-        let state = self.drawable_visual_states.entry(key).or_default();
+        let state = self
+            .native_draw_world
+            .drawable_visual_states
+            .entry(key)
+            .or_default();
         if state.identity.as_ref() != Some(&identity) {
             let animation_paused = state.animation_paused;
             let animation_resume_mode = state.animation_resume_mode.clone();
@@ -780,7 +790,7 @@ impl RenderPipeline {
             ) {
                 if restored.binding.is_none() {
                     Self::notify_unplayable_transition_complete(
-                        &mut self.live_draw_playback,
+                        &mut self.native_draw_world.live_draw_playback,
                         completion_target,
                         draw_model,
                     );
@@ -798,7 +808,7 @@ impl RenderPipeline {
             restore::reject_client_drawable_restore(state);
             discard_unvisualizable_discharges(state, &discharges);
             Self::notify_unplayable_transition_complete(
-                &mut self.live_draw_playback,
+                &mut self.native_draw_world.live_draw_playback,
                 completion_target,
                 draw_model,
             );
@@ -845,7 +855,7 @@ impl RenderPipeline {
                 &discharges,
             );
             Self::notify_unplayable_transition_complete(
-                &mut self.live_draw_playback,
+                &mut self.native_draw_world.live_draw_playback,
                 completion_target,
                 draw_model,
             );
@@ -856,7 +866,7 @@ impl RenderPipeline {
         else {
             discard_unvisualizable_discharges(state, &discharges);
             Self::notify_unplayable_transition_complete(
-                &mut self.live_draw_playback,
+                &mut self.native_draw_world.live_draw_playback,
                 completion_target,
                 draw_model,
             );
@@ -866,7 +876,7 @@ impl RenderPipeline {
         else {
             discard_unvisualizable_discharges(state, &discharges);
             Self::notify_unplayable_transition_complete(
-                &mut self.live_draw_playback,
+                &mut self.native_draw_world.live_draw_playback,
                 completion_target,
                 draw_model,
             );
@@ -921,7 +931,7 @@ impl RenderPipeline {
                         == (animation.num_frames.saturating_sub(1) as f32) =>
             {
                 Self::notify_unplayable_transition_complete(
-                    &mut self.live_draw_playback,
+                    &mut self.native_draw_world.live_draw_playback,
                     completion_target,
                     draw_model,
                 );
@@ -930,7 +940,7 @@ impl RenderPipeline {
                 if animation.current_frame == 0.0 =>
             {
                 Self::notify_unplayable_transition_complete(
-                    &mut self.live_draw_playback,
+                    &mut self.native_draw_world.live_draw_playback,
                     completion_target,
                     draw_model,
                 );

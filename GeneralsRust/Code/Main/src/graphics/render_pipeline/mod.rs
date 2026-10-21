@@ -735,27 +735,8 @@ pub struct RenderPipeline {
     debug_last_missing_model_samples: Vec<String>,
     debug_warned_bad_mesh_transforms: HashSet<String>,
     model_cull_bounds_cache: HashMap<String, (Vec3, f32)>,
-    /// Per-object, per-source-Draw-module visual state. Equal W3D names must
-    /// not collapse separate retail Draw modules into one timeline: C++ keeps
-    /// animation and weapon-recoil state on each W3DModelDraw module.
-    drawable_visual_states: HashMap<(u32, u32), ObjectVisualState>,
-    /// C++ W3DModelDraw current/next state for each exact world/object/module
-    /// identity. RenderPipeline is the synchronous mutable owner; presentation
-    /// and GameLogic carry only immutable identity values.
-    live_draw_playback:
-        HashMap<crate::assets::LiveDrawPlaybackKey, crate::assets::LiveDrawPlayback>,
-    /// A v4 client Drawable payload which has passed the host's staged-load
-    /// boundary but has not yet seen a frozen full presentation topology.
-    /// `set_presentation_frame(Some(..))` consumes this exactly once into the
-    /// current-frame candidates below; it never performs archive/model I/O.
-    pending_client_drawable_restore:
-        Option<crate::save_load::snapshot::ClientDrawableWorldSnapshot>,
-    /// Source-identity validated restore records for the one frame currently
-    /// installed in `presentation_frame`. Collection removes each record
-    /// before it consults the normal model-load path, so an unavailable model
-    /// or topology cannot trigger retries or retain a stale saved timeline.
-    pending_client_drawable_imports:
-        HashMap<(u32, u32), crate::save_load::snapshot::ClientDrawableStateSnapshot>,
+    /// Canonical per-session Draw state; device/cache services stay on the pipeline.
+    native_draw_world: native_draw_world::NativeDrawWorld,
     /// Exact active W3D ghost scene frozen at the latest GameClient bridge
     /// boundary. It is not a normal Drawable/FOW-alpha stream.
     #[cfg(feature = "game_client")]
@@ -930,6 +911,7 @@ pub(super) enum RenderModelLoadResult {
 mod installed_draw_pose;
 #[cfg(feature = "game_client")]
 mod native_draw_admission;
+pub(crate) mod native_draw_world;
 pub(crate) mod native_pose_loan;
 pub(crate) use installed_draw_pose::NativeCameraPoseUnavailable;
 mod forward_materials;

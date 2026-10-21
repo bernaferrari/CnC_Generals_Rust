@@ -101,7 +101,7 @@ fn repeated_load_frame_setup_cannot_consume_restore_before_collection() {
         .split_once("self.presentation_frame = frame;")
         .unwrap()
         .0;
-    assert!(setup.contains("self.pending_client_drawable_imports.clear()"));
+    assert!(setup.contains("self.native_draw_world.pending_client_drawable_imports.clear()"));
     assert!(
         !setup.contains("prepare_pending_client_drawable_restore_for_frame"),
         "load env seed, match seed and render rebind must all leave the detached payload queued"

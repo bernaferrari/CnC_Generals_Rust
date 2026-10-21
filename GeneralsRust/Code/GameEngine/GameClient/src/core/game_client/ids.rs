@@ -57,6 +57,8 @@ pub struct FrozenDirectPresentationPose {
 /// state lifetime.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct PresentationDirectDrawableBinding {
+    /// Factory-created CPU lifetime is independent of presentation residency.
+    semantic_lifetime: bool,
     binding_key: PresentationDirectDrawableBindingKey,
     visual_template_name: String,
 }

@@ -216,7 +216,9 @@ impl RenderPipeline {
             } else {
                 Vec::new()
             };
-        self.live_draw_playback.retain(|key, _| key.is_alive());
+        self.native_draw_world
+            .live_draw_playback
+            .retain(|key, _| key.is_alive());
 
         #[cfg(feature = "game_client")]
         if let (Some(bundle), Some(frame)) =
@@ -298,7 +300,7 @@ impl RenderPipeline {
             // Presentation froze the exact destination models; apply the
             // drawable runtime at collection before borrowing any per-input
             // specialized draw payloads.
-            u.apply_live_draw_transition_playback(&mut self.live_draw_playback);
+            u.apply_live_draw_transition_playback(&mut self.native_draw_world.live_draw_playback);
             let world_matrix = gameplay_to_render_transform(u.world_matrix());
             #[cfg(feature = "game_client")]
             let specialized_draw = u.specialized_draw.as_deref();
@@ -385,6 +387,7 @@ impl RenderPipeline {
                 // it before culling/model resolution so an unavailable mesh
                 // cannot retain stale saved playback for a later retry.
                 let pending_client_drawable_restore = self
+                    .native_draw_world
                     .pending_client_drawable_imports
                     .remove(&(object_id.0, draw_module_index));
                 // C++ applies static Draw directives first, then broadcasts
@@ -541,6 +544,7 @@ impl RenderPipeline {
                             // ForwardPass consumes those immutable results; it must
                             // not advance a second clock or write another owner.
                             let anim_frame = match self
+                                .native_draw_world
                                 .drawable_visual_states
                                 .get_mut(&(object_id.0, draw_module_index))
                                 .expect("Draw installed its exact owner")

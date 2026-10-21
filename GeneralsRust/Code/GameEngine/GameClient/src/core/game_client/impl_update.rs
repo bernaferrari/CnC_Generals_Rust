@@ -735,7 +735,15 @@ impl GameClient {
         let mut live_bindings = std::collections::HashSet::new();
 
         for e in entries {
-            if !e.resident {
+            let semantic_lifetime = self
+                .drawables
+                .drawable_object_map
+                .get(&e.object_id)
+                .and_then(|id| self.drawables.presentation_direct_drawable_bindings.get(id))
+                .is_some_and(|binding| {
+                    binding.semantic_lifetime && binding.binding_key.host_epoch == e.host_epoch
+                });
+            if !e.resident && !semantic_lifetime {
                 continue;
             }
             let visual_template_name = Self::presentation_visual_template_name(&e).to_string();
@@ -791,26 +799,7 @@ impl GameClient {
                             })
                         })
                 } else {
-                    // Same selection as create_modules_from_entries: filtered
-                    // Science modules never instantiate or consume player facts.
-                    e.module_admission
-                        .authored_template()
-                        .is_some_and(|template| {
-                            template.draw_modules().iter().any(|entry| {
-                                !policy.is_some_and(|policy| {
-                                    policy.use_draw_module_lod
-                                        && (entry.data.get_minimum_required_game_lod() as i32)
-                                            > (policy.static_game_lod as i32)
-                                }) && entry
-                                    .data
-                                    .as_any()
-                                    .downcast_ref::<W3DScienceModelDrawModuleData>()
-                                    .is_some_and(|data| {
-                                        data.required_science
-                                            != game_engine::common::rts::SCIENCE_INVALID
-                                    })
-                            })
-                        })
+                    Self::fresh_drawable_requires_science(&e, policy)
                 };
                 if requires_player {
                     return Err(GameClientError::InvalidOperation(
@@ -912,108 +901,18 @@ impl GameClient {
                     .remove(&drawable_id);
             }
 
-            let mut drawable = BasicDrawable::new(DrawableId::INVALID);
-            if let Some(opacity) = inherited_material_opacity {
-                drawable.set_second_material_pass_opacity(opacity);
+            NativeDrawableOwner {
+                drawables: &mut self.drawables,
             }
-            if !visual_template_name.is_empty() {
-                drawable.set_template_name_with_receiving(
-                    Some(visual_template_name.clone()),
-                    match &e.module_admission {
-                        PresentationModuleAdmission::Authored(template) => Some(template.clone()),
-                        PresentationModuleAdmission::Compatibility => None,
-                    },
-                );
-            }
-            drawable.set_object_id(Some(e.object_id));
-            // C++ Drawable ctor allocates DrawModules from ThingTemplate
-            // (W3DTankDraw treads, W3DTruckDraw wheels, W3DOverlord* rider,
-            // W3DLaserDraw width, W3DDebrisDraw anims). Live presentation
-            // used to create a bare BasicDrawable here.
-            observe(PresentationDrawableMutation::Creating {
-                source: &e,
-                initial_transform: drawable.native_base_transform(),
+            .admit_fresh_drawable(
+                &e,
                 sync_ms,
-            });
-            if let Some(admitted) = e.module_admission.authored_template() {
-                let keys = content
-                    .as_deref_mut()
-                    .and_then(|owner| owner.receiving_name_keys_mut())
-                    .ok_or_else(|| {
-                        GameClientError::InvalidOperation(
-                            "authored Drawable requires its receiving name-key owner".to_owned(),
-                        )
-                    })?;
-                let policy = policy.ok_or_else(|| {
-                    GameClientError::InvalidOperation(
-                        "authored Drawable requires receiving LOD policy".to_owned(),
-                    )
-                })?;
-                let mut modules = Self::create_receiving_modules_from_plan(
-                    admitted,
-                    keys,
-                    policy,
-                    (e.object_id, e.draw_logic_frame),
-                )?;
-                for module in &mut modules {
-                    if let Some(logic) = module.logic_module_mut() {
-                        gamelogic::object::drawable::create_native_draw_module_for_owner(
-                            logic,
-                            e.object_id,
-                            e.draw_indicator_color,
-                            admitted.per_unit_sound_event("TruckLandingSound"),
-                            admitted.per_unit_sound_event("TruckPowerslideSound"),
-                        );
-                    }
-                }
-                for module in modules {
-                    drawable.add_draw_module(module);
-                }
-            } else {
-                Self::attach_presentation_specialized_draw_modules(&mut drawable, &e);
-            }
-            let position = Vector3::new(e.position[0], e.position[1], e.position[2]);
-            drawable.set_position(position);
-            observe(PresentationDrawableMutation::TransformInstalled {
-                source: &e,
-                transform: drawable.native_base_transform(),
-            });
-            let transform = Matrix4::rotation_y(e.orientation)
-                .mul(&Matrix4::rotation_z(e.float_yaw))
-                .mul(&Matrix4::rotation_x(e.float_pitch));
-            drawable.set_instance_transform(transform);
-            observe(PresentationDrawableMutation::TransformInstalled {
-                source: &e,
-                transform: drawable.native_base_transform(),
-            });
-            Self::stamp_presentation_object_residual(&mut drawable, &e);
-            let flags = drawable.get_model_condition_flags();
-            let bits = (0..128.min(flags.get_bit_names().len()))
-                .fold(0u128, |bits, i| bits | ((flags.test(i) as u128) << i));
-            observe(PresentationDrawableMutation::ConditionsMarked { source: &e, bits });
-            let native_laser = Self::owned_laser_count(&mut drawable) == 1;
-            let id = self.alloc_drawable_id();
-            drawable.set_id(id);
-            Self::bind_owned_laser_module(&mut drawable, id);
-            self.drawables.admit_native_drawable(id, Box::new(drawable));
-            if native_laser {
-                self.drawables.owned_laser_order.insert(0, id);
-            }
-            self.drawables.drawable_object_map.insert(e.object_id, id);
-            let binding_generation = self.alloc_presentation_direct_binding_generation();
-            let binding_key = PresentationDirectDrawableBindingKey {
-                host_epoch: e.host_epoch,
-                object_id: e.object_id,
-                drawable_id: id,
-                binding_generation,
-            };
-            self.drawables.presentation_direct_drawable_bindings.insert(
-                id,
-                PresentationDirectDrawableBinding {
-                    binding_key,
-                    visual_template_name,
-                },
-            );
+                content.as_deref_mut(),
+                policy,
+                semantic_lifetime,
+                inherited_material_opacity,
+                &mut observe,
+            )?;
             created = created.saturating_add(1);
         }
 
@@ -1023,7 +922,9 @@ impl GameClient {
             .iter()
             .filter_map(|(&drawable_id, binding)| {
                 let binding_key = binding.binding_key;
-                if live_bindings.contains(&(binding_key.host_epoch, binding_key.object_id)) {
+                if binding.semantic_lifetime
+                    || live_bindings.contains(&(binding_key.host_epoch, binding_key.object_id))
+                {
                     None
                 } else {
                     Some((drawable_id, binding_key))

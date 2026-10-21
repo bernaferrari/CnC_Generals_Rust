@@ -428,13 +428,9 @@ impl RenderPipeline {
         #[cfg(feature = "game_client")]
         let filter_resources = &mut self.view_filter_resources;
         #[cfg(feature = "game_client")]
-        let mut native_poses = native_pose_loan::NativeInstalledPoseLoan {
-            drawable_visual_states: &mut self.drawable_visual_states,
-            failed_model_resolutions: &mut self.failed_model_resolutions,
-            pending_client_drawable_restore: &mut self.pending_client_drawable_restore,
-            pending_client_drawable_imports: &mut self.pending_client_drawable_imports,
-            animation_sync_ms: self.animation_sync_ms,
-        };
+        let mut native_poses = self
+            .native_draw_world
+            .borrow_installed_poses(&mut self.failed_model_resolutions, self.animation_sync_ms);
         #[cfg(feature = "game_client")]
         let mut finish_filters = |gpu_frame: &mut ww3d_engine::RenderFrame,
                                   graphics: &mut GraphicsSystem| {

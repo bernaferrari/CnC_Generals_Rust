@@ -4,6 +4,8 @@ use super::*;
 use installed_draw_pose::{NativeCameraPoseUnavailable, ObjectVisualState};
 
 pub(crate) struct NativeInstalledPoseLoan<'a> {
+    pub(super) live_draw_playback:
+        &'a mut HashMap<crate::assets::LiveDrawPlaybackKey, crate::assets::LiveDrawPlayback>,
     pub(super) drawable_visual_states: &'a mut HashMap<(u32, u32), ObjectVisualState>,
     pub(super) failed_model_resolutions: &'a mut pipeline_collect::FailedModelResolutions,
     pub(super) pending_client_drawable_restore:
@@ -24,13 +26,8 @@ impl RenderPipeline {
     }
 
     pub(crate) fn borrow_native_installed_poses(&mut self) -> NativeInstalledPoseLoan<'_> {
-        NativeInstalledPoseLoan {
-            drawable_visual_states: &mut self.drawable_visual_states,
-            failed_model_resolutions: &mut self.failed_model_resolutions,
-            pending_client_drawable_restore: &mut self.pending_client_drawable_restore,
-            pending_client_drawable_imports: &mut self.pending_client_drawable_imports,
-            animation_sync_ms: self.animation_sync_ms,
-        }
+        self.native_draw_world
+            .borrow_installed_poses(&mut self.failed_model_resolutions, self.animation_sync_ms)
     }
 }
 impl NativeInstalledPoseLoan<'_> {

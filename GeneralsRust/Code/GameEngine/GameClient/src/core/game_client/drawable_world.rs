@@ -7,7 +7,7 @@
 
 use super::*;
 
-pub(super) struct DrawableWorld {
+pub struct DrawableWorld {
     pub(super) next_drawable_id: DrawableId,
     pub(super) ray_effects: crate::effects::ray_effect_registry::RayEffectSystem,
     /// C++ GameClient.cpp480 prepends each newly constructed Drawable.
@@ -25,7 +25,7 @@ pub(super) struct DrawableWorld {
 }
 
 impl DrawableWorld {
-    pub(super) fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             next_drawable_id: DrawableId(1),
             ray_effects: Default::default(),
@@ -206,5 +206,11 @@ impl DrawableWorld {
             .host_epoch;
         self.presentation_direct_drawable_state(host_epoch, object_id)
             .map(|state| state.fully_obscured)
+    }
+}
+
+impl Default for DrawableWorld {
+    fn default() -> Self {
+        Self::new()
     }
 }

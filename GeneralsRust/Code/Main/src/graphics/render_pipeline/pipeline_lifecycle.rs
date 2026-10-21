@@ -93,10 +93,7 @@ impl RenderPipeline {
             debug_last_missing_model_samples: Vec::new(),
             debug_warned_bad_mesh_transforms: HashSet::new(),
             model_cull_bounds_cache: HashMap::new(),
-            drawable_visual_states: HashMap::new(),
-            live_draw_playback: HashMap::new(),
-            pending_client_drawable_restore: None,
-            pending_client_drawable_imports: HashMap::new(),
+            native_draw_world: Default::default(),
             #[cfg(feature = "game_client")]
             frozen_ghost_scene: None,
             last_frame_time: 0.0,
@@ -169,7 +166,9 @@ impl RenderPipeline {
         self.presentation_direct_shroud_host_epoch = None;
         // Frame setup may run repeatedly during load/UI seeding. Keep the
         // detached Drawable payload until actual collection admits this frame.
-        self.pending_client_drawable_imports.clear();
+        self.native_draw_world
+            .pending_client_drawable_imports
+            .clear();
         self.presentation_frame = frame;
     }
 
@@ -291,7 +290,7 @@ impl RenderPipeline {
     /// intact here.
     pub fn invalidate_world_visual_state(&mut self) {
         clear_visual_world_state_components(
-            &mut self.drawable_visual_states,
+            &mut self.native_draw_world.drawable_visual_states,
             &mut self.render_items,
             &mut self.current_pass,
             &mut self.last_frame_time,
@@ -299,8 +298,10 @@ impl RenderPipeline {
         self.presentation_frame = None;
         self.presentation_direct_shroud_states.clear();
         self.presentation_direct_shroud_host_epoch = None;
-        self.pending_client_drawable_restore = None;
-        self.pending_client_drawable_imports.clear();
+        self.native_draw_world.pending_client_drawable_restore = None;
+        self.native_draw_world
+            .pending_client_drawable_imports
+            .clear();
         #[cfg(feature = "game_client")]
         {
             self.frozen_ghost_scene = None;

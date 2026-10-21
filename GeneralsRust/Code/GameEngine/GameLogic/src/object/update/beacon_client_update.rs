@@ -151,6 +151,11 @@ pub struct BeaconClientUpdateModule {
 }
 
 impl BeaconClientUpdateModule {
+    /// Binding follows the complete receiving Drawable constructor.
+    pub fn bind_owner_id(&mut self, owner_id: ObjectID) {
+        self.owner_id = owner_id;
+    }
+
     pub fn new(
         module_name_key: NameKeyType,
         module_data: Arc<BeaconClientUpdateModuleData>,
