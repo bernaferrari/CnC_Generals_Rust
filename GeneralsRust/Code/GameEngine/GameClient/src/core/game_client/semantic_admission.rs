@@ -1,3 +1,72 @@
+/// Explicit synchronous retirement, invoked only after constructor/module
+/// callbacks release their borrows. Implementations must never retain service
+/// guards across the callback walk.
+pub trait NativeDrawableRetirement {
+    fn retire(
+        &mut self,
+        owner: &mut NativeDrawableOwner<'_>,
+        selected: Option<DrawableId>,
+    ) -> GameClientResult<()>;
+}
+impl NativeDrawableRetirement for crate::effects::particle_manager::ParticleSystemManager {
+    fn retire(
+        &mut self,
+        owner: &mut NativeDrawableOwner<'_>,
+        selected: Option<DrawableId>,
+    ) -> GameClientResult<()> {
+        match selected {
+            Some(id) => owner.try_remove_for_map_attempt(id, Some(self)),
+            None => owner.try_clear_for_map_attempt(Some(self)),
+        }
+    }
+}
+/// Existing application particle boundary, kept explicit until particle ownership
+/// migrates. Acquires the service ONLY during retirement, never during callbacks.
+pub struct NativeParticleRetirementService;
+impl NativeDrawableRetirement for NativeParticleRetirementService {
+    fn retire(
+        &mut self,
+        owner: &mut NativeDrawableOwner<'_>,
+        selected: Option<DrawableId>,
+    ) -> GameClientResult<()> {
+        if !owner
+            .drawables
+            .native_particle_retirement_required(selected)?
+        {
+            return match selected {
+                Some(id) => owner.try_remove_for_map_attempt(id, None),
+                None => owner.try_clear_for_map_attempt(None),
+            };
+        }
+        {
+            let mut guard = crate::effects::particle_manager::get_particle_system_manager_mut()
+                .map_err(|error| {
+                    GameClientError::SubsystemError(format!(
+                        "native retirement particle service: {error}"
+                    ))
+                })?;
+            let manager = guard.as_mut().ok_or_else(|| {
+                GameClientError::SubsystemError(
+                    "receiving particle manager absent during native retirement".into(),
+                )
+            })?;
+            // This phase only retires installed state/client particle IDs.
+            // It does not unlink, drop modules or stop ambient audio.
+            owner
+                .drawables
+                .retire_native_particles_with_services(selected, manager)?;
+        }
+        // W3DTankDraw/TruckDraw destructors may discover the existing particle
+        // manager bridge. Its guard MUST be released before arbitrary module
+        // Drop or ambient-stop callbacks execute. Native IDs are now retired,
+        // so the ordinary no-manager preflight is authoritative again.
+        match selected {
+            Some(id) => owner.try_remove_for_map_attempt(id, None),
+            None => owner.try_clear_for_map_attempt(None),
+        }
+    }
+}
+
 // One real CPU Drawable constructor shared by factory admission and presentation.
 // Included in game_client so the existing owners and module kernels stay private.
 /// Observed semantic constructor guards and the existing late presentation
@@ -34,7 +103,8 @@ impl NativeDrawableOwner<'_> {
         sync_ms: u32,
         content: &mut game_engine::common::thing::module_factory::ModuleFactory,
         policy: ReceivingDrawablePolicy,
-        mut observe: impl FnMut(PresentationDrawableMutation<'_>),
+        retirement: &mut dyn NativeDrawableRetirement,
+        mut observe: impl FnMut(PresentationDrawableMutation<'_>) -> GameClientResult<()>,
     ) -> GameClientResult<PresentationDirectDrawableBindingKey> {
         if entry.module_admission.authored_template().is_none() {
             return Err(GameClientError::InvalidOperation(
@@ -49,6 +119,7 @@ impl NativeDrawableOwner<'_> {
             true,
             NativeConstructorAmbientPolicy::Observed(birth),
             None,
+            retirement,
             &mut observe,
         )
     }
@@ -62,7 +133,8 @@ impl NativeDrawableOwner<'_> {
         semantic_lifetime: bool,
         ambient: NativeConstructorAmbientPolicy,
         inherited_material_opacity: Option<f32>,
-        observe: &mut impl FnMut(PresentationDrawableMutation<'_>),
+        retirement: &mut dyn NativeDrawableRetirement,
+        observe: &mut impl FnMut(PresentationDrawableMutation<'_>) -> GameClientResult<()>,
     ) -> GameClientResult<PresentationDirectDrawableBindingKey> {
         if self
             .drawables
@@ -111,7 +183,7 @@ impl NativeDrawableOwner<'_> {
                 source: e,
                 initial_transform: drawable.native_base_transform(),
                 sync_ms,
-            });
+            })?;
             if let Some(admitted) = e.module_admission.authored_template() {
                 let keys = content
                     .as_deref_mut()
@@ -168,6 +240,16 @@ impl NativeDrawableOwner<'_> {
                         e.object_id,
                         e.draw_indicator_color,
                     );
+                    if let Some(science) = module.as_any_mut().downcast_mut::<W3DScienceModelDraw>()
+                    {
+                        science
+                            .bind_receiving_science_player(e.receiving_science_player.as_deref())
+                            .map_err(|error| {
+                                GameClientError::InvalidOperation(format!(
+                                    "receiving science binding: {error:?}"
+                                ))
+                            })?;
+                    }
                     if let Some(beacon) = module
                         .as_any_mut()
                         .downcast_mut::<BeaconClientUpdateModule>()
@@ -189,7 +271,7 @@ impl NativeDrawableOwner<'_> {
             observe(PresentationDrawableMutation::TransformInstalled {
                 source: e,
                 transform: drawable.native_base_transform(),
-            });
+            })?;
             drawable.set_instance_transform(
                 Matrix4::rotation_y(e.orientation)
                     .mul(&Matrix4::rotation_z(e.float_yaw))
@@ -198,12 +280,12 @@ impl NativeDrawableOwner<'_> {
             observe(PresentationDrawableMutation::TransformInstalled {
                 source: e,
                 transform: drawable.native_base_transform(),
-            });
-            GameClient::stamp_presentation_object_residual(drawable, e);
+            })?;
+            GameClient::stamp_presentation_object_residual(drawable, e, !semantic_lifetime);
             let flags = drawable.get_model_condition_flags();
             let bits = (0..128.min(flags.get_bit_names().len()))
                 .fold(0u128, |bits, i| bits | ((flags.test(i) as u128) << i));
-            observe(PresentationDrawableMutation::ConditionsMarked { source: e, bits });
+            observe(PresentationDrawableMutation::ConditionsMarked { source: e, bits })?;
             let native_laser = GameClient::owned_laser_count(drawable) == 1;
             GameClient::bind_owned_laser_module(drawable, id);
             if native_laser {
@@ -226,16 +308,31 @@ impl NativeDrawableOwner<'_> {
             );
             Ok(binding_key)
         })();
-        if result.is_err() {
-            // The failed receiver was never bound/admitted to another Object.
-            self.drawables
-                .native_drawable_order
-                .retain(|known| *known != id);
-            self.drawables.drawable_map.remove(&id);
-            observe(PresentationDrawableMutation::Destroyed {
-                host_epoch: e.host_epoch,
-                object_id: e.object_id,
-            });
+        if let Err(constructor) = result.as_ref() {
+            // The selected receiver still exists during retirement preflight.
+            // Missing required services must never turn into primitive unlink.
+            let cleanup = retirement.retire(self, Some(id));
+            let renderer_cleanup = if !self.drawables.drawable_map.contains_key(&id) {
+                observe(PresentationDrawableMutation::Destroyed {
+                    host_epoch: e.host_epoch,
+                    object_id: e.object_id,
+                })
+            } else {
+                Ok(())
+            };
+            if cleanup.is_err() || renderer_cleanup.is_err() {
+                return Err(GameClientError::SubsystemError(format!(
+                    "Drawable constructor failed: {constructor}; receiver retirement: {}; renderer retirement: {}",
+                    cleanup
+                        .err()
+                        .map(|e| e.to_string())
+                        .unwrap_or_else(|| "completed".into()),
+                    renderer_cleanup
+                        .err()
+                        .map(|e| e.to_string())
+                        .unwrap_or_else(|| "completed".into()),
+                )));
+            }
         }
         result
     }
@@ -332,7 +429,8 @@ mod semantic_admission_tests {
                 0,
                 &mut catalog,
                 policy(),
-                |_| {},
+                &mut NativeParticleRetirementService,
+                |_| Ok(()),
             )
             .unwrap();
         let parent = client
@@ -347,7 +445,8 @@ mod semantic_admission_tests {
                 0,
                 &mut catalog,
                 policy(),
-                |_| {},
+                &mut NativeParticleRetirementService,
+                |_| Ok(()),
             )
             .unwrap();
         let peer_parent = peer
@@ -362,7 +461,8 @@ mod semantic_admission_tests {
                 0,
                 &mut peer_catalog,
                 policy(),
-                |_| {},
+                &mut NativeParticleRetirementService,
+                |_| Ok(()),
             )
             .unwrap();
         assert_ne!(parent.drawable_id.0, parent.object_id);
@@ -418,7 +518,8 @@ mod semantic_admission_tests {
                 0,
                 &mut catalog,
                 policy(),
-                |_| {},
+                &mut NativeParticleRetirementService,
+                |_| Ok(()),
             )
             .unwrap();
         assert_eq!(world.borrow_native().binding_key(5, 42), Some(key));
@@ -434,7 +535,8 @@ mod semantic_admission_tests {
                     0,
                     &mut catalog,
                     policy(),
-                    |_| {},
+                    &mut NativeParticleRetirementService,
+                    |_| Ok(()),
                 )
                 .is_err()
         );
@@ -456,7 +558,8 @@ mod semantic_admission_tests {
                 0,
                 &mut catalog,
                 policy(),
-                |_| {},
+                &mut NativeParticleRetirementService,
+                |_| Ok(()),
             )
             .unwrap();
         let mut wrong_content = ModuleFactory::new();
@@ -473,12 +576,18 @@ mod semantic_admission_tests {
                     0,
                     &mut wrong_content,
                     policy(),
-                    |event| match event {
-                        PresentationDrawableMutation::Creating { .. } =>
-                            phases.push("registered-before-construction"),
-                        PresentationDrawableMutation::Destroyed { .. } =>
-                            phases.push("retired-failed-receiver"),
-                        _ => {}
+                    &mut NativeParticleRetirementService,
+                    |event| {
+                        match event {
+                            PresentationDrawableMutation::Creating { .. } => {
+                                phases.push("registered-before-construction")
+                            }
+                            PresentationDrawableMutation::Destroyed { .. } => {
+                                phases.push("retired-failed-receiver")
+                            }
+                            _ => {}
+                        };
+                        Ok(())
                     },
                 )
                 .is_err()
@@ -490,6 +599,73 @@ mod semantic_admission_tests {
         assert_eq!(world.native_drawable_order, vec![peer.drawable_id]);
         assert_eq!(world.drawable_map.len(), 1);
         assert_eq!(world.borrow_native().binding_key(5, 42), None);
+    }
+    #[test]
+    fn constructor_error_cannot_primitive_unlink_when_retirement_rejects() {
+        struct Reject;
+        impl NativeDrawableRetirement for Reject {
+            fn retire(
+                &mut self,
+                _: &mut NativeDrawableOwner<'_>,
+                _: Option<DrawableId>,
+            ) -> GameClientResult<()> {
+                Err(GameClientError::SubsystemError(
+                    "receiving retirement unavailable".into(),
+                ))
+            }
+        }
+        let (mut catalog, plan) = content(2.0);
+        let mut world = NativeDrawableWorld::new();
+        let peer = world
+            .borrow_native()
+            .admit_semantic_drawable_with_content(
+                entry(77, Arc::clone(&plan)),
+                NativeDrawableBirthContext {
+                    loading_map: false,
+                    in_load_game: false,
+                },
+                0,
+                &mut catalog,
+                policy(),
+                &mut NativeParticleRetirementService,
+                |_| Ok(()),
+            )
+            .unwrap();
+        let mut destroyed = false;
+        let result = world.borrow_native().admit_semantic_drawable_with_content(
+            entry(42, plan),
+            NativeDrawableBirthContext {
+                loading_map: false,
+                in_load_game: false,
+            },
+            0,
+            &mut catalog,
+            policy(),
+            &mut Reject,
+            |event| {
+                if matches!(event, PresentationDrawableMutation::Destroyed { .. }) {
+                    destroyed = true;
+                }
+                Err(GameClientError::SubsystemError(
+                    "actual checked observer rejected Creating".into(),
+                ))
+            },
+        );
+        assert!(result.is_err());
+        assert!(
+            !destroyed,
+            "renderer retirement cannot be announced before real receiver retirement"
+        );
+        assert_eq!(
+            world.drawable_map.len(),
+            2,
+            "failed preflight preserves selected receiver for explicit retry"
+        );
+        assert!(world.drawable_map.contains_key(&peer.drawable_id));
+        NativeParticleRetirementService
+            .retire(&mut world.borrow_native(), None)
+            .unwrap();
+        assert!(world.drawable_map.is_empty());
     }
 }
 

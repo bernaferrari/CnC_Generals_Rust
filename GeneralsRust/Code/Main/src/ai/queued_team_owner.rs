@@ -426,12 +426,30 @@ impl GameLogic {
         team: Option<u32>,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
+        // Independent callers retain the existing nonfallible surface until their
+        // operation boundary is migrated; the selected factory never uses this adapter.
+        if let Err(error) =
+            self.execute_owned_ai_condition_with_effects_checked(engine, name, team, ui)
+        {
+            log::error!("{error}");
+        }
+    }
+
+    pub(crate) fn execute_owned_ai_condition_with_effects_checked(
+        &mut self,
+        engine: &ScriptEngine,
+        name: &str,
+        team: Option<u32>,
+        ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
         if let Some(action) = engine
             .find_script_clone_by_name(name)
             .and_then(|script| script.get_action().cloned())
         {
-            self.execute_script_team_actions_with_effects(engine, &action, team, ui);
+            self.execute_script_team_actions_with_effects_checked(engine, &action, team, ui)?;
         }
+
+        Ok(())
     }
 
     /// Only the queue-decision borrow survives within one phase. Scripts and

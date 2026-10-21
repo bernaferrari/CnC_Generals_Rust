@@ -110,7 +110,7 @@ impl CnCGameEngine {
         let cinematic_ui = self.game_client.in_game_ui_subsystem();
         #[cfg(feature = "game_client")]
         let (mut client_frame, snow, presence) =
-            self.game_client.split_frame_snow_and_drawable_presence();
+            self.game_client.split_frame_snow_and_drawable_owner();
         #[cfg(feature = "game_client")]
         let cinematic_window = &self.window;
         #[cfg(feature = "game_client")]
@@ -152,12 +152,18 @@ impl CnCGameEngine {
             .render_pipeline
             .borrow_native_installed_poses_and_terrain();
         #[cfg(feature = "game_client")]
+        let policy = super::native_view_effects::receiving_native_drawable_policy();
+        #[cfg(feature = "game_client")]
+        let mut retirement = game_client::core::game_client::NativeParticleRetirementService;
+        #[cfg(feature = "game_client")]
         let mut view = super::native_view_effects::NativeRendererViewEffects::new(
             poses,
             &mut self.graphics_system,
             presence,
             self.host_direct_visual_world_epoch,
             self.current_player_id,
+            policy,
+            &mut retirement,
         );
         #[cfg(feature = "game_client")]
         let effects = crate::game_logic::ScriptPresentationEffects {
@@ -391,7 +397,7 @@ impl CnCGameEngine {
         budget: Option<usize>,
         shell: bool,
         mut owned_observer: Option<&mut crate::gameworld_shadow::GameWorldShadow>,
-    ) -> (crate::game_logic::SimTimingSnapshot, bool) {
+    ) -> std::result::Result<(crate::game_logic::SimTimingSnapshot, bool), String> {
         use crate::game_logic::{NativeCommandAction, NativeCommandCompletion, NativeTickProgress};
         let mut progress = self.borrow_native_command_phase(
             dt,
@@ -404,6 +410,7 @@ impl CnCGameEngine {
         let mut last_clear_score = false;
         loop {
             match progress {
+                NativeTickProgress::Failed(error) => return Err(error.to_string()),
                 NativeTickProgress::Complete(snapshot) => {
                     if !self.game_paused {
                         self.host_stamp_sim_timing_from_snapshot(snapshot);
@@ -417,7 +424,7 @@ impl CnCGameEngine {
                             self.set_runtime_host_ui_screen_override(Some("ScoreScreen"));
                         }
                     }
-                    return (snapshot, interrupted);
+                    return Ok((snapshot, interrupted));
                 }
                 NativeTickProgress::CommandBoundary(mut cursor) => {
                     let completion = match cursor.take_action() {

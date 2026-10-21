@@ -8,6 +8,20 @@ struct ReceivingView {
     translation: Vec3,
 }
 impl NativeViewEffects for ReceivingView {
+    #[cfg(feature = "game_client")]
+    fn host_epoch(&self) -> u64 {
+        1
+    }
+    #[cfg(feature = "game_client")]
+    fn admit_factory_drawable(
+        &mut self,
+        _: crate::game_logic::NativeFactoryDrawableSource,
+        _: game_client::core::game_client::NativeDrawableBirthContext,
+        _: &mut game_engine::common::thing::module_factory::ModuleFactory,
+    ) -> Result<(), String> {
+        Err("camera-only fixture cannot construct native Drawables".into())
+    }
+
     fn local_player_id(&self) -> u32 {
         0
     }

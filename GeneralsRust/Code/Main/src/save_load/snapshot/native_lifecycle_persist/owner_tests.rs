@@ -420,3 +420,84 @@ fn old_absence_imports_receiving_bound_empty_and_resaves_explicitly() {
     assert!(fresh.objects[&id].lifetime_update.is_none());
     assert!(fresh.objects[&id].height_die.is_none());
 }
+
+#[test]
+fn pending_and_completed_empty_transport_restore_continue_once_through_real_snapshot() {
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "pending_and_completed_empty_transport_restore_continue_once_through_real_snapshot",
+        || {
+            fn install(world: &mut GameLogic, name: &str) {
+                let mut definition = ThingTemplate::new(name);
+                definition
+                    .add_kind_of(crate::game_logic::KindOf::Vehicle)
+                    .set_health(240.0);
+                world.templates.insert(name.into(), definition);
+            }
+            for (name, payload_count) in [
+                ("ChinaVehicleTroopCrawler", 8),
+                ("ChinaVehicleListeningOutpost", 2),
+            ] {
+                let builder = super::super::SnapshotBuilder::new();
+                let mut source = GameLogic::new();
+                install(&mut source, name);
+                let id = source
+                    .create_object(name, Team::China, Vec3::new(31.0, 47.0, 0.0))
+                    .unwrap();
+                assert!(source.objects[&id].occupants.is_empty());
+                assert!(!source.objects[&id].initial_transport_payload_created);
+                for completed in [false, true] {
+                    if completed {
+                        source.frame = 1;
+                        source
+                            .update_initial_transport_payloads_with_effects(&mut Default::default())
+                            .unwrap();
+                        assert_eq!(source.objects[&id].occupants.len(), payload_count);
+                        let children = source.objects[&id].occupants.clone();
+                        source.objects.get_mut(&id).unwrap().occupants.clear();
+                        for child in children {
+                            source.objects.remove(&child);
+                        }
+                    }
+                    let snapshot = builder.create_world_snapshot(&source).unwrap();
+                    let encoded = bincode_legacy::serialize(&snapshot).unwrap();
+                    let decoded = super::super::decode_bincode_world_snapshot(&encoded).unwrap();
+                    let mut receiving = GameLogic::new();
+                    install(&mut receiving, name);
+                    builder
+                        .restore_from_snapshot(&decoded, &mut receiving)
+                        .unwrap();
+                    assert!(
+                        receiving.objects[&id].occupants.is_empty(),
+                        "restore cannot run creation"
+                    );
+                    assert_eq!(
+                        receiving.objects[&id].initial_transport_payload_created,
+                        completed
+                    );
+                    assert_eq!(
+                        receiving.objects[&id].get_position(),
+                        Vec3::new(31.0, 47.0, 0.0)
+                    );
+                    receiving.frame = 1;
+                    receiving
+                        .update_initial_transport_payloads_with_effects(&mut Default::default())
+                        .unwrap();
+                    assert_eq!(
+                        receiving.objects[&id].occupants.len(),
+                        if completed { 0 } else { payload_count }
+                    );
+                    assert!(receiving.objects[&id].initial_transport_payload_created);
+                    receiving.frame = 2;
+                    receiving
+                        .update_initial_transport_payloads_with_effects(&mut Default::default())
+                        .unwrap();
+                    assert_eq!(
+                        receiving.objects[&id].occupants.len(),
+                        if completed { 0 } else { payload_count }
+                    );
+                }
+            }
+        },
+    );
+}

@@ -120,3 +120,57 @@ fn retained_template_observation_preserves_same_arc_and_restarts_replacement() {
         "ReplacementAmbient"
     );
 }
+
+#[test]
+fn explicit_native_retirement_stops_local_ambient_after_dropping_modules() {
+    if isolated("explicit_native_retirement_stops_local_ambient_after_dropping_modules") {
+        return;
+    }
+    #[derive(Debug)]
+    struct RetireProbe {
+        bucket: usize,
+        digit: usize,
+        trace: Arc<std::sync::atomic::AtomicUsize>,
+    }
+    impl DrawModule for RetireProbe {
+        fn drawable_module_type_index(&self) -> usize {
+            self.bucket
+        }
+    }
+    impl Drop for RetireProbe {
+        fn drop(&mut self) {
+            let _ = self.trace.fetch_update(
+                std::sync::atomic::Ordering::SeqCst,
+                std::sync::atomic::Ordering::SeqCst,
+                |value| Some(value * 10 + self.digit),
+            );
+        }
+    }
+    let trace = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let mut draw = BasicDrawable::new(DrawableId(709));
+    custom(&mut draw, "RetirementAmbient");
+    draw.initialize_native_constructor_template(Some("CtorTemplate".into()), Some(plan()));
+    draw.finish_native_constructor_ambient(false, false);
+    assert_eq!(
+        draw.ambient_sound_event.as_ref().unwrap().get_event_name(),
+        "RetirementAmbient"
+    );
+    for (bucket, digit) in [(1, 3), (0, 1), (0, 2)] {
+        draw.draw_modules.push(Box::new(RetireProbe {
+            bucket,
+            digit,
+            trace: Arc::clone(&trace),
+        }));
+    }
+    draw.finish_native_retirement();
+    assert_eq!(
+        trace.load(std::sync::atomic::Ordering::SeqCst),
+        123,
+        "C++ Draw bucket order precedes ClientUpdate despite mixed storage"
+    );
+    assert!(draw.ambient_sound_event.is_none());
+    assert!(draw.draw_modules.is_empty());
+    assert!(draw.custom_sound_ambient_dynamic_info.is_none());
+    draw.finish_native_retirement();
+    assert!(draw.ambient_sound_event.is_none());
+}

@@ -244,11 +244,32 @@ impl GameLogic {
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
+        // Independent callers retain the existing nonfallible surface until their
+        // operation boundary is migrated; the selected factory never uses this adapter.
+        if let Err(error) = self.apply_garrison_initial_roster_with_effects_checked(
+            container_id,
+            team,
+            position,
+            interpreter,
+            ui,
+        ) {
+            log::error!("{error}");
+        }
+    }
+
+    pub(in crate::game_logic) fn apply_garrison_initial_roster_with_effects_checked(
+        &mut self,
+        container_id: ObjectId,
+        team: Team,
+        position: glam::Vec3,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
         let Some(container) = self.objects.get(&container_id) else {
-            return;
+            return Ok(());
         };
         if container.thing().template.contain_module.kind != ContainModuleKind::Garrison {
-            return;
+            return Ok(());
         }
         let roster = gamelogic::object::contain::InitialRoster {
             template_name: container
@@ -264,10 +285,10 @@ impl GameLogic {
                 .initial_roster_count,
         };
         if !roster.is_populated() {
-            return;
+            return Ok(());
         }
         if !self.templates.contains_key(&roster.template_name) {
-            return;
+            return Ok(());
         }
         let payload_name = roster.template_name;
         for _ in 0..roster.count {
@@ -277,14 +298,15 @@ impl GameLogic {
                 .objects
                 .get(&container_id)
                 .and_then(|parent| parent.owner_player_id);
-            let Some(occupant_id) = self.create_object_for_owner_or_team_with_effects(
+            let Some(occupant_id) = self.create_object_for_owner_or_team_with_effects_checked(
                 &payload_name,
                 team,
                 owner,
                 position,
                 interpreter,
                 ui,
-            ) else {
+            )?
+            else {
                 break;
             };
             let added = self
@@ -309,6 +331,8 @@ impl GameLogic {
             // C++ OpenContain::addToContain doLoadSound (once per frame).
             self.play_container_enter_sound(container_id, ui);
         }
+
+        Ok(())
     }
 
     /// C++ OpenContain::addToContain `m_playerEnteredMask = rider->getControllingPlayer()`.

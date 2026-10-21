@@ -3,6 +3,31 @@
 //! A failed map candidate can drop this value without changing the live world.
 use super::*;
 
+/// Device-adjacent services borrowed independently of either live or candidate
+/// world. The animation clock remains the driving renderer's one clock.
+pub(crate) struct NativeDrawServices<'a> {
+    failed_model_resolutions: &'a mut pipeline_collect::FailedModelResolutions,
+    animation_sync_ms: u32,
+}
+
+impl RenderPipeline {
+    pub(crate) fn borrow_native_draw_services(&mut self) -> NativeDrawServices<'_> {
+        NativeDrawServices {
+            failed_model_resolutions: &mut self.failed_model_resolutions,
+            animation_sync_ms: self.animation_sync_ms,
+        }
+    }
+}
+
+impl<'a> NativeDrawServices<'a> {
+    pub(crate) fn bind_world(
+        self,
+        world: &'a mut NativeDrawWorld,
+    ) -> native_pose_loan::NativeInstalledPoseLoan<'a> {
+        world.borrow_installed_poses(self.failed_model_resolutions, self.animation_sync_ms)
+    }
+}
+
 #[derive(Default)]
 pub(crate) struct NativeDrawWorld {
     /// Runtime identity and current state for each original Draw module.
@@ -30,5 +55,15 @@ impl NativeDrawWorld {
             pending_client_drawable_imports: &mut self.pending_client_drawable_imports,
             animation_sync_ms,
         }
+    }
+}
+
+impl RenderPipeline {
+    /// Commit already constructed CPU Draw state after retiring the old Client.
+    /// Device services and caches retain their application lifetime. Never copy
+    /// bindings or replay Creating: candidate identity is already admitted.
+    pub(crate) fn install_native_draw_world(&mut self, world: NativeDrawWorld) {
+        self.invalidate_world_visual_state();
+        self.native_draw_world = world;
     }
 }

@@ -243,15 +243,9 @@ pub(crate) fn xfer_game_client_state(
                 .collect_saveable_drawables_sorted()
                 .map_err(|_| RuntimeXferStatus::InvalidData)?
         } else {
-            client.drawables.drawable_map.clear();
-            client.drawables.native_drawable_order.clear();
-            client.drawables.ray_effects.reset();
-            client.drawables.owned_laser_order.clear();
-            client.drawables.drawable_object_map.clear();
             client
-                .drawables
-                .presentation_direct_drawable_bindings
-                .clear();
+                .try_invalidate_presentation_drawable_world()
+                .map_err(|_| RuntimeXferStatus::InvalidData)?;
             Vec::new()
         };
 

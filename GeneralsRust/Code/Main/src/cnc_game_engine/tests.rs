@@ -819,17 +819,29 @@ fn windowed_boot_source_loads_shell_map_instead_of_skipping() {
     let worker = src
         .split("pub(super) fn spawn_startup_map_load(")
         .nth(1)
-        .and_then(|s| s.split("pub(super) fn finalize_startup_map_load(").next())
+        .and_then(|s| s.split("fn admit_prepared_startup_map_load(").next())
         .expect("startup worker bounded");
     assert!(
-        worker.contains("windowed_shell_map_load_decision")
-            && worker.contains("load_map_with_progress")
-            && worker.contains("Shell.cpp:448-466"),
-        "windowed boot worker must fail-soft load ShellMapMD like C++ showShellMap"
+        worker.contains("StartupMapAdmissionRequest")
+            && !worker.contains("load_map_with_progress_and_native"),
+        "worker must hand off the owned request before semantic/native birth"
     );
     assert!(
         !worker.contains("start_in_menu: skipping blocking shell-map load"),
         "windowed Menu must not skip a named ShellMapMD decode"
+    );
+
+    let admission = src
+        .split("fn admit_prepared_startup_map_load(")
+        .nth(1)
+        .and_then(|s| s.split("pub(super) fn finalize_startup_map_load(").next())
+        .expect("driving-thread admission bounded");
+    assert!(
+        admission.contains("windowed_shell_map_load_decision")
+            && admission.contains("load_map_with_progress_and_native_checked")
+            && admission.contains("Some(&mut attempt)")
+            && admission.contains("Shell.cpp:448-466"),
+        "driving native owner must fail-soft load the same C++ ShellMapMD path"
     );
 
     let finalize = src

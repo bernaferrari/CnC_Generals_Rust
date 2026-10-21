@@ -40,6 +40,7 @@ mod live_draw_source;
 mod live_draw_source_tests;
 #[cfg(test)]
 mod money_audio_owner_tests;
+mod native_factory_source;
 mod overlay;
 mod particles;
 mod projectile;
@@ -104,6 +105,7 @@ pub const PRESENTATION_FRAME_SRC: &str = concat!(
     include_str!("draw_conditions/weapon_and_damage_bits.rs"),
     include_str!("draw_conditions/lifecycle_bits.rs"),
     include_str!("live_draw_source.rs"),
+    include_str!("native_factory_source.rs"),
     include_str!("weapon_visual_dispatch.rs"),
     include_str!("world_env.rs"),
     include_str!("../../../GameEngine/Presentation/src/command.rs"),

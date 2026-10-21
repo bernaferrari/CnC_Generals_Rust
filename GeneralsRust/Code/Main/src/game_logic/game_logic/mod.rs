@@ -19,6 +19,8 @@ mod construct;
 mod crate_tick;
 mod host;
 mod host_object_store;
+mod map_loading;
+pub(crate) use map_loading::MapAttemptKind;
 mod player;
 #[path = "../score_academy.rs"]
 mod score_academy;

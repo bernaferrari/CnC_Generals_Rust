@@ -138,6 +138,21 @@ impl GameLogic {
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
+        // Independent callers retain the existing nonfallible surface until their
+        // operation boundary is migrated; the selected factory never uses this adapter.
+        if let Err(error) =
+            self.on_supply_center_build_complete_with_effects_checked(object_id, interpreter, ui)
+        {
+            log::error!("{error}");
+        }
+    }
+
+    pub(in crate::game_logic) fn on_supply_center_build_complete_with_effects_checked(
+        &mut self,
+        object_id: ObjectId,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
         use crate::game_logic::host_upgrades::is_supply_center_template;
         let is_supply_center = self.objects.get(&object_id).is_some_and(|obj| {
             obj.thing().template.has_supply_center_create
@@ -156,12 +171,14 @@ impl GameLogic {
             // C++ SupplyCenter/Stash SpawnBehavior ModuleTag_12 only becomes
             // eligible after UNDER_CONSTRUCTION clears.  It creates the free
             // starter collector outside the paid ProductionUpdate queue.
-            let _ = self.spawn_supply_center_one_shot_collector_with_effects(
+            let _ = self.spawn_supply_center_one_shot_collector_with_effects_checked(
                 object_id,
                 interpreter,
                 ui,
-            );
+            )?;
         }
+
+        Ok(())
     }
 
     /// C++ GenerateMinefieldBehavior::upgradeImplementation + EMP swap residual.

@@ -38,18 +38,44 @@ impl NativeAudioEffects for game_engine::common::audio::AudioManager {
 pub(crate) trait NativeViewEffects {
     fn local_player_id(&self) -> u32;
     fn sample_slave(&mut self, source: &NativeSlaveSource, bone: &str) -> SlaveCameraSample;
+    #[cfg(feature = "game_client")]
+    fn host_epoch(&self) -> u64;
+    #[cfg(feature = "game_client")]
+    fn admit_factory_drawable(
+        &mut self,
+        source: NativeFactoryDrawableSource,
+        birth: game_client::core::game_client::NativeDrawableBirthContext,
+        content: &mut game_engine::common::thing::module_factory::ModuleFactory,
+    ) -> Result<(), String>;
+}
+
+/// One bounded read of the canonical object at initObject/sendObjectCreated.
+/// It never owns an object, advances a clock, or drains frame effects.
+#[cfg(feature = "game_client")]
+pub(crate) struct NativeFactoryDrawableSource {
+    pub(crate) drawable: game_client::core::game_client::PresentationDrawableSync,
+    pub(crate) render: NativeSlaveSource,
 }
 /// Detached native map admission, borrowed by the one production map loader.
 /// The owner is returned to its application only after that load succeeds.
 pub(crate) trait NativeMapAdmission {
     /// Rejection or a new attempt discards only this candidate's native outputs.
-    fn discard_attempt(&mut self);
+    fn discard_attempt(&mut self) -> Result<(), String>;
+    /// Actual receiving Drawable prepend roster, before the driving map gate
+    /// closes. Saved-map foundation never invokes this new-level callback.
+    fn on_level_start(&mut self) -> Result<(), String>;
     fn prepare(
         &mut self,
         world: &super::GameLogic,
         metadata: Option<&super::script_loader::MapMetadata>,
     ) -> Result<(), String>;
     fn admit_restored_heights(&mut self, world: &super::GameLogic) -> Result<(), String>;
+    /// Snapshot replaced host instances after map foundation. Reconstruct only
+    /// their native constructor state, without replaying gameplay creation.
+    fn admit_restored_object_drawables(
+        &mut self,
+        world: &mut super::GameLogic,
+    ) -> Result<(), String>;
     fn effects(&mut self) -> ScriptPresentationEffects<'_>;
 }
 

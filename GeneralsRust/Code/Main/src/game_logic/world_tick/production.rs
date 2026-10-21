@@ -1937,6 +1937,17 @@ impl GameLogic {
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
+        // Independent callers retain the existing nonfallible surface until their
+        // operation boundary is migrated; the selected factory never uses this adapter.
+        if let Err(error) = self.spawn_skirmish_starting_units_with_effects_checked(effects) {
+            log::error!("{error}");
+        }
+    }
+
+    pub(crate) fn spawn_skirmish_starting_units_with_effects_checked(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
         use crate::game_logic::host_faction_skirmish_residual::{
             find_player_template_by_side, find_player_template_residual,
         };
@@ -2064,7 +2075,9 @@ impl GameLogic {
                     }
                     self.ensure_ai_faction_templates(player.team);
                     if self
-                        .create_object_for_player_with_effects(building, pid, pos, None, effects)
+                        .create_object_for_player_with_effects_checked(
+                            building, pid, pos, None, effects,
+                        )?
                         .is_some()
                     {
                         gamelogic::player::notify_skirmish_starting_object(pid, building, true);
@@ -2146,9 +2159,9 @@ impl GameLogic {
                 if let Some(h) = self.terrain_height_at(Vec3::new(unit_pos.x, 0.0, unit_pos.z)) {
                     unit_pos.y = h;
                 }
-                if let Some(id) = self
-                    .create_object_for_player_with_effects(unit_name, pid, unit_pos, None, effects)
-                {
+                if let Some(id) = self.create_object_for_player_with_effects_checked(
+                    unit_name, pid, unit_pos, None, effects,
+                )? {
                     if let Some(obj) = self.host_object_mut(id) {
                         if obj.is_mobile()
                             && !obj.is_kind_of(crate::game_logic::KindOf::Selectable)
@@ -2179,9 +2192,9 @@ impl GameLogic {
                         if fallback.eq_ignore_ascii_case(unit_name) {
                             continue;
                         }
-                        if let Some(id) = self.create_object_for_player_with_effects(
+                        if let Some(id) = self.create_object_for_player_with_effects_checked(
                             fallback, pid, unit_pos, None, effects,
-                        ) {
+                        )? {
                             if let Some(obj) = self.host_object_mut(id) {
                                 if obj.is_mobile()
                                     && !obj.is_kind_of(crate::game_logic::KindOf::Selectable)
@@ -2206,6 +2219,8 @@ impl GameLogic {
                 }
             }
         }
+
+        Ok(())
     }
 }
 

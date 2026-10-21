@@ -1115,7 +1115,7 @@ impl CnCGameEngine {
         thread::spawn(move || {
             Self::emit_startup_load_progress(&sender, 0.03, "Preparing startup archive access");
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(
-                || -> std::result::Result<StartupLoadResult, String> {
+                || -> std::result::Result<StartupPreparedLoadResult, String> {
                     let worker_stop_if_abandoned = || -> std::result::Result<(), String> {
                         if startup_worker_owns(worker_gen) {
                             Ok(())
@@ -1784,101 +1784,11 @@ impl CnCGameEngine {
                     Self::admit_startup_difficulty(&mut game_logic, startup_new_game);
                     game_logic.admit_new_game_starting_cash(game_info_starting_cash, default_starting_cash);
 
-                    let mut loaded_map_name = None;
-                    let mut native_map = super::map_native_admission::NativeMapCandidate::default();
-                    // C++ Shell::showShellMap(TRUE) (Shell.cpp:448-466) starts
-                    // GAME_SHELL with m_shellMapName even on the main menu.
-                    // Windowed boot used to skip ShellMapMD so Menu could paint;
-                    // load fail-soft instead (hq-4yc1). Missing assets still skip.
-                    if let Some(map_to_load) = map_to_load
-                        .as_ref()
-                        .filter(|_| {
-                            Self::windowed_shell_map_load_decision(
-                                start_in_menu,
-                                map_to_load.as_deref(),
-                            )
-                        })
-                        .cloned()
-                    {
-                        Self::emit_startup_load_progress(&sender, 0.24, "Loading map data");
-                        let map_loaded =
-                            game_logic.load_map_with_progress_and_native(&map_to_load, |progress, phase| {
-                                Self::emit_startup_load_progress(&sender, progress, phase);
-                            }, native_map.receiver());
-                        if !map_loaded {
-                            if replay_startup_requested && !start_in_menu {
-                                // This worker owns the failed candidate only. Close its
-                                // actual file before admitting the shell fallback; no old
-                                // running session or native GUI is touched by candidate IO.
-                                game_logic.replay_pending.stop_playback_owned();
-                                game_logic.replay_pending.take_lifecycle_messages_owned();
-                                let seed = game_logic.logic_base_seed;
-                                game_logic.replay_pending.reset_recorder_for_match_owned(String::new(), seed);
-                            }
-                            if start_in_menu {
-                                warn!(
-                                    "Failed to load shell map '{}'; continuing startup without a shell background map",
-                                    map_to_load
-                                );
-                                game_logic.clearGameData();
-                            } else if map_requested_from_cli {
-                                warn!(
-                                    "Failed to load startup map '{}'; falling back to menu startup",
-                                    map_to_load
-                                );
-                                game_logic.start_new_game(GameMode::Shell);
-                                game_logic.admit_new_game_starting_cash(None, default_starting_cash);
-                                start_in_menu = true;
-                            } else {
-                                warn!(
-                                    "Failed to load startup map '{}'; falling back to menu startup with empty scene",
-                                    map_to_load
-                                );
-                                game_logic.start_new_game(GameMode::Shell);
-                                game_logic.admit_new_game_starting_cash(None, default_starting_cash);
-                                start_in_menu = true;
-                            }
-                        } else {
-                            loaded_map_name = Some(map_to_load);
-                        }
-                    } else {
-                        Self::emit_startup_load_progress(&sender, 0.24, "Skipping shell map load");
-                        if start_in_menu {
-                            info!(
-                                "No shell background map available; entering menu without a shell background map"
-                            );
-                        }
-                    }
-
-                    if let Some(player_name) = player_name.as_deref() {
-                        if game_logic.set_player_name(0, player_name) {
-                            info!("Set local player name to '{}'", player_name);
-                        } else {
-                            warn!("Failed to apply player name '{}'", player_name);
-                        }
-                    }
-
-                    if start_in_menu && game_logic.isInShellGame() {
-                        // C++ ticks GAME_SHELL on the main loop. Two worker
-                        // update_shell_with_budget steps were hanging minutes
-                        // (pathfinding/scripts + ASSET_MANAGER) and never sent
-                        // Complete, so TerrainVisual never installed.
-                        Self::emit_startup_load_progress(
-                            &sender,
-                            0.968,
-                            "Priming shell simulation",
-                        );
-                        info!("Startup shell simulation warmup deferred to Menu ticks");
-                    }
-
-                    Self::emit_startup_load_progress(&sender, 0.984, "Finalizing startup data");
-
-                    if loaded_map_name.is_none() { native_map = Default::default(); }
-                    Ok(StartupLoadResult {
-                        native_map,
+                    Self::emit_startup_load_progress(&sender, 0.24, "Startup catalogs ready");
+                    Ok(StartupPreparedLoadResult {
                         default_starting_cash,
                         game_logic,
-                        loaded_map_name,
+                        request: StartupMapAdmissionRequest { map_to_load, player_name },
                         start_in_menu,
                         map_requested_from_cli,
                         replay_requested: replay_startup_requested,
@@ -1896,7 +1806,7 @@ impl CnCGameEngine {
             })
             .and_then(|inner| inner);
 
-            let _ = sender.send(StartupLoadMessage::Complete(result));
+            let _ = sender.send(StartupLoadMessage::Prepared(result));
         });
 
         StartupLoadState::InProgress {
@@ -1906,6 +1816,183 @@ impl CnCGameEngine {
             last_worker_phase: None,
             last_worker_logged_bucket: 0,
         }
+    }
+
+    /// Finish semantic map construction on the driving native thread.
+    /// Worker preparation moved this exact GameLogic; no world or device is cloned.
+    fn admit_prepared_startup_map_load(
+        &mut self,
+        prepared: StartupPreparedLoadResult,
+    ) -> Result<StartupLoadResult> {
+        let StartupPreparedLoadResult {
+            default_starting_cash,
+            mut game_logic,
+            request:
+                StartupMapAdmissionRequest {
+                    map_to_load,
+                    player_name,
+                },
+            mut start_in_menu,
+            map_requested_from_cli,
+            replay_requested: replay_startup_requested,
+        } = prepared;
+        let mut loaded_map_name = None;
+        let mut native_map = super::map_native_admission::NativeMapCandidate::with_epoch(
+            self.next_native_world_epoch(),
+        );
+        // C++ Shell::showShellMap(TRUE) (Shell.cpp:448-466) starts
+        // GAME_SHELL with m_shellMapName even on the main menu.
+        // Windowed boot used to skip ShellMapMD so Menu could paint;
+        // load fail-soft instead (hq-4yc1). Missing assets still skip.
+        if let Some(map_to_load) = map_to_load
+            .as_ref()
+            .filter(|_| {
+                Self::windowed_shell_map_load_decision(start_in_menu, map_to_load.as_deref())
+            })
+            .cloned()
+        {
+            self.update_shell_loading_progress(0.24, Some("Loading map data"));
+            // Same detached host world; native constructors run on the driving
+            // thread against this candidate's actual owners and application services.
+            #[cfg(feature = "game_client")]
+            let map_loaded = {
+                use crate::game_logic::NativeMapAdmission;
+                use game_engine::common::thing::module::StaticGameLodLevel;
+                let current = game_engine::common::game_lod::get_static_lod();
+                let policy = {
+                    let data = game_engine::common::global_data::read();
+                    game_client::core::game_client::ReceivingDrawablePolicy {
+                        use_draw_module_lod: data.use_draw_module_lod,
+                        use_tree_sway: data.use_tree_sway,
+                        static_game_lod: match current.to_ascii_uppercase().as_str() {
+                            "LOW" => StaticGameLodLevel::Low,
+                            "HIGH" => StaticGameLodLevel::High,
+                            _ => StaticGameLodLevel::Medium,
+                        },
+                    }
+                };
+                game_logic.require_native_drawable_owner();
+                let window = &self.window;
+                let mut retirement =
+                    game_client::core::game_client::NativeParticleRetirementService;
+                let mut attempt = native_map
+                    .attempt(
+                        self.render_pipeline.borrow_native_draw_services(),
+                        &mut self.graphics_system,
+                        self.current_player_id,
+                        policy,
+                        &mut retirement,
+                    )
+                    .map_err(anyhow::Error::msg)?;
+                let loaded = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    game_logic.load_map_with_progress_and_native_checked(
+                        &map_to_load,
+                        |progress, phase| {
+                            let progress = progress.clamp(0.0, 0.995);
+                            window.set_title(&format!(
+                                "Command & Conquer Generals Zero Hour - Loading {phase} ({:.0}%)",
+                                progress * 100.0
+                            ));
+                            window.request_redraw();
+                        },
+                        Some(&mut attempt),
+                    )
+                }));
+                match loaded {
+                    Ok(Ok(true)) => true,
+                    Ok(Ok(false)) => false,
+                    Ok(Err(error)) => return Err(anyhow::Error::msg(error)),
+                    Err(panic) => {
+                        attempt.discard_attempt().map_err(anyhow::Error::msg)?;
+                        let detail = panic
+                            .downcast_ref::<&str>()
+                            .copied()
+                            .or_else(|| panic.downcast_ref::<String>().map(String::as_str))
+                            .unwrap_or("non-string payload");
+                        return Err(anyhow::anyhow!("startup map load panicked: {detail}"));
+                    }
+                }
+            };
+            #[cfg(not(feature = "game_client"))]
+            let map_loaded: bool = return Err(anyhow::anyhow!(
+                "startup map admission requires the native GameClient owner"
+            ));
+            if !map_loaded {
+                if replay_startup_requested && !start_in_menu {
+                    // This worker owns the failed candidate only. Close its
+                    // actual file before admitting the shell fallback; no old
+                    // running session or native GUI is touched by candidate IO.
+                    game_logic.replay_pending.stop_playback_owned();
+                    game_logic.replay_pending.take_lifecycle_messages_owned();
+                    let seed = game_logic.logic_base_seed;
+                    game_logic
+                        .replay_pending
+                        .reset_recorder_for_match_owned(String::new(), seed);
+                }
+                if start_in_menu {
+                    warn!(
+                        "Failed to load shell map '{}'; continuing startup without a shell background map",
+                        map_to_load
+                    );
+                    game_logic.clearGameData();
+                } else if map_requested_from_cli {
+                    warn!(
+                        "Failed to load startup map '{}'; falling back to menu startup",
+                        map_to_load
+                    );
+                    game_logic.start_new_game(GameMode::Shell);
+                    game_logic.admit_new_game_starting_cash(None, default_starting_cash);
+                    start_in_menu = true;
+                } else {
+                    warn!(
+                        "Failed to load startup map '{}'; falling back to menu startup with empty scene",
+                        map_to_load
+                    );
+                    game_logic.start_new_game(GameMode::Shell);
+                    game_logic.admit_new_game_starting_cash(None, default_starting_cash);
+                    start_in_menu = true;
+                }
+            } else {
+                loaded_map_name = Some(map_to_load);
+            }
+        } else {
+            self.update_shell_loading_progress(0.24, Some("Skipping shell map load"));
+            if start_in_menu {
+                info!(
+                    "No shell background map available; entering menu without a shell background map"
+                );
+            }
+        }
+
+        if let Some(player_name) = player_name.as_deref() {
+            if game_logic.set_player_name(0, player_name) {
+                info!("Set local player name to '{}'", player_name);
+            } else {
+                warn!("Failed to apply player name '{}'", player_name);
+            }
+        }
+
+        if start_in_menu && game_logic.isInShellGame() {
+            // C++ ticks GAME_SHELL on the main loop. Two worker
+            // update_shell_with_budget steps were hanging minutes
+            // (pathfinding/scripts + ASSET_MANAGER) and never sent
+            // Complete, so TerrainVisual never installed.
+            self.update_shell_loading_progress(0.968, Some("Priming shell simulation"));
+            info!("Startup shell simulation warmup deferred to Menu ticks");
+        }
+
+        self.update_shell_loading_progress(0.984, Some("Finalizing startup data"));
+
+        // Rejected attempts were explicitly retired before their empty owners move.
+        Ok(StartupLoadResult {
+            native_map,
+            default_starting_cash,
+            game_logic,
+            loaded_map_name,
+            start_in_menu,
+            map_requested_from_cli,
+            replay_requested: replay_startup_requested,
+        })
     }
 
     /// Wave 610: via `host_finalize_startup_map_load`.
@@ -1965,7 +2052,8 @@ impl CnCGameEngine {
         self.default_starting_cash = result.default_starting_cash;
         // Admit the detached worker's actual start_new_game reset only now.
         self.reset_replay_pacing_for_new_game();
-        self.host_replace_game_logic(result.game_logic, result.native_map);
+        self.host_replace_game_logic(result.game_logic, result.native_map)
+            .map_err(anyhow::Error::msg)?;
         // The worker has finished PlayerTemplate/Multiplayer definitions and
         // its actual INI CRC. Admit these application observations on the UI
         // thread, not lazily on the first mouse move.
@@ -2171,7 +2259,7 @@ impl CnCGameEngine {
     }
 
     pub(super) fn update_startup_loading(&mut self) -> Result<()> {
-        let mut result: Option<std::result::Result<StartupLoadResult, String>> = None;
+        let mut result: Option<std::result::Result<StartupPreparedLoadResult, String>> = None;
         let mut visual_phase = None::<String>;
         let mut visual_progress = None::<f32>;
         match &mut self.startup_load_state {
@@ -2210,9 +2298,9 @@ impl CnCGameEngine {
                             }
                             *last_worker_phase = Some(phase);
                         }
-                        Ok(StartupLoadMessage::Complete(complete)) => {
+                        Ok(StartupLoadMessage::Prepared(complete)) => {
                             info!(
-                                "Startup shell/game load completed in {:.2}s",
+                                "Startup catalogs prepared in {:.2}s; admitting native map",
                                 started_at.elapsed().as_secs_f32()
                             );
                             result = Some(complete);
@@ -2260,7 +2348,12 @@ impl CnCGameEngine {
         }
 
         match result.expect("startup completion result missing") {
-            Ok(load_result) => self.finalize_startup_map_load(load_result),
+            Ok(prepared) => {
+                let result = self.admit_prepared_startup_map_load(prepared)?;
+                self.finalize_startup_map_load(result)?;
+                info!("Startup shell/game load completed");
+                Ok(())
+            }
             Err(err) => Err(anyhow::anyhow!(err)),
         }
     }

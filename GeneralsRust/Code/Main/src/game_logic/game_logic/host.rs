@@ -1144,6 +1144,9 @@ pub struct GameLogic {
     /// Map data
     pub(super) map_name: String,
     pub(super) map_loaded: bool,
+    /// Native application contract; standalone/headless worlds need no Client.
+    pub(super) native_drawable_owner_required: bool,
+    pub(super) map_loading_phase: super::map_loading::MapLoadingPhase,
 
     /// Combat system for parallel projectile processing
     pub(crate) combat_system: CombatSystem,

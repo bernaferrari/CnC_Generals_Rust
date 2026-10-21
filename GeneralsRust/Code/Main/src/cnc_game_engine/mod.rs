@@ -154,7 +154,7 @@ pub use types::{CnCGameEngine, VertexXYZNDUV2};
 
 enum StartupLoadMessage {
     Progress { progress: f32, phase: String },
-    Complete(std::result::Result<StartupLoadResult, String>),
+    Prepared(std::result::Result<StartupPreparedLoadResult, String>),
 }
 
 enum StartupLoadState {

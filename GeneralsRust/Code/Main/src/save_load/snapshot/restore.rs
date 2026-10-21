@@ -287,6 +287,13 @@ impl SnapshotBuilder {
             object.install_listening_outpost_transport();
         }
 
+        // TransportContain exists before runtime overlays, including a saved
+        // pending InitialPayload latch. Reinstall capacity before passengers.
+        if crate::game_logic::host_troop_crawler::is_troop_crawler_template(&snapshot.template_name)
+        {
+            object.install_troop_crawler_transport();
+        }
+
         // Geometry / transform
         object.set_position(snapshot.geometry.position);
         object.set_orientation(snapshot.geometry.rotation);

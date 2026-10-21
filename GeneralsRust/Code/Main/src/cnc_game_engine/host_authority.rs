@@ -120,6 +120,37 @@ impl<'a> RestoreTemplateCatalog<'a> {
 }
 
 impl CnCGameEngine {
+    /// Reserve the next receiving identity without touching the live world.
+    #[inline]
+    pub(super) fn next_native_world_epoch(&self) -> u64 {
+        let next = self.host_direct_visual_world_epoch.wrapping_add(1);
+        if next == 0 { 1 } else { next }
+    }
+    pub(super) fn commit_native_world_epoch(&mut self, epoch: u64) {
+        debug_assert_eq!(epoch, self.next_native_world_epoch());
+        #[cfg(feature = "game_client")]
+        self.control_bar.clear_observer_target_owned();
+        self.host_direct_visual_world_epoch = epoch;
+        self.native_display.reset_world(epoch);
+    }
+    #[cfg(feature = "game_client")]
+    pub(super) fn discard_receiving_map_candidate(
+        &mut self,
+        candidate: &mut super::map_native_admission::NativeMapCandidate,
+    ) -> Result<(), String> {
+        use crate::game_logic::NativeMapAdmission;
+        let policy = super::native_view_effects::receiving_native_drawable_policy();
+        let mut retirement = game_client::core::game_client::NativeParticleRetirementService;
+        let mut attempt = candidate.attempt(
+            self.render_pipeline.borrow_native_draw_services(),
+            &mut self.graphics_system,
+            self.current_player_id,
+            policy,
+            &mut retirement,
+        )?;
+        attempt.discard_attempt()
+    }
+
     /// Begin a new transient direct-visual world identity.
     ///
     /// This is deliberately separate from durable world/save identity.  A
@@ -127,12 +158,7 @@ impl CnCGameEngine {
     /// failed staged/load attempt must leave the active associations valid.
     #[inline]
     pub(super) fn host_advance_direct_visual_world_epoch(&mut self) {
-        #[cfg(feature = "game_client")]
-        self.control_bar.clear_observer_target_owned();
-        let next = self.host_direct_visual_world_epoch.wrapping_add(1);
-        self.host_direct_visual_world_epoch = if next == 0 { 1 } else { next };
-        self.native_display
-            .reset_world(self.host_direct_visual_world_epoch);
+        self.commit_native_world_epoch(self.next_native_world_epoch());
     }
 
     #[inline]
@@ -264,14 +290,19 @@ impl CnCGameEngine {
 
     /// Wave 584: host shell-map tick residual (menu frame budgeted update).
     #[inline]
-    pub(super) fn host_update_shell_with_budget(&mut self, dt: f32, budget: usize) {
+    pub(super) fn host_update_shell_with_budget(
+        &mut self,
+        dt: f32,
+        budget: usize,
+    ) -> std::result::Result<(), String> {
         // Wave 584/872/908/920/934: shell update via host-support authority.
         // Skip empty-dt authority shell tick dual-write.
         if dt <= 0.0 {
             let _ = budget;
-            return;
+            return Ok(());
         }
-        self.drive_native_command_phase(dt, Some(budget), true, None);
+        self.drive_native_command_phase(dt, Some(budget), true, None)?;
+        Ok(())
     }
 
     /// Wave 584: host logic-frame tick residual (timing/dt + optional headless budget).
@@ -1265,8 +1296,42 @@ impl CnCGameEngine {
     pub(super) fn host_replace_game_logic(
         &mut self,
         mut logic: crate::game_logic::GameLogic,
-        native_map: super::map_native_admission::NativeMapCandidate,
-    ) {
+        mut native_map: super::map_native_admission::NativeMapCandidate,
+    ) -> Result<(), String> {
+        #[cfg(feature = "game_client")]
+        let epoch = match native_map
+            .epoch()
+            .filter(|epoch| *epoch == self.next_native_world_epoch())
+        {
+            Some(epoch) => epoch,
+            None => {
+                let cleanup = self.discard_receiving_map_candidate(&mut native_map);
+                return Err(format!(
+                    "accepted native map epoch missing/stale; cleanup={cleanup:?}"
+                ));
+            }
+        };
+        // Retire old Client while old GameLogic and visual handle still exist.
+        #[cfg(feature = "game_client")]
+        let pending_map_audio = match native_map
+            .install_owned_worlds(&mut self.game_client, &mut self.render_pipeline)
+        {
+            Ok(audio) => audio,
+            Err((error, mut rejected)) => {
+                let cleanup = self.discard_receiving_map_candidate(&mut rejected);
+                return Err(match cleanup {
+                    Ok(()) => error,
+                    Err(cleanup) => format!("{error}; rejected candidate cleanup: {cleanup}"),
+                });
+            }
+        };
+        #[cfg(not(feature = "game_client"))]
+        let epoch = self.next_native_world_epoch();
+        #[cfg(not(feature = "game_client"))]
+        let pending_map_audio = {
+            self.render_pipeline.invalidate_world_visual_state();
+            native_map.install_visuals(&mut self.render_pipeline)
+        };
         if logic
             .session_view
             .camera
@@ -1307,16 +1372,13 @@ impl CnCGameEngine {
             // reset-then-sync ordering.
             shadow.sync_from_host(&self.game_logic);
         }
-        self.host_advance_direct_visual_world_epoch();
-        #[cfg(feature = "game_client")]
-        self.game_client.invalidate_presentation_drawable_world();
+        self.commit_native_world_epoch(epoch);
         #[cfg(feature = "game_client")]
         self.game_client
             .bind_visual_world(gamelogic::helpers::ClientVisualHandle::new(Arc::clone(
                 &self.game_logic.world_services,
             )));
-        self.render_pipeline.invalidate_world_visual_state();
-        native_map.install(&mut self.render_pipeline);
+
         self.invalidate_presentation_terrain_cache();
         self.draw_module_name_cache.borrow_mut().clear();
         self.kind_name_cache.borrow_mut().clear();
@@ -1327,6 +1389,8 @@ impl CnCGameEngine {
         ) {
             self.set_owned_control_bar_scheme("Observer");
         }
+        pending_map_audio.admit_to_live();
+        Ok(())
     }
 
     /// Preserve the candidate's saved continuation after presentation commit
@@ -1356,7 +1420,7 @@ impl CnCGameEngine {
         // Reject unexplained Core callbacks before invalidating the old UI,
         // replacing its world, or admitting the candidate camera continuation.
         let StagedRestoreWorld {
-            native_map,
+            mut native_map,
             mut logic,
             info: _,
             runtime_world,
@@ -1371,7 +1435,38 @@ impl CnCGameEngine {
             mut control_groups,
             logic_rng_seed_words,
         } = staged;
-        let runtime_world = runtime_world.preflight_native()?;
+        let runtime_world = match runtime_world.preflight_native() {
+            Ok(world) => world,
+            Err(error) => {
+                #[cfg(feature = "game_client")]
+                {
+                    let cleanup = self.discard_receiving_map_candidate(&mut native_map);
+                    return Err(format!(
+                        "{error}; rejecting saved native preflight: {cleanup:?}"
+                    ));
+                }
+                #[cfg(not(feature = "game_client"))]
+                return Err(error);
+            }
+        };
+        #[cfg(feature = "game_client")]
+        let epoch = match native_map
+            .epoch()
+            .filter(|epoch| *epoch == self.next_native_world_epoch())
+        {
+            Some(epoch) => epoch,
+            None => {
+                let cleanup = self.discard_receiving_map_candidate(&mut native_map);
+                return Err(format!(
+                    "saved native candidate epoch missing/stale; cleanup={cleanup:?}"
+                ));
+            }
+        };
+        #[cfg(not(feature = "game_client"))]
+        let epoch = self.next_native_world_epoch();
+        if epoch != self.next_native_world_epoch() {
+            return Err("saved native candidate epoch is stale".into());
+        }
         // Immutable application policy transfers; the old live reader never does.
         // This prepares only the detached candidate and cannot reset the receiver.
         let mut recorder_inputs = self
@@ -1395,10 +1490,21 @@ impl CnCGameEngine {
         // Destroy the previous client's Drawables while its own world and the
         // C++-style ambient module callbacks still refer to that old world.
         // Some DrawModule destructors consult TheGameClient during teardown.
-        self.host_advance_direct_visual_world_epoch();
         #[cfg(feature = "game_client")]
-        self.game_client.invalidate_presentation_drawable_world();
-        self.render_pipeline.invalidate_world_visual_state();
+        let pending_map_audio = match native_map
+            .install_owned_worlds(&mut self.game_client, &mut self.render_pipeline)
+        {
+            Ok(audio) => audio,
+            Err((error, mut rejected)) => {
+                let cleanup = self.discard_receiving_map_candidate(&mut rejected);
+                return Err(match cleanup {
+                    Ok(()) => error,
+                    Err(cleanup) => format!("{error}; rejected candidate cleanup: {cleanup}"),
+                });
+            }
+        };
+        #[cfg(not(feature = "game_client"))]
+        let pending_map_audio = native_map.install_visuals(&mut self.render_pipeline);
 
         let native_commit = runtime_world.install_globals();
         // Only admitted replacement cancels a source prepared start. Failed
@@ -1415,7 +1521,7 @@ impl CnCGameEngine {
             .as_ref()
             .and_then(|initial| initial.local_slot);
         let old_logic = std::mem::replace(&mut self.game_logic, logic);
-        let pending_map_audio = native_map.install_visuals(&mut self.render_pipeline);
+        self.commit_native_world_epoch(epoch);
         if let Some(local) = saved_local {
             self.current_player_id = local;
             self.host_match_local_player_id = Some(local);
@@ -1626,6 +1732,7 @@ impl CnCGameEngine {
         self.configure_receiving_replay_menu();
         // No Common AR_Play output from this candidate can escape a rejected
         // client/camera/presentation admission. Emit once at the successful tail.
+        self.game_logic.finish_saved_snapshot_admission()?;
         pending_map_audio.admit_to_live();
         Ok(())
     }
@@ -1808,6 +1915,54 @@ impl CnCGameEngine {
         camera_input_policy: crate::presentation_frame::camera::input_rules::CameraInputPolicy,
         live_services: &Arc<gamelogic::system::engine_stores::WorldServices>,
     ) -> Result<StagedRestoreWorld, String> {
+        Self::stage_saved_world_for_restore_with_native(
+            save_file_manager,
+            slot,
+            active_mode,
+            template_catalog,
+            weapon_catalog,
+            projectile_definitions,
+            ocl_application_base,
+            ai_definition_base,
+            production_energy_base,
+            physics_rules_base,
+            terrain_definition_seed,
+            armor_definition_seed,
+            camera_settings,
+            camera_clip_policy,
+            camera_shake_policy,
+            camera_movement_policy,
+            camera_input_policy,
+            live_services,
+            None,
+        )
+    }
+
+    fn stage_saved_world_for_restore_with_native(
+        save_file_manager: &mut SaveFileManager,
+        slot: &str,
+        active_mode: crate::game_logic::GameMode,
+        template_catalog: RestoreTemplateCatalog<'_>,
+        weapon_catalog: &Option<
+            std::collections::HashMap<String, Arc<gamelogic::weapon::WeaponTemplate>>,
+        >,
+        projectile_definitions: &crate::game_logic::projectile_definitions::ProjectileDefinitions,
+        ocl_application_base: &Arc<
+            std::collections::HashMap<String, gamelogic::effects::ObjectCreationList>,
+        >,
+        ai_definition_base: &game_engine::common::ini::AIData,
+        production_energy_base: game_engine::common::ini::ini_game_data::ProductionEnergyRules,
+        physics_rules_base: game_engine::common::ini::ini_game_data::PhysicsContentRules,
+        terrain_definition_seed: &Arc<game_engine::common::ini::ini_terrain::TerrainTypes>,
+        armor_definition_seed: Option<&Arc<gamelogic::object::armor::ArmorDefinitions>>,
+        camera_settings: crate::presentation_frame::camera::settings::CameraSettings,
+        camera_clip_policy: crate::presentation_frame::camera::clip::CameraClipPolicy,
+        camera_shake_policy: crate::presentation_frame::camera::shake_rules::CameraShakePolicy,
+        camera_movement_policy: crate::presentation_frame::camera::movement_rules::CameraMovementPolicy,
+        camera_input_policy: crate::presentation_frame::camera::input_rules::CameraInputPolicy,
+        live_services: &Arc<gamelogic::system::engine_stores::WorldServices>,
+        native: Option<&mut dyn crate::game_logic::NativeMapAdmission>,
+    ) -> Result<StagedRestoreWorld, String> {
         let crate::save_load::DecodedGameSave {
             snapshot,
             save_info,
@@ -1818,7 +1973,6 @@ impl CnCGameEngine {
             .load_game_snapshot(slot)
             .map_err(|err| format!("{err}"))?;
 
-        let mut native_map = super::map_native_admission::NativeMapCandidate::default();
         let mut staged = Self::stage_decoded_saved_world_for_restore_with_native(
             &snapshot,
             save_info,
@@ -1847,9 +2001,8 @@ impl CnCGameEngine {
                     .restore_game_snapshot(snapshot, staged)
                     .map_err(|err| format!("{err}"))
             },
-            native_map.receiver(),
+            native,
         )?;
-        staged.native_map = native_map;
         Ok(staged)
     }
 
@@ -1934,6 +2087,7 @@ impl CnCGameEngine {
             &mut logic.session_view,
             owns_session_camera,
         );
+        logic.finish_saved_snapshot_admission()?;
         let previous = std::mem::replace(live, logic);
         drop(previous);
         committed.finish_after_logic_commit();
@@ -1975,6 +2129,7 @@ impl CnCGameEngine {
         );
         let mut candidate = crate::game_logic::GameLogic::new();
         candidate.start_new_game_for_restore(live.game_mode());
+        candidate.begin_saved_snapshot_admission()?;
         // The receiving loaded catalog owns name/mask allocation order; the
         // snapshot carries purchased/pending state, not UpgradeTemplate INI.
         // Clone the value-owned catalog before admitting that runtime state.
@@ -2049,6 +2204,7 @@ impl CnCGameEngine {
             &mut candidate.session_view,
             owns_camera,
         );
+        candidate.finish_saved_snapshot_admission()?;
         let previous = std::mem::replace(live, candidate);
         drop(previous);
         committed.finish_after_logic_commit();
@@ -2235,6 +2391,10 @@ impl CnCGameEngine {
             staged.admit_armor_definitions(Arc::clone(catalog));
         }
         staged.start_new_game_for_restore(mode);
+        staged.begin_saved_snapshot_admission()?;
+        if native.is_some() {
+            staged.require_native_drawable_owner();
+        }
         if let Some(initial) = &initial_skirmish {
             initial.admit(&mut staged)?;
         }
@@ -2263,14 +2423,14 @@ impl CnCGameEngine {
         let mut capture_map_water = |state: &gamelogic::terrain_water::WaterGridState| {
             map_water_configuration = Some(state.clone());
         };
-        if !staged.load_map_with_definition_source_and_water_delivery_and_native(
+        if !staged.load_map_with_definition_source_and_water_delivery_and_native_checked(
             saved_map,
             definition_source,
             Some(&mut capture_map_water),
             native
                 .as_mut()
                 .map(|native| &mut **native as &mut dyn crate::game_logic::NativeMapAdmission),
-        ) {
+        )? {
             return Err(format!(
                 "failed to load saved map '{saved_map}' from '{resolved_map_name}'"
             ));
@@ -2289,6 +2449,9 @@ impl CnCGameEngine {
         )
         .map_err(|error| error.to_string())?;
         restore_snapshot(snapshot, &mut staged)?;
+        if let Some(native) = native.as_mut() {
+            native.admit_restored_object_drawables(&mut staged)?;
+        }
         if let Some(prepared) = &terrain_visual {
             crate::save_load::snapshot::admit_receiving_terrain_visual(&mut staged, prepared)
                 .map_err(|error| error.to_string())?;
@@ -2372,7 +2535,62 @@ impl CnCGameEngine {
         let prior_campaign = crate::save_load::capture_live_campaign_state();
         let active_mode = self.game_logic.game_mode();
         let template_catalog = self.game_logic.templates.clone();
-        let staged = match Self::stage_saved_world_for_restore(
+
+        #[cfg(feature = "game_client")]
+        let staged_result = (|| -> Result<StagedRestoreWorld, String> {
+            use crate::game_logic::NativeMapAdmission;
+            let policy = super::native_view_effects::receiving_native_drawable_policy();
+            let mut candidate = super::map_native_admission::NativeMapCandidate::with_epoch(
+                self.next_native_world_epoch(),
+            );
+            let mut retirement = game_client::core::game_client::NativeParticleRetirementService;
+            let mut attempt = candidate.attempt(
+                self.render_pipeline.borrow_native_draw_services(),
+                &mut self.graphics_system,
+                self.current_player_id,
+                policy,
+                &mut retirement,
+            )?;
+            let result = Self::stage_saved_world_for_restore_with_native(
+                &mut self.save_file_manager,
+                slot,
+                active_mode,
+                RestoreTemplateCatalog {
+                    templates: &template_catalog,
+                    modules: &self.game_logic.receiving_module_content,
+                    object_definitions: &self.game_logic.receiving_object_definitions,
+                    baseline: &self.game_logic.receiving_template_baseline,
+                },
+                &self.game_logic.weapon_definition_base,
+                &self.game_logic.projectile_definitions,
+                &self.game_logic.ocl_application_definitions(),
+                self.game_logic.ai_definitions.baseline(),
+                self.game_logic.production_energy_baseline(),
+                self.game_logic.physics_rules_baseline(),
+                self.game_logic.effective_terrain_definitions(),
+                self.game_logic.current_armor_definitions(),
+                self.game_logic.session_view.camera.settings,
+                self.game_logic.session_view.camera.clip_policy,
+                self.game_logic.session_view.camera.shake_policy,
+                self.game_logic.session_view.camera.movement_policy,
+                self.game_logic.session_view.camera.input_policy,
+                &self.game_logic.world_services,
+                Some(&mut attempt),
+            );
+            if let Err(error) = &result {
+                if let Err(cleanup) = attempt.discard_attempt() {
+                    return Err(format!(
+                        "{error}; rejecting saved native candidate: {cleanup}"
+                    ));
+                }
+            }
+            drop(attempt);
+            let mut staged = result?;
+            staged.native_map = candidate;
+            Ok(staged)
+        })();
+        #[cfg(not(feature = "game_client"))]
+        let staged_result = Self::stage_saved_world_for_restore_with_native(
             &mut self.save_file_manager,
             slot,
             active_mode,
@@ -2396,7 +2614,9 @@ impl CnCGameEngine {
             self.game_logic.session_view.camera.movement_policy,
             self.game_logic.session_view.camera.input_policy,
             &self.game_logic.world_services,
-        ) {
+            None,
+        );
+        let staged = match staged_result {
             Ok(staged) => staged,
             Err(err) => {
                 crate::save_load::rollback_campaign_after_failed_load(prior_campaign);
@@ -2404,7 +2624,15 @@ impl CnCGameEngine {
             }
         };
 
+        let mut staged = staged;
         if let Err(failure) = Self::validate_staged_native_fade(&staged.logic) {
+            #[cfg(feature = "game_client")]
+            if let Err(cleanup) = self.discard_receiving_map_candidate(&mut staged.native_map) {
+                crate::save_load::rollback_campaign_after_failed_load(prior_campaign);
+                return Err(HostLoadFailure::Staging(format!(
+                    "{failure:?}; rejecting saved native candidate: {cleanup}"
+                )));
+            }
             crate::save_load::rollback_campaign_after_failed_load(prior_campaign);
             return Err(failure);
         }

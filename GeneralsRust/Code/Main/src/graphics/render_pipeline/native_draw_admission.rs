@@ -1,5 +1,6 @@
 //! Synchronous native Drawable mutations admitted to the existing RenderObj owner.
 use super::installed_draw_pose::{InstalledDrawObject, InstalledDrawPose};
+use super::native_draw_source::NativeDrawSource;
 use super::*;
 use game_client::core::game_client::PresentationDrawableMutation;
 
@@ -56,11 +57,86 @@ impl super::native_pose_loan::NativeInstalledPoseLoan<'_> {
         source: Option<&crate::presentation_frame::UnitRenderInput>,
         graphics: &mut GraphicsSystem,
     ) {
+        self.receive_native_mutation_from_source(
+            mutation,
+            source.map(NativeDrawSource::display),
+            graphics,
+        );
+    }
+
+    /// A factory callback supplies the current receiving object directly. A
+    /// missing source or invalid module selection cannot look like admission.
+    pub(crate) fn receive_native_factory_mutation(
+        &mut self,
+        mutation: PresentationDrawableMutation<'_>,
+        source: &crate::game_logic::NativeSlaveSource,
+        graphics: &mut GraphicsSystem,
+    ) -> Result<(), String> {
+        let id = mutation.object_id();
+        if id != source.identity.object_id() {
+            return Err("factory Draw source belongs to another object".into());
+        }
+        let expected = match &mutation {
+            PresentationDrawableMutation::Creating { .. } => Some(
+                source
+                    .receiving_draw_models
+                    .object_draws(0)
+                    .map_err(|_| "invalid receiving default Draw selection")?,
+            ),
+            PresentationDrawableMutation::ConditionsMarked { bits, .. } => {
+                source
+                    .receiving_draw_models
+                    .object_draws(*bits)
+                    .map_err(|_| "invalid receiving current Draw selection")?;
+                None
+            }
+            _ => None,
+        };
+        self.receive_native_mutation_from_source(
+            mutation,
+            Some(NativeDrawSource::current(source)),
+            graphics,
+        );
+        if let Some(expected) = expected {
+            let actual = self
+                .drawable_visual_states
+                .iter()
+                .filter(|((object, _), _)| *object == id)
+                .collect::<Vec<_>>();
+            if actual.len() != expected.len()
+                || expected.iter().any(|module| {
+                    !actual.iter().any(|((_, index), state)| {
+                        *index == module.module_index
+                            && state.native_host_identity.as_ref() == Some(&source.identity)
+                    })
+                })
+            {
+                return Err(
+                    "factory Draw constructor did not admit its complete receiving roster".into(),
+                );
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn clear_world(&mut self) {
+        self.drawable_visual_states.clear();
+        self.live_draw_playback.clear();
+        *self.pending_client_drawable_restore = None;
+        self.pending_client_drawable_imports.clear();
+    }
+
+    fn receive_native_mutation_from_source(
+        &mut self,
+        mutation: PresentationDrawableMutation<'_>,
+        source: Option<NativeDrawSource<'_>>,
+        graphics: &mut GraphicsSystem,
+    ) {
         let id = crate::game_logic::ObjectId(mutation.object_id());
         // Frozen admission leases distinguish restore/reset/id reuse even when
         // the receiving Client mirror can retain its numeric drawable binding.
         if let PresentationDrawableMutation::TransformInstalled { source: event, .. } = &mutation {
-            if let Some(identity) = source.and_then(|s| s.draw_playback_identity.as_ref()) {
+            if let Some(identity) = source.and_then(|s| s.identity) {
                 let replacement = self
                     .drawable_visual_states
                     .iter()
@@ -68,7 +144,7 @@ impl super::native_pose_loan::NativeInstalledPoseLoan<'_> {
                         *object == id.0 && state.native_host_identity.as_ref() != Some(identity)
                     });
                 if replacement {
-                    self.receive_native_drawable_mutation(
+                    self.receive_native_mutation_from_source(
                         PresentationDrawableMutation::Creating {
                             source: event,
                             initial_transform: game_client::drawable::Matrix4::identity(),
@@ -92,7 +168,7 @@ impl super::native_pose_loan::NativeInstalledPoseLoan<'_> {
                 self.drawable_visual_states
                     .retain(|(object, _), _| *object != id.0);
                 let Some(source) = source else { return };
-                let Some(receiving) = source.receiving_draw_models.as_deref() else {
+                let Some(receiving) = source.receiving else {
                     return;
                 };
                 let Ok(models) = receiving.object_draws(0) else {
@@ -105,8 +181,8 @@ impl super::native_pose_loan::NativeInstalledPoseLoan<'_> {
                         .drawable_visual_states
                         .entry((id.0, index))
                         .or_default();
-                    state.native_host_identity = source.draw_playback_identity.clone();
-                    state.native_source_template = source.template_name.clone();
+                    state.native_host_identity = source.identity.cloned();
+                    state.native_source_template = source.template.to_owned();
                     // Native cached W3D is unscaled. C++ applies asset scale to
                     // HTree data, not camera basis. Until baked scale admission
                     // exists, do not accept a scaled object's bone camera.
@@ -123,13 +199,13 @@ impl super::native_pose_loan::NativeInstalledPoseLoan<'_> {
                 let Some(source) = source else { return };
                 for ((object, _), state) in &mut *self.drawable_visual_states {
                     if *object == id.0 {
-                        state.receive_native_source_transform(source);
+                        source.install_transform(state);
                     }
                 }
             }
             PresentationDrawableMutation::ConditionsMarked { bits, .. } => {
                 let Some(source) = source else { return };
-                let Some(receiving) = source.receiving_draw_models.as_deref() else {
+                let Some(receiving) = source.receiving else {
                     return;
                 };
                 let Ok(models) = receiving.object_draws(bits) else {

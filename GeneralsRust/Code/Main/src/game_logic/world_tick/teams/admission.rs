@@ -37,17 +37,33 @@ impl GameLogic {
         activate: bool,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
+        // Independent callers retain the existing nonfallible surface until their
+        // operation boundary is migrated; the selected factory never uses this adapter.
+        if let Err(error) =
+            self.admit_team_for_host_object_with_effects_checked(id, interpreter, activate, ui)
+        {
+            log::error!("{error}");
+        }
+    }
+
+    pub(crate) fn admit_team_for_host_object_with_effects_checked(
+        &mut self,
+        id: ObjectId,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        activate: bool,
+        ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
         let Some(obj) = self.objects.get(&id) else {
-            return;
+            return Ok(());
         };
         let team_name = obj.team_instance_name.trim().to_string();
         let previous_identity = obj.team_instance_id;
         let generation = obj.visual_object_generation;
         if team_name.is_empty() {
-            return;
+            return Ok(());
         }
         let Ok(mut factory) = self.team_factory.lock() else {
-            return;
+            return Ok(());
         };
         if let Some(player_id) = obj.owner_player_id {
             if let Some(player) = self.players.get(&player_id) {
@@ -66,7 +82,7 @@ impl GameLogic {
                 // A missing exact identity cannot become another same-name
                 // instance. Only an explicit authored-name change selects anew.
                 let Some(existing) = factory.find_team_by_id(identity) else {
-                    return;
+                    return Ok(());
                 };
                 let same_definition = existing
                     .read()
@@ -87,17 +103,14 @@ impl GameLogic {
                 .or_else(|| factory.create_inactive_team_with_owned_effects(&team_name)),
         };
         let Some((team, effects)) = team else {
-            return;
+            return Ok(());
         };
         let identity = team
             .read()
             .unwrap_or_else(|error| error.into_inner())
             .get_id();
         drop(factory);
-        if let Err(error) = self.run_team_creation_effects_with_effects(effects, interpreter, ui) {
-            log::error!("team admission callback failed: {error}");
-            return;
-        }
+        self.run_team_creation_effects_with_effects(effects, interpreter, ui)?;
         // A synchronous create action may delete/reassign the object or retire
         // the admitted instance. Never attach through a stale captured handle.
         if !self.objects.get(&id).is_some_and(|object| {
@@ -105,17 +118,17 @@ impl GameLogic {
                 && object.team_instance_id == previous_identity
                 && object.visual_object_generation == generation
         }) {
-            return;
+            return Ok(());
         }
         let factory = self
             .team_factory
             .lock()
             .unwrap_or_else(|error| error.into_inner());
         let Some(current) = factory.find_team_by_id(identity) else {
-            return;
+            return Ok(());
         };
         if !std::sync::Arc::ptr_eq(&current, &team) {
-            return;
+            return Ok(());
         }
         // A map/script admission may replace the initial default team. Move
         // the member before adding it; this operation is not a frame-end repair.
@@ -140,6 +153,8 @@ impl GameLogic {
             .get_mut(&id)
             .expect("admitted receiving object")
             .team_instance_id = Some(identity);
+
+        Ok(())
     }
 
     pub(crate) fn run_team_creation_effects(
@@ -161,20 +176,22 @@ impl GameLogic {
         }
         if let Some(engine) = interpreter {
             for name in effects {
-                self.execute_owned_ai_condition_with_effects(engine, &name, None, ui);
+                self.execute_owned_ai_condition_with_effects_checked(engine, &name, None, ui)?;
             }
             Ok(())
         } else {
             self.with_owned_script_engine(|engine, world| {
                 for name in effects {
-                    world.execute_owned_ai_condition_with_effects(engine, &name, None, ui);
+                    world
+                        .execute_owned_ai_condition_with_effects_checked(engine, &name, None, ui)?;
                 }
+                Ok(())
             })
             .ok_or_else(|| {
                 gamelogic::GameLogicError::Configuration(
                     "team creation requires the driving interpreter".into(),
                 )
-            })
+            })?
         }
     }
 

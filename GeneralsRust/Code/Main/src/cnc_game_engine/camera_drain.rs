@@ -261,13 +261,17 @@ impl CnCGameEngine {
     /// Shell map tick + script FPS, menu commands, script camera, camera, slow-tick
     /// diagnostics, shell prewarm logs, MainMenu UI projection, and GameClient menu
     /// shell / NewGame drain. Returns `true` when a NewGame start consumed the frame.
-    pub(super) fn host_tick_menu_client_residuals(&mut self, visual_dt: f32, dt: f32) -> bool {
+    pub(super) fn host_tick_menu_client_residuals(
+        &mut self,
+        visual_dt: f32,
+        dt: f32,
+    ) -> std::result::Result<bool, String> {
         if matches!(self.startup_load_state, StartupLoadState::InProgress { .. }) {
             if let Err(err) = self.update_startup_loading() {
                 warn!("Menu late startup load failed: {err}");
             }
             if self.current_state != GameState::Menu {
-                return false;
+                return Ok(false);
             }
         }
         // Wave 605: Menu client residual.
@@ -278,7 +282,7 @@ impl CnCGameEngine {
         // (stale InGame freeze does not suppress shell ticks).
         let in_shell = self.presentation_affirms_shell_or_boot();
         if in_shell && !self.game_paused {
-            self.host_update_shell_with_budget(dt, 1);
+            self.host_update_shell_with_budget(dt, 1)?;
             self.apply_shell_script_fps_limit_residual();
         }
         let shell_elapsed = shell_update_started.elapsed();
@@ -352,7 +356,7 @@ impl CnCGameEngine {
         {
             // Wave 588: Menu GameClient shell + NewGame drain residual via helper.
             if self.host_tick_game_client_menu_shell() {
-                return true;
+                return Ok(true);
             }
         }
         // Headless / no-game_client builds still drain NewGame if present.
@@ -361,13 +365,13 @@ impl CnCGameEngine {
             if matches!(request.mode, GameMode::Shell) {
                 info!("Menu NewGame drain: ignore GAME_SHELL (shell map already live)");
                 Self::take_shell_new_game_messages_from_common_stream();
-                return false;
+                return Ok(false);
             }
             self.start_game_from_ui(request);
             let _ = Self::take_new_game_dispatch_from_common_stream();
-            return true;
+            return Ok(true);
         }
-        false
+        Ok(false)
     }
 
     /// Wave 604: Loading-state client residual.
@@ -512,8 +516,11 @@ impl CnCGameEngine {
         };
         // The observer only copies completed Main state at each fixed step.
         let mut observer_slot = self.gameworld_shadow.take();
-        self.host_run_fast_forward_loop(dt, ff_steps, step_budget, observer_slot.as_mut());
+        let result =
+            self.host_run_fast_forward_loop(dt, ff_steps, step_budget, observer_slot.as_mut());
+        // Restore the real observer owner on success and failure.
         self.gameworld_shadow = observer_slot.take();
+        result?;
         // Script FPS applied from presentation residual after snapshot build (below).
         // Live take remains for boot path when no frame is produced this tick.
 
@@ -2311,18 +2318,19 @@ impl CnCGameEngine {
         ff_steps: usize,
         headless_step_budget: Option<usize>,
         mut owned_observer: Option<&mut crate::gameworld_shadow::GameWorldShadow>,
-    ) {
+    ) -> std::result::Result<(), String> {
         for _ in 0..ff_steps {
             let (_, interrupted) = self.drive_native_command_phase(
                 dt,
                 headless_step_budget,
                 false,
                 owned_observer.as_deref_mut(),
-            );
+            )?;
             if interrupted {
                 break;
             }
         }
+        Ok(())
     }
 
     /// Wave 597: GameWorld shadow session residual via single boundary.

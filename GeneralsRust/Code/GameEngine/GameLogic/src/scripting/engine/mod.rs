@@ -78,3 +78,6 @@ mod condition_cursor_tests;
 
 #[cfg(test)]
 mod condition_query_tests;
+
+#[cfg(test)]
+mod checked_friend_action_tests;

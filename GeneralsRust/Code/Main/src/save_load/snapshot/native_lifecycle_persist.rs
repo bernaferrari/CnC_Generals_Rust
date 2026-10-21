@@ -9,12 +9,25 @@ use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 
 const TAG: &[u8; 4] = b"NLFC";
-const VERSION: u32 = 1;
+const VERSION: u32 = 2;
 
 #[derive(Serialize, Deserialize)]
 pub(super) struct Record {
     object_id: u32,
     runtime: Option<NativeLifecycleRuntime>,
+    initial_transport_payload_created: bool,
+}
+/// Exact positional predecessor: old Main admitted initial payload at creation,
+/// so importing its absent latch must not manufacture a second passenger set.
+#[derive(Serialize, Deserialize)]
+struct RecordV1 {
+    object_id: u32,
+    runtime: Option<NativeLifecycleRuntime>,
+}
+#[derive(Serialize, Deserialize)]
+struct PayloadV1 {
+    hulk_max_lifetime_override: i32,
+    records: Vec<RecordV1>,
 }
 #[derive(Serialize, Deserialize)]
 struct Payload {
@@ -34,6 +47,7 @@ pub(super) fn append(bytes: &mut Vec<u8>, world: &GameLogic) -> SaveLoadResult<(
         .map(|(id, object)| Record {
             object_id: id.0,
             runtime: object.native_lifecycle.clone(),
+            initial_transport_payload_created: object.initial_transport_payload_created,
         })
         .collect();
     records.sort_by_key(|record| record.object_id);
@@ -69,7 +83,7 @@ pub(super) fn decode(bytes: &[u8]) -> SaveLoadResult<Decoded<'_>> {
     }
     let version = u32::from_le_bytes(suffix[4..8].try_into().unwrap());
     let length = u32::from_le_bytes(suffix[8..12].try_into().unwrap()) as usize;
-    if version != VERSION {
+    if version != 1 && version != VERSION {
         return Err(corrupted("unknown version"));
     }
     let end = 12usize
@@ -79,8 +93,28 @@ pub(super) fn decode(bytes: &[u8]) -> SaveLoadResult<Decoded<'_>> {
         .get(12..end)
         .ok_or_else(|| corrupted("truncated records"))?;
     let payload_length = payload.len();
-    let (payload, consumed): (Payload, usize) =
-        bincode::serde::decode_from_slice(payload, bincode::config::legacy()).map_err(corrupted)?;
+    let (payload, consumed): (Payload, usize) = if version == 1 {
+        let (old, consumed): (PayloadV1, usize) =
+            bincode::serde::decode_from_slice(payload, bincode::config::legacy())
+                .map_err(corrupted)?;
+        (
+            Payload {
+                hulk_max_lifetime_override: old.hulk_max_lifetime_override,
+                records: old
+                    .records
+                    .into_iter()
+                    .map(|record| Record {
+                        object_id: record.object_id,
+                        runtime: record.runtime,
+                        initial_transport_payload_created: true,
+                    })
+                    .collect(),
+            },
+            consumed,
+        )
+    } else {
+        bincode::serde::decode_from_slice(payload, bincode::config::legacy()).map_err(corrupted)?
+    };
     if consumed != payload_length || suffix[end..].starts_with(TAG) {
         return Err(corrupted("trailing or duplicate records"));
     }
@@ -209,6 +243,22 @@ pub(super) fn validate(
     Ok(runtimes)
 }
 
+/// Called only after validate accepted the complete owner roster and objects
+/// were reconstructed. Restoration never invokes payload creation callbacks.
+pub(super) fn apply_transport_payload_latches(records: Option<&[Record]>, world: &mut GameLogic) {
+    // A save without this continuation predates deferred payload creation.
+    for object in world.objects.values_mut() {
+        object.initial_transport_payload_created = true;
+    }
+    if let Some(records) = records {
+        for record in records {
+            if let Some(object) = world.objects.get_mut(&ObjectId(record.object_id)) {
+                object.initial_transport_payload_created = record.initial_transport_payload_created;
+            }
+        }
+    }
+}
+
 /// A pre-native save owns one old adapter; do not fabricate a native timer or
 /// convert Height's relative altitude history into original absolute position.
 fn validate_legacy_admission(
@@ -273,7 +323,7 @@ mod tests {
             assert!(decode(&bytes[..length]).is_err());
         }
         let mut unknown = bytes.clone();
-        unknown[boundary + 4..boundary + 8].copy_from_slice(&2u32.to_le_bytes());
+        unknown[boundary + 4..boundary + 8].copy_from_slice(&3u32.to_le_bytes());
         assert!(decode(&unknown).is_err());
         bytes.extend_from_within(boundary..);
         assert!(decode(&bytes).is_err());
@@ -299,6 +349,7 @@ mod tests {
         let records = [Record {
             object_id: id.0,
             runtime: Some(runtime),
+            initial_transport_payload_created: false,
         }];
         let tail = super::super::lifecycle_tail::encode_lifecycle_tail(&Default::default());
         let accepted = validate(Some(&records), &snapshot.objects, &world, &tail).unwrap();
@@ -312,6 +363,7 @@ mod tests {
         let legacy = [Record {
             object_id: id.0,
             runtime: None,
+            initial_transport_payload_created: true,
         }];
         assert!(validate(Some(&legacy), &snapshot.objects, &world, &tail).is_err());
         assert!(validate(Some(&records), &snapshot.objects, &world, &tail).is_ok());
@@ -357,3 +409,73 @@ mod tests {
 #[cfg(test)]
 #[path = "native_lifecycle_persist/owner_tests.rs"]
 mod owner_tests;
+
+#[cfg(test)]
+mod transport_payload_continuation_tests {
+    use super::*;
+    use crate::game_logic::{Team, ThingTemplate};
+
+    #[test]
+    fn explicit_pending_and_completed_latches_roundtrip_without_creation() {
+        crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+            module_path!(),
+            "explicit_pending_and_completed_latches_roundtrip_without_creation",
+            || {
+                let mut world = GameLogic::new();
+                world
+                    .templates
+                    .insert("Carrier".into(), ThingTemplate::new("Carrier"));
+                let id = world
+                    .create_object("Carrier", Team::China, glam::Vec3::ZERO)
+                    .unwrap();
+                for completed in [false, true] {
+                    world
+                        .objects
+                        .get_mut(&id)
+                        .unwrap()
+                        .initial_transport_payload_created = completed;
+                    let mut bytes = Vec::new();
+                    append(&mut bytes, &world).unwrap();
+                    let decoded = decode(&bytes).unwrap();
+                    let records = decoded.records.as_deref().unwrap();
+                    assert_eq!(records.len(), 1);
+                    assert_eq!(records[0].initial_transport_payload_created, completed);
+                    world
+                        .objects
+                        .get_mut(&id)
+                        .unwrap()
+                        .initial_transport_payload_created = !completed;
+                    let count = world.objects.len();
+                    apply_transport_payload_latches(Some(records), &mut world);
+                    assert_eq!(
+                        world.objects[&id].initial_transport_payload_created,
+                        completed
+                    );
+                    assert_eq!(world.objects.len(), count);
+                }
+            },
+        );
+    }
+
+    #[test]
+    fn version_one_import_marks_old_factory_payload_as_already_created() {
+        let payload = bincode_legacy::serialize(&PayloadV1 {
+            hulk_max_lifetime_override: 17,
+            records: vec![RecordV1 {
+                object_id: 7,
+                runtime: None,
+            }],
+        })
+        .unwrap();
+        let mut bytes = TAG.to_vec();
+        bytes.extend_from_slice(&1u32.to_le_bytes());
+        bytes.extend_from_slice(&(payload.len() as u32).to_le_bytes());
+        bytes.extend_from_slice(&payload);
+        let decoded = decode(&bytes).unwrap();
+        assert_eq!(decoded.hulk_max_lifetime_override, Some(17));
+        let record = &decoded.records.unwrap()[0];
+        assert_eq!(record.object_id, 7);
+        assert!(record.initial_transport_payload_created);
+        assert!(record.runtime.is_none());
+    }
+}

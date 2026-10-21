@@ -1473,7 +1473,10 @@ impl CnCGameEngine {
             // synchronous replay header can leave the native shell/score layout
             // visible while the host was previously InGame. Keep the client
             // phase alive without a second reset or fabricated world.
-            self.host_tick_menu_client_residuals(visual_dt, dt);
+            if let Err(error) = self.host_tick_menu_client_residuals(visual_dt, dt) {
+                error!("Native shell simulation failed: {error}");
+                self.request_state_change(GameState::Exiting);
+            }
             return;
         }
         if matches!(self.current_state, GameState::Menu) && self.menu_world_frames_rendered < 5 {
@@ -1492,8 +1495,14 @@ impl CnCGameEngine {
                     let _ = game_client::gui::reveal_main_menu_first_input_like_cpp();
                 }
                 // Wave 605: Menu client residual via host helper.
-                if self.host_tick_menu_client_residuals(visual_dt, dt) {
-                    return;
+                match self.host_tick_menu_client_residuals(visual_dt, dt) {
+                    Ok(true) => return,
+                    Ok(false) => {}
+                    Err(error) => {
+                        error!("Native shell simulation failed: {error}");
+                        self.request_state_change(GameState::Exiting);
+                        return;
+                    }
                 }
                 return;
             }
@@ -1552,7 +1561,8 @@ impl CnCGameEngine {
         if Self::should_update_game_logic_frame(self.game_paused, network_frame_data_ready) {
             // Wave 602: host InGame logic+shadow+presentation residual via helper.
             if let Err(error) = self.host_run_ingame_logic_presentation_frame(dt) {
-                error!("Native presentation could not be published: {error}");
+                error!("Native simulation/presentation could not be published: {error}");
+                self.request_state_change(GameState::Exiting);
                 return;
             }
         }

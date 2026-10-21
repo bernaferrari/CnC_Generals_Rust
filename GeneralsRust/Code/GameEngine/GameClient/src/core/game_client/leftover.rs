@@ -335,7 +335,6 @@ impl GameClient {
         }
         self.native_particle_capability_gaps
             .retain(|gap| gap.drawable_id != id);
-        self.drawables.ray_effects.delete(id);
         self.drawables
             .owned_laser_order
             .retain(|owner| *owner != id);
@@ -359,19 +358,27 @@ impl GameClient {
             .retain(|&stored_id| stored_id != id);
         // Identity is no longer discoverable, as in C++ deleteInstance. Retire
         // actual installed fields before Drop without rediscovering this manager.
+        let mut retirement = Ok(());
         if let Some(basic) = removed
             .as_mut()
             .and_then(|draw| draw.as_any_mut().downcast_mut::<BasicDrawable>())
         {
             if let Some(manager) = particles.as_deref_mut() {
                 basic.retire_native_state_particles(manager);
-                basic
+                retirement = basic
                     .retire_native_client_particles(manager)
-                    .map_err(GameClientError::InvalidOperation)?;
+                    .map_err(GameClientError::InvalidOperation);
             }
         }
+        if let Some(basic) = removed
+            .as_mut()
+            .and_then(|draw| draw.as_any_mut().downcast_mut::<BasicDrawable>())
+        {
+            basic.finish_native_retirement();
+        }
+        self.drawables.ray_effects.delete(id);
         drop(removed);
-        Ok(())
+        retirement
     }
 
     pub fn bind_drawable_to_object(
@@ -1481,12 +1488,11 @@ impl Snapshotable for GameClient {
         let save_entries = if xfer.is_writing() {
             self.collect_saveable_drawables_sorted()?
         } else {
-            self.drawables.drawable_map.clear();
-            self.drawables.native_drawable_order.clear();
-            self.drawables.ray_effects.reset();
-            self.drawables.owned_laser_order.clear();
-            self.drawables.drawable_object_map.clear();
-            self.drawables.presentation_direct_drawable_bindings.clear();
+            // Actual prior native module/particle/ambient lifetimes must finish
+            // before decoding a replacement roster. Header validation alone is
+            // not permission to drop active native resource identities.
+            self.try_invalidate_presentation_drawable_world()
+                .map_err(|error| error.to_string())?;
             Vec::new()
         };
 

@@ -31,3 +31,26 @@ impl BasicDrawable {
         Ok(())
     }
 }
+
+impl BasicDrawable {
+    /// Explicit destruction tail; never called by ordinary particle retirement.
+    /// C++ Drawable.cpp525–542 deletes both module arrays before ambient stop.
+    pub(crate) fn finish_native_retirement(&mut self) {
+        while let Some(bucket) = self
+            .draw_modules
+            .iter()
+            .map(|module| module.drawable_module_type_index())
+            .min()
+        {
+            while let Some(index) = self
+                .draw_modules
+                .iter()
+                .position(|module| module.drawable_module_type_index() == bucket)
+            {
+                drop(self.draw_modules.remove(index));
+            }
+        }
+        self.stop_ambient_sound();
+        self.custom_sound_ambient_dynamic_info = None;
+    }
+}

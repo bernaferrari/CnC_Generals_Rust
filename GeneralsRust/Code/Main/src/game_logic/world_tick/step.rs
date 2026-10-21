@@ -47,6 +47,7 @@ pub(in super::super) enum SimulationStepOutcome {
     /// advances nothing.
     Frozen,
     CommandBoundary(CommandPhaseYield),
+    Failed(gamelogic::GameLogicError),
 }
 
 #[derive(Clone, Copy)]
@@ -86,6 +87,7 @@ pub(in super::super) struct CommandPhaseYield {
 pub(crate) enum NativeTickProgress {
     Complete(SimTimingSnapshot),
     CommandBoundary(NativeTickContinuation),
+    Failed(gamelogic::GameLogicError),
 }
 
 #[derive(Default)]
@@ -313,6 +315,7 @@ impl GameLogic {
             },
             after_step,
         );
+        let pending = pending.unwrap_or_else(|error| panic!("simulation step failed: {error}"));
         assert!(
             pending.is_none(),
             "completed adapter cannot swallow a native command boundary"
@@ -384,6 +387,7 @@ impl GameLogic {
             |logic, fixed_dt| logic.update_simulation(fixed_dt),
             |_| {},
         );
+        let pending = pending.unwrap_or_else(|error| panic!("simulation step failed: {error}"));
         assert!(
             pending.is_none(),
             "completed adapter cannot swallow a native command boundary"
@@ -398,11 +402,11 @@ impl GameLogic {
         resumed_counts: Option<FixedStepCounts>,
         mut run_step: impl FnMut(&mut Self, f32) -> SimulationStepOutcome,
         mut after_step: impl FnMut(&mut Self),
-    ) -> Option<NativeTickContinuation> {
+    ) -> gamelogic::GameLogicResult<Option<NativeTickContinuation>> {
         // An already-started source step is completed even if one of its
         // commands changed pause. Ordinary entry keeps its original guard.
         if self.is_paused && resumed_counts.is_none() {
-            return None;
+            return Ok(None);
         }
         let counts = resumed_counts.unwrap_or_default();
         self.accumulated_time += delta_time;
@@ -429,6 +433,7 @@ impl GameLogic {
         // callbacks. Nested world steps restore the previous scoped handle.
         let logic_rng = self.logic_random.clone();
         let mut suspended = None;
+        let mut failure = None;
         game_engine::common::random_value::with_session_random(&logic_rng, || {
             while self.accumulated_time >= FIXED_TIMESTEP {
                 // Frozen steps still evaluate scripts, so they burn real work
@@ -446,6 +451,10 @@ impl GameLogic {
                     break;
                 }
                 match run_step(self, FIXED_TIMESTEP) {
+                    SimulationStepOutcome::Failed(error) => {
+                        failure = Some(error);
+                        break;
+                    }
                     SimulationStepOutcome::Advanced => {
                         self.accumulated_time -= FIXED_TIMESTEP;
                         // C++ m_frame++ (GameLogic.cpp:3795-3803): this loop is
@@ -488,8 +497,11 @@ impl GameLogic {
             }
         });
 
+        if let Some(error) = failure {
+            return Err(error);
+        }
         if suspended.is_some() {
-            return suspended;
+            return Ok(suspended);
         }
         if let Some(total_seconds) = absolute_time {
             // Presentation clock sync must not leak into a batch containing a
@@ -510,7 +522,7 @@ impl GameLogic {
 
         // C++ processDestroyList runs inside every GameLogic::update
         // (GameLogic.cpp:3762), not once after the fixed-step catch-up batch.
-        None
+        Ok(None)
     }
 
     /// Execute one simulation step.
@@ -713,3 +725,40 @@ impl GameLogic {
 #[cfg(test)]
 #[path = "step_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+mod failed_step_owner_tests {
+    use super::*;
+    #[test]
+    fn failed_step_retains_frame_time_and_never_delivers_completed_callback() {
+        crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+            module_path!(),
+            "failed_step_retains_frame_time_and_never_delivers_completed_callback",
+            || {
+                let mut world = GameLogic::new();
+                world.frame = 19;
+                world.sim_time_seconds = 19.0 * LOGIC_FRAME_TIMESTEP;
+                let old_time = world.sim_time_seconds;
+                let mut after_calls = 0;
+                let result = world.step_simulation_with_callbacks(
+                    LOGIC_FRAME_TIMESTEP,
+                    Some(999.0),
+                    Some(3),
+                    None,
+                    |_, _| {
+                        SimulationStepOutcome::Failed(gamelogic::GameLogicError::Configuration(
+                            "birth rejected".into(),
+                        ))
+                    },
+                    |_| after_calls += 1,
+                );
+                assert!(
+                    matches!(result, Err(gamelogic::GameLogicError::Configuration(message)) if message == "birth rejected")
+                );
+                assert_eq!(world.frame, 19);
+                assert_eq!(world.sim_time_seconds, old_time);
+                assert_eq!(after_calls, 0);
+            },
+        );
+    }
+}

@@ -2666,6 +2666,10 @@ pub struct Object {
     /// AssaultTransportAIUpdate wounded-retrieve / multi-exit path matrix.
     #[serde(default)]
     pub is_troop_crawler_transport: bool,
+    /// C++ TransportContain::m_payloadCreated. Initial passengers are admitted
+    /// on the first module update, not by Object/Drawable construction.
+    #[serde(default)]
+    pub initial_transport_payload_created: bool,
     /// C++ AssaultTransportAIUpdate residual state (designated target + members).
     pub assault_transport: Option<crate::game_logic::host_troop_crawler::HostAssaultTransportState>,
     /// C++ SlavedUpdate instance fields, saved by its lifecycle payload.

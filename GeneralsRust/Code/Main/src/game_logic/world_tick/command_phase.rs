@@ -140,8 +140,9 @@ impl GameLogic {
             after,
         );
         match pending {
-            Some(pending) => NativeTickProgress::CommandBoundary(pending),
-            None => NativeTickProgress::Complete(self.sim_timing_snapshot()),
+            Ok(Some(pending)) => NativeTickProgress::CommandBoundary(pending),
+            Ok(None) => NativeTickProgress::Complete(self.sim_timing_snapshot()),
+            Err(error) => NativeTickProgress::Failed(error),
         }
     }
 
@@ -211,6 +212,10 @@ impl GameLogic {
                 .expect("source continuation enters its receiving phase once")
             })
         });
+        let outcome = match outcome {
+            SimulationStepOutcome::Failed(error) => return NativeTickProgress::Failed(error),
+            outcome => outcome,
+        };
         if let SimulationStepOutcome::CommandBoundary(phase) = outcome {
             pending.phase = phase;
             return NativeTickProgress::CommandBoundary(pending);
@@ -247,8 +252,9 @@ impl GameLogic {
                 &mut after,
             );
             return match next {
-                Some(next) => NativeTickProgress::CommandBoundary(next),
-                None => NativeTickProgress::Complete(self.sim_timing_snapshot()),
+                Ok(Some(next)) => NativeTickProgress::CommandBoundary(next),
+                Ok(None) => NativeTickProgress::Complete(self.sim_timing_snapshot()),
+                Err(error) => NativeTickProgress::Failed(error),
             };
         }
         self.accumulated_time = if pending.reset_seen {

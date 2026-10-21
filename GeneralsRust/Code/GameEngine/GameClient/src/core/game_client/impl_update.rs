@@ -846,7 +846,7 @@ impl GameClient {
                                 },
                             );
                         }
-                        Self::stamp_presentation_object_residual(basic, &e);
+                        Self::stamp_presentation_object_residual(basic, &e, true);
                         let flags = basic.get_model_condition_flags();
                         let bits = (0..128.min(flags.get_bit_names().len()))
                             .fold(0u128, |bits, i| bits | ((flags.test(i) as u128) << i));
@@ -912,7 +912,11 @@ impl GameClient {
                 semantic_lifetime,
                 NativeConstructorAmbientPolicy::PresentationStartup,
                 inherited_material_opacity,
-                &mut observe,
+                &mut NativeParticleRetirementService,
+                &mut |event| {
+                    observe(event);
+                    Ok(())
+                },
             )?;
             created = created.saturating_add(1);
         }
@@ -974,6 +978,7 @@ impl GameClient {
     fn stamp_presentation_object_residual(
         drawable: &mut BasicDrawable,
         e: &PresentationDrawableSync,
+        advance_specialized: bool,
     ) {
         use game_engine::common::bit_flags::{ModelConditionFlags, create_model_condition_flags};
         use gamelogic::common::types::BodyDamageType;
@@ -1048,7 +1053,11 @@ impl GameClient {
         drawable.set_presentation_health_box(e.health_box_width, e.health_box_z_offset);
         // Wave 1115: sold residual after host overlay stamp (C++ OBJECT_STATUS_SOLD).
         drawable.set_presentation_sold(e.sold);
-        Self::tick_presentation_specialized_draw_modules(drawable, e);
+        // Factory birth binds modules; ClientUpdate belongs to the later
+        // presentation update, not sendObjectCreated/friend_bindToObject.
+        if advance_specialized {
+            Self::tick_presentation_specialized_draw_modules(drawable, e);
+        }
         let visual = if e.visual_template_name.is_empty() {
             e.template_name.as_str()
         } else {

@@ -178,7 +178,23 @@ impl GameLogic {
         team_id: Option<u32>,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
-        engine.friend_execute_action_with_driver(
+        // Independent callers retain the existing nonfallible surface until their
+        // operation boundary is migrated; the selected factory never uses this adapter.
+        if let Err(error) =
+            self.execute_script_team_actions_with_effects_checked(engine, action, team_id, ui)
+        {
+            log::error!("{error}");
+        }
+    }
+
+    pub(crate) fn execute_script_team_actions_with_effects_checked(
+        &mut self,
+        engine: &gamelogic::scripting::engine::ScriptEngine,
+        action: &gamelogic::scripting::core::ScriptAction,
+        team_id: Option<u32>,
+        ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
+        engine.friend_execute_action_with_driver_checked(
             action,
             team_id,
             gamelogic::scripting::executor::ScriptContext::at_frame(self.frame),
@@ -187,7 +203,7 @@ impl GameLogic {
                 engine,
                 ui.reborrow(),
             ),
-        );
+        )
     }
 }
 
@@ -209,5 +225,25 @@ impl GameLogic {
             gamelogic::scripting::executor::ScriptContext::at_frame(self.frame),
             &mut super::script_execution_driver::HostScriptExecutionDriver::new(self),
         );
+    }
+}
+
+#[cfg(test)]
+impl GameLogic {
+    pub(in crate::game_logic) fn execute_checked_factory_actions_for_test(
+        &mut self,
+        engine: &gamelogic::scripting::engine::ScriptEngine,
+        action: &gamelogic::scripting::core::ScriptAction,
+    ) -> gamelogic::GameLogicResult<()> {
+        engine.friend_execute_action_with_driver_checked(
+            action,
+            None,
+            gamelogic::scripting::executor::ScriptContext::new(),
+            &mut super::script_execution_driver::HostScriptExecutionDriver::with_effects(
+                self,
+                engine,
+                Default::default(),
+            ),
+        )
     }
 }

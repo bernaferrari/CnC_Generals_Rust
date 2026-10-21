@@ -1087,7 +1087,7 @@ impl GameLogic {
             return Ok(());
         };
         let position = Self::host_script_coord_to_world(request.x, request.y, request.z);
-        if let Some(id) = self.create_object_on_exact_script_team_with_effects(
+        if let Some(id) = self.create_object_on_exact_script_team_with_effects_checked(
             request.template,
             controller,
             &name,
@@ -1096,7 +1096,7 @@ impl GameLogic {
             false,
             interpreter,
             ui,
-        ) {
+        )? {
             if let Some(object) = self.objects.get_mut(&id) {
                 object.set_orientation(request.angle);
             }

@@ -563,6 +563,23 @@ pub mod parity_test_support {
 
 pub(crate) use crate::presentation_frame::camera::ScriptCameraShaker;
 
+/// Owned worker-to-driving-thread request; contains no borrowed native service.
+pub(crate) struct StartupMapAdmissionRequest {
+    pub(crate) map_to_load: Option<String>,
+    pub(crate) player_name: Option<String>,
+}
+
+/// Immutable catalogs/Recorder configuration and the same empty host instance.
+/// Actual object/Drawable constructors are admitted only after this handoff.
+pub(crate) struct StartupPreparedLoadResult {
+    pub(crate) default_starting_cash: u32,
+    pub(crate) game_logic: GameLogic,
+    pub(crate) request: StartupMapAdmissionRequest,
+    pub(crate) start_in_menu: bool,
+    pub(crate) map_requested_from_cli: bool,
+    pub(crate) replay_requested: bool,
+}
+
 pub(crate) struct StartupLoadResult {
     pub(crate) native_map: super::map_native_admission::NativeMapCandidate,
     pub(crate) default_starting_cash: u32,

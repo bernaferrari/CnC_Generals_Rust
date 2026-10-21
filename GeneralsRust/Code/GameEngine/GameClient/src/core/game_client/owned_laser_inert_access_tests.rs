@@ -371,3 +371,51 @@ fn owned_laser_ui_failure_preserves_installed_particles_payload_and_receiver() {
     );
     peer.destroy();
 }
+
+#[test]
+fn map_attempt_clear_retires_owned_laser_without_draw_flush_or_peer_mutation() {
+    let mut first = World::new();
+    let mut peer = World::new();
+    assert_eq!(first.id, peer.id);
+    first.initialize();
+    peer.initialize();
+    let first_probe = first.probe();
+    let peer_before = peer.payload();
+    assert!(
+        first
+            .client
+            .drawables
+            .borrow_native()
+            .try_clear_for_map_attempt(None)
+            .is_err()
+    );
+    assert!(first.client.find_drawable_by_id(first.id).is_some());
+    assert!(
+        first
+            .particles
+            .all_particle_systems()
+            .all(|system| !system.is_destroyed())
+    );
+    first
+        .client
+        .drawables
+        .borrow_native()
+        .try_clear_for_map_attempt(Some(&mut first.particles))
+        .unwrap();
+    assert!(first.client.find_drawable_by_id(first.id).is_none());
+    assert!(
+        first
+            .particles
+            .all_particle_systems()
+            .all(|system| system.is_destroyed())
+    );
+    assert_eq!(first_probe.load(Ordering::SeqCst), 0);
+    assert!(peer.client.find_drawable_by_id(peer.id).is_some());
+    assert!(
+        peer.particles
+            .all_particle_systems()
+            .all(|system| !system.is_destroyed())
+    );
+    assert_eq!(peer.payload(), peer_before);
+    peer.destroy();
+}

@@ -466,11 +466,8 @@ pub(super) fn ensure_test_listening_outpost_template(game_logic: &mut GameLogic)
         .insert("ChinaVehicleListeningOutpost".to_string(), outpost);
 }
 
-/// Spawn residual China Listening Outpost with detect + transport residual.
-/// InitialPayload TankHunter × 2 docks on create when payload template available.
-
-/// Spawn residual China Listening Outpost with detect + transport residual.
-/// InitialPayload TankHunter × 2 docks on create when payload template available.
+/// Started China Listening Outpost with detect + transport behavior.
+/// Factory admission followed by the first due TransportContain payload update.
 pub(super) fn create_test_listening_outpost(game_logic: &mut GameLogic, pos: Vec3) -> ObjectId {
     ensure_test_listening_outpost_template(game_logic);
     let id = game_logic
@@ -481,6 +478,12 @@ pub(super) fn create_test_listening_outpost(game_logic: &mut GameLogic, pos: Vec
             obj.install_listening_outpost_transport();
         }
     }
+    // A started transport fixture includes its first due TransportContain
+    // update. Factory-only timing tests use create_object directly instead.
+    game_logic.frame = game_logic.frame.max(1);
+    game_logic
+        .update_initial_transport_payloads_with_effects(&mut Default::default())
+        .expect("first transport payload update");
     id
 }
 
@@ -507,11 +510,8 @@ pub(super) fn ensure_test_troop_crawler_template(game_logic: &mut GameLogic) {
         .insert("ChinaVehicleTroopCrawler".to_string(), crawler);
 }
 
-/// Spawn residual China Troop Crawler with transport + detector + assault residual.
-/// InitialPayload Redguard × 8 docks on create when payload template available.
-
-/// Spawn residual China Troop Crawler with transport + detector + assault residual.
-/// InitialPayload Redguard × 8 docks on create when payload template available.
+/// Started China Troop Crawler with transport, detector, and assault behavior.
+/// Factory admission followed by the first due TransportContain payload update.
 pub(super) fn create_test_troop_crawler(game_logic: &mut GameLogic, pos: Vec3) -> ObjectId {
     ensure_test_troop_crawler_template(game_logic);
     let id = game_logic
@@ -522,6 +522,12 @@ pub(super) fn create_test_troop_crawler(game_logic: &mut GameLogic, pos: Vec3) -
             obj.install_troop_crawler_transport();
         }
     }
+    // A started transport fixture includes its first due TransportContain
+    // update. Factory-only timing tests use create_object directly instead.
+    game_logic.frame = game_logic.frame.max(1);
+    game_logic
+        .update_initial_transport_payloads_with_effects(&mut Default::default())
+        .expect("first transport payload update");
     id
 }
 

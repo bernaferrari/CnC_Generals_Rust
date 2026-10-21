@@ -1238,11 +1238,24 @@ impl GameLogic {
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
-        self.register_landmark_bridges_from_spawned_objects_with_effects(effects);
-        self.ensure_generic_bridge_objects_with_effects(effects);
+        // Independent callers retain the existing nonfallible surface until their
+        // operation boundary is migrated; the selected factory never uses this adapter.
+        if let Err(error) = self.seed_pathfinding_from_terrain_with_effects_checked(effects) {
+            log::error!("{error}");
+        }
+    }
+
+    pub(in super::super) fn seed_pathfinding_from_terrain_with_effects_checked(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
+        self.register_landmark_bridges_from_spawned_objects_with_effects_checked(effects)?;
+        self.ensure_generic_bridge_objects_with_effects_checked(effects)?;
         let owner = self.world_services.terrain().clone();
         let terrain = owner.read().unwrap_or_else(|e| e.into_inner());
         self.reclassify_pathfinding_from_terrain(&terrain);
+
+        Ok(())
     }
 
     /// Rebuild classified cells without changing original bridge slot identity.
@@ -1321,6 +1334,17 @@ impl GameLogic {
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
+        // Independent callers retain the existing nonfallible surface until their
+        // operation boundary is migrated; the selected factory never uses this adapter.
+        if let Err(error) = self.ensure_generic_bridge_objects_with_effects_checked(effects) {
+            log::error!("{error}");
+        }
+    }
+
+    pub(crate) fn ensure_generic_bridge_objects_with_effects_checked(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
         let mut jobs = Vec::new();
         let owner = self.world_services.terrain().clone();
         if let Ok(tl) = owner.read() {
@@ -1341,13 +1365,14 @@ impl GameLogic {
             let cy = (info.from_left.y + info.to_right.y) * 0.5;
             let cz = (info.from_left.z + info.to_right.z) * 0.5;
             let pos = Vec3::new(cx, cz, cy);
-            let Some(id) = self.create_object_with_script_effects(
+            let Some(id) = self.create_object_with_script_effects_checked(
                 "GenericBridge",
                 Team::Neutral,
                 pos,
                 None,
                 effects,
-            ) else {
+            )?
+            else {
                 continue;
             };
             let angle =
@@ -1375,6 +1400,8 @@ impl GameLogic {
                 });
             }
         }
+
+        Ok(())
     }
 
     pub(crate) fn ensure_named_bridge_template(&mut self, name: &str, health: f32) {
@@ -1417,6 +1444,19 @@ impl GameLogic {
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
+        // Independent callers retain the existing nonfallible surface until their
+        // operation boundary is migrated; the selected factory never uses this adapter.
+        if let Err(error) =
+            self.register_landmark_bridges_from_spawned_objects_with_effects_checked(effects)
+        {
+            log::error!("{error}");
+        }
+    }
+
+    pub(crate) fn register_landmark_bridges_from_spawned_objects_with_effects_checked(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
         let jobs: Vec<(ObjectId, String)> = self
             .objects
             .values()
@@ -1424,8 +1464,10 @@ impl GameLogic {
             .map(|obj| (obj.id, obj.template_name.clone()))
             .collect();
         for (id, template_name) in jobs {
-            self.register_landmark_bridge_object_with_effects(id, &template_name, effects);
+            self.register_landmark_bridge_object_with_effects_checked(id, &template_name, effects)?;
         }
+
+        Ok(())
     }
 
     /// C++ GameLogic.cpp:1640-1688 post-map-load landmark-bridge pass.
@@ -1449,6 +1491,23 @@ impl GameLogic {
         spawned_object_ids: &[(ObjectId, usize)],
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
+        // Independent callers retain the existing nonfallible surface until their
+        // operation boundary is migrated; the selected factory never uses this adapter.
+        if let Err(error) = self.register_spawned_landmark_bridges_with_effects_checked(
+            objects,
+            spawned_object_ids,
+            effects,
+        ) {
+            log::error!("{error}");
+        }
+    }
+
+    pub(crate) fn register_spawned_landmark_bridges_with_effects_checked(
+        &mut self,
+        objects: &[super::script_loader::PlacedObject],
+        spawned_object_ids: &[(ObjectId, usize)],
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
         let jobs: Vec<(ObjectId, String)> = spawned_object_ids
             .iter()
             .filter_map(|&(id, index)| {
@@ -1462,8 +1521,10 @@ impl GameLogic {
             })
             .collect();
         for (id, template_name) in jobs {
-            self.register_landmark_bridge_object_with_effects(id, &template_name, effects);
+            self.register_landmark_bridge_object_with_effects_checked(id, &template_name, effects)?;
         }
+
+        Ok(())
     }
 
     pub(in super::super) fn template_is_landmark_bridge(
@@ -1503,16 +1564,31 @@ impl GameLogic {
         template_name: &str,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
+        // Independent callers retain the existing nonfallible surface until their
+        // operation boundary is migrated; the selected factory never uses this adapter.
+        if let Err(error) =
+            self.register_landmark_bridge_object_with_effects_checked(id, template_name, effects)
+        {
+            log::error!("{error}");
+        }
+    }
+
+    pub(in super::super) fn register_landmark_bridge_object_with_effects_checked(
+        &mut self,
+        id: ObjectId,
+        template_name: &str,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
         if self
             .pathfinding_system
             .grid
             .bridge_layer_for_object(id.0)
             .is_some()
         {
-            return;
+            return Ok(());
         }
         let Some(obj) = self.objects.get(&id) else {
-            return;
+            return Ok(());
         };
         let pos = obj.get_position();
         let angle = obj.get_orientation();
@@ -1542,7 +1618,9 @@ impl GameLogic {
             Vec3::new(info.to_left.x, info.to_left.z, info.to_left.y),
             Vec3::new(info.to_right.x, info.to_right.z, info.to_right.y),
         );
-        self.create_landmark_bridge_towers_with_effects(id, team, angle, &info, effects);
+        self.create_landmark_bridge_towers_with_effects_checked(id, team, angle, &info, effects)?;
+
+        Ok(())
     }
 
     /// C++ `Bridge::Bridge(Object*)` creates four targetable tower objects.
@@ -1570,15 +1648,36 @@ impl GameLogic {
         info: &gamelogic::terrain::BridgeInfo,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
+        // Independent callers retain the existing nonfallible surface until their
+        // operation boundary is migrated; the selected factory never uses this adapter.
+        if let Err(error) = self.create_landmark_bridge_towers_with_effects_checked(
+            bridge_id,
+            team,
+            bridge_angle,
+            info,
+            effects,
+        ) {
+            log::error!("{error}");
+        }
+    }
+
+    pub(in super::super) fn create_landmark_bridge_towers_with_effects_checked(
+        &mut self,
+        bridge_id: ObjectId,
+        team: Team,
+        bridge_angle: f32,
+        info: &gamelogic::terrain::BridgeInfo,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
         let Some(roads) = game_engine::common::ini::try_get_terrain_roads() else {
-            return;
+            return Ok(());
         };
         let Some(bridge_tmpl) = self
             .objects
             .get(&bridge_id)
             .and_then(|obj| roads.find_bridge(&obj.template_name).cloned())
         else {
-            return;
+            return Ok(());
         };
         drop(roads);
 
@@ -1624,8 +1723,8 @@ impl GameLogic {
                 corner.z,
             );
             let host_pos = Vec3::new(leftover_pos.x, leftover_pos.z, leftover_pos.y);
-            let Some(tower_id) =
-                self.create_object_with_script_effects(name, team, host_pos, None, effects)
+            let Some(tower_id) = self
+                .create_object_with_script_effects_checked(name, team, host_pos, None, effects)?
             else {
                 continue;
             };
@@ -1661,6 +1760,8 @@ impl GameLogic {
                 }
             });
         };
+
+        Ok(())
     }
 }
 

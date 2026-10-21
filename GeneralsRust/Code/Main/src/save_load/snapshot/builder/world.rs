@@ -441,6 +441,10 @@ impl SnapshotBuilder {
             object_order.saved_order.as_deref(),
             game_logic,
         )?;
+        super::super::native_lifecycle_persist::apply_transport_payload_latches(
+            native_lifecycle.records.as_deref(),
+            game_logic,
+        );
         super::super::original_disabled_persist::apply(
             original_disabled.records.as_deref(),
             game_logic,

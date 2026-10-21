@@ -188,6 +188,11 @@ impl GameLogic {
         // Fail-closed vs full AutoHealBehavior particle / world-anim pulse FX.
         self.update_ambulance_auto_heal_with_effects(dt, &mut ui);
         self.update_default_auto_heal_with_effects(&mut ui);
+        // First TransportContain update creates InitialPayload before rider
+        // regeneration. This Result must reach the native tick's caller.
+        if let Err(error) = self.update_initial_transport_payloads_with_effects(&mut ui) {
+            return SimulationStepOutcome::Failed(error);
+        }
         // C++ TransportContain::update HealthRegen%PerSec on embarked riders.
         self.update_transport_health_regen(dt);
 

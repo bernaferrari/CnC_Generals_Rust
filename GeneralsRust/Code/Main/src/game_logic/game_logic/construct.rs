@@ -561,6 +561,8 @@ impl GameLogic {
 
             map_name: String::new(),
             map_loaded: false,
+            native_drawable_owner_required: false,
+            map_loading_phase: Default::default(),
             combat_system: CombatSystem::new(),
             ownership_events: Default::default(),
             economy_events: Default::default(),
@@ -1264,6 +1266,7 @@ impl GameLogic {
         self.accumulated_time = 0.0;
         self.last_fixed_step_diagnostics = FixedStepDiagnostics::default();
         self.map_loaded = false;
+        self.map_loading_phase = Default::default();
         self.victory_conditions.reset();
         self.clear_victory_observation();
         self.health_events.clear();

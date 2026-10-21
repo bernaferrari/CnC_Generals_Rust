@@ -99,11 +99,29 @@ impl GameLogic {
     where
         F: FnMut(f32, &str),
     {
+        self.load_map_with_progress_and_native_checked(map_name, progress, native)
+            .unwrap_or_else(|error| {
+                log::error!("Map admission failed: {error}");
+                false
+            })
+    }
+
+    pub(crate) fn load_map_with_progress_and_native_checked<F>(
+        &mut self,
+        map_name: &str,
+        progress: F,
+        native: Option<&mut dyn crate::game_logic::NativeMapAdmission>,
+    ) -> Result<bool, String>
+    where
+        F: FnMut(f32, &str),
+    {
         let difficulty = self
             .owned_script_engine
             .as_ref()
             .map(|engine| engine.get_global_difficulty());
-        self.load_map_with_script_difficulty_and_native(map_name, difficulty, progress, native)
+        self.load_map_with_script_difficulty_and_native_checked(
+            map_name, difficulty, progress, native,
+        )
     }
 
     fn load_map_with_script_difficulty_and_native<F>(
@@ -116,9 +134,28 @@ impl GameLogic {
     where
         F: FnMut(f32, &str),
     {
+        self.load_map_with_script_difficulty_and_native_checked(
+            map_name, difficulty, progress, native,
+        )
+        .unwrap_or_else(|error| {
+            log::error!("Map admission failed: {error}");
+            false
+        })
+    }
+
+    fn load_map_with_script_difficulty_and_native_checked<F>(
+        &mut self,
+        map_name: &str,
+        difficulty: Option<gamelogic::player::GameDifficulty>,
+        progress: F,
+        native: Option<&mut dyn crate::game_logic::NativeMapAdmission>,
+    ) -> Result<bool, String>
+    where
+        F: FnMut(f32, &str),
+    {
         let services = Arc::clone(&self.world_services);
         gamelogic::system::engine_stores::with_world_services(&services, || {
-            self.load_map_with_definition_source_and_progress(
+            self.load_map_with_definition_source_and_progress_checked(
                 map_name, None, difficulty, None, native, progress,
             )
         })
@@ -151,13 +188,32 @@ impl GameLogic {
         water_delivery: Option<&mut dyn FnMut(&gamelogic::terrain_water::WaterGridState)>,
         native: Option<&mut dyn crate::game_logic::NativeMapAdmission>,
     ) -> bool {
+        self.load_map_with_definition_source_and_water_delivery_and_native_checked(
+            map_name,
+            source,
+            water_delivery,
+            native,
+        )
+        .unwrap_or_else(|error| {
+            log::error!("Map admission failed: {error}");
+            false
+        })
+    }
+
+    pub(crate) fn load_map_with_definition_source_and_water_delivery_and_native_checked(
+        &mut self,
+        map_name: &str,
+        source: &str,
+        water_delivery: Option<&mut dyn FnMut(&gamelogic::terrain_water::WaterGridState)>,
+        native: Option<&mut dyn crate::game_logic::NativeMapAdmission>,
+    ) -> Result<bool, String> {
         let difficulty = self
             .owned_script_engine
             .as_ref()
             .map(|engine| engine.get_global_difficulty());
         let services = Arc::clone(&self.world_services);
         gamelogic::system::engine_stores::with_world_services(&services, || {
-            self.load_map_with_definition_source_and_progress(
+            self.load_map_with_definition_source_and_progress_checked(
                 map_name,
                 Some(source),
                 difficulty,
@@ -577,21 +633,18 @@ impl GameLogic {
                                 .as_mut()
                                 .map(|native| native.effects())
                                 .unwrap_or_default();
-                            let created = match owner_player_id {
-                                Some(player_id) => self.create_object_for_player_with_effects(
-                                    obj.template.as_str(),
-                                    player_id,
-                                    spawn_position,
-                                    None,
-                                    &mut effects,
-                                ),
-                                None => self.create_object_with_script_effects(
-                                    obj.template.as_str(),
-                                    team,
-                                    spawn_position,
-                                    None,
-                                    &mut effects,
-                                ),
+                            let created = match self.create_map_object_with_effects_checked(
+                                obj.template.as_str(),
+                                team,
+                                owner_player_id,
+                                spawn_position,
+                                &mut effects,
+                            ) {
+                                Ok(created) => created,
+                                Err(error) => {
+                                    log::error!("Map object construction rejected: {error}");
+                                    return false;
+                                }
                             };
                             if let Some(id) = created {
                                 if let Some(team_name) = obj
@@ -603,12 +656,17 @@ impl GameLogic {
                                     if let Some(created) = self.objects.get_mut(&id) {
                                         created.team_instance_name = team_name.to_string();
                                     }
-                                    self.admit_team_for_host_object_with_effects(
-                                        id,
-                                        None,
-                                        true,
-                                        &mut effects,
-                                    );
+                                    if let Err(error) = self
+                                        .admit_team_for_host_object_with_effects_checked(
+                                            id,
+                                            None,
+                                            true,
+                                            &mut effects,
+                                        )
+                                    {
+                                        log::error!("Map team callback rejected: {error}");
+                                        return false;
+                                    }
                                 }
                                 spawned_object_ids.push((id, index));
                                 self.apply_update_obj_values_from_map_properties_with_effects(
@@ -688,14 +746,19 @@ impl GameLogic {
                         report_progress(0.80, "World objects spawned");
                         let spawned_ids = spawned_object_ids;
                         self.spawned_map_object_ids = spawned_ids.clone();
-                        self.register_spawned_landmark_bridges_with_effects(
-                            objects,
-                            &spawned_ids,
-                            &mut native
-                                .as_mut()
-                                .map(|native| native.effects())
-                                .unwrap_or_default(),
-                        );
+                        if let Err(error) = self
+                            .register_spawned_landmark_bridges_with_effects_checked(
+                                objects,
+                                &spawned_ids,
+                                &mut native
+                                    .as_mut()
+                                    .map(|native| native.effects())
+                                    .unwrap_or_default(),
+                            )
+                        {
+                            log::error!("Map native child construction rejected: {error}");
+                            return false;
+                        }
                         // Wave 831: SidesList build-list faction bases (skirmish armies).
                         let side_spawned =
                             self.spawn_side_build_list(&meta.side_builds, &map_player_to_team);
@@ -707,12 +770,15 @@ impl GameLogic {
                             );
                         }
                         // Wave 831: starting yard+dozer at Player_N_Start waypoints.
-                        self.spawn_skirmish_starting_units_with_effects(
+                        if let Err(error) = self.spawn_skirmish_starting_units_with_effects_checked(
                             &mut native
                                 .as_mut()
                                 .map(|native| native.effects())
                                 .unwrap_or_default(),
-                        );
+                        ) {
+                            log::error!("Map starting object rejected: {error}");
+                            return false;
+                        }
                         report_progress(0.82, "Finalizing world objects");
                         self.ensure_non_shell_player_presence_with_effects(
                             parsed_settings.as_ref(),
@@ -866,12 +932,17 @@ impl GameLogic {
                                         .unwrap_or_default(),
                                 );
                             }
-                            self.seed_pathfinding_from_terrain_with_effects(
-                                &mut native
-                                    .as_mut()
-                                    .map(|native| native.effects())
-                                    .unwrap_or_default(),
-                            );
+                            if let Err(error) = self
+                                .seed_pathfinding_from_terrain_with_effects_checked(
+                                    &mut native
+                                        .as_mut()
+                                        .map(|native| native.effects())
+                                        .unwrap_or_default(),
+                                )
+                            {
+                                log::error!("Map native child construction rejected: {error}");
+                                return false;
+                            }
                             let wall_height = self.pathfind_ai_rules().wall_height;
                             ({
                                 let ground_owner = self.world_services.terrain();
@@ -993,12 +1064,17 @@ impl GameLogic {
                                         .unwrap_or_default(),
                                 );
                             }
-                            self.seed_pathfinding_from_terrain_with_effects(
-                                &mut native
-                                    .as_mut()
-                                    .map(|native| native.effects())
-                                    .unwrap_or_default(),
-                            );
+                            if let Err(error) = self
+                                .seed_pathfinding_from_terrain_with_effects_checked(
+                                    &mut native
+                                        .as_mut()
+                                        .map(|native| native.effects())
+                                        .unwrap_or_default(),
+                                )
+                            {
+                                log::error!("Map native child construction rejected: {error}");
+                                return false;
+                            }
                             let wall_height = self.pathfind_ai_rules().wall_height;
                             ({
                                 let ground_owner = self.world_services.terrain();
@@ -1062,12 +1138,15 @@ impl GameLogic {
             self.rebind_host_ai_after_map_load();
             // C++ GameLogic.cpp placeObjectAtPosition loop for PlayerTemplate StartingUnitN.
             // Without this, Lone Eagle-style maps keep buildings but no dozers/workers.
-            self.spawn_skirmish_starting_units_with_effects(
+            if let Err(error) = self.spawn_skirmish_starting_units_with_effects_checked(
                 &mut native
                     .as_mut()
                     .map(|native| native.effects())
                     .unwrap_or_default(),
-            );
+            ) {
+                log::error!("Map starting object rejected: {error}");
+                return false;
+            }
         }
 
         // C++ TerrainLogic.cpp:2589 TheRadar->newMap after bounds, then
@@ -1139,39 +1218,61 @@ impl GameLogic {
     where
         F: FnMut(f32, &str),
     {
+        self.load_map_or_fallback_with_progress_and_native_checked(
+            map_name,
+            fallback,
+            report_progress,
+            native,
+        )
+        .unwrap_or_else(|error| {
+            log::error!("Map fallback admission failed: {error}");
+            None
+        })
+    }
+
+    pub(crate) fn load_map_or_fallback_with_progress_and_native_checked<F>(
+        &mut self,
+        map_name: &str,
+        fallback: &str,
+        mut report_progress: F,
+        mut native: Option<&mut dyn crate::game_logic::NativeMapAdmission>,
+    ) -> Result<Option<String>, String>
+    where
+        F: FnMut(f32, &str),
+    {
         // One admission owns both attempts. Capture the receiving difficulty
         // before either attempt resets map runtime.
         let difficulty = self
             .owned_script_engine
             .as_ref()
             .map(|engine| engine.get_global_difficulty());
-        if self.load_map_with_script_difficulty_and_native(
+        if self.load_map_with_script_difficulty_and_native_checked(
             map_name,
             difficulty,
             |progress, phase| report_progress(progress, phase),
             native
                 .as_mut()
                 .map(|native| &mut **native as &mut dyn crate::game_logic::NativeMapAdmission),
-        ) && self.map_loaded
+        )? && self.map_loaded
         {
-            return Some(self.map_name.clone());
+            return Ok(Some(self.map_name.clone()));
         }
 
         // Do not pretend a second attempt occurred when the requested identity
         // already was the fallback. More importantly, never report a fallback
         // name unless that attempt really reached the successful load tail.
         if map_name != fallback
-            && self.load_map_with_script_difficulty_and_native(
+            && self.load_map_with_script_difficulty_and_native_checked(
                 fallback,
                 difficulty,
                 |progress, phase| report_progress(progress, phase),
                 native
                     .as_mut()
                     .map(|native| &mut **native as &mut dyn crate::game_logic::NativeMapAdmission),
-            )
+            )?
             && self.map_loaded
         {
-            return Some(self.map_name.clone());
+            return Ok(Some(self.map_name.clone()));
         }
 
         // No world is available. Clear the transient identity set at the start
@@ -1179,7 +1280,7 @@ impl GameLogic {
         // unloaded map as the active match.
         self.map_name.clear();
         self.map_loaded = false;
-        None
+        Ok(None)
     }
 }
 

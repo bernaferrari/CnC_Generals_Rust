@@ -170,6 +170,7 @@ impl GameClient {
 
     fn try_invalidate_presentation_drawable_world(&mut self) -> GameClientResult<()> {
         self.retire_native_drawable_particles(None)?;
+        self.drawables.finish_native_retirement();
         self.invalidate_presentation_shell();
         for drawable in self.drawables.drawable_map.values_mut() {
             drawable.reset_volatile_shroud_state();
@@ -184,6 +185,21 @@ impl GameClient {
         self.shadow_map.clear();
         self.rendered_object_count = 0;
         Ok(())
+    }
+
+    /// Admit a detached semantic CPU world without reconstructing or renumbering
+    /// its Drawables. Retire the old world's effects while its visual handle is
+    /// still bound. The application must call this before replacing GameLogic.
+    ///
+    /// This retains the existing required retirement capability and can fail;
+    /// callers must not treat failure as an empty candidate or continue commit.
+    pub fn retire_native_drawable_world_for_replace(&mut self) -> GameClientResult<()> {
+        self.try_invalidate_presentation_drawable_world()
+    }
+    /// Only after retirement succeeded. No callbacks or failure after moving
+    /// the candidate, so its IDs/order and continuation are installed unchanged.
+    pub fn install_prepared_native_drawable_world(&mut self, world: NativeDrawableWorld) {
+        self.drawables = world;
     }
 
     /// Resets the game client for a new game
@@ -902,5 +918,47 @@ impl GameClient {
                 crate::gui::callbacks::replay_controls::apply_replay_control_visibility(hide);
             })));
         });
+    }
+}
+
+#[cfg(test)]
+mod native_world_install_tests {
+    use super::*;
+
+    #[test]
+    fn whole_native_world_install_keeps_candidate_ids_order_and_peer() {
+        let mut receiving = GameClient::new().unwrap();
+        let mut peer = GameClient::new().unwrap();
+        receiving
+            .drawables
+            .admit_native_drawable(DrawableId(7), Box::new(BasicDrawable::new(DrawableId(7))));
+        peer.drawables
+            .admit_native_drawable(DrawableId(7), Box::new(BasicDrawable::new(DrawableId(7))));
+        peer.drawables.next_drawable_id = DrawableId(80);
+        let mut candidate = NativeDrawableWorld::new();
+        candidate
+            .admit_native_drawable(DrawableId(41), Box::new(BasicDrawable::new(DrawableId(41))));
+        candidate
+            .admit_native_drawable(DrawableId(12), Box::new(BasicDrawable::new(DrawableId(12))));
+        candidate.next_drawable_id = DrawableId(52);
+        receiving
+            .retire_native_drawable_world_for_replace()
+            .unwrap();
+        receiving.install_prepared_native_drawable_world(candidate);
+        assert_eq!(
+            receiving.drawables.native_drawable_order,
+            vec![DrawableId(12), DrawableId(41)]
+        );
+        assert_eq!(receiving.drawables.next_drawable_id, DrawableId(52));
+        assert!(
+            !receiving
+                .drawables
+                .drawable_map
+                .contains_key(&DrawableId(7))
+        );
+        assert_eq!(peer.drawables.native_drawable_order, vec![DrawableId(7)]);
+        assert_eq!(peer.drawables.next_drawable_id, DrawableId(80));
+        assert_eq!(receiving.drawables.alloc_drawable_id(), DrawableId(52));
+        assert_eq!(peer.drawables.alloc_drawable_id(), DrawableId(80));
     }
 }

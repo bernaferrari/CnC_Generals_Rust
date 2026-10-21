@@ -234,6 +234,22 @@ impl ScriptEngine {
         context: crate::scripting::executor::ScriptContext,
         driver: &mut dyn ScriptExecutionDriver,
     ) {
+        // Standalone callers keep their established reporting policy. Native
+        // constructor callbacks use the checked entry and unwind on failure.
+        if let Err(err) =
+            self.friend_execute_action_with_driver_checked(action, team_id, context, driver)
+        {
+            log::warn!("friend_execute_action: {}", err);
+        }
+    }
+
+    pub fn friend_execute_action_with_driver_checked(
+        &self,
+        action: &ScriptAction,
+        team_id: Option<TeamID>,
+        context: crate::scripting::executor::ScriptContext,
+        driver: &mut dyn ScriptExecutionDriver,
+    ) -> GameLogicResult<()> {
         self.observe_object_count_changed_frame(driver);
         let current_player = team_id.and_then(|id| match driver.team_current_player(id) {
             ScriptOwnerQuery::Present(player) => player,
@@ -252,14 +268,14 @@ impl ScriptEngine {
         }
         let context = std::cell::RefCell::new(context);
         let mut execution = ScriptExecution::new(&context, driver);
-        self.with_active(|| {
+        let result = self.with_active(|| {
             let mut dispatcher =
                 crate::scripting::executor::ScriptActionDispatcher::new(self, &context);
-            if let Err(err) = self.execute_action_chain(action, &mut dispatcher, &mut execution) {
-                log::warn!("friend_execute_action: {}", err);
-            }
+            self.execute_action_chain(action, &mut dispatcher, &mut execution)
+                .map(|_| ())
         });
         drop(restore);
+        result
     }
 
     /// Set temporary runtime context used by external script evaluation helpers.

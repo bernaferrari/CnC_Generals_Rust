@@ -19,17 +19,11 @@ struct NativeParticleCapabilityGap {
 }
 impl GameClient {
     fn retire_native_drawable_particles(&mut self, id: Option<DrawableId>) -> GameClientResult<()> {
-        self.native_particle_capability_gaps
-            .retain(|gap| id.is_some_and(|id| gap.drawable_id != id));
-        let count: usize = self
-            .drawables
-            .drawable_map
-            .iter_mut()
-            .filter(|(known, _)| id.is_none_or(|id| id == **known))
-            .filter_map(|(_, drawable)| drawable.as_any_mut().downcast_mut::<BasicDrawable>())
-            .map(|drawable| drawable.native_state_particle_count())
-            .sum();
-        if count == 0 {
+        // Preflight before erasing diagnostics or reaching any service.
+        let required = self.drawables.native_particle_retirement_required(id)?;
+        if !required {
+            self.native_particle_capability_gaps
+                .retain(|gap| id.is_some_and(|id| gap.drawable_id != id));
             return Ok(());
         }
         let mut manager = crate::effects::particle_manager::get_particle_system_manager_mut()
@@ -43,7 +37,10 @@ impl GameClient {
                 "receiving particle manager absent during native emitter retirement".into(),
             )
         })?;
-        self.retire_native_drawable_particles_with_services(id, manager);
+        self.drawables
+            .retire_native_particles_with_services(id, manager)?;
+        self.native_particle_capability_gaps
+            .retain(|gap| id.is_some_and(|id| gap.drawable_id != id));
         Ok(())
     }
 
@@ -52,19 +49,11 @@ impl GameClient {
         id: Option<DrawableId>,
         manager: &mut crate::effects::particle_manager::ParticleSystemManager,
     ) {
-        for &known in &self.drawables.native_drawable_order {
-            let drawable = self
-                .drawables
-                .drawable_map
-                .get_mut(&known)
-                .expect("native Drawable roster references a live receiver");
-            if id.is_some_and(|id| id != known) {
-                continue;
-            }
-            if let Some(drawable) = drawable.as_any_mut().downcast_mut::<BasicDrawable>() {
-                drawable.retire_native_state_particles(manager);
-            }
-        }
+        // Existing internal test callers use already admitted owned modules.
+        // Production fallible boundaries invoke the same owner kernel directly.
+        self.drawables
+            .retire_native_particles_with_services(id, manager)
+            .expect("receiving native particle retirement must preserve module ownership");
     }
 
     fn update_native_draw_particle_phase(
@@ -316,5 +305,178 @@ impl GameClient {
             }
         }
         Ok(())
+    }
+}
+
+impl drawable_world::DrawableWorld {
+    /// Same preflight as physical Drawable deletion, over actual native roster.
+    /// No flush/update, no ID unlink, and no manager discovery occurs here.
+    fn native_particle_retirement_required(
+        &mut self,
+        id: Option<DrawableId>,
+    ) -> GameClientResult<bool> {
+        let mut required = false;
+        for &known in &self.native_drawable_order {
+            if id.is_some_and(|id| id != known) {
+                continue;
+            }
+            let draw = self
+                .drawable_map
+                .get_mut(&known)
+                .expect("native Drawable roster references a live receiver");
+            if let Some(basic) = draw.as_any_mut().downcast_mut::<BasicDrawable>() {
+                required |= basic.native_state_particle_count() != 0;
+                required |= basic
+                    .native_client_particle_retirement_required()
+                    .map_err(GameClientError::InvalidOperation)?;
+            }
+        }
+        Ok(required)
+    }
+
+    fn retire_native_particles_with_services(
+        &mut self,
+        id: Option<DrawableId>,
+        manager: &mut crate::effects::particle_manager::ParticleSystemManager,
+    ) -> GameClientResult<()> {
+        // Preflight ALL selected receivers before the first external effect.
+        self.native_particle_retirement_required(id)?;
+        for &known in &self.native_drawable_order {
+            if id.is_some_and(|id| id != known) {
+                continue;
+            }
+            let draw = self
+                .drawable_map
+                .get_mut(&known)
+                .expect("native Drawable roster references a live receiver");
+            if let Some(basic) = draw.as_any_mut().downcast_mut::<BasicDrawable>() {
+                basic.retire_native_state_particles(manager);
+                basic
+                    .retire_native_client_particles(manager)
+                    .map_err(GameClientError::InvalidOperation)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn try_remove_for_map_attempt(
+        &mut self,
+        id: DrawableId,
+        mut particles: Option<&mut crate::effects::particle_manager::ParticleSystemManager>,
+    ) -> GameClientResult<()> {
+        let required = self.native_particle_retirement_required(Some(id))?;
+        if required && particles.is_none() {
+            return Err(GameClientError::SubsystemError(
+                "receiving particle manager absent during failed Drawable retirement".into(),
+            ));
+        }
+        let Some(mut removed) = self.drawable_map.remove(&id) else {
+            return Ok(());
+        };
+        self.native_drawable_order.retain(|known| *known != id);
+        self.owned_laser_order.retain(|known| *known != id);
+        if let Some(object) = removed.get_object_id() {
+            if self.drawable_object_map.get(&object).copied() == Some(id) {
+                self.drawable_object_map.remove(&object);
+            }
+        }
+        self.presentation_direct_drawable_bindings.remove(&id);
+        self.text_bearing_drawables.retain(|known| *known != id);
+        let result = if let Some(basic) = removed.as_any_mut().downcast_mut::<BasicDrawable>() {
+            let result = if let Some(manager) = particles.as_deref_mut() {
+                basic.retire_native_state_particles(manager);
+                basic
+                    .retire_native_client_particles(manager)
+                    .map_err(GameClientError::InvalidOperation)
+            } else {
+                Ok(())
+            };
+            // C++ Drawable destructor: module deletion before ambient stop.
+            // Finish even if an unexpected post-effect retirement error occurs.
+            basic.finish_native_retirement();
+            result
+        } else {
+            Ok(())
+        };
+        self.ray_effects.delete(id);
+        drop(removed);
+        result
+    }
+
+    fn try_clear_for_map_attempt(
+        &mut self,
+        mut particles: Option<&mut crate::effects::particle_manager::ParticleSystemManager>,
+    ) -> GameClientResult<()> {
+        let required = self.native_particle_retirement_required(None)?;
+        if required && particles.is_none() {
+            return Err(GameClientError::SubsystemError(
+                "receiving particle manager absent during map-attempt retirement".into(),
+            ));
+        }
+        let order = self.native_drawable_order.clone();
+        let mut first_error = None;
+        for known in order {
+            if let Err(error) = self.try_remove_for_map_attempt(known, particles.as_deref_mut()) {
+                first_error.get_or_insert(error);
+            }
+        }
+        debug_assert!(self.drawable_map.is_empty());
+        self.ray_effects.reset();
+        self.next_drawable_id = DrawableId(1);
+        first_error.map_or(Ok(()), Err)
+    }
+
+    fn finish_native_retirement(&mut self) {
+        for &known in &self.native_drawable_order {
+            let draw = self
+                .drawable_map
+                .get_mut(&known)
+                .expect("native Drawable roster references a live receiver");
+            if let Some(basic) = draw.as_any_mut().downcast_mut::<BasicDrawable>() {
+                basic.finish_native_retirement();
+            }
+        }
+    }
+}
+impl NativeDrawableOwner<'_> {
+    /// Original new-level callback over actual prepend Drawable roster.
+    /// Saved-level admission must skip this operation at its driving boundary.
+    pub fn on_level_start(&mut self) -> GameClientResult<()> {
+        for &id in &self.drawables.native_drawable_order {
+            let drawable = self
+                .drawables
+                .drawable_map
+                .get_mut(&id)
+                .expect("native Drawable roster references a live receiver");
+            let basic = drawable
+                .as_any_mut()
+                .downcast_mut::<BasicDrawable>()
+                .ok_or_else(|| {
+                    GameClientError::InvalidOperation(
+                        "native onLevelStart requires its actual BasicDrawable receiver".into(),
+                    )
+                })?;
+            basic.on_level_start();
+        }
+        Ok(())
+    }
+
+    /// Failed constructor retirement selects only its actual Drawable identity.
+    /// Required service validation precedes unlink; unrelated peers survive.
+    pub fn try_remove_for_map_attempt(
+        &mut self,
+        id: DrawableId,
+        particles: Option<&mut crate::effects::particle_manager::ParticleSystemManager>,
+    ) -> GameClientResult<()> {
+        self.drawables.try_remove_for_map_attempt(id, particles)
+    }
+
+    /// Retire the actual detached map world with an explicit receiving manager.
+    /// Missing required services fail before any identity is erased.
+    pub fn try_clear_for_map_attempt(
+        &mut self,
+        particles: Option<&mut crate::effects::particle_manager::ParticleSystemManager>,
+    ) -> GameClientResult<()> {
+        self.drawables.try_clear_for_map_attempt(particles)
     }
 }

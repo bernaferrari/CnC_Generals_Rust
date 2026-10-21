@@ -31,10 +31,13 @@ impl RenderPipeline {
     }
 }
 impl NativeInstalledPoseLoan<'_> {
+    pub(crate) fn current_animation_sync_ms(&self) -> u32 {
+        self.animation_sync_ms
+    }
     /// Stamp the actual post-sync Client lifetime on the existing Draw owner.
     /// A changed key requires a real Destroy/Creating producer, never relabeling.
     #[cfg(feature = "game_client")]
-    pub(super) fn admit_binding(
+    pub(crate) fn admit_binding(
         &mut self,
         identity: &crate::assets::LiveDrawPlaybackIdentity,
         key: game_client::core::PresentationDirectDrawableBindingKey,

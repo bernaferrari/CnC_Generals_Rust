@@ -160590,7 +160590,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "be48a70ae507870827fb4fb972cc366dda990cd5dca6ed1d6c5688d9094ce47f",
+  "input_digest": "b23268f1ce35ef79a69f506155a935e56c0f2954bf2992734754e25fe0fb1370",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -166996,11 +166996,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 907,
+        "end_line": 965,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/impl_init.rs",
-      "sha256": "16d8373384646dbc1af5b63ae317d6a973df81d698457398b00ccb5aa4aa6e1b",
+      "sha256": "f8007c9403c821c530b40b92e682d68f5b5328cc444c588ed828f159da1176ad",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -167008,11 +167008,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 2611,
+        "end_line": 2620,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/impl_update.rs",
-      "sha256": "8826b98a1799550a7be12f95f01cd35026288c1f4513958af7213e022751149f",
+      "sha256": "ee203ca258700ec31ad59b41e7d586e5273db2c6f83046416977b6eb803a297f",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -167020,11 +167020,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1831,
+        "end_line": 1837,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/leftover.rs",
-      "sha256": "d72eab67a642853139946a6171d950c357e172930280b88298260977265cf075",
+      "sha256": "a4c394ced8b64b02eaba22396f7764abcf7cded976c65ad5a26b8bd233a3d277",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -167092,11 +167092,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 321,
+        "end_line": 483,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/native_particle_draw.rs",
-      "sha256": "a20ceaa936b9fc3e2f3ea6dab8a47e826448cd98cb23f3f346f134abb8ea7701",
+      "sha256": "16681576dac67092b69323c66c7fb439ab18815738a2a3bdfc0e74ec5ee7a308",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -167128,11 +167128,11 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 406,
+        "end_line": 716,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/native_presentation_tests.rs",
-      "sha256": "3e4ad660ebffba1fb51b7d38279bc2b15f1574f925d8e811a913fe09c4302905",
+      "sha256": "7ba8ac5af0ac016fe729671dddb92be11d112ea2a067355aff32cd45fbf4ed1f",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -167200,11 +167200,11 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 374,
+        "end_line": 422,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/owned_laser_inert_access_tests.rs",
-      "sha256": "c945157e33b3c2355f90cfff66074d7d1c43cd69444bd62f349029fcec314b90",
+      "sha256": "2441dfad1a43fb9bf6d241ce81f69263ecd7dd67bc4b6778a3a7185a9c72d1a8",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -167368,11 +167368,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 520,
+        "end_line": 696,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/semantic_admission.rs",
-      "sha256": "c50946c00814330904d447af9d2b9d892141a75ea42ca89eedda72e6596cc236",
+      "sha256": "1b74414521b5a604c03771bd6d8aa1ff7cd43c3f866e9618350960275f90c679",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -167476,11 +167476,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 448,
+        "end_line": 442,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/xfer_adapters.rs",
-      "sha256": "7a9289b2376472aa52528021ef675b918157450f9a342e4f6d85b9ad23450411",
+      "sha256": "a445ba10e505ee2f23f5827009bb46bde238a5bfda660e96a4b88c9a76b54b8b",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -169842,11 +169842,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 34,
+        "end_line": 57,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/drawable/drawable/native_client_retirement.rs",
-      "sha256": "0aad1ac883394b3c6e32655349ee1d01b20530076a4d0938925d607f26cc0d9d",
+      "sha256": "dc75ba060cb683450fc8ebd54e1bb61b984882091c5db9262baaf11c297baf0c",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -169858,6 +169858,11 @@
           "kind": "fn",
           "line": 21,
           "name": "retire_native_client_particles"
+        },
+        {
+          "kind": "fn",
+          "line": 38,
+          "name": "finish_native_retirement"
         }
       ]
     },
@@ -169923,11 +169928,11 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 123,
+        "end_line": 177,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/drawable/drawable/native_constructor_tests.rs",
-      "sha256": "856467229f79fcf363b0b8b0a59873c42f916bd7a04321eebcf94e5cd48530e7",
+      "sha256": "422b8b56c124dce4476f7ac736dd198b6dbab0434e44a454aa9aaf86053c53ad",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -169959,6 +169964,26 @@
           "kind": "fn",
           "line": 96,
           "name": "retained_template_observation_preserves_same_arc_and_restarts_replacement"
+        },
+        {
+          "kind": "fn",
+          "line": 125,
+          "name": "explicit_native_retirement_stops_local_ambient_after_dropping_modules"
+        },
+        {
+          "kind": "struct",
+          "line": 130,
+          "name": "RetireProbe"
+        },
+        {
+          "kind": "fn",
+          "line": 136,
+          "name": "drawable_module_type_index"
+        },
+        {
+          "kind": "fn",
+          "line": 141,
+          "name": "drop"
         }
       ]
     },

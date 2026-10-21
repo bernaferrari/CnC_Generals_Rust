@@ -3102,6 +3102,27 @@ impl GameLogic {
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
+        // Independent callers retain the existing nonfallible surface until their
+        // operation boundary is migrated; the selected factory never uses this adapter.
+        if let Err(error) = self.apply_listening_outpost_initial_payload_with_effects_checked(
+            outpost_id,
+            team,
+            position,
+            interpreter,
+            ui,
+        ) {
+            log::error!("{error}");
+        }
+    }
+
+    pub(in super::super) fn apply_listening_outpost_initial_payload_with_effects_checked(
+        &mut self,
+        outpost_id: ObjectId,
+        team: Team,
+        position: Vec3,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
         use crate::game_logic::host_listening_outpost::{
             LISTENING_OUTPOST_INITIAL_PAYLOAD_COUNT, LISTENING_OUTPOST_PAYLOAD_TEMPLATE,
             LISTENING_OUTPOST_PAYLOAD_TEMPLATE_ALT, preferred_payload_template,
@@ -3134,7 +3155,7 @@ impl GameLogic {
                 .contains_key(LISTENING_OUTPOST_PAYLOAD_TEMPLATE_ALT),
         );
         let Some(payload_name) = payload_name else {
-            return;
+            return Ok(());
         };
 
         for _ in 0..LISTENING_OUTPOST_INITIAL_PAYLOAD_COUNT {
@@ -3152,14 +3173,15 @@ impl GameLogic {
                 .objects
                 .get(&outpost_id)
                 .and_then(|parent| parent.owner_player_id);
-            let Some(hunter_id) = self.create_object_for_owner_or_team_with_effects(
+            let Some(hunter_id) = self.create_object_for_owner_or_team_with_effects_checked(
                 payload_name,
                 team,
                 owner,
                 position,
                 interpreter,
                 ui,
-            ) else {
+            )?
+            else {
                 break;
             };
 
@@ -3192,6 +3214,8 @@ impl GameLogic {
         }
 
         self.refresh_battle_bus_armed_riders_weapon_set(outpost_id);
+
+        Ok(())
     }
 
     /// Dock InitialPayload Redguard × 8 into a Troop Crawler residual.
@@ -3220,6 +3244,27 @@ impl GameLogic {
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
+        // Independent callers retain the existing nonfallible surface until their
+        // operation boundary is migrated; the selected factory never uses this adapter.
+        if let Err(error) = self.apply_troop_crawler_initial_payload_with_effects_checked(
+            crawler_id,
+            team,
+            position,
+            interpreter,
+            ui,
+        ) {
+            log::error!("{error}");
+        }
+    }
+
+    pub(in super::super) fn apply_troop_crawler_initial_payload_with_effects_checked(
+        &mut self,
+        crawler_id: ObjectId,
+        team: Team,
+        position: Vec3,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
         use crate::game_logic::host_troop_crawler::{
             TROOP_CRAWLER_INITIAL_PAYLOAD_COUNT, TROOP_CRAWLER_PAYLOAD_TEMPLATE,
             TROOP_CRAWLER_PAYLOAD_TEMPLATE_ALIAS, resolve_payload_template_name,
@@ -3246,7 +3291,7 @@ impl GameLogic {
 
         let payload_name = resolve_payload_template_name(|n| self.templates.contains_key(n));
         let Some(payload_name) = payload_name else {
-            return;
+            return Ok(());
         };
 
         for i in 0..TROOP_CRAWLER_INITIAL_PAYLOAD_COUNT {
@@ -3263,14 +3308,15 @@ impl GameLogic {
                 .objects
                 .get(&crawler_id)
                 .and_then(|parent| parent.owner_player_id);
-            let Some(guard_id) = self.create_object_for_owner_or_team_with_effects(
+            let Some(guard_id) = self.create_object_for_owner_or_team_with_effects_checked(
                 payload_name,
                 team,
                 owner,
                 position,
                 interpreter,
                 ui,
-            ) else {
+            )?
+            else {
                 break;
             };
 
@@ -3303,6 +3349,8 @@ impl GameLogic {
             // Initial payload docks count as residual loads for honesty bookkeeping.
             let _ = i;
         }
+
+        Ok(())
     }
 
     /// Residual Troop Crawler assault deploy: unload docked infantry and order attack.
@@ -3438,5 +3486,197 @@ impl GameLogic {
     /// Record a residual Overlord BattleBunker exit/evacuate (tests / host path).
     pub fn record_overlord_bunker_residual_exit(&mut self) {
         self.overlord_bunker_residual_exits = self.overlord_bunker_residual_exits.saturating_add(1);
+    }
+}
+
+impl GameLogic {
+    /// TransportContain.cpp:457-459 creates InitialPayload before its ordinary
+    /// transport update. An empty passenger list is never a birth/retry signal.
+    pub(crate) fn update_initial_transport_payloads_with_effects(
+        &mut self,
+        ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
+        // GameLogic::registerObject clamps a constructor's first wake to1.
+        if self.frame == 0 {
+            return Ok(());
+        }
+        // GameLogic.cpp3721-3723 and UpdateModule.h154-157: this module
+        // processes DISABLEDMASK_NONE, so any disabled bit defers its update.
+        // Dying/zero-health and UNDER_CONSTRUCTION are separate source state.
+        let carriers: Vec<_> = self
+            .objects
+            .iter()
+            .filter_map(|(id, object)| {
+                (!object.has_disabled_type()
+                    && !object.initial_transport_payload_created
+                    && (object.is_listening_outpost_transport || object.is_troop_crawler_transport))
+                    .then_some((*id, object.visual_object_generation))
+            })
+            .collect();
+        for (id, generation) in carriers {
+            let Some((team, position, listening, crawler)) = self
+                .objects
+                .get(&id)
+                .filter(|object| {
+                    !object.has_disabled_type()
+                        && object.visual_object_generation == generation
+                        && !object.initial_transport_payload_created
+                })
+                .map(|object| {
+                    (
+                        object.team,
+                        object.get_position(),
+                        object.is_listening_outpost_transport,
+                        object.is_troop_crawler_transport,
+                    )
+                })
+            else {
+                continue;
+            };
+            if listening {
+                self.apply_listening_outpost_initial_payload_with_effects_checked(
+                    id, team, position, None, ui,
+                )?;
+            } else if crawler {
+                self.apply_troop_crawler_initial_payload_with_effects_checked(
+                    id, team, position, None, ui,
+                )?;
+            }
+            // Original createPayload sets the latch after admission. A failed
+            // semantic child birth propagates instead of pretending success.
+            if let Some(object) = self
+                .objects
+                .get_mut(&id)
+                .filter(|object| object.visual_object_generation == generation)
+            {
+                object.initial_transport_payload_created = true;
+            }
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod initial_transport_payload_owner_tests {
+    use super::*;
+
+    #[test]
+    fn factory_defers_payload_until_first_update_and_empty_carrier_never_respawns() {
+        crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+            module_path!(),
+            "factory_defers_payload_until_first_update_and_empty_carrier_never_respawns",
+            || {
+                let mut world = GameLogic::new();
+                let mut template = ThingTemplate::new("ChinaVehicleTroopCrawler");
+                template.add_kind_of(KindOf::Vehicle).set_health(240.0);
+                world
+                    .templates
+                    .insert("ChinaVehicleTroopCrawler".into(), template);
+                let requested = Vec3::new(27.0, 39.0, 0.0);
+                let id = world
+                    .create_object("ChinaVehicleTroopCrawler", Team::China, requested)
+                    .unwrap();
+                assert_eq!(world.objects[&id].get_position(), requested);
+                assert!(world.objects[&id].occupants.is_empty());
+                assert!(!world.objects[&id].initial_transport_payload_created);
+                world
+                    .update_initial_transport_payloads_with_effects(&mut Default::default())
+                    .unwrap();
+                assert!(world.objects[&id].occupants.is_empty());
+                world.frame = 1;
+                world
+                    .update_initial_transport_payloads_with_effects(&mut Default::default())
+                    .unwrap();
+                assert_eq!(world.objects[&id].occupants.len(), 8);
+                assert!(world.objects[&id].initial_transport_payload_created);
+                let children = world.objects[&id].occupants.clone();
+                world.objects.get_mut(&id).unwrap().occupants.clear();
+                for child in children {
+                    world.objects.remove(&child);
+                }
+                let before = world.objects.len();
+                world.frame = 2;
+                world
+                    .update_initial_transport_payloads_with_effects(&mut Default::default())
+                    .unwrap();
+                assert!(world.objects[&id].occupants.is_empty());
+                assert_eq!(world.objects.len(), before);
+            },
+        );
+    }
+}
+
+#[cfg(test)]
+mod initial_transport_disabled_mask_tests {
+    use super::*;
+    fn carrier() -> (GameLogic, ObjectId) {
+        let mut world = GameLogic::new();
+        let mut template = ThingTemplate::new("ChinaVehicleTroopCrawler");
+        template.add_kind_of(KindOf::Vehicle).set_health(240.0);
+        world
+            .templates
+            .insert("ChinaVehicleTroopCrawler".into(), template);
+        let id = world
+            .create_object("ChinaVehicleTroopCrawler", Team::China, Vec3::ZERO)
+            .unwrap();
+        world.frame = 1;
+        (world, id)
+    }
+    #[test]
+    fn source_transport_none_mask_defers_every_disabled_bit_then_runs_when_cleared() {
+        crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+            module_path!(),
+            "source_transport_none_mask_defers_every_disabled_bit_then_runs_when_cleared",
+            || {
+                let cases: &[fn(&mut Object, bool)] = &[
+                    |o, v| o.status.disabled_default = v,
+                    |o, v| o.status.disabled_unmanned = v,
+                    |o, v| o.status.disabled_underpowered = v,
+                    |o, v| o.status.disabled_hacked = v,
+                    |o, v| o.status.disabled_emp = v,
+                    |o, v| o.status.disabled_paralyzed = v,
+                    |o, v| o.status.disabled_subdued = v,
+                    |o, v| o.status.disabled_freefall = v,
+                    |o, v| o.status.disabled_script_disabled = v,
+                    |o, v| o.status.disabled_script_underpowered = v,
+                    |o, v| o.status.disabled_held = v,
+                    |o, v| o.status.disabled_awestruck = v,
+                    |o, v| o.status.disabled_brainwashed = v,
+                ];
+                for set in cases {
+                    let (mut world, id) = carrier();
+                    set(world.objects.get_mut(&id).unwrap(), true);
+                    world
+                        .update_initial_transport_payloads_with_effects(&mut Default::default())
+                        .unwrap();
+                    assert!(!world.objects[&id].initial_transport_payload_created);
+                    assert!(world.objects[&id].occupants.is_empty());
+                    set(world.objects.get_mut(&id).unwrap(), false);
+                    world.frame = 2;
+                    world
+                        .update_initial_transport_payloads_with_effects(&mut Default::default())
+                        .unwrap();
+                    assert!(world.objects[&id].initial_transport_payload_created);
+                    assert_eq!(world.objects[&id].occupants.len(), 8);
+                }
+            },
+        );
+    }
+    #[test]
+    fn dying_still_due_transport_is_not_silently_filtered_by_generic_alive_check() {
+        crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+            module_path!(),
+            "dying_still_due_transport_is_not_silently_filtered_by_generic_alive_check",
+            || {
+                let (mut world, id) = carrier();
+                world.objects.get_mut(&id).unwrap().status.effectively_dead = true;
+                assert!(!world.objects[&id].is_alive());
+                assert!(!world.objects[&id].has_disabled_type());
+                world
+                    .update_initial_transport_payloads_with_effects(&mut Default::default())
+                    .unwrap();
+                assert!(world.objects[&id].initial_transport_payload_created);
+            },
+        );
     }
 }

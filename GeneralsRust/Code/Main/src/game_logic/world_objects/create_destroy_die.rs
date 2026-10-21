@@ -7,8 +7,12 @@ use super::super::*;
 #[path = "create_destroy_die/incoming_death_owner_tests.rs"]
 mod incoming_death_owner_tests;
 
+#[cfg(test)]
+#[path = "create_destroy_die/checked_factory_tests.rs"]
+mod checked_factory_tests;
 mod construction;
 mod death;
+mod factory_init;
 mod grant_upgrade;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -267,7 +271,22 @@ impl GameLogic {
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> Option<ObjectId> {
-        self.spawn_supply_center_collector_with_effects_and_observer(
+        // Independent callers retain the existing nonfallible surface until their
+        // operation boundary is migrated; the selected factory never uses this adapter.
+        self.spawn_supply_center_one_shot_collector_with_effects_checked(center_id, interpreter, ui)
+            .unwrap_or_else(|error| {
+                log::error!("{error}");
+                None
+            })
+    }
+
+    pub(crate) fn spawn_supply_center_one_shot_collector_with_effects_checked(
+        &mut self,
+        center_id: ObjectId,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<Option<ObjectId>> {
+        self.spawn_supply_center_collector_with_effects_and_observer_checked(
             center_id,
             interpreter,
             ui,
@@ -282,8 +301,31 @@ impl GameLogic {
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
         after_player_created: impl FnOnce(&mut Self, ObjectId),
     ) -> Option<ObjectId> {
+        // Independent callers retain the existing nonfallible surface until their
+        // operation boundary is migrated; the selected factory never uses this adapter.
+        self.spawn_supply_center_collector_with_effects_and_observer_checked(
+            center_id,
+            interpreter,
+            ui,
+            after_player_created,
+        )
+        .unwrap_or_else(|error| {
+            log::error!("{error}");
+            None
+        })
+    }
+
+    fn spawn_supply_center_collector_with_effects_and_observer_checked(
+        &mut self,
+        center_id: ObjectId,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+        after_player_created: impl FnOnce(&mut Self, ObjectId),
+    ) -> gamelogic::GameLogicResult<Option<ObjectId>> {
         let (team, owner_player_id, mut spawn_pos, orientation, custom_rally) = {
-            let center = self.host_object(center_id)?;
+            let Some(center) = self.host_object(center_id) else {
+                return Ok(None);
+            };
             if !center.is_alive()
                 || !center.is_constructed()
                 || center.status.under_construction
@@ -294,7 +336,7 @@ impl GameLogic {
                 || (!center.is_kind_of(KindOf::SupplyCenter)
                     && !center.is_kind_of(KindOf::FSSupplyCenter))
             {
-                return None;
+                return Ok(None);
             }
             // C++ SupplyCenterProductionExitUpdate::exitObjectViaDoor places
             // at the transformed INI UnitCreatePoint, not the building origin.
@@ -330,16 +372,20 @@ impl GameLogic {
             spawn_pos.y = height;
         }
 
-        let spawn_template = self.supply_center_one_shot_collector_template(center_id)?;
+        let Some(spawn_template) = self.supply_center_one_shot_collector_template(center_id) else {
+            return Ok(None);
+        };
 
         // Do not let create_object synthesize a visual/name fallback for a
         // gameplay collector.  A loaded Object INI definition is sufficient to
         // make a typed template here; otherwise the authored behavior simply
         // waits for a valid template rather than inventing a unit.
         if !self.templates.contains_key(&spawn_template) {
-            let template = Self::build_template_from_asset_definition(&spawn_template)?;
+            let Some(template) = Self::build_template_from_asset_definition(&spawn_template) else {
+                return Ok(None);
+            };
             if !template.is_kind_of(KindOf::Harvester) {
-                return None;
+                return Ok(None);
             }
             self.templates.insert(spawn_template.clone(), template);
         }
@@ -348,7 +394,7 @@ impl GameLogic {
             .get(&spawn_template)
             .is_some_and(|template| template.is_kind_of(KindOf::Harvester))
         {
-            return None;
+            return Ok(None);
         }
 
         // Both activation entry points are mutually exclusive in normal play,
@@ -364,21 +410,24 @@ impl GameLogic {
             if let Some(center) = self.host_object_mut(center_id) {
                 center.supply_center_spawn_behavior_fired = true;
             }
-            return None;
+            return Ok(None);
         }
 
         // The real module's UnitCreatePoint is parsed above.  Preserve
         // producer identity here; the common exit handoff applies its
         // authored route (raw natural rally, no 2-cell offset, custom rally,
         // forceWanting, GrantTemporaryStealth) immediately after creation.
-        let spawned_id = self.create_object_for_owner_or_team_with_effects(
+        let Some(spawned_id) = self.create_object_for_owner_or_team_with_effects_checked(
             &spawn_template,
             team,
             owner_player_id,
             spawn_pos,
             interpreter,
             ui,
-        )?;
+        )?
+        else {
+            return Ok(None);
+        };
         if let Some(spawned) = self.host_object_mut(spawned_id) {
             spawned.producer_id = Some(center_id);
             spawned.set_orientation(orientation);
@@ -400,7 +449,7 @@ impl GameLogic {
         if let Some(center) = self.host_object_mut(center_id) {
             center.supply_center_spawn_behavior_fired = true;
         }
-        Some(spawned_id)
+        Ok(Some(spawned_id))
     }
 
     /// C++ `SpawnBehavior::shouldTryToSpawn` (SpawnBehavior.cpp:802-823).
@@ -562,21 +611,51 @@ impl GameLogic {
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> Option<ObjectId> {
+        // Independent callers retain the existing nonfallible surface until their
+        // operation boundary is migrated; the selected factory never uses this adapter.
+        self.create_spawn_behavior_child_checked(
+            parent_id,
+            spawn_template,
+            position,
+            orientation,
+            interpreter,
+            ui,
+        )
+        .unwrap_or_else(|error| {
+            log::error!("{error}");
+            None
+        })
+    }
+
+    fn create_spawn_behavior_child_checked(
+        &mut self,
+        parent_id: ObjectId,
+        spawn_template: &str,
+        position: Vec3,
+        orientation: f32,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<Option<ObjectId>> {
         if !self.ensure_spawn_behavior_unit_template(spawn_template) {
-            return None;
+            return Ok(None);
         }
         let (team, owner) = {
-            let parent = self.host_object(parent_id)?;
+            let Some(parent) = self.host_object(parent_id) else {
+                return Ok(None);
+            };
             (parent.team, parent.owner_player_id)
         };
-        let spawned_id = self.create_object_for_owner_or_team_with_effects(
+        let Some(spawned_id) = self.create_object_for_owner_or_team_with_effects_checked(
             spawn_template,
             team,
             owner,
             position,
             interpreter,
             ui,
-        )?;
+        )?
+        else {
+            return Ok(None);
+        };
         if let Some(spawned) = self.host_object_mut(spawned_id) {
             spawned.producer_id = Some(parent_id);
             spawned.set_orientation(orientation);
@@ -584,7 +663,7 @@ impl GameLogic {
             // (`SpawnPointProductionExitUpdate.cpp:87`) `setDisabled(DISABLED_HELD)`.
             spawned.set_status_disabled_held(true);
         }
-        Some(spawned_id)
+        Ok(Some(spawned_id))
     }
 
     /// C++ `getLayerHeight` snap (`SpawnPointProductionExitUpdate.cpp:68`).
@@ -657,38 +736,62 @@ impl GameLogic {
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
+        // Independent callers retain the existing nonfallible surface until their
+        // operation boundary is migrated; the selected factory never uses this adapter.
+        if let Err(error) = self.apply_spawn_behavior_on_build_complete_with_effects_checked(
+            object_id,
+            interpreter,
+            ui,
+        ) {
+            log::error!("{error}");
+        }
+    }
+
+    fn apply_spawn_behavior_on_build_complete_with_effects_checked(
+        &mut self,
+        object_id: ObjectId,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
         let Some(template_name) = self
             .host_object(object_id)
             .map(|object| object.template_name.clone())
         else {
-            return;
+            return Ok(());
         };
         if crate::game_logic::host_angry_mob::is_angry_mob_nexus_template(&template_name) {
-            return;
+            return Ok(());
         }
         let is_supply = self.host_object(object_id).is_some_and(|object| {
             object.is_kind_of(KindOf::SupplyCenter) || object.is_kind_of(KindOf::FSSupplyCenter)
         });
         if is_supply {
-            return;
+            return Ok(());
         }
         let Some(spec) = Self::resolve_host_spawn_behavior_spec(&template_name) else {
-            return;
+            return Ok(());
         };
         let Some(object) = self.host_object(object_id) else {
-            return;
+            return Ok(());
         };
         if !Self::spawn_behavior_should_try(object, spec.one_shot) {
             if spec.one_shot && object.status.reconstructing {
                 self.tunnel_network.mark_oneshot_spawn_fired(object_id);
             }
-            return;
+            return Ok(());
         }
         if spec.one_shot {
-            self.spawn_oneshot_spawn_behavior(object_id, &spec, interpreter, ui);
+            self.spawn_oneshot_spawn_behavior_checked(object_id, &spec, interpreter, ui)?;
         } else {
-            self.spawn_missing_hive_world_soldiers_with_effects(object_id, &spec, interpreter, ui);
+            self.spawn_missing_hive_world_soldiers_with_effects_checked(
+                object_id,
+                &spec,
+                interpreter,
+                ui,
+            )?;
         }
+
+        Ok(())
     }
 
     fn spawn_oneshot_spawn_behavior(
@@ -698,17 +801,33 @@ impl GameLogic {
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
+        // Independent callers retain the existing nonfallible surface until their
+        // operation boundary is migrated; the selected factory never uses this adapter.
+        if let Err(error) =
+            self.spawn_oneshot_spawn_behavior_checked(parent_id, spec, interpreter, ui)
+        {
+            log::error!("{error}");
+        }
+    }
+
+    fn spawn_oneshot_spawn_behavior_checked(
+        &mut self,
+        parent_id: ObjectId,
+        spec: &HostSpawnBehaviorSpec,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
         if self.tunnel_network.oneshot_spawn_fired(parent_id) {
-            return;
+            return Ok(());
         }
         let have = self.count_spawn_behavior_children(parent_id, &spec.spawn_template, false);
         if have >= spec.spawn_number {
             self.tunnel_network.mark_oneshot_spawn_fired(parent_id);
-            return;
+            return Ok(());
         }
         let (parent_pos, parent_ori, bones) = {
             let Some(parent) = self.host_object(parent_id) else {
-                return;
+                return Ok(());
             };
             (
                 parent.get_position(),
@@ -719,7 +838,7 @@ impl GameLogic {
         if !bones.is_empty() && have >= bones.len() as u32 {
             // C++ reserveDoorForExit: every bone occupier is live.
             self.tunnel_network.mark_oneshot_spawn_fired(parent_id);
-            return;
+            return Ok(());
         }
         let existing: Vec<Vec3> = self
             .objects
@@ -746,14 +865,14 @@ impl GameLogic {
                 break;
             };
             if self
-                .create_spawn_behavior_child(
+                .create_spawn_behavior_child_checked(
                     parent_id,
                     &spec.spawn_template,
                     spawn_pos,
                     orientation,
                     interpreter,
                     ui,
-                )
+                )?
                 .is_some()
             {
                 created = created.saturating_add(1);
@@ -764,6 +883,8 @@ impl GameLogic {
         if now >= spec.spawn_number || created > 0 {
             self.tunnel_network.mark_oneshot_spawn_fired(parent_id);
         }
+
+        Ok(())
     }
 
     fn spawn_missing_hive_world_soldiers(
@@ -786,13 +907,32 @@ impl GameLogic {
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
+        // Independent callers retain the existing nonfallible surface until their
+        // operation boundary is migrated; the selected factory never uses this adapter.
+        if let Err(error) = self.spawn_missing_hive_world_soldiers_with_effects_checked(
+            parent_id,
+            spec,
+            interpreter,
+            ui,
+        ) {
+            log::error!("{error}");
+        }
+    }
+
+    fn spawn_missing_hive_world_soldiers_with_effects_checked(
+        &mut self,
+        parent_id: ObjectId,
+        spec: &HostSpawnBehaviorSpec,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
         let have = self.count_spawn_behavior_children(parent_id, &spec.spawn_template, true);
         if have >= spec.spawn_number {
-            return;
+            return Ok(());
         }
         let (parent_pos, parent_ori, residual_alive, bones) = {
             let Some(parent) = self.host_object(parent_id) else {
-                return;
+                return Ok(());
             };
             (
                 parent.get_position(),
@@ -802,7 +942,7 @@ impl GameLogic {
             )
         };
         if !bones.is_empty() && have >= bones.len() as u32 {
-            return;
+            return Ok(());
         }
         let existing: Vec<Vec3> = self
             .objects
@@ -828,20 +968,20 @@ impl GameLogic {
                 }
                 let spawn_pos = self.snap_spawn_point_to_terrain(parent_pos, parent_pos.y);
                 if self
-                    .create_spawn_behavior_child(
+                    .create_spawn_behavior_child_checked(
                         parent_id,
                         &spec.spawn_template,
                         spawn_pos,
                         parent_ori,
                         interpreter,
                         ui,
-                    )
+                    )?
                     .is_some()
                 {
                     occupied.push(spawn_pos);
                 }
             }
-            return;
+            return Ok(());
         }
         let slots = spec.spawn_number.min(bones.len() as u32) as usize;
         for slot in 0..slots {
@@ -854,19 +994,21 @@ impl GameLogic {
             }
             let spawn_pos = self.snap_spawn_point_to_terrain(bone_pos, parent_pos.y);
             if self
-                .create_spawn_behavior_child(
+                .create_spawn_behavior_child_checked(
                     parent_id,
                     &spec.spawn_template,
                     spawn_pos,
                     bone_yaw,
                     interpreter,
                     ui,
-                )
+                )?
                 .is_some()
             {
                 occupied.push(spawn_pos);
             }
         }
+
+        Ok(())
     }
 
     /// Sync Stinger residual roster with world soldiers and fill due replacements.
@@ -1121,8 +1263,31 @@ impl GameLogic {
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> Option<ObjectId> {
+        // Independent callers retain the existing nonfallible surface until their
+        // operation boundary is migrated; the selected factory never uses this adapter.
+        self.create_object_with_script_effects_checked(
+            template_name,
+            team,
+            position,
+            interpreter,
+            ui,
+        )
+        .unwrap_or_else(|error| {
+            log::error!("{error}");
+            None
+        })
+    }
+
+    pub(crate) fn create_object_with_script_effects_checked(
+        &mut self,
+        template_name: &str,
+        team: Team,
+        position: Vec3,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<Option<ObjectId>> {
         let owner_player_id = self.unique_player_id_for_team(team);
-        let id = self.create_object_with_initial_team_and_ui(
+        let Some(id) = self.create_object_with_initial_team_and_ui_checked(
             template_name,
             team,
             owner_player_id,
@@ -1131,9 +1296,12 @@ impl GameLogic {
             None,
             interpreter,
             ui,
-        )?;
+        )?
+        else {
+            return Ok(None);
+        };
         self.apply_cash_bounty_on_object_created(id);
-        Some(id)
+        Ok(Some(id))
     }
 
     /// Create an object for a specific controlling player while retaining the
@@ -1161,11 +1329,37 @@ impl GameLogic {
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> Option<ObjectId> {
-        let team = self.players.get(&owner_player_id)?.team;
+        // Independent callers retain the existing nonfallible surface until their
+        // operation boundary is migrated; the selected factory never uses this adapter.
+        self.create_object_for_player_with_effects_checked(
+            template_name,
+            owner_player_id,
+            position,
+            interpreter,
+            ui,
+        )
+        .unwrap_or_else(|error| {
+            log::error!("{error}");
+            None
+        })
+    }
+
+    pub(crate) fn create_object_for_player_with_effects_checked(
+        &mut self,
+        template_name: &str,
+        owner_player_id: u32,
+        position: Vec3,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<Option<ObjectId>> {
+        let Some(player) = self.players.get(&owner_player_id) else {
+            return Ok(None);
+        };
+        let team = player.team;
         if team == Team::Neutral {
-            return None;
+            return Ok(None);
         }
-        let id = self.create_object_with_initial_team_and_ui(
+        let Some(id) = self.create_object_with_initial_team_and_ui_checked(
             template_name,
             team,
             Some(owner_player_id),
@@ -1174,9 +1368,12 @@ impl GameLogic {
             None,
             interpreter,
             ui,
-        )?;
+        )?
+        else {
+            return Ok(None);
+        };
         self.apply_cash_bounty_on_object_created(id);
-        Some(id)
+        Ok(Some(id))
     }
 
     /// C++ BuildAssistant::buildObjectNow's instant structure arm. Command
@@ -1303,15 +1500,40 @@ impl GameLogic {
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> Option<ObjectId> {
+        // Independent callers retain the existing nonfallible surface until their
+        // operation boundary is migrated; the selected factory never uses this adapter.
+        self.create_object_for_owner_or_team_with_effects_checked(
+            template_name,
+            team,
+            owner_player_id,
+            position,
+            interpreter,
+            ui,
+        )
+        .unwrap_or_else(|error| {
+            log::error!("{error}");
+            None
+        })
+    }
+
+    pub(crate) fn create_object_for_owner_or_team_with_effects_checked(
+        &mut self,
+        template_name: &str,
+        team: Team,
+        owner_player_id: Option<u32>,
+        position: Vec3,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<Option<ObjectId>> {
         match owner_player_id {
-            Some(owner) => self.create_object_for_player_with_effects(
+            Some(owner) => self.create_object_for_player_with_effects_checked(
                 template_name,
                 owner,
                 position,
                 interpreter,
                 ui,
             ),
-            None => self.create_object_with_script_effects(
+            None => self.create_object_with_script_effects_checked(
                 template_name,
                 team,
                 position,
@@ -1538,8 +1760,40 @@ impl GameLogic {
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> Option<ObjectId> {
-        let faction = self.players.get(&controller)?.team;
-        let id = self.create_object_with_initial_team_and_ui(
+        // Independent callers retain the existing nonfallible surface until their
+        // operation boundary is migrated; the selected factory never uses this adapter.
+        self.create_object_on_exact_script_team_with_effects_checked(
+            template,
+            controller,
+            team_name,
+            team_id,
+            position,
+            activate,
+            interpreter,
+            ui,
+        )
+        .unwrap_or_else(|error| {
+            log::error!("{error}");
+            None
+        })
+    }
+
+    pub(crate) fn create_object_on_exact_script_team_with_effects_checked(
+        &mut self,
+        template: &str,
+        controller: u32,
+        team_name: &str,
+        team_id: u32,
+        position: Vec3,
+        activate: bool,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<Option<ObjectId>> {
+        let Some(player) = self.players.get(&controller) else {
+            return Ok(None);
+        };
+        let faction = player.team;
+        let Some(id) = self.create_object_with_initial_team_and_ui_checked(
             template,
             faction,
             Some(controller),
@@ -1548,9 +1802,12 @@ impl GameLogic {
             Some((team_name, team_id, activate)),
             interpreter,
             ui,
-        )?;
+        )?
+        else {
+            return Ok(None);
+        };
         self.apply_cash_bounty_on_object_created(id);
-        Some(id)
+        Ok(Some(id))
     }
 
     fn create_object_with_initial_team(
@@ -1575,6 +1832,23 @@ impl GameLogic {
         )
     }
 
+    pub(crate) fn create_map_object_with_effects_checked(
+        &mut self,
+        template: &str,
+        team: Team,
+        owner: Option<u32>,
+        position: Vec3,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<Option<ObjectId>> {
+        match owner {
+            Some(owner) => self.create_object_for_player_with_effects_checked(
+                template, owner, position, None, effects,
+            ),
+            None => self
+                .create_object_with_script_effects_checked(template, team, position, None, effects),
+        }
+    }
+
     fn create_object_with_initial_team_and_ui(
         &mut self,
         template_name: &str,
@@ -1586,10 +1860,39 @@ impl GameLogic {
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> Option<ObjectId> {
+        // Independent callers retain the existing nonfallible surface until their
+        // operation boundary is migrated; the selected factory never uses this adapter.
+        self.create_object_with_initial_team_and_ui_checked(
+            template_name,
+            team,
+            owner_player_id,
+            position,
+            creation_purpose,
+            initial_team,
+            interpreter,
+            ui,
+        )
+        .unwrap_or_else(|error| {
+            log::error!("{error}");
+            None
+        })
+    }
+
+    fn create_object_with_initial_team_and_ui_checked(
+        &mut self,
+        template_name: &str,
+        team: Team,
+        owner_player_id: Option<u32>,
+        position: Vec3,
+        creation_purpose: FactoryCreationPurpose,
+        initial_team: Option<(&str, u32, bool)>,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<Option<ObjectId>> {
         if owner_player_id.is_some_and(|player_id| {
             self.players.get(&player_id).map(|player| player.team) != Some(team)
         }) {
-            return None;
+            return Ok(None);
         }
         // Map-load skip list: decorative / overloaded templates (AngryMob nexus
         // projectiles, cinematic shells, …). Intentional residual / test spawns
@@ -1600,7 +1903,7 @@ impl GameLogic {
                 .keys()
                 .any(|name| name.eq_ignore_ascii_case(template_name))
         {
-            return None;
+            return Ok(None);
         }
 
         if !self.ensure_host_spawn_template(template_name) {
@@ -1618,27 +1921,32 @@ impl GameLogic {
                     template_name
                 );
             }
-            return None;
+            return Ok(None);
         }
 
-        if let Err(error) = self.admit_object_client_template(template_name) {
-            log::error!("Rejecting object {template_name}: {error}");
-            return None;
-        }
+        self.admit_object_client_template(template_name)
+            .map_err(|error| {
+                gamelogic::GameLogicError::Configuration(format!(
+                    "Object '{template_name}' receiving template: {error}"
+                ))
+            })?;
 
         if let Some(mut template) = self.templates.get(template_name).cloned() {
             if let Some(error) = &template.native_lifecycle_error {
-                log::error!("Rejecting object {template_name}: {error}");
-                return None;
+                return Err(gamelogic::GameLogicError::Configuration(format!(
+                    "Object '{template_name}' native lifecycle: {error}"
+                )));
             }
             if let Some(error) = &template.body_definition_error {
-                log::error!("Rejecting object {template_name}: {error}");
-                return None;
+                return Err(gamelogic::GameLogicError::Configuration(format!(
+                    "Object '{template_name}' Body definition: {error}"
+                )));
             }
 
             if let Some(Err(error)) = &template.structure_topple_definition {
-                log::error!("Rejecting object {template_name}: {error}");
-                return None;
+                return Err(gamelogic::GameLogicError::Configuration(format!(
+                    "Object '{template_name}' structure topple: {error}"
+                )));
             }
             // C++ Object.cpp asks the controlling Player for the exact
             // `ProductionVeterancyLevel` while constructing every Object.
@@ -1716,8 +2024,6 @@ impl GameLogic {
             }
             object.partition_cash_value = partition_cash;
             object.partition_threat_value = partition_threat;
-            object.set_position_with_effects(position, self.frame, ui);
-            {}
             let starts_under_construction = object.status.under_construction;
 
             // Primary weapon from template when defined; kind-based fallback only as last resort.
@@ -1856,30 +2162,11 @@ impl GameLogic {
                 }
             }
 
-            // Host residual: bind mine/demo-trap data for recognized templates.
-            // C++ Chem_DemoTrapDetonationWeaponGamma after Chem_Upgrade_GLAAnthraxGamma.
-            let has_anthrax_gamma = {
-                use crate::game_logic::host_toxin_tractor::is_anthrax_gamma_upgrade_name;
-                let player_has_gamma = |player: &Player| {
-                    player
-                        .unlocked_sciences
-                        .iter()
-                        .chain(player.completed_upgrades.iter())
-                        .any(|name| is_anthrax_gamma_upgrade_name(name))
-                };
-                if let Some(player) = owner_player_id.and_then(|pid| self.players.get(&pid)) {
-                    player_has_gamma(player)
-                } else {
-                    self.players
-                        .values()
-                        .filter(|p| p.team == team)
-                        .any(player_has_gamma)
-                }
-            };
+            // Constructor data precedes player upgrade application in initObject.
             if let Some(mine_data) = crate::game_logic::host_mines::residual_data_for_template(
                 template_name,
                 self.frame,
-                has_anthrax_gamma,
+                false,
             ) {
                 object.mine_data = Some(mine_data);
             }
@@ -2028,18 +2315,6 @@ impl GameLogic {
                 object.install_cave_contain_residual(cave_index);
             }
 
-            if crate::game_logic::host_bridge_behavior::is_bridge_span_template(template_name) {
-                let p = object.get_position();
-                let half = object.selection_radius.max(20.0);
-                self.bridge_behavior.register_span(
-                    object.id,
-                    glam::Vec3::new(p.x - half, 0.0, p.z - half),
-                    glam::Vec3::new(p.x + half, 0.0, p.z - half),
-                    glam::Vec3::new(p.x - half, 0.0, p.z + half),
-                    glam::Vec3::new(p.x + half, 0.0, p.z + half),
-                );
-            }
-
             // Host residual: AirF Combat Chinook TransportContain Slots=8 + passenger fire.
             // Regular AmericaVehicleChinook: same slots + ChinookAI, no passenger fire.
             if crate::game_logic::host_combat_chinook::is_combat_chinook_template(template_name) {
@@ -2151,24 +2426,7 @@ impl GameLogic {
                     self.frame.saturating_add(object.stealth_delay_frames);
                 object.stealth_delay_pending = false;
 
-                // Retail WeaponSet Conditions=None has PRIMARY None until PLAYER_UPGRADE.
-                // Strip kind-based Weapon::default fallback from resolve_primary_weapon.
-                // C++ initObject → updateUpgradeModules applies completed player
-                // WeaponSetUpgrade so later builds spawn with SentryDroneGun.
-                use crate::game_logic::host_sentry_drone::UPGRADE_AMERICA_SENTRY_DRONE_GUN;
-                let has_gun_upgrade = object.has_upgrade_tag(UPGRADE_AMERICA_SENTRY_DRONE_GUN)
-                    || if let Some(player) = owner_player_id.and_then(|pid| self.players.get(&pid))
-                    {
-                        player.has_unlocked_upgrade(UPGRADE_AMERICA_SENTRY_DRONE_GUN)
-                    } else {
-                        self.players.values().any(|p| {
-                            p.team == team
-                                && p.has_unlocked_upgrade(UPGRADE_AMERICA_SENTRY_DRONE_GUN)
-                        })
-                    };
-                if has_gun_upgrade {
-                    Self::equip_sentry_drone_gun(&mut object);
-                } else if !sentry_had_explicit_primary {
+                if !sentry_had_explicit_primary {
                     object.weapon = None;
                 }
             }
@@ -2218,75 +2476,6 @@ impl GameLogic {
                 }
             }
 
-            // Host residual: China Dragon Tank primary flame weapon bind.
-            // Fail-closed: FireWall secondary is host_firewall special-power residual.
-            if crate::game_logic::host_dragon_tank::is_dragon_tank_template(template_name) {
-                use crate::game_logic::host_dragon_tank::{
-                    dragon_flame_weapon, has_black_napalm_upgrade,
-                };
-                let upgraded = has_black_napalm_upgrade(&object.applied_upgrades);
-                // Force residual flame stats when store/template leaves defaults.
-                object.weapon = Some(dragon_flame_weapon(upgraded));
-            }
-
-            // Host residual: China Nuke Cannon neutron secondary is PLAYER_UPGRADE only.
-            // Fail-closed: Upgrade_ChinaNeutronShells equips SECONDARY; without it, no secondary.
-            // Explicit template.secondary_weapon_name (tests / seeds) still keeps a bound weapon.
-            if crate::game_logic::host_neutron_shell::is_nuke_cannon_template(template_name) {
-                use crate::game_logic::host_neutron_shell::UPGRADE_CHINA_NEUTRON_SHELLS;
-                use crate::game_logic::weapon_bootstrap::{
-                    NUKE_CANNON_NEUTRON_WEAPON, ensure_host_weapon_store,
-                };
-                let has_neutron = object.has_upgrade_tag(UPGRADE_CHINA_NEUTRON_SHELLS)
-                    || object.has_upgrade_tag("Upgrade_ChinaNeutronShells")
-                    || self.players.values().any(|p| {
-                        p.team == team && p.has_unlocked_upgrade(UPGRADE_CHINA_NEUTRON_SHELLS)
-                    });
-                if has_neutron {
-                    ensure_host_weapon_store();
-                    if let Some(w) = ThingTemplate::weapon_from_store(NUKE_CANNON_NEUTRON_WEAPON) {
-                        object.secondary_weapon = Some(w);
-                    }
-                    object.apply_upgrade_tag(UPGRADE_CHINA_NEUTRON_SHELLS);
-                } else if object.thing().template.secondary_weapon_name.is_none()
-                    && object.thing().template.secondary_weapon.is_none()
-                {
-                    // Strip residual map auto-equip; keep explicit test/seed secondaries.
-                    object.secondary_weapon = None;
-                }
-            }
-
-            // Host residual: China Gattling Tank dual ground/AA + continuous-fire ramp state.
-            // Fail-closed: not Overlord/Helix/building gattling payloads.
-            if crate::game_logic::host_gattling_tank::is_gattling_tank_template(template_name) {
-                use crate::game_logic::host_gattling_tank::{
-                    GattlingFireLevel, gattling_air_weapon, gattling_ground_weapon,
-                    has_chain_guns_upgrade,
-                };
-                let chain = has_chain_guns_upgrade(&object.applied_upgrades);
-                object.weapon = Some(gattling_ground_weapon(GattlingFireLevel::Base, chain));
-                object.secondary_weapon = Some(gattling_air_weapon(GattlingFireLevel::Base, chain));
-                reset_continuous_fire_state(&mut object);
-            }
-
-            // Host residual: China Gattling Cannon structure dual ground/AA + continuous-fire ramp.
-            // Fail-closed: not full CONTINUOUS_FIRE_* model-condition animation matrix.
-            if crate::game_logic::host_base_defense::is_gattling_cannon_structure(template_name) {
-                use crate::game_logic::host_base_defense::{
-                    gattling_building_air_weapon, gattling_building_ground_weapon,
-                    gattling_building_has_chain_guns,
-                };
-                use crate::game_logic::host_gattling_tank::GattlingFireLevel;
-                let chain = gattling_building_has_chain_guns(&object.applied_upgrades);
-                object.weapon = Some(gattling_building_ground_weapon(
-                    GattlingFireLevel::Base,
-                    chain,
-                ));
-                object.secondary_weapon =
-                    Some(gattling_building_air_weapon(GattlingFireLevel::Base, chain));
-                reset_continuous_fire_state(&mut object);
-            }
-
             // Host residual: GLA Stinger Site SPAWNS_ARE_THE_WEAPONS dual ground/AA +
             // HiveStructureBody / SpawnBehavior residual (3 soldiers) + physical roster.
             if crate::game_logic::host_base_defense::is_stinger_site_structure(template_name) {
@@ -2294,9 +2483,6 @@ impl GameLogic {
                     init_stinger_hive_slave_roster, stinger_air_weapon, stinger_ground_weapon,
                     stinger_has_ap_rockets, sync_hive_slave_mirrors,
                 };
-                let ap = stinger_has_ap_rockets(&object.applied_upgrades);
-                object.weapon = Some(stinger_ground_weapon(ap));
-                object.secondary_weapon = Some(stinger_air_weapon(ap));
                 let roster = init_stinger_hive_slave_roster();
                 object.hive_slaves = roster;
                 let (slaves, slave_hp) = sync_hive_slave_mirrors(&roster);
@@ -2359,49 +2545,11 @@ impl GameLogic {
                 );
             }
 
-            // Host residual: GLA Scorpion PRIMARY gun (+ secondary rocket if unlocked).
-            // Fail-closed: not full SalvageCrate missile-rack W3D subobject matrix.
-            if crate::game_logic::host_scorpion::is_scorpion_template(template_name) {
-                use crate::game_logic::host_scorpion::{
-                    has_ap_rockets_upgrade, has_scorpion_rocket_upgrade,
-                    salvage_tier_from_upgrades, scorpion_gun_weapon, scorpion_missile_weapon,
-                };
-                let tier = salvage_tier_from_upgrades(&object.applied_upgrades);
-                object.weapon = Some(scorpion_gun_weapon(tier));
-                if has_scorpion_rocket_upgrade(&object.applied_upgrades) {
-                    let ap = has_ap_rockets_upgrade(&object.applied_upgrades);
-                    object.secondary_weapon =
-                        Some(scorpion_missile_weapon(ap, tier.dual_missile_clip()));
-                }
-            }
-
             // Host residual: USA Tomahawk PRIMARY dual-radius missile.
             // TomahawkMissile projectile lob residual closed (MissileAI peels + impact).
             if crate::game_logic::host_tomahawk::is_tomahawk_template(template_name) {
                 use crate::game_logic::host_tomahawk::tomahawk_weapon;
                 object.weapon = Some(tomahawk_weapon());
-            }
-
-            // Host residual: USA Raptor PRIMARY jet missiles (+ Laser Missiles upgrade).
-            // RETURN_TO_BASE ClipReload airfield rearm residual closed (dock + timer).
-            if crate::game_logic::host_raptor::is_raptor_template(template_name) {
-                use crate::game_logic::host_raptor::{
-                    has_laser_missiles_upgrade, is_king_raptor_template, raptor_weapon,
-                };
-                let king = is_king_raptor_template(template_name);
-                let laser = has_laser_missiles_upgrade(&object.applied_upgrades);
-                object.weapon = Some(raptor_weapon(king, laser));
-            }
-
-            // Host residual: China MiG PRIMARY napalm / Nuke dual-radius missiles.
-            // Fail-closed: not full RETURN_TO_BASE ClipReload / HistoricBonus Firestorm matrix.
-            if crate::game_logic::host_mig::is_mig_template(template_name) {
-                use crate::game_logic::host_mig::{is_nuke_mig_template, mig_loadout, mig_weapon};
-                let loadout = mig_loadout(
-                    is_nuke_mig_template(template_name),
-                    &object.applied_upgrades,
-                );
-                object.weapon = Some(mig_weapon(loadout));
             }
 
             // Host residual: America Fire Base PRIMARY howitzer.
@@ -2418,33 +2566,13 @@ impl GameLogic {
                 object.weapon = Some(stealth_fighter_weapon());
             }
 
-            // Host residual: USA Comanche PRIMARY 20mm + SECONDARY anti-tank.
-            // Retail rocket pods are a PLAYER_UPGRADE TERTIARY weapon; keep
-            // anti-tank bound in SECONDARY and only expose pods after the team
-            // owns the real upgrade.
             if crate::game_logic::host_comanche_rocket_pods::is_comanche_template(template_name) {
                 use crate::game_logic::host_comanche_rocket_pods::{
-                    UPGRADE_COMANCHE_ROCKET_PODS, comanche_antitank_weapon, comanche_cannon_weapon,
-                    comanche_rocket_pod_weapon,
+                    comanche_antitank_weapon, comanche_cannon_weapon,
                 };
                 object.weapon = Some(comanche_cannon_weapon());
                 object.secondary_weapon = Some(comanche_antitank_weapon());
-                let has_pods = object.has_upgrade_tag(UPGRADE_COMANCHE_ROCKET_PODS)
-                    || object.has_upgrade_tag("Upgrade_ComancheRocketPods")
-                    || self.players.values().any(|player| {
-                        player.team == team
-                            && player.has_unlocked_upgrade(UPGRADE_COMANCHE_ROCKET_PODS)
-                    });
-                if has_pods {
-                    object.tertiary_weapon = Some(comanche_rocket_pod_weapon());
-                    object.apply_upgrade_tag(UPGRADE_COMANCHE_ROCKET_PODS);
-                    object.weapon_set_player_upgrade = true;
-                } else {
-                    // The simple ObjectDefinition parser preserves the source
-                    // name but does not evaluate full WeaponSet Conditions.
-                    // Do not grant a condition-gated pod declaration early.
-                    object.tertiary_weapon = None;
-                }
+                object.tertiary_weapon = None;
             }
 
             // Host residual: USA Battle Drone PRIMARY machine gun.
@@ -2452,27 +2580,6 @@ impl GameLogic {
             if crate::game_logic::host_slave_drones::is_battle_drone_template(template_name) {
                 use crate::game_logic::host_slave_drones::battle_drone_weapon;
                 object.weapon = Some(battle_drone_weapon());
-            }
-
-            // Host residual: China Overlord / Emperor PRIMARY dual-radius tank gun.
-            // Fail-closed: not full ClipSize=2 dual-volley / Nuclear Tanks death residual.
-            if crate::game_logic::host_overlord_gun::is_overlord_gun_chassis(template_name) {
-                use crate::game_logic::host_overlord_gun::{
-                    has_uranium_shells_upgrade, overlord_gun_weapon,
-                };
-                let uranium = has_uranium_shells_upgrade(&object.applied_upgrades);
-                object.weapon = Some(overlord_gun_weapon(uranium));
-            }
-
-            // Host residual: GLA Jarmen Kell PRIMARY sniper residual.
-            // Pilot-snipe is AutoChooseSources SECONDARY NONE (button/special only).
-            if crate::game_logic::host_jarmen_kell::is_jarmen_kell_template(template_name) {
-                use crate::game_logic::host_jarmen_kell::{
-                    has_ap_bullets_upgrade, jarmen_kell_weapon,
-                };
-                let ap = has_ap_bullets_upgrade(&object.applied_upgrades);
-                object.weapon = Some(jarmen_kell_weapon(ap));
-                object.template_mut().apply_retail_button_only_auto_choose();
             }
 
             // Host residual: China Red Guard PRIMARY machine gun residual.
@@ -2487,73 +2594,6 @@ impl GameLogic {
             if crate::game_logic::host_tank_hunter::is_tank_hunter_template(template_name) {
                 use crate::game_logic::host_tank_hunter::tank_hunter_weapon;
                 object.weapon = Some(tank_hunter_weapon(false, false));
-            }
-
-            // Host residual: GLA Rebel PRIMARY machine gun residual.
-            // Fail-closed: not full ClipSize volley / CaptureBuilding / BoobyTrap matrix.
-            if crate::game_logic::host_gla_rebel::is_gla_rebel_template(template_name) {
-                use crate::game_logic::host_gla_rebel::{has_ap_bullets_upgrade, rebel_weapon};
-                let ap = has_ap_bullets_upgrade(&object.applied_upgrades);
-                object.weapon = Some(rebel_weapon(ap));
-            }
-
-            // Host residual: USA Ranger PRIMARY rifle residual.
-            // FlashBang secondary is PLAYER_UPGRADE only (Upgrade_AmericaRangerFlashBangGrenade)
-            // — parity with neutron shells / rocket pods: residual map may name the weapon,
-            // but create strips it unless research is unlocked or template explicitly seeds it.
-            // Fail-closed: not full SURRENDER surrender-AI / garrison clear matrix.
-            if crate::game_logic::host_ranger::is_ranger_template(template_name) {
-                use crate::game_logic::host_ranger::{
-                    UPGRADE_AMERICA_FLASHBANG, has_flashbang_equipped, ranger_flashbang_weapon,
-                    ranger_rifle_weapon,
-                };
-                // C++ WeaponSet::updateWeaponSet uses the authored primary.
-                // Only supply the retail seed when this template has no rule.
-                if object.thing().template.primary_weapon_name.is_none()
-                    && object.thing().template.primary_weapon.is_none()
-                    && !object.thing().template.primary_weapon_explicitly_none
-                {
-                    object.weapon = Some(ranger_rifle_weapon());
-                }
-                let has_flashbang = has_flashbang_equipped(false, &object.applied_upgrades)
-                    || self.players.values().any(|p| {
-                        p.team == team && p.has_unlocked_upgrade(UPGRADE_AMERICA_FLASHBANG)
-                    });
-                if has_flashbang {
-                    object.secondary_weapon = Some(ranger_flashbang_weapon());
-                    object.apply_upgrade_tag(UPGRADE_AMERICA_FLASHBANG);
-                } else if object.thing().template.secondary_weapon_name.is_none()
-                    && object.thing().template.secondary_weapon.is_none()
-                {
-                    // Strip residual map auto-equip; keep explicit test/seed secondaries.
-                    object.secondary_weapon = None;
-                } else if object.secondary_weapon.is_some() {
-                    // Explicit seed/test secondary — normalize to residual flashbang stats.
-                    object.secondary_weapon = Some(ranger_flashbang_weapon());
-                }
-            }
-
-            // Host residual: China MiniGunner dual ground/AA + continuous fire ramp.
-            // Fail-closed: not full FiringTracker CONTINUOUS_FIRE_* anim / bayonet tertiary.
-            if crate::game_logic::host_minigunner::is_minigunner_template(template_name) {
-                use crate::game_logic::host_gattling_tank::GattlingFireLevel;
-                use crate::game_logic::host_minigunner::{
-                    has_chain_guns_upgrade, minigunner_air_weapon, minigunner_ground_weapon,
-                };
-                let chain = has_chain_guns_upgrade(&object.applied_upgrades);
-                object.weapon = Some(minigunner_ground_weapon(
-                    GattlingFireLevel::Base,
-                    chain,
-                    false,
-                    false,
-                ));
-                object.secondary_weapon = Some(minigunner_air_weapon(
-                    GattlingFireLevel::Base,
-                    chain,
-                    false,
-                    false,
-                ));
-                reset_continuous_fire_state(&mut object);
             }
 
             // Host residual: Colonel Burton PRIMARY sniper residual.
@@ -2579,52 +2619,9 @@ impl GameLogic {
                 }
             }
 
-            // C++ Object::initObject → updateUpgradeModules: PLAYER_UPGRADE mask
-            // (Upgrade_GLAWorkerShoes) fires LocomotorSetUpgrade on new workers.
-            // Live research only stamps objects alive at complete; inherit here.
-            // Owner-player only — same-faction leak is not C++ getControllingPlayer.
             if crate::game_logic::host_gla_worker::is_gla_worker_template(template_name) {
-                use crate::game_logic::host_gla_worker::{
-                    UPGRADE_GLA_WORKER_SHOES, worker_residual_speed,
-                };
-                let player_has_shoes = owner_player_id
-                    .and_then(|pid| self.players.get(&pid))
-                    .is_some_and(|p| p.has_unlocked_upgrade(UPGRADE_GLA_WORKER_SHOES));
-                let shoes = object.has_upgrade_tag(UPGRADE_GLA_WORKER_SHOES) || player_has_shoes;
-                if shoes && !object.has_upgrade_tag(UPGRADE_GLA_WORKER_SHOES) {
-                    object.apply_upgrade_tag(UPGRADE_GLA_WORKER_SHOES);
-                    let _ = crate::game_logic::host_upgrade_module_residuals::apply_locomotor_set_upgrade(
-                        &mut object,
-                        UPGRADE_GLA_WORKER_SHOES,
-                    );
-                }
-                object.movement.max_speed = worker_residual_speed(shoes);
-            }
-
-            // Host residual: GLA RPG Trooper / Tunnel Defender PRIMARY rocket residual.
-            // Fail-closed: not full ScatterRadiusVsInfantry / projectile exhaust FX matrix.
-            if crate::game_logic::host_rpg_trooper::is_rpg_trooper_template(template_name) {
-                use crate::game_logic::host_rpg_trooper::{
-                    has_ap_rockets_upgrade, rpg_trooper_weapon,
-                };
-                let ap = has_ap_rockets_upgrade(&object.applied_upgrades);
-                object.weapon = Some(rpg_trooper_weapon(ap));
-            }
-
-            // Host residual: GLA Terrorist PRIMARY TerroristSuicideWeapon residual.
-            // Chem Beta/Gamma + Demo death-weapon residual profiles.
-            // Fail-closed: not ConvertToCarBomb full matrix / SlowDeath fling.
-            if crate::game_logic::host_terrorist::is_terrorist_template(template_name) {
-                use crate::game_logic::host_terrorist::{
-                    terrorist_death_profile, terrorist_suicide_weapon_for_profile,
-                };
-                let has_gamma = object.has_upgrade_tag("Chem_Upgrade_GLAAnthraxGamma")
-                    || object.has_upgrade_tag("Upgrade_GLAAnthraxGamma");
-                let has_beta = object.has_upgrade_tag("Upgrade_GLAAnthraxBeta")
-                    || object.has_upgrade_tag("Chem_Upgrade_GLAAnthraxBeta");
-                let profile = terrorist_death_profile(template_name, has_gamma, has_beta);
-                object.weapon = Some(terrorist_suicide_weapon_for_profile(profile));
-                object.secondary_weapon = None;
+                object.movement.max_speed =
+                    crate::game_logic::host_gla_worker::worker_residual_speed(false);
             }
 
             // Host residual: USA Missile Defender PRIMARY missile + SECONDARY laser guided.
@@ -2659,31 +2656,6 @@ impl GameLogic {
             // Weapon bound via weapon_bootstrap primary; no extra strip.
             // Auto-fire residual runs from update_combat when idle.
 
-            // C++ Object::initObject → updateUpgradeModules: PLAYER_UPGRADE
-            // Upgrade_AmericaDroneArmor fires MaxHealthUpgrade on new drones.
-            // Live research only stamps drones alive at complete; inherit here.
-            // Owner-player only — same-faction leak is not C++ getControllingPlayer.
-            if let Some(kind) =
-                crate::game_logic::host_slave_drones::slave_drone_kind_from_template(template_name)
-            {
-                use crate::game_logic::host_slave_drones::{
-                    UPGRADE_AMERICA_DRONE_ARMOR, apply_drone_armor_health,
-                };
-                let player_has_armor = owner_player_id
-                    .and_then(|pid| self.players.get(&pid))
-                    .is_some_and(|p| p.has_unlocked_upgrade(UPGRADE_AMERICA_DRONE_ARMOR));
-                if player_has_armor && !object.has_upgrade_tag(UPGRADE_AMERICA_DRONE_ARMOR) {
-                    object.apply_upgrade_tag(UPGRADE_AMERICA_DRONE_ARMOR);
-                    let mut max_h = object.max_health;
-                    let mut cur = object.health.current;
-                    let mut maximum = object.health.maximum;
-                    apply_drone_armor_health(kind, &mut max_h, &mut cur, &mut maximum);
-                    object.set_body_max_health(max_h);
-                    object.health.maximum = maximum;
-                    object.internal_change_health(cur - object.health.current);
-                }
-            }
-
             if let Some(level) = player_template_veterancy {
                 let _ = object.set_min_veterancy_level(level);
             }
@@ -2700,25 +2672,33 @@ impl GameLogic {
                 object.apply_stealth_detector_ctor_stagger(self.frame);
             }
             self.admit_host_object(object);
-            if !starts_under_construction {
-                if let Some(obj) = self.objects.get_mut(&id) {
-                    obj.stamp_partition_value_threat();
-                }
-            }
             // C++ Object.cpp onCreate residual: inherit team prototype attitude + attack priority.
             self.inherit_team_ai_defaults(id);
             // C++ GameLogic map/create: team->setActive() once the team has members.
-            self.admit_team_for_host_object_with_effects(
-                id,
-                interpreter,
-                initial_team.is_none_or(|(_, _, activate)| activate),
-                ui,
-            );
+            self.admit_team_for_host_object_with_effects_checked(id, interpreter, false, ui)?;
 
             // C++ SpecialPowerModule ctor (SpecialPowerModule.cpp:86-101):
             // pre-built non-SharedNSync modules arm their authored reload at
             // creation; StartsPaused pauses once after arming.
             self.init_special_power_ctor_arms(id);
+
+            // C++ GarrisonContain::onObjectCreated InitialRoster spawn.
+            let factory_position = self
+                .objects
+                .get(&id)
+                .expect("registered factory object")
+                .get_position();
+            self.apply_garrison_initial_roster_with_effects_checked(
+                id,
+                team,
+                factory_position,
+                interpreter,
+                ui,
+            )?;
+
+            // Object ctor: modules are ready before radar/list admission and
+            // before ThingFactory enters its ordered Create callbacks.
+            self.host_radar_add_object_with_effects(id, ui);
 
             // C++ SupplyWarehouseCreate::onCreate residual — StartingBoxes + manager register.
             self.init_supply_warehouse_create(id);
@@ -2726,59 +2706,11 @@ impl GameLogic {
             // C++ GrantUpgradeCreate::onCreate for map-placed / instant-finished
             // objects (ExemptStatus=UNDER_CONSTRUCTION and not constructing).
             self.apply_grant_upgrade_create_on_create_with_effects(id, ui);
-            if !starts_under_construction && creation_purpose == FactoryCreationPurpose::AtCreation
-            {
-                // C++ GameLogic.cpp:1878-1885 every map object runs CreateModules
-                // onBuildComplete (SupplyCenter/GrantUpgrade/Preorder/LockWeapon/SP).
-                self.apply_create_modules_on_build_complete_with_effects(id, interpreter, ui);
-            }
-
-            // C++ SpawnBehavior ModuleTag_12 on stock and general-specific
-            // SupplyCenter/Stash objects.  `create_object_under_construction`
-            // intentionally does not call this; that path fires on the real
-            // construction-complete activation edge below.
-            if !matches!(
-                creation_purpose,
-                FactoryCreationPurpose::InstantLineBuild
-                    | FactoryCreationPurpose::OrdinaryConstruction
-            ) {
-                let _ =
-                    self.spawn_supply_center_one_shot_collector_with_effects(id, interpreter, ui);
-            }
-
             // Residual honesty: Emperor innate propaganda counts as install on spawn.
             if emperor_spawn {
                 self.overlord_addons.record_propaganda_install();
             }
             let _ = helix_spawn;
-
-            // Host residual: Listening Outpost InitialPayload TankHunter × 2.
-            // Dock after insert so recursive create_object cannot re-enter mid-build.
-            // Fail-closed: no payload if TankHunter template is absent.
-            if is_listening_outpost_spawn {
-                self.apply_listening_outpost_initial_payload_with_effects(
-                    id,
-                    team,
-                    position,
-                    interpreter,
-                    ui,
-                );
-            }
-
-            // Host residual: Troop Crawler InitialPayload Redguard × 8.
-            // Dock after insert so recursive create_object cannot re-enter mid-build.
-            if is_troop_crawler_spawn {
-                self.apply_troop_crawler_initial_payload_with_effects(
-                    id,
-                    team,
-                    position,
-                    interpreter,
-                    ui,
-                );
-            }
-
-            // C++ GarrisonContain::onObjectCreated InitialRoster spawn.
-            self.apply_garrison_initial_roster_with_effects(id, team, position, interpreter, ui);
 
             // C++ VeterancyGainCreate.cpp:63-65 controlling player only, then
             // PlayerTemplate fallback. Ally training science must not veteran
@@ -2822,111 +2754,189 @@ impl GameLogic {
                 }
             }
 
-            // C++ ExperienceScalarUpgrade after player Upgrade_AmericaAdvancedTraining:
-            // Object::updateUpgradeModules on create fires AddXPScalar for later spawns.
-            {
-                use crate::game_logic::host_unit_training::{
-                    UPGRADE_AMERICA_ADVANCED_TRAINING, sciences_include_advanced_training,
-                };
-                let has_at = owner_player_id
-                    .and_then(|player_id| self.players.get(&player_id))
-                    .map(|player| {
-                        player.has_unlocked_upgrade(UPGRADE_AMERICA_ADVANCED_TRAINING)
-                            || sciences_include_advanced_training(&player.unlocked_sciences)
-                    })
-                    .unwrap_or(false);
-                if has_at {
-                    if let Some(obj) = self.objects.get_mut(&id) {
-                        if !obj.is_kind_of(KindOf::Structure)
-                            && !obj.has_upgrade_tag(UPGRADE_AMERICA_ADVANCED_TRAINING)
-                        {
-                            obj.apply_upgrade_tag(UPGRADE_AMERICA_ADVANCED_TRAINING);
+            // ThingFactory registers the completed constructor/onCreate result
+            // with partition before Object::initObject announces its Drawable.
+            if !starts_under_construction {
+                if let Some(object) = self.objects.get_mut(&id) {
+                    object.stamp_partition_value_threat();
+                }
+            }
+            self.admit_factory_drawable_with_effects(id, ui)?;
+            self.apply_factory_init_bootstrap_upgrades(
+                id,
+                template_name,
+                team,
+                owner_player_id,
+                sentry_had_explicit_primary,
+            );
+            self.apply_researched_player_upgrades_to_object_with_effects(id, ui);
+
+            if !starts_under_construction {
+                // C++ ExperienceScalarUpgrade after player Upgrade_AmericaAdvancedTraining:
+                // Object::updateUpgradeModules on create fires AddXPScalar for later spawns.
+                {
+                    use crate::game_logic::host_unit_training::{
+                        UPGRADE_AMERICA_ADVANCED_TRAINING, sciences_include_advanced_training,
+                    };
+                    let has_at = owner_player_id
+                        .and_then(|player_id| self.players.get(&player_id))
+                        .map(|player| {
+                            player.has_unlocked_upgrade(UPGRADE_AMERICA_ADVANCED_TRAINING)
+                                || sciences_include_advanced_training(&player.unlocked_sciences)
+                        })
+                        .unwrap_or(false);
+                    if has_at {
+                        if let Some(obj) = self.objects.get_mut(&id) {
+                            if !obj.is_kind_of(KindOf::Structure)
+                                && !obj.has_upgrade_tag(UPGRADE_AMERICA_ADVANCED_TRAINING)
+                            {
+                                obj.apply_upgrade_tag(UPGRADE_AMERICA_ADVANCED_TRAINING);
+                            }
                         }
                     }
                 }
-            }
 
-            // Host residual: Demo SuicideBomb tag + CommandSetUpgrade if researched.
-            {
-                use crate::game_logic::host_demo_suicide_bomb::{
-                    UPGRADE_DEMO_SUICIDE_BOMB, demo_command_set_upgrade_for_template,
-                    is_demo_suicide_bomb_eligible_template, is_demo_suicide_bomb_upgrade,
-                };
-                if is_demo_suicide_bomb_eligible_template(template_name) {
-                    let has_upgrade = self.players.values().any(|p| {
-                        p.team == team
-                            && p.unlocked_sciences
-                                .iter()
-                                .any(|s| is_demo_suicide_bomb_upgrade(s))
-                    });
-                    if has_upgrade {
-                        if let Some(obj) = self.objects.get_mut(&id) {
-                            if !obj.has_upgrade_tag(UPGRADE_DEMO_SUICIDE_BOMB) {
-                                obj.apply_upgrade_tag(UPGRADE_DEMO_SUICIDE_BOMB);
-                                self.demo_suicide_bomb.record_tag();
-                            }
-                            if obj.command_set_override.is_none() {
-                                if let Some(cs) =
-                                    demo_command_set_upgrade_for_template(&obj.template_name)
-                                {
-                                    obj.set_command_set_override(Some(cs));
-                                    self.demo_suicide_bomb.record_command_set_upgrade(1);
+                // Host residual: Demo SuicideBomb tag + CommandSetUpgrade if researched.
+                {
+                    use crate::game_logic::host_demo_suicide_bomb::{
+                        UPGRADE_DEMO_SUICIDE_BOMB, demo_command_set_upgrade_for_template,
+                        is_demo_suicide_bomb_eligible_template, is_demo_suicide_bomb_upgrade,
+                    };
+                    if is_demo_suicide_bomb_eligible_template(template_name) {
+                        let has_upgrade = self.players.values().any(|p| {
+                            p.team == team
+                                && p.unlocked_sciences
+                                    .iter()
+                                    .any(|s| is_demo_suicide_bomb_upgrade(s))
+                        });
+                        if has_upgrade {
+                            if let Some(obj) = self.objects.get_mut(&id) {
+                                if !obj.has_upgrade_tag(UPGRADE_DEMO_SUICIDE_BOMB) {
+                                    obj.apply_upgrade_tag(UPGRADE_DEMO_SUICIDE_BOMB);
+                                    self.demo_suicide_bomb.record_tag();
+                                }
+                                if obj.command_set_override.is_none() {
+                                    if let Some(cs) =
+                                        demo_command_set_upgrade_for_template(&obj.template_name)
+                                    {
+                                        obj.set_command_set_override(Some(cs));
+                                        self.demo_suicide_bomb.record_command_set_upgrade(1);
+                                    }
                                 }
                             }
                         }
                     }
                 }
-            }
 
-            // C++ AIUpdate::evaluateMoraleBonus reads player->hasUpgradeComplete
-            // each refresh. Live stamps unit tags at research time; inherit
-            // those player upgrades here so late-built units get the bonus.
-            {
-                use crate::game_logic::host_battlemaster::{
-                    UPGRADE_FANATICISM, UPGRADE_NATIONALISM, has_fanaticism_upgrade,
-                    has_nationalism_upgrade, is_battlemaster_template, is_china_vehicle_horde_unit,
-                };
-                use crate::game_logic::host_minigunner::is_minigunner_template;
-                use crate::game_logic::host_red_guard::{
-                    is_china_infantry_horde_unit, is_red_guard_template,
-                };
-                use crate::game_logic::host_tank_hunter::is_tank_hunter_template;
+                // C++ AIUpdate::evaluateMoraleBonus reads player->hasUpgradeComplete
+                // each refresh. Live stamps unit tags at research time; inherit
+                // those player upgrades here so late-built units get the bonus.
+                {
+                    use crate::game_logic::host_battlemaster::{
+                        UPGRADE_FANATICISM, UPGRADE_NATIONALISM, has_fanaticism_upgrade,
+                        has_nationalism_upgrade, is_battlemaster_template,
+                        is_china_vehicle_horde_unit,
+                    };
+                    use crate::game_logic::host_minigunner::is_minigunner_template;
+                    use crate::game_logic::host_red_guard::{
+                        is_china_infantry_horde_unit, is_red_guard_template,
+                    };
+                    use crate::game_logic::host_tank_hunter::is_tank_hunter_template;
 
-                let horde_unit = is_china_infantry_horde_unit(template_name)
-                    || is_china_vehicle_horde_unit(template_name);
-                if horde_unit {
-                    let mut upgrades = std::collections::HashSet::new();
-                    if let Some(player) = owner_player_id.and_then(|pid| self.players.get(&pid)) {
-                        upgrades.extend(player.unlocked_sciences.iter().cloned());
-                        upgrades.extend(player.completed_upgrades.iter().cloned());
-                    } else {
-                        for player in self.players.values().filter(|p| p.team == team) {
+                    let horde_unit = is_china_infantry_horde_unit(template_name)
+                        || is_china_vehicle_horde_unit(template_name);
+                    if horde_unit {
+                        let mut upgrades = std::collections::HashSet::new();
+                        if let Some(player) = owner_player_id.and_then(|pid| self.players.get(&pid))
+                        {
                             upgrades.extend(player.unlocked_sciences.iter().cloned());
                             upgrades.extend(player.completed_upgrades.iter().cloned());
-                        }
-                    }
-                    let has_nat = has_nationalism_upgrade(&upgrades);
-                    let has_fan = has_fanaticism_upgrade(&upgrades);
-                    if has_nat || has_fan {
-                        if let Some(obj) = self.objects.get_mut(&id) {
-                            if has_nat {
-                                obj.apply_upgrade_tag(UPGRADE_NATIONALISM);
-                            }
-                            if has_fan {
-                                obj.apply_upgrade_tag(UPGRADE_FANATICISM);
+                        } else {
+                            for player in self.players.values().filter(|p| p.team == team) {
+                                upgrades.extend(player.unlocked_sciences.iter().cloned());
+                                upgrades.extend(player.completed_upgrades.iter().cloned());
                             }
                         }
-                        if is_red_guard_template(template_name) {
-                            self.refresh_red_guard_weapon(id);
-                        } else if is_tank_hunter_template(template_name) {
-                            self.refresh_tank_hunter_weapon(id);
-                        } else if is_minigunner_template(template_name) {
-                            self.refresh_minigunner_weapon(id);
-                        } else if is_battlemaster_template(template_name) {
-                            self.refresh_battlemaster_weapon(id);
+                        let has_nat = has_nationalism_upgrade(&upgrades);
+                        let has_fan = has_fanaticism_upgrade(&upgrades);
+                        if has_nat || has_fan {
+                            if let Some(obj) = self.objects.get_mut(&id) {
+                                if has_nat {
+                                    obj.apply_upgrade_tag(UPGRADE_NATIONALISM);
+                                }
+                                if has_fan {
+                                    obj.apply_upgrade_tag(UPGRADE_FANATICISM);
+                                }
+                            }
+                            if is_red_guard_template(template_name) {
+                                self.refresh_red_guard_weapon(id);
+                            } else if is_tank_hunter_template(template_name) {
+                                self.refresh_tank_hunter_weapon(id);
+                            } else if is_minigunner_template(template_name) {
+                                self.refresh_minigunner_weapon(id);
+                            } else if is_battlemaster_template(template_name) {
+                                self.refresh_battlemaster_weapon(id);
+                            }
                         }
                     }
                 }
+            }
+
+            self.apply_difficulty_bonuses_for_object(id);
+
+            // Factory return-equivalent boundary: caller placement must never
+            // become observable during constructor, onCreate or Drawable birth.
+            let Some(object) = self.objects.get_mut(&id) else {
+                return Err(gamelogic::GameLogicError::Configuration(format!(
+                    "Object {id} disappeared during factory initialization"
+                )));
+            };
+            object.set_position_with_effects(position, self.frame, ui);
+            if crate::game_logic::host_bridge_behavior::is_bridge_span_template(template_name) {
+                let object = self
+                    .objects
+                    .get(&id)
+                    .expect("live factory object after placement");
+                let p = object.get_position();
+                let half = object.selection_radius.max(20.0);
+                self.bridge_behavior.register_span(
+                    object.id,
+                    glam::Vec3::new(p.x - half, 0.0, p.z - half),
+                    glam::Vec3::new(p.x + half, 0.0, p.z - half),
+                    glam::Vec3::new(p.x - half, 0.0, p.z + half),
+                    glam::Vec3::new(p.x + half, 0.0, p.z + half),
+                );
+            }
+
+            if !starts_under_construction && creation_purpose == FactoryCreationPurpose::AtCreation
+            {
+                // C++ GameLogic.cpp:1878-1885 every map object runs CreateModules
+                // onBuildComplete (SupplyCenter/GrantUpgrade/Preorder/LockWeapon/SP).
+                self.apply_create_modules_on_build_complete_with_effects_checked(
+                    id,
+                    interpreter,
+                    ui,
+                )?;
+            }
+
+            // C++ SpawnBehavior ModuleTag_12 on stock and general-specific
+            // SupplyCenter/Stash objects.  `create_object_under_construction`
+            // intentionally does not call this; that path fires on the real
+            // construction-complete activation edge below.
+            if !matches!(
+                creation_purpose,
+                FactoryCreationPurpose::InstantLineBuild
+                    | FactoryCreationPurpose::OrdinaryConstruction
+            ) {
+                let _ = self.spawn_supply_center_one_shot_collector_with_effects_checked(
+                    id,
+                    interpreter,
+                    ui,
+                )?;
+            }
+
+            if initial_team.is_none_or(|(_, _, activate)| activate) {
+                self.admit_team_for_host_object_with_effects_checked(id, interpreter, true, ui)?;
             }
 
             if counts_as_unit {
@@ -2970,17 +2980,13 @@ impl GameLogic {
             // Wave 680: mid-frame GameWorld map while coupled shadow tick is live.
             // End-of-tick host_spawn_log drain remains idempotent for unmapped IDs.
 
-            // C++ Object.cpp:473 TheRadar->addObject(this) after modules ready.
-            self.host_radar_add_object_with_effects(id, ui);
-            self.apply_difficulty_bonuses_for_object(id);
-            self.spawn_particle_sys_bones_for_object(id);
-            // C++ Drawable ctor / onLevelStart startAmbientSound.
-            self.start_ambient_sound(id);
+            // Drawable constructor/binding effects have already run at the
+            // semantic birth boundary; never queue a second host ambient start.
 
-            Some(id)
+            Ok(Some(id))
         } else {
             log::warn!("Template not found: {}", template_name);
-            None
+            Ok(None)
         }
     }
 
@@ -3029,6 +3035,23 @@ impl GameLogic {
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
+        // Independent callers retain the existing nonfallible surface until their
+        // operation boundary is migrated; the selected factory never uses this adapter.
+        if let Err(error) = self.apply_create_modules_on_build_complete_with_effects_checked(
+            object_id,
+            interpreter,
+            ui,
+        ) {
+            log::error!("{error}");
+        }
+    }
+
+    pub(crate) fn apply_create_modules_on_build_complete_with_effects_checked(
+        &mut self,
+        object_id: ObjectId,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
         self.apply_preorder_create(object_id);
         let grants = self
             .objects
@@ -3039,7 +3062,7 @@ impl GameLogic {
         self.apply_lock_weapon_create(object_id);
         // C++ SpecialPowerCreate::onBuildComplete walks every getSpecialPower().
         self.on_structure_superweapon_creation(object_id);
-        self.on_supply_center_build_complete_with_effects(object_id, interpreter, ui);
+        self.on_supply_center_build_complete_with_effects_checked(object_id, interpreter, ui)?;
         // C++ TunnelContain::onObjectCreated / onBuildComplete → onTunnelCreated.
         if let Some(obj) = self.objects.get(&object_id) {
             if obj.is_tunnel_network_style_container()
@@ -3057,7 +3080,13 @@ impl GameLogic {
             }
         }
         // C++ SpawnBehavior::update first-init after UNDER_CONSTRUCTION clears.
-        self.apply_spawn_behavior_on_build_complete_with_effects(object_id, interpreter, ui);
+        self.apply_spawn_behavior_on_build_complete_with_effects_checked(
+            object_id,
+            interpreter,
+            ui,
+        )?;
+
+        Ok(())
     }
 
     /// C++ PreorderCreate::onBuildComplete — controlling player only.

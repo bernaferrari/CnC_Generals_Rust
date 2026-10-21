@@ -1,5 +1,7 @@
 //! Lexical access to the actual installed Draw owner during a view build.
 use super::*;
+#[cfg(feature = "game_client")]
+use crate::game_logic::NativeFactoryDrawableSource;
 use crate::game_logic::{NativeSlaveSource, NativeViewEffects};
 use crate::graphics::render_pipeline::native_pose_loan::NativeInstalledPoseLoan;
 use crate::presentation_frame::camera::build::SlaveCameraSample;
@@ -8,7 +10,9 @@ use crate::presentation_frame::camera::build::SlaveCameraSample;
 pub(super) struct NativeRendererViewEffects<'a> {
     poses: NativeInstalledPoseLoan<'a>,
     graphics: &'a mut GraphicsSystem,
-    presence: game_client::core::game_client::NativeDrawablePresence<'a>,
+    drawables: game_client::core::game_client::NativeDrawableOwner<'a>,
+    policy: game_client::core::game_client::ReceivingDrawablePolicy,
+    retirement: &'a mut dyn game_client::core::game_client::NativeDrawableRetirement,
     host_epoch: u64,
     local_player_id: u32,
 }
@@ -17,17 +21,66 @@ impl<'a> NativeRendererViewEffects<'a> {
     pub(super) fn new(
         poses: NativeInstalledPoseLoan<'a>,
         graphics: &'a mut GraphicsSystem,
-        presence: game_client::core::game_client::NativeDrawablePresence<'a>,
+        drawables: game_client::core::game_client::NativeDrawableOwner<'a>,
         host_epoch: u64,
         local_player_id: u32,
+        policy: game_client::core::game_client::ReceivingDrawablePolicy,
+        retirement: &'a mut dyn game_client::core::game_client::NativeDrawableRetirement,
     ) -> Self {
         Self {
             poses,
             graphics,
-            presence,
+            drawables,
+            policy,
+            retirement,
             host_epoch,
             local_player_id,
         }
+    }
+    pub(super) fn discard_map_attempt(&mut self) -> Result<(), String> {
+        self.retirement
+            .retire(&mut self.drawables, None)
+            .map_err(|error| error.to_string())?;
+        self.poses.clear_world();
+        Ok(())
+    }
+    pub(super) fn admit_restored_object_drawables(
+        &mut self,
+        world: &mut crate::game_logic::GameLogic,
+    ) -> Result<(), String> {
+        if !world.native_drawable_birth_context().in_load_game {
+            return Err(
+                "native snapshot Drawable reconstruction requires the driving saved-load guard"
+                    .into(),
+            );
+        }
+        // Retain prepared terrain and pending map audio. Only the superseded
+        // base-map native object world is retired, using its actual services.
+        self.retirement
+            .retire(&mut self.drawables, None)
+            .map_err(|error| error.to_string())?;
+        self.poses.clear_world();
+        // Match this port's existing restore.rs object-construction order.
+        // Original archive visitation order is a separate persistence obligation.
+        let mut ids: Vec<_> = world.host_objects().keys().copied().collect();
+        ids.sort_unstable_by_key(|id| id.0);
+        for id in ids {
+            world
+                .admit_factory_drawable_with_effects(
+                    id,
+                    &mut crate::game_logic::ScriptPresentationEffects {
+                        view: Some(self),
+                        ..Default::default()
+                    },
+                )
+                .map_err(|error| error.to_string())?;
+        }
+        Ok(())
+    }
+    pub(super) fn on_level_start(&mut self) -> Result<(), String> {
+        self.drawables
+            .on_level_start()
+            .map_err(|error| error.to_string())
     }
 }
 #[cfg(feature = "game_client")]
@@ -35,13 +88,77 @@ impl NativeViewEffects for NativeRendererViewEffects<'_> {
     fn local_player_id(&self) -> u32 {
         self.local_player_id
     }
+    fn host_epoch(&self) -> u64 {
+        self.host_epoch
+    }
+    fn admit_factory_drawable(
+        &mut self,
+        source: NativeFactoryDrawableSource,
+        birth: game_client::core::game_client::NativeDrawableBirthContext,
+        content: &mut game_engine::common::thing::module_factory::ModuleFactory,
+    ) -> Result<(), String> {
+        use game_client::core::{GameClientError, game_client::PresentationDrawableMutation};
+        let NativeFactoryDrawableSource { drawable, render } = source;
+        if drawable.host_epoch != self.host_epoch {
+            return Err("factory Drawable source belongs to another native epoch".into());
+        }
+        let sync_ms = self.poses.current_animation_sync_ms();
+        let poses = &mut self.poses;
+        let graphics = &mut *self.graphics;
+        let key = self
+            .drawables
+            .admit_semantic_drawable_with_content(
+                drawable,
+                birth,
+                sync_ms,
+                content,
+                self.policy,
+                self.retirement,
+                |event| {
+                    poses
+                        .receive_native_factory_mutation(event, &render, graphics)
+                        .map_err(GameClientError::SubsystemError)
+                },
+            )
+            .map_err(|error| error.to_string())?;
+        if let Err(error) = self.poses.admit_binding(&render.identity, key) {
+            let cleanup = self
+                .retirement
+                .retire(&mut self.drawables, Some(key.drawable_id));
+            let renderer_cleanup = if self
+                .drawables
+                .binding_key(self.host_epoch, key.object_id)
+                .is_none()
+            {
+                self.poses.receive_native_factory_mutation(
+                    PresentationDrawableMutation::Destroyed {
+                        host_epoch: self.host_epoch,
+                        object_id: key.object_id,
+                    },
+                    &render,
+                    self.graphics,
+                )
+            } else {
+                Ok(())
+            };
+            return Err(format!(
+                "factory Drawable binding failed: {error}; receiver retirement: {}; renderer retirement: {}",
+                cleanup
+                    .err()
+                    .map(|e| e.to_string())
+                    .unwrap_or_else(|| "completed".into()),
+                renderer_cleanup.err().unwrap_or_else(|| "completed".into())
+            ));
+        }
+        Ok(())
+    }
     fn sample_slave(&mut self, source: &NativeSlaveSource, bone: &str) -> SlaveCameraSample {
         sample_installed_slave(
             &mut self.poses,
             self.graphics,
             source,
             bone,
-            self.presence
+            self.drawables
                 .binding_key(self.host_epoch, source.identity.object_id()),
         )
     }
@@ -104,7 +221,9 @@ impl CnCGameEngine {
         let mut audio = super::native_audio_effects::NativeAudioService::live();
         #[cfg(feature = "game_client")]
         {
-            let (frame, _, presence) = self.game_client.split_frame_snow_and_drawable_presence();
+            let policy = receiving_native_drawable_policy();
+            let mut retirement = game_client::core::game_client::NativeParticleRetirementService;
+            let (frame, _, drawables) = self.game_client.split_frame_snow_and_drawable_owner();
             let input = super::mouse::CameraInputLoan::new(
                 &mut self.look_at_modes,
                 &mut self.is_mmb_rotating,
@@ -117,9 +236,11 @@ impl CnCGameEngine {
             let mut view = NativeRendererViewEffects::new(
                 poses,
                 &mut self.graphics_system,
-                presence,
+                drawables,
                 self.host_direct_visual_world_epoch,
                 self.current_player_id,
+                policy,
+                &mut retirement,
             );
             body(
                 &mut self.game_logic,
@@ -153,3 +274,21 @@ impl CnCGameEngine {
 #[cfg(all(test, feature = "game_client"))]
 #[path = "native_view_effects_tests.rs"]
 mod tests;
+
+/// Snapshot immutable application constructor policy before lending field owners.
+#[cfg(feature = "game_client")]
+pub(super) fn receiving_native_drawable_policy()
+-> game_client::core::game_client::ReceivingDrawablePolicy {
+    use game_engine::common::thing::module::StaticGameLodLevel;
+    let current = game_engine::common::game_lod::get_static_lod();
+    let data = game_engine::common::global_data::read();
+    game_client::core::game_client::ReceivingDrawablePolicy {
+        use_draw_module_lod: data.use_draw_module_lod,
+        use_tree_sway: data.use_tree_sway,
+        static_game_lod: match current.to_ascii_uppercase().as_str() {
+            "LOW" => StaticGameLodLevel::Low,
+            "HIGH" => StaticGameLodLevel::High,
+            _ => StaticGameLodLevel::Medium,
+        },
+    }
+}

@@ -1179,15 +1179,49 @@ impl CnCGameEngine {
         #[cfg(feature = "game_client")]
         let mut last_load_screen_progress = None::<(f32, String)>;
 
-        let mut native_candidate = super::map_native_admission::NativeMapCandidate::default();
-        let native = native_candidate.receiver();
+        let epoch = self.next_native_world_epoch();
+        // This existing direct route is intentionally non-atomic. Retire old
+        // Client before the loader clears its still-valid old logical objects.
+        // A failed requested+fallback load leaves an empty, unplayable world.
+        #[cfg(feature = "game_client")]
+        if let Err(error) = self.game_client.retire_native_drawable_world_for_replace() {
+            warn!("Cannot retire previous native map before direct load: {error}");
+            return None;
+        }
+        self.render_pipeline.invalidate_world_visual_state();
+        let mut native_candidate =
+            super::map_native_admission::NativeMapCandidate::with_epoch(epoch);
+        #[cfg(feature = "game_client")]
+        let policy = super::native_view_effects::receiving_native_drawable_policy();
+        #[cfg(feature = "game_client")]
+        let mut retirement = game_client::core::game_client::NativeParticleRetirementService;
+        #[cfg(feature = "game_client")]
+        let mut attempt = match native_candidate.attempt(
+            self.render_pipeline.borrow_native_draw_services(),
+            &mut self.graphics_system,
+            self.current_player_id,
+            policy,
+            &mut retirement,
+        ) {
+            Ok(attempt) => attempt,
+            Err(error) => {
+                warn!("Cannot lend native map admission: {error}");
+                return None;
+            }
+        };
+        #[cfg(feature = "game_client")]
+        self.game_logic.require_native_drawable_owner();
+        #[cfg(feature = "game_client")]
+        let native = Some(&mut attempt as &mut dyn crate::game_logic::NativeMapAdmission);
+        #[cfg(not(feature = "game_client"))]
+        let native = None;
         let loaded = if self.game_logic.game_mode() == GameMode::Shell {
             self.game_logic
-                .load_map_with_progress_and_native(map_name, |_, _| {}, native)
-                .then(|| map_name.to_owned())
+                .load_map_with_progress_and_native_checked(map_name, |_, _| {}, native)
+                .map(|accepted| accepted.then(|| map_name.to_owned()))
         } else if self.game_logic.game_mode() == GameMode::Replay {
             self.game_logic
-                .load_map_with_progress_and_native(
+                .load_map_with_progress_and_native_checked(
                     map_name,
                     |progress, phase| {
                         #[cfg(feature = "game_client")]
@@ -1201,13 +1235,13 @@ impl CnCGameEngine {
                     },
                     native,
                 )
-                .then(|| map_name.to_owned())
+                .map(|accepted| accepted.then(|| map_name.to_owned()))
         } else {
             #[cfg(feature = "game_client")]
             {
                 if let Some(kind) = active_load_screen {
                     self.game_logic
-                        .load_map_or_fallback_with_progress_and_native(
+                        .load_map_or_fallback_with_progress_and_native_checked(
                             map_name,
                             DEFAULT_SKIRMISH_MAP,
                             |progress, phase| {
@@ -1219,7 +1253,7 @@ impl CnCGameEngine {
                         )
                 } else {
                     self.game_logic
-                        .load_map_or_fallback_with_progress_and_native(
+                        .load_map_or_fallback_with_progress_and_native_checked(
                             map_name,
                             DEFAULT_SKIRMISH_MAP,
                             |_, _| {},
@@ -1230,7 +1264,7 @@ impl CnCGameEngine {
             #[cfg(not(feature = "game_client"))]
             {
                 self.game_logic
-                    .load_map_or_fallback_with_progress_and_native(
+                    .load_map_or_fallback_with_progress_and_native_checked(
                         map_name,
                         DEFAULT_SKIRMISH_MAP,
                         |_, _| {},
@@ -1238,6 +1272,23 @@ impl CnCGameEngine {
                     )
             }
         };
+
+        let loaded = match loaded {
+            Ok(loaded) => loaded,
+            Err(error) => {
+                #[cfg(feature = "game_client")]
+                if let Err(cleanup) =
+                    crate::game_logic::NativeMapAdmission::discard_attempt(&mut attempt)
+                {
+                    warn!("Direct native map admission failed: {error}; cleanup: {cleanup}");
+                    return None;
+                }
+                warn!("Direct native map admission failed: {error}");
+                return None;
+            }
+        };
+        #[cfg(feature = "game_client")]
+        drop(attempt);
 
         #[cfg(feature = "game_client")]
         if loaded.is_some() {
@@ -1284,11 +1335,21 @@ impl CnCGameEngine {
         // presentation-owned Arc and discard raw object-id renderer timelines
         // only when that new world is ready; failed attempts leave their
         // active world/cache intact.
-        self.host_advance_direct_visual_world_epoch();
         #[cfg(feature = "game_client")]
-        self.game_client.invalidate_presentation_drawable_world();
-        self.render_pipeline.invalidate_world_visual_state();
-        native_candidate.install(&mut self.render_pipeline);
+        let pending_audio = match native_candidate
+            .install_owned_worlds(&mut self.game_client, &mut self.render_pipeline)
+        {
+            Ok(audio) => audio,
+            Err((error, mut rejected)) => {
+                let cleanup = self.discard_receiving_map_candidate(&mut rejected);
+                warn!("Cannot install direct native map: {error}; cleanup={cleanup:?}");
+                return None;
+            }
+        };
+        #[cfg(not(feature = "game_client"))]
+        let pending_audio = native_candidate.install_visuals(&mut self.render_pipeline);
+        self.commit_native_world_epoch(epoch);
+        pending_audio.admit_to_live();
         self.invalidate_presentation_terrain_cache();
         if loaded != map_name {
             warn!(
@@ -1391,7 +1452,7 @@ impl CnCGameEngine {
         #[cfg(feature = "game_client")]
         let cinematic_ui = self.game_client.in_game_ui_subsystem();
         #[cfg(feature = "game_client")]
-        let (_frame, snow, presence) = self.game_client.split_frame_snow_and_drawable_presence();
+        let (_frame, snow, presence) = self.game_client.split_frame_snow_and_drawable_owner();
         #[cfg(feature = "game_client")]
         let cinematic_window = &self.window;
         #[cfg(feature = "game_client")]
@@ -1433,12 +1494,18 @@ impl CnCGameEngine {
             .render_pipeline
             .borrow_native_installed_poses_and_terrain();
         #[cfg(feature = "game_client")]
+        let policy = super::native_view_effects::receiving_native_drawable_policy();
+        #[cfg(feature = "game_client")]
+        let mut retirement = game_client::core::game_client::NativeParticleRetirementService;
+        #[cfg(feature = "game_client")]
         let mut view = super::native_view_effects::NativeRendererViewEffects::new(
             poses,
             &mut self.graphics_system,
             presence,
             self.host_direct_visual_world_epoch,
             self.current_player_id,
+            policy,
+            &mut retirement,
         );
         #[cfg(feature = "game_client")]
         let mut effects = crate::game_logic::ScriptPresentationEffects {

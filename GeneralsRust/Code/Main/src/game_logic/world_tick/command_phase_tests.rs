@@ -26,6 +26,7 @@ fn boundary(progress: NativeTickProgress) -> NativeTickContinuation {
     match progress {
         NativeTickProgress::CommandBoundary(pending) => pending,
         NativeTickProgress::Complete(_) => panic!("source command must release world loan"),
+        NativeTickProgress::Failed(error) => panic!("unexpected simulation failure: {error}"),
     }
 }
 fn begin(world: &mut GameLogic, messages: Vec<GameMessage>) -> NativeTickContinuation {
