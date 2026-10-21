@@ -1551,7 +1551,10 @@ impl CnCGameEngine {
 
         if Self::should_update_game_logic_frame(self.game_paused, network_frame_data_ready) {
             // Wave 602: host InGame logic+shadow+presentation residual via helper.
-            self.host_run_ingame_logic_presentation_frame(dt);
+            if let Err(error) = self.host_run_ingame_logic_presentation_frame(dt) {
+                error!("Native presentation could not be published: {error}");
+                return;
+            }
         }
 
         // Wave 598: InGame HUD presentation residual via host helper.
@@ -1622,8 +1625,8 @@ impl CnCGameEngine {
     /// the first InGame frame has units/minimap/selection identity without waiting for
     /// the next dual-tick. Does not advance logic frames.
     /// Wave 590: via `host_seed_presentation_after_match_start`.
-    pub(super) fn seed_presentation_after_match_start(&mut self) {
-        self.host_seed_presentation_after_match_start();
+    pub(super) fn seed_presentation_after_match_start(&mut self) -> Result<(), String> {
+        self.host_seed_presentation_after_match_start()
     }
 
     pub fn render(&mut self) -> Result<()> {
@@ -1740,7 +1743,8 @@ impl CnCGameEngine {
         // Boot/Menu residual: if no frame yet, freeze one from host logic so execute
         // never dual-reads live GameLogic (immutable presentation boundary).
         // Wave 590: boot/render presentation seed via helper.
-        self.host_ensure_presentation_frame_for_render();
+        self.host_ensure_presentation_frame_for_render()
+            .map_err(anyhow::Error::msg)?;
         #[cfg(feature = "game_client")]
         let frozen_direct_shroud_states = self
             .last_presentation_frame

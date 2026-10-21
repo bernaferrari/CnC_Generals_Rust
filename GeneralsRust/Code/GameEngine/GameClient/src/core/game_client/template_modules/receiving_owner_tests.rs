@@ -272,6 +272,25 @@ fn actual_authored_native_lod_and_shrub_sway_filter_use_receiving_policy() {
     assert_eq!(module_data(&mut high).0, ["TankTag", "SwayTag"]);
 }
 
+// Ambient sounds are Object scalar data, outside module-only admit(). Use the
+// same full receiving producer as native content; never patch a plan after admission.
+fn ambient_content(
+    prefix: &str,
+    body: &str,
+) -> game_engine::common::thing::receiving_module_content::ReceivingModuleContent {
+    let mut owner =
+        game_engine::common::thing::receiving_module_content::ReceivingModuleContent::new(catalog(
+            prefix,
+        ));
+    owner
+        .load_ini_text(
+            &format!("Object AmericaTankCrusader\n{body}\nEnd\n"),
+            INILoadType::Overwrite,
+        )
+        .unwrap();
+    owner
+}
+
 #[test]
 fn actual_same_name_receiving_ambient_rebinds_exact_plan_and_never_falls_back_on_absence() {
     use gamelogic::common::types::BodyDamageType;
@@ -289,17 +308,18 @@ fn actual_same_name_receiving_ambient_rebinds_exact_plan_and_never_falls_back_on
             .get_ambient_sound_by_damage(damage)
             .map(|event| event.get_event_name().to_string())
     }
-    let mut first = catalog("First");
-    let mut peer = catalog("Peer");
-    let a = admit(
-        &mut first,
+    let mut first = ambient_content(
+        "First",
         "SoundAmbient = ReceivingA\nSoundAmbientDamaged = ReceivingDamagedA",
     );
-    let b = admit(
-        &mut peer,
+    let mut peer = ambient_content(
+        "Peer",
         "SoundAmbient = ReceivingB\nSoundAmbientRubble = ReceivingRubbleB",
     );
-    let empty = admit(&mut peer, "KindOf = VEHICLE");
+    let mut absent = ambient_content("Absent", "KindOf = VEHICLE");
+    let a = first.admitted_template("AmericaTankCrusader").unwrap();
+    let b = peer.admitted_template("AmericaTankCrusader").unwrap();
+    let empty = absent.admitted_template("AmericaTankCrusader").unwrap();
     let mut receiver = GameClient::new().unwrap();
     let mut other = GameClient::new().unwrap();
     let _foreign = game_engine::common::thing::get_thing_factory().unwrap();
@@ -307,7 +327,7 @@ fn actual_same_name_receiving_ambient_rebinds_exact_plan_and_never_falls_back_on
         .sync_presentation_drawables_observed_with_content(
             [entry(a.clone())],
             0,
-            &mut first,
+            first.module_factory_mut(),
             policy(),
             |_| {},
         )
@@ -316,7 +336,7 @@ fn actual_same_name_receiving_ambient_rebinds_exact_plan_and_never_falls_back_on
         .sync_presentation_drawables_observed_with_content(
             [entry(b.clone())],
             0,
-            &mut peer,
+            peer.module_factory_mut(),
             policy(),
             |_| {},
         )
@@ -337,7 +357,7 @@ fn actual_same_name_receiving_ambient_rebinds_exact_plan_and_never_falls_back_on
         .sync_presentation_drawables_observed_with_content(
             [entry(b)],
             0,
-            &mut peer,
+            peer.module_factory_mut(),
             policy(),
             |_| {},
         )
@@ -355,7 +375,7 @@ fn actual_same_name_receiving_ambient_rebinds_exact_plan_and_never_falls_back_on
         .sync_presentation_drawables_observed_with_content(
             [entry(empty)],
             0,
-            &mut peer,
+            absent.module_factory_mut(),
             policy(),
             |_| {},
         )
@@ -453,16 +473,23 @@ fn actual_receiving_ambient_damage_ignores_same_id_foreign_core_body() {
         BodyDamageType::Pristine
     );
     OBJECT_REGISTRY.register_object(42, &foreign);
-    let mut factory = catalog("ReceivingDamage");
-    let damaged = admit(&mut factory, "SoundAmbientDamaged = ReceivingDamageOnly");
-    let pristine = admit(&mut factory, "SoundAmbient = ReceivingPristineOnly");
+    let mut factory = ambient_content(
+        "ReceivingDamage",
+        "SoundAmbientDamaged = ReceivingDamageOnly",
+    );
+    let mut peer_factory =
+        ambient_content("ReceivingPristine", "SoundAmbient = ReceivingPristineOnly");
+    let damaged = factory.admitted_template("AmericaTankCrusader").unwrap();
+    let pristine = peer_factory
+        .admitted_template("AmericaTankCrusader")
+        .unwrap();
     let mut receiver = GameClient::new().unwrap();
     let mut peer = GameClient::new().unwrap();
     receiver
         .sync_presentation_drawables_observed_with_content(
             [entry(damaged)],
             0,
-            &mut factory,
+            factory.module_factory_mut(),
             policy(),
             |_| {},
         )
@@ -470,7 +497,7 @@ fn actual_receiving_ambient_damage_ignores_same_id_foreign_core_body() {
     peer.sync_presentation_drawables_observed_with_content(
         [entry(pristine)],
         0,
-        &mut factory,
+        peer_factory.module_factory_mut(),
         policy(),
         |_| {},
     )

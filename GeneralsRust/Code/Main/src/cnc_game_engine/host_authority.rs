@@ -1507,7 +1507,7 @@ impl CnCGameEngine {
         // movements and impulses; rebuilding them here would discard callback FX.
         self.last_presentation_frame = None;
         self.render_pipeline.set_presentation_frame(None);
-        self.ensure_presentation_env_seeded();
+        self.ensure_presentation_env_seeded()?;
         if !has_camera_continuation {
             self.game_logic.session_view.camera.invalidate_constraints();
             (
@@ -2337,6 +2337,15 @@ impl CnCGameEngine {
         self.host_try_load_game_authority(slot)
     }
 
+    fn validate_staged_native_fade(
+        logic: &crate::game_logic::GameLogic,
+    ) -> Result<(), HostLoadFailure> {
+        logic.owned_script_engine.as_ref().ok_or_else(|| HostLoadFailure::Staging(
+            "Cannot freeze restored native camera fade: receiving interpreter is unavailable or lent".into(),
+        ))?;
+        Ok(())
+    }
+
     fn host_try_load_game_authority(
         &mut self,
         slot: &str,
@@ -2391,6 +2400,10 @@ impl CnCGameEngine {
             }
         };
 
+        if let Err(failure) = Self::validate_staged_native_fade(&staged.logic) {
+            crate::save_load::rollback_campaign_after_failed_load(prior_campaign);
+            return Err(failure);
+        }
         let save_info = staged.info.clone();
         if let Err(err) = self.host_replace_staged_restore_world(staged) {
             crate::save_load::rollback_campaign_after_failed_load(prior_campaign);
@@ -2752,10 +2765,10 @@ impl CnCGameEngine {
                 if !headless_host {
                     // Wave 455: seed presentation env then apply presentation-only heightmap/skybox hints.
                     // Wave 455: seed presentation env then apply presentation-only hints.
-                    self.ensure_presentation_env_seeded();
+                    self.ensure_presentation_env_seeded()?;
                     Self::apply_heightmap_hint(&mut self.render_pipeline);
                     Self::apply_skybox_hint(&mut self.render_pipeline);
-                    self.ensure_presentation_env_seeded();
+                    self.ensure_presentation_env_seeded()?;
                     Self::sync_render_terrain_visual(
                         &mut self.game_logic,
                         &mut self.render_pipeline,
@@ -2768,12 +2781,12 @@ impl CnCGameEngine {
                             err
                         );
                     }
-                    self.ensure_presentation_env_seeded();
+                    self.ensure_presentation_env_seeded()?;
                     Self::apply_map_lighting(&mut self.graphics_system, &mut self.render_pipeline);
                 }
 
                 // Seed presentation before first InGame render (units/HUD identity).
-                self.seed_presentation_after_match_start();
+                self.seed_presentation_after_match_start()?;
                 self.transition_to_state(GameState::InGame);
                 Ok(())
             }
@@ -2838,3 +2851,7 @@ mod initial_skirmish_owner_tests;
 #[cfg(test)]
 #[path = "host_authority/saved_mode_owner_tests.rs"]
 mod saved_mode_owner_tests;
+
+#[cfg(test)]
+#[path = "host_authority/native_fade_owner_tests.rs"]
+mod native_fade_owner_tests;

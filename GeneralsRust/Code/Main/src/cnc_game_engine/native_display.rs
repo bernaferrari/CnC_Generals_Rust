@@ -445,7 +445,7 @@ impl CnCGameEngine {
 
     /// Shared final camera commitment. Rendering consumes these exact matrices.
     fn finalize_native_view_camera(&mut self) -> Result<(), String> {
-        self.host_ensure_presentation_frame_for_render();
+        self.host_ensure_presentation_frame_for_render()?;
         // The receiving target may legitimately be near map origin after
         // script movement, player input or restore. W3DView::update does not
         // reapply match-bootstrap focus while committing an ordinary view.

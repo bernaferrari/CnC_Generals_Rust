@@ -299,3 +299,7 @@ impl ReceivingModuleContent {
 #[cfg(test)]
 #[path = "receiving_module_content_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "receiving_audio_owner_tests.rs"]
+mod audio_owner_tests;

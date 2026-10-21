@@ -347,6 +347,8 @@ fn object_public_timer_ready(
 }
 
 impl PresentationFrame {
+    /// Standalone compatibility snapshot facade. Native Engine publication uses
+    /// the checked receiving entrypoints in `camera_fade` instead.
     /// Build a snapshot by borrowing the authoritative world for this call only.
     ///
     /// FOW for `local_player_id` is frozen here via the FOW bridge so the unit mesh
@@ -356,7 +358,14 @@ impl PresentationFrame {
     /// Build presentation and consume this world's completed health receipts.
     /// Pending accepted-shot cues stay with the world until publication.
     pub fn build_from_logic(logic: &mut GameLogic, local_player_id: u32) -> Self {
-        Self::build_from_logic_with_tint_update(logic, local_player_id, None, true, Vec::new())
+        Self::build_from_logic_with_tint_update(
+            logic,
+            local_player_id,
+            None,
+            true,
+            Vec::new(),
+            super::camera_fade::FrameFade::Compatibility,
+        )
     }
 
     pub(super) fn build_from_logic_with_tint_update(
@@ -365,6 +374,7 @@ impl PresentationFrame {
         runtime_heightmap: Option<std::sync::Arc<PresentationRuntimeHeightmap>>,
         freeze_tints: bool,
         discharges: Vec<crate::game_logic::host_weapon_discharge_log::HostWeaponDischargeEvent>,
+        camera_fade: super::camera_fade::FrameFade,
     ) -> Self {
         #[cfg(feature = "game_client")]
         let w3d_ghost_scene = Some(super::ghosts::freeze_owned_scene(logic, local_player_id));
@@ -1763,19 +1773,7 @@ impl PresentationFrame {
         #[cfg(not(feature = "game_client"))]
         let scene_lines: Vec<PresentationSceneLine> = Vec::new();
 
-        #[cfg(feature = "game_client")]
-        let camera_fade = {
-            let _ = game_client::display::status_circle::render_camera_fade();
-            game_client::display::status_circle::current_camera_fade()
-                .map(|overlay| PresentationCameraFade {
-                    fade: overlay.fade as u8,
-                    intensity: overlay.intensity,
-                    diffuse: overlay.diffuse,
-                })
-                .unwrap_or_default()
-        };
-        #[cfg(not(feature = "game_client"))]
-        let camera_fade = PresentationCameraFade::default();
+        let camera_fade = camera_fade.sample();
 
         #[cfg(all(feature = "game_client", feature = "game_engine_device"))]
         {
@@ -2366,7 +2364,13 @@ impl PresentationFrame {
         local_player_id: u32,
         runtime_heightmap: Option<std::sync::Arc<PresentationRuntimeHeightmap>>,
     ) -> Self {
-        Self::build_with_victory_with_tint_update(logic, local_player_id, runtime_heightmap, true)
+        Self::build_with_victory_with_tint_update(
+            logic,
+            local_player_id,
+            runtime_heightmap,
+            true,
+            super::camera_fade::FrameFade::Compatibility,
+        )
     }
 
     pub(super) fn build_with_victory_with_tint_update(
@@ -2374,6 +2378,7 @@ impl PresentationFrame {
         local_player_id: u32,
         runtime_heightmap: Option<std::sync::Arc<PresentationRuntimeHeightmap>>,
         freeze_tints: bool,
+        camera_fade: super::camera_fade::FrameFade,
     ) -> Self {
         // C++ GameLogic.cpp:3769 owns victory and killPlayer in the logic step.
         // Read its completed result and accepted discharges together; building
@@ -2386,6 +2391,7 @@ impl PresentationFrame {
             runtime_heightmap,
             false,
             discharges,
+            camera_fade,
         );
         frame.match_over = victory.match_over;
         if let Some(v) = victory.outcome {

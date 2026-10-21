@@ -675,6 +675,8 @@ pub struct RenderPipeline {
     forward_pass: ForwardPass,
     #[cfg(feature = "game_client")]
     view_filter_resources: game_client::display::shader_filter::ShaderFilterResources,
+    #[cfg(feature = "game_client")]
+    camera_fade_resources: game_client::display::status_circle::CameraFadeResources,
     /// GPU selection shaders/pipelines live with this render pipeline's device.
     /// Frame callbacks clone the Arc so in-flight draws retain their resources.
     selection_renderer_cache: crate::graphics::selection_renderer::SelectionRendererCache,

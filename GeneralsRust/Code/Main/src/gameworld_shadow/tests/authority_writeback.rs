@@ -1495,6 +1495,13 @@ fn world_tick_split_borrow_still_reads_frame() {
         include_str!("../../game_logic/game_logic/authority.rs"),
         include_str!("../../game_logic/game_logic/construct.rs"),
         include_str!("../../game_logic/game_logic/mod.rs"),
+        include_str!("../../game_logic/game_logic/host_object_store.rs"),
+    );
+    let owner_module = include_str!("../../game_logic/game_logic/mod.rs");
+    assert!(
+        owner_module.contains("mod host_object_store;")
+            && owner_module.contains("pub use host_object_store::HostObjectStore;"),
+        "the canonical GameLogic module must wire the actual owned store definition"
     );
     assert!(
         store.contains("pub objects: HostObjectStore")
@@ -2067,8 +2074,22 @@ fn host_logic_step_active_guard_restores_on_return_and_unwind() {
 #[test]
 fn update_simulation_enters_owned_step_without_shadow_ingress() {
     let wrapper = rust_fn_body(GAME_LOGIC_HOST_SRC, "update_simulation").expect("step wrapper");
-    assert!(!wrapper.contains("sync_authoritative_view_from_gameworld"));
-    assert!(wrapper.contains("with_host_logic_step"));
+    assert!(wrapper.contains("self.update_simulation_with_script_effects(dt, Default::default())"));
+    let with_effects = rust_fn_body(GAME_LOGIC_HOST_SRC, "update_simulation_with_script_effects")
+        .expect("receiving-effects step delegate");
+    assert!(with_effects.contains(
+        "self.update_simulation_with_command_phase(dt, ui, CommandPhaseMode::Completed)"
+    ));
+    let command_phase = rust_fn_body(GAME_LOGIC_HOST_SRC, "update_simulation_with_command_phase")
+        .expect("shared owned command-phase authority");
+    assert!(command_phase.contains("self.with_host_logic_step"));
+    assert!(command_phase.contains("logic.update_simulation_in_step(dt, ui, command_phase)"));
+    for delegate in [wrapper, with_effects, command_phase] {
+        assert!(
+            !delegate.contains("sync_authoritative_view_from_gameworld"),
+            "each actual step delegate must retain owned ingress without shadow recapture"
+        );
+    }
     let operations = include_str!("../../game_logic/world_objects/host_ops_writeback.rs");
     assert!(!operations.contains("overlay_object_from_gameworld"));
     assert!(!operations.contains("commit_dirty_host_objects_to_gameworld"));
@@ -2076,13 +2097,13 @@ fn update_simulation_enters_owned_step_without_shadow_ingress() {
     let body =
         rust_fn_body(GAME_LOGIC_HOST_SRC, "update_simulation_in_step").expect("owned phases");
     let scripts = body
-        .find("evaluate_and_execute_scripts(dt)")
-        .expect("scripts");
+        .find("evaluate_and_execute_scripts_with_effects(dt, ui.reborrow())")
+        .expect("scripts using the receiving effects borrow");
     assert!(
         scripts
             < body
-                .find("is_time_frozen_for_simulation()")
-                .expect("freeze")
+                .find("simulation_frozen_with_script_engine(None)")
+                .expect("freeze using the restored receiving interpreter")
     );
 }
 

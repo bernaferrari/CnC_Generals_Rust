@@ -443,6 +443,10 @@ impl AudioArray {
     pub fn set(&mut self, audio_type: ThingTemplateAudioType, audio: AudioEventRts) {
         self.audio[audio_type as usize] = Some(audio);
     }
+
+    fn clear(&mut self, audio_type: ThingTemplateAudioType) {
+        self.audio[audio_type as usize] = None;
+    }
 }
 
 /// Build completion types
@@ -3186,8 +3190,18 @@ impl ThingTemplate {
                 _ => {}
             }
             if let Some(audio_type) = object_audio_field_type(base_key) {
-                self.audioarray
-                    .set(audio_type, AudioEventRts::with_event_name(trimmed));
+                // ThingTemplate audio slots use INI::parseDynamicAudioEventRTS:
+                // consume one token; NoSound clears even an inherited event.
+                let token = trimmed
+                    .split([' ', '\n', '\r', '\t', '='])
+                    .find(|token| !token.is_empty())
+                    .ok_or_else(|| format!("Missing {base_key} audio event token"))?;
+                if token.eq_ignore_ascii_case("NoSound") {
+                    self.audioarray.clear(audio_type);
+                } else {
+                    self.audioarray
+                        .set(audio_type, AudioEventRts::with_event_name(token));
+                }
                 continue;
             }
             match base_key {

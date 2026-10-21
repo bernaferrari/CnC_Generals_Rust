@@ -1439,6 +1439,22 @@ fn execute_composites_receiving_view_filter_and_camera_fade_in_current_frame() {
         !src.contains("take_queued_live_camera_fade"),
         "the frozen native fade is canonical"
     );
+    let owner = include_str!("mod.rs");
+    let initialize = include_str!("pipeline_lifecycle.rs");
+    assert!(owner.contains(
+        "camera_fade_resources: game_client::display::status_circle::CameraFadeResources"
+    ));
+    assert!(initialize.contains("camera_fade_resources: Default::default()"));
+    let fade_borrow = src
+        .find("let fade_resources = &mut self.camera_fade_resources")
+        .unwrap();
+    let overlay = src.find("let mut finish_overlay").unwrap();
+    assert!(
+        fade_borrow < overlay,
+        "the same-frame recorder borrows its receiving resource owner"
+    );
+    let record = &src[overlay..src.find("let projected_shroud =").unwrap()];
+    assert!(record.contains("record_camera_fade(\n                fade_resources,"));
     let borrowed = src.find("let mut finish_filters").unwrap();
     let render = src.find("self.forward_pass.render(").unwrap();
     assert!(

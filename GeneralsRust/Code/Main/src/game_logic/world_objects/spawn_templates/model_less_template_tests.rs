@@ -195,7 +195,26 @@ fn curated_receiving_body_uses_own_maximum_initial_and_saved_reset_baseline() {
         ),
         (25.0, 40.0)
     );
-    first.apply_receiving_module_overrides(&["Object USA_Ranger\nReplaceModule AuthoredBody\nBody = ActiveBody MapAuthoredBody\nMaxHealth = 55\nInitialHealth = 31\nEnd\nEnd\nEnd\n".into()]).unwrap();
+    first.apply_receiving_module_overrides(&["Object USA_Ranger\nReplaceModule AuthoredBody\nBody = ActiveBody MapAuthoredBody\nMaxHealth = 55f\nInitialHealth = 31F\nEnd\nEnd\nEnd\n".into()]).unwrap();
+    let map_definition = first
+        .receiving_object_definitions
+        .as_ref()
+        .unwrap()
+        .get("USA_Ranger")
+        .unwrap();
+    let map_body = map_definition
+        .behavior_modules
+        .iter()
+        .find(|module| module.module_tag.as_deref() == Some("MapAuthoredBody"))
+        .expect("actual replacement Body definition");
+    assert_eq!(map_body.attribute("MaxHealth"), Some("55f"));
+    assert_eq!(map_body.attribute("InitialHealth"), Some("31F"));
+    assert!(
+        !map_definition
+            .behavior_modules
+            .iter()
+            .any(|module| module.module_tag.as_deref() == Some("AuthoredBody"))
+    );
     let map_id = first
         .create_object("USA_Ranger", Team::USA, Vec3::ZERO)
         .unwrap();

@@ -82,6 +82,7 @@ pub const PRESENTATION_FRAME_SRC: &str = concat!(
     include_str!("alive.rs"),
     include_str!("apply.rs"),
     include_str!("build.rs"),
+    include_str!("camera_fade.rs"),
     include_str!("command_set_strip.rs"),
     include_str!("events.rs"),
     include_str!("floating_text.rs"),
@@ -121,3 +122,5 @@ pub(crate) use session_view::{
 };
 
 mod native_drawable_source;
+
+mod camera_fade;

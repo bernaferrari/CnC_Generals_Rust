@@ -406,3 +406,6 @@ mod camera_completion_cpp_tests;
 mod camera_admission_cpp_tests;
 
 mod debug_freeze;
+
+#[cfg(all(test, feature = "game_client"))]
+mod camera_fade_owner_tests;

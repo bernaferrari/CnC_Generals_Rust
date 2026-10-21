@@ -57,6 +57,8 @@ impl RenderPipeline {
             #[cfg(feature = "game_client")]
             view_filter_resources: Default::default(),
             #[cfg(feature = "game_client")]
+            camera_fade_resources: Default::default(),
+            #[cfg(feature = "game_client")]
             selection_renderer_cache: Default::default(),
             minimap_renderer: None, // Will be initialized when needed
             minimap_base_needs_refresh: false,

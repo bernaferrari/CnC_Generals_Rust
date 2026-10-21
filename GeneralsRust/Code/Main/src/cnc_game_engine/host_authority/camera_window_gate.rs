@@ -201,7 +201,7 @@ impl CnCGameEngine {
         self.game_logic.apply_visual_speed_multiplier(
             &crate::game_logic::mission_scripts::VisualSpeedMultiplierRequest { multiplier },
         );
-        self.host_finalize_presentation_after_logic();
+        self.host_finalize_presentation_after_logic()?;
         let before_intake = self.game_logic.session_view.impulse.intensity.to_bits();
         self.apply_pending_script_camera_requests();
         require(
@@ -358,7 +358,7 @@ impl CnCGameEngine {
         self.game_logic.apply_visual_speed_multiplier(
             &crate::game_logic::mission_scripts::VisualSpeedMultiplierRequest { multiplier: 1 },
         );
-        self.host_finalize_presentation_after_logic();
+        self.host_finalize_presentation_after_logic()?;
         self.apply_pending_script_camera_requests();
         self.complete_native_display_step()?;
         let display = serde_json::to_value(self.native_display.capture_continuation(frame)?)
@@ -511,7 +511,7 @@ impl CnCGameEngine {
             self.game_logic.apply_visual_speed_multiplier(
                 &crate::game_logic::mission_scripts::VisualSpeedMultiplierRequest { multiplier: 1 },
             );
-            self.host_finalize_presentation_after_logic();
+            self.host_finalize_presentation_after_logic()?;
             let saved_owner = logic_camera(&self.game_logic)?;
             let info = self.build_save_info(
                 slot,

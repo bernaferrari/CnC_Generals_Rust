@@ -872,7 +872,10 @@ impl CnCGameEngine {
         // Leave Loading BEFORE heightmap/minimap GPU. Windowed sit-through was
         // stuck in Loading because terrain visual never returned.
         info!("host_start_game_from_ui: seeding presentation");
-        self.seed_presentation_after_match_start();
+        if let Err(error) = self.seed_presentation_after_match_start() {
+            error!("Match start cannot complete native presentation: {error}");
+            return;
+        }
         if mode != GameMode::Shell {
             self.snap_camera_to_local_units_if_needed();
         }
@@ -899,10 +902,16 @@ impl CnCGameEngine {
 
         // Update minimap/world bounds and camera to the new map (post-InGame).
         // Wave 455: seed presentation env then apply presentation-only heightmap/skybox hints.
-        self.ensure_presentation_env_seeded();
+        if let Err(error) = self.ensure_presentation_env_seeded() {
+            error!("Match start presentation environment unavailable: {error}");
+            return;
+        }
         Self::apply_heightmap_hint(&mut self.render_pipeline);
         Self::apply_skybox_hint(&mut self.render_pipeline);
-        self.ensure_presentation_env_seeded();
+        if let Err(error) = self.ensure_presentation_env_seeded() {
+            error!("Match start presentation environment unavailable: {error}");
+            return;
+        }
         Self::sync_render_terrain_visual(
             &mut self.game_logic,
             &mut self.render_pipeline,
@@ -914,7 +923,10 @@ impl CnCGameEngine {
         }
 
         // Apply map lighting if provided by map settings.
-        self.ensure_presentation_env_seeded();
+        if let Err(error) = self.ensure_presentation_env_seeded() {
+            error!("Match start presentation environment unavailable: {error}");
+            return;
+        }
         Self::apply_map_lighting(&mut self.graphics_system, &mut self.render_pipeline);
 
         let startup_camera_defaults = Self::startup_camera_defaults_for(&self.game_logic);
@@ -1127,18 +1139,19 @@ impl CnCGameEngine {
     }
 
     /// Wave 467: seed pipeline presentation (host+GW) and mirror into last_presentation_frame
-    pub(super) fn ensure_presentation_env_seeded(&mut self) {
+    pub(super) fn ensure_presentation_env_seeded(&mut self) -> Result<(), String> {
         // Wave 467/474: seed pipeline presentation (host+GW) and mirror into last_presentation_frame
-        self.ensure_presentation_env_for_hints();
+        self.ensure_presentation_env_for_hints()?;
         if self.last_presentation_frame.is_none() {
             self.last_presentation_frame = self.render_pipeline.presentation_frame_handle();
         }
+        Ok(())
     }
 
-    pub(super) fn ensure_presentation_env_for_hints(&mut self) {
+    pub(super) fn ensure_presentation_env_for_hints(&mut self) -> Result<(), String> {
         // Wave 474: instance seed only — no free-fn GameLogic dual-read surface.
         // Wave 474/466/455/590: pipeline env seed via host helper.
-        self.host_ensure_presentation_env_for_hints();
+        self.host_ensure_presentation_env_for_hints()
     }
 
     pub(super) fn apply_heightmap_hint(render_pipeline: &mut RenderPipeline) {
@@ -1269,7 +1282,8 @@ impl CnCGameEngine {
         // Wave 468: instance path — presentation-first bounds via shared probe;
         // heightmap repair stamps freeze then mirrors host world size for pathfinding.
         // Wave 594: heightmap repair + last_presentation align via host helper.
-        self.ensure_presentation_env_seeded();
+        self.ensure_presentation_env_seeded()
+            .map_err(anyhow::Error::msg)?;
         let mut world_bounds = self.presentation_world_bounds();
         self.render_pipeline.initialize_minimap_renderer(
             self.graphics_system.device_arc(),

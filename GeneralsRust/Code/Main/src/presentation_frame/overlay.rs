@@ -2404,6 +2404,7 @@ impl PresentationFrame {
             host,
             None,
             Vec::new(),
+            super::camera_fade::FrameFade::Compatibility,
         )
     }
 
@@ -2421,6 +2422,7 @@ impl PresentationFrame {
             host,
             runtime_heightmap,
             Vec::new(),
+            super::camera_fade::FrameFade::Compatibility,
         )
     }
 
@@ -2430,6 +2432,7 @@ impl PresentationFrame {
         mut host: Option<&mut GameLogic>,
         runtime_heightmap: Option<std::sync::Arc<PresentationRuntimeHeightmap>>,
         discharges: Vec<crate::game_logic::host_weapon_discharge_log::HostWeaponDischargeEvent>,
+        camera_fade: super::camera_fade::FrameFade,
     ) -> Self {
         let mut frame = if let Some(logic) = host.as_deref_mut() {
             Self::build_from_logic_with_tint_update(
@@ -2438,6 +2441,7 @@ impl PresentationFrame {
                 runtime_heightmap,
                 false,
                 discharges,
+                camera_fade,
             )
         } else {
             // A no-host shell frame cannot reuse a host terrain payload.
@@ -2447,6 +2451,7 @@ impl PresentationFrame {
                 None,
                 false,
                 Vec::new(),
+                camera_fade,
             );
             f.objects.clear();
             f.events.clear();
@@ -2507,6 +2512,7 @@ impl PresentationFrame {
             shadow,
             runtime_heightmap,
             Vec::new(),
+            super::camera_fade::FrameFade::Compatibility,
         )
     }
 
@@ -2533,15 +2539,17 @@ impl PresentationFrame {
             shadow,
             runtime_heightmap,
             discharges,
+            super::camera_fade::FrameFade::Compatibility,
         )
     }
 
-    fn build_for_engine_with_runtime_heightmap_and_discharges(
+    pub(super) fn build_for_engine_with_runtime_heightmap_and_discharges(
         logic: &mut GameLogic,
         local_player_id: u32,
         shadow: Option<&crate::gameworld_shadow::GameWorldShadow>,
         runtime_heightmap: Option<std::sync::Arc<PresentationRuntimeHeightmap>>,
         discharges: Vec<crate::game_logic::host_weapon_discharge_log::HostWeaponDischargeEvent>,
+        camera_fade: super::camera_fade::FrameFade,
     ) -> Self {
         match shadow {
             Some(shadow) if presentation_from_gameworld_enabled() => {
@@ -2551,6 +2559,7 @@ impl PresentationFrame {
                     Some(logic),
                     runtime_heightmap,
                     discharges,
+                    camera_fade,
                 )
             }
             Some(shadow) => {
@@ -2560,6 +2569,7 @@ impl PresentationFrame {
                     runtime_heightmap,
                     false,
                     discharges,
+                    camera_fade,
                 );
                 let _ = frame.overlay_gameworld_shadow(shadow);
                 let _ = frame.append_missing_from_gameworld(shadow);
@@ -2572,6 +2582,7 @@ impl PresentationFrame {
                 runtime_heightmap,
                 true,
                 discharges,
+                camera_fade,
             ),
         }
     }
@@ -2600,11 +2611,28 @@ impl PresentationFrame {
         shadow: Option<&crate::gameworld_shadow::GameWorldShadow>,
         runtime_heightmap: Option<std::sync::Arc<PresentationRuntimeHeightmap>>,
     ) -> Self {
+        Self::build_with_victory_for_engine_with_runtime_heightmap_and_fade(
+            logic,
+            local_player_id,
+            shadow,
+            runtime_heightmap,
+            super::camera_fade::FrameFade::Compatibility,
+        )
+    }
+
+    pub(super) fn build_with_victory_for_engine_with_runtime_heightmap_and_fade(
+        logic: &mut GameLogic,
+        local_player_id: u32,
+        shadow: Option<&crate::gameworld_shadow::GameWorldShadow>,
+        runtime_heightmap: Option<std::sync::Arc<PresentationRuntimeHeightmap>>,
+        camera_fade: super::camera_fade::FrameFade,
+    ) -> Self {
         let mut frame = Self::build_with_victory_with_tint_update(
             logic,
             local_player_id,
             runtime_heightmap,
             false,
+            camera_fade,
         );
         match shadow {
             Some(shadow) if presentation_from_gameworld_enabled() => {

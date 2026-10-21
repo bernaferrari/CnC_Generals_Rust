@@ -710,8 +710,8 @@ impl ObjectDefinition {
                 .insert("Scale".to_string(), trimmed.to_string());
             return;
         }
-        if leftover_field_ends_with(base, "MaxHealth") {
-            if let Ok(hit_points) = trimmed.parse::<f32>() {
+        if leftover_field_ends_with(base, "MaxHealth") && !leftover_is_behavior_field(base) {
+            if let Ok(hit_points) = game_engine::common::ini::INI::parse_real(trimmed) {
                 if hit_points.is_finite() {
                     self.hit_points = Some(hit_points);
                 }
@@ -748,7 +748,7 @@ impl ObjectDefinition {
                 }
             }
             if leftover_field_ends_with(base, "MaxHealth") {
-                if let Ok(hit_points) = trimmed.parse::<f32>() {
+                if let Ok(hit_points) = game_engine::common::ini::INI::parse_real(trimmed) {
                     if hit_points.is_finite() {
                         self.hit_points = Some(hit_points);
                     }

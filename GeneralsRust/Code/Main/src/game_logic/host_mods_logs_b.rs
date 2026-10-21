@@ -14,6 +14,7 @@ use super::combat;
 
 use super::host_structure_topple;
 
+#[cfg(test)]
 #[path = "host_fire_intent_log.rs"]
 pub mod host_fire_intent_log;
 

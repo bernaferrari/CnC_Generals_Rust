@@ -18805,6 +18805,11 @@
             },
             {
               "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/receiving_audio_owner_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/receiving_module_content.rs"
             },
@@ -189987,7 +189992,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "ae69f10081db448377997194bf3566c3f8df2294b553465c69a3d321dc7f63d9",
+  "provenance_input_digest": "4374bc7aa86e4851e30794775842c3d80370a08ea0a6e619c354837b9d4f5149",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,

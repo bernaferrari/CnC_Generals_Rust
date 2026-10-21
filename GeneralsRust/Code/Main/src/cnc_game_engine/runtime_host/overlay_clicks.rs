@@ -203,10 +203,16 @@ impl CnCGameEngine {
         // Power/side remain actual frozen match facts; no synthetic global player.
         if wnd_ok && action != "update" {
             let local = self.host_game_logic().local_player_id().unwrap_or(0);
-            let pres = crate::presentation_frame::PresentationFrame::build_from_logic(
+            let pres = match crate::presentation_frame::PresentationFrame::try_build_from_logic(
                 self.host_game_logic_mut(),
                 local,
-            );
+            ) {
+                Ok(frame) => frame,
+                Err(error) => {
+                    self.runtime_host_last_gameplay_cmd = format!("click_eva_frame_error:{error}");
+                    return;
+                }
+            };
             self.apply_presentation_eva_alerts(&pres);
             self.last_presentation_frame = Some(std::rc::Rc::new(pres));
         }

@@ -98,7 +98,7 @@ fn match_seed_primes_direct_bindings_before_first_ingame_render() {
     assert!(loaded_mode.contains("GameMode::Shell{GameState::Menu}else{GameState::InGame}"));
     assert!(
         start
-            .find("self.seed_presentation_after_match_start();")
+            .find("self.seed_presentation_after_match_start()")
             .expect("start-game presentation seed")
             < transition,
         "new matches must hydrate direct bindings before their first InGame render"
@@ -110,7 +110,7 @@ fn match_seed_primes_direct_bindings_before_first_ingame_render() {
         .expect("load-game authority")..];
     assert!(
         restore
-            .find("self.seed_presentation_after_match_start();")
+            .find("self.seed_presentation_after_match_start()")
             .expect("load-game presentation seed")
             < restore
                 .find("self.transition_to_state(GameState::InGame);")
@@ -130,7 +130,7 @@ fn match_seed_primes_direct_bindings_before_first_ingame_render() {
         .expect("startup InGame branch")..];
     assert!(
         ingame
-            .find("self.seed_presentation_after_match_start();")
+            .find("self.seed_presentation_after_match_start()")
             .expect("startup InGame seed")
             < ingame
                 .find("self.transition_to_state(target_state);")

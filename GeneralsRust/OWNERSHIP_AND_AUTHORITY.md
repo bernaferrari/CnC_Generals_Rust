@@ -835,7 +835,7 @@ Remaining engine residual after host update:
   - Eager damage: post-logic drain `host_damage_log` → GW Damage/Destroy (Wave 684; session handoff, no double-apply)
   - Eager heal: post-logic drain `host_heal_log` → GW SetHealth (Wave 685; session handoff, no double-apply)
   - Eager max-health/XP: post-logic drain `host_max_health_log`/`host_experience_log` → GW (Wave 686; session handoff)
-  - Eager AI-state/fire-intent: post-logic drain `host_ai_state_log`/`host_fire_intent_log` → GW (Wave 687; session handoff)
+  - Historical Wave 687 introduced AI-state/fire-intent log transport. Current fire-intent observation copies the driving Object’s `last_fire_*` fields and `fire_intent_count` directly; `host_fire_intent_log` is test-only diagnostics, not GameWorld mutation delivery.
   - Eager owner/movement: post-logic drain `host_owner_log`/`host_movement_log` → GW (Wave 688; session handoff)
   - Eager status/veterancy: post-logic drain `host_status_log`/`host_veterancy_log` → GW (Wave 689; session handoff)
   - Eager weapon-bonus/slot: post-logic drain `host_weapon_bonus_log`/`host_weapon_slot_log` → GW (Wave 690; session handoff)
@@ -1031,7 +1031,7 @@ see same-frame AI orders without a second engine drain.
 parity (`queue_damage_for_host` / `apply_pending`). Production default ON
 (`GENERALS_GAMEWORLD_SHADOW=0` opts out) holds a session on `CnCGameEngine`.
 `Object::take_damage_from` records `host_damage_log / host_heal_log / host_owner_log` events drained each tick.
-Spawn/destroy: `host_spawn_log` / `host_destroy_log` drained each tick; shadow maps spawns and applies Destroy mutations. `host_spawn_log` applies via `WorldMutation::Spawn` (sole shadow create) then host→entity map.
+Spawn: `host_spawn_log` applies via `WorldMutation::Spawn` (sole shadow create) then host→entity map. Destroy: the driving GameLogic performs physical removal and the shadow observes the resulting roster. `host_destroy_log` is test-only diagnostics; its discarded observation-boundary drain does not deliver Destroy mutations or presentation events.
 
 Production log: `drain` retains `last_drain_snapshot` for PresentationEvent::ProductionComplete after shadow session.
 

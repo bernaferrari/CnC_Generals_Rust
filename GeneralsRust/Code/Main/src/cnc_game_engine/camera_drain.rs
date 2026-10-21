@@ -494,7 +494,10 @@ impl CnCGameEngine {
     /// Couples GameWorld shadow when live, advances host logic (with retail FF /
     /// headless budget), then runs the post-logic shadow session and
     /// presentation finalize helpers.
-    pub(super) fn host_run_ingame_logic_presentation_frame(&mut self, dt: f32) {
+    pub(super) fn host_run_ingame_logic_presentation_frame(
+        &mut self,
+        dt: f32,
+    ) -> Result<(), String> {
         // Wave 602: InGame logic+presentation residual.
         // Retail m_TiVOFastMode residual: extra logic steps while armed.
         let ff_steps = replay_logic_step_count(self.replay_fast_forward);
@@ -535,13 +538,14 @@ impl CnCGameEngine {
         // above; release coupled-frame depth before the presentation shell.
 
         // Wave 589: presentation finalize residual via helper (build + audio + FX).
-        self.host_finalize_presentation_after_logic();
+        self.host_finalize_presentation_after_logic()?;
 
         #[cfg(feature = "game_client")]
         {
             // Wave 586: GameClient presentation shell residual via helper.
             self.host_tick_game_client_presentation_shell();
         }
+        Ok(())
     }
 
     /// Wave 601: host restart-mission residual.
@@ -1514,28 +1518,24 @@ impl CnCGameEngine {
     pub(super) fn host_sync_shadow_and_build_presentation(
         &mut self,
         with_victory: bool,
-    ) -> crate::presentation_frame::PresentationFrame {
+    ) -> Result<crate::presentation_frame::PresentationFrame, String> {
+        // Availability is checked before mutating the shadow observation mirror.
+        self.game_logic.owned_script_engine.as_ref().ok_or(
+            "Cannot freeze native camera fade: receiving interpreter is unavailable or lent",
+        )?;
         // Wave 926: single host→shadow sync + presentation build boundary.
         if let Some(ref mut shadow) = self.gameworld_shadow {
             shadow.sync_from_host(&self.game_logic);
         }
         let runtime_heightmap = self.presentation_runtime_heightmap_for_frame();
         let local_id = self.current_player_id;
-        let mut frame = if with_victory {
-            crate::presentation_frame::PresentationFrame::build_with_victory_for_engine_with_runtime_heightmap(
-                &mut self.game_logic,
-                local_id,
-                self.gameworld_shadow.as_ref(),
-                runtime_heightmap,
-            )
-        } else {
-            crate::presentation_frame::PresentationFrame::publish_for_engine_with_runtime_heightmap(
-                &mut self.game_logic,
-                local_id,
-                self.gameworld_shadow.as_ref(),
-                runtime_heightmap,
-            )
-        };
+        let mut frame = crate::presentation_frame::PresentationFrame::try_publish_for_engine_with_runtime_heightmap(
+            &mut self.game_logic,
+            local_id,
+            self.gameworld_shadow.as_ref(),
+            runtime_heightmap,
+            with_victory,
+        )?;
         #[cfg(feature = "game_client")]
         {
             // The asset cache is a native service shared with loader workers;
@@ -1566,10 +1566,13 @@ impl CnCGameEngine {
                 Err(error) => log::warn!("receiving laser geometry unavailable: {error}"),
             }
         }
-        frame
+        Ok(frame)
     }
 
-    pub(super) fn host_seed_presentation_after_match_start(&mut self) {
+    pub(super) fn host_seed_presentation_after_match_start(&mut self) -> Result<(), String> {
+        self.game_logic.owned_script_engine.as_ref().ok_or(
+            "Cannot freeze native camera fade: receiving interpreter is unavailable or lent",
+        )?;
         // Wave 590: match-start presentation seed residual.
         self.match_damage_applied = 0.0;
         self.match_kills = 0;
@@ -1582,12 +1585,13 @@ impl CnCGameEngine {
         }
         let runtime_heightmap = self.presentation_runtime_heightmap_for_frame();
         let mut pres =
-            crate::presentation_frame::PresentationFrame::publish_for_engine_with_runtime_heightmap(
+            crate::presentation_frame::PresentationFrame::try_publish_for_engine_with_runtime_heightmap(
                 &mut self.game_logic,
                 self.current_player_id,
                 self.gameworld_shadow.as_ref(),
                 runtime_heightmap,
-            );
+                false,
+            )?;
         // Seed the same instance HUD used by input and ordinary frame updates.
         self.apply_presentation_to_huds(&pres);
         #[cfg(feature = "game_client")]
@@ -1633,6 +1637,7 @@ impl CnCGameEngine {
         }
         // Wave 844: stamp host sim residuals after match-start seed.
         self.host_refresh_match_sim_residuals_from_logic();
+        Ok(())
     }
 
     fn presentation_kind_names(
@@ -2021,40 +2026,46 @@ impl CnCGameEngine {
     /// Wave 590: boot/render residual — freeze a PresentationFrame if none installed.
     /// Ensures execute never dual-reads live GameLogic mid-draw.
     #[inline]
-    pub(super) fn host_ensure_presentation_frame_for_render(&mut self) {
+    pub(super) fn host_ensure_presentation_frame_for_render(&mut self) -> Result<(), String> {
         // Wave 590: boot presentation seed residual.
         if self.last_presentation_frame.is_some() {
-            return;
+            return Ok(());
         }
         // Wave 195/590/926: shadow sync + presentation build via single host boundary.
-        let frame = self.host_sync_shadow_and_build_presentation(false);
+        let frame = self.host_sync_shadow_and_build_presentation(false)?;
         self.last_presentation_frame = Some(frame.into());
+        Ok(())
     }
 
     /// Wave 590: pipeline env seed residual (host+GW) when pipeline has no frame.
     #[inline]
-    pub(super) fn host_ensure_presentation_env_for_hints(&mut self) {
+    pub(super) fn host_ensure_presentation_env_for_hints(&mut self) -> Result<(), String> {
         // Wave 590: pipeline env seed residual.
         // Wave 466: prefer host+GameWorld shadow freeze when a shadow session exists.
         // Wave 455: presentation-only env boundary — seed via build_for_engine only.
         if self.render_pipeline.presentation_frame().is_some() {
-            return;
+            return Ok(());
         }
         // Wave 466: sync shadow then freeze via build_for_engine (not host-only None).
         // Wave 466/474: seed via build_for_engine(host + self.gameworld_shadow).
+        self.game_logic.owned_script_engine.as_ref().ok_or(
+            "Cannot freeze native camera fade: receiving interpreter is unavailable or lent",
+        )?;
         if let Some(ref mut shadow) = self.gameworld_shadow {
             shadow.sync_from_host(&self.game_logic);
         }
         let runtime_heightmap = self.presentation_runtime_heightmap_for_frame();
         let env_frame =
-            crate::presentation_frame::PresentationFrame::publish_for_engine_with_runtime_heightmap(
+            crate::presentation_frame::PresentationFrame::try_publish_for_engine_with_runtime_heightmap(
                 &mut self.game_logic,
                 self.current_player_id,
                 self.gameworld_shadow.as_ref(),
                 runtime_heightmap,
-            );
+                false,
+            )?;
         self.render_pipeline
             .set_presentation_frame(Some(env_frame.into()));
+        Ok(())
     }
 
     /// Wave 600: post-presentation client residual (camera/audio/UI/popup/music).
@@ -2327,7 +2338,10 @@ impl CnCGameEngine {
     ///
     /// Call after host logic + shadow writeback. Borrow-first: no live dual-read
     /// during later render. Fail-closed: not sole GameWorld authority / playable_claim.
-    pub(super) fn host_finalize_presentation_after_logic(&mut self) {
+    pub(super) fn host_finalize_presentation_after_logic(&mut self) -> Result<(), String> {
+        self.game_logic.owned_script_engine.as_ref().ok_or(
+            "Cannot freeze native camera fade: receiving interpreter is unavailable or lent",
+        )?;
         // Wave 985: drain ControlBar host production-pause residual onto BuildingData.
         for (producer_id, paused) in
             game_client::gui::control_bar::take_host_production_pause_requests()
@@ -2346,7 +2360,7 @@ impl CnCGameEngine {
                 .backfill_client_systems(manager)
         })
         .unwrap_or(0);
-        let mut pres = self.host_sync_shadow_and_build_presentation(true);
+        let mut pres = self.host_sync_shadow_and_build_presentation(true)?;
         // Presentation → audio subsystem directly (no GameLogic dual-write mid-frame).
         let audio_n = pres.dispatch_audio_events_direct();
         if audio_n > 0 {
@@ -2364,6 +2378,7 @@ impl CnCGameEngine {
 
         // Wave 568: InGame script FPS residual via helper.
         self.apply_ingame_script_fps_limit_residual();
+        Ok(())
     }
 
     /// Wave 586/587: GameClient presentation shell tick residual.

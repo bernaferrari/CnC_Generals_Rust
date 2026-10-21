@@ -720,6 +720,7 @@ impl Object {
             );
     }
 
+    #[cfg(test)]
     pub fn record_host_fire_intent(&self) {
         crate::game_logic::host_fire_intent_log::record(
             self.id,

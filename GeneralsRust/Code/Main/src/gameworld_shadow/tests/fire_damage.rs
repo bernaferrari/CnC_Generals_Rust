@@ -241,7 +241,7 @@ fn residual_ai_state_paths_use_owned_state_writers() {
     let src = GAME_LOGIC_HOST_SRC;
     for (header, write) in [
         (
-            "fn try_return_to_base_rearm(",
+            "fn try_return_to_base_rearm_with_effects(",
             "jet.set_ai_state(AIState::Moving);",
         ),
         (
@@ -262,7 +262,7 @@ fn residual_ai_state_paths_use_owned_state_writers() {
         ),
         ("fn try_idle_crate_pickup(", "u.set_ai_state(parent_state);"),
         (
-            "fn on_selling_container_residual(",
+            "fn on_selling_container_residual_with_effects(",
             "unit.set_ai_state(AIState::Idle);",
         ),
     ] {
@@ -271,6 +271,16 @@ fn residual_ai_state_paths_use_owned_state_writers() {
             "{header} must use its exact owned state writer {write}"
         );
     }
+    assert!(
+        method(src, "fn try_return_to_base_rearm(")
+            .contains("self.try_return_to_base_rearm_with_effects(jet_id,"),
+        "return-to-base adapter must reach the actual owned state writer"
+    );
+
+    assert!(
+        method(src, "fn on_selling_container_residual(")
+            .contains("self.on_selling_container_residual_with_effects(structure_id,")
+    );
     // The public min-range wrapper reaches the checked implementation; crate
     // pickup installs its owned move path and restores an existing parent.
     assert!(
@@ -810,11 +820,17 @@ fn hijacker_docked_state_decision_authority() {
 #[test]
 fn residual_auto_fire_damage_source_attribution_source() {
     let src = GAME_LOGIC_HOST_SRC;
-    let helper = last_rust_fn_body(src, "residual_auto_fire_apply_damage")
+    let adapter = last_rust_fn_body(src, "residual_auto_fire_apply_damage")
+        .expect("residual auto-fire adapter");
+    let adapter: String = adapter.split_whitespace().collect();
+    assert!(adapter.contains(
+        "self.residual_auto_fire_apply_damage_with_effects(attacker_id,target_id,damage,shooter_pos,weapon,slot,&mutDefault::default(),"
+    ));
+    let helper = last_rust_fn_body(src, "residual_auto_fire_apply_damage_with_effects")
         .expect("residual_auto_fire_apply_damage");
     let helper: String = helper.split_whitespace().collect();
     assert!(
-        helper.contains("apply_residual_damage_owned(receiving_damage_id,damage,Some(attacker_id),crate::game_logic::combat::DamageType::Unresistable,crate::game_logic::host_usa_pilot::HostDeathType::from_host_damage_type(crate::game_logic::combat::DamageType::Unresistable,),None"),
+        helper.contains("apply_residual_damage_owned_with_effects(receiving_damage_id,damage,Some(attacker_id),crate::game_logic::combat::DamageType::Unresistable,crate::game_logic::host_usa_pilot::HostDeathType::from_host_damage_type(crate::game_logic::combat::DamageType::Unresistable,),None,effects"),
         "residual auto-fire must forward actual damage and attacker through the receiving Body/Player operation"
     );
     for name in [
@@ -822,12 +838,13 @@ fn residual_auto_fire_damage_source_attribution_source() {
         "try_strategy_center_bombardment_turret_fire",
         "update_pending_patriot_assists",
     ] {
-        let at = src
-            .find(&format!("fn {name}"))
-            .unwrap_or_else(|| panic!("missing {name}"));
-        let body = &src[at..src.len().min(at + 14000)];
+        let adapter = last_rust_fn_body(src, name).unwrap_or_else(|| panic!("missing {name}"));
+        let receiving_name = format!("{name}_with_effects");
+        assert!(adapter.contains(&format!("self.{receiving_name}(")));
+        let body = last_rust_fn_body(src, &receiving_name)
+            .unwrap_or_else(|| panic!("missing {receiving_name}"));
         assert!(
-            body.contains("residual_auto_fire_apply_damage"),
+            body.contains("residual_auto_fire_apply_damage_with_effects("),
             "{name} must use residual_auto_fire_apply_damage"
         );
     }
@@ -837,7 +854,11 @@ fn residual_auto_fire_damage_source_attribution_source() {
         "try_garrison_residual_fire",
         "try_transport_passenger_residual_fire",
     ] {
-        let body = last_rust_fn_body(src, name).unwrap_or_else(|| panic!("missing {name}"));
+        let adapter = last_rust_fn_body(src, name).unwrap_or_else(|| panic!("missing {name}"));
+        let receiving_name = format!("{name}_with_effects");
+        assert!(adapter.contains(&format!("self.{receiving_name}(")));
+        let body = last_rust_fn_body(src, &receiving_name)
+            .unwrap_or_else(|| panic!("missing {receiving_name}"));
         assert!(
             body.contains("fire_owned_passive_weapon"),
             "{name} must use the selected real shot"
@@ -848,16 +869,21 @@ fn residual_auto_fire_damage_source_attribution_source() {
         );
     }
     let passive = include_str!("../../game_logic/world_combat/passive_weapon_fire.rs");
-    let body =
-        last_rust_fn_body(passive, "fire_owned_passive_weapon").expect("actual passive driver");
+    let body = last_rust_fn_body(passive, "fire_owned_passive_weapon_with_effects")
+        .expect("actual passive driver");
     assert!(
         body.contains("prepare_passive_weapon_shot")
-            && body.contains("deliver_owned_weapon_shot(slot, shot, capture)")
+            && body.contains(
+                "deliver_owned_weapon_shot_with_effects(slot, shot, capture, presentation_effects)"
+            )
     );
     let effects = include_str!("../../game_logic/world_combat/weapon_fire_effects.rs");
-    let delivery = last_rust_fn_body(effects, "deliver_owned_weapon_shot")
+    let delivery = last_rust_fn_body(effects, "deliver_owned_weapon_shot_with_effects")
         .expect("receiving accepted-shot delivery");
-    assert!(delivery.contains("materialize_owned_passive_shot(shot, stream_binding)"));
+    let delivery_normalized: String = delivery.split_whitespace().collect();
+    assert!(delivery_normalized.contains(
+        "materialize_owned_passive_shot_with_effects(shot,stream_binding,presentation_effects,"
+    ));
     assert!(delivery.contains("selected_native_weapon_rule(slot)"));
     let attack = include_str!("../../game_logic/object/attack.rs");
     let shot = last_rust_fn_body(attack, "prepare_weapon_shot").expect("shared real shot");
@@ -865,12 +891,12 @@ fn residual_auto_fire_damage_source_attribution_source() {
         shot.contains("let shooter_id = self.id") && shot.contains("damage_type: weapon_dtype")
     );
     let damage = include_str!("../../game_logic/world_objects/damage_application.rs");
-    let application =
-        last_rust_fn_body(damage, "apply_owned_combat_damage").expect("actual shot damage owner");
+    let application = last_rust_fn_body(damage, "apply_owned_combat_damage_with_effects")
+        .expect("actual shot damage owner");
     let application: String = application.split_whitespace().collect();
     assert!(
         application.contains(
-            "apply_owned_damage(target_id,damage,Some(shooter_id),damage_type,death_type"
+            "apply_owned_damage_with_effects(target_id,damage,Some(shooter_id),damage_type,death_type,None,&context,effects,"
         ),
         "selected typed shot must preserve attacker at the receiving Body callback"
     );

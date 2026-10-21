@@ -1991,10 +1991,12 @@ impl CnCGameEngine {
             // Wave 455: seed presentation env then apply presentation-only heightmap/skybox hints.
             // Windowed menu (hq-4yc1) must still install the C++ ShellMapMD backdrop
             // before GameState::Menu; fail-soft if later GPU setup warns.
-            self.ensure_presentation_env_seeded();
+            self.ensure_presentation_env_seeded()
+                .map_err(anyhow::Error::msg)?;
             Self::apply_heightmap_hint(&mut self.render_pipeline);
             Self::apply_skybox_hint(&mut self.render_pipeline);
-            self.ensure_presentation_env_seeded();
+            self.ensure_presentation_env_seeded()
+                .map_err(anyhow::Error::msg)?;
             Self::sync_render_terrain_visual(
                 &mut self.game_logic,
                 &mut self.render_pipeline,
@@ -2006,7 +2008,8 @@ impl CnCGameEngine {
                     "Failed to reinitialize minimap renderer: {err}. Continuing without minimap."
                 );
             }
-            self.ensure_presentation_env_seeded();
+            self.ensure_presentation_env_seeded()
+                .map_err(anyhow::Error::msg)?;
             Self::apply_map_lighting(&mut self.graphics_system, &mut self.render_pipeline);
             let startup_camera_defaults = Self::startup_camera_defaults_for(&self.game_logic);
             // Wave 458: prefer pipeline presentation freeze; live GameLogic only if missing.
@@ -2105,7 +2108,8 @@ impl CnCGameEngine {
             // frame and its direct client associations before the first
             // redraw. Menu starts remain intentionally unseeded.
             if target_state == GameState::InGame {
-                self.seed_presentation_after_match_start();
+                self.seed_presentation_after_match_start()
+                    .map_err(anyhow::Error::msg)?;
             }
             self.transition_to_state(target_state);
         }

@@ -47,8 +47,10 @@ pub(crate) fn run_owned_host_boundary(
 fn freeze_host_observations(logic: &mut GameLogic) {
     logic.attack_events.complete_boundary();
 
+    #[cfg(test)]
     let _ = crate::game_logic::host_destroy_log::drain();
 
+    #[cfg(test)]
     let _ = crate::game_logic::host_fire_intent_log::drain();
     logic
         .combat_system

@@ -185,6 +185,7 @@ impl GameLogic {
                 }
                 self.remove_host_radar_provider(event.id);
                 self.host_radar_remove_object(event.id);
+                #[cfg(test)]
                 crate::game_logic::host_destroy_log::record(event.id);
                 // Wave 681: mid-frame GameWorld Destroy while coupled shadow tick is live.
                 // End-of-tick host_destroy_log drain remains idempotent for unmapped IDs.

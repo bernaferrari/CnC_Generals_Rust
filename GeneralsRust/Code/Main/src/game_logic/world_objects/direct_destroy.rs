@@ -347,6 +347,7 @@ impl GameLogic {
         self.remove_host_dock_approach_queue(id);
         self.remove_host_radar_provider(id);
         self.host_radar_remove_object(id);
+        #[cfg(test)]
         crate::game_logic::host_destroy_log::record(id);
 
         self.clear_removed_object_references(id);

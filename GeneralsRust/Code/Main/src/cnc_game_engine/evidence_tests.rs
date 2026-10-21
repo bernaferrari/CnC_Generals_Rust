@@ -407,10 +407,11 @@ fn physical_winit_mouse_input_drives_retail_menus_with_provenance_gates() {
     let route = input
         .find("WindowEvent::MouseInput {")
         .expect("winit MouseInput match arm");
-    let route_body = &input[route..input[route..]
-        .find("WindowEvent::CursorMoved")
-        .map(|i| route + i)
-        .unwrap_or(route + 1_500)];
+    let route_body = &input[route
+        ..input[route..]
+            .find("WindowEvent::CursorMoved")
+            .map(|i| route + i)
+            .unwrap_or(route + 1_500)];
     assert!(
         route_body.contains("MouseInputOrigin::Physical"),
         "OS WindowEvent::MouseInput must be Physical origin"
@@ -450,10 +451,11 @@ fn macos_device_event_button_is_physical_only_when_cursor_in_window() {
     let start = run
         .find("Event::DeviceEvent")
         .expect("DeviceEvent::Button residual");
-    let body = &run[start..run[start + 10..]
-        .find("\n            Event::")
-        .map(|i| start + 10 + i)
-        .unwrap_or(run.len().min(start + 4_000))];
+    let body = &run[start
+        ..run[start + 10..]
+            .find("\n            Event::")
+            .map(|i| start + 10 + i)
+            .unwrap_or(run.len().min(start + 4_000))];
     assert!(
         body.contains("macos_cursor_client_if_in_window")
             && body.contains("MouseInputOrigin::Physical")
@@ -581,9 +583,25 @@ fn campaign_prelude_precedes_ui_map_work_and_logic_initializer() {
     // parked until the prelude finishes across event-loop ticks, preserving
     // C++ serviceWindowsOS between movie frames without re-entering winit.
     let start_game = include_str!("start_game.rs");
-    let start = start_game
+    let ui_start = start_game
         .find("pub(super) fn host_start_game_from_ui")
-        .expect("host start-game authority");
+        .expect("UI start-game delegate");
+    let command_start = start_game
+        .find("pub(super) fn host_start_game_from_command_phase")
+        .expect("command-phase start-game delegate");
+    let start = start_game
+        .find("fn park_host_start_request(")
+        .expect("shared parked start-game authority");
+    assert!(ui_start < command_start && command_start < start);
+    assert!(
+        start_game[ui_start..command_start]
+            .contains("self.park_host_start_request(request, false)"),
+        "UI admission must delegate to the shared park authority with UI provenance"
+    );
+    assert!(
+        start_game[command_start..start].contains("self.park_host_start_request(request, true)"),
+        "command-phase admission must delegate to the shared park authority with command provenance"
+    );
     let after_start = &start_game[start..];
     let park_end = after_start[1..]
         .find("\n    pub(super) fn ")
@@ -593,15 +611,25 @@ fn campaign_prelude_precedes_ui_map_work_and_logic_initializer() {
     let loading = park_body
         .find("transition_to_state(GameState::Loading)")
         .expect("Loading transition");
-    let parked = park_body.find("self.pending_match_start = Some(").expect("park start");
+    let parked = park_body
+        .find("self.pending_match_start = Some(")
+        .expect("park start");
     assert!(loading < parked);
     assert!(!park_body.contains("run_cpp_load_screen_prelude"));
     let loading_tick = include_str!("camera_drain.rs");
-    let pending = loading_tick.find("self.pending_match_start.take()").expect("parked start tick");
+    let pending = loading_tick
+        .find("self.pending_match_start.take()")
+        .expect("parked start tick");
     let tick_body = &loading_tick[pending..];
-    let prelude = tick_body.find("self.advance_cpp_load_screen_prelude(&mut pending)").expect("one prelude step");
-    let repark = tick_body.find("self.pending_match_start = Some(pending)").expect("retain pending start");
-    let complete = tick_body.find("self.complete_parked_match_start(pending)").expect("map start after prelude");
+    let prelude = tick_body
+        .find("self.advance_cpp_load_screen_prelude(&mut pending)")
+        .expect("one prelude step");
+    let repark = tick_body
+        .find("self.pending_match_start = Some(pending)")
+        .expect("retain pending start");
+    let complete = tick_body
+        .find("self.complete_parked_match_start(pending)")
+        .expect("map start after prelude");
     assert!(prelude < repark && repark < complete);
     assert!(tick_body[repark..complete].contains("return Ok(())"));
 
@@ -636,7 +664,8 @@ fn campaign_prelude_precedes_ui_map_work_and_logic_initializer() {
         .unwrap_or(shell_after_start.len());
     let shell_body = &shell_after_start[..shell_end];
     assert!(
-        shell_body.contains("advance_load_screen_prelude(kind, self.message_processor.is_active())")
+        shell_body
+            .contains("advance_load_screen_prelude(kind, self.message_processor.is_active())")
             && shell_body.contains("if presentation_needed"),
         "Main must pass current owner focus to one nonblocking step and only pump actual presentation work"
     );

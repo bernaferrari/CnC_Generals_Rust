@@ -557,6 +557,11 @@ impl ScriptEngine {
         self.with_inner(|inner| inner.fade)
     }
 
+    /// Completed fade observation; reading never advances the script clock.
+    pub fn fade_observation(&self) -> (TFade, f32) {
+        self.with_inner(|inner| (inner.fade, inner.cur_fade_value))
+    }
+
     /// Get fade value
     pub fn get_fade_value(&self) -> f32 {
         self.with_inner(|inner| inner.cur_fade_value)

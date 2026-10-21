@@ -485,6 +485,8 @@ impl RenderPipeline {
                 .map_err(ww3d_renderer_3d::Error::InvalidOperation)?)
         };
         #[cfg(feature = "game_client")]
+        let fade_resources = &mut self.camera_fade_resources;
+        #[cfg(feature = "game_client")]
         let mut finish_overlay = |frame: &mut ww3d_engine::RenderFrame| {
             let dest = frame.color_view_arc();
             let device = frame.device_arc();
@@ -492,6 +494,7 @@ impl RenderPipeline {
             let format = frame.color_format();
             let encoder = frame.encoder();
             game_client::display::status_circle::record_camera_fade(
+                fade_resources,
                 device.as_ref(),
                 queue.as_ref(),
                 encoder,
