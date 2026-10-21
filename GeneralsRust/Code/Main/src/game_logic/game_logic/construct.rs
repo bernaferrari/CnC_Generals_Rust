@@ -689,6 +689,7 @@ impl GameLogic {
             script_superweapon_hidden_objects: HashSet::new(),
             eva_superweapon_science_hidden: HashMap::new(),
             host_beacons: Vec::new(),
+            beacon_client: Default::default(),
             recent_beacons: Vec::new(),
             script_engine: None,
             objects_receive_difficulty_bonus: true,
@@ -837,6 +838,7 @@ impl GameLogic {
         self.drawable_tint_envelopes.clear();
         self.finish_all_building_sounds();
         self.objects.clear();
+        self.beacon_client.clear();
         self.named_unit_history.clear();
         self.objects_receive_difficulty_bonus = true;
         self.session_difficulty = None;

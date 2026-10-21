@@ -284,6 +284,7 @@ impl GameLogic {
                         }
                     }
                     let _removed = self.objects.remove(&object_id);
+                    self.beacon_client.remove(object_id);
                     if let Some(new_id) = self.create_object_with_script_effects(
                         &replacement,
                         team,

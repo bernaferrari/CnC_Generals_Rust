@@ -232,7 +232,10 @@ fn place_beacon_spawns_world_object_and_respects_cap() {
         .map(|(id, _)| *id)
         .collect();
     assert_eq!(beacons.len(), 1);
-    assert_eq!(host_beacon_caption(beacons[0]).as_deref(), Some("here"));
+    assert_eq!(
+        host_beacon_caption(&logic, beacons[0]).as_deref(),
+        Some("here")
+    );
 
     let max = host_max_beacons_per_player().max(1);
     for i in 1..max {
@@ -291,7 +294,7 @@ fn set_beacon_text_updates_selected_caption() {
         ))
         .expect("exec");
     assert_eq!(result, CommandResult::Success);
-    assert_eq!(host_beacon_caption(id).as_deref(), Some("go"));
+    assert_eq!(host_beacon_caption(&logic, id).as_deref(), Some("go"));
 }
 
 #[test]
@@ -321,7 +324,7 @@ fn enemy_place_hides_drawable_and_skips_host_beacons() {
         .find(|(_, o)| o.template_name.to_ascii_lowercase().contains("beacon"))
         .map(|(id, _)| *id)
         .expect("beacon");
-    assert!(host_beacon_is_hidden(id));
+    assert!(host_beacon_is_hidden(&logic, id));
     assert!(logic.host_object(id).unwrap().drawable_hidden);
     assert!(
         logic.host_beacons().is_empty(),

@@ -185,8 +185,9 @@ mod tests {
         let encoded = unicode_string_to_quoted_printable(original);
         let decoded = quoted_printable_to_unicode_string(&encoded);
 
-        // ASCII bytes remain visible in encoded output.
-        assert!(encoded.contains("Hello"));
+        // C++ walks both UTF-16LE bytes, so each ASCII unit's high zero
+        // byte is escaped between letters. This is not a UTF-8 wire string.
+        assert!(encoded.starts_with("H_00e_00l_00l_00o_00_20_00"));
         assert_eq!(decoded, original);
     }
 

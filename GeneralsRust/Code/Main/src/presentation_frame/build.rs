@@ -2090,7 +2090,7 @@ impl PresentationFrame {
                         if !obj.is_alive()
                             || !obj.template_name.to_ascii_lowercase().contains("beacon")
                             || obj.drawable_hidden
-                            || crate::command_executor::host_beacon_is_hidden(*id)
+                            || crate::command_executor::host_beacon_is_hidden(logic, *id)
                         {
                             return None;
                         }

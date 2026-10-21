@@ -13,6 +13,7 @@ pub(self) use prelude::*;
 
 mod ambient_sound_retries;
 mod authority;
+mod beacon_client_state;
 mod camera_continuation;
 mod construct;
 mod crate_tick;

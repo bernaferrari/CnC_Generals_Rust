@@ -101,15 +101,10 @@ pub fn normalize_angle(angle: f32) -> f32 {
     result
 }
 
-/// Normalize angle to [-π, π)
+/// Original GameCommon::normalizeAngle range (-π, π], including NaN -> zero.
+/// Keep one implementation of the original ordered f32 subtractions.
 pub fn normalize_angle_signed(angle: f32) -> f32 {
-    let mut result = angle % TAU;
-    if result > PI {
-        result -= TAU;
-    } else if result < -PI {
-        result += TAU;
-    }
-    result
+    super::game_common::normalize_angle(angle)
 }
 
 /// Fixed point sine (12-bit fractional)
@@ -167,8 +162,34 @@ mod tests {
         assert!((normalize_angle(TAU + 1.0) - 1.0).abs() < f32::EPSILON);
         assert!((normalize_angle(-1.0) - (TAU - 1.0)).abs() < f32::EPSILON);
 
-        assert!((normalize_angle_signed(PI + 1.0) - (-PI + 1.0)).abs() < f32::EPSILON);
-        assert!((normalize_angle_signed(-PI - 1.0) - (PI - 1.0)).abs() < f32::EPSILON);
+        // Original Real/f32 first rounds the input PI+1, then subtracts 2*PI.
+        // Reassociating to -PI+1 changes the answer by one ULP.
+        assert_eq!(normalize_angle_signed(PI + 1.0).to_bits(), 0xc009_0fda);
+        assert_eq!(normalize_angle_signed(-PI - 1.0).to_bits(), 0x4009_0fda);
+    }
+
+    #[test]
+    fn signed_angle_uses_original_endpoint_and_nan_policy() {
+        for (input, expected) in [
+            (0.0_f32, 0.0_f32),
+            (-0.0, -0.0),
+            (PI, PI),
+            (-PI, PI),
+            (TAU, 0.0),
+            (-TAU, 0.0),
+            (f32::NAN, 0.0),
+            // Adjacent original PI boundaries, from the source-pinned oracle.
+            (f32::from_bits(0x4049_0fdc), f32::from_bits(0xc049_0fda)),
+            (f32::from_bits(0xc049_0fdc), f32::from_bits(0x4049_0fda)),
+            (f32::from_bits(0x4049_0fda), f32::from_bits(0x4049_0fda)),
+            (f32::from_bits(0xc049_0fda), f32::from_bits(0xc049_0fda)),
+        ] {
+            assert_eq!(
+                normalize_angle_signed(input).to_bits(),
+                expected.to_bits(),
+                "{input:?}"
+            );
+        }
     }
 
     #[test]

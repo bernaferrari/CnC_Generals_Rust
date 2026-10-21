@@ -209,6 +209,7 @@ impl GameLogic {
         self.map_loaded = false;
         self.finish_all_building_sounds();
         self.objects.clear();
+        self.beacon_client.clear();
         if self.receiving_module_content.is_some() {
             if let Some(baseline) = &self.receiving_template_baseline {
                 self.templates = baseline.clone();

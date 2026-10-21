@@ -2701,6 +2701,7 @@ impl CnCGameEngine {
                             // Wave 1055: host control-group residual for dual group numerals.
                             hotkey_group: object_hotkey_group.get(&o.id.0).copied().unwrap_or(-1),
                             caption: crate::command_executor::host_beacon_caption(
+                                &self.game_logic,
                                 crate::game_logic::ObjectId(o.id.0),
                             )
                             .or_else(|| {

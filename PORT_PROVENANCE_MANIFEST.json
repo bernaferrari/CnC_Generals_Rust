@@ -160562,7 +160562,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "5bd8d33961e4391db76184611bec5089488e0e180bb41a66027d93dfcb3d305b",
+  "input_digest": "a9dd44e8bb68274cee69688d0327b0425530490aaccff2dd019249a0f12c93a3",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -165708,11 +165708,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 632,
+        "end_line": 705,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/object_status_types.rs",
-      "sha256": "8d42f3c4ada4560826ade399f62fc49724d83e7842593aa2f70fd7b40e42599f",
+      "sha256": "1b3e40309b7c93e30ff1ffa0ce6938afc610f781b9f01e17c9a1f2163ff86b58",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -165732,11 +165732,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 236,
+        "end_line": 237,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/quoted_printable.rs",
-      "sha256": "97d6ced246feead6813987a28cf3d481cdf0f853a9b1015b718fbf8ac5edba50",
+      "sha256": "2753d1ebf7ddd496203372052019762648f8191eb06a62b16da343ef49096d53",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -165960,11 +165960,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 197,
+        "end_line": 218,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/trig.rs",
-      "sha256": "e15a4980612ec2f70da7fb958593631eadf64a405e19a8bf6971e00b8ff5410e",
+      "sha256": "b95f655330325be36bf83dfc006a3439d714142620586b8e293f3e6615f7c4f6",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },

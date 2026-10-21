@@ -355,6 +355,7 @@ impl GameLogic {
     }
 
     pub(in super::super) fn clear_removed_object_references(&mut self, id: ObjectId) {
+        self.beacon_client.remove(id);
         self.admit_local_drawable_deselected(id);
         for player in self.players.values_mut() {
             player.selected_objects.retain(|&selected| selected != id);

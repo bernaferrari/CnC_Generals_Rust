@@ -793,3 +793,6 @@ pub const COMMAND_EXECUTOR_SRC: &str = concat!(
     include_str!("transport.rs"),
     include_str!("validate.rs"),
 );
+
+#[cfg(test)]
+mod beacon_owner_tests;

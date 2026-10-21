@@ -960,7 +960,9 @@ impl<'a> CommandExecutor<'a> {
         if !text.is_empty() {
             live_beacon_set_caption(self.game_logic, beacon_id, text);
         }
-        live_beacon_note_pulse_frame(beacon_id, self.game_logic.frame);
+        self.game_logic
+            .beacon_client
+            .created(beacon_id, self.game_logic.frame);
 
         let allied_or_observer = match local_id {
             Some(local) => {
@@ -1045,7 +1047,7 @@ impl<'a> CommandExecutor<'a> {
                 }
                 self.game_logic
                     .destroy_object_with_effects(id, &mut self.ui);
-                live_beacon_clear(id);
+                self.game_logic.beacon_client.remove(id);
                 any = true;
             } else if local_id == Some(player_id) {
                 live_beacon_hide(self.game_logic, id);
@@ -1271,29 +1273,7 @@ fn host_kill_player(
         .collect();
     logic.kill_player_for_victory_with_effects(player_id, effects);
     for id in ids {
-        live_beacon_clear(id);
-    }
-}
-
-#[derive(Default)]
-struct LiveBeaconClientState {
-    hidden: HashSet<u32>,
-    captions: HashMap<u32, String>,
-    last_pulse: HashMap<u32, u32>,
-    smoke: HashMap<u32, u32>,
-}
-
-fn live_beacon_client_state() -> &'static std::sync::Mutex<LiveBeaconClientState> {
-    static STATE: std::sync::LazyLock<std::sync::Mutex<LiveBeaconClientState>> =
-        std::sync::LazyLock::new(|| std::sync::Mutex::new(LiveBeaconClientState::default()));
-    &STATE
-}
-
-/// C++ BeaconClientUpdate defaults live on leftover `BeaconClientUpdateModuleData`.
-
-fn live_beacon_note_pulse_frame(id: ObjectId, frame: u32) {
-    if let Ok(mut state) = live_beacon_client_state().lock() {
-        state.last_pulse.insert(id.0, frame);
+        logic.beacon_client.remove(id);
     }
 }
 
@@ -1307,48 +1287,29 @@ fn live_beacon_hide(logic: &mut GameLogic, id: ObjectId) {
     if let Some(pos) = pos {
         logic.note_beacon_removed_at(pos);
     }
-    let smoke_id = live_beacon_client_state().lock().ok().and_then(|mut s| {
-        s.hidden.insert(id.0);
-        s.smoke.remove(&id.0)
-    });
+    let smoke_id = logic.beacon_client.hide(id);
     if let Some(smoke_id) = smoke_id {
         logic.combat_particles_mut().deactivate(smoke_id);
     }
 }
 
 fn live_beacon_set_caption(logic: &mut GameLogic, id: ObjectId, text: &str) {
-    if let Ok(mut state) = live_beacon_client_state().lock() {
-        state.captions.insert(id.0, text.to_string());
-    }
+    logic.beacon_client.set_caption(id, Some(text.to_owned()));
     if let Some(obj) = logic.host_object_mut(id) {
         obj.name = text.to_string();
     }
 }
 
 fn live_beacon_clear_caption(logic: &mut GameLogic, id: ObjectId) {
-    if let Ok(mut state) = live_beacon_client_state().lock() {
-        state.captions.remove(&id.0);
-    }
+    logic.beacon_client.set_caption(id, None);
     if let Some(obj) = logic.host_object_mut(id) {
         obj.name = obj.template_name.clone();
     }
 }
 
-fn live_beacon_clear(id: ObjectId) {
-    if let Ok(mut state) = live_beacon_client_state().lock() {
-        state.hidden.remove(&id.0);
-        state.captions.remove(&id.0);
-        state.last_pulse.remove(&id.0);
-        state.smoke.remove(&id.0);
-    }
-}
-
-/// C++ `BeaconClientUpdate::hideBeacon` residual — enemy beacons stay hidden.
-pub fn host_beacon_is_hidden(id: ObjectId) -> bool {
-    live_beacon_client_state()
-        .lock()
-        .map(|s| s.hidden.contains(&id.0))
-        .unwrap_or(false)
+/// C++ `BeaconClientUpdate::hideBeacon` state for this receiving match.
+pub fn host_beacon_is_hidden(logic: &GameLogic, id: ObjectId) -> bool {
+    logic.beacon_client.is_hidden(id)
 }
 
 /// C++ hidden drawable has no world or minimap presence.
@@ -1357,17 +1318,14 @@ pub fn host_beacon_position_is_hidden(logic: &GameLogic, pos: Vec3) -> bool {
     const MATCH: f32 = 3.0; // beacon_manager BEACON_MATCH_THRESHOLD
     logic.host_objects().values().any(|obj| {
         obj.template_name.to_ascii_lowercase().contains("beacon")
-            && (host_beacon_is_hidden(obj.id) || obj.drawable_hidden)
+            && (host_beacon_is_hidden(logic, obj.id) || obj.drawable_hidden)
             && (obj.get_position() - pos).length() <= MATCH
     })
 }
 
 /// C++ Drawable::getCaptionText residual for live beacons.
-pub fn host_beacon_caption(id: ObjectId) -> Option<String> {
-    live_beacon_client_state()
-        .lock()
-        .ok()
-        .and_then(|s| s.captions.get(&id.0).cloned())
+pub fn host_beacon_caption(logic: &GameLogic, id: ObjectId) -> Option<String> {
+    logic.beacon_client.caption(id).map(str::to_owned)
 }
 
 /// C++ ControlBar.cpp update — count < MaxBeaconsPerPlayer.
@@ -1397,16 +1355,13 @@ pub fn tick_live_beacon_client_updates(logic: &mut GameLogic) {
             if !obj.is_alive() || !obj.template_name.to_ascii_lowercase().contains("beacon") {
                 return None;
             }
-            let hidden = obj.drawable_hidden || host_beacon_is_hidden(*id);
+            let hidden = obj.drawable_hidden || host_beacon_is_hidden(logic, *id);
             let owner = obj.owner_player_id.unwrap_or(0);
             Some((*id, obj.get_position(), hidden, owner))
         })
         .collect();
     for (id, pos, hidden, owner) in beacons {
-        let smoke_missing = live_beacon_client_state()
-            .lock()
-            .map(|s| !s.smoke.contains_key(&id.0))
-            .unwrap_or(true);
+        let smoke_missing = logic.beacon_client.smoke(id).is_none();
         if smoke_missing {
             let rgb = logic
                 .get_player(owner)
@@ -1440,9 +1395,7 @@ pub fn tick_live_beacon_client_updates(logic: &mut GameLogic) {
                         }
                     }
                 }
-                if let Ok(mut state) = live_beacon_client_state().lock() {
-                    state.smoke.insert(id.0, smoke_id);
-                }
+                logic.beacon_client.set_smoke(id, smoke_id);
                 if hidden {
                     logic.combat_particles_mut().deactivate(smoke_id);
                 }
@@ -1451,18 +1404,10 @@ pub fn tick_live_beacon_client_updates(logic: &mut GameLogic) {
         if hidden {
             continue;
         }
-        let should_pulse = {
-            let Ok(mut state) = live_beacon_client_state().lock() else {
-                continue;
-            };
-            let last = state.last_pulse.entry(id.0).or_insert(frame);
-            if frame > *last + pulse_data.frames_between_radar_pulses {
-                *last = frame;
-                true
-            } else {
-                false
-            }
-        };
+        let should_pulse =
+            logic
+                .beacon_client
+                .pulse_due(id, frame, pulse_data.frames_between_radar_pulses);
         if should_pulse {
             logic.host_create_radar_event_for(
                 pos,

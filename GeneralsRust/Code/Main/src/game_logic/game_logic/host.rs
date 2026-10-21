@@ -1366,6 +1366,7 @@ pub struct GameLogic {
     /// Host-owned active beacon world positions (presentation freeze; Wave 211).
     /// Mirrors beacon_manager place/remove without mid-frame Mutex dual-read.
     pub(super) host_beacons: Vec<Vec3>,
+    pub(crate) beacon_client: super::beacon_client_state::BeaconClientState,
     /// Beacon locations created this frame for HUD highlighting/bloom.
     pub(super) recent_beacons: Vec<Vec3>,
     /// Leftover ScriptingEngine second brain (hq-8ta4n). Always None on live host.

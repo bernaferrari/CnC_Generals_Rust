@@ -177,7 +177,7 @@ fn place_beacon_spawns_world_object_and_honors_cap() {
     assert_eq!(beacons.len(), 1);
     let id = beacons[0];
     assert_eq!(
-        crate::command_executor::host_beacon_caption(id).as_deref(),
+        crate::command_executor::host_beacon_caption(&logic, id).as_deref(),
         Some("here")
     );
 

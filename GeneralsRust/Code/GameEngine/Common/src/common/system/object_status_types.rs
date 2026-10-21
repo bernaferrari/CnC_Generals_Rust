@@ -202,6 +202,28 @@ impl ObjectStatusMaskType {
                 _ => (None, token),
             };
 
+            // BitFlagsIO checks the listing mode before scanning the name,
+            // including unknown/empty names in a conflicting mode.
+            match op {
+                Some('+') if found_normal => {
+                    return Err(
+                        "cannot mix additive object status tokens with direct listings".to_string(),
+                    );
+                }
+                Some('-') if found_normal => {
+                    return Err(
+                        "cannot mix subtractive object status tokens with direct listings"
+                            .to_string(),
+                    );
+                }
+                None if found_add_or_sub => {
+                    return Err(
+                        "cannot mix direct object status listings with +/- modifiers".to_string(),
+                    );
+                }
+                _ => {}
+            }
+
             if name.is_empty() {
                 return Err(format!("invalid object status token '{token}'"));
             }
@@ -211,32 +233,14 @@ impl ObjectStatusMaskType {
 
             match op {
                 Some('+') => {
-                    if found_normal {
-                        return Err(
-                            "cannot mix additive object status tokens with direct listings"
-                                .to_string(),
-                        );
-                    }
                     mask.insert(flag);
                     found_add_or_sub = true;
                 }
                 Some('-') => {
-                    if found_normal {
-                        return Err(
-                            "cannot mix subtractive object status tokens with direct listings"
-                                .to_string(),
-                        );
-                    }
                     mask.remove(flag);
                     found_add_or_sub = true;
                 }
                 None => {
-                    if found_add_or_sub {
-                        return Err(
-                            "cannot mix direct object status listings with +/- modifiers"
-                                .to_string(),
-                        );
-                    }
                     if !found_normal {
                         mask = Self::empty();
                     }
@@ -594,10 +598,79 @@ mod tests {
 
         let err = ObjectStatusMaskType::parse_tokens(["STEALTHED", "+DETECTED"].iter().copied())
             .expect_err("mixed modes");
-        assert!(
-            err.contains("mix direct"),
-            "unexpected error message: {err}"
+        assert_eq!(
+            err,
+            "cannot mix additive object status tokens with direct listings"
         );
+    }
+
+    #[test]
+    fn object_status_mode_conflicts_precede_invalid_name_scans_like_cpp() {
+        for (prefix, next, expected) in [
+            (
+                "STEALTHED",
+                "+DETECTED",
+                "cannot mix additive object status tokens with direct listings",
+            ),
+            (
+                "STEALTHED",
+                "+UNKNOWN",
+                "cannot mix additive object status tokens with direct listings",
+            ),
+            (
+                "STEALTHED",
+                "+",
+                "cannot mix additive object status tokens with direct listings",
+            ),
+            (
+                "STEALTHED",
+                "-DETECTED",
+                "cannot mix subtractive object status tokens with direct listings",
+            ),
+            (
+                "STEALTHED",
+                "-UNKNOWN",
+                "cannot mix subtractive object status tokens with direct listings",
+            ),
+            (
+                "STEALTHED",
+                "-",
+                "cannot mix subtractive object status tokens with direct listings",
+            ),
+            (
+                "+STEALTHED",
+                "DETECTED",
+                "cannot mix direct object status listings with +/- modifiers",
+            ),
+            (
+                "+STEALTHED",
+                "UNKNOWN",
+                "cannot mix direct object status listings with +/- modifiers",
+            ),
+            (
+                "-STEALTHED",
+                "DETECTED",
+                "cannot mix direct object status listings with +/- modifiers",
+            ),
+            (
+                "-STEALTHED",
+                "UNKNOWN",
+                "cannot mix direct object status listings with +/- modifiers",
+            ),
+        ] {
+            assert_eq!(
+                ObjectStatusMaskType::parse_tokens([prefix, next]).unwrap_err(),
+                expected,
+                "{prefix} {next}"
+            );
+        }
+        // No conflicting prefix: the original name scanner still rejects it.
+        for token in ["UNKNOWN", "+UNKNOWN", "-UNKNOWN"] {
+            assert_eq!(
+                ObjectStatusMaskType::parse_tokens([token]).unwrap_err(),
+                "unknown object status 'UNKNOWN'"
+            );
+        }
     }
 }
 
