@@ -19,10 +19,14 @@ fn receiving(threat: u16) -> GameLogic {
     world
 }
 fn install_player(world: &mut GameLogic) {
-    world.players.insert(
+    // Prepare the receiving default team before strict TeamFactory restore,
+    // as SidesList::validateSides / Player::setDefaultTeam do at new game.
+    world.add_player(crate::game_logic::Player::new(
         0,
-        crate::game_logic::Player::new(0, Team::USA, "Receiving threat owner", true),
-    );
+        Team::USA,
+        "Receiving threat owner",
+        true,
+    ));
 }
 fn reset_receiving(world: &mut GameLogic) {
     world.reset();

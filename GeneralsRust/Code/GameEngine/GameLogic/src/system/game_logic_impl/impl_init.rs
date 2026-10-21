@@ -217,11 +217,6 @@ impl GameLogic {
         // C++ line 413: m_controlBarOverrides.clear()
         self.control_bar_overrides.clear();
 
-        // C++ lines 447-451: delete TheStatsCollector; TheStatsCollector = NULL;
-        game_engine::common::stats_collector::with_stats_collector_mut(|collector| {
-            collector.reset();
-        });
-
         // C++ line 462: m_scriptHulkMaxLifetimeOverride = -1
         crate::helpers::TheGameLogic::set_hulk_max_lifetime_override(-1);
 

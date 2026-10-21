@@ -3,17 +3,16 @@
 //! This module parses the legacy Generals GUI window scripts into in-memory
 //! window definitions for creation by the WindowManager.
 
-use super::game_window::{
-    GameFont, Image, WindowDrawData, WindowStatus, WindowTextColors, GWS_ANIMATED, GWS_CHECK_BOX,
-    GWS_COMBO_BOX, GWS_ENTRY_FIELD, GWS_HORZ_SLIDER, GWS_MOUSE_TRACK, GWS_PROGRESS_BAR,
-    GWS_PUSH_BUTTON, GWS_RADIO_BUTTON, GWS_SCROLL_LISTBOX, GWS_STATIC_TEXT, GWS_TAB_CONTROL,
-    GWS_TAB_PANE, GWS_TAB_STOP, GWS_USER_WINDOW, GWS_VERT_SLIDER,
-};
 use super::MAX_DRAW_DATA;
-use std::cell::RefCell;
+use super::game_window::{
+    GWS_ANIMATED, GWS_CHECK_BOX, GWS_COMBO_BOX, GWS_ENTRY_FIELD, GWS_HORZ_SLIDER, GWS_MOUSE_TRACK,
+    GWS_PROGRESS_BAR, GWS_PUSH_BUTTON, GWS_RADIO_BUTTON, GWS_SCROLL_LISTBOX, GWS_STATIC_TEXT,
+    GWS_TAB_CONTROL, GWS_TAB_PANE, GWS_TAB_STOP, GWS_USER_WINDOW, GWS_VERT_SLIDER, GameFont, Image,
+    WindowDrawData, WindowStatus, WindowTextColors,
+};
 use std::collections::HashMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 #[derive(Debug, Default, Clone)]
 pub struct WindowLayoutDefinition {
@@ -241,33 +240,11 @@ impl From<std::io::Error> for WindowScriptError {
     }
 }
 
-/// Parse a `.wnd` script. Interactive SkirmishGameOptionsMenu.wnd is ~900KB;
-/// cache the parsed definition so a second push does not re-parse (do not skip).
+/// Read and parse this invocation's `.wnd` file.
+/// C++ GameWindowManagerScript.cpp:2689-2725 resets per-file state and opens
+/// the source on every call; previously parsed layouts do not replace that IO.
 pub fn parse_window_script(path: &Path) -> Result<WindowLayoutDefinition, WindowScriptError> {
-    if let Some(cached) = wnd_parse_cache_get(path) {
-        return Ok(cached);
-    }
-    let parsed = parse_window_script_uncached(path)?;
-    wnd_parse_cache_put(path, parsed.clone());
-    Ok(parsed)
-}
-
-// THREAD: main thread only — .wnd layouts are parsed by GUI-thread menu init,
-// so the cache is a plain thread-local map.
-thread_local! {
-    static WND_PARSE_CACHE: RefCell<HashMap<PathBuf, WindowLayoutDefinition>> =
-        RefCell::new(HashMap::new());
-}
-
-fn wnd_parse_cache_get(path: &Path) -> Option<WindowLayoutDefinition> {
-    let key = path.to_path_buf();
-    WND_PARSE_CACHE.with_borrow(|cache| cache.get(&key).cloned())
-}
-
-fn wnd_parse_cache_put(path: &Path, parsed: WindowLayoutDefinition) {
-    WND_PARSE_CACHE.with_borrow_mut(|cache| {
-        cache.insert(path.to_path_buf(), parsed);
-    });
+    parse_window_script_uncached(path)
 }
 
 pub fn parse_window_script_uncached(
@@ -1124,10 +1101,12 @@ mod tests {
             !window.slider_thumb_enabled_draw_data.is_empty(),
             "per-window SLIDERTHUMB* must land on WindowDefinition"
         );
-        assert!(window.slider_thumb_enabled_draw_data[0]
-            .image
-            .as_ref()
-            .is_some_and(|image| image.name == "Thumb"));
+        assert!(
+            window.slider_thumb_enabled_draw_data[0]
+                .image
+                .as_ref()
+                .is_some_and(|image| image.name == "Thumb")
+        );
     }
 
     #[test]
@@ -1142,14 +1121,83 @@ mod tests {
             !window.listbox_enabled_up_button_draw_data.is_empty(),
             "per-window LISTBOX*DRAWDATA must land on WindowDefinition"
         );
-        assert!(window.listbox_enabled_up_button_draw_data[0]
-            .image
-            .as_ref()
-            .is_some_and(|image| image.name == "UpArrow"));
+        assert!(
+            window.listbox_enabled_up_button_draw_data[0]
+                .image
+                .as_ref()
+                .is_some_and(|image| image.name == "UpArrow")
+        );
     }
 
     #[test]
     fn window_definition_default_tooltip_delay_is_cpp_minus_one() {
         assert_eq!(super::WindowDefinition::default().tooltip_delay, -1);
+    }
+
+    #[test]
+    fn window_script_reloads_changed_or_deleted_source_without_shared_cache() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("FreshWindowScript.wnd");
+        std::fs::write(
+            &path,
+            concat!(
+                "FILE_VERSION=2;\n",
+                "STARTLAYOUTBLOCK\n",
+                "LAYOUTINIT=FirstInit;\n",
+                "LAYOUTUPDATE=FirstUpdate;\n",
+                "LAYOUTSHUTDOWN=FirstShutdown;\n",
+                "ENDLAYOUTBLOCK\n",
+                "WINDOW\n",
+                "NAME=FirstWindow;\n",
+                "END\n",
+            ),
+        )
+        .unwrap();
+        let first = super::parse_window_script(&path).unwrap();
+        assert_eq!(first.version, 2);
+        assert_eq!(first.init_callback, "FirstInit");
+        assert_eq!(first.update_callback, "FirstUpdate");
+        assert_eq!(first.shutdown_callback, "FirstShutdown");
+        assert_eq!(first.windows[0].name, "FirstWindow");
+
+        std::fs::write(
+            &path,
+            concat!(
+                "FILE_VERSION=3;\n",
+                "STARTLAYOUTBLOCK\n",
+                "LAYOUTINIT=SecondInit;\n",
+                "LAYOUTUPDATE=SecondUpdate;\n",
+                "LAYOUTSHUTDOWN=SecondShutdown;\n",
+                "ENDLAYOUTBLOCK\n",
+                "WINDOW\n",
+                "NAME=SecondWindow;\n",
+                "END\n",
+            ),
+        )
+        .unwrap();
+        let second = super::parse_window_script(&path).unwrap();
+        assert_eq!(second.version, 3, "each invocation reads current source");
+        assert_eq!(second.init_callback, "SecondInit");
+        assert_eq!(second.update_callback, "SecondUpdate");
+        assert_eq!(second.shutdown_callback, "SecondShutdown");
+        assert_eq!(second.windows[0].name, "SecondWindow");
+        assert_eq!(first.init_callback, "FirstInit");
+        assert_eq!(first.windows[0].name, "FirstWindow");
+
+        // The script facade must use the same fresh-file contract too.
+        let engine = crate::gui::game_window_manager_script::WindowScriptEngine::new();
+        let via_engine = engine.load_window_layout(&path).unwrap();
+        assert_eq!(via_engine.version, 3);
+        assert_eq!(via_engine.windows[0].name, "SecondWindow");
+        std::fs::remove_file(&path).unwrap();
+        assert!(matches!(
+            super::parse_window_script(&path),
+            Err(super::WindowScriptError::Io(_))
+        ));
+        assert!(matches!(
+            engine.load_window_layout(&path),
+            Err(super::WindowScriptError::Io(_))
+        ));
+        assert_eq!(via_engine.windows[0].name, "SecondWindow");
     }
 }

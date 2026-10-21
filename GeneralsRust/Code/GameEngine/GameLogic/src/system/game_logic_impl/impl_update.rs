@@ -53,7 +53,7 @@ impl GameLogic {
     /// Line 3603: freezeTime check
     /// Line 3622: TheTerrainLogic->UPDATE()           [terrain/bridges]
     /// Line 3627: CRC calculation (MP/replay)
-    /// Line 3657: StatsCollector update
+    /// Line 3657: optional C++ play-stats logger (not implemented here)
     /// Line 3663: Recorder UPDATE
     /// Line 3669: processCommandList                  [command processing]
     /// Line 3672: ALLOW_NONSLEEPY_UPDATES loop        [normal modules]
@@ -216,7 +216,7 @@ impl GameLogic {
         // Phase 3b: CRC Calculation (C++ lines 3625-3665)
         // -----------------------------------------------------------------------
         // C++: m_CRC = getCRC(CRC_RECALC); TheMessageStream->appendMessage(MSG_LOGIC_CRC);
-        // then TheStatsCollector->update(); TheRecorder->UPDATE();
+        // The optional C++ play-stats logger is not implemented here; recorder follows CRC.
         let current_crc_interval =
             game_engine::common::crc_debug::replay_crc_interval() as UnsignedInt;
         // Single-series gate: when a host shell bridge (GameClient / Main
@@ -253,9 +253,6 @@ impl GameLogic {
             }
             posted_logic_crc = Some(self.crc_cache);
         }
-        game_engine::common::stats_collector::with_stats_collector_mut(|collector| {
-            collector.update();
-        });
         if !external_crc_post {
             game_engine::common::recorder::with_recorder_mut(|recorder| {
                 recorder.set_current_frame(self.frame);

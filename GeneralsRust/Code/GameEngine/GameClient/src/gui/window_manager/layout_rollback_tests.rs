@@ -362,3 +362,61 @@ fn rollback_reclaims_selected_candidate_widget_before_restoring_existing_group()
         Some(original_selected)
     );
 }
+
+#[test]
+fn public_layout_loaders_reparse_same_path_and_keep_prior_live_windows() {
+    for with_layout in [false, true] {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("FreshLayout.wnd");
+        std::fs::write(&path, root("FreshFirst")).unwrap();
+        let mut first_owner = WindowManager::new();
+        let first = load(&mut first_owner, &path, with_layout).unwrap();
+        let first_window = first.windows[0].clone();
+        let first_id = NameKeyGenerator::name_to_key("FreshFirst") as WindowId;
+        assert_eq!(first_window.borrow().get_id(), first_id);
+        assert_eq!(first_owner.window_count, 1);
+
+        std::fs::write(&path, root("FreshSecond") + root("FreshThird").as_str()).unwrap();
+        let mut peer = WindowManager::new();
+        let second = load(&mut peer, &path, with_layout).unwrap();
+        let same_owner = load(&mut first_owner, &path, with_layout).unwrap();
+        let second_ids = ["FreshSecond", "FreshThird"]
+            .map(|name| NameKeyGenerator::name_to_key(name) as WindowId);
+        for info in [&second, &same_owner] {
+            assert_eq!(info.windows.len(), 2);
+            for (window, expected_id) in info.windows.iter().zip(second_ids) {
+                assert_eq!(window.borrow().get_id(), expected_id);
+            }
+        }
+        assert_eq!(peer.window_count, 2);
+        assert_eq!(first_owner.window_count, 3);
+        assert_eq!(first_window.borrow().get_id(), first_id);
+        assert!(
+            !first_window
+                .borrow()
+                .get_status()
+                .contains(WindowStatus::DESTROYED)
+        );
+        assert!(Rc::ptr_eq(
+            &first_owner.get_window_by_id(first_id).unwrap(),
+            &first_window
+        ));
+
+        // A new invalid source must fail before registering another layout;
+        // an old valid parse cannot conceal the failure or the subsequent IO error.
+        let first_before = Baseline::capture(&first_owner);
+        let peer_before = Baseline::capture(&peer);
+        std::fs::write(&path, "END;").unwrap();
+        assert!(load(&mut first_owner, &path, with_layout).is_err());
+        first_before.assert_restored(&first_owner);
+        peer_before.assert_restored(&peer);
+        std::fs::remove_file(&path).unwrap();
+        assert!(load(&mut first_owner, &path, with_layout).is_err());
+        first_before.assert_restored(&first_owner);
+        peer_before.assert_restored(&peer);
+
+        peer.reset();
+        assert_eq!(peer.window_count, 0);
+        first_before.assert_restored(&first_owner);
+    }
+}

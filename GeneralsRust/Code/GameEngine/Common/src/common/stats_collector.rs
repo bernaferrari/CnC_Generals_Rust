@@ -1,6 +1,5 @@
 //! Game statistics collector for tracking gameplay and performance metrics.
 
-use std::cell::RefCell;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
@@ -341,23 +340,4 @@ impl StatsCollector {
             self.get_average_frame_time()
         )
     }
-}
-
-// THREAD: C++ plain static; driven only by the single game/client thread.
-thread_local! {
-    static GLOBAL_STATS_COLLECTOR: RefCell<Option<StatsCollector>> = const { RefCell::new(None) };
-}
-
-/// Initialise the global stats collector.
-pub fn init_stats_collector() {
-    GLOBAL_STATS_COLLECTOR.with_borrow_mut(|slot| {
-        if slot.is_none() {
-            *slot = Some(StatsCollector::new());
-        }
-    });
-}
-
-/// Execute a closure with a mutable reference to the global stats collector.
-pub fn with_stats_collector_mut<R>(f: impl FnOnce(&mut StatsCollector) -> R) -> Option<R> {
-    GLOBAL_STATS_COLLECTOR.with_borrow_mut(|slot| slot.as_mut().map(f))
 }
