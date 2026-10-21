@@ -11,8 +11,8 @@ mod tests {
     use std::cell::Cell;
     use std::rc::Rc;
     use std::sync::{
-        atomic::{AtomicBool, AtomicUsize, Ordering},
         Arc, Mutex, OnceLock,
+        atomic::{AtomicBool, AtomicUsize, Ordering},
     };
 
     static TEST_LOAD_SCREEN_STATE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
@@ -147,9 +147,24 @@ mod tests {
 
     #[test]
     fn multiplayer_init_compacts_visible_context_slots_like_cpp() {
-        let _state_guard = lock_test_load_screen_state();
-        Language::clear_localized_strings();
-        Language::register_localized_string("Team:3", "Team Three");
+        #[cfg(not(target_arch = "wasm32"))]
+        if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
+            module_path!(),
+            "multiplayer_init_compacts_visible_context_slots_like_cpp",
+        ) {
+            return;
+        }
+        // Own the selected classic GameText catalog in this exact process.
+        // Language fallback registrations cannot override a loaded retail CSF.
+        let directory = tempfile::tempdir().unwrap();
+        let strings = directory.path().join("MultiplayerTeams.str");
+        std::fs::write(&strings, "Team:3\n\"Team Three\"\nEND\n").unwrap();
+        GameText::init_map_string_file(strings.to_str().unwrap())
+            .expect("admit actual selected team map-string catalog");
+        assert_eq!(
+            GameText::fetch_with_exists("Team:3"),
+            ("Team Three".to_owned(), true),
+        );
         let mut wm = WindowManager::new();
         create_multiplayer_slot_windows(&mut wm, "MultiplayerLoadScreen.wnd", 3);
         named_test_window(&mut wm, "MultiplayerLoadScreen.wnd:LocalGeneralPortrait");
@@ -246,14 +261,28 @@ mod tests {
             &wm,
             "MultiplayerLoadScreen.wnd:StaticTextPlayer2"
         ));
-        Language::clear_localized_strings();
     }
 
     #[test]
     fn multiplayer_row_team_text_is_localized_like_cpp() {
-        let _state_guard = lock_test_load_screen_state();
-        Language::clear_localized_strings();
-        Language::register_localized_string("Team:2", "Team Two");
+        #[cfg(not(target_arch = "wasm32"))]
+        if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
+            module_path!(),
+            "multiplayer_row_team_text_is_localized_like_cpp",
+        ) {
+            return;
+        }
+        // Own the selected classic GameText catalog in this exact process.
+        // Language fallback registrations cannot override a loaded retail CSF.
+        let directory = tempfile::tempdir().unwrap();
+        let strings = directory.path().join("MultiplayerTeams.str");
+        std::fs::write(&strings, "Team:2\n\"Team Two\"\nEND\n").unwrap();
+        GameText::init_map_string_file(strings.to_str().unwrap())
+            .expect("admit actual selected team map-string catalog");
+        assert_eq!(
+            GameText::fetch_with_exists("Team:2"),
+            ("Team Two".to_owned(), true),
+        );
 
         let mut wm = WindowManager::new();
         create_multiplayer_slot_windows(&mut wm, "MultiplayerLoadScreen.wnd", 1);
@@ -283,8 +312,6 @@ mod tests {
             window_text(&wm, "MultiplayerLoadScreen.wnd:StaticTextTeam0"),
             "Team Two"
         );
-
-        Language::clear_localized_strings();
     }
 
     #[test]
@@ -389,9 +416,10 @@ mod tests {
             &wm,
             "GameSpyLoadScreen.wnd:StaticTextWinLoss1"
         ));
-        assert!(wm
-            .find_window_by_name("GameSpyLoadScreen.wnd:StaticTextTeam1")
-            .is_none());
+        assert!(
+            wm.find_window_by_name("GameSpyLoadScreen.wnd:StaticTextTeam1")
+                .is_none()
+        );
         assert_eq!(
             window_image_name(&wm, "GameSpyLoadScreen.wnd:LocalGeneralPortrait", 0),
             Some("SAFactionLogo144_US".to_string())
@@ -461,12 +489,76 @@ mod tests {
     }
 
     #[test]
+    fn retail_timeout_formats_decimal_precision_like_cpp() {
+        for (seconds, expected) in [
+            (0, "Abort in 0:00"),
+            (5, "Abort in 0:05"),
+            (59, "Abort in 0:59"),
+            (60, "Abort in 1:00"),
+            (125, "Abort in 2:05"),
+            (-1, "Abort in 0:-01"),
+            (-65, "Abort in -1:-05"),
+            (i32::MAX, "Abort in 35791394:07"),
+            (i32::MIN, "Abort in -35791394:-08"),
+        ] {
+            assert_eq!(
+                format_map_transfer_timeout_for_template("Abort in %d:%2.2d", seconds),
+                expected,
+                "seconds={seconds}",
+            );
+        }
+        assert_eq!(
+            format_map_transfer_timeout_for_template("%d:%d remaining", 125),
+            "2:5 remaining",
+            "retain the original unpadded regression's selected format",
+        );
+        assert_eq!(
+            format_map_transfer_timeout_for_template("残り %d:%2.2d (100%%)", 125),
+            "残り 2:05 (100%)",
+        );
+        assert_eq!(
+            format_map_transfer_timeout_for_template("%%d %d %%2.2d %2.2d", 125),
+            "%d 2 %2.2d 05",
+            "escaped percent does not consume a countdown argument",
+        );
+    }
+
+    #[test]
     fn map_transfer_progress_timeout_and_filename_cache_like_cpp() {
-        let _state_guard = lock_test_load_screen_state();
-        Language::clear_localized_strings();
-        Language::register_localized_string("MapTransfer:Unpacking", "Unpacking map");
-        Language::register_localized_string("MapTransfer:Timeout", "%d:%d remaining");
-        Language::register_localized_string("MapTransfer:CurrentFile", "Current: %s");
+        #[cfg(not(target_arch = "wasm32"))]
+        if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
+            module_path!(),
+            "map_transfer_progress_timeout_and_filename_cache_like_cpp",
+        ) {
+            return;
+        }
+        // This exact process owns the classic GameText catalog. A Language
+        // fallback registration cannot override an already loaded retail CSF.
+        // Admit the selected strings through the actual map-string parser,
+        // without changing the production CSF-first lookup order.
+        let directory = tempfile::tempdir().unwrap();
+        let strings = directory.path().join("MapTransferFixture.str");
+        std::fs::write(
+            &strings,
+            concat!(
+                "MapTransfer:Unpacking\n\"Unpacking map\"\nEND\n",
+                "MapTransfer:Timeout\n\"%d:%d remaining\"\nEND\n",
+                "MapTransfer:CurrentFile\n\"Current: %s\"\nEND\n",
+            ),
+        )
+        .unwrap();
+        GameText::init_map_string_file(strings.to_str().unwrap())
+            .expect("admit actual selected map-string catalog");
+        for (label, expected) in [
+            ("MapTransfer:Unpacking", "Unpacking map"),
+            ("MapTransfer:Timeout", "%d:%d remaining"),
+            ("MapTransfer:CurrentFile", "Current: %s"),
+        ] {
+            assert_eq!(
+                GameText::fetch_with_exists(label),
+                (expected.to_owned(), true)
+            );
+        }
         reset_map_transfer_load_screen_state();
 
         let mut wm = WindowManager::new();
@@ -539,8 +631,6 @@ mod tests {
                 "Current: Tournament.map"
             );
         });
-
-        Language::clear_localized_strings();
     }
 
     #[test]
@@ -1502,11 +1592,12 @@ mod tests {
         assert!(!briefing_played);
         assert_eq!(briefing_handle, 0);
         assert_eq!(ambient_handle, 0);
-        assert!(wm
-            .find_window_by_name("SinglePlayerLoadScreen.wnd:Percent")
-            .expect("percent")
-            .borrow()
-            .is_hidden());
+        assert!(
+            wm.find_window_by_name("SinglePlayerLoadScreen.wnd:Percent")
+                .expect("percent")
+                .borrow()
+                .is_hidden()
+        );
         assert_eq!(
             window_enabled_image_name(
                 &wm,
@@ -1578,11 +1669,12 @@ mod tests {
         });
         assert!(prelude_active);
         assert_eq!(ambient_handle, 0);
-        assert!(wm
-            .find_window_by_name("SinglePlayerLoadScreen.wnd:Percent")
-            .expect("percent")
-            .borrow()
-            .is_hidden());
+        assert!(
+            wm.find_window_by_name("SinglePlayerLoadScreen.wnd:Percent")
+                .expect("percent")
+                .borrow()
+                .is_hidden()
+        );
         assert_eq!(
             window_enabled_image_name(
                 &wm,
@@ -1612,11 +1704,12 @@ mod tests {
         );
         with_window_manager(|wm| {
             assert_eq!(window_text(wm, "SinglePlayerLoadScreen.wnd:Percent"), "42%");
-            assert!(wm
-                .find_window_by_name("SinglePlayerLoadScreen.wnd:Percent")
-                .expect("percent")
-                .borrow()
-                .is_hidden());
+            assert!(
+                wm.find_window_by_name("SinglePlayerLoadScreen.wnd:Percent")
+                    .expect("percent")
+                    .borrow()
+                    .is_hidden()
+            );
         });
 
         movie_playing.store(false, Ordering::SeqCst);
@@ -1632,11 +1725,12 @@ mod tests {
         );
         with_window_manager(|wm| {
             assert_eq!(window_text(wm, "SinglePlayerLoadScreen.wnd:Percent"), "61%");
-            assert!(wm
-                .find_window_by_name("SinglePlayerLoadScreen.wnd:Percent")
-                .expect("percent")
-                .borrow()
-                .is_hidden());
+            assert!(
+                wm.find_window_by_name("SinglePlayerLoadScreen.wnd:Percent")
+                    .expect("percent")
+                    .borrow()
+                    .is_hidden()
+            );
         });
 
         reset_single_player_load_screen_audio_state();
@@ -2199,11 +2293,12 @@ mod tests {
         let root = wm
             .find_window_by_name("ShellGameLoadScreen.wnd:ParentShellGameLoadScreen")
             .expect("root");
-        assert!(root
-            .borrow()
-            .get_enabled_draw_data(0)
-            .and_then(|draw| draw.image)
-            .is_none());
+        assert!(
+            root.borrow()
+                .get_enabled_draw_data(0)
+                .and_then(|draw| draw.image)
+                .is_none()
+        );
         let legal = wm
             .find_window_by_name("ShellGameLoadScreen.wnd:StaticTextLegal")
             .expect("legal");
@@ -2229,11 +2324,13 @@ mod tests {
                 .map(|image| image.name),
             Some("TitleScreen".to_string())
         );
-        assert!(!later_wm
-            .find_window_by_name("ShellGameLoadScreen.wnd:StaticTextLegal")
-            .expect("legal")
-            .borrow()
-            .is_hidden());
+        assert!(
+            !later_wm
+                .find_window_by_name("ShellGameLoadScreen.wnd:StaticTextLegal")
+                .expect("legal")
+                .borrow()
+                .is_hidden()
+        );
         reset_shell_game_first_load_for_tests(true);
     }
 
@@ -2439,12 +2536,13 @@ mod tests {
             let window = wm.find_window_by_name(name).expect(name);
             assert!(window.borrow().is_hidden(), "{name}");
         }
-        assert!(wm
-            .find_window_by_name("ChallengeLoadScreen.wnd:BioStrategyEntryRight")
-            .expect("right strategy")
-            .borrow()
-            .get_text()
-            .is_empty());
+        assert!(
+            wm.find_window_by_name("ChallengeLoadScreen.wnd:BioStrategyEntryRight")
+                .expect("right strategy")
+                .borrow()
+                .get_text()
+                .is_empty()
+        );
         let (prelude_state, postlude_played, ambient_handle) =
             with_challenge_load_screen_state(|state| {
                 (

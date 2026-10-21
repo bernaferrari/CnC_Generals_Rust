@@ -152,10 +152,45 @@ pub fn set_map_transfer_current_filename(filename: &str) {
 }
 
 fn format_map_transfer_timeout(seconds_left: i32) -> String {
-    replace_first_percent_d(
-        &replace_first_percent_d(&GameText::fetch("MapTransfer:Timeout"), seconds_left / 60),
-        seconds_left % 60,
-    )
+    format_map_transfer_timeout_for_template(&GameText::fetch("MapTransfer:Timeout"), seconds_left)
+}
+
+/// The retail countdown uses `%d` and `%2.2d`; unlike field width alone,
+/// decimal precision counts digits without the sign. Preserve escaped `%`
+/// without consuming either argument. This is not a general printf engine.
+fn format_map_transfer_timeout_for_template(template: &str, seconds_left: i32) -> String {
+    let mut values = [seconds_left / 60, seconds_left % 60].into_iter();
+    let mut remaining = template;
+    let mut result = String::with_capacity(template.len());
+    while !remaining.is_empty() {
+        if let Some(rest) = remaining.strip_prefix("%%") {
+            result.push('%');
+            remaining = rest;
+            continue;
+        }
+        let conversion = remaining
+            .strip_prefix("%2.2d")
+            .map(|rest| (rest, true))
+            .or_else(|| remaining.strip_prefix("%d").map(|rest| (rest, false)));
+        if let Some((rest, precision_two)) = conversion {
+            if let Some(value) = values.next() {
+                if precision_two {
+                    if value < 0 {
+                        result.push('-');
+                    }
+                    result.push_str(&format!("{:02}", value.unsigned_abs()));
+                } else {
+                    result.push_str(&value.to_string());
+                }
+                remaining = rest;
+                continue;
+            }
+        }
+        let character = remaining.chars().next().unwrap();
+        result.push(character);
+        remaining = &remaining[character.len_utf8()..];
+    }
+    result
 }
 
 fn format_map_transfer_current_file(filename: &str) -> String {
@@ -168,10 +203,6 @@ fn map_transfer_leaf_name(filename: &str) -> String {
     slash
         .map(|index| trimmed[index + 1..].to_string())
         .unwrap_or_else(|| trimmed.to_string())
-}
-
-fn replace_first_percent_d(template: &str, value: i32) -> String {
-    template.replacen("%d", &value.to_string(), 1)
 }
 
 fn multiplayer_slot_contexts(context: &LoadScreenInitContext) -> Vec<LoadScreenSlotInitContext> {

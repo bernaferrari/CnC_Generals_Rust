@@ -8,7 +8,6 @@
 // Stack dump and debugging utilities
 ///////////////////////////////////////////////////////////////////////////////
 
-use std::cell::RefCell;
 use std::backtrace::{Backtrace, BacktraceStatus};
 use std::fmt;
 use std::io::{self, Write};
@@ -164,16 +163,6 @@ impl fmt::Display for StackFrame {
     }
 }
 
-// THREAD: C++ plain static; driven only by the single game/client thread.
-thread_local! {
-    static STACK_DUMP_HANDLER: RefCell<Option<fn(&StackDump)>> = const { RefCell::new(None) };
-}
-
-/// Set global stack dump handler
-pub fn set_stack_dump_handler(handler: fn(&StackDump)) {
-    STACK_DUMP_HANDLER.with_borrow_mut(|slot| *slot = Some(handler));
-}
-
 /// Trigger stack dump with optional message
 pub fn dump_stack(message: Option<&str>) {
     let stack_dump = StackDump::capture();
@@ -183,11 +172,6 @@ pub fn dump_stack(message: Option<&str>) {
     }
 
     eprintln!("{}", stack_dump.to_string());
-
-    let handler = STACK_DUMP_HANDLER.with_borrow(|slot| *slot);
-    if let Some(handler) = handler {
-        handler(&stack_dump);
-    }
 }
 
 /// Dump stack on panic (install as panic hook)
