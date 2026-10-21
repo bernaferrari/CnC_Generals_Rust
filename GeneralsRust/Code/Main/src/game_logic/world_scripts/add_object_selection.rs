@@ -1529,13 +1529,14 @@ impl GameLogic {
         decoded_map: Option<&super::super::script_loader::ChunkyMap>,
         difficulty: Option<gamelogic::player::GameDifficulty>,
     ) -> bool {
-        let templates = self
-            .owned_script_engine
-            .as_ref()
-            .map(|engine| {
-                gamelogic::scripting::chunk_codec::ScriptTemplateLookup::from_engine(engine)
-            })
-            .unwrap_or_default();
+        let Some(receiving) = self.owned_script_engine.as_ref() else {
+            log::error!(
+                "Map script admission requires the receiving interpreter loan to be returned"
+            );
+            return false;
+        };
+        let templates =
+            gamelogic::scripting::chunk_codec::ScriptTemplateLookup::from_engine(receiving);
         let result = match decoded_map {
             Some(map) => super::super::script_loader::load_map_scripts_from_chunky_with_templates(
                 map, &templates,
@@ -1551,19 +1552,29 @@ impl GameLogic {
                 return false;
             }
         };
-        let Ok(mut engine) = gamelogic::scripting::engine::ScriptEngine::new() else {
-            log::error!("Failed to create map interpreter for '{}'", map_name);
-            return false;
-        };
-        if let Some(difficulty) = difficulty {
-            engine.set_global_difficulty(difficulty);
-        }
-        engine.set_action_handler(Some(Arc::new(MissionScriptActionHandler::new(
-            self.mission_scripts.clone(),
-        ))));
         let (lists, path) = result
             .map(|result| (result.script_lists, Some(result.source_path)))
             .unwrap_or_default();
+        // set_script_list_for_player's only rejection is this bound. Validate
+        // every decoded list before changing any receiving list or handler.
+        if lists.len() > gamelogic::common::MAX_PLAYER_COUNT {
+            log::error!("Too many map script lists for '{}'", map_name);
+            return false;
+        }
+        let handler = Arc::new(MissionScriptActionHandler::new(
+            self.mission_scripts.clone(),
+        ));
+        let engine = self
+            .owned_script_engine
+            .as_mut()
+            .expect("receiving interpreter retained during detached decode");
+        // reset already ran before map decoding; new_map remains at its later
+        // original phase. Definition admission must not reset controls/templates.
+        engine.clear_script_lists();
+        if let Some(difficulty) = difficulty {
+            engine.set_global_difficulty(difficulty);
+        }
+        engine.set_action_handler(Some(handler));
         for (index, list) in lists.iter().enumerate() {
             if let Err(error) =
                 engine.set_script_list_for_player(index, Some(Box::new(list.clone())))
@@ -1572,9 +1583,12 @@ impl GameLogic {
                 return false;
             }
         }
+        // Retain the original install boundary's publication of the actual
+        // receiving interpreter policy before player/factory callbacks.
+        self.objects_receive_difficulty_bonus =
+            engine.get_objects_should_receive_difficulty_bonus();
         self.loaded_script_lists = lists;
         self.script_source_path = path;
-        self.install_owned_script_engine(engine);
         true
     }
 
@@ -1718,13 +1732,12 @@ mod map_script_difficulty_tests {
             .set_global_difficulty(GameDifficulty::Hard);
         let mut peer = GameLogic::new();
         peer.prepare_native_command_difficulty(0);
-        // This is the actual value retained by load_map before replacement;
-        // the session's earlier Easy selection is deliberately different.
+        // Admission retains the actual receiving interpreter. Its difficulty
+        // deliberately differs from the session's earlier Easy selection.
         let difficulty = owner
             .owned_script_engine
             .as_ref()
             .map(|engine| engine.get_global_difficulty());
-        owner.owned_script_engine = None;
         let map = super::super::super::script_loader::ChunkyMap {
             source: std::path::PathBuf::from("no-authored-script-lists.map"),
             toc: std::collections::HashMap::from([(1, "UnrelatedMapData".into())]),
@@ -1778,3 +1791,7 @@ mod map_script_difficulty_tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "successful_script_owner_tests.rs"]
+mod successful_script_owner_tests;

@@ -1662,7 +1662,13 @@ impl CnCGameEngine {
     fn presentation_draw_module_names_from_template(
         cache: &std::cell::RefCell<HashMap<String, std::sync::Arc<Vec<String>>>>,
         template: &str,
+        receiving: Option<&crate::game_logic::thing::ReceivingDrawModels>,
     ) -> std::sync::Arc<Vec<String>> {
+        if let Some(receiving) = receiving {
+            // An admitted empty Draw list is also authoritative. Neither an
+            // application cache hit nor a same-name peer may replace it.
+            return receiving.module_class_names();
+        }
         if let Ok(guard) = cache.try_borrow() {
             if let Some(hit) = guard.get(template) {
                 return std::sync::Arc::clone(hit);
@@ -1803,6 +1809,7 @@ impl CnCGameEngine {
                         } else {
                             direct.visual_template_name.as_str()
                         },
+                        direct.receiving_visual_draw_models.as_deref(),
                     ),
                     health_box_width: o.health_box_width,
                     health_box_z_offset: o.health_box_z_offset,
@@ -3474,3 +3481,7 @@ mod snow_anim2d_owner_probe;
 pub(super) fn run_snow_anim2d_owner_probe() -> anyhow::Result<()> {
     snow_anim2d_owner_probe::run()
 }
+
+#[cfg(all(test, feature = "game_client"))]
+#[path = "receiving_draw_module_name_tests.rs"]
+mod receiving_draw_module_name_tests;

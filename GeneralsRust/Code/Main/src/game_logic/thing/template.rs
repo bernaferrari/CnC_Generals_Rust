@@ -37,9 +37,17 @@ impl BodyKind {
 pub(crate) struct ReceivingDrawModels {
     base_model: Option<String>,
     modules: Box<[crate::assets::DrawModuleDefinition]>,
+    // Tokenized once during admission; native projection shares this exact list.
+    module_class_names: std::sync::Arc<Vec<String>>,
 }
 
 impl ReceivingDrawModels {
+    /// Drawable.cpp:436-448 reads ordered classes from its receiving ThingTemplate.
+    /// This is authored identity, independent of selected models or GPU residency.
+    pub(crate) fn module_class_names(&self) -> std::sync::Arc<Vec<String>> {
+        std::sync::Arc::clone(&self.module_class_names)
+    }
+
     pub(crate) fn object_draws(
         &self,
         bits: u128,
@@ -1549,6 +1557,18 @@ impl ThingTemplate {
         self.authored_draw_modules = Some(std::sync::Arc::new(ReceivingDrawModels {
             base_model: self.model_name.clone(),
             modules: modules.to_vec().into_boxed_slice(),
+            module_class_names: std::sync::Arc::new(
+                modules
+                    .iter()
+                    .filter_map(|module| {
+                        module
+                            .declaration
+                            .split_whitespace()
+                            .next()
+                            .map(str::to_owned)
+                    })
+                    .collect(),
+            ),
         }));
     }
 
