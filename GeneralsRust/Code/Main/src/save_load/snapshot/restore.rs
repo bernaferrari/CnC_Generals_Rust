@@ -12,6 +12,10 @@ use std::time::SystemTime;
 #[path = "structure_topple_admission_tests.rs"]
 mod structure_topple_admission_tests;
 
+#[cfg(test)]
+#[path = "armor_definition_owner_tests.rs"]
+mod armor_definition_owner_tests;
+
 impl SnapshotBuilder {
     // Private helper methods for snapshot restoration
 
@@ -173,6 +177,10 @@ impl SnapshotBuilder {
                 );
                 t
             };
+
+        if let Some(catalog) = game_logic.armor_definitions.as_ref() {
+            template.armor_definitions = Some(catalog.clone());
+        }
 
         if let Some(kind) = body_kind {
             template.body_kind = Some(kind);

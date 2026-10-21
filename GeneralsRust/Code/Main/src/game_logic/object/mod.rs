@@ -2959,7 +2959,7 @@ pub struct Object {
     /// C++ `Drawable::m_explicitOpacity` residual (script/fade channel).
     #[serde(default = "default_one_f32")]
     pub drawable_explicit_opacity: f32,
-    /// C++ `Drawable::m_instanceScale` residual (script / EMP pulse scale).
+    /// Absolute C++ `Drawable::m_instanceScale`, initialized from template asset scale.
     #[serde(default = "default_one_f32")]
     pub drawable_instance_scale: f32,
     /// C++ `Drawable::m_tintStatus` residual.

@@ -120,6 +120,7 @@ impl CnCGameEngine {
             self.game_logic.production_energy_baseline(),
             self.game_logic.physics_rules_baseline(),
             self.game_logic.effective_terrain_definitions(),
+            self.game_logic.current_armor_definitions(),
             self.game_logic.session_view.camera.settings,
             self.game_logic.session_view.camera.clip_policy,
             self.game_logic.session_view.camera.shake_policy,
@@ -589,8 +590,14 @@ impl CnCGameEngine {
             phase = "scripted_origin_finalizer";
             let scripted_origin = self.camera_gate_scripted_origin(slot)?;
             partial_evidence["scripted_origin_finalizer"] = scripted_origin.clone();
+            phase = "terrain_owner_native_frame";
             let terrain_evidence = terrain_owner
-                .map(|state| self.terrain_gate_finish(state))
+                .map(|state| {
+                    self.terrain_gate_finish(
+                        state,
+                        &mut partial_evidence["terrain_owner_native_frame"],
+                    )
+                })
                 .transpose()?;
             Ok(
                 json!({"reference":reference,"after_staged_peer":interleaved,"after_second_restore":resumed,

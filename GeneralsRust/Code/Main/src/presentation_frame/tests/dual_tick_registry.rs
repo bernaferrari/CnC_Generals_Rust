@@ -1,5 +1,14 @@
 use super::*;
 
+fn complete_impl_method<'a>(source: &'a str, signature: &str) -> &'a str {
+    let start = source.find(signature).expect("actual method declaration");
+    let remaining = &source[start..];
+    let end = remaining
+        .find("\n    }\n")
+        .expect("complete impl method closing boundary");
+    &remaining[..end + "\n    }\n".len()]
+}
+
 /// Retail skirmish runs short-game rules (C++ GameLogic.cpp:1606
 /// VICTORY_NOBUILDINGS): a structure-less playable player is defeated on the
 /// first logic frame and Player::killPlayer destroys its army
@@ -942,38 +951,43 @@ fn presentation_feeds_skybox() {
 
 #[test]
 fn presentation_shell_includes_fx_and_message_pump() {
-    // Structural: GameClient presentation path must tick FX + message pump without
-    // calling full update() (OBJECT_REGISTRY shroud bind).
-    let gc = game_client::core::game_client::GAME_CLIENT_SRC;
-    let shell = gc
-        .split("fn update_presentation_shell")
-        .nth(1)
-        .and_then(|s| s.split("pub fn update_drawables").next())
-        .expect("update_presentation_shell body");
+    let source =
+        include_str!("../../../../GameEngine/GameClient/src/core/game_client/impl_update.rs");
+    let policy = complete_impl_method(source, "fn update_presentation_shell_with_particle_policy(");
     assert!(
-        shell.contains("update_effects"),
+        policy.contains("self.begin_presentation_shell(")
+            && policy.contains("self.finish_presentation_shell(")
+    );
+    let begin = complete_impl_method(source, "fn begin_presentation_shell_observing(");
+    let finish = complete_impl_method(source, "fn finish_presentation_shell_routed(");
+    assert!(
+        begin.contains("self.update_native_effects(visual_delta)?"),
         "presentation shell must tick effects residual"
     );
     assert!(
-        shell.contains("pump_message_stream"),
-        "presentation shell must pump client messages"
+        finish.contains("self.pump_message_stream()?")
+            && finish.contains("self.pump_message_stream_to_receiving_owner("),
+        "presentation shell must pump standalone and receiving messages"
     );
     assert!(
-        shell.contains("update_drawables_local"),
-        "presentation shell must use local drawables (no registry shroud)"
+        begin.contains("self.update_drawables_local(visual_delta, particle_frames)?"),
+        "presentation shell must use local drawables"
+    );
+    for body in [policy, begin, finish] {
+        assert!(
+            !body.contains("self.update_drawables(")
+                && !body.contains("self.update_input(")
+                && !body.contains("self.update_audio("),
+            "Main input/audio and registry-bound drawable updates must not double-tick"
+        );
+    }
+    assert!(
+        begin.find("self.update_drawables_local(").unwrap()
+            < begin.find("self.update_native_effects(").unwrap()
     );
     assert!(
-        !shell.contains("update_drawables(visual_delta)")
-            && !shell.contains("self.update_drawables("),
-        "presentation shell must not call registry-bound update_drawables"
-    );
-    assert!(
-        !shell.contains("self.update_input("),
-        "Main owns input; presentation shell must not double-tick input"
-    );
-    assert!(
-        !shell.contains("self.update_audio("),
-        "Main owns audio; presentation shell must not double-tick audio"
+        finish.find("self.update_post_draw_ui()?").unwrap()
+            < finish.find("self.pump_message_stream()?").unwrap()
     );
 }
 
@@ -1251,26 +1265,21 @@ fn meta_event_plane_lock_prefers_selection_without_registry() {
 
 #[test]
 fn snap_camera_start_hint_prefers_presentation() {
-    let src = crate::cnc_game_engine::ENGINE_SRC;
-    // Wave 559: snap_camera is presentation-only via frozen local_team_base_position.
-    let i = src
-        .find("fn snap_camera_to_local_units_if_needed")
-        .expect("snap_camera fn");
-    let window = &src[i..src.len().min(i + 2200)];
+    let source = include_str!("../../cnc_game_engine/start_game.rs");
+    let body = complete_impl_method(source, "fn snap_camera_to_local_units_if_needed(");
     assert!(
-        window.contains("Presentation-only")
-            && window.contains("last_presentation_frame.as_ref()")
-            && window.contains("local_team_base_position")
-            && window.contains("o.is_structure"),
-        "snap_camera start_hint must seed from presentation structures"
+        body.contains("self.last_presentation_frame.as_ref()?")
+            && body.contains("local_team_base_position")
+            && body.contains("o.is_structure"),
+        "start hint must seed from presentation structures"
     );
     assert!(
-        window.contains("camera_target"),
-        "start_hint falls back to camera_target when no structures"
+        body.contains(".unwrap_or(self.game_logic.session_view.target)"),
+        "start hint falls back to the receiving camera target"
     );
     assert!(
-        !window.contains("team_base_position(team)"),
-        "snap_camera must not dual-read live team_base_position under presentation path"
+        !body.contains("team_base_position(team)"),
+        "presentation path must not query live team base position"
     );
 }
 
@@ -1311,17 +1320,20 @@ fn game_client_update_for_rendering_host_path_without_registry() {
 
 #[test]
 fn boot_client_tick_prefers_presentation_shell() {
-    let src = crate::cnc_game_engine::ENGINE_SRC;
-    // Wave 586/862: the boot residual moved into the presentation shell tick
-    // (camera_drain.rs host_tick_game_client_presentation_shell); boot/loading
-    // without a freeze runs the same shell tick via empty-registry early-out.
-    let marker = "Boot/loading without freeze still uses the same shell tick";
-    let i = src.find(marker).expect("boot client residual marker");
-    let window = &src[i..src.len().min(i + 800)];
+    let source = include_str!("../../cnc_game_engine/camera_drain.rs");
+    let body = complete_impl_method(source, "fn host_tick_game_client_presentation_shell(");
     assert!(
-        window.contains("update_presentation_shell")
-            && !window.contains("self.game_client.update_drawables("),
-        "boot residual without frame must use presentation shell, not dual-world update_drawables"
+        body.contains(".try_begin_presentation_shell_with_owned_visual_time(")
+            && body.contains("self.native_display.queue_shell("),
+        "boot residual must admit and queue the actual receiving presentation shell"
+    );
+    assert!(
+        body.contains("logic_frame: self.game_logic.frame")
+            && body.contains("client_frame: self.game_client.get_frame()")
+    );
+    assert!(
+        !body.contains("self.game_client.update_drawables("),
+        "boot must not invoke dual-world drawable updates"
     );
 }
 
@@ -1371,7 +1383,7 @@ fn superweapon_damage_applies_host_hp() {
     let gl = include_str!("../../game_logic/world_scripts/special_power_strikes.rs");
     let gl: String = gl.split_whitespace().collect();
     assert!(
-        gl.contains("letowned_damage_type=plan.kind.authored_damage_type();") && gl.contains("apply_residual_damage_owned(owned_victim_id,hit.damage,Some(plan.source_object),owned_damage_type,plan.kind.authored_death_type(),None"),
+        gl.contains("letowned_damage_type=plan.kind.authored_damage_type();") && gl.contains("apply_residual_damage_owned_with_effects(owned_victim_id,hit.damage,Some(plan.source_object),owned_damage_type,plan.kind.authored_death_type(),None,effects"),
         "update_special_power_strikes must apply attributed, typed host HP immediately using its owner's health transport"
     );
 }
@@ -1427,20 +1439,23 @@ fn object_registry_is_empty_host_path() {
 
 #[test]
 fn iterate_objects_with_drawables_empty_registry() {
-    let gc = game_client::core::game_client::GAME_CLIENT_SRC;
-    let i = gc
-        .find("pub fn iterate_objects_with_drawables")
-        .expect("iterate");
-    let window = &gc[i..gc.len().min(i + 1200)];
+    let source = include_str!("../../../../GameEngine/GameClient/src/core/game_client/leftover.rs");
+    let iterate = complete_impl_method(source, "pub fn iterate_objects_with_drawables<F>");
     assert!(
-        window.contains("OBJECT_REGISTRY.is_empty()") && window.contains("return Ok(())"),
-        "iterate_objects_with_drawables must early-out on empty registry"
+        iterate.contains("if OBJECT_REGISTRY.is_empty()") && iterate.contains("return Ok(())"),
+        "empty registry iteration must be a no-op"
     );
-    let j = gc.find("fn load_post_process").expect("load_post");
-    let w2 = &gc[j..gc.len().min(j + 1600)];
+    let load = complete_impl_method(source, "fn load_post_process(");
+    let empty = load.find("if OBJECT_REGISTRY.is_empty()").unwrap();
+    let scan = load
+        .find("for obj_ref in OBJECT_REGISTRY.get_all_objects()")
+        .unwrap();
     assert!(
-        w2.contains("OBJECT_REGISTRY.is_empty()") && w2.contains("Host path: registry empty"),
-        "load_post_process host path must skip dual-world drawable scan"
+        empty < scan
+            && load[..scan]
+                .contains("self.set_drawable_id_counter(self.drawables.next_drawable_id.0)")
+            && load[..scan].contains("return Ok(())"),
+        "host load must rebuild local drawable IDs before skipping the empty Core scan"
     );
 }
 

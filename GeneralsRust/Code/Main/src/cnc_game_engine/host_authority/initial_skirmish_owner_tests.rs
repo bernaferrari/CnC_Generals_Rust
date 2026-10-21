@@ -107,6 +107,7 @@ fn stage(m: &mut SaveFileManager, slot: &str, w: &GameLogic) -> Result<StagedRes
         w.production_energy_baseline(),
         w.physics_rules_baseline(),
         w.effective_terrain_definitions(),
+        w.current_armor_definitions(),
         w.session_view.camera.settings,
         w.session_view.camera.clip_policy,
         w.session_view.camera.shake_policy,
@@ -185,6 +186,41 @@ fn direct_config_archive_rebuilds_saved_initial_foundation_before_strict_map_cov
         || {
             let mut source = world();
             let initial = source.initial_skirmish_admission.as_ref().unwrap().clone();
+            // Exercise the real SnapshotBuilder SINI branch with a nonunit
+            // Drawable scale, not merely a default WorldSnapshot version tag.
+            let mut scale_template =
+                crate::game_logic::ThingTemplate::new("InitialAdmissionScaleActor");
+            scale_template
+                .add_kind_of(crate::game_logic::KindOf::Vehicle)
+                .set_health(100.0)
+                .set_asset_scale(2.0);
+            source
+                .templates
+                .insert("InitialAdmissionScaleActor".into(), scale_template);
+            let scaled = source
+                .create_object_for_player(
+                    "InitialAdmissionScaleActor",
+                    0,
+                    glam::Vec3::new(100.0, 0.0, 100.0),
+                )
+                .unwrap();
+            assert_eq!(
+                source.host_object(scaled).unwrap().drawable_instance_scale,
+                2.0
+            );
+            let built = SnapshotBuilder::new()
+                .create_world_snapshot(&source)
+                .unwrap();
+            assert_eq!(
+                built.version, 30,
+                "initial admission must not downgrade absolute-scale capability"
+            );
+            assert!(
+                crate::save_load::snapshot::initial_skirmish::read(&built)
+                    .unwrap()
+                    .is_some()
+            );
+
             assert!(initial.source.is_none());
             source.get_player_mut(0).unwrap().name = "Changed after admission".into();
             source.get_player_mut(0).unwrap().resources.supplies = 123;
@@ -204,7 +240,21 @@ fn direct_config_archive_rebuilds_saved_initial_foundation_before_strict_map_cov
                     .as_deref(),
                 Some(initial.as_ref())
             );
+            assert_eq!(
+                snapshot.version, 30,
+                "the actual encoded save retains current capability"
+            );
             let restored = stage(&mut saves, "direct", &source).unwrap();
+            assert_eq!(
+                restored
+                    .logic
+                    .host_object(scaled)
+                    .unwrap()
+                    .drawable_instance_scale,
+                2.0,
+                "SINI save/restore must not admit an absolute scale as an old multiplier"
+            );
+
             assert_eq!(definitions(&restored.logic), definitions(&source));
             for (id, player) in source.get_players() {
                 let loaded = restored.logic.get_player(*id).unwrap();

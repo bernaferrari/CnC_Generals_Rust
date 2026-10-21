@@ -215,7 +215,7 @@ impl GhostRenderState {
             .to_cols_array()
             .into_iter()
             .all(|value| value.is_finite());
-        let valid_scale = object_scale.is_finite() && object_scale > 0.0;
+        let valid_scale = object_scale.is_finite();
         (valid_name && finite_transform && valid_scale).then_some(Self {
             key,
             parent_object_id,
@@ -284,7 +284,7 @@ impl GhostRenderState {
             suppress_parent,
         )?;
         let geometry_scale = snapshot.render_object.render_object.geometry_scale;
-        if !geometry_scale.is_finite() || geometry_scale <= 0.0 {
+        if !geometry_scale.is_finite() {
             return None;
         }
         state.geometry_scale = geometry_scale;

@@ -24,6 +24,16 @@ fn actual_saved_map_ocl_candidate_uses_own_base_and_solo_without_mutating_active
             let directory = tempfile::tempdir().unwrap();
             let path = directory.path().join("SavedOCL.map");
             let mut map = game_engine::common::system::DataChunkOutput::new();
+            // The real SaveFileManager stage also prepares native terrain;
+            // supply a genuine small height chunk, not fallback geometry.
+            map.open_data_chunk("HeightMapData", 3);
+            for value in [8, 8, 0, 64] {
+                map.write_int(value);
+            }
+            for _ in 0..64 {
+                map.write_byte(40);
+            }
+            map.close_data_chunk();
             map.open_data_chunk("GlobalLighting", 1);
             map.write_int(2);
             for _ in 0..4 {
@@ -35,8 +45,22 @@ fn actual_saved_map_ocl_candidate_uses_own_base_and_solo_without_mutating_active
             }
             map.close_data_chunk();
             std::fs::write(&path, map.into_ckmp_bytes()).unwrap();
-            std::fs::write(directory.path().join("Map.ini"), list("SavedMap")).unwrap();
-            std::fs::write(directory.path().join("Solo.ini"), list("SavedSolo")).unwrap();
+            std::fs::write(
+                directory.path().join("Map.ini"),
+                format!(
+                    "{}Armor SharedArmor\n Armor = DEFAULT 50%\nEnd\n",
+                    list("SavedMap")
+                ),
+            )
+            .unwrap();
+            std::fs::write(
+                directory.path().join("Solo.ini"),
+                format!(
+                    "{}Armor SharedArmor\n Armor = DEFAULT 25%\nEnd\n",
+                    list("SavedSolo")
+                ),
+            )
+            .unwrap();
             let mut source = GameLogic::new();
             source
                 .admit_ocl_application_sources(&[list("Application")])
@@ -46,6 +70,51 @@ fn actual_saved_map_ocl_candidate_uses_own_base_and_solo_without_mutating_active
             crate::skirmish_config::apply_skirmish_config(&mut source, &config).unwrap();
             assert!(source.load_map(path.to_str().unwrap()));
             assert_eq!(selected(&source), "SavedSolo");
+            // Exercise the same full Map.ini/Solo.ini dispatch for Armor, then
+            // the real factory and later the actual encoded SaveFileManager.
+            // Independent receiving definition admission, not snapshot-derived
+            // metadata or manually installed Some(empty) module identities.
+            let mut parser = crate::assets::IniParser::new();
+            parser.parse_ini_content(
+                "Object MappedArmorActor\n KindOf = VEHICLE\n Geometry = CYLINDER\n GeometryMajorRadius = 4\n GeometryHeight = 6\n ArmorSet\n Conditions = NONE\n Armor = SharedArmor\n DamageFX = None\n End\n Body = ActiveBody MappedArmorBody\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n",
+                "mapped-armor-stage.ini").unwrap();
+            let definition = parser.get_definition("MappedArmorActor").unwrap();
+            let actor = GameLogic::build_template_from_object_definition(
+                "MappedArmorActor",
+                definition,
+                None,
+            );
+            assert_eq!(
+                actor.body_kind,
+                Some(crate::game_logic::thing::BodyKind::Active)
+            );
+            assert!(actor.native_die_declarations.is_some());
+            assert!(actor.native_lifecycle_definitions.is_some());
+            assert!(actor.client_module_declarations.is_some());
+            assert_eq!(actor.armor_sets[0].armor.as_deref(), Some("SharedArmor"));
+            source.templates.insert(actor.name.clone(), actor);
+            let actor_id = source
+                .create_object_for_player("MappedArmorActor", 0, glam::Vec3::new(30.0, 0.0, 30.0))
+                .unwrap();
+            fn armor(coefficient: f32) -> Arc<gamelogic::object::armor::ArmorDefinitions> {
+                let mut definitions = gamelogic::object::armor::ArmorDefinitions::new();
+                let mut row = gamelogic::object::armor::ArmorTemplate::new();
+                row.set_default(coefficient);
+                definitions.register_template("SharedArmor", row);
+                Arc::new(definitions)
+            }
+            fn adjusted(world: &GameLogic, id: crate::game_logic::ObjectId) -> f32 {
+                crate::game_logic::host_armor_residual::apply_residual_armor(
+                    world.host_object(id).unwrap(),
+                    crate::game_logic::combat::DamageType::Explosive,
+                    100.0,
+                )
+            }
+            assert_eq!(
+                adjusted(&source, actor_id),
+                25.0,
+                "Solo armor overrides Map armor before factory callbacks"
+            );
             let builder = crate::save_load::snapshot::SnapshotBuilder::new();
             let snapshot = builder.create_world_snapshot(&source).unwrap();
             let mut active = GameLogic::new();
@@ -57,6 +126,16 @@ fn actual_saved_map_ocl_candidate_uses_own_base_and_solo_without_mutating_active
                 .unwrap();
             let mut peer = GameLogic::new();
             peer.admit_ocl_application_sources(&[list("Peer")]).unwrap();
+            active.admit_armor_definitions(armor(2.0));
+            peer.admit_armor_definitions(armor(2.0));
+            peer.add_object(source.host_object(actor_id).unwrap().clone());
+            assert_eq!(
+                adjusted(&peer, actor_id),
+                200.0,
+                "same-ID incoming clone rebinds receiving peer armor"
+            );
+            let active_armor = active.current_armor_definitions().unwrap().clone();
+            let peer_armor = peer.current_armor_definitions().unwrap().clone();
             let active_base = active.ocl_application_definitions();
             let peer_base = peer.ocl_application_definitions();
             let info = || SaveGameInfo {
@@ -89,6 +168,7 @@ fn actual_saved_map_ocl_candidate_uses_own_base_and_solo_without_mutating_active
                 source.production_energy_baseline(),
                 source.physics_rules_baseline(),
                 source.effective_terrain_definitions(),
+                active.current_armor_definitions(),
                 active.session_view.camera.settings,
                 active.session_view.camera.clip_policy,
                 active.session_view.camera.shake_policy,
@@ -97,10 +177,30 @@ fn actual_saved_map_ocl_candidate_uses_own_base_and_solo_without_mutating_active
                 &active.world_services,
                 |_, candidate| {
                     assert_eq!(selected(candidate), "SavedSolo");
+                    assert_eq!(
+                        candidate
+                            .current_armor_definitions()
+                            .unwrap()
+                            .find_template("SharedArmor")
+                            .unwrap()
+                            .adjust_damage(gamelogic::damage::DamageType::Explosion, 100.0),
+                        25.0
+                    );
                     Err("after actual map admission".into())
                 },
             );
             assert!(failed.err().unwrap().contains("after actual map admission"));
+            assert!(Arc::ptr_eq(
+                active.current_armor_definitions().unwrap(),
+                &active_armor
+            ));
+            assert!(Arc::ptr_eq(
+                peer.current_armor_definitions().unwrap(),
+                &peer_armor
+            ));
+            assert_eq!(adjusted(&source, actor_id), 25.0);
+            assert_eq!(adjusted(&peer, actor_id), 200.0);
+            assert_eq!(peer.host_object(actor_id).unwrap().health.current, 100.0);
             assert_eq!(selected(&active), "ActiveMap");
             assert_eq!(selected(&peer), "Peer");
             assert!(Arc::ptr_eq(
@@ -124,6 +224,7 @@ fn actual_saved_map_ocl_candidate_uses_own_base_and_solo_without_mutating_active
                 source.production_energy_baseline(),
                 source.physics_rules_baseline(),
                 source.effective_terrain_definitions(),
+                active.current_armor_definitions(),
                 active.session_view.camera.settings,
                 active.session_view.camera.clip_policy,
                 active.session_view.camera.shake_policy,
@@ -139,12 +240,104 @@ fn actual_saved_map_ocl_candidate_uses_own_base_and_solo_without_mutating_active
             )
             .unwrap();
             assert_eq!(selected(&staged.logic), "SavedSolo");
+            assert_eq!(adjusted(&staged.logic, actor_id), 25.0);
             assert!(Arc::ptr_eq(
                 &active.ocl_application_definitions(),
                 &staged.logic.ocl_application_definitions()
             ));
             staged.logic.reset_ocl_map_definitions();
             assert_eq!(selected(&staged.logic), "ActiveApplication");
+            // A successfully staged candidate retains the transaction gate
+            // through its combined commit/drop. Finish this candidate's real
+            // assertions and retire its token before starting a second stage.
+            drop(staged);
+            // The complete archive route reads the real map from saved data,
+            // rebuilds its definitions, and only then restores the live host.
+            let saves_directory = tempfile::tempdir().unwrap();
+            let mut saves = SaveFileManager::with_save_directory(saves_directory.path());
+            saves.init().unwrap();
+            #[cfg(feature = "game_client")]
+            {
+                let mut client = game_client::core::game_client::GameClient::new().unwrap();
+                client.bind_visual_world(gamelogic::helpers::ClientVisualHandle::new(Arc::clone(
+                    &source.world_services,
+                )));
+                saves
+                    .save_game_with_client_state(
+                        "mapped_armor",
+                        &source,
+                        Default::default(),
+                        &mut client,
+                        &info(),
+                    )
+                    .unwrap();
+            }
+            #[cfg(not(feature = "game_client"))]
+            saves.save_game("mapped_armor", &source, &info()).unwrap();
+            let mut archived = CnCGameEngine::stage_saved_world_for_restore(
+                &mut saves,
+                "mapped_armor",
+                GameMode::Skirmish,
+                &source.templates,
+                &source.weapon_definition_base,
+                &source.projectile_definitions,
+                &active.ocl_application_definitions(),
+                source.ai_definitions.baseline(),
+                source.production_energy_baseline(),
+                source.physics_rules_baseline(),
+                source.effective_terrain_definitions(),
+                active.current_armor_definitions(),
+                active.session_view.camera.settings,
+                active.session_view.camera.clip_policy,
+                active.session_view.camera.shake_policy,
+                active.session_view.camera.movement_policy,
+                active.session_view.camera.input_policy,
+                &active.world_services,
+            )
+            .unwrap();
+            assert_eq!(
+                adjusted(&archived.logic, actor_id),
+                25.0,
+                "actual SaveFileManager stage rebinds the receiving saved-map armor"
+            );
+            let mut events = crate::game_logic::HostHealthEvents::default();
+            archived
+                .logic
+                .host_object_mut(actor_id)
+                .unwrap()
+                .take_damage_from_typed(
+                    20.0,
+                    None,
+                    crate::game_logic::combat::DamageType::Explosive,
+                    &mut events,
+                );
+            assert_eq!(
+                archived.logic.host_object(actor_id).unwrap().health.current,
+                95.0
+            );
+            assert_eq!(source.host_object(actor_id).unwrap().health.current, 100.0);
+            assert_eq!(peer.host_object(actor_id).unwrap().health.current, 100.0);
+            peer.host_object_mut(actor_id)
+                .unwrap()
+                .take_damage_from_typed(
+                    20.0,
+                    None,
+                    crate::game_logic::combat::DamageType::Explosive,
+                    &mut events,
+                );
+            assert_eq!(peer.host_object(actor_id).unwrap().health.current, 60.0);
+            assert_eq!(
+                archived.logic.host_object(actor_id).unwrap().health.current,
+                95.0
+            );
+            assert!(Arc::ptr_eq(
+                active.current_armor_definitions().unwrap(),
+                &active_armor
+            ));
+            assert!(Arc::ptr_eq(
+                peer.current_armor_definitions().unwrap(),
+                &peer_armor
+            ));
             assert_eq!(selected(&active), "ActiveMap");
             assert_eq!(selected(&peer), "Peer");
         },

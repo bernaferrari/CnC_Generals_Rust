@@ -62,6 +62,7 @@ impl GameLogic {
             projectile_definitions: Default::default(),
             physics_definitions: Default::default(),
             terrain_definitions: Default::default(),
+            armor_definitions: None,
             weapon_effect_definitions: Default::default(),
             production_energy: Default::default(),
             ai_definitions,

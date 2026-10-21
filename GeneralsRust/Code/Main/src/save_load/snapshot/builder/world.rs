@@ -278,7 +278,8 @@ impl SnapshotBuilder {
 
         if let Some(initial) = &game_logic.initial_skirmish_admission {
             super::super::initial_skirmish::append(&mut snapshot.lifecycle_tail, initial)?;
-            snapshot.version = 29;
+            // SINI requires at least29, never downgrade a newer capability.
+            snapshot.version = snapshot.version.max(29);
         }
 
         log::info!(
@@ -672,7 +673,11 @@ impl SnapshotBuilder {
 
         self.sync_all_garrisoned_units_from_occupants(game_logic);
         self.restore_game_logic_persist_tail(snapshot, game_logic);
-        super::super::persist_v18::restore_persist_v18(&snapshot.persist_v18, game_logic)?;
+        super::super::persist_v18::restore_persist_v18_with_scale_encoding(
+            &snapshot.persist_v18,
+            game_logic,
+            snapshot.version < 30,
+        )?;
         super::super::hotkey_squad_persist::apply_from_lifecycle_tail(lifecycle_tail, game_logic)?;
         super::super::garrison_firepoint_persist::apply_from_lifecycle_tail(
             lifecycle_tail,

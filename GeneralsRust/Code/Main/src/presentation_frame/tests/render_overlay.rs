@@ -127,9 +127,21 @@ fn unit_render_input_world_matrix_applies_mesh_scale() {
     assert!((sx - 2.0).abs() < 1e-4 && (sy - 2.0).abs() < 1e-4 && (sz - 2.0).abs() < 1e-4);
     assert!((m.w_axis.x - 10.0).abs() < 1e-4 && (m.w_axis.z - 20.0).abs() < 1e-4);
 
-    u.mesh_scale = 0.0; // invalid → treat as 1.0
+    u.mesh_scale = 0.0; // C++ setInstanceScale accepts a collapsed zero scale.
+    // A real post-scale local translation must remain collapsed too; factoring
+    // geometry may not replace the source full translation with scale-one's.
+    u.physics_visual_local = Some(glam::Mat4::from_translation(glam::Vec3::new(5.0, 7.0, 9.0)));
     let m1 = u.world_matrix();
-    assert!((m1.x_axis.truncate().length() - 1.0).abs() < 1e-4);
+    assert!(m1.is_finite());
+    assert_eq!(m1.x_axis.truncate(), glam::Vec3::ZERO);
+    assert_eq!(m1.w_axis, m.w_axis);
+    let native_parent = u.world_matrix_without_geometry_scale();
+    assert!(native_parent.is_finite());
+    assert_eq!(
+        native_parent.w_axis, m1.w_axis,
+        "native geometry factoring preserves the original post-scale translation"
+    );
+    assert_eq!(native_parent.x_axis.truncate().length(), 1.0);
 }
 
 #[test]
@@ -638,6 +650,11 @@ fn completed_allied_disguise_uses_the_direct_visual_template_after_gameworld_reb
     logic
         .templates
         .insert("FriendlyDisguiseAppearance".into(), disguise_template);
+    // Real logic ticks derive player life from surviving objects. Keep the
+    // allied viewer active while the truck reaches its visual halfpoint.
+    logic
+        .create_object_for_player("FriendlyDisguiseAppearance", 0, glam::Vec3::ZERO)
+        .expect("live local disguise viewer");
     let id = logic
         .create_object(
             "GLAVehicleBombTruck",
@@ -649,11 +666,15 @@ fn completed_allied_disguise_uses_the_direct_visual_template_after_gameworld_reb
         let object = logic.host_object_mut(id).expect("host Bomb Truck");
         object.owner_player_id = Some(1);
         object.apply_disguise("FriendlyDisguiseAppearance", Team::USA);
-        for _ in 0..30 {
-            object.tick_disguise_transition();
-        }
-        assert!(object.status.disguised, "reached visual disguise halfpoint");
     }
+    for _ in 0..30 {
+        logic.update_with_dt(1.0 / 30.0);
+    }
+    assert!(
+        logic.host_object(id).unwrap().status.disguised,
+        "reached visual disguise halfpoint"
+    );
+    assert!(logic.get_player(0).unwrap().is_alive);
 
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);

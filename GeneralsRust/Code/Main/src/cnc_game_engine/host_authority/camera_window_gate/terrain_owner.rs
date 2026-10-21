@@ -12,6 +12,26 @@ pub(super) struct TerrainOwnerRequest {
     expected_cell_size: f32,
     expected_origin: [f32; 3],
 }
+#[derive(Clone, Copy, Debug)]
+struct NativeFrameWitness {
+    frame: u64,
+    total: u64,
+    last: u64,
+    active: bool,
+}
+impl NativeFrameWitness {
+    fn report(self) -> Value {
+        json!({"frame":self.frame,"total_owned_submits":self.total,
+            "last_frame_submit_count":self.last,"frame_is_active":self.active})
+    }
+}
+fn completed_owned_frame(before: NativeFrameWitness, after: NativeFrameWitness) -> bool {
+    !before.active
+        && !after.active
+        && after.frame == before.frame.wrapping_add(1)
+        && after.total == before.total.wrapping_add(1)
+        && after.last == 1
+}
 struct TerrainObservation {
     logical_raw: Vec<u8>,
     native_raw: Vec<u8>,
@@ -340,6 +360,7 @@ impl CnCGameEngine {
     pub(super) fn terrain_gate_finish(
         &mut self,
         mut state: TerrainGateState,
+        attempted_frame: &mut Value,
     ) -> Result<Value, String> {
         // All camera/HAG comparisons have completed before this extra real frame.
         let before = self.terrain_gate_observe()?;
@@ -347,18 +368,40 @@ impl CnCGameEngine {
             before.content_equals(&state.saved),
             "later camera save/load changed terrain continuation",
         )?;
-        let prior_frame = self.graphics_system.get_statistics().frame_count;
-        self.render().map_err(|e| e.to_string())?;
-        let actual_frame = self.graphics_system.get_statistics().frame_count;
+        let observe = |engine: &Self| NativeFrameWitness {
+            frame: engine.graphics_system.get_statistics().frame_count,
+            total: ww3d_engine::total_owned_submits(),
+            last: ww3d_engine::last_frame_submit_count(),
+            active: ww3d_engine::frame_is_active(),
+        };
+        let prior = observe(self);
+        *attempted_frame = json!({"before":prior.report(),"terrain_before":before.report(),
+            "status":"render_attempt_started"});
+        let render_result = self.render().map_err(|error| error.to_string());
+        let actual = observe(self);
+        // Preserve the actual counters even when render or a strict assertion fails.
+        *attempted_frame = json!({"before":prior.report(),"after":actual.report(),
+            "terrain_before":before.report(),"render_returned_ok":render_result.is_ok(),
+            "render_error":render_result.as_ref().err(),
+            "completed_owned_frame":completed_owned_frame(prior,actual)});
+        render_result?;
         require(
-            actual_frame == prior_frame.wrapping_add(1),
+            actual.frame == prior.frame.wrapping_add(1),
             "actual native render did not execute a new frame",
         )?;
         require(
-            ww3d_engine::last_frame_submit_count() == 1,
-            "actual native render did not submit its owned frame",
+            actual.total == prior.total.wrapping_add(1) && actual.last == 1,
+            "actual native render did not submit exactly one new owned frame",
         )?;
-        state.evidence["actual_native_frame"] = json!({"render_returned_ok":true,"frame_before":prior_frame,"frame_after":actual_frame,"owned_frame_submit_count":ww3d_engine::last_frame_submit_count(),"before":before.report(),"after":self.terrain_gate_observe()?.report(),"scope":"normal actual Engine render after all existing HAG assertions; native water may advance normally"});
+        require(
+            !prior.active && !actual.active,
+            "actual native render entered or left an active frame loan",
+        )?;
+        state.evidence["actual_native_frame"] = json!({"render_returned_ok":true,
+            "frame_before":prior.frame,"frame_after":actual.frame,
+            "owned_frame_submit_count":actual.last,"attempt":attempted_frame,
+            "before":before.report(),"after":self.terrain_gate_observe()?.report(),
+            "scope":"normal actual Engine render after all existing HAG assertions; native water may advance normally"});
         Ok(state.evidence)
     }
 }
@@ -366,6 +409,65 @@ impl CnCGameEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn owned_frame_witness_rejects_stale_duplicate_and_active_submissions() {
+        let before = NativeFrameWitness {
+            frame: 7,
+            total: 12,
+            last: 1,
+            active: false,
+        };
+        let real = NativeFrameWitness {
+            frame: 8,
+            total: 13,
+            last: 1,
+            active: false,
+        };
+        assert!(completed_owned_frame(before, real));
+        assert!(
+            !completed_owned_frame(before, NativeFrameWitness { total: 12, ..real }),
+            "stale last=1 cannot prove a new submit"
+        );
+        assert!(
+            !completed_owned_frame(before, NativeFrameWitness { total: 14, ..real }),
+            "two submits cannot impersonate one owned frame"
+        );
+        assert!(!completed_owned_frame(
+            before,
+            NativeFrameWitness {
+                active: true,
+                ..real
+            }
+        ));
+        assert!(!completed_owned_frame(
+            NativeFrameWitness {
+                active: true,
+                ..before
+            },
+            real
+        ));
+        assert!(!completed_owned_frame(
+            before,
+            NativeFrameWitness { frame: 7, ..real }
+        ));
+        assert!(!completed_owned_frame(
+            before,
+            NativeFrameWitness { last: 0, ..real }
+        ));
+        assert!(completed_owned_frame(
+            NativeFrameWitness {
+                frame: u64::MAX,
+                total: u64::MAX,
+                ..before
+            },
+            NativeFrameWitness {
+                frame: 0,
+                total: 0,
+                ..real
+            },
+        ));
+    }
 
     #[test]
     fn absent_terrain_request_preserves_existing_camera_only_wire_admission() {

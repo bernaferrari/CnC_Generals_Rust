@@ -232,7 +232,7 @@ impl GameLogic {
             })
             .ok_or("missing receiving Draw definitions")?;
         let mesh_scale = super::build::direct_host_visual_mesh_scale(self, obj, &template_name);
-        if !mesh_scale.is_finite() || mesh_scale <= 0.0 {
+        if !mesh_scale.is_finite() {
             return Err("invalid receiving visual scale");
         }
         let facts = current_condition_facts(self, obj, local_player_id);

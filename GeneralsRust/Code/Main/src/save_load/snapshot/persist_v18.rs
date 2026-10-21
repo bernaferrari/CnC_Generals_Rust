@@ -592,7 +592,7 @@ fn capture_persist_v18_impl(
         let mut explicit_opacity = object.drawable_explicit_opacity;
         let mut stealth_opacity = object.camo_friendly_opacity;
         let mut effective_stealth_opacity = object.camo_friendly_opacity;
-        let mut instance_scale = object.drawable_instance_scale;
+        let instance_scale = object.drawable_instance_scale;
         let mut heat_vision_opacity = object.pending_second_material_pass().unwrap_or(0.0);
         let mut tint_status = object.drawable_tint_status;
         let mut prev_tint_status = object.drawable_prev_tint_status;
@@ -628,7 +628,8 @@ fn capture_persist_v18_impl(
             explicit_opacity = left.explicit_opacity;
             stealth_opacity = left.stealth_opacity;
             effective_stealth_opacity = left.effective_stealth_opacity;
-            instance_scale = left.instance_scale;
+            // The receiving host owns absolute instance scale; a legacy
+            // client mirror must not overwrite it during snapshot capture.
             heat_vision_opacity = left.heat_vision_opacity;
             tint_status = left.tint_status;
             prev_tint_status = left.prev_tint_status;
@@ -730,6 +731,16 @@ fn capture_persist_v18_impl(
 pub fn restore_persist_v18(
     persist: &WorldPersistV18,
     game_logic: &mut GameLogic,
+) -> SaveLoadResult<()> {
+    restore_persist_v18_with_scale_encoding(persist, game_logic, false)
+}
+
+/// Historical Rust world envelopes stored a multiplier; new/native Drawable
+/// payloads store the absolute C++ instance scale. This is admission metadata.
+pub(super) fn restore_persist_v18_with_scale_encoding(
+    persist: &WorldPersistV18,
+    game_logic: &mut GameLogic,
+    legacy_multiplier: bool,
 ) -> SaveLoadResult<()> {
     // Reject invalid ring references before mutating this candidate or any adapter.
     // C++ requires exactly MAX_RADAR_EVENTS in binary Xfer; absent JSON fields
@@ -919,6 +930,24 @@ pub fn restore_persist_v18(
     }
 
     for entry in &persist.drawable_xfer {
+        let legacy_authored = game_logic
+            .host_object(ObjectId(entry.object_id))
+            .map(|object| {
+                let visual_name = if object.status.disguised {
+                    object.disguise_as_template.as_deref()
+                } else {
+                    None
+                };
+                visual_name
+                    .and_then(|name| game_logic.templates.get(name))
+                    .map(crate::assets::mesh_asset_resolve::mesh_scale_from_template)
+                    .unwrap_or_else(|| {
+                        crate::assets::mesh_asset_resolve::mesh_scale_from_template(
+                            object.get_template(),
+                        )
+                    })
+            })
+            .unwrap_or(1.0);
         let Some(object) = game_logic.host_object_mut(ObjectId(entry.object_id)) else {
             continue;
         };
@@ -931,7 +960,16 @@ pub fn restore_persist_v18(
         object.drawable_fade_frames = entry.time_to_fade;
         object.drawable_fade_start_frame = entry.time_elapsed_fade;
         object.drawable_explicit_opacity = entry.explicit_opacity;
-        object.drawable_instance_scale = entry.instance_scale;
+        object.drawable_instance_scale = if legacy_multiplier {
+            let multiplier = if entry.instance_scale.is_finite() && entry.instance_scale > 0.0 {
+                entry.instance_scale
+            } else {
+                1.0
+            };
+            legacy_authored * multiplier
+        } else {
+            entry.instance_scale
+        };
         object.drawable_tint_status = entry.tint_status;
         object.drawable_prev_tint_status = entry.prev_tint_status;
         object.drawable_expiration_date = entry.expiration_date;
@@ -978,14 +1016,14 @@ pub fn apply_drawable_xfer_to_client(
     client: &mut game_client::core::game_client::GameClient,
 ) {
     for entry in &persist.drawable_xfer {
-        if game_logic.host_object(ObjectId(entry.object_id)).is_none() {
+        let Some(object) = game_logic.host_object(ObjectId(entry.object_id)) else {
             continue;
-        }
+        };
         let visuals = game_client::drawable::DrawableXferVisualSnapshot {
             explicit_opacity: entry.explicit_opacity,
             stealth_opacity: entry.stealth_opacity,
             effective_stealth_opacity: entry.effective_stealth_opacity,
-            instance_scale: entry.instance_scale,
+            instance_scale: object.drawable_instance_scale,
             heat_vision_opacity: entry.heat_vision_opacity,
             tint_status: entry.tint_status,
             prev_tint_status: entry.prev_tint_status,
@@ -2308,3 +2346,7 @@ mod tests {
 #[cfg(test)]
 #[path = "camera_ownership_tests.rs"]
 mod camera_ownership_tests;
+
+#[cfg(test)]
+#[path = "persist_v18/absolute_scale_tests.rs"]
+mod absolute_scale_tests;

@@ -403,6 +403,9 @@ impl GameLogic {
         template: &mut ThingTemplate,
         definition: &crate::assets::ObjectDefinition,
     ) {
+        template.armor_definitions.get_or_insert_with(|| {
+            std::sync::Arc::new(gamelogic::object::armor::ArmorDefinitions::new())
+        });
         template.client_module_declarations =
             Some(definition.client_modules.clone().into_boxed_slice());
         if definition.source_declarations.is_some()

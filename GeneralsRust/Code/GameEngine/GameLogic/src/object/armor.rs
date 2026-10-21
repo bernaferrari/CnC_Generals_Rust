@@ -4,7 +4,6 @@ use once_cell::sync::{Lazy, OnceCell};
 use std::collections::HashMap;
 use std::fs;
 use std::io;
-use std::mem;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
@@ -103,6 +102,78 @@ impl Armor {
     /// Inspect the backing template if required by callers.
     pub fn template(&self) -> Option<&Arc<ArmorTemplate>> {
         self.template.as_ref()
+    }
+}
+
+/// Immutable after admission; mutation methods operate on a detached content draft.
+/// Owning sessions may share the completed catalog with their object templates.
+#[derive(Debug, Clone, Default)]
+pub struct ArmorDefinitions {
+    templates: HashMap<String, ArmorTemplate>,
+}
+
+impl ArmorDefinitions {
+    pub fn new() -> Self {
+        Self::default()
+    }
+    pub fn len(&self) -> usize {
+        self.templates.len()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.templates.is_empty()
+    }
+    pub fn find_template(&self, name: &str) -> Option<&ArmorTemplate> {
+        self.templates.get(&name.to_ascii_lowercase())
+    }
+    pub fn register_template(&mut self, name: &str, template: ArmorTemplate) {
+        self.templates.insert(name.to_ascii_lowercase(), template);
+    }
+    pub fn overlay_parsed(
+        &mut self,
+        parsed: &game_engine::common::ini::ini::armor_definitions::ArmorDefinitions,
+    ) -> Result<(), ArmorLoadError> {
+        // Validate all changed definitions before committing any of them.
+        let mut changed = Vec::new();
+        for (name, rows) in parsed.iter() {
+            let mut template = ArmorTemplate::new();
+            for (damage_name, coefficient) in rows {
+                if damage_name.eq_ignore_ascii_case("DEFAULT") {
+                    template.set_default(*coefficient);
+                } else {
+                    let damage_type = DamageType::from_str(damage_name)
+                        .map_err(|_| ArmorLoadError::UnknownDamageType(damage_name.clone()))?;
+                    template.set_coefficient(damage_type, *coefficient);
+                }
+            }
+            changed.push((name.to_string(), template));
+        }
+        self.templates.extend(changed);
+        Ok(())
+    }
+    pub fn to_parsed(&self) -> game_engine::common::ini::ini::armor_definitions::ArmorDefinitions {
+        let mut parsed = game_engine::common::ini::ini::armor_definitions::ArmorDefinitions::new();
+        for (name, template) in &self.templates {
+            let rows = crate::damage::DAMAGE_TYPE_FLAG_NAMES
+                .iter()
+                .enumerate()
+                .map(|(index, damage)| ((*damage).to_string(), template.coefficients[index]))
+                .collect();
+            parsed.register_definition(name, rows);
+        }
+        parsed
+    }
+
+    /// Armor-only loader: unrelated INI blocks never execute or publish effects.
+    pub fn load_from_str(content: &str) -> Result<Self, ArmorLoadError> {
+        let parsed = parse_armor_content(content)?;
+        if parsed.is_empty() {
+            return Err(ArmorLoadError::Empty);
+        }
+        let mut definitions = Self::new();
+        for (name, template) in parsed {
+            definitions.register_template(name.as_str(), template);
+        }
+        Ok(definitions)
     }
 }
 
@@ -219,7 +290,17 @@ fn parse_armor_content(content: &str) -> Result<Vec<(AsciiString, ArmorTemplate)
             continue;
         }
 
-        if let Some(rest) = line.strip_prefix("Armor ") {
+        // Common INI dispatch matches declaration tokens case-insensitively;
+        // its separators include tabs and '='. Keep this Armor-only envelope
+        // strict about unrelated blocks while sharing coefficient parsing.
+        let armor_rest = line
+            .get(..5)
+            .filter(|token| token.eq_ignore_ascii_case("Armor"))
+            .and_then(|_| line.get(5..))
+            .filter(|rest| {
+                rest.is_empty() || rest.starts_with(char::is_whitespace) || rest.starts_with('=')
+            });
+        if let Some(rest) = armor_rest {
             if rest.trim_start().starts_with('=') {
                 // This is an armor assignment ("Armor = ..."), not a block header.
             } else {
@@ -248,12 +329,12 @@ fn parse_armor_content(content: &str) -> Result<Vec<(AsciiString, ArmorTemplate)
                 message: "END without matching Armor block".into(),
             })?;
             let ascii = AsciiString::from(name.as_str());
-            let template = mem::take(&mut current_template);
+            let template = std::mem::take(&mut current_template);
             results.push((ascii, template));
             continue;
         }
 
-        if !line.starts_with("Armor") {
+        if armor_rest.is_none() {
             return Err(ArmorLoadError::Parse {
                 line: line_no,
                 message: format!("Unrecognised line '{line}'"),
@@ -267,22 +348,17 @@ fn parse_armor_content(content: &str) -> Result<Vec<(AsciiString, ArmorTemplate)
             });
         }
 
-        let tokens: Vec<&str> = line.split_whitespace().collect();
-        if tokens.len() < 4 || tokens[0] != "Armor" || tokens[1] != "=" {
-            return Err(ArmorLoadError::Parse {
-                line: line_no,
-                message: format!("Malformed armor assignment '{line}'"),
-            });
-        }
-
-        let damage_name = tokens[2].trim().to_ascii_uppercase();
-        let coefficient = parse_percentage(tokens[3], line_no)?;
-
+        let (damage_name, coefficient) =
+            game_engine::common::ini::ini::armor_definitions::parse_coefficient_row(line).map_err(
+                |message| ArmorLoadError::Parse {
+                    line: line_no,
+                    message,
+                },
+            )?;
         if damage_name == "DEFAULT" {
             current_template.set_default(coefficient);
             continue;
         }
-
         let damage_type = DamageType::from_str(&damage_name)
             .map_err(|_| ArmorLoadError::UnknownDamageType(damage_name.clone()))?;
         current_template.set_coefficient(damage_type, coefficient);
@@ -293,21 +369,6 @@ fn parse_armor_content(content: &str) -> Result<Vec<(AsciiString, ArmorTemplate)
     }
 
     Ok(results)
-}
-
-fn parse_percentage(token: &str, line: usize) -> Result<Real, ArmorLoadError> {
-    let trimmed = token.trim_end_matches('%').trim();
-    if trimmed.is_empty() {
-        return Err(ArmorLoadError::Parse {
-            line,
-            message: format!("Invalid percentage '{token}'"),
-        });
-    }
-    let value: f32 = trimmed.parse().map_err(|_| ArmorLoadError::Parse {
-        line,
-        message: format!("Invalid percentage '{token}'"),
-    })?;
-    Ok(value * 0.01)
 }
 
 fn default_armor_paths() -> [PathBuf; 3] {
@@ -340,35 +401,37 @@ fn load_armor_from_retail_archive() -> Result<(), ArmorLoadError> {
     for root in game_engine::common::system::install_layout::zh_install_roots() {
         for name in ["INIZH.big", "inizh.big"] {
             let Some(big_path) =
-                game_engine::common::system::install_layout::find_file_case_insensitive(&root, name)
+                game_engine::common::system::install_layout::find_file_case_insensitive(
+                    &root, name,
+                )
             else {
                 continue;
             };
-        let mut big = game_engine::common::system::big_file_system::BigFile::new();
-        if big.open(&big_path).is_err() {
-            continue;
-        }
-        let entry = big
-            .entries()
-            .iter()
-            .find(|entry| {
-                entry
-                    .filename
-                    .replace('\\', "/")
-                    .eq_ignore_ascii_case("data/ini/armor.ini")
-            })
-            .cloned();
-        let Some(entry) = entry else {
-            continue;
-        };
-        let Ok(bytes) = big.extract_file_data(&entry) else {
-            continue;
-        };
-        let Ok(text) = String::from_utf8(bytes) else {
-            continue;
-        };
-        load_armor_templates_from_str(&text, Some(big_path.as_path()))?;
-        return Ok(());
+            let mut big = game_engine::common::system::big_file_system::BigFile::new();
+            if big.open(&big_path).is_err() {
+                continue;
+            }
+            let entry = big
+                .entries()
+                .iter()
+                .find(|entry| {
+                    entry
+                        .filename
+                        .replace('\\', "/")
+                        .eq_ignore_ascii_case("data/ini/armor.ini")
+                })
+                .cloned();
+            let Some(entry) = entry else {
+                continue;
+            };
+            let Ok(bytes) = big.extract_file_data(&entry) else {
+                continue;
+            };
+            let Ok(text) = String::from_utf8(bytes) else {
+                continue;
+            };
+            load_armor_templates_from_str(&text, Some(big_path.as_path()))?;
+            return Ok(());
         }
     }
     Err(ArmorLoadError::FileNotFound)
@@ -440,6 +503,132 @@ impl TheArmorStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn owned_armor_full_ini_preserves_order_replacement_and_session_isolation() {
+        // INI.cpp1586 scanPercentToReal divides; multiplication by 0.01 has
+        // a different f32 result for source-valid coefficients such as 33%.
+        let precise =
+            ArmorDefinitions::load_from_str("Armor Precise\n Armor = DEFAULT 33%\nEnd\n").unwrap();
+        assert_eq!(
+            precise
+                .find_template("Precise")
+                .unwrap()
+                .adjust_damage(DamageType::Explosion, 1.0)
+                .to_bits(),
+            (33.0f32 / 100.0).to_bits()
+        );
+        use game_engine::common::ini::ini::{INI, armor_definitions};
+        let mut parser = INI::new();
+        parser.set_armor_definitions_target(armor_definitions::ArmorDefinitions::new());
+        parser
+            .with_inline_source(
+                "Armor Shared\n Armor = FLAME 20%\n Armor = DEFAULT 50%\n Armor = FLAME 75%\nEnd\n",
+                |ini| ini.parse_current_file(),
+            )
+            .unwrap();
+        let mut first = ArmorDefinitions::new();
+        first
+            .overlay_parsed(&parser.take_armor_definitions_target().unwrap())
+            .unwrap();
+        let mut second = first.clone();
+        parser.set_armor_definitions_target(first.to_parsed());
+        parser
+            .with_inline_source("Armor Shared\n Armor = FLAME 25%\nEnd\n", |ini| {
+                ini.parse_current_file()
+            })
+            .unwrap();
+        second
+            .overlay_parsed(&parser.take_armor_definitions_target().unwrap())
+            .unwrap();
+        assert_eq!(
+            first
+                .find_template("SHARED")
+                .unwrap()
+                .adjust_damage(DamageType::Flame, 100.0),
+            75.0
+        );
+        assert_eq!(
+            first
+                .find_template("shared")
+                .unwrap()
+                .adjust_damage(DamageType::Explosion, 100.0),
+            50.0
+        );
+        assert_eq!(
+            second
+                .find_template("shared")
+                .unwrap()
+                .adjust_damage(DamageType::Flame, 100.0),
+            25.0
+        );
+        assert_eq!(
+            second
+                .find_template("shared")
+                .unwrap()
+                .adjust_damage(DamageType::Explosion, 100.0),
+            100.0
+        );
+        assert!(ArmorDefinitions::new().find_template("shared").is_none());
+    }
+
+    #[test]
+    fn owned_armor_loader_accepts_original_case_and_tab_tokens_but_rejects_bad_headers() {
+        // C++ INI.cpp findBlockParse uses stricmp; m_seps includes whitespace
+        // and '='. Armor.cpp parseArmorCoefficients also compares Default
+        // case-insensitively. Every variant is the same actual named block.
+        for source in [
+            "Armor Mixed\n Armor = Default 33%\nEnd\n",
+            "aRmOr Mixed\n aRmOr = dEfAuLt 33%\neNd\n",
+            "Armor\tMixed\n\tArmor\t=\tDefault\t33%\nEnd\n",
+            "ARMOR\tMixed\n armor=DEFAULT\t33%\nEND\n",
+        ] {
+            let catalog = ArmorDefinitions::load_from_str(source).unwrap();
+            assert_eq!(catalog.len(), 1);
+            assert_eq!(
+                catalog
+                    .find_template("mixed")
+                    .unwrap()
+                    .adjust_damage(DamageType::Explosion, 1.0)
+                    .to_bits(),
+                (33.0f32 / 100.0).to_bits()
+            );
+        }
+        for source in [
+            "Armor\nEnd\n",
+            "ArMoR\t \nEnd\n",
+            "Armored WrongToken\nEnd\n",
+            "Armor Outer\n Armor Inner\nEnd\nEnd\n",
+            "Object UnrelatedBlock\nEnd\n",
+        ] {
+            assert!(
+                matches!(
+                    ArmorDefinitions::load_from_str(source),
+                    Err(ArmorLoadError::Parse { .. })
+                ),
+                "Armor-only admission rejects malformed/unrelated header: {source:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn invalid_owned_armor_overlay_is_transactional() {
+        let mut catalog =
+            ArmorDefinitions::load_from_str("Armor Shared\n Armor = DEFAULT 50%\nEnd\n").unwrap();
+        let mut rows = game_engine::common::ini::ini::armor_definitions::ArmorDefinitions::new();
+        rows.register_definition("Shared", vec![("DEFAULT".into(), 0.1)]);
+        rows.register_definition("Bad", vec![("NOT_A_DAMAGE_TYPE".into(), 0.5)]);
+        assert!(catalog.overlay_parsed(&rows).is_err());
+        assert_eq!(catalog.len(), 1);
+        assert_eq!(
+            catalog
+                .find_template("Shared")
+                .unwrap()
+                .adjust_damage(DamageType::Explosion, 100.0),
+            50.0
+        );
+        assert!(catalog.find_template("Bad").is_none());
+    }
 
     #[test]
     fn parse_simple_armor_block() {

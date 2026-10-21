@@ -1774,6 +1774,7 @@ impl CnCGameEngine {
         production_energy_base: game_engine::common::ini::ini_game_data::ProductionEnergyRules,
         physics_rules_base: game_engine::common::ini::ini_game_data::PhysicsContentRules,
         terrain_definition_seed: &Arc<game_engine::common::ini::ini_terrain::TerrainTypes>,
+        armor_definition_seed: Option<&Arc<gamelogic::object::armor::ArmorDefinitions>>,
         camera_settings: crate::presentation_frame::camera::settings::CameraSettings,
         camera_clip_policy: crate::presentation_frame::camera::clip::CameraClipPolicy,
         camera_shake_policy: crate::presentation_frame::camera::shake_rules::CameraShakePolicy,
@@ -1808,6 +1809,7 @@ impl CnCGameEngine {
             production_energy_base,
             physics_rules_base,
             terrain_definition_seed,
+            armor_definition_seed,
             camera_settings,
             camera_clip_policy,
             camera_shake_policy,
@@ -1871,6 +1873,7 @@ impl CnCGameEngine {
             live.production_energy_baseline(),
             live.physics_rules_baseline(),
             live.effective_terrain_definitions(),
+            live.current_armor_definitions(),
             live.session_view.camera.settings,
             live.session_view.camera.clip_policy,
             live.session_view.camera.shake_policy,
@@ -1964,6 +1967,9 @@ impl CnCGameEngine {
         candidate.admit_production_energy_base(live.production_energy_baseline());
         candidate.admit_physics_rules_base(live.physics_rules_baseline())?;
         candidate.admit_terrain_definitions(Arc::clone(live.effective_terrain_definitions()))?;
+        if let Some(catalog) = live.current_armor_definitions() {
+            candidate.admit_armor_definitions(Arc::clone(catalog));
+        }
         candidate.session_view.camera.settings = live.session_view.camera.settings.reset_seed();
         candidate.session_view.camera.clip_policy =
             live.session_view.camera.clip_policy.reset_seed();
@@ -2035,6 +2041,7 @@ impl CnCGameEngine {
         production_energy_base: game_engine::common::ini::ini_game_data::ProductionEnergyRules,
         physics_rules_base: game_engine::common::ini::ini_game_data::PhysicsContentRules,
         terrain_definition_seed: &Arc<game_engine::common::ini::ini_terrain::TerrainTypes>,
+        armor_definition_seed: Option<&Arc<gamelogic::object::armor::ArmorDefinitions>>,
         camera_settings: crate::presentation_frame::camera::settings::CameraSettings,
         camera_clip_policy: crate::presentation_frame::camera::clip::CameraClipPolicy,
         camera_shake_policy: crate::presentation_frame::camera::shake_rules::CameraShakePolicy,
@@ -2065,6 +2072,7 @@ impl CnCGameEngine {
             production_energy_base,
             physics_rules_base,
             terrain_definition_seed,
+            armor_definition_seed,
             camera_settings,
             camera_clip_policy,
             camera_shake_policy,
@@ -2096,6 +2104,7 @@ impl CnCGameEngine {
         production_energy_base: game_engine::common::ini::ini_game_data::ProductionEnergyRules,
         physics_rules_base: game_engine::common::ini::ini_game_data::PhysicsContentRules,
         terrain_definition_seed: &Arc<game_engine::common::ini::ini_terrain::TerrainTypes>,
+        armor_definition_seed: Option<&Arc<gamelogic::object::armor::ArmorDefinitions>>,
         camera_settings: crate::presentation_frame::camera::settings::CameraSettings,
         camera_clip_policy: crate::presentation_frame::camera::clip::CameraClipPolicy,
         camera_shake_policy: crate::presentation_frame::camera::shake_rules::CameraShakePolicy,
@@ -2188,6 +2197,9 @@ impl CnCGameEngine {
         staged.admit_production_energy_base(production_energy_base);
         staged.admit_physics_rules_base(physics_rules_base)?;
         staged.admit_terrain_definitions(Arc::clone(terrain_definition_seed))?;
+        if let Some(catalog) = armor_definition_seed {
+            staged.admit_armor_definitions(Arc::clone(catalog));
+        }
         staged.start_new_game_for_restore(mode);
         if let Some(initial) = &initial_skirmish {
             initial.admit(&mut staged)?;
@@ -2326,6 +2338,7 @@ impl CnCGameEngine {
             self.game_logic.production_energy_baseline(),
             self.game_logic.physics_rules_baseline(),
             self.game_logic.effective_terrain_definitions(),
+            self.game_logic.current_armor_definitions(),
             self.game_logic.session_view.camera.settings,
             self.game_logic.session_view.camera.clip_policy,
             self.game_logic.session_view.camera.shake_policy,

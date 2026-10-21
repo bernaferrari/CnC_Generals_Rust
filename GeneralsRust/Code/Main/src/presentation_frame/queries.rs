@@ -394,7 +394,7 @@ impl PresentationFrame {
                     );
                 }
             }
-            if visual_mesh_scale.is_finite() && visual_mesh_scale > 0.0 {
+            if visual_mesh_scale.is_finite() {
                 input.mesh_scale = visual_mesh_scale;
             }
         };

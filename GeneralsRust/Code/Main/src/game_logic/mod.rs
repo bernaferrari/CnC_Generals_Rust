@@ -13,6 +13,7 @@ mod residuals;
 #[cfg(any(test, feature = "host-residuals"))]
 pub use residuals::*;
 
+pub(crate) mod armor_definitions;
 pub mod audio_dispatch_impl;
 pub mod buildings;
 pub mod combat;

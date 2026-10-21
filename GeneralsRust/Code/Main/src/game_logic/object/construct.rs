@@ -298,6 +298,8 @@ impl Object {
             ];
             template.bind_selected_weapon_sets(base);
         }
+        let initial_drawable_scale =
+            crate::assets::mesh_asset_resolve::mesh_scale_from_template(&template);
         let template_name = template.name.clone();
         let inactive_body =
             template.body_kind == Some(crate::game_logic::thing::BodyKind::Inactive);
@@ -1333,7 +1335,7 @@ impl Object {
             drawable_fade_start_frame: 0,
             drawable_fade_frames: 0,
             drawable_explicit_opacity: 1.0,
-            drawable_instance_scale: 1.0,
+            drawable_instance_scale: initial_drawable_scale,
             drawable_tint_status: 0,
             drawable_prev_tint_status: 0,
             drawable_expiration_date: 0,
@@ -1356,6 +1358,8 @@ impl Object {
     /// Alternative constructor for command system compatibility
     pub fn new_simple(id: ObjectId, object_type: ObjectType, template_name: String) -> Self {
         let mut template = ThingTemplate::new(&template_name);
+        let initial_drawable_scale =
+            crate::assets::mesh_asset_resolve::mesh_scale_from_template(&template);
         template.bind_weapon_set_from_live_assets();
         let tracker = template.weapon_tracker_bind();
         let team = Team::Neutral;
@@ -2278,7 +2282,7 @@ impl Object {
             drawable_fade_start_frame: 0,
             drawable_fade_frames: 0,
             drawable_explicit_opacity: 1.0,
-            drawable_instance_scale: 1.0,
+            drawable_instance_scale: initial_drawable_scale,
             drawable_tint_status: 0,
             drawable_prev_tint_status: 0,
             drawable_expiration_date: 0,

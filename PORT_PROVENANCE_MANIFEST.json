@@ -2482,9 +2482,16 @@
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/geometry.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/geometry/matrix_angle_tests.rs"
           }
         ],
-        "mode": "stem_inferred",
+        "mode": "split_inferred",
         "ownership_diagnostics": [],
         "range_validation": "not_required",
         "review_state": "unreviewed",
@@ -2617,6 +2624,13 @@
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini/armor_definitions.rs"
           },
           {
             "cargo_reachable": true,
@@ -36601,6 +36615,13 @@
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini/armor_definitions.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini/field_parsing.rs"
           },
           {
@@ -40536,9 +40557,16 @@
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/geometry.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/geometry/matrix_angle_tests.rs"
           }
         ],
-        "mode": "stem_inferred",
+        "mode": "split_inferred",
         "ownership_diagnostics": [],
         "range_validation": "not_required",
         "review_state": "unreviewed",
@@ -160422,7 +160450,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "54a8de561d73edb15710885dc4e397455a991e19369ae9b58ef3d41e43802393",
+  "input_digest": "8d4f9ed96d2cc0fe01dcd9849cada7835fd7b6c5412937d8f22480035a6f03a8",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -164195,6 +164223,18 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
+        "end_line": 46,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini/armor_definitions.rs",
+      "sha256": "110d5ead4eb0b9428cc1083de38d42c1c815280943eee157d8f812f2a76775a1",
+      "symbol_index_status": "awaiting_mapping_review",
+      "symbols": []
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "implementation",
+      "file_range": {
         "end_line": 162,
         "start_line": 1
       },
@@ -164207,11 +164247,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 2854,
+        "end_line": 2876,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini.rs",
-      "sha256": "7f6f4805b8f55fb2d097a2f64d8eb4e809b87903fef80f42cf2fbeac05cb3ede",
+      "sha256": "24beb6db02996219caf4dfe4adcea9cad27972da612a8852223ddbce92a54ad0",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -165453,13 +165493,25 @@
     },
     {
       "cargo_reachable": true,
+      "classification": "test",
+      "file_range": {
+        "end_line": 56,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/geometry/matrix_angle_tests.rs",
+      "sha256": "5d1b51d23137160699d9fb3ddda7f55a7a91dd13a3f8b6004b5d86d37cafdaf2",
+      "symbol_index_status": "awaiting_mapping_review",
+      "symbols": []
+    },
+    {
+      "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1363,
+        "end_line": 1366,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/geometry.rs",
-      "sha256": "206240cacf5d38550c58eecca9f77affad70655b8b564718fa25befa881106cb",
+      "sha256": "9fe198ce2a7c870896857f21d0e29f8281e56e410e6a9c48245d62072dfeda11",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -202417,11 +202469,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 480,
+        "end_line": 669,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/armor.rs",
-      "sha256": "c53d6e0e900afd4183ea35dcb9719e81c3566155099be57d4f009ba9dbd64f86",
+      "sha256": "74ffade85e87a8443d0f170bcca5725ac18ade5bb26b284156184e41ff52a693",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },

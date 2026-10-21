@@ -152,6 +152,7 @@ fn legacy_camera_restore_uses_saved_map_rules_not_active_or_application_maximum(
                 source.production_energy_baseline(),
                 source.physics_rules_baseline(),
                 source.effective_terrain_definitions(),
+                source.current_armor_definitions(),
                 active.session_view.camera.settings,
                 active.session_view.camera.clip_policy,
                 active.session_view.camera.shake_policy,

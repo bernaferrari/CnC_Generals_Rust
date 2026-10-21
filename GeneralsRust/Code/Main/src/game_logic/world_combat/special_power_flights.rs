@@ -486,8 +486,7 @@ impl GameLogic {
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> Option<ObjectId> {
         use crate::game_logic::host_emp_pulse::{
-            EMP_PULSE_EFFECT_SPHEROID, EMP_SPHEROID_GEOMETRY_RADIUS, EMP_SPHEROID_LIFETIME_FRAMES,
-            EMP_SPHEROID_START_SCALE,
+            EMP_PULSE_EFFECT_SPHEROID, EMP_SPHEROID_LIFETIME_FRAMES,
         };
         use crate::game_logic::{KindOf, ThingTemplate};
 
@@ -516,7 +515,6 @@ impl GameLogic {
             o.producer_id = Some(producer);
             o.emp_pulse_spheroid_expires_frame =
                 Some(self.frame.saturating_add(EMP_SPHEROID_LIFETIME_FRAMES));
-            o.set_geometry_radius(EMP_SPHEROID_GEOMETRY_RADIUS * EMP_SPHEROID_START_SCALE);
             o.visual_draw_state_revision = o.visual_draw_state_revision.wrapping_add(1);
         }
         self.emp_pulses.record_spheroid_spawn();
@@ -545,9 +543,7 @@ impl GameLogic {
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> Option<ObjectId> {
         use crate::game_logic::host_base_defense::EMP_PATRIOT_EFFECT_SPHEROID;
-        use crate::game_logic::host_emp_pulse::{
-            EMP_SPHEROID_GEOMETRY_RADIUS, EMP_SPHEROID_LIFETIME_FRAMES, EMP_SPHEROID_START_SCALE,
-        };
+        use crate::game_logic::host_emp_pulse::EMP_SPHEROID_LIFETIME_FRAMES;
         use crate::game_logic::{KindOf, ThingTemplate};
 
         let team = self
@@ -575,7 +571,6 @@ impl GameLogic {
             o.producer_id = Some(producer);
             o.emp_pulse_spheroid_expires_frame =
                 Some(self.frame.saturating_add(EMP_SPHEROID_LIFETIME_FRAMES));
-            o.set_geometry_radius(EMP_SPHEROID_GEOMETRY_RADIUS * EMP_SPHEROID_START_SCALE);
             o.visual_draw_state_revision = o.visual_draw_state_revision.wrapping_add(1);
         }
         self.supw_patriot_emp_spheroids_spawned =

@@ -394,8 +394,6 @@ impl GameLogic {
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
-        use crate::game_logic::host_emp_pulse::EMP_SPHEROID_GEOMETRY_RADIUS;
-
         let now = self.frame;
         self.emp_pulses.tick_spheroids(now);
         let visual: Vec<(ObjectId, f32)> = self
@@ -407,7 +405,8 @@ impl GameLogic {
         for (id, scale) in visual {
             if let Some(o) = self.objects.get_mut(&id) {
                 if o.emp_pulse_spheroid {
-                    o.set_geometry_radius(EMP_SPHEROID_GEOMETRY_RADIUS * scale);
+                    // EMPUpdate.cpp:120-121 changes Drawable scale, not physical geometry.
+                    o.drawable_instance_scale = scale;
                     o.visual_draw_state_revision = o.visual_draw_state_revision.wrapping_add(1);
                 }
             }

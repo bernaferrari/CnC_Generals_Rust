@@ -1470,23 +1470,19 @@ mod tests {
         assert!(tank.status.destroyed);
     }
 
-    fn register_coeff_armor(name: &str, dt: gamelogic::damage::DamageType, coeff: f32) {
-        // Complete the real one-time retail admission before adding this fixture's
-        // custom row. The initial load replaces the store, so publishing first
-        // lets a concurrent first damage lookup erase the custom definition.
-        gamelogic::object::armor::ensure_default_templates_loaded();
-        let mut t = gamelogic::object::armor::ArmorTemplate::new();
-        t.set_default(1.0);
-        t.set_coefficient(dt, coeff);
-        gamelogic::object::armor::TheArmorStore::register_template(
-            &gamelogic::common::AsciiString::from(name),
-            t,
-        );
-        let admitted = gamelogic::object::armor::TheArmorStore::find_template(
-            &gamelogic::common::AsciiString::from(name),
-        )
-        .expect("custom fixture armor admitted after retail initialization");
+    fn coeff_armor(
+        name: &str,
+        dt: gamelogic::damage::DamageType,
+        coeff: f32,
+    ) -> std::sync::Arc<gamelogic::object::armor::ArmorDefinitions> {
+        let mut row = gamelogic::object::armor::ArmorTemplate::new();
+        row.set_default(1.0);
+        row.set_coefficient(dt, coeff);
+        let mut catalog = gamelogic::object::armor::ArmorDefinitions::new();
+        catalog.register_template(name, row);
+        let admitted = catalog.find_template(name).expect("fixture row admitted");
         assert_eq!(admitted.adjust_damage(dt, 1.0), coeff);
+        std::sync::Arc::new(catalog)
     }
 
     #[test]
@@ -1494,8 +1490,10 @@ mod tests {
         let mut health_events = crate::game_logic::HostHealthEvents::default();
 
         // C++ ActiveBody::attemptHealing (ActiveBody.cpp:801) + Armor.cpp:43-55.
-        register_coeff_armor("HealHalfArmor", gamelogic::damage::DamageType::Healing, 0.5);
+        let armor_definitions =
+            coeff_armor("HealHalfArmor", gamelogic::damage::DamageType::Healing, 0.5);
         let mut tmpl = ThingTemplate::new("HealHalf");
+        tmpl.armor_definitions = Some(armor_definitions);
         tmpl.set_health(100.0);
         tmpl.add_kind_of(KindOf::Infantry);
         tmpl.armor_sets.push(crate::game_logic::HostArmorSet {
@@ -1570,12 +1568,13 @@ mod tests {
 
         // C++ ActiveBody.cpp:351 adjustDamage; 460-464 ConvertDurationFromMsecsToFrames
         // on the armor-adjusted msec.
-        register_coeff_armor(
+        let armor_definitions = coeff_armor(
             "StatusHalfArmor",
             gamelogic::damage::DamageType::Status,
             0.5,
         );
         let mut tmpl = ThingTemplate::new("StatusHalf");
+        tmpl.armor_definitions = Some(armor_definitions);
         tmpl.set_health(100.0);
         tmpl.add_kind_of(KindOf::Vehicle);
         tmpl.armor_sets.push(crate::game_logic::HostArmorSet {
@@ -1622,12 +1621,13 @@ mod tests {
         let mut health_events = crate::game_logic::HostHealthEvents::default();
 
         // C++ NukeRadiationFieldWeapon DamageType RADIATION + NOT_AIRBORNE.
-        register_coeff_armor(
+        let armor_definitions = coeff_armor(
             "RadTankArmor",
             gamelogic::damage::DamageType::Radiation,
             0.5,
         );
         let mut tank = vehicle("RadTank", 47, 100.0);
+        tank.thing.template.armor_definitions = Some(armor_definitions);
         tank.thing
             .template
             .armor_sets
@@ -2194,12 +2194,13 @@ mod tests {
         // second life. ActiveBody:1206–1220 recalculates body/model immediately.
         // Use full armor coefficient so first-life HP becomes 1, exercising
         // the damaged→healthy recomputation rather than an already-healthy bus.
-        register_coeff_armor(
+        let armor_definitions = coeff_armor(
             "BusSecondLifeStateArmor",
             gamelogic::damage::DamageType::Explosion,
             1.0,
         );
         let mut bus = vehicle("GLAVehicleBattleBus", 96, 50.0);
+        bus.thing.template.armor_definitions = Some(armor_definitions);
         bus.install_battle_bus_transport();
         bus.health.maximum = 50.0;
         bus.health.current = 50.0;
@@ -2236,8 +2237,10 @@ mod tests {
 
         // C++ UndeadBody.cpp:58-64 compares damageInfo->in.m_amount PRE-armor.
         // Flame 0.1 vs 50 HP: raw 200 intercepts even though 20 post-armor would not kill.
-        register_coeff_armor("BusFlameArmor", gamelogic::damage::DamageType::Flame, 0.1);
+        let armor_definitions =
+            coeff_armor("BusFlameArmor", gamelogic::damage::DamageType::Flame, 0.1);
         let mut bus = vehicle("GLAVehicleBattleBus", 91, 50.0);
+        bus.thing.template.armor_definitions = Some(armor_definitions);
         bus.install_battle_bus_transport();
         bus.health.maximum = 50.0;
         bus.health.current = 50.0;
@@ -2262,12 +2265,13 @@ mod tests {
         let mut health_events = crate::game_logic::HostHealthEvents::default();
 
         // >100% coefficient: raw 40 < 50, post-armor 80 would kill — C++ does not intercept.
-        register_coeff_armor(
+        let armor_definitions = coeff_armor(
             "BusVulnArmor",
             gamelogic::damage::DamageType::Explosion,
             2.0,
         );
         let mut bus = vehicle("GLAVehicleBattleBus", 92, 50.0);
+        bus.thing.template.armor_definitions = Some(armor_definitions);
         bus.install_battle_bus_transport();
         bus.health.maximum = 50.0;
         bus.health.current = 50.0;
@@ -2294,8 +2298,10 @@ mod tests {
 
         // C++ HighlanderBody.cpp:33-36: min(raw, health-1) then ActiveBody armor.
         // 999 raw → 49, * 0.25 flame = 12.25, HP 37.75. Post-armor clamp would leave 1.
-        register_coeff_armor("TreeFlameArmor", gamelogic::damage::DamageType::Flame, 0.25);
+        let armor_definitions =
+            coeff_armor("TreeFlameArmor", gamelogic::damage::DamageType::Flame, 0.25);
         let mut tree = vehicle("Tree01", 93, 50.0);
+        tree.thing.template.armor_definitions = Some(armor_definitions);
         tree.install_highlander_body();
         tree.thing
             .template
@@ -2319,12 +2325,13 @@ mod tests {
         let mut health_events = crate::game_logic::HostHealthEvents::default();
 
         // C++ clamps raw only: 40 < 49 so no clamp, *2.0 = 80 kills.
-        register_coeff_armor(
+        let armor_definitions = coeff_armor(
             "TreeVulnArmor",
             gamelogic::damage::DamageType::Explosion,
             2.0,
         );
         let mut tree = vehicle("Tree01", 94, 50.0);
+        tree.thing.template.armor_definitions = Some(armor_definitions);
         tree.install_highlander_body();
         tree.thing
             .template

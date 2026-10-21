@@ -997,6 +997,15 @@ impl SnapshotBuilder {
                     entry.object_id
                 )));
             }
+            let replacement_scale = entry
+                .disguised
+                .then(|| {
+                    game_logic
+                        .templates
+                        .get(&entry.disguise_as_template)
+                        .map(crate::assets::mesh_asset_resolve::mesh_scale_from_template)
+                })
+                .flatten();
             let Some(object) = game_logic.host_object_mut(entry.object_id) else {
                 log::warn!(
                     "Disguise snapshot references missing object {}",
@@ -1004,6 +1013,9 @@ impl SnapshotBuilder {
                 );
                 continue;
             };
+            object.drawable_instance_scale = replacement_scale.unwrap_or_else(|| {
+                crate::assets::mesh_asset_resolve::mesh_scale_from_template(object.get_template())
+            });
             object.restore_disguise_from_save(
                 if entry.disguise_as_template.is_empty() {
                     None

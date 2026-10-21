@@ -472,6 +472,35 @@ pub(crate) fn parse_map_settings_from_chunky_with_owned_terrain_definitions(
     )
 }
 
+pub(crate) fn parse_map_settings_from_chunky_with_owned_definition_catalogs(
+    chunky: &ChunkyMap,
+    draft: std::sync::Arc<std::sync::RwLock<game_engine::common::ini::ini_ai_data::AIDataStore>>,
+    definition_source: &str,
+    production_energy: Option<game_engine::common::ini::ini_game_data::ProductionEnergyRules>,
+    physics_rules: Option<game_engine::common::ini::ini_game_data::PhysicsContentRules>,
+    camera_rules: Option<game_engine::common::ini::ini_game_data::CameraContentRules>,
+    camera_clip_rules: Option<game_engine::common::ini::ini_game_data::CameraClipRules>,
+    camera_shake_rules: Option<game_engine::common::ini::ini_game_data::CameraShakeRules>,
+    terrain_definitions: std::sync::Arc<game_engine::common::ini::ini_terrain::TerrainTypes>,
+    armor_definitions: Option<std::sync::Arc<gamelogic::object::armor::ArmorDefinitions>>,
+) -> LoaderResult<MapMetadata> {
+    parse_map_settings_from_loaded_chunky(
+        definition_source,
+        chunky,
+        MapMetadata {
+            terrain_definitions: Some(terrain_definitions),
+            armor_definitions,
+            camera_clip_rules,
+            camera_shake_rules,
+            camera_rules,
+            production_energy,
+            physics_rules,
+            ..MapMetadata::default()
+        },
+        Some(draft),
+    )
+}
+
 fn parse_map_settings_from_loaded_chunky(
     map_name: &str,
     chunky: &ChunkyMap,
@@ -485,6 +514,11 @@ fn parse_map_settings_from_loaded_chunky(
         .as_deref()
         .cloned()
         .unwrap_or_else(game_engine::common::ini::ini_terrain::TerrainTypes::new);
+    let mut armor_definitions = meta
+        .armor_definitions
+        .as_deref()
+        .cloned()
+        .unwrap_or_default();
     // Capture pristine immutable content before any other map's overrides.
     if meta.weather_definition.is_none() {
         meta.weather_definition = game_engine::common::ini::ini_weather::get_base_weather_setting();
@@ -595,14 +629,18 @@ fn parse_map_settings_from_loaded_chunky(
                     parse_map_default_starting_cash(&contents)?.or(meta.default_starting_cash);
                 // C++ GameLogic.cpp:2404-2408 loadMapINI — full block table
                 // via INI_LOAD_CREATE_OVERRIDES (CommandSet/CommandButton/Upgrade).
-                let (_, updated) =
-                    gamelogic::system::load_map_ini_ui_overrides_with_definition_targets(
+                let (_, updated, armor) =
+                    gamelogic::system::load_map_ini_ui_overrides_with_armor_definition_targets(
                         &contents,
                         ai_data_target.as_ref().map(std::sync::Arc::clone),
                         terrain_definitions,
+                        armor_definitions.to_parsed(),
                     )
                     .map_err(GameLogicError::Configuration)?;
                 terrain_definitions = updated;
+                armor_definitions
+                    .overlay_parsed(&armor)
+                    .map_err(|error| GameLogicError::Configuration(error.to_string()))?;
                 // ParticleSystem still needs the live GameClient manager hook.
                 let _ = overlay_map_ini_particle_systems(&contents);
                 // Weather CREATE_OVERRIDES + SnowManager flake spacing.
@@ -687,14 +725,18 @@ fn parse_map_settings_from_loaded_chunky(
                 }
                 meta.default_starting_cash =
                     parse_map_default_starting_cash(&contents)?.or(meta.default_starting_cash);
-                let (_, updated) =
-                    gamelogic::system::load_map_ini_ui_overrides_with_definition_targets(
+                let (_, updated, armor) =
+                    gamelogic::system::load_map_ini_ui_overrides_with_armor_definition_targets(
                         &contents,
                         ai_data_target.as_ref().map(std::sync::Arc::clone),
                         terrain_definitions,
+                        armor_definitions.to_parsed(),
                     )
                     .map_err(GameLogicError::Configuration)?;
                 terrain_definitions = updated;
+                armor_definitions
+                    .overlay_parsed(&armor)
+                    .map_err(|error| GameLogicError::Configuration(error.to_string()))?;
                 overlay_owned_map_weather(
                     &contents,
                     &mut meta.weather_definition,
@@ -751,6 +793,12 @@ fn parse_map_settings_from_loaded_chunky(
     }
 
     meta.terrain_definitions = Some(std::sync::Arc::new(terrain_definitions));
+    // None is the explicit mapless residual profile. A map without Armor
+    // blocks does not silently change it into an authored empty catalogue.
+    // Native startup always supplies Some, including an intentionally empty set.
+    if meta.armor_definitions.is_some() || !armor_definitions.is_empty() {
+        meta.armor_definitions = Some(std::sync::Arc::new(armor_definitions));
+    }
     Ok(meta)
 }
 

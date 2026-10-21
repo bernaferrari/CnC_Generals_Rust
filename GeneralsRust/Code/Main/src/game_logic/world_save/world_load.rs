@@ -288,7 +288,7 @@ impl GameLogic {
                 report_progress(0.36, "Reading map settings");
                 let ai_draft = self.ai_definitions.map_override_draft();
                 let parsed =
-                    super::script_loader::parse_map_settings_from_chunky_with_owned_terrain_definitions(
+                    super::script_loader::parse_map_settings_from_chunky_with_owned_definition_catalogs(
                         &chunky,
                         std::sync::Arc::clone(&ai_draft),
                         &definition_source,
@@ -298,10 +298,14 @@ impl GameLogic {
                         Some(self.session_view.camera.clip_policy.current()),
                         Some(self.session_view.camera.shake_policy.current()),
                         Arc::clone(self.effective_terrain_definitions()),
+                        self.current_armor_definitions().cloned(),
                     );
                 let parsed_settings = match parsed {
                     Ok(meta) => match self.admit_ai_map_overrides(ai_draft) {
                         Ok(()) => {
+                            if let Some(definitions) = &meta.armor_definitions {
+                                self.admit_armor_definitions(Arc::clone(definitions));
+                            }
                             if let Some(definitions) = &meta.terrain_definitions {
                                 self.terrain_definitions = Arc::clone(definitions);
                             }

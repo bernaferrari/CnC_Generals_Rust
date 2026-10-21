@@ -510,6 +510,10 @@ pub struct ThingTemplate {
     /// C++ `ThingTemplate::m_armorTemplateSets` from Object INI `ArmorSet`.
     #[serde(default)]
     pub armor_sets: Vec<HostArmorSet>,
+    /// Receiving immutable Armor.ini definitions, rebound after historical Xfer.
+    #[serde(skip)]
+    pub(crate) armor_definitions:
+        Option<std::sync::Arc<gamelogic::object::armor::ArmorDefinitions>>,
     /// C++ `ActiveBodyModuleData::m_subdualDamageCap`. Default 0 = immune.
     #[serde(default)]
     pub subdual_damage_cap: f32,
@@ -794,6 +798,7 @@ impl ThingTemplate {
             authored_locomotor_sets: None,
             create_crate_data: Vec::new(),
             armor_sets: Vec::new(),
+            armor_definitions: None,
             subdual_damage_cap: 0.0,
             subdual_heal_rate_frames: 0,
             subdual_heal_amount: 0.0,
@@ -890,11 +895,10 @@ impl ThingTemplate {
             .find(|ability| ability.is_remote_charge_power())
     }
 
-    /// Preserve a drawable authored C++ asset scale. Retail Object INIs use
-    /// positive finite values; malformed values retain the default instead of
-    /// entering a WGPU transform as NaN or infinity.
+    /// Preserve finite authored C++ Scale values, including zero and reflection.
+    /// Nonfinite values retain the prior value instead of entering a WGPU transform.
     pub fn set_asset_scale(&mut self, scale: f32) -> &mut Self {
-        if scale.is_finite() && scale > 0.0 {
+        if scale.is_finite() {
             self.asset_scale = scale;
         }
         self

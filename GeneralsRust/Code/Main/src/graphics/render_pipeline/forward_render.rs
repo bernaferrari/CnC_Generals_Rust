@@ -624,6 +624,14 @@ impl ForwardPass {
         if let Err(err) = self.renderer.begin_frame() {
             let message = err.to_string();
             if message.contains("surface occluded") || message.contains("surface timeout") {
+                if std::env::var_os("GENERALS_CAMERA_GATE_REQUEST").is_some() {
+                    warn!(
+                        "ForwardPass::render skipped surface acquisition: {message}; total_owned_submits={} last_frame_submit_count={} frame_is_active={}",
+                        ww3d_engine::total_owned_submits(),
+                        ww3d_engine::last_frame_submit_count(),
+                        ww3d_engine::frame_is_active()
+                    );
+                }
                 return Ok(());
             }
             return Err(anyhow::anyhow!(

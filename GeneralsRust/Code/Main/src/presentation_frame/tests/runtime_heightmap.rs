@@ -204,25 +204,17 @@ fn terrain_texture_classes_freeze_fields_roundtrip() {
 
 #[test]
 fn heightmap_bake_consumes_presentation_texture_classes() {
-    let rp = crate::graphics::render_pipeline::RENDER_PIPELINE_SRC;
-    // Method-call chain may be line-broken (world_env.\n.terrain_texture_classes).
+    let source = include_str!("../../graphics/render_pipeline/native_terrain_admission.rs");
+    let start = source.find("fn hydrate_native_terrain_gpu(").unwrap();
+    let body = source[start..].split("\n    }\n").next().unwrap();
+    let normalized: String = body.split_whitespace().collect();
+    assert!(normalized.contains("self.presentation_frame.as_ref().into_iter().flat_map(|frame|&frame.world_env.terrain_texture_classes)"), "source tile classes must come from the frozen receiving presentation");
     assert!(
-        rp.contains("terrain_texture_classes"),
-        "render pipeline must read presentation terrain_texture_classes"
+        body.contains("visual.load_source_tiles_from_texture_classes(&source_tile_classes)"),
+        "actual native owner must consume the frozen classes"
     );
-    let idx = rp
-        .find("source_tile_classes")
-        .expect("source_tile_classes site");
-    let window = &rp[idx..idx + 1600];
     assert!(
-        (window.contains("presentation_frame") || window.contains("pres"))
-            && window.contains("terrain_texture_classes")
-            && window.contains("world_env"),
-        "source_tile_classes must come from presentation freeze: {window}"
-    );
-    // Must not dual-read live GameLogic for tile classes in this window.
-    assert!(
-        !window.contains("game_logic.terrain_texture") && !window.contains("logic.terrain_texture"),
-        "tile classes must not dual-read live GameLogic: {window}"
+        !body.contains("game_logic.terrain_texture") && !body.contains("logic.terrain_texture"),
+        "hydration must not dual-read live terrain classes"
     );
 }

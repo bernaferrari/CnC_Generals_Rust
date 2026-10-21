@@ -503,8 +503,11 @@ impl RenderPipeline {
                             if let (Some(color), Some(scales)) = (color, native_ghost_scales) {
                                 // C++ asset creation scales geometry/HTree; the
                                 // Drawable instance scale remains in its matrix.
-                                let parent = world_matrix
-                                    * Mat4::from_scale(Vec3::splat(1.0 / scales.asset_scale));
+                                // Geometry owns the absolute scale. Reuse the
+                                // pose kernel without it; never invert zero.
+                                let parent = gameplay_to_render_transform(
+                                    u.world_matrix_without_geometry_scale(),
+                                );
                                 if let Some(render_object) = w3d_model
                                     .capture_native_ghost_render_object(
                                         parent,

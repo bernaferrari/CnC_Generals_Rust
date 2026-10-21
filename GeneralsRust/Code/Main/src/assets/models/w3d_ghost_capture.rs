@@ -23,11 +23,7 @@ impl W3DModel {
         visibility: &[AuthoredDrawSubobjectVisibility],
         world_is_night: bool,
     ) -> Option<RenderObjectState> {
-        if self.name.is_empty()
-            || !world_transform.is_finite()
-            || !scale.is_finite()
-            || scale <= 0.0
-        {
+        if self.name.is_empty() || !world_transform.is_finite() || !scale.is_finite() {
             return None;
         }
         // Main currently has exact clone state for a standalone mesh and one
@@ -214,6 +210,57 @@ mod tests {
         assert_eq!(snapshot.render_object.color, 0xff12_3456);
         assert_eq!(snapshot.render_object.scale, 1.0);
         assert_eq!(snapshot.render_object.geometry_scale, 2.0);
+        let reflected = model
+            .capture_native_ghost_render_object(
+                parent,
+                -2.0,
+                0xff12_3456,
+                None,
+                0.0,
+                &AuthoredDrawPrimaryTurret::default(),
+                0.0,
+                0.0,
+                &[],
+                &[],
+                false,
+            )
+            .expect("finite negative Drawable scale retains reflected geometry");
+        assert_eq!(reflected.geometry_scale, -2.0);
+        assert!(reflected.transform.to_logic_matrix().is_finite());
+        assert_eq!(
+            reflected.sub_objects[0]
+                .transform
+                .to_logic_matrix()
+                .w_axis
+                .truncate(),
+            Vec3::new(80.0, 140.0, 260.0)
+        );
+        let zero = model
+            .capture_native_ghost_render_object(
+                parent,
+                0.0,
+                0xff12_3456,
+                None,
+                0.0,
+                &AuthoredDrawPrimaryTurret::default(),
+                0.0,
+                0.0,
+                &[],
+                &[],
+                false,
+            )
+            .expect("zero Drawable scale remains a finite collapsed prototype");
+        assert_eq!(zero.geometry_scale.to_bits(), 0.0_f32.to_bits());
+        assert!(zero.transform.to_logic_matrix().is_finite());
+        for child in &zero.sub_objects {
+            let transform = child.transform.to_logic_matrix();
+            assert!(transform.is_finite());
+            assert_eq!(
+                transform.w_axis.truncate(),
+                parent.w_axis.truncate(),
+                "zero asset scale collapses HTree displacement without dividing by zero"
+            );
+        }
     }
 
     #[test]

@@ -735,6 +735,12 @@ fn radiation_field_object_carries_cleanup_hazard_kindof_and_hazardous_armor() {
     use crate::game_logic::host_armor_residual::apply_residual_armor;
     use crate::game_logic::special_power_strikes::NUKE_RADIATION_OBJECT_NAME;
     let mut logic = GameLogic::new();
+    let mut definitions = gamelogic::object::armor::ArmorDefinitions::new();
+    definitions.register_template(
+        crate::game_logic::host_armor_residual::HAZARDOUS_MATERIAL_ARMOR,
+        crate::game_logic::host_armor_residual::build_hazardous_material_armor_residual(),
+    );
+    logic.admit_armor_definitions(std::sync::Arc::new(definitions));
     ensure_test_tank_template(&mut logic);
     let mut silo = crate::game_logic::ThingTemplate::new("ChinaNuclearMissileLauncher");
     silo.add_kind_of(KindOf::Structure).set_health(5000.0);
@@ -761,6 +767,10 @@ fn radiation_field_object_carries_cleanup_hazard_kindof_and_hazardous_armor() {
         .values()
         .find(|o| o.nuke_radiation_field)
         .expect("radiation field object");
+    assert!(std::sync::Arc::ptr_eq(
+        obj.get_template().armor_definitions.as_ref().unwrap(),
+        logic.current_armor_definitions().unwrap(),
+    ));
     // C++ NukeRadiationFieldWeapon KindOf residual: the ambulance
     // CleanupHazardUpdate partition scan (CleanupHazardUpdate.cpp:250) only
     // targets KINDOF_CLEANUP_HAZARD objects; INERT/NO_COLLIDE round out retail.
@@ -797,6 +807,12 @@ fn toxin_field_object_carries_cleanup_hazard_kindof_and_hazardous_armor() {
     use crate::game_logic::combat::DamageType;
     use crate::game_logic::host_armor_residual::apply_residual_armor;
     let mut logic = GameLogic::new();
+    let mut definitions = gamelogic::object::armor::ArmorDefinitions::new();
+    definitions.register_template(
+        crate::game_logic::host_armor_residual::HAZARDOUS_MATERIAL_ARMOR,
+        crate::game_logic::host_armor_residual::build_hazardous_material_armor_residual(),
+    );
+    logic.admit_armor_definitions(std::sync::Arc::new(definitions));
     ensure_test_tank_template(&mut logic);
     let mut scud = crate::game_logic::ThingTemplate::new("GLAScudStorm");
     scud.add_kind_of(KindOf::Structure).set_health(5000.0);
@@ -825,6 +841,10 @@ fn toxin_field_object_carries_cleanup_hazard_kindof_and_hazardous_armor() {
     ] {
         assert!(obj.is_kind_of(kind), "toxin field missing {kind:?}");
     }
+    assert!(std::sync::Arc::ptr_eq(
+        obj.get_template().armor_definitions.as_ref().unwrap(),
+        logic.current_armor_definitions().unwrap(),
+    ));
     // C++ HazardousMaterialArmor: flame cannot clean poison fields either.
     assert_eq!(apply_residual_armor(obj, DamageType::Flame, 100.0), 0.0);
     let cleanup = apply_residual_armor(obj, DamageType::HazardCleanup, 100.0);
@@ -1188,6 +1208,15 @@ fn emp_pulse_spawns_effect_spheroid_residual() {
     let caster = logic
         .create_object("ChinaCommandCenter", Team::China, Vec3::new(0.0, 0.0, 0.0))
         .unwrap();
+    let mut authored_spheroid = crate::game_logic::ThingTemplate::new(EMP_PULSE_EFFECT_SPHEROID);
+    authored_spheroid
+        .add_kind_of(KindOf::Immobile)
+        .set_asset_scale(2.0);
+    authored_spheroid.geometry_info.authored = true;
+    authored_spheroid.geometry_info.major_radius = 30.0;
+    logic
+        .templates
+        .insert(EMP_PULSE_EFFECT_SPHEROID.into(), authored_spheroid);
     assert!(logic.apply_emp_pulse_at(0, Vec3::new(100.0, 0.0, 100.0), Some(caster)));
     assert!(logic.emp_pulses().honesty_spheroid_ok());
     let sph = logic
@@ -1197,6 +1226,70 @@ fn emp_pulse_spawns_effect_spheroid_residual() {
         .expect("spheroid");
     assert_eq!(sph.template_name, EMP_PULSE_EFFECT_SPHEROID);
     let sid = sph.id;
+    let expected_radius = sph.get_template().geometry_info.to_host_geometry().radius;
+    assert_eq!(
+        sph.thing().geometry.radius.to_bits(),
+        expected_radius.to_bits(),
+        "EMP construction must not replace the authored physical radius"
+    );
+    assert_eq!(
+        sph.drawable_instance_scale.to_bits(),
+        2.0_f32.to_bits(),
+        "EMP constructor stores StartScale in its update module, not the Drawable"
+    );
+    let physical = serde_json::to_value(&sph.thing().geometry).unwrap();
+    let selection = sph.selection_radius;
+    let initial = logic.emp_pulses().spheroid(sid).unwrap().current_scale;
+    let target = logic.emp_pulses().spheroid(sid).unwrap().target_scale;
+    logic.frame = 1;
+    logic.update_emp_pulse_spheroids();
+    let expected_scale = initial + (target - initial) * 0.05;
+    let sph = logic.host_object(sid).unwrap();
+    assert_eq!(
+        sph.drawable_instance_scale.to_bits(),
+        expected_scale.to_bits(),
+        "EMPUpdate must publish its updated scale to the receiving Drawable"
+    );
+    assert_eq!(
+        serde_json::to_value(&sph.thing().geometry).unwrap(),
+        physical,
+        "visual growth must not change physical collision geometry"
+    );
+    assert_eq!(
+        sph.selection_radius.to_bits(),
+        selection.to_bits(),
+        "visual growth must not change gameplay selection radius"
+    );
+    let frame = crate::presentation_frame::PresentationFrame::build_from_logic(&mut logic, 0);
+    let presented = frame
+        .objects
+        .iter()
+        .find(|object| object.id == sid)
+        .expect("presented spheroid");
+    assert_eq!(
+        presented.mesh_scale.to_bits(),
+        expected_scale.to_bits(),
+        "receiving presentation must consume Drawable instance scale"
+    );
+
+    // This exercises the existing encoded v18 Drawable-scale leaf, not a claim
+    // that EMP module lifetime/target-scale continuation is fully saved.
+    let saved = crate::save_load::snapshot::persist_v18::capture_persist_v18(&logic);
+    let encoded = bincode_legacy::serialize(&saved).unwrap();
+    let decoded = bincode_legacy::deserialize(&encoded).unwrap();
+    logic.host_object_mut(sid).unwrap().drawable_instance_scale = 7.0;
+    crate::save_load::snapshot::persist_v18::restore_persist_v18(&decoded, &mut logic).unwrap();
+    let restored = logic.host_object(sid).unwrap();
+    assert_eq!(
+        restored.drawable_instance_scale.to_bits(),
+        expected_scale.to_bits(),
+        "encoded v18 Drawable instance scale must survive restoration"
+    );
+    assert_eq!(
+        serde_json::to_value(&restored.thing().geometry).unwrap(),
+        physical
+    );
+    assert_eq!(restored.selection_radius.to_bits(), selection.to_bits());
     logic.frame = EMP_SPHEROID_LIFETIME_FRAMES + 5;
     logic.update_emp_pulse_spheroids();
     assert!(

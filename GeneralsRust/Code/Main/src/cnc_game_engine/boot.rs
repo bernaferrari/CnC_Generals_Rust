@@ -380,10 +380,14 @@ impl CnCGameEngine {
         let ocl_sources = Self::load_ocl_application_sources()
             .await
             .map_err(anyhow::Error::msg)?;
+        let armor_definition_seed = Self::load_application_armor_definitions()
+            .await
+            .map_err(anyhow::Error::msg)?;
         let terrain_definition_seed = Self::load_application_terrain_definitions()
             .await
             .map_err(anyhow::Error::msg)?;
         let mut game_logic = GameLogic::initialize();
+        game_logic.admit_armor_definitions(armor_definition_seed);
         game_logic
             .admit_terrain_definitions(terrain_definition_seed)
             .map_err(anyhow::Error::msg)?;
@@ -521,6 +525,10 @@ impl CnCGameEngine {
                 camera_input_base,
                 game_logic.ocl_application_definitions(),
                 Arc::clone(game_logic.effective_terrain_definitions()),
+                game_logic
+                    .current_armor_definitions()
+                    .cloned()
+                    .expect("application armor admitted"),
                 recorder_inputs,
             )
         };
@@ -2075,3 +2083,6 @@ mod loose_ini_authority_tests {
         );
     }
 }
+
+#[path = "boot/armor_content.rs"]
+mod armor_content;

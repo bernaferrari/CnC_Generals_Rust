@@ -373,7 +373,7 @@ impl UnitRenderInput {
             #[cfg(feature = "game_client")]
             specialized_draw: None,
             projectile_clip_statuses: ro.projectile_clip_statuses,
-            mesh_scale: if ro.mesh_scale > 0.0 {
+            mesh_scale: if ro.mesh_scale.is_finite() {
                 ro.mesh_scale
             } else {
                 1.0
@@ -656,8 +656,23 @@ impl UnitRenderInput {
     /// World matrix for the unit mesh pass (translation + Y rotation + mesh scale).
     /// Scale is presentation-frozen from the template residual (default 1.0).
     pub fn world_matrix(&self) -> glam::Mat4 {
-        let scale = if self.mesh_scale.is_finite() && self.mesh_scale > 0.0 {
-            self.mesh_scale
+        self.world_matrix_with_mesh_scale(self.mesh_scale)
+    }
+
+    /// Native assets bake the absolute scale into geometry. Keep all source
+    /// post-scale translation (construction/physics included) while factoring
+    /// only the linear geometry scale, without taking a reciprocal of zero.
+    pub(crate) fn world_matrix_without_geometry_scale(&self) -> glam::Mat4 {
+        let mut parent = self.world_matrix_with_mesh_scale(1.0);
+        parent.w_axis = self.world_matrix().w_axis;
+        parent
+    }
+
+    /// Same pose kernel with an explicit geometry factor; native ghost capture
+    /// bakes absolute scale into its prototype, including a legitimate zero.
+    pub(crate) fn world_matrix_with_mesh_scale(&self, mesh_scale: f32) -> glam::Mat4 {
+        let scale = if mesh_scale.is_finite() {
+            mesh_scale
         } else {
             1.0
         };

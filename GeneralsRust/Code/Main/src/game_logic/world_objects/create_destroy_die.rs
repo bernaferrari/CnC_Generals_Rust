@@ -1656,6 +1656,9 @@ impl GameLogic {
             {
                 initial_status.under_construction = true;
             }
+            if let Some(catalog) = &self.armor_definitions {
+                template.armor_definitions = Some(std::sync::Arc::clone(catalog));
+            }
             let mut object =
                 Object::new_with_initial_status(template, id, team, self.frame, initial_status);
             object.bind_native_lifecycle(

@@ -183,6 +183,9 @@ impl GameLogic {
         texture_hint: Option<&str>,
     ) -> ThingTemplate {
         let mut template = ThingTemplate::new(template_name);
+        template.armor_definitions = Some(std::sync::Arc::new(
+            gamelogic::object::armor::ArmorDefinitions::new(),
+        ));
         template.native_die_declarations = Some(
             crate::game_logic::native_die_definition::bind(&definition.behavior_modules)
                 .into_boxed_slice(),

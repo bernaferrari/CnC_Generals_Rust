@@ -1499,7 +1499,6 @@ fn presentation_feeds_camera_controls() {
     logic.queue_pending_camera_look_toward(glam::Vec3::new(10.0, 0.0, 20.0), 1.0);
     logic.set_pending_camera_look_toward_reverse_rotation(true);
     logic.queue_pending_camera_slave_enable("AmericaSpyDrone", "Bone01");
-    logic.queue_pending_camera_slave_disable();
     logic.upsert_script_named_timer("TimerA", "00:30", true);
     logic.set_script_cameo_flash("Command_AmericaRanger", 3);
 
@@ -1517,7 +1516,15 @@ fn presentation_feeds_camera_controls() {
             .map(|(t, b)| (t.as_str(), b.as_str())),
         Some(("AmericaSpyDrone", "Bone01"))
     );
-    assert!(frame.camera_slave_disable);
+    assert!(!frame.camera_slave_disable);
+    // C++ W3DView::cameraDisableSlaveMode clears the active latch immediately.
+    // The pending observation must reflect the latest admitted request, not
+    // resurrect an earlier enable merely to preserve an obsolete queue mirror.
+    logic.queue_pending_camera_slave_disable();
+    let disabled = PresentationFrame::build_from_logic(&mut logic, 0);
+    assert!(disabled.camera_slave_disable);
+    assert!(disabled.camera_slave_enable.is_none());
+    assert!(logic.session_view.camera.camera_slave_mode.is_none());
     assert!(
         frame
             .named_timers

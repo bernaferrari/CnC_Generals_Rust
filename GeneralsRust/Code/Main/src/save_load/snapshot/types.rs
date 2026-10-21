@@ -22,12 +22,13 @@ use std::time::SystemTime;
 /// continuation frame. Only these Rust capability versions are readable;
 /// Version 29 advertises the optional resolved-start capsule. The positional
 /// body remains unchanged; original C++ module versions are independent.
-pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 29;
-pub const WORLD_SNAPSHOT_DIRECT_XFER_VERSION: u32 = 29;
+/// Version30 keeps the same positional body and admits absolute Drawable scale.
+pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 30;
+pub const WORLD_SNAPSHOT_DIRECT_XFER_VERSION: u32 = 30;
 
 /// Validate the Rust outer envelope before consuming or restoring its body.
 pub(crate) fn validate_direct_world_snapshot_version(version: u32) -> SaveLoadResult<()> {
-    if matches!(version, 23..=29) {
+    if matches!(version, 23..=30) {
         Ok(())
     } else {
         Err(crate::save_load::SaveLoadError::VersionMismatch {

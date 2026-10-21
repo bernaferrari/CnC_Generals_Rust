@@ -1012,9 +1012,13 @@ pub fn find_best_armor_set_name(
     sets: &[crate::game_logic::HostArmorSet],
     flags: u8,
 ) -> Option<String> {
-    if sets.is_empty() {
-        return None;
-    }
+    find_best_armor_set(sets, flags).and_then(|set| set.armor.clone())
+}
+
+fn find_best_armor_set(
+    sets: &[crate::game_logic::HostArmorSet],
+    flags: u8,
+) -> Option<&crate::game_logic::HostArmorSet> {
     let mut best: Option<&crate::game_logic::HostArmorSet> = None;
     let mut best_yes = 0u32;
     let mut best_extra = u32::MAX;
@@ -1027,26 +1031,32 @@ pub fn find_best_armor_set_name(
             best_extra = extra;
         }
     }
-    best.and_then(|set| set.armor.clone())
+    best
 }
 
-fn lookup_named_armor_template(name: &str) -> Option<ArmorTemplate> {
-    let name = name.trim();
-    if name.is_empty() || name.eq_ignore_ascii_case("none") {
+fn receiving_armor_for_object(obj: &crate::game_logic::Object) -> Option<&ArmorTemplate> {
+    let name = find_best_armor_set(&obj.thing().template.armor_sets, live_armor_set_flags(obj))?
+        .armor
+        .as_deref()?;
+    if name.trim().is_empty() || name.eq_ignore_ascii_case("none") {
         return None;
     }
-    let _ = ensure_host_armor_residual_seed();
-    TheArmorStore::find_template(&AsciiString::from(name)).map(|arc| (*arc).clone())
+    obj.thing()
+        .template
+        .armor_definitions
+        .as_ref()?
+        .find_template(name.trim())
 }
 
-/// Pick residual Armor.ini template by live armor-set flags, then KindOf.
-pub fn residual_armor_for_object(obj: &crate::game_logic::Object) -> ArmorTemplate {
+/// Explicit mapless compatibility only; authored None/missing rows remain neutral.
+fn mapless_residual_armor(obj: &crate::game_logic::Object) -> ArmorTemplate {
     use crate::game_logic::KindOf;
-    let flags = live_armor_set_flags(obj);
-    if let Some(name) = find_best_armor_set_name(&obj.thing().template.armor_sets, flags) {
-        if let Some(armor) = lookup_named_armor_template(&name) {
-            return armor;
-        }
+    if obj.thing().template.armor_definitions.is_some()
+        || !obj.thing().template.armor_sets.is_empty()
+    {
+        let mut armor = ArmorTemplate::new();
+        armor.set_default(1.0);
+        return armor;
     }
     if obj.is_kind_of(KindOf::Aircraft) {
         return build_airplane_armor_residual();
@@ -1079,6 +1089,13 @@ pub fn residual_armor_for_object(obj: &crate::game_logic::Object) -> ArmorTempla
     t
 }
 
+/// Compatibility inspection helper. Production damage borrows the selected row.
+pub fn residual_armor_for_object(obj: &crate::game_logic::Object) -> ArmorTemplate {
+    receiving_armor_for_object(obj)
+        .cloned()
+        .unwrap_or_else(|| mapless_residual_armor(obj))
+}
+
 /// Apply residual armor coefficient to raw damage.
 /// C++ `ArmorTemplate::adjustDamage` only (Armor.cpp:43-50).
 pub fn apply_residual_armor(
@@ -1086,9 +1103,13 @@ pub fn apply_residual_armor(
     host_damage_type: crate::game_logic::combat::DamageType,
     amount: f32,
 ) -> f32 {
-    let armor = residual_armor_for_object(obj);
     let dt = map_host_damage_type(host_damage_type);
-    armor.adjust_damage(dt, amount).max(0.0)
+    if let Some(armor) = receiving_armor_for_object(obj) {
+        return armor.adjust_damage(dt, amount).max(0.0);
+    }
+    mapless_residual_armor(obj)
+        .adjust_damage(dt, amount)
+        .max(0.0)
 }
 
 /// Map gamelogic / Weapon.ini DamageType → host combat damage class residual.
@@ -1333,7 +1354,12 @@ mod tests {
         let rifle = host_damage_type_for_weapon_name("RangerAdvancedCombatRifle");
         assert_eq!(rifle, crate::game_logic::combat::DamageType::Bullet);
         let bomb = host_damage_type_for_weapon_name("AuroraBombWeapon");
-        assert_eq!(bomb, crate::game_logic::combat::DamageType::Explosive);
+        // Retail Weapon.ini AuroraBombWeapon declares AURORA_BOMB, and
+        // C++ Damage.h keeps that ordinal25 separate from EXPLOSION ordinal0.
+        assert_eq!(bomb, crate::game_logic::combat::DamageType::AuroraBomb);
+        assert_ne!(bomb, crate::game_logic::combat::DamageType::Explosive);
+        assert_eq!(map_host_damage_type(bomb), DamageType::AuroraBomb);
+        assert_eq!(map_host_damage_type(bomb) as u32, 25);
     }
 
     #[test]
@@ -1355,5 +1381,47 @@ mod tests {
             ),
             HostDeathType::Lasered
         );
+    }
+
+    #[test]
+    fn receiving_armor_same_name_isolated_and_live_flags_select_without_global_store() {
+        use crate::game_logic::{HostArmorSet, KindOf, Object, ObjectId, Team, ThingTemplate};
+        fn object(coefficient: f32) -> Object {
+            let mut catalog = gamelogic::object::armor::ArmorDefinitions::new();
+            for (name, coefficient) in [("SharedArmor", coefficient), ("VeteranArmor", 0.75)] {
+                let mut armor = ArmorTemplate::new();
+                armor.set_default(coefficient);
+                catalog.register_template(name, armor);
+            }
+            let mut template = ThingTemplate::new("ReceivingArmor");
+            template.add_kind_of(KindOf::Vehicle);
+            template.armor_definitions = Some(std::sync::Arc::new(catalog));
+            template.armor_sets = vec![
+                HostArmorSet {
+                    conditions: 0,
+                    armor: Some("SharedArmor".into()),
+                    damage_fx: None,
+                },
+                HostArmorSet {
+                    conditions: ARMORSET_SECOND_LIFE,
+                    armor: Some("VeteranArmor".into()),
+                    damage_fx: None,
+                },
+            ];
+            Object::new(template, ObjectId(1), Team::USA)
+        }
+        let mut a = object(0.25);
+        let b = object(0.5);
+        let damage = crate::game_logic::combat::DamageType::Explosive;
+        assert_eq!(apply_residual_armor(&a, damage, 100.0), 25.0);
+        assert_eq!(apply_residual_armor(&b, damage, 100.0), 50.0);
+        a.armor_set_second_life = true;
+        assert_eq!(apply_residual_armor(&a, damage, 100.0), 75.0);
+        a.armor_set_second_life = false;
+        a.template_mut().armor_sets[0].armor = Some("MissingArmor".into());
+        assert_eq!(apply_residual_armor(&a, damage, 100.0), 100.0);
+        a.template_mut().armor_sets[0].armor = None;
+        assert_eq!(apply_residual_armor(&a, damage, 100.0), 100.0);
+        assert_eq!(apply_residual_armor(&b, damage, 100.0), 50.0);
     }
 }

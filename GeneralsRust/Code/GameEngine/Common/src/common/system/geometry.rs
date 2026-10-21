@@ -582,9 +582,8 @@ impl Matrix3D {
 
     /// Get Z rotation angle from the matrix
     pub fn get_z_rotation(&self) -> f32 {
-        // Extract rotation angle from matrix components
-        // This is a simplified version - in reality this would be more complex
-        self.m[0][0].atan2(self.m[1][0])
+        // C++ Matrix3D::Get_Z_Rotation: atan2(Row[1][0], Row[0][0]).
+        self.m[1][0].atan2(self.m[0][0])
     }
 
     /// Transform a vector by this matrix
@@ -1360,3 +1359,7 @@ mod geometry_info_cpp_parity {
         assert_eq!(info.height, 20.0);
     }
 }
+
+#[cfg(test)]
+#[path = "geometry/matrix_angle_tests.rs"]
+mod matrix_angle_tests;

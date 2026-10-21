@@ -9417,6 +9417,11 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini/armor_definitions.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini/field_parsing.rs"
             },
             {
@@ -15809,6 +15814,11 @@
               "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/geometry.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/geometry/matrix_angle_tests.rs"
             }
           ],
           "entry_id": "game_engine:Source/Common/System/Geometry.cpp",
@@ -189942,7 +189952,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "54a8de561d73edb15710885dc4e397455a991e19369ae9b58ef3d41e43802393",
+  "provenance_input_digest": "8d4f9ed96d2cc0fe01dcd9849cada7835fd7b6c5412937d8f22480035a6f03a8",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,

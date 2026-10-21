@@ -62,7 +62,8 @@ pub(super) fn bind_original_if_needed(
                 &mut snapshot.lifecycle_tail,
                 source.clone(),
             )?;
-            snapshot.version = 29;
+            // Original SGI needs capability 29; never downgrade a newer world body.
+            snapshot.version = snapshot.version.max(29);
         }
     }
     Ok(())
@@ -204,6 +205,40 @@ mod tests {
     #[test]
     fn native_and_original_records_compare_portable_map_identity_and_every_other_scalar() {
         let admission = initial();
+        // Original-only decoded metadata must raise old capabilities to 29,
+        // while preserving the absolute Drawable scale capability in 30.
+        for (version, expected_version) in [(23, 29), (29, 29), (30, 30)] {
+            let mut original_only = WorldSnapshot::default();
+            original_only.version = version;
+            let source = admission.source.as_ref().unwrap();
+            bind_original_if_needed(&mut original_only, Some(source)).unwrap();
+            assert_eq!(original_only.version, expected_version);
+            assert!(
+                crate::save_load::snapshot::initial_skirmish::read(&original_only)
+                    .unwrap()
+                    .is_none()
+            );
+            assert_eq!(
+                crate::save_load::snapshot::initial_skirmish::source(&original_only)
+                    .unwrap()
+                    .as_ref(),
+                Some(source)
+            );
+            let first = bincode_legacy::serialize(&original_only).unwrap();
+            bind_original_if_needed(&mut original_only, Some(source)).unwrap();
+            assert_eq!(
+                bincode_legacy::serialize(&original_only).unwrap(),
+                first,
+                "rebinding Original metadata must not duplicate or alter the world body"
+            );
+            validate_native(
+                &original_only,
+                CPP_GAME_SKIRMISH,
+                Some(source),
+                str::to_owned,
+            )
+            .unwrap();
+        }
         let mut world = WorldSnapshot::default();
         crate::save_load::snapshot::initial_skirmish::append(&mut world.lifecycle_tail, &admission)
             .unwrap();

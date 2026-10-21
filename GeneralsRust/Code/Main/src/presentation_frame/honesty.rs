@@ -233,14 +233,11 @@ impl PresentationFrame {
     /// Fail-closed: not full Object INI Scale field / draw-scale bone matrix.
     pub fn mesh_scale_presentation_residual_ok(&self) -> bool {
         crate::assets::mesh_asset_resolve::honesty_mesh_scale_residual_ok()
-            && self
-                .objects
-                .iter()
-                .all(|o| o.mesh_scale.is_finite() && o.mesh_scale > 0.0)
+            && self.objects.iter().all(|o| o.mesh_scale.is_finite())
             && self
                 .unit_render_inputs()
                 .iter()
-                .all(|u| u.mesh_scale.is_finite() && u.mesh_scale > 0.0)
+                .all(|u| u.mesh_scale.is_finite())
     }
 
     /// Honesty: unit/structure ground-height residual frozen on objects (Wave 77).

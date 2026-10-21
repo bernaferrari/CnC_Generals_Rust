@@ -188,29 +188,14 @@ pub(super) fn direct_host_visual_template_name(obj: &crate::game_logic::Object) 
     }
 }
 
-/// C++ `Drawable` construction takes the replacement visual template's
-/// `getAssetScale()`, not the source Object's scale.  Main's direct visual
-/// identity is a frozen name, so resolve the matching loaded host template at
-/// the same snapshot boundary and fail closed to the source scale when an
-/// incomplete test/mod table lacks that named template.
+/// The receiving Drawable owns its absolute current scale. Template scale is
+/// copied at construction/replacement, never multiplied into every observation.
 pub(super) fn direct_host_visual_mesh_scale(
-    logic: &GameLogic,
+    _logic: &GameLogic,
     obj: &crate::game_logic::Object,
-    visual_template_name: &str,
+    _visual_template_name: &str,
 ) -> f32 {
-    let authored = logic
-        .templates
-        .get(visual_template_name)
-        .map(crate::assets::mesh_asset_resolve::mesh_scale_from_template)
-        .unwrap_or_else(|| {
-            crate::assets::mesh_asset_resolve::mesh_scale_from_template(obj.get_template())
-        });
-    let instance = if obj.drawable_instance_scale.is_finite() && obj.drawable_instance_scale > 0.0 {
-        obj.drawable_instance_scale
-    } else {
-        1.0
-    };
-    authored * instance
+    obj.drawable_instance_scale
 }
 
 /// Freeze the local player's energy grid from host Player fields, falling
@@ -536,18 +521,8 @@ impl PresentationFrame {
                 });
             let model_key = draw_models.first().map(|model| model.model_key.clone());
             // Wave 75: freeze mesh scale residual (common combat = 1.0; CINE/weapon peels).
-            let mesh_scale = {
-                let authored =
-                    crate::assets::mesh_asset_resolve::mesh_scale_from_template(obj.get_template());
-                let instance = if obj.drawable_instance_scale.is_finite()
-                    && obj.drawable_instance_scale > 0.0
-                {
-                    obj.drawable_instance_scale
-                } else {
-                    1.0
-                };
-                authored * instance
-            };
+            let mesh_scale = obj.drawable_instance_scale;
+
             // Same controlling-player resolution as gameworld_shadow/construct.rs:
             // the sparse host registry often leaves owner_player_id unset, so
             // fall back to team (update_main_crate_vision look-pass parity;
@@ -1979,13 +1954,10 @@ impl PresentationFrame {
         let native_ghost_scale_sources = logic.host_objects().values().filter(|object| {
             object.is_kind_of(KindOf::Immobile) && !object.get_template().default_draw_without_fog_memory
         }).map(|object| {
-            let instance_scale = if object.drawable_instance_scale.is_finite() && object.drawable_instance_scale > 0.0 {
-                object.drawable_instance_scale
-            } else { 1.0 };
-            let combined = direct_host_visual_mesh_scale(logic, object, &direct_host_visual_template_name(object));
+            let scale = object.drawable_instance_scale;
             (object.id, crate::game_logic::game_logic::world_objects::fog_ghosts::HostGhostScaleSource {
                 identity: logic.live_draw_playback_identity(object),
-                asset_scale: combined / instance_scale, instance_scale,
+                asset_scale: scale, instance_scale: scale,
             })
         }).collect();
         let mut frame = Self {

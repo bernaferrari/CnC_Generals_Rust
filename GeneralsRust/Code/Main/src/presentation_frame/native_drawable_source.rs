@@ -17,7 +17,7 @@ impl PresentationFrame {
                 if !direct.visual_template_name.trim().is_empty() {
                     input.template_name = direct.visual_template_name.clone();
                     input.receiving_draw_models = direct.receiving_visual_draw_models.clone();
-                    if direct.visual_mesh_scale.is_finite() && direct.visual_mesh_scale > 0. {
+                    if direct.visual_mesh_scale.is_finite() {
                         input.mesh_scale = direct.visual_mesh_scale;
                     }
                 }

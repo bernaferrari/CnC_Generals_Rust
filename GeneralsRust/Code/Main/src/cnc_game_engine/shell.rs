@@ -1117,6 +1117,7 @@ impl CnCGameEngine {
             std::collections::HashMap<String, gamelogic::effects::ObjectCreationList>,
         >,
         terrain_definition_seed: Arc<game_engine::common::ini::ini_terrain::TerrainTypes>,
+        armor_definition_seed: Arc<gamelogic::object::armor::ArmorDefinitions>,
         mut recorder_inputs: game_engine::common::recorder::RecorderOwnerInputs,
     ) -> StartupLoadState {
         let (sender, receiver) = mpsc::channel();
@@ -1413,37 +1414,8 @@ impl CnCGameEngine {
                         }
                     }
 
-                    {
-                        let mut loaded_any_armor = false;
-                        for armor_path in ["Data/INI/Armor.ini", "Data/INI/Default/Armor.ini"] {
-                            if let Some(content) = extract_ini_text_from_archives(armor_path) {
-                                match gamelogic::object::armor::load_armor_templates_from_str(
-                                    &content,
-                                    Some(Path::new(armor_path)),
-                                ) {
-                                    Ok(count) => {
-                                        loaded_any_armor |= count > 0;
-                                    }
-                                    Err(load_err) => {
-                                        warn!(
-                                            "Failed parsing armor templates from '{}': {}",
-                                            armor_path, load_err
-                                        );
-                                    }
-                                }
-                                if loaded_any_armor {
-                                    break;
-                                }
-                            }
-                        }
-                        if !loaded_any_armor {
-                            gamelogic::object::armor::ensure_default_templates_loaded();
-                        }
-                        let armor_count = gamelogic::object::armor::TheArmorStore::read().len();
-                        if armor_count == 0 {
-                            warn!("Armor bootstrap loaded 0 templates — continuing without armor data");
-                        }
-                    }
+                    // Armor.ini was parsed into the driving application's immutable
+                    // receiving catalog before worker admission. Never seed a global store.
 
                     // C++ parity: GameEngine.cpp:442 — TheLocomotorStore loads
                     // Default/Locomotor.ini then Locomotor.ini from archives.
@@ -1699,6 +1671,7 @@ impl CnCGameEngine {
                     Self::emit_startup_load_progress(&sender, 0.18, "Creating game session");
                     let mut game_logic = GameLogic::initialize();
                     game_logic.admit_terrain_definitions(terrain_definitions)?;
+                    game_logic.admit_armor_definitions(Arc::clone(&armor_definition_seed));
                     recorder_inputs.seed = game_logic.logic_base_seed;
                     game_logic.replay_pending.reset_recorder_owned(recorder_inputs);
                     game_logic.seed_ocl_application_definitions(ocl_application_base);

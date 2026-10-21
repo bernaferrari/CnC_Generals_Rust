@@ -201,7 +201,7 @@ pub fn mesh_scale_for_unit(template_name: &str) -> f32 {
 /// `1.0`; live game objects no longer derive scale from a template-name table.
 pub fn mesh_scale_from_template(template: &ThingTemplate) -> f32 {
     let scale = template.asset_scale;
-    if scale.is_finite() && scale > 0.0 {
+    if scale.is_finite() {
         scale
     } else {
         DEFAULT_MESH_SCALE

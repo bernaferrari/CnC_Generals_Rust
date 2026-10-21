@@ -52,10 +52,6 @@ fn install() -> Receiver<(&'static str, Option<u32>)> {
     damage::get_damage_fx_store_mut()
         .unwrap()
         .add_damage_fx(RULES.into(), rules);
-    let mut armor = gamelogic::object::armor::ArmorTemplate::new();
-    armor.set_default(1.);
-    armor.set_coefficient(gamelogic::damage::DamageType::Unresistable, 0.);
-    gamelogic::object::armor::TheArmorStore::register_template(&ZERO_ARMOR.into(), armor);
     receive
 }
 fn world() -> (GameLogic, ObjectId) {
@@ -66,6 +62,12 @@ fn world() -> (GameLogic, ObjectId) {
         parser.get_definition("LandingPhaseVictim").unwrap(),
         None,
     );
+    let mut armor = gamelogic::object::armor::ArmorTemplate::new();
+    armor.set_default(1.);
+    armor.set_coefficient(gamelogic::damage::DamageType::Unresistable, 0.);
+    let mut definitions = gamelogic::object::armor::ArmorDefinitions::new();
+    definitions.register_template(ZERO_ARMOR, armor);
+    template.armor_definitions = Some(std::sync::Arc::new(definitions));
     template.armor_sets.push(HostArmorSet {
         conditions: 0,
         armor: Some(ZERO_ARMOR.into()),

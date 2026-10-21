@@ -31,6 +31,9 @@ pub struct GameLogic {
         crate::game_logic::projectile_definitions::ProjectileDefinitions,
     pub(crate) terrain_definitions:
         std::sync::Arc<crate::game_logic::terrain_definitions::TerrainTypes>,
+    /// Immutable current Armor.ini definitions; None is the explicit mapless residual profile.
+    pub(crate) armor_definitions:
+        Option<std::sync::Arc<gamelogic::object::armor::ArmorDefinitions>>,
     pub(crate) physics_definitions: crate::game_logic::physics_rules::PhysicsDefinitions,
     pub(super) weapon_effect_definitions:
         super::world_combat::weapon_effect_definitions::WeaponEffectDefinitions,

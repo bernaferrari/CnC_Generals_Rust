@@ -16,16 +16,16 @@ use super::helpers::*;
 /// C++ armor-less dummy author an explicit all-1.0 ArmorSet — identical
 /// observable damage in C++, no production change.
 fn stamp_cpp_armorless_dummy_armor(game_logic: &mut GameLogic, template_name: &str) {
-    use gamelogic::common::AsciiString;
-    use gamelogic::object::armor::{ArmorTemplate, TheArmorStore};
+    use gamelogic::object::armor::{ArmorDefinitions, ArmorTemplate};
     const TEST_DUMMY_ALL_ONES_ARMOR: &str = "TestDummyAllOnesArmor";
-    if TheArmorStore::find_template(&AsciiString::from(TEST_DUMMY_ALL_ONES_ARMOR)).is_none() {
-        TheArmorStore::register_template(
-            &AsciiString::from(TEST_DUMMY_ALL_ONES_ARMOR),
-            ArmorTemplate::new(),
-        );
-    }
     if let Some(tpl) = game_logic.templates.get_mut(template_name) {
+        let mut definitions = tpl
+            .armor_definitions
+            .as_deref()
+            .cloned()
+            .unwrap_or_else(ArmorDefinitions::new);
+        definitions.register_template(TEST_DUMMY_ALL_ONES_ARMOR, ArmorTemplate::new());
+        tpl.armor_definitions = Some(std::sync::Arc::new(definitions));
         tpl.armor_sets.push(crate::game_logic::HostArmorSet {
             conditions: 0,
             armor: Some(TEST_DUMMY_ALL_ONES_ARMOR.to_string()),

@@ -1,3 +1,4 @@
+pub mod armor_definitions;
 mod field_parsing;
 
 use std::collections::HashMap;
@@ -222,6 +223,7 @@ pub struct INI {
     // One operation-owned Terrain catalogue. None retains the standalone
     // application compatibility parser; Some(empty) is explicitly authoritative.
     terrain_types_target: Option<super::ini_terrain::TerrainTypes>,
+    armor_definitions_target: Option<armor_definitions::ArmorDefinitions>,
     // Explicit engine-owner target for `Upgrade` block parsing.
     upgrade_center_target: Option<Arc<RwLock<crate::common::system::upgrade::UpgradeCenter>>>,
     #[cfg(debug_assertions)]
@@ -400,6 +402,7 @@ fn parse_armor_block(ini: &mut INI) -> INIResult<()> {
     }
 
     let mut entries = HashMap::new();
+    let mut ordered_rows = Vec::new();
     loop {
         let ended = read_block_line(ini)?;
         if ended {
@@ -410,6 +413,12 @@ fn parse_armor_block(ini: &mut INI) -> INIResult<()> {
             continue;
         }
 
+        if ini.armor_definitions_target.is_some() {
+            let row = armor_definitions::parse_coefficient_row(&ini.buffer)
+                .map_err(|_| INIError::InvalidData)?;
+            ordered_rows.push(row);
+            continue;
+        }
         let tokens = ini.get_line_tokens();
         let Some(first) = tokens.first() else {
             continue;
@@ -438,6 +447,10 @@ fn parse_armor_block(ini: &mut INI) -> INIResult<()> {
         }
     }
 
+    if let Some(target) = ini.armor_definitions_target.as_mut() {
+        target.register_definition(&name, ordered_rows);
+        return Ok(());
+    }
     let mut registry = armor_definition_registry()
         .write()
         .expect("Armor definition registry poisoned");
@@ -1213,6 +1226,7 @@ impl INI {
             ai_data_store_target: None,
             upgrade_center_target: None,
             terrain_types_target: None,
+            armor_definitions_target: None,
             #[cfg(debug_assertions)]
             cur_block_start: String::new(),
         }
@@ -1231,6 +1245,14 @@ impl INI {
         &self,
     ) -> Option<Arc<RwLock<super::ini_ai_data::AIDataStore>>> {
         self.ai_data_store_target.as_ref().map(Arc::clone)
+    }
+
+    /// Admit Armor blocks into this operation's draft without global publication.
+    pub fn set_armor_definitions_target(&mut self, target: armor_definitions::ArmorDefinitions) {
+        self.armor_definitions_target = Some(target);
+    }
+    pub fn take_armor_definitions_target(&mut self) -> Option<armor_definitions::ArmorDefinitions> {
+        self.armor_definitions_target.take()
     }
 
     /// Bind Terrain blocks to an owned definition draft for this parser only.

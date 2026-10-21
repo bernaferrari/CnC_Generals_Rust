@@ -223,6 +223,20 @@ impl GameLogic {
                 }
                 obj.tick_spy_vision_disabled(self.frame);
                 if obj.tick_disguise_transition() {
+                    // changeVisualDisguise constructs a replacement Drawable.
+                    let visual_template = if obj.status.disguised {
+                        obj.disguise_as_template
+                            .as_deref()
+                            .and_then(|name| self.templates.get(name))
+                    } else {
+                        None
+                    }
+                    .unwrap_or_else(|| obj.get_template());
+                    obj.drawable_instance_scale =
+                        crate::assets::mesh_asset_resolve::mesh_scale_from_template(
+                            visual_template,
+                        );
+
                     self.bomb_truck_disguise.record_transition_halfpoint();
                     disguise_halfpoint = Some((
                         obj.get_position(),

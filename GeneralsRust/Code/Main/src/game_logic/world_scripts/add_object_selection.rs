@@ -27,6 +27,9 @@ impl GameLogic {
         // Every admission, including detached clones, receives this world's
         // immutable runtime rules. Preserve resolved module/snapshot scalars.
         object.physics_rules = self.physics_definitions.effective;
+        if let Some(catalog) = self.armor_definitions.as_ref() {
+            object.template_mut().armor_definitions = Some(catalog.clone());
+        }
         // Object-local C++ behavior state starts with the new admitted
         // lifetime. Retire the host mirror even when a replacement reuses ID.
         self.warehouse_crippling_states.remove(&object.id);

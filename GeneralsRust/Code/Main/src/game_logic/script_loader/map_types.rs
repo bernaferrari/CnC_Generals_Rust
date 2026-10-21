@@ -75,6 +75,8 @@ pub struct SideBuildEntry {
 /// Top-level metadata parsed from a map file.
 #[derive(Debug, Clone, Default)]
 pub struct MapMetadata {
+    pub(crate) armor_definitions:
+        Option<std::sync::Arc<gamelogic::object::armor::ArmorDefinitions>>,
     pub(crate) terrain_definitions:
         Option<std::sync::Arc<game_engine::common::ini::ini_terrain::TerrainTypes>>,
     pub(crate) camera_clip_rules: Option<game_engine::common::ini::ini_game_data::CameraClipRules>,
