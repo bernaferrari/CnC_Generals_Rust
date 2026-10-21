@@ -389,6 +389,16 @@ impl OptionsMenu {
 
     /// Handle mouse clicks
     pub fn handle_mouse_click(&mut self, x: i32, y: i32, button: MouseButton) -> Option<UIEvent> {
+        self.handle_mouse_click_with_terrain_lod(x, y, button, None)
+    }
+
+    pub(crate) fn handle_mouse_click_with_terrain_lod(
+        &mut self,
+        x: i32,
+        y: i32,
+        button: MouseButton,
+        terrain_lod: Option<&mut dyn FnMut(i32)>,
+    ) -> Option<UIEvent> {
         if button != MouseButton::Left {
             return None;
         }
@@ -415,7 +425,7 @@ impl OptionsMenu {
             }
         }
         if let Some(action) = clicked_action {
-            return self.handle_action(action);
+            return self.handle_action(action, terrain_lod);
         }
 
         // Check option controls - find which control was clicked first
@@ -1046,10 +1056,14 @@ impl OptionsMenu {
         }
     }
 
-    fn handle_action(&mut self, action: ActionButton) -> Option<UIEvent> {
+    fn handle_action(
+        &mut self,
+        action: ActionButton,
+        terrain_lod: Option<&mut dyn FnMut(i32)>,
+    ) -> Option<UIEvent> {
         match action {
             ActionButton::Accept => {
-                self.apply_settings();
+                self.apply_settings_with_terrain_lod(terrain_lod);
                 Some(UIEvent::SettingsChanged)
             }
             ActionButton::Cancel => {
@@ -1057,7 +1071,7 @@ impl OptionsMenu {
                 None
             }
             ActionButton::Apply => {
-                self.apply_settings();
+                self.apply_settings_with_terrain_lod(terrain_lod);
                 Some(UIEvent::SettingsChanged)
             }
             ActionButton::RestoreDefaults => {
@@ -1067,7 +1081,26 @@ impl OptionsMenu {
         }
     }
 
+    pub(crate) fn handle_key_press_with_terrain_lod(
+        &mut self,
+        key: KeyCode,
+        terrain_lod: Option<&mut dyn FnMut(i32)>,
+    ) -> bool {
+        match key {
+            KeyCode::Escape => true,
+            KeyCode::Enter => {
+                self.apply_settings_with_terrain_lod(terrain_lod);
+                true
+            }
+            _ => false,
+        }
+    }
+
     fn apply_settings(&mut self) {
+        self.apply_settings_with_terrain_lod(None);
+    }
+
+    fn apply_settings_with_terrain_lod(&mut self, terrain_lod: Option<&mut dyn FnMut(i32)>) {
         info!(
             "{}",
             Self::text("options.log.apply_settings", "Applying settings...")
@@ -1077,10 +1110,12 @@ impl OptionsMenu {
         #[cfg(feature = "game_client")]
         {
             let apply = self.host_apply_values();
-            let _ = game_client::gui::callbacks::apply_options_from_host_with_preferences(
-                apply,
-                &mut self.preferences,
-            );
+            let _ =
+                game_client::gui::callbacks::apply_options_from_host_with_preferences_and_terrain(
+                    apply,
+                    &mut self.preferences,
+                    terrain_lod,
+                );
         }
 
         for (key, value) in self.cpp_option_pairs() {
@@ -1380,14 +1415,7 @@ impl Interactive for OptionsMenu {
     }
 
     fn handle_key_press(&mut self, key: KeyCode) -> bool {
-        match key {
-            KeyCode::Escape => true,
-            KeyCode::Enter => {
-                self.apply_settings();
-                true
-            }
-            _ => false,
-        }
+        self.handle_key_press_with_terrain_lod(key, None)
     }
 
     fn handle_text_input(&mut self, _text: &str) -> bool {
@@ -1648,5 +1676,101 @@ mod tests {
                 .unwrap()
                 .eq_ignore_ascii_case("yes")
         );
+    }
+}
+
+#[cfg(all(test, feature = "game_client", not(target_arch = "wasm32")))]
+mod receiving_terrain_lod_tests {
+    use super::*;
+    #[test]
+    fn actual_fallback_options_mouse_and_enter_apply_to_receiving_lod_immediately() {
+        const NAME: &str =
+            "actual_fallback_options_mouse_and_enter_apply_to_receiving_lod_immediately";
+        const MARKER: &str = "GENERALS_FALLBACK_LOD_CHILD";
+        if std::env::var(MARKER).as_deref() != Ok(NAME) {
+            let module = module_path!().split_once("::").unwrap().1;
+            let exact = format!("{module}::{NAME}");
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", &exact, "--test-threads=1", "--nocapture"])
+                .env(MARKER, NAME)
+                .output()
+                .unwrap();
+            assert!(String::from_utf8_lossy(&output.stdout).contains("running 1 test"));
+            assert!(
+                output.status.success(),
+                "{}\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            return;
+        }
+        let directory = tempfile::tempdir().unwrap();
+        let definitions = game_engine::common::ini::ini_game_data::ensure_global_data();
+        definitions
+            .write()
+            .set_path_user_data(directory.path().to_str().unwrap().into());
+        definitions.write().texture_reduction_factor = 0;
+        let make = |name: &str, reduction: i32| {
+            let path = directory.path().join(name);
+            std::fs::write(&path, format!("TextureReduction = {reduction}\n")).unwrap();
+            let mut preferences = game_engine::common::user_preferences::UserPreferences::new();
+            assert!(preferences.load(path.to_str().unwrap()));
+            let mut menu = OptionsMenu::new();
+            menu.admit_preferences(preferences);
+            menu.initialize().unwrap();
+            menu.iter_controls_mut()
+                .find(|control| control.key == "video.quality")
+                .unwrap()
+                .value = OptionValue::Quality(GraphicsQuality::Custom);
+            menu
+        };
+        let mut a = make("A.ini", 2);
+        let mut b = make("B.ini", 1);
+        let before_b = b.snapshot_current_values();
+        let mut observed_a = Vec::new();
+        let mut observed_b = Vec::new();
+        let _foreign = game_client::terrain::terrain_visual::get_terrain_visual().unwrap();
+        let button = a
+            .action_buttons
+            .iter()
+            .find(|button| button.action == ActionButton::Apply)
+            .unwrap();
+        let (x, y) = (button.position.0 + 1, button.position.1 + 1);
+        let event = a.handle_mouse_click_with_terrain_lod(
+            x,
+            y,
+            MouseButton::Left,
+            Some(&mut |value| {
+                assert_eq!(definitions.read().texture_reduction_factor, value);
+                assert_eq!(
+                    ww3d_renderer_3d::rendering::texture_quality::texture_reduction(),
+                    value as u32
+                );
+                observed_a.push(value);
+            }),
+        );
+        assert!(matches!(event, Some(UIEvent::SettingsChanged)));
+        assert_eq!(
+            observed_a,
+            vec![2],
+            "mouse Apply completes before returning its event"
+        );
+        assert!(observed_b.is_empty());
+        assert_eq!(b.snapshot_current_values(), before_b);
+        assert!(b.handle_key_press_with_terrain_lod(
+            KeyCode::Enter,
+            Some(&mut |value| {
+                assert_eq!(definitions.read().texture_reduction_factor, value);
+                observed_b.push(value);
+            })
+        ));
+        assert_eq!(
+            observed_b,
+            vec![1],
+            "Enter uses the same synchronous receiver"
+        );
+        assert_eq!(observed_a, vec![2]);
+        assert_eq!(a.preferences.get_int("TextureReduction"), Some(2));
+        assert_eq!(b.preferences.get_int("TextureReduction"), Some(1));
     }
 }

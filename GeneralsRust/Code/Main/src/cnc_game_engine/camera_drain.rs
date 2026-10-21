@@ -2735,6 +2735,15 @@ mod replay_fast_forward_probe {
             "replay-fast-forward-test".to_string(),
             "--runtime_host=headless".to_string(),
             "--noaudio".to_string(),
+            format!(
+                "--userdata={}",
+                std::path::PathBuf::from(
+                    std::env::var_os("GENERALS_REPLAY_PROBE_PRIVATE_ROOT")
+                        .ok_or_else(|| anyhow::anyhow!("probe requires private launch root"))?
+                )
+                .join("userdata")
+                .display()
+            ),
         ])?;
         let engine = pollster::block_on(CnCGameEngine::new(window, Arc::new(args)))?;
         Ok((event_loop, engine))

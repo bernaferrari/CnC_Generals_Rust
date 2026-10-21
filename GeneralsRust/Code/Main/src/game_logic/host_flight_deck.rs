@@ -101,6 +101,13 @@ impl Default for HostFlightDeckState {
 impl GameLogic {
     /// C++ `FlightDeckBehavior::update` — first-build, replacements, taxi, launch.
     pub(crate) fn tick_flight_decks(&mut self) {
+        self.tick_flight_decks_with_effects(&mut Default::default())
+    }
+
+    pub(crate) fn tick_flight_decks_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let mut carriers: Vec<ObjectId> = self.flight_decks.keys().copied().collect();
         for (&id, object) in self.objects.iter() {
             if object.thing().template.flight_deck.is_some() {
@@ -110,11 +117,19 @@ impl GameLogic {
         carriers.sort_by_key(|id| id.0);
         carriers.dedup();
         for carrier_id in carriers {
-            self.tick_one_flight_deck(carrier_id);
+            self.tick_one_flight_deck_with_effects(carrier_id, effects);
         }
     }
 
     fn tick_one_flight_deck(&mut self, carrier_id: ObjectId) {
+        self.tick_one_flight_deck_with_effects(carrier_id, &mut Default::default())
+    }
+
+    fn tick_one_flight_deck_with_effects(
+        &mut self,
+        carrier_id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let Some(carrier) = self.objects.get(&carrier_id) else {
             self.flight_decks.remove(&carrier_id);
             return;
@@ -137,18 +152,28 @@ impl GameLogic {
             .get(&carrier_id)
             .is_some_and(|state| state.got_info)
         {
-            self.flight_deck_build_info(carrier_id, true);
+            self.flight_deck_build_info_with_effects(carrier_id, true, effects);
         }
         self.flight_deck_purge_dead(carrier_id);
-        self.flight_deck_adopt_unassigned_replacements(carrier_id);
+        self.flight_deck_adopt_unassigned_replacements(carrier_id, effects);
         self.flight_deck_update_parking_assignments(carrier_id);
-        self.flight_deck_update_replacements(carrier_id);
+        self.flight_deck_update_replacements_with_effects(carrier_id, effects);
         self.flight_deck_update_launch_waves(carrier_id);
         self.flight_deck_update_no_attack(carrier_id);
     }
 
     /// C++ `FlightDeckBehavior::buildInfo`.
     fn flight_deck_build_info(&mut self, carrier_id: ObjectId, create_units: bool) {
+        self.flight_deck_build_info_with_effects(carrier_id, create_units, &mut Default::default())
+    }
+
+    fn flight_deck_build_info_with_effects(
+        &mut self,
+        carrier_id: ObjectId,
+        create_units: bool,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
+        let pose_frame = self.frame;
         if self
             .flight_decks
             .get(&carrier_id)
@@ -271,16 +296,21 @@ impl GameLogic {
         };
 
         for (index, pos, orient) in spawn_jobs {
-            let Some(jet_id) =
-                self.create_object_for_owner_or_team(&metadata.payload_template, team, owner, pos)
-            else {
+            let Some(jet_id) = self.create_object_for_owner_or_team_with_effects(
+                &metadata.payload_template,
+                team,
+                owner,
+                pos,
+                None,
+                effects,
+            ) else {
                 continue;
             };
             if let Some(jet) = self.objects.get_mut(&jet_id) {
                 jet.producer_id = Some(carrier_id);
                 jet.airfield_parking_space_index = u32::try_from(index).ok();
                 jet.set_orientation(orient);
-                jet.set_position(pos);
+                jet.set_position_with_effects(pos, pose_frame, effects);
                 jet.set_ai_state(AIState::Idle);
                 jet.status.airborne_target = false;
                 if metadata.landing_deck_height_offset != 0.0 {
@@ -326,7 +356,11 @@ impl GameLogic {
     }
 
     /// C++ `exitObjectViaDoor`: adopt a just-produced payload jet into an empty stall.
-    fn flight_deck_adopt_unassigned_replacements(&mut self, carrier_id: ObjectId) {
+    fn flight_deck_adopt_unassigned_replacements(
+        &mut self,
+        carrier_id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let payload = self
             .objects
             .get(&carrier_id)
@@ -360,11 +394,17 @@ impl GameLogic {
             .collect();
         candidates.sort_by_key(|id| id.0);
         for jet_id in candidates {
-            self.flight_deck_exit_object_via_door(carrier_id, jet_id);
+            self.flight_deck_exit_object_via_door(carrier_id, jet_id, effects);
         }
     }
 
-    fn flight_deck_exit_object_via_door(&mut self, carrier_id: ObjectId, jet_id: ObjectId) {
+    fn flight_deck_exit_object_via_door(
+        &mut self,
+        carrier_id: ObjectId,
+        jet_id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
+        let pose_frame = self.frame;
         let Some(state) = self.flight_decks.get_mut(&carrier_id) else {
             return;
         };
@@ -398,7 +438,7 @@ impl GameLogic {
         if let Some((jet, mut movement_events)) = self.host_object_and_movement_events_mut(jet_id) {
             jet.producer_id = Some(carrier_id);
             jet.airfield_parking_space_index = u32::try_from(index).ok();
-            jet.set_position(creation);
+            jet.set_position_with_effects(creation, pose_frame, effects);
             jet.set_orientation(start_orient);
             jet.set_destination(stall.position, &mut movement_events);
             jet.set_ai_state(AIState::Moving);
@@ -500,6 +540,14 @@ impl GameLogic {
     /// `building_data`; after `ReplacementDelay + DockAnimationDelay` we spawn
     /// the payload and taxi it onto the empty stall (`exitObjectViaDoor`).
     fn flight_deck_update_replacements(&mut self, carrier_id: ObjectId) {
+        self.flight_deck_update_replacements_with_effects(carrier_id, &mut Default::default())
+    }
+
+    fn flight_deck_update_replacements_with_effects(
+        &mut self,
+        carrier_id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let now = self.frame;
         let Some(metadata) = self
             .objects
@@ -595,9 +643,14 @@ impl GameLogic {
                 .unwrap_or(state.spaces[empty_index].orientation);
             (carrier.team, carrier.owner_player_id, creation, orient)
         };
-        let Some(jet_id) =
-            self.create_object_for_owner_or_team(&metadata.payload_template, team, owner, creation)
-        else {
+        let Some(jet_id) = self.create_object_for_owner_or_team_with_effects(
+            &metadata.payload_template,
+            team,
+            owner,
+            creation,
+            None,
+            effects,
+        ) else {
             if let Some(state) = self.flight_decks.get_mut(&carrier_id) {
                 state.pending_replacement = false;
             }
@@ -607,7 +660,7 @@ impl GameLogic {
             jet.producer_id = Some(carrier_id);
             jet.set_orientation(orient);
         }
-        self.flight_deck_exit_object_via_door(carrier_id, jet_id);
+        self.flight_deck_exit_object_via_door(carrier_id, jet_id, effects);
     }
 
     /// C++ launch-wave + ramp + catapult (`update` `:1212-1269`).
@@ -787,6 +840,23 @@ impl GameLogic {
         target: Option<ObjectId>,
         position: Option<Vec3>,
     ) -> bool {
+        self.flight_deck_ai_do_command_with_effects(
+            carrier_id,
+            command,
+            target,
+            position,
+            &mut Default::default(),
+        )
+    }
+
+    pub(crate) fn flight_deck_ai_do_command_with_effects(
+        &mut self,
+        carrier_id: ObjectId,
+        command: HostFlightDeckCommand,
+        target: Option<ObjectId>,
+        position: Option<Vec3>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
         if !self.objects.get(&carrier_id).is_some_and(|obj| {
             obj.thing().template.flight_deck.is_some()
                 && obj.is_alive()
@@ -800,7 +870,7 @@ impl GameLogic {
             .get(&carrier_id)
             .is_some_and(|state| state.got_info)
         {
-            self.flight_deck_build_info(carrier_id, true);
+            self.flight_deck_build_info_with_effects(carrier_id, true, effects);
         }
         let Some(state) = self.flight_decks.get_mut(&carrier_id) else {
             return true;

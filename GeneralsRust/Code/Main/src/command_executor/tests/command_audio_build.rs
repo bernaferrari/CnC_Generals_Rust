@@ -203,11 +203,9 @@ fn execute_build_clears_removable_and_map_trees() {
     use crate::game_logic::{GameLogic, KindOf, Object, ObjectId, Player, Team, ThingTemplate};
     use glam::Vec3;
 
-    let _ = game_client::terrain::terrain_visual::init_terrain_visual();
+    let mut visual = game_client::terrain::terrain_visual::TerrainVisualImpl::new();
+    let peer = game_client::terrain::terrain_visual::TerrainVisualImpl::new();
     {
-        let mut guard = game_client::terrain::terrain_visual::get_terrain_visual()
-            .expect("terrain visual lock");
-        let visual = guard.as_mut().expect("terrain visual");
         visual.tree_buffer_mut().clear_all_trees();
         visual
             .tree_buffer_mut()
@@ -271,7 +269,14 @@ fn execute_build_clears_removable_and_map_trees() {
 
     let site = Vec3::new(80.0, 0.0, 80.0);
     let result = {
-        let mut exec = CommandExecutor::new(&mut logic, 0);
+        let mut exec = CommandExecutor::new_with_effects(
+            &mut logic,
+            0,
+            crate::game_logic::ScriptPresentationEffects {
+                terrain: Some(&mut visual),
+                ..Default::default()
+            },
+        );
         exec.execute_build(&[ObjectId(9101)], "TestClearFootprintBarracks", site, 0.0)
     };
     assert_eq!(result, CommandResult::Success, "placement must succeed");
@@ -284,9 +289,10 @@ fn execute_build_clears_removable_and_map_trees() {
         "hq-wtzcx: removable shrub under footprint must be destroyed"
     );
 
-    let mut guard =
-        game_client::terrain::terrain_visual::get_terrain_visual().expect("terrain visual lock");
-    let visual = guard.as_mut().expect("terrain visual");
+    assert!(
+        peer.construction_removals().is_empty(),
+        "peer terrain must stay unchanged"
+    );
     assert!(
         !visual.construction_removals().is_empty(),
         "hq-wtzcx: execute_build must call removeTreesAndPropsForConstruction"

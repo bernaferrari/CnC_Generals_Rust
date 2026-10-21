@@ -624,6 +624,34 @@ pub fn load_map_ini_ui_overrides_with_ai_data(
     load_map_ini_ui_overrides_with_target(contents, Some(target))
 }
 
+/// Complete CREATE_OVERRIDES dispatch into a detached Terrain catalogue and
+/// the actual receiving AI draft, using the ordinary INI block parser once.
+/// Failure drops this operation's catalogue; callers retain their prior owner.
+pub fn load_map_ini_ui_overrides_with_definition_targets(
+    contents: &str,
+    target: Option<
+        std::sync::Arc<std::sync::RwLock<game_engine::common::ini::ini_ai_data::AIDataStore>>,
+    >,
+    terrain: game_engine::common::ini::ini_terrain::TerrainTypes,
+) -> Result<(usize, game_engine::common::ini::ini_terrain::TerrainTypes), String> {
+    let mut ini = INI::new();
+    if let Some(target) = target {
+        ini.set_ai_data_store_target(target);
+    }
+    ini.set_terrain_types_target(terrain);
+    ini.with_inline_source_and_load_type(contents, INILoadType::CreateOverrides, |ini| {
+        ini.parse_current_file()
+    })
+    .map_err(|error| error.to_string())?;
+    let terrain = ini
+        .take_terrain_types_target()
+        .expect("operation owns terrain definition target");
+    Ok((
+        count_map_ini_blocks(contents, &["CommandButton", "CommandSet", "Upgrade"]),
+        terrain,
+    ))
+}
+
 fn load_map_ini_ui_overrides_with_target(
     contents: &str,
     target: Option<

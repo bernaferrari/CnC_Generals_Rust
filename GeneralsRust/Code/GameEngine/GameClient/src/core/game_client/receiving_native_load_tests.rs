@@ -6,6 +6,12 @@ use std::io::Cursor;
 
 #[test]
 fn receiving_native_failed_drawable_decode_leaves_no_live_roster_node() {
+    if crate::core::game_client::global_boundary_fixture::run_in_private_child(
+        module_path!(),
+        "receiving_native_failed_drawable_decode_leaves_no_live_roster_node",
+    ) {
+        return;
+    }
     let mut factory = game_engine::common::thing::ThingFactory::new();
     let template = factory.new_template("NativeRosterMalformedDecode");
     let mut source = GameClient::new().unwrap();

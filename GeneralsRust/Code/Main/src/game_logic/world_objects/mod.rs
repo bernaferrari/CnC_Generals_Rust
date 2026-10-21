@@ -19,6 +19,7 @@ mod internal_move;
 mod native_lifecycle_owner_tests;
 mod object_ai_combat;
 mod object_queries;
+mod object_upgrade_callbacks;
 mod overlord_addon_damage;
 pub(crate) mod radar_live;
 mod radar_provider_owner;

@@ -108,7 +108,7 @@ fn receiving_tivo_new_game_reset_precedes_saved_native_admission_and_follows_pre
             .find("self.reset_replay_pacing_for_new_game();")
             .unwrap()
             < startup
-                .find("self.host_replace_game_logic(result.game_logic)")
+                .find("self.host_replace_game_logic(result.game_logic, result.native_map)")
                 .unwrap()
     );
     let restore = include_str!("host_authority.rs")

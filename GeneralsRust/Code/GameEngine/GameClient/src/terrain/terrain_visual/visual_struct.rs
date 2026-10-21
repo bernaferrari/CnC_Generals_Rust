@@ -14,7 +14,20 @@ pub(super) const TERRAIN_PIPELINES_DEPTH_FORMAT: wgpu::TextureFormat =
     wgpu::TextureFormat::Depth32Float;
 
 /// Main terrain visual implementation matching C++ TerrainVisual
+enum TerrainDefinitionOwner {
+    Standalone(Arc<ini_terrain::TerrainTypes>),
+    Admitted(Arc<ini_terrain::TerrainTypes>),
+}
+impl TerrainDefinitionOwner {
+    fn catalog(&self) -> &ini_terrain::TerrainTypes {
+        match self {
+            Self::Standalone(catalog) | Self::Admitted(catalog) => catalog,
+        }
+    }
+}
+
 pub struct TerrainVisualImpl {
+    terrain_definitions: TerrainDefinitionOwner,
     /// Configuration settings
     config: TerrainConfig,
 
@@ -193,6 +206,8 @@ pub struct TerrainVisualImpl {
     bridge_meshes: Vec<GpuRoadMesh>,
     /// Cached GPU mesh for C++ terrain scorch marks.
     scorch_meshes: Vec<GpuRoadMesh>,
+    /// Logical marks belong to this native terrain receiver.
+    scorches: TerrainScorchBuffer,
     /// Bind group 1: `EXScorch01.tga` (C++ `ScorchTextureClass`).
     scorch_texture: Option<Texture>,
     scorch_sampler: Option<Sampler>,

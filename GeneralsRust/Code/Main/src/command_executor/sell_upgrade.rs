@@ -38,7 +38,10 @@ impl<'a> CommandExecutor<'a> {
                 return CommandResult::InvalidCommand;
             }
             // C++ BuildAssistant::sellObject multi-frame residual (scaffold → SOLD → refund).
-            if self.game_logic.start_sell_object(object_id) {
+            if self
+                .game_logic
+                .start_sell_object_with_effects(object_id, &mut self.ui)
+            {
                 CommandResult::Success
             } else {
                 CommandResult::InvalidCommand

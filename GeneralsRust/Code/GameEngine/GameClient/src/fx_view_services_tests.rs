@@ -104,6 +104,7 @@ fn authored_host_bonefx_keeps_receiving_services_and_immediate_nested_order() {
         &host(),
         None,
         &mut FxViewServices {
+            add_scorch: &mut |_, _, _| {},
             shake: &mut shake,
             find_list: &mut find,
             bone_transforms: &mut bones,
@@ -148,6 +149,7 @@ fn hidden_position_and_host_skip_all_receiving_callbacks() {
     let mut bones = |_, _: &str, _, _| panic!("hidden bones");
     let mut visible = |_: Option<&Coord3D>| false;
     let mut view = FxViewServices {
+        add_scorch: &mut |_, _, _| {},
         shake: &mut shake,
         find_list: &mut find,
         bone_transforms: &mut bones,
@@ -190,6 +192,7 @@ fn same_id_receivers_keep_their_own_view_and_impulse_without_tactical_publicatio
             &host(),
             None,
             &mut FxViewServices {
+                add_scorch: &mut |_, _, _| {},
                 shake: &mut shake,
                 find_list: &mut find,
                 bone_transforms: &mut bones,
@@ -206,4 +209,52 @@ fn same_id_receivers_keep_their_own_view_and_impulse_without_tactical_publicatio
     run([10.0, 0.0], &mut a);
     assert_eq!(a, [3.0, 1.0, 0.0]); // original fixed overflow, not max=4.
     assert_eq!(b, [0.0, 1.0, 0.0]);
+}
+
+#[test]
+fn terrain_scorch_host_nugget_uses_receiving_callback_at_authored_list_position() {
+    let (events, observed) = channel();
+    let mut list = FXList::new();
+    marker(&mut list, "before", &events);
+    list.add_fx_nugget(Box::new(TerrainScorchFXNugget {
+        scorch: 2,
+        radius: 18.0,
+    }));
+    marker(&mut list, "after", &events);
+    let mut a = crate::terrain::scorch_mesh::TerrainScorchBuffer::new();
+    let mut b = crate::terrain::scorch_mesh::TerrainScorchBuffer::new();
+    b.add_scorch([50.0, 60.0, 7.0], 12.0, 1);
+    let peer = b.marks().to_vec();
+    let mut add_scorch = |position, radius, kind| {
+        events.send("scorch".into()).unwrap();
+        a.add_scorch(position, radius, kind);
+    };
+    let mut shake = |_: &Coord3D, _: ViewShakeKind| panic!("no shake nugget");
+    let mut find = |_: &str| None;
+    let mut bones = |_, _: &str, _, _| Vec::new();
+    let mut visible = |_: Option<&Coord3D>| true;
+    list.do_fx_obj_host_with_view(
+        &host(),
+        None,
+        &mut FxViewServices {
+            add_scorch: &mut add_scorch,
+            shake: &mut shake,
+            find_list: &mut find,
+            bone_transforms: &mut bones,
+            position_visible: &mut visible,
+        },
+    );
+    assert_eq!(
+        observed.try_iter().collect::<Vec<_>>(),
+        ["before", "scorch", "after"]
+    );
+    assert_eq!(
+        a.marks(),
+        [crate::terrain::scorch_mesh::ScorchMark {
+            location: [10.0, 0.0, 0.0],
+            radius: 18.0,
+            scorch_type: 2
+        }]
+    );
+    assert_eq!(b.marks(), peer);
 }

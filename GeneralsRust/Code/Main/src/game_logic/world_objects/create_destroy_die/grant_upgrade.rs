@@ -51,6 +51,15 @@ impl GameLogic {
         object_id: ObjectId,
         grants: &[crate::game_logic::GrantUpgradeCreateMetadata],
     ) {
+        self.apply_grant_upgrade_creates_with_effects(object_id, grants, &mut Default::default())
+    }
+
+    pub(in super::super::super) fn apply_grant_upgrade_creates_with_effects(
+        &mut self,
+        object_id: ObjectId,
+        grants: &[crate::game_logic::GrantUpgradeCreateMetadata],
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         if grants.is_empty() {
             return;
         }
@@ -63,7 +72,11 @@ impl GameLogic {
             match host_grant_upgrade_kind(self, &grant.upgrade_name) {
                 Some(GrantUpgradeKind::Player) => {
                     if let Some(pid) = player_id {
-                        self.add_completed_player_upgrade(pid, &grant.upgrade_name);
+                        self.add_completed_player_upgrade_with_effects(
+                            pid,
+                            &grant.upgrade_name,
+                            effects,
+                        );
                     }
                 }
                 Some(GrantUpgradeKind::Object) => {
@@ -80,7 +93,7 @@ impl GameLogic {
                 None => {}
             }
         }
-        self.admit_host_radar_provider(object_id);
+        self.admit_host_radar_provider_with_effects(object_id, effects);
         if radar_upgrade
             && self
                 .objects

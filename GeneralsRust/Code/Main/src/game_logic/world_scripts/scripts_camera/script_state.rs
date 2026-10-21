@@ -907,6 +907,13 @@ impl GameLogic {
     /// NAMED_SET_ATTITUDE / REPULSOR / STOPPING_DISTANCE / FORCE_SELECT /
     /// PLAYER_SELL_EVERYTHING / REPAIR_NAMED / EXCLUDE_FROM_SCORE / SELECT_SKILLSET.
     pub(super) fn apply_host_script_visual_status_requests(&mut self) {
+        self.apply_host_script_visual_status_requests_with_effects(&mut Default::default())
+    }
+
+    pub(super) fn apply_host_script_visual_status_requests_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         use crate::game_logic::KindOf;
         use gamelogic::scripting::{
             HostScriptEmoticonRequest, HostScriptFlashRequest, HostScriptPlayerMiscRequest,
@@ -915,7 +922,7 @@ impl GameLogic {
 
         for req in gamelogic::scripting::take_host_script_named_upgrade_requests() {
             if let Some(id) = self.host_object_id_by_script_name(&req.unit) {
-                self.apply_upgrade_to_object(id, &req.upgrade);
+                self.apply_upgrade_to_object_with_effects(id, &req.upgrade, effects);
             }
         }
 
@@ -1089,7 +1096,9 @@ impl GameLogic {
                 self.queue_audio_event(crate::game_logic::AudioEventRequest::new(&req.audio));
             }
             if req.center_in_view {
-                self.request_camera_focus(pos);
+                if let Err(error) = self.request_camera_focus_with_effects(pos, effects) {
+                    log::error!("camera LookAt admission: {error}");
+                }
             }
         }
 
@@ -1113,7 +1122,7 @@ impl GameLogic {
                         .map(|obj| obj.id)
                         .collect();
                     for id in ids {
-                        let _ = self.start_sell_object(id);
+                        let _ = self.start_sell_object_with_effects(id, effects);
                     }
                 }
                 HostScriptPlayerMiscRequest::RepairNamed { player, structure } => {
@@ -1139,7 +1148,7 @@ impl GameLogic {
                     let Some(pid) = self.host_player_id_for_script_token(&player) else {
                         continue;
                     };
-                    self.kill_player_for_victory(pid);
+                    self.kill_player_for_victory_with_effects(pid, effects);
                 }
             }
         }
@@ -1277,6 +1286,13 @@ impl GameLogic {
     /// C++ ScriptActions TEAM/PLAYER/NAMED TRANSFER live drain.
     /// Leftover mutates empty `OBJECT_REGISTRY`; live objects/money live on host.
     pub(super) fn apply_host_transfer_script_requests(&mut self) {
+        self.apply_host_transfer_script_requests_with_effects(&mut Default::default())
+    }
+
+    pub(super) fn apply_host_transfer_script_requests_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         use gamelogic::scripting::HostScriptTransferRequest;
         for req in gamelogic::scripting::take_host_script_transfer_requests() {
             match req {
@@ -1287,7 +1303,7 @@ impl GameLogic {
                     let Some(dst) = self.host_player_id_for_script_token(&to) else {
                         continue;
                     };
-                    self.host_script_transfer_assets_from(dst, src);
+                    self.host_script_transfer_assets_from_with_effects(dst, src, effects);
                 }
                 HostScriptTransferRequest::Named { unit, player } => {
                     let Some(pid) = self.host_player_id_for_script_token(&player) else {
@@ -1296,7 +1312,7 @@ impl GameLogic {
                     let Some(id) = self.host_object_id_by_script_name(&unit) else {
                         continue;
                     };
-                    let _ = self.transfer_object_to_player(id, pid);
+                    let _ = self.transfer_object_to_player_with_effects(id, pid, effects);
                 }
                 HostScriptTransferRequest::Team { team, player } => {
                     let Some(pid) = self.host_player_id_for_script_token(&player) else {
@@ -1406,6 +1422,19 @@ impl GameLogic {
         dest_player: u32,
         source_player: u32,
     ) {
+        self.host_script_transfer_assets_from_with_effects(
+            dest_player,
+            source_player,
+            &mut Default::default(),
+        )
+    }
+
+    pub(super) fn host_script_transfer_assets_from_with_effects(
+        &mut self,
+        dest_player: u32,
+        source_player: u32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let ids: Vec<ObjectId> = self
             .host_objects()
             .iter()
@@ -1417,7 +1446,7 @@ impl GameLogic {
             })
             .collect();
         for id in ids {
-            let _ = self.transfer_object_to_player(id, dest_player);
+            let _ = self.transfer_object_to_player_with_effects(id, dest_player, effects);
         }
         let amount = self
             .players

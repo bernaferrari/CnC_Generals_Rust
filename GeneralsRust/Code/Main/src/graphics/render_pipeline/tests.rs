@@ -1390,13 +1390,33 @@ fn terrain_pass_clears_black_not_fog_color() {
         clear.contains("GENERALS_DEBUG_CLEAR_COLOR"),
         "debug green remains opt-in only"
     );
-    let prewarm = src
-        .split("fn update_and_enqueue_terrain_pass")
+    let execute = include_str!("pipeline_execute.rs");
+    assert!(execute.contains("let native_terrain_clear_color = self.terrain_clear_color()"));
+    let forward_call = execute
+        .split("native_terrain_viewport,")
         .nth(1)
-        .expect("terrain pass");
+        .expect("receiving viewport passed to forward rendering");
+    assert!(forward_call.contains("native_terrain_clear_color,"));
+    let forward = include_str!("forward_render.rs");
+    let callback = forward
+        .split("let mut native_pass = |kind, frame:")
+        .nth(1)
+        .expect("synchronous native pass callback");
+    let record = callback
+        .split("native_terrain_pass::record(")
+        .nth(1)
+        .and_then(|body| body.split("end_frame_with_scoped_native_passes").next())
+        .expect("receiving terrain pass recorder");
+    assert!(record.contains("terrain_clear_color,"));
+    let native_pass = include_str!("native_terrain_pass.rs");
+    let ground = native_pass
+        .split("ScopedNativePass::TerrainGround =>")
+        .nth(1)
+        .and_then(|body| body.split("ScopedNativePass::TerrainWater =>").next())
+        .expect("ground pass");
     assert!(
-        prewarm.contains("self.terrain_clear_color()"),
-        "terrain pass must use terrain_clear_color for the first LoadOp::Clear"
+        ground.contains("load: wgpu::LoadOp::Clear(clear_color)"),
+        "receiving ground pass must use terrain_clear_color for its first LoadOp::Clear"
     );
 }
 

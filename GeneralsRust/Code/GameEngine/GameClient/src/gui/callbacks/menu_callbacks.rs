@@ -1042,13 +1042,14 @@ impl OptionsMenu {
         let host = take_host_options_apply();
         let mut preferences = UserPreferences::new();
         let _ = preferences.load("Options.ini");
-        self.apply_options_with_preferences(host, &mut preferences, None)
+        self.apply_options_with_preferences(host, &mut preferences, None, None)
     }
     fn apply_options_with_preferences(
         &mut self,
         host: Option<HostOptionsApply>,
         pref: &mut UserPreferences,
         owned_scroll: Option<Option<i32>>,
+        terrain_lod: Option<&mut dyn FnMut(i32)>,
     ) -> bool {
         crate::display::display_fx::install_default_display_gamma_hook();
         let owns_camera_preferences = owned_scroll.is_some();
@@ -1345,7 +1346,14 @@ impl OptionsMenu {
             crate::core::script_action_handler::set_script_display_gamma(display_gamma, 0.0, 1.0);
 
         if detail_index == CUSTOMDETAIL {
-            let _ = apply_lod_texture_reduction(texture_reduction);
+            if let Some(terrain) = terrain_lod {
+                let _ = crate::core::game_client::apply_lod_texture_reduction_to(
+                    texture_reduction,
+                    terrain,
+                );
+            } else {
+                let _ = apply_lod_texture_reduction(texture_reduction);
+            }
         }
 
         game_engine::common::game_lod::set_static_lod_from_string(detail_name);
@@ -1428,9 +1436,15 @@ impl OptionsMenu {
         self.initialized = false;
     }
 
-    fn accept_options(&mut self, owned: Option<(&mut UserPreferences, Option<i32>)>) {
+    fn accept_options(
+        &mut self,
+        owned: Option<(&mut UserPreferences, Option<i32>)>,
+        terrain_lod: Option<&mut dyn FnMut(i32)>,
+    ) {
         let resolution_changed = match owned {
-            Some((pref, scroll)) => self.apply_options_with_preferences(None, pref, Some(scroll)),
+            Some((pref, scroll)) => {
+                self.apply_options_with_preferences(None, pref, Some(scroll), terrain_lod)
+            }
             None => self.apply_options(),
         };
         let options_overlay_open = options_overlay_is_open();
@@ -1598,7 +1612,7 @@ impl MenuCallbacks for OptionsMenu {
                 if control_id == self.button_back_id {
                     self.close_menu();
                 } else if control_id == self.button_accept_id {
-                    self.accept_options(None);
+                    self.accept_options(None, None);
                 } else if control_id == self.button_defaults_id {
                     self.apply_default_controls();
                 } else if control_id == self.button_firewall_refresh_id {
@@ -2592,6 +2606,15 @@ pub fn apply_options_from_host_with_preferences(
     apply: HostOptionsApply,
     preferences: &mut UserPreferences,
 ) -> bool {
+    apply_options_from_host_with_preferences_and_terrain(apply, preferences, None)
+}
+
+/// Receiving fallback UI operation; applies synchronously through the same kernel.
+pub fn apply_options_from_host_with_preferences_and_terrain(
+    apply: HostOptionsApply,
+    preferences: &mut UserPreferences,
+    terrain_lod: Option<&mut dyn FnMut(i32)>,
+) -> bool {
     let scroll = apply.scroll_speed;
     with_options_menu_mut(|menu| {
         if !menu.initialized {
@@ -2600,7 +2623,12 @@ pub fn apply_options_from_host_with_preferences(
             menu.initialized = true;
         }
         residual_options_action_store(ResidualOptionsMenuAction::Accept);
-        let _ = menu.apply_options_with_preferences(Some(apply), preferences, Some(Some(scroll)));
+        let _ = menu.apply_options_with_preferences(
+            Some(apply),
+            preferences,
+            Some(Some(scroll)),
+            terrain_lod,
+        );
         true
     })
 }
@@ -2608,10 +2636,11 @@ pub fn apply_options_from_host_with_preferences(
 pub(crate) fn complete_options_accept_with_preferences(
     preferences: &mut UserPreferences,
     scroll: Option<i32>,
+    terrain_lod: Option<&mut dyn FnMut(i32)>,
 ) {
     with_options_menu_mut(|menu| {
         if !menu.ignore_selected {
-            menu.accept_options(Some((preferences, scroll)));
+            menu.accept_options(Some((preferences, scroll)), terrain_lod);
         }
     });
 }

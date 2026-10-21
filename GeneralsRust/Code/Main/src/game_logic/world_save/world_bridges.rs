@@ -42,6 +42,13 @@ impl GameLogic {
     /// Native load recreates map geometry rather than serializing layer IDs.
     /// Resolve only this world's restored BridgeBehavior/object records.
     pub(crate) fn restore_owned_bridge_bindings(&mut self) {
+        self.restore_owned_bridge_bindings_with_effects(&mut Default::default())
+    }
+
+    pub(crate) fn restore_owned_bridge_bindings_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let owner = self.world_services.terrain().clone();
         let mut spans = Vec::new();
         owner
@@ -124,7 +131,7 @@ impl GameLogic {
                     }
                 });
         }
-        self.seed_pathfinding_from_terrain();
+        self.seed_pathfinding_from_terrain_with_effects(effects);
         self.refresh_owned_bridge_pathfinder_states();
     }
 
@@ -176,6 +183,14 @@ impl GameLogic {
     /// CPP TerrainLogic::deleteBridge: unlink, disable exact layer, destroy,
     /// then release the detached bridge. Slots remain reserved until reset.
     pub(crate) fn delete_owned_bridge_at(&mut self, pos: Vec3) -> bool {
+        self.delete_owned_bridge_at_with_effects(pos, &mut Default::default())
+    }
+
+    pub(crate) fn delete_owned_bridge_at_with_effects(
+        &mut self,
+        pos: Vec3,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
         let owner = self.world_services.terrain().clone();
         let removed = owner
             .write()
@@ -206,7 +221,7 @@ impl GameLogic {
         self.pathfinding_system
             .grid
             .deactivate_bridge_layer(bridge.get_layer() as u8);
-        self.destroy_object(id);
+        self.destroy_object_with_effects(id, effects);
         self.bridge_behavior.unregister_span(id);
         drop(bridge);
         true

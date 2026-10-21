@@ -64,36 +64,36 @@ impl GameLogic {
         self.apply_host_can_build_script_requests();
         self.apply_host_buildable_override_script_requests();
         self.apply_host_rank_script_requests();
-        self.apply_host_transfer_script_requests();
+        self.apply_host_transfer_script_requests_with_effects(&mut ui);
         self.apply_host_player_relates_script_requests();
         self.apply_host_team_override_relation_script_requests();
 
-        self.apply_host_loco_set_script_requests();
-        self.apply_host_face_script_requests();
+        self.apply_host_loco_set_script_requests_with_effects(&mut ui);
+        self.apply_host_face_script_requests_with_effects(&mut ui);
 
-        self.apply_host_move_attack_script_requests();
+        self.apply_host_move_attack_script_requests_with_effects(&mut ui);
         self.apply_host_hunt_guard_script_requests();
-        self.apply_host_garrison_enter_exit_script_requests();
-        self.apply_host_idle_script_requests();
-        self.apply_host_kill_delete_damage_script_requests();
+        self.apply_host_garrison_enter_exit_script_requests_with_effects(&mut ui);
+        self.apply_host_idle_script_requests_with_effects(&mut ui);
+        self.apply_host_kill_delete_damage_script_requests_with_effects(&mut ui);
 
         self.apply_host_follow_waypoints_script_requests();
         self.apply_host_skirmish_approach_path_script_requests();
 
         self.apply_host_create_script_requests_with_effects(interpreter, &mut ui);
-        self.apply_host_boobytrap_script_requests();
-        self.apply_host_unmanned_script_requests();
+        self.apply_host_boobytrap_script_requests_with_effects(&mut ui);
+        self.apply_host_unmanned_script_requests_with_effects(&mut ui);
         self.apply_host_radar_event_script_requests();
         self.apply_host_stealth_enabled_script_requests();
         self.apply_host_team_attitude_script_requests();
-        self.apply_host_script_visual_status_requests();
+        self.apply_host_script_visual_status_requests_with_effects(&mut ui);
         self.apply_host_guard_supply_center_script_requests();
-        self.apply_host_guard_variant_script_requests();
+        self.apply_host_guard_variant_script_requests_with_effects(&mut ui);
         self.apply_host_named_fire_special_script_requests();
         self.apply_host_use_command_button_script_requests();
         self.apply_host_object_sound_script_requests();
 
-        self.apply_host_skirmish_fight_script_requests();
+        self.apply_host_skirmish_fight_script_requests_with_effects(&mut ui);
 
         self.drain_warehouse_script_set_values();
 
@@ -785,12 +785,8 @@ impl GameLogic {
                 .into_iter()
                 .last()
             {
-                if let Ok(mut terrain_guard) =
-                    game_client::terrain::terrain_visual::get_terrain_visual()
-                {
-                    if let Some(visual) = terrain_guard.as_mut() {
-                        visual.oversize_terrain(amount);
-                    }
+                if let Some(terrain) = ui.terrain.as_mut() {
+                    terrain.oversize_terrain(amount);
                 }
             }
 

@@ -82,12 +82,27 @@ pub struct WgpuMainRenderer {
     ready_flag: Arc<AtomicBool>,
     registered_with_ww3d: bool,
     pending_frame: Option<ww3d_engine::RenderFrame>,
-    pre_scene_callbacks: Vec<Box<dyn FnOnce(&mut ww3d_engine::RenderFrame) -> RendererResult<()>>>,
-    post_frame_callbacks: Vec<Box<dyn FnOnce(&mut ww3d_engine::RenderFrame) -> RendererResult<()>>>,
+    pre_scene_callbacks: Vec<FrameCallback>,
+    post_frame_callbacks: Vec<FrameCallback>,
     legacy_frame_clock: LegacyFrameClock,
     shadow_caster_submissions: Vec<ShadowCasterSubmission>,
     shadow_caster_count_hint: u32,
 }
+
+/// A native scene pass whose owner is borrowed only during this frame's execution.
+/// The marker occupies exactly the same ordered slot as an owned callback.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScopedNativePass {
+    TerrainGround,
+    TerrainWater,
+}
+
+enum FrameCallback {
+    Owned(Box<dyn FnOnce(&mut ww3d_engine::RenderFrame) -> RendererResult<()>>),
+    ScopedNative(ScopedNativePass),
+}
+type ScopedNativePassHandler<'a> =
+    dyn FnMut(ScopedNativePass, &mut ww3d_engine::RenderFrame) -> RendererResult<()> + 'a;
 
 #[derive(Debug)]
 struct LegacyFrameClock {
@@ -420,6 +435,19 @@ impl WgpuMainRenderer {
             &mut dyn FnMut(&mut ww3d_engine::RenderFrame) -> RendererResult<()>,
         >,
     ) -> RendererResult<()> {
+        self.end_frame_with_scoped_native_passes(skip_scene, post_render, None)
+    }
+
+    /// Execute native pass markers through one caller-borrowed receiver.
+    /// This receiver never escapes into a subsequent frame.
+    pub fn end_frame_with_scoped_native_passes(
+        &mut self,
+        skip_scene: bool,
+        mut post_render: Option<
+            &mut dyn FnMut(&mut ww3d_engine::RenderFrame) -> RendererResult<()>,
+        >,
+        mut scoped_native: Option<&mut ScopedNativePassHandler<'_>>,
+    ) -> RendererResult<()> {
         let clear = self.config.clear_color;
         let clear_color = wgpu::Color {
             r: clear.x as f64,
@@ -439,7 +467,7 @@ impl WgpuMainRenderer {
                 }
                 let had_pre_scene_callbacks = !self.pre_scene_callbacks.is_empty();
                 if had_pre_scene_callbacks {
-                    self.run_pre_scene_callbacks(&mut frame)?;
+                    self.run_pre_scene_callbacks_with_native(&mut frame, &mut scoped_native)?;
                 }
 
                 let (stats, shadow_submissions) = {
@@ -464,12 +492,14 @@ impl WgpuMainRenderer {
                 self.sync_shadow_submissions(shadow_submissions);
                 Ok(stats)
             })();
-            let callback_result = self.run_post_frame_callbacks(&mut frame).and_then(|()| {
-                if let Some(callback) = post_render.as_mut() {
-                    callback(&mut frame)?;
-                }
-                Ok(())
-            });
+            let callback_result = self
+                .run_post_frame_callbacks_with_native(&mut frame, &mut scoped_native)
+                .and_then(|()| {
+                    if let Some(callback) = post_render.as_mut() {
+                        callback(&mut frame)?;
+                    }
+                    Ok(())
+                });
             let end_result = ww3d_engine::end_render(frame)
                 .map_err(|err| RendererError::RenderError(err.to_string()));
             let frame_work_result = match (frame_work_result, callback_result) {
@@ -595,7 +625,8 @@ impl WgpuMainRenderer {
             + wgpu::WasmNotSend
             + 'static,
     {
-        self.post_frame_callbacks.push(Box::new(callback));
+        self.post_frame_callbacks
+            .push(FrameCallback::Owned(Box::new(callback)));
     }
 
     pub fn enqueue_pre_scene_callback<F>(&mut self, callback: F)
@@ -604,31 +635,69 @@ impl WgpuMainRenderer {
             + wgpu::WasmNotSend
             + 'static,
     {
-        self.pre_scene_callbacks.push(Box::new(callback));
+        self.pre_scene_callbacks
+            .push(FrameCallback::Owned(Box::new(callback)));
     }
 
-    fn run_pre_scene_callbacks(
+    pub fn enqueue_scoped_pre_scene_pass(&mut self, pass: ScopedNativePass) {
+        self.pre_scene_callbacks
+            .push(FrameCallback::ScopedNative(pass));
+    }
+    pub fn enqueue_scoped_post_frame_pass(&mut self, pass: ScopedNativePass) {
+        self.post_frame_callbacks
+            .push(FrameCallback::ScopedNative(pass));
+    }
+    fn run_one_callback(
+        callback: FrameCallback,
+        frame: &mut ww3d_engine::RenderFrame,
+        scoped_native: &mut Option<&mut ScopedNativePassHandler<'_>>,
+    ) -> RendererResult<()> {
+        match callback {
+            FrameCallback::Owned(callback) => callback(frame),
+            FrameCallback::ScopedNative(pass) => match scoped_native.as_deref_mut() {
+                Some(receiver) => receiver(pass, frame),
+                None => Err(RendererError::InvalidOperation(
+                    "native scene pass has no receiving frame owner".into(),
+                )),
+            },
+        }
+    }
+    fn run_pre_scene_callbacks_with_native(
         &mut self,
         frame: &mut ww3d_engine::RenderFrame,
+        scoped_native: &mut Option<&mut ScopedNativePassHandler<'_>>,
     ) -> RendererResult<()> {
         let callbacks = std::mem::take(&mut self.pre_scene_callbacks);
         for callback in callbacks {
-            callback(frame)?;
+            Self::run_one_callback(callback, frame, scoped_native)?;
         }
         Ok(())
     }
-
-    fn run_post_frame_callbacks(
+    fn run_post_frame_callbacks_with_native(
         &mut self,
         frame: &mut ww3d_engine::RenderFrame,
+        scoped_native: &mut Option<&mut ScopedNativePassHandler<'_>>,
     ) -> RendererResult<()> {
         let callbacks = std::mem::take(&mut self.post_frame_callbacks);
         for callback in callbacks {
-            if let Err(err) = callback(frame) {
+            if let Err(err) = Self::run_one_callback(callback, frame, scoped_native) {
                 log::error!("post-frame callback failed: {err:?}");
             }
         }
         Ok(())
+    }
+    // Existing callback tests and standalone users retain the no-native path.
+    fn run_pre_scene_callbacks(
+        &mut self,
+        frame: &mut ww3d_engine::RenderFrame,
+    ) -> RendererResult<()> {
+        self.run_pre_scene_callbacks_with_native(frame, &mut None)
+    }
+    fn run_post_frame_callbacks(
+        &mut self,
+        frame: &mut ww3d_engine::RenderFrame,
+    ) -> RendererResult<()> {
+        self.run_post_frame_callbacks_with_native(frame, &mut None)
     }
 
     /// Resize the underlying surface/headless target.
@@ -969,3 +1038,7 @@ mod tests {
 #[cfg(test)]
 #[path = "wgpu_main_renderer_callback_tests.rs"]
 mod callback_tests;
+
+#[cfg(test)]
+#[path = "wgpu_scoped_native_pass_tests.rs"]
+mod scoped_native_pass_tests;

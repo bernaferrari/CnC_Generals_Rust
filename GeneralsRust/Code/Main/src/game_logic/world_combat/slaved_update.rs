@@ -78,6 +78,17 @@ impl GameLogic {
         }
     }
     pub(in crate::game_logic) fn update_owned_slaved_object(&mut self, id: ObjectId) {
+        self.update_owned_slaved_object_with_effects(
+            id,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(in crate::game_logic) fn update_owned_slaved_object_with_effects(
+        &mut self,
+        id: ObjectId,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let Some((data, mut state)) = self
             .objects
             .get(&id)
@@ -145,7 +156,7 @@ impl GameLogic {
             if self.host_team_relationship(master_team, drone_team)
                 != Some(gamelogic::common::Relationship::Allies)
             {
-                self.defect_host_object(id, master_team, 0);
+                self.defect_host_object_with_effects(id, master_team, 0, presentation_effects);
             }
         }
         if let Some(drone) = self.objects.get_mut(&id) {
@@ -158,7 +169,7 @@ impl GameLogic {
         }
         // CPP188: urgent repair precedes master's victim and scouting.
         if hp_percent <= data.repair_priority_percent {
-            self.slave_repair(id, master_id, &data, &mut state);
+            self.slave_repair_with_effects(id, master_id, &data, &mut state, presentation_effects);
             self.store_slave_state(id, state);
             return;
         }
@@ -193,7 +204,7 @@ impl GameLogic {
             return;
         }
         if hp_percent < 100 {
-            self.slave_repair(id, master_id, &data, &mut state);
+            self.slave_repair_with_effects(id, master_id, &data, &mut state, presentation_effects);
             self.store_slave_state(id, state);
             return;
         }
@@ -240,6 +251,23 @@ impl GameLogic {
         state.guard_offset.y = self.terrain_height_at(*goal).unwrap_or(0.0);
     }
     fn slave_repair(&mut self, id: ObjectId, master: ObjectId, data: &Data, state: &mut State) {
+        self.slave_repair_with_effects(
+            id,
+            master,
+            data,
+            state,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    fn slave_repair_with_effects(
+        &mut self,
+        id: ObjectId,
+        master: ObjectId,
+        data: &Data,
+        state: &mut State,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let mpos = self.objects.get(&master).unwrap().get_position();
         // CPP Partition object/object distance subtracts both bounding spheres.
         let source = self.objects.get(&id).unwrap();
@@ -297,7 +325,12 @@ impl GameLogic {
             self.store_slave_state(id, state.clone());
             let before = self.objects.get(&master).unwrap().health.current;
             // CPP SlavedUpdate493 enters Body::attemptHealing directly.
-            let _ = self.apply_owned_healing(master, data.repair_rate / 30.0, None);
+            let _ = self.apply_owned_healing_with_effects(
+                master,
+                data.repair_rate / 30.0,
+                None,
+                presentation_effects,
+            );
             let gain = self
                 .objects
                 .get(&master)

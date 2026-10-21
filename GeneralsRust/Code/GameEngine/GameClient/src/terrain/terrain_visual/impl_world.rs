@@ -415,11 +415,11 @@ impl TerrainVisualImpl {
                         .or_insert(WaterGridPointMotion {
                             velocity: 0.0,
                             preferred_height,
-                            in_motion: false,
+                            status: 0,
                         });
                 motion.preferred_height = preferred_height;
                 motion.velocity += velocity;
-                motion.in_motion = true;
+                motion.status |= 0x01;
             }
         }
 
@@ -1546,12 +1546,9 @@ fn horizon_sky_color(t: f32) -> [f32; 3] {
 
 /// C++ `MapObject.h` `MAP_XY_FACTOR` (10) is the cell size.
 /// `WorldHeightMap::m_borderSize` is map-authored (`K_HEIGHT_MAP_VERSION_3+`);
-/// ZH Alpine is 70. Loaders that omit border stay at 0, so default 70.
+/// Preserve the decoded border, including authored zero and pre-v3 zero.
 fn apply_cpp_visual_heightmap_scale(heightmap: &mut HeightMap) {
     heightmap.scale = game_engine::map_object::MAP_XY_FACTOR;
-    if heightmap.border_size == 0 {
-        heightmap.border_size = 70;
-    }
 }
 
 /// Only the height map is borrowed, so track mutation and sampling are disjoint.
@@ -1621,7 +1618,8 @@ mod visual_heightmap_scale_tests {
     fn live_world_size_uses_map_xy_factor_not_playable_over_grid() {
         // C++ MapObject.h MAP_XY_FACTOR=10; WorldHeightMap.cpp m_borderSize.
         // Alpine-shaped 32 samples + playable 200 would derive 200/31 ≈ 6.45.
-        let mut heightmap = HeightMap::new(32, 32, 255.0, 1.0);
+        let mut heightmap = HeightMap::new(148, 148, 255.0, 1.0);
+        heightmap.heights.fill(40.0 / 255.0);
         heightmap.border_size = 70;
         let mut visual = TerrainVisualImpl::new();
         visual
@@ -1634,19 +1632,25 @@ mod visual_heightmap_scale_tests {
             (loaded.scale - 200.0 / 31.0).abs() > 1.0,
             "must not use playable_world/(full_grid-1)"
         );
+        visual.apply_accepted_height(71, 71, 255);
+        assert_eq!(visual.get_raw_map_height(1, 1), 255);
+        assert_eq!(visual.get_raw_map_height(0, 0), 40);
     }
 
     #[test]
-    fn live_world_size_defaults_zh_alpine_border_when_map_omits() {
-        let heightmap = HeightMap::new(32, 32, 255.0, 1.0);
+    fn live_world_size_preserves_authored_zero_border() {
+        let mut heightmap = HeightMap::new(32, 32, 255.0, 1.0);
+        heightmap.heights.fill(40.0 / 255.0);
         let mut visual = TerrainVisualImpl::new();
         visual
             .load_heightmap_from_data(heightmap, None, Some((200.0, 200.0)))
             .expect("runtime heightmap should load");
         let loaded = visual.height_map.as_ref().expect("loaded");
         assert_eq!(loaded.scale, 10.0);
-        assert_ne!(loaded.border_size, 0);
-        assert_eq!(loaded.border_size, 70);
+        assert_eq!(loaded.border_size, 0);
+        visual.apply_accepted_height(1, 1, 255);
+        assert_eq!(visual.get_raw_map_height(1, 1), 255);
+        assert_eq!(visual.get_raw_map_height(0, 0), 40);
     }
 
     #[test]
@@ -1668,7 +1672,7 @@ mod visual_heightmap_scale_tests {
         load.expect("file heightmap should load");
         let loaded = visual.height_map.as_ref().expect("loaded");
         assert_eq!(loaded.scale, game_engine::map_object::MAP_XY_FACTOR);
-        assert_eq!(loaded.border_size, 70);
+        assert_eq!(loaded.border_size, 0);
     }
 }
 

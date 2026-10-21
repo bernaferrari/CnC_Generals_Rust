@@ -72,12 +72,13 @@ impl GameLogic {
     where
         F: FnMut(f32, &str),
     {
-        let mut delivery = gamelogic::terrain_water::publish_map_water_legacy_native;
         self.sync_legacy_runtime_from_fast_chunky_with_water_delivery(
             map_path,
             chunky,
             difficulty,
-            Some(&mut delivery),
+            None,
+            None,
+            None,
             report_progress,
         )
     }
@@ -88,6 +89,8 @@ impl GameLogic {
         chunky: &super::script_loader::ChunkyMap,
         difficulty: Option<gamelogic::player::GameDifficulty>,
         water_delivery: Option<&mut dyn FnMut(&gamelogic::terrain_water::WaterGridState)>,
+        mut native: Option<&mut dyn crate::game_logic::NativeMapAdmission>,
+        metadata: Option<&super::script_loader::MapMetadata>,
         mut report_progress: F,
     ) -> bool
     where
@@ -314,6 +317,12 @@ impl GameLogic {
                 sync_started.elapsed().as_secs_f32()
             );
         }
+        if let Some(native) = native.as_mut() {
+            if let Err(error) = native.prepare(self, metadata) {
+                log::error!("Receiving native terrain admission failed: {error}");
+                return false;
+            }
+        }
         report_progress(0.45, "Fast sync sides write");
 
         // The fast parser owns its decoded side/team dictionaries instead of
@@ -346,7 +355,14 @@ impl GameLogic {
             self.apply_host_players_from_side_dicts(&sides_data.side_dicts, false);
         }
         self.stash_side_builds_on_host(&sides_data.side_builds);
-        if !self.sync_legacy_team_factory_from_team_dicts(&prepared_team_definitions) {
+        let mut effects = native
+            .as_mut()
+            .map(|native| native.effects())
+            .unwrap_or_default();
+        if !self.sync_legacy_team_factory_from_team_dicts_with_effects(
+            &prepared_team_definitions,
+            &mut effects,
+        ) {
             return false;
         }
         if !self.finish_map_script_foundation() {
@@ -873,6 +889,17 @@ impl GameLogic {
         &mut self,
         team_dicts: &[Dict],
     ) -> bool {
+        self.sync_legacy_team_factory_from_team_dicts_with_effects(
+            team_dicts,
+            &mut Default::default(),
+        )
+    }
+
+    pub(in super::super) fn sync_legacy_team_factory_from_team_dicts_with_effects(
+        &mut self,
+        team_dicts: &[Dict],
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
         if self.owned_script_engine.is_none() {
             log::error!("Team admission requires this map's script interpreter");
             return false;
@@ -909,7 +936,7 @@ impl GameLogic {
                         .find(|player| player.is_reserved_neutral())
                 })
                 .map(|player| player.id);
-            let effects = {
+            let on_create_scripts = {
                 let Ok(mut factory) = self.team_factory.try_lock() else {
                     return false;
                 };
@@ -929,8 +956,10 @@ impl GameLogic {
             // for recursive actions and all session owners remain installed.
             if self
                 .with_owned_script_engine(|engine, world| {
-                    for script in effects {
-                        world.execute_owned_ai_condition(engine, &script, None);
+                    for script in on_create_scripts {
+                        world.execute_owned_ai_condition_with_effects(
+                            engine, &script, None, effects,
+                        );
                     }
                 })
                 .is_none()

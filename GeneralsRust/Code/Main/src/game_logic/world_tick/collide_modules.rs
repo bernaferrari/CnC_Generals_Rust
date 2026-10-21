@@ -10,6 +10,15 @@ impl super::super::GameLogic {
         self_id: ObjectId,
         other_id: ObjectId,
     ) {
+        self.dispatch_host_collide_modules_with_effects(self_id, other_id, &mut Default::default())
+    }
+
+    pub(in super::super) fn dispatch_host_collide_modules_with_effects(
+        &mut self,
+        self_id: ObjectId,
+        other_id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         if self_id == other_id {
             return;
         }
@@ -42,15 +51,24 @@ impl super::super::GameLogic {
             }
         }
         if crate_other {
-            self.update_money_crate_collides();
+            self.update_money_crate_collides_with_effects(effects);
         }
-        self.fire_host_weapon_collide(self_id, other_id);
+        self.fire_host_weapon_collide_with_effects(self_id, other_id, effects);
     }
 
     /// C++ `FireWeaponCollide::onCollide` — skip ground (other is always an
     /// object here), then `loadAmmoNow` + `fireWeapon` every frame using the
     /// INI `CollideWeapon` template (damage type / amount), not invented Flame.
     fn fire_host_weapon_collide(&mut self, self_id: ObjectId, other_id: ObjectId) {
+        self.fire_host_weapon_collide_with_effects(self_id, other_id, &mut Default::default())
+    }
+
+    fn fire_host_weapon_collide_with_effects(
+        &mut self,
+        self_id: ObjectId,
+        other_id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         use super::collide_dispatch::{
             host_fire_weapon_collide_damage, host_fire_weapon_collide_spec,
             host_should_fire_weapon_collide,
@@ -86,13 +104,14 @@ impl super::super::GameLogic {
             let _ = {
                 let owned_victim_id = other.id;
                 let owned_damage_type = damage_type;
-                self.apply_residual_damage_owned(
+                self.apply_residual_damage_owned_with_effects(
                     owned_victim_id,
                     damage,
                     Some(self_id),
                     owned_damage_type,
                     death_type,
                     None,
+                    effects,
                 )
             };
         }

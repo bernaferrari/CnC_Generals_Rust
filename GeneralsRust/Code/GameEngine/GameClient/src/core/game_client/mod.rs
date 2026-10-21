@@ -241,3 +241,6 @@ mod borrowed_snapshot_tests;
 
 #[cfg(test)]
 mod native_draw_lifecycle_observer_tests;
+
+#[cfg(test)]
+mod global_boundary_fixture;

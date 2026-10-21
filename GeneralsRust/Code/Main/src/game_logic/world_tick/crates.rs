@@ -63,6 +63,20 @@ impl GameLogic {
         rider_id: ObjectId,
         eject_pos: glam::Vec3,
     ) {
+        self.put_hijacker_in_airborne_parachute_with_effects(
+            rider_id,
+            eject_pos,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(in super::super) fn put_hijacker_in_airborne_parachute_with_effects(
+        &mut self,
+        rider_id: ObjectId,
+        eject_pos: glam::Vec3,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
+        let tree_move_frame = self.frame;
         use crate::game_logic::host_car_bomb::HIJACKER_PARACHUTE_NAME;
         use crate::game_logic::{KindOf, ThingTemplate};
 
@@ -88,10 +102,16 @@ impl GameLogic {
             pos.y = 50.0;
         }
 
-        let Some(chute_id) = self.create_object(HIJACKER_PARACHUTE_NAME, rider_team, pos) else {
+        let Some(chute_id) = self.create_object_with_script_effects(
+            HIJACKER_PARACHUTE_NAME,
+            rider_team,
+            pos,
+            None,
+            presentation_effects,
+        ) else {
             // Fail-closed: still parachute the rider without a container object.
             if let Some(r) = self.objects.get_mut(&rider_id) {
-                r.set_position(pos);
+                r.set_position_with_effects(pos, tree_move_frame, presentation_effects);
                 {}
                 r.apply_eject_parachuting();
             }
@@ -128,7 +148,7 @@ impl GameLogic {
             r.producer_id = Some(chute_id);
             r.set_ai_state(crate::game_logic::AIState::Docked);
             {}
-            r.set_position(pos);
+            r.set_position_with_effects(pos, tree_move_frame, presentation_effects);
             {}
             r.apply_eject_parachuting();
             // Still not selectable while in chute (partition restore already cleared
@@ -289,6 +309,15 @@ impl GameLogic {
 
     /// C++ CommandButtonHuntUpdate::update residual.
     pub fn tick_command_button_hunt_updates(&mut self) {
+        self.tick_command_button_hunt_updates_with_effects(
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn tick_command_button_hunt_updates_with_effects(
+        &mut self,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         use crate::game_logic::host_command_button_hunt::{
             HUNT_CMD_FROM_AI, HostCommandButtonHuntData, HostCommandButtonHuntMode,
             hunt_last_command_is_from_ai,
@@ -368,10 +397,11 @@ impl GameLogic {
                     ) else {
                         continue;
                     };
-                    if self.issue_command_button_hunt_special(
+                    if self.issue_command_button_hunt_special_with_effects(
                         hunter_id,
                         target_id,
                         &hunt.button_name,
+                        presentation_effects,
                     ) {
                         if let Some(u) = self.objects.get_mut(&hunter_id) {
                             u.last_command_source = HUNT_CMD_FROM_AI;
@@ -409,7 +439,11 @@ impl GameLogic {
                     continue;
                 }
             };
-            self.queue_pending_special_ability(hunter_id, ability);
+            self.queue_pending_special_ability_with_effects(
+                hunter_id,
+                ability,
+                presentation_effects,
+            );
             if let Some(tp) = self.objects.get(&target_id).map(|t| t.get_position()) {
                 if let Some(u) = self.objects.get_mut(&hunter_id) {
                     u.target = Some(target_id);
@@ -658,6 +692,21 @@ impl GameLogic {
         target_id: ObjectId,
         button: &str,
     ) -> bool {
+        self.issue_command_button_hunt_special_with_effects(
+            hunter_id,
+            target_id,
+            button,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    fn issue_command_button_hunt_special_with_effects(
+        &mut self,
+        hunter_id: ObjectId,
+        target_id: ObjectId,
+        button: &str,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
         let kind = classify_command_button_hunt_special(button);
         let Some(tp) = self.objects.get(&target_id).map(|t| t.get_position()) else {
             return false;
@@ -701,7 +750,11 @@ impl GameLogic {
                         PendingSpecialAbility::PlantTimedDemoCharge { target_id }
                     }
                 };
-                self.queue_pending_special_ability(hunter_id, ability);
+                self.queue_pending_special_ability_with_effects(
+                    hunter_id,
+                    ability,
+                    presentation_effects,
+                );
                 if let Some(u) = self.objects.get_mut(&hunter_id) {
                     u.target = Some(target_id);
                     u.set_ai_state(AIState::SpecialAbility);
@@ -1000,6 +1053,12 @@ impl GameLogic {
 
     /// C++ AssaultTransportAIUpdate wounded-retrieve + healthy re-exit residual.
     pub fn tick_assault_transport_updates(&mut self) {
+        self.tick_assault_transport_updates_with_effects(&mut Default::default());
+    }
+    pub(crate) fn tick_assault_transport_updates_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         use crate::game_logic::host_troop_crawler::{
             is_assault_member_healthy, is_assault_member_wounded,
         };
@@ -1084,7 +1143,7 @@ impl GameLogic {
                         // C++: healthy contained eject only when !m_newMember.
                         // aiExit → OpenContain ExitStart/End walk, not a 6wu pop.
                         if healthy && !is_new {
-                            self.assault_transport_ai_exit(mid, crawler_id);
+                            self.assault_transport_ai_exit_with_effects(mid, crawler_id, effects);
                             self.troop_crawler.record_healthy_redeploy();
                         }
                         continue;
@@ -1312,13 +1371,19 @@ impl GameLogic {
     }
 
     /// C++ `ai->aiExit(transport, CMD_FROM_AI)` — ExitStart/End walk.
-    fn assault_transport_ai_exit(&mut self, member_id: ObjectId, crawler_id: ObjectId) {
+    fn assault_transport_ai_exit_with_effects(
+        &mut self,
+        member_id: ObjectId,
+        crawler_id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         use crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_AI;
 
         if let Some(c) = self.objects.get_mut(&crawler_id) {
             c.remove_occupant(member_id, &mut self.ownership_events);
         }
-        let _ = self.unit_command_exit_via_open_contain(member_id, crawler_id);
+        let _ =
+            self.unit_command_exit_via_open_contain_with_effects(member_id, crawler_id, effects);
         if let Some(unit) = self.objects.get_mut(&member_id) {
             unit.last_command_source = HUNT_CMD_FROM_AI;
         }
@@ -1429,6 +1494,15 @@ impl GameLogic {
 
     /// C++ UndeadBody + BattleBusSlowDeathBehavior first-life / empty-hulk residual.
     pub fn tick_battle_bus_slow_deaths(&mut self) {
+        self.tick_battle_bus_slow_deaths_with_effects(
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn tick_battle_bus_slow_deaths_with_effects(
+        &mut self,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         use crate::game_logic::combat::DamageType;
         use crate::game_logic::host_battle_bus::battle_bus_undeath_passenger_damage;
 
@@ -1477,7 +1551,7 @@ impl GameLogic {
                     let _ = {
                         let owned_victim_id = p.id;
                         let owned_damage_type = DamageType::Explosive;
-                        self.apply_residual_damage_owned(
+                        self.apply_residual_damage_owned_with_effects(
                             owned_victim_id,
                             dmg,
                             None,
@@ -1486,6 +1560,7 @@ impl GameLogic {
                                 owned_damage_type,
                             ),
                             None,
+                            presentation_effects,
                         )
                     };
                 }
@@ -1501,10 +1576,13 @@ impl GameLogic {
                 continue;
             };
             #[cfg(feature = "game_client")]
-            let (_landed, empty_kill) = Self::with_host_fx_view_parts(
+            let (_landed, empty_kill) = Self::with_host_fx_view_parts_and_terrain(
                 &mut self.session_view,
                 fx_player,
                 self.world_services.shroud(),
+                presentation_effects.terrain.as_mut().map(|terrain| {
+                    &mut **terrain as &mut dyn crate::game_logic::NativeTerrainEffects
+                }),
                 |view| {
                     bus.tick_battle_bus_slow_death_with_fx(
                         frame,
@@ -1538,10 +1616,11 @@ impl GameLogic {
                     body.mark_real_death();
                 }
             }
-            let _ = self.apply_owned_kill(
+            let _ = self.apply_owned_kill_with_effects(
                 bus_id,
                 DamageType::Penalty,
                 crate::game_logic::host_usa_pilot::HostDeathType::Extra4,
+                presentation_effects,
             );
         }
     }
@@ -1557,6 +1636,15 @@ impl GameLogic {
 
     /// Tick HijackerUpdate residual for all in-vehicle hijackers.
     pub fn tick_hijacker_updates(&mut self) {
+        self.tick_hijacker_updates_with_effects(
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn tick_hijacker_updates_with_effects(
+        &mut self,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let riders: Vec<(ObjectId, ObjectId)> = self
             .objects
             .iter()
@@ -1580,7 +1668,12 @@ impl GameLogic {
                     )
                 };
                 if let Some(r) = self.objects.get_mut(&rider_id) {
-                    r.end_hijacker_in_vehicle(epos, air);
+                    r.end_hijacker_in_vehicle_with_effects(
+                        epos,
+                        air,
+                        self.frame,
+                        presentation_effects,
+                    );
                 }
                 // C++ HijackerUpdate: ThePartitionManager->registerObject(obj).
                 if let Some(r) = self.objects.get(&rider_id) {
@@ -1593,7 +1686,11 @@ impl GameLogic {
                 // C++ HijackerUpdate: if m_wasTargetAirborne → PutInContainer
                 // AmericaParachute (m_parachuteName) at m_ejectPos.
                 if air {
-                    self.put_hijacker_in_airborne_parachute(rider_id, epos);
+                    self.put_hijacker_in_airborne_parachute_with_effects(
+                        rider_id,
+                        epos,
+                        presentation_effects,
+                    );
                 }
                 continue;
             }
@@ -1612,7 +1709,14 @@ impl GameLogic {
                 let _ = v;
             }
             if let Some(r) = self.objects.get_mut(&rider_id) {
-                r.tick_hijacker_in_vehicle(vpos, air, vlevel, vxp);
+                r.tick_hijacker_in_vehicle_with_effects(
+                    vpos,
+                    air,
+                    vlevel,
+                    vxp,
+                    self.frame,
+                    presentation_effects,
+                );
             }
             // Apply MAX level to vehicle from rider after tick.
             let rlevel = self
@@ -1725,6 +1829,21 @@ impl GameLogic {
         unit_type: &str,
         count: u32,
     ) -> usize {
+        self.execute_unit_crate_behavior_with_effects(
+            picker_id,
+            unit_type,
+            count,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn execute_unit_crate_behavior_with_effects(
+        &mut self,
+        picker_id: ObjectId,
+        unit_type: &str,
+        count: u32,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> usize {
         let (team, origin, ori) = match self.objects.get(&picker_id) {
             Some(p) if p.is_alive() => (p.team, p.get_position(), p.get_orientation()),
             _ => return 0,
@@ -1752,7 +1871,13 @@ impl GameLogic {
                 i,
                 picker_id.0,
             );
-            if let Some(nid) = self.create_object(unit_type, team, pos) {
+            if let Some(nid) = self.create_object_with_script_effects(
+                unit_type,
+                team,
+                pos,
+                None,
+                presentation_effects,
+            ) {
                 if let Some(o) = self.objects.get_mut(&nid) {
                     o.set_orientation(ori);
                 }
@@ -1893,6 +2018,25 @@ impl GameLogic {
         crate_data: &[String],
         killer_id: Option<ObjectId>,
     ) -> usize {
+        self.try_create_crates_on_die_with_effects(
+            victim_id,
+            victim_pos,
+            victim_team,
+            crate_data,
+            killer_id,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn try_create_crates_on_die_with_effects(
+        &mut self,
+        victim_id: ObjectId,
+        victim_pos: glam::Vec3,
+        victim_team: Team,
+        crate_data: &[String],
+        killer_id: Option<ObjectId>,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> usize {
         if crate_data.is_empty() {
             return 0;
         }
@@ -1993,7 +2137,13 @@ impl GameLogic {
             } else {
                 Team::Neutral
             };
-            let Some(crate_id) = self.create_object(&req.object_name, crate_team, pos) else {
+            let Some(crate_id) = self.create_object_with_script_effects(
+                &req.object_name,
+                crate_team,
+                pos,
+                None,
+                presentation_effects,
+            ) else {
                 continue;
             };
             if req.owned_by_maker {

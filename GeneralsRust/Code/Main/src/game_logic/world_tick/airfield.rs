@@ -85,7 +85,16 @@ impl GameLogic {
     /// unsupported parking/taxi matrices.
     /// C++ JetOrHeliCirclingDeadAirfieldState residual for all empty RTB jets.
     pub(crate) fn tick_out_of_ammo_jet_damage(&mut self) {
-        self.tick_jet_ai_update_all();
+        self.tick_out_of_ammo_jet_damage_with_effects(
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn tick_out_of_ammo_jet_damage_with_effects(
+        &mut self,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
+        self.tick_jet_ai_update_all_with_effects(presentation_effects);
         let ids: Vec<ObjectId> = self
             .objects
             .iter()
@@ -99,13 +108,13 @@ impl GameLogic {
             .collect();
         for id in ids {
             self.snapshot_jet_producer_location(id);
-            if self.try_return_to_base_rearm(id) {
+            if self.try_return_to_base_rearm_with_effects(id, presentation_effects) {
                 if let Some(jet) = self.objects.get_mut(&id) {
                     jet.leave_circling_dead_airfield();
                 }
                 continue;
             }
-            self.tick_return_or_circle_dead_airfield(id);
+            self.tick_return_or_circle_dead_airfield_with_effects(id, presentation_effects);
         }
     }
 
@@ -119,6 +128,12 @@ impl GameLogic {
 
     /// C++ `JetAIUpdate::update` live-host residual.
     pub(crate) fn tick_jet_ai_update_all(&mut self) {
+        self.tick_jet_ai_update_all_with_effects(&mut Default::default())
+    }
+    pub(crate) fn tick_jet_ai_update_all_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         use crate::game_logic::object::JetAiTickAction;
 
         let now = self.frame;
@@ -179,7 +194,7 @@ impl GameLogic {
                     if let Some(jet) = self.objects.get_mut(&id) {
                         jet.return_to_base_requested = true;
                     }
-                    if self.try_return_to_base_rearm(id) {
+                    if self.try_return_to_base_rearm_with_effects(id, effects) {
                         if let Some(jet) = self.objects.get_mut(&id) {
                             jet.leave_circling_dead_airfield();
                         }
@@ -194,7 +209,7 @@ impl GameLogic {
                         .get(&id)
                         .is_some_and(|j| j.is_parked_at_airfield() || j.contained_by.is_some())
                     {
-                        let _ = self.try_runway_takeoff_from_airfield(id);
+                        let _ = self.try_runway_takeoff_from_airfield_with_effects(id, effects);
                     }
                 }
                 JetAiTickAction::None => {}
@@ -525,6 +540,17 @@ impl GameLogic {
     /// C++ RETURN_TO_DEAD_AIRFIELD then CIRCLING_DEAD_AIRFIELD.
     /// Damage only after arriving at the remembered wreck and entering circle.
     fn tick_return_or_circle_dead_airfield(&mut self, jet_id: ObjectId) {
+        self.tick_return_or_circle_dead_airfield_with_effects(
+            jet_id,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    fn tick_return_or_circle_dead_airfield_with_effects(
+        &mut self,
+        jet_id: ObjectId,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         {
             let Some(jet) = self.objects.get_mut(&jet_id) else {
                 return;
@@ -604,13 +630,14 @@ impl GameLogic {
             }
         });
         if damage > 0.0 {
-            let _ = self.apply_residual_damage_owned(
+            let _ = self.apply_residual_damage_owned_with_effects(
                 jet_id,
                 damage,
                 None,
                 crate::game_logic::combat::DamageType::Unresistable,
                 crate::game_logic::host_usa_pilot::HostDeathType::Normal,
                 None,
+                presentation_effects,
             );
         }
     }
@@ -827,6 +854,12 @@ impl GameLogic {
     }
     /// C++ JetAIUpdate::update parked helipad auto-takeoff when health == max.
     fn tick_helipad_repaired_auto_takeoff(&mut self) {
+        self.tick_helipad_repaired_auto_takeoff_with_effects(&mut Default::default())
+    }
+    fn tick_helipad_repaired_auto_takeoff_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let ids: Vec<ObjectId> = self
             .objects
             .iter()
@@ -850,7 +883,7 @@ impl GameLogic {
                     && (o.ai_state == AIState::Docked || o.ai_state == AIState::Idle)
             });
             if ready {
-                let _ = self.try_runway_takeoff_from_airfield(id);
+                let _ = self.try_runway_takeoff_from_airfield_with_effects(id, effects);
             }
         }
     }
@@ -1101,7 +1134,11 @@ impl GameLogic {
         }
     }
 
-    fn apply_pending_helipad_exits(&mut self) {
+    fn apply_pending_helipad_exits(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
+        let pose_frame = self.frame;
         let pending: Vec<(ObjectId, ObjectId)> =
             self.airfield_pending_helipad_exits.drain().collect();
         for (jet_id, airfield_id) in pending {
@@ -1117,7 +1154,7 @@ impl GameLogic {
                 if !jet.is_alive() || !Self::object_is_produced_at_helipad(jet) {
                     continue;
                 }
-                jet.set_position(heli);
+                jet.set_position_with_effects(heli, pose_frame, effects);
                 {}
             }
             let dest = rally.unwrap_or(heli);
@@ -1127,6 +1164,17 @@ impl GameLogic {
 
     /// C++ `ParkingPlaceBehavior::killAllParkedUnits`.
     fn kill_all_parked_units(&mut self, airfield_id: ObjectId) {
+        self.kill_all_parked_units_with_effects(
+            airfield_id,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    fn kill_all_parked_units_with_effects(
+        &mut self,
+        airfield_id: ObjectId,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let Some(spaces) = self.airfield_parking_spaces.get(&airfield_id).cloned() else {
             return;
         };
@@ -1148,10 +1196,11 @@ impl GameLogic {
             kill.push(jet_id);
         }
         for jet_id in kill {
-            let killed = self.apply_owned_kill(
+            let killed = self.apply_owned_kill_with_effects(
                 jet_id,
                 crate::game_logic::combat::DamageType::Unresistable,
                 crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+                presentation_effects,
             );
             // CPP purgeDead must retain reservations for a surviving body.
             if killed.is_some_and(|result| result.destroyed) {
@@ -1163,6 +1212,17 @@ impl GameLogic {
 
     /// C++ `ParkingPlaceBehavior::defectAllParkedUnits`.
     pub(in super::super) fn defect_all_parked_units(&mut self, airfield_id: ObjectId) {
+        self.defect_all_parked_units_with_effects(
+            airfield_id,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(in super::super) fn defect_all_parked_units_with_effects(
+        &mut self,
+        airfield_id: ObjectId,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let Some(owner) = self
             .objects
             .get(&airfield_id)
@@ -1173,10 +1233,11 @@ impl GameLogic {
         let Some(destination) = self.host_default_team_id(owner) else {
             return;
         };
-        self.defect_parked_units_owned(
+        self.defect_parked_units_owned_with_effects(
             airfield_id,
             destination,
             crate::game_logic::host_defection_helper::DEFAULT_DEFECTION_PROTECTION_FRAMES,
+            presentation_effects,
         );
     }
 
@@ -1187,6 +1248,21 @@ impl GameLogic {
         airfield_id: ObjectId,
         destination: u32,
         frames: u32,
+    ) {
+        self.defect_parked_units_owned_with_effects(
+            airfield_id,
+            destination,
+            frames,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(in crate::game_logic) fn defect_parked_units_owned_with_effects(
+        &mut self,
+        airfield_id: ObjectId,
+        destination: u32,
+        frames: u32,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         let Some(spaces) = self.airfield_parking_spaces.get(&airfield_id).cloned() else {
             return;
@@ -1222,7 +1298,12 @@ impl GameLogic {
                     release.push(jet_id);
                 }
             } else {
-                self.defect_host_object(jet_id, destination, frames);
+                self.defect_host_object_with_effects(
+                    jet_id,
+                    destination,
+                    frames,
+                    presentation_effects,
+                );
             }
         }
         for jet_id in release {
@@ -1236,7 +1317,16 @@ impl GameLogic {
     }
 
     fn tick_airfield_parking_lifecycle(&mut self) {
-        self.apply_pending_helipad_exits();
+        self.tick_airfield_parking_lifecycle_with_effects(
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    fn tick_airfield_parking_lifecycle_with_effects(
+        &mut self,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
+        self.apply_pending_helipad_exits(presentation_effects);
         let mut airfields: Vec<ObjectId> = self.airfield_parking_spaces.keys().copied().collect();
         for (&id, object) in self.objects.iter() {
             if object.thing().template.parking_place.is_some() {
@@ -1257,7 +1347,7 @@ impl GameLogic {
                 })
                 .unwrap_or(true);
             if dead_or_sold {
-                self.kill_all_parked_units(airfield_id);
+                self.kill_all_parked_units_with_effects(airfield_id, presentation_effects);
             }
             // C++ `ParkingPlaceBehavior::defectAllParkedUnits` runs only from
             // `Object::defect` (airfield capture), never each tick on team mismatch.
@@ -1852,6 +1942,19 @@ impl GameLogic {
         producer_id: ObjectId,
         jet_id: ObjectId,
     ) -> bool {
+        self.place_produced_jet_at_parking_pose_with_effects(
+            producer_id,
+            jet_id,
+            &mut Default::default(),
+        )
+    }
+    pub(in super::super) fn place_produced_jet_at_parking_pose_with_effects(
+        &mut self,
+        producer_id: ObjectId,
+        jet_id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
+        let pose_frame = self.frame;
         let Some(info) = self.calc_airfield_pp_info(producer_id, jet_id) else {
             return false;
         };
@@ -1860,7 +1963,7 @@ impl GameLogic {
             return false;
         };
         // C++ exitObjectViaDoor creation/hangar bone; FROM_HANGAR taxis to parking.
-        jet.set_position(info.hangar_internal);
+        jet.set_position_with_effects(info.hangar_internal, pose_frame, effects);
         jet.set_orientation(info.hangar_internal_orient);
         jet.set_contained_by(Some(producer_id));
         jet.set_ai_state(AIState::Docked);
@@ -2116,6 +2219,14 @@ impl GameLogic {
     ///
     /// Returns false when HasRunways and all runways are busy (jet stays docked).
     pub(crate) fn try_runway_takeoff_from_airfield(&mut self, jet_id: ObjectId) -> bool {
+        self.try_runway_takeoff_from_airfield_with_effects(jet_id, &mut Default::default())
+    }
+    pub(crate) fn try_runway_takeoff_from_airfield_with_effects(
+        &mut self,
+        jet_id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
+        let pose_frame = self.frame;
         use crate::game_logic::host_dock_contain_exit_heal_residual::PARKING_PLACE_RUNWAY_PREP_SPACING;
         let (af_id, metadata, airfield_position) = {
             let Some(jet) = self.objects.get(&jet_id) else {
@@ -2156,7 +2267,7 @@ impl GameLogic {
                 if is_heli {
                     if let Some(parking) = parking {
                         if let Some(jet) = self.objects.get_mut(&jet_id) {
-                            jet.set_position(parking);
+                            jet.set_position_with_effects(parking, pose_frame, effects);
                         }
                         let approach = Self::helipad_approach_from_parking(
                             parking,
@@ -2172,7 +2283,7 @@ impl GameLogic {
                             + metadata.landing_deck_height_offset
                             + metadata.approach_height,
                     );
-                    jet.set_position(position);
+                    jet.set_position_with_effects(position, pose_frame, effects);
                 }
             }
             return released;
@@ -2230,7 +2341,7 @@ impl GameLogic {
         if let Some(jet) = self.objects.get_mut(&jet_id) {
             let mut pos = jet.get_position();
             pos.y = dest.y;
-            jet.set_position(pos);
+            jet.set_position_with_effects(pos, pose_frame, effects);
             jet.arm_jet_taxi_to_takeoff(dest, runway_end, runway_dist, waited);
         }
         if horiz_dist_sq(jet_pos, dest) <= 12.0 * 12.0 {
@@ -2328,6 +2439,14 @@ impl GameLogic {
         jet_id: ObjectId,
         airfield_id: ObjectId,
     ) -> bool {
+        self.do_jet_landing_command_with_effects(jet_id, airfield_id, &mut Default::default())
+    }
+    pub(crate) fn do_jet_landing_command_with_effects(
+        &mut self,
+        jet_id: ObjectId,
+        airfield_id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
         let Some(jet) = self.objects.get(&jet_id) else {
             return false;
         };
@@ -2369,7 +2488,7 @@ impl GameLogic {
             jet.target = None;
             jet.set_status_attacking(false);
         }
-        self.try_return_to_base_rearm(jet_id)
+        self.try_return_to_base_rearm_with_effects(jet_id, effects)
     }
 
     pub(crate) fn try_jet_enter_or_repair_airfield(
@@ -2377,7 +2496,19 @@ impl GameLogic {
         jet_id: ObjectId,
         airfield_id: ObjectId,
     ) -> bool {
-        self.do_jet_landing_command(jet_id, airfield_id)
+        self.try_jet_enter_or_repair_airfield_with_effects(
+            jet_id,
+            airfield_id,
+            &mut Default::default(),
+        )
+    }
+    pub(crate) fn try_jet_enter_or_repair_airfield_with_effects(
+        &mut self,
+        jet_id: ObjectId,
+        airfield_id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
+        self.do_jet_landing_command_with_effects(jet_id, airfield_id, effects)
     }
 
     /// Undock pairing for the dock-time container listing: drop the jet from
@@ -2605,6 +2736,14 @@ impl GameLogic {
     /// a frozen player id, then this method revalidates that exact ownership
     /// before it writes a request or reserves an airfield slot.
     pub(crate) fn request_return_to_base(&mut self, jet_id: ObjectId, player_id: u32) -> bool {
+        self.request_return_to_base_with_effects(jet_id, player_id, &mut Default::default())
+    }
+    pub(crate) fn request_return_to_base_with_effects(
+        &mut self,
+        jet_id: ObjectId,
+        player_id: u32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
         let can_request = self.objects.get(&jet_id).is_some_and(|jet| {
             jet.is_alive()
                 && Self::is_aircraft(jet)
@@ -2617,7 +2756,7 @@ impl GameLogic {
         if let Some(jet) = self.objects.get_mut(&jet_id) {
             jet.return_to_base_requested = true;
         }
-        if self.try_return_to_base_rearm(jet_id) {
+        if self.try_return_to_base_rearm_with_effects(jet_id, effects) {
             true
         } else {
             // A physical command that cannot reserve a C++-valid parking
@@ -2634,6 +2773,13 @@ impl GameLogic {
     /// reservation, so capture/destruction cannot route a jet into an enemy
     /// or same-faction other-player hangar.
     pub(crate) fn try_return_to_base_rearm(&mut self, jet_id: ObjectId) -> bool {
+        self.try_return_to_base_rearm_with_effects(jet_id, &mut Default::default())
+    }
+    pub(crate) fn try_return_to_base_rearm_with_effects(
+        &mut self,
+        jet_id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
         let (needs_rearm, requested, jet_position) = {
             let Some(jet) = self.objects.get(&jet_id) else {
                 return false;
@@ -2755,7 +2901,7 @@ impl GameLogic {
             || (horiz_dist_sq(jet_position, pad) <= WAYPOINT_SQ
                 && (phase >= crate::game_logic::object::JET_RTB_PHASE_TAXI || !airborne))
         {
-            return self.dock_jet_at_airfield_pad(jet_id, airfield_id, pad);
+            return self.dock_jet_at_airfield_pad_with_effects(jet_id, airfield_id, pad, effects);
         }
 
         // C++ JetAIUpdate re-evaluates its state machine every update. When a
@@ -2788,7 +2934,7 @@ impl GameLogic {
                 && horiz_dist_sq(jet.get_position(), pad) <= apron_reach_sq
         });
         if rtb_path_complete || apron_arrived {
-            return self.dock_jet_at_airfield_pad(jet_id, airfield_id, pad);
+            return self.dock_jet_at_airfield_pad_with_effects(jet_id, airfield_id, pad, effects);
         }
         if phase >= crate::game_logic::object::JET_RTB_PHASE_TAXI
             || (phase >= crate::game_logic::object::JET_RTB_PHASE_LANDING
@@ -2926,6 +3072,21 @@ impl GameLogic {
         airfield_id: ObjectId,
         pad: glam::Vec3,
     ) -> bool {
+        self.dock_jet_at_airfield_pad_with_effects(
+            jet_id,
+            airfield_id,
+            pad,
+            &mut Default::default(),
+        )
+    }
+    fn dock_jet_at_airfield_pad_with_effects(
+        &mut self,
+        jet_id: ObjectId,
+        airfield_id: ObjectId,
+        pad: glam::Vec3,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
+        let pose_frame = self.frame;
         let parking_orientation = self
             .calc_airfield_pp_info(airfield_id, jet_id)
             .map(|info| info.parking_orientation);
@@ -2949,7 +3110,7 @@ impl GameLogic {
             jet.movement.path.clear();
             jet.movement.current_path_index = 0;
             jet.movement.target_position = None;
-            jet.set_position(pad);
+            jet.set_position_with_effects(pad, pose_frame, effects);
             // C++ JetOrHeliParkOrientState: setLocomotorGoalOrientation(parkingOrientation).
             // Live dock snaps pose; leftover already matches C++.
             if let Some(orient) = parking_orientation {
@@ -2986,11 +3147,20 @@ impl GameLogic {
 
     /// C++ ParkingPlaceBehavior heal residual for docked aircraft at airfields.
     pub(crate) fn tick_airfield_parking_heal(&mut self) {
-        self.tick_airfield_parking_lifecycle();
+        self.tick_airfield_parking_heal_with_effects(
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn tick_airfield_parking_heal_with_effects(
+        &mut self,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
+        self.tick_airfield_parking_lifecycle_with_effects(presentation_effects);
         self.tick_heli_takeoff_or_landing();
-        self.tick_flight_decks();
+        self.tick_flight_decks_with_effects(presentation_effects);
         self.sync_airfield_healees();
-        self.pulse_airfield_healees();
+        self.pulse_airfield_healees_with_effects(presentation_effects);
 
         use crate::game_logic::host_countermeasures::aircraft_has_countermeasures_upgrade;
         // Rearm / CM reload for docked aircraft. Helos skip hangar stalls.
@@ -3037,11 +3207,20 @@ impl GameLogic {
                 let _ = jet.tick_parked_airfield_rearm(self.frame);
             }
         }
-        self.tick_helipad_repaired_auto_takeoff();
+        self.tick_helipad_repaired_auto_takeoff_with_effects(presentation_effects);
     }
 
     /// C++ `ParkingPlaceBehavior::update` 5 Hz `attemptHealing` pulse.
     fn pulse_airfield_healees(&mut self) {
+        self.pulse_airfield_healees_with_effects(
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    fn pulse_airfield_healees_with_effects(
+        &mut self,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let now = self.frame;
         let airfields: Vec<ObjectId> = self.airfield_healing.keys().copied().collect();
         for airfield_id in airfields {
@@ -3079,7 +3258,12 @@ impl GameLogic {
                 }
                 if amount > 0.0 && jet.health.current + 1e-3 < jet.health.maximum {
                     // CPP ParkingPlaceBehavior684 calls Body::attemptHealing.
-                    let _ = self.apply_owned_healing(jet_id, amount, Some(airfield_id));
+                    let _ = self.apply_owned_healing_with_effects(
+                        jet_id,
+                        amount,
+                        Some(airfield_id),
+                        presentation_effects,
+                    );
                 }
             }
             for jet_id in dead {

@@ -6,6 +6,17 @@ impl GameLogic {
         &mut self,
         attacker_id: ObjectId,
     ) -> Option<CombatAttackInput> {
+        self.prepare_combat_attack_with_effects(
+            attacker_id,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(super) fn prepare_combat_attack_with_effects(
+        &mut self,
+        attacker_id: ObjectId,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> Option<CombatAttackInput> {
         // Empty-clip RTB is JetAI (guard/hunt interrupt or idle), not every attack.
 
         // Early gates + docked/garrisoned flags in one immutable scope.
@@ -61,13 +72,17 @@ impl GameLogic {
             (docked_sortie, docked_passenger, garrisoned)
         };
         if docked_sortie {
-            let _ = self.try_runway_takeoff_from_airfield(attacker_id);
+            let _ = self
+                .try_runway_takeoff_from_airfield_with_effects(attacker_id, presentation_effects);
         } else if docked_passenger {
-            self.try_transport_passenger_residual_fire(attacker_id);
+            self.try_transport_passenger_residual_fire_with_effects(
+                attacker_id,
+                presentation_effects,
+            );
             return None;
         }
         if garrisoned {
-            self.try_garrison_residual_fire(attacker_id);
+            self.try_garrison_residual_fire_with_effects(attacker_id, presentation_effects);
             return None;
         }
         let Some(attacker) = self.objects.get(&attacker_id) else {
@@ -93,7 +108,7 @@ impl GameLogic {
             if defense_auto_ok {
                 // Residual owns base-defense fire (nearest-in-range each shot).
                 // Manual AttackObject is not required; structures never chase.
-                self.try_base_defense_residual_fire(attacker_id);
+                self.try_base_defense_residual_fire_with_effects(attacker_id, presentation_effects);
                 return None;
             }
         }
@@ -150,7 +165,7 @@ impl GameLogic {
                 && attacker.target.is_none()
                 && attacker.target_location.is_none();
             if sentry_auto_ok {
-                self.try_sentry_drone_residual_fire(attacker_id);
+                self.try_sentry_drone_residual_fire_with_effects(attacker_id, presentation_effects);
                 return None;
             }
         }
@@ -161,7 +176,10 @@ impl GameLogic {
             .map(|a| a.has_overlord_gattling_residual())
             .unwrap_or(false)
         {
-            self.try_overlord_gattling_addon_independent_fire(attacker_id);
+            self.try_overlord_gattling_addon_independent_fire_with_effects(
+                attacker_id,
+                presentation_effects,
+            );
         }
         let Some(attacker) = self.objects.get(&attacker_id) else {
             return None;

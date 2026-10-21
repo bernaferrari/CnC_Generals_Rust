@@ -132,30 +132,34 @@ impl RenderPipeline {
     }
 
     #[cfg(feature = "game_client")]
-    pub(super) fn apply_cached_lighting_to_terrain(&self, lighting: &CachedLighting) {
-        if let Ok(mut guard) = game_client::terrain::terrain_visual::get_terrain_visual() {
-            if let Some(visual) = guard.as_mut() {
-                visual.set_lighting(
-                    lighting.sun_direction,
-                    lighting.sun_color,
-                    lighting.ambient_color,
-                    lighting.fog_color,
-                    lighting.fog_range,
-                );
-            }
+    pub(super) fn apply_cached_lighting_to_terrain(&mut self, lighting: &CachedLighting) {
+        if let Some(visual) = self.native_terrain.as_mut() {
+            visual.set_lighting(
+                lighting.sun_direction,
+                lighting.sun_color,
+                lighting.ambient_color,
+                lighting.fog_color,
+                lighting.fog_range,
+            );
         }
     }
 
     #[cfg(not(feature = "game_client"))]
-    pub(super) fn apply_cached_lighting_to_terrain(&self, _lighting: &CachedLighting) {}
+    pub(super) fn apply_cached_lighting_to_terrain(&mut self, _lighting: &CachedLighting) {}
 
-    /// Attempt to load the heightmap hinted by the map metadata into the TerrainVisual singleton.
+    /// Attempt to load the heightmap hinted by the map metadata into this pipeline's native terrain owner.
     pub fn load_heightmap_from_hint(
         &mut self,
         device: &Arc<wgpu::Device>,
         queue: &Arc<wgpu::Queue>,
         world_bounds: Option<(Vec3, Vec3)>,
     ) -> Result<()> {
+        #[cfg(feature = "game_client")]
+        if self.native_terrain.is_some() {
+            self.hydrate_native_terrain_gpu(device, queue)?;
+            return Ok(());
+        }
+
         #[cfg(feature = "game_client")]
         {
             self.radar_terrain_colors = None;
@@ -167,10 +171,10 @@ impl RenderPipeline {
         info!("Loading heightmap from map hint: {}", path);
         #[cfg(feature = "game_client")]
         {
-            game_client::terrain::terrain_visual::init_terrain_visual()
-                .map_err(|e| anyhow::anyhow!("Terrain visual init failed: {}", e))?;
-            if let Ok(mut guard) = game_client::terrain::terrain_visual::get_terrain_visual() {
-                if let Some(visual) = guard.as_mut() {
+            {
+                let mut candidate = game_client::terrain::terrain_visual::TerrainVisualImpl::new();
+                {
+                    let visual = &mut candidate;
                     let explicit_world_size = world_bounds.map(|bounds| {
                         (
                             (bounds.1.x - bounds.0.x).abs().max(1.0),
@@ -225,6 +229,7 @@ impl RenderPipeline {
                         );
                     }
                 }
+                self.native_terrain = Some(candidate);
             }
         }
         #[cfg(not(feature = "game_client"))]
@@ -242,125 +247,15 @@ impl RenderPipeline {
     ) -> Result<bool> {
         #[cfg(feature = "game_client")]
         {
-            self.radar_terrain_colors = None;
-            // Presentation-frozen heightmap only (no live GameLogic dual-read).
-            let Some(pres) = self.presentation_frame.as_ref() else {
-                return Ok(false);
-            };
-            let Some(frozen) = pres
-                .world_env
-                .runtime_heightmap
-                .as_ref()
-                .filter(|h| h.is_usable())
-            else {
-                return Ok(false);
-            };
-            let heightmap = frozen.to_height_map();
-            let heightmap_resolution = (heightmap.width, heightmap.height);
-
-            game_client::terrain::terrain_visual::init_terrain_visual()
-                .map_err(|e| anyhow::anyhow!("Terrain visual init failed: {}", e))?;
-
-            let source_hint_owned: Option<std::path::PathBuf> = pres
-                .world_env
-                .heightmap_hint
-                .as_ref()
-                .map(std::path::PathBuf::from);
-            let source_hint_ref = source_hint_owned.as_deref();
-            let world_bounds = pres.world_env.world_bounds_vec3();
-            let world_size = (
-                (world_bounds.1.x - world_bounds.0.x).abs().max(1.0),
-                (world_bounds.1.z - world_bounds.0.z).abs().max(1.0),
-            );
-
-            if let Ok(mut guard) = game_client::terrain::terrain_visual::get_terrain_visual() {
-                if let Some(visual) = guard.as_mut() {
-                    visual
-                        .init_gpu_resources(device.clone(), queue.clone())
-                        .map_err(|e| anyhow::anyhow!("Terrain GPU init failed: {}", e))?;
-                    visual
-                        .load_heightmap_from_data(heightmap, source_hint_ref, Some(world_size))
-                        .map_err(|e| {
-                            anyhow::anyhow!("Terrain runtime heightmap load failed: {}", e)
-                        })?;
-                    let source_tile_classes: Vec<
-                        game_client::terrain::terrain_visual::TerrainSourceTileClass,
-                    > = pres
-                        .world_env
-                        .terrain_texture_classes
-                        .iter()
-                        .map(
-                            |class| game_client::terrain::terrain_visual::TerrainSourceTileClass {
-                                first_tile: class.first_tile,
-                                num_tiles: class.num_tiles,
-                                width: class.width,
-                                name: class.name.clone(),
-                            },
-                        )
-                        .collect();
-                    if !source_tile_classes.is_empty() {
-                        match visual.load_source_tiles_from_texture_classes(&source_tile_classes) {
-                            Ok(loaded) => debug!(
-                                "Loaded {} terrain source tiles from {} texture classes",
-                                loaded,
-                                source_tile_classes.len()
-                            ),
-                            Err(err) => warn!("Terrain source tile load failed: {}", err),
-                        }
-                    }
-                    self.radar_terrain_colors = visual.freeze_radar_terrain_colors();
-                    self.heightmap_world_size = Some(visual.world_size());
-                    if self.skybox_enabled {
-                        let textures = self.resolved_skybox_hint();
-                        let borrowed: [&str; 5] = [
-                            textures[0].as_str(),
-                            textures[1].as_str(),
-                            textures[2].as_str(),
-                            textures[3].as_str(),
-                            textures[4].as_str(),
-                        ];
-                        if let Err(err) = visual.replace_skybox_textures(&[""; 5], &borrowed) {
-                            if self.has_explicit_skybox_hint() {
-                                warn!(
-                                    "Failed to apply skybox textures from runtime terrain: {}",
-                                    err
-                                );
-                            } else {
-                                debug!(
-                                    "Skipping default skybox texture override because mounted assets do not expose the legacy fallback set: {}",
-                                    err
-                                );
-                            }
-                        }
-                    }
-
-                    self.pending_heightmap_hint_load = false;
-
-                    if let Some(lighting) = self
-                        .cached_terrain_lighting
-                        .as_ref()
-                        .or(self.cached_lighting.as_ref())
-                    {
-                        visual.set_lighting(
-                            lighting.sun_direction,
-                            lighting.sun_color,
-                            lighting.ambient_color,
-                            lighting.fog_color,
-                            lighting.fog_range,
-                        );
-                    }
-
-                    info!(
-                        "Loaded terrain visual from presentation heightmap ({}x{}, world_size=({:.1}, {:.1}))",
-                        heightmap_resolution.0, heightmap_resolution.1, world_size.0, world_size.1
-                    );
-                    return Ok(true);
-                }
+            if self.native_terrain.is_none() {
+                let Some(frame) = self.presentation_frame.as_ref() else {
+                    return Ok(false);
+                };
+                let candidate = Self::prepare_native_terrain_cpu(&frame.world_env)?;
+                self.install_native_terrain_cpu(candidate);
             }
-
-            Ok(false)
+            self.hydrate_native_terrain_gpu(device, queue)
         }
-
         #[cfg(not(feature = "game_client"))]
         {
             let _ = (device, queue);
@@ -370,7 +265,7 @@ impl RenderPipeline {
 
     /// Install C++ PolygonTrigger water after either heightmap load route.
     /// Called for shell, new maps, and restore by sync_render_terrain_visual.
-    pub fn sync_map_water_areas_from_presentation(&self) -> Option<(usize, usize)> {
+    pub fn sync_map_water_areas_from_presentation(&mut self) -> Option<(usize, usize)> {
         #[cfg(feature = "game_client")]
         {
             let pres = self.presentation_frame.as_ref()?;
@@ -381,8 +276,7 @@ impl RenderPipeline {
                 .map(|area| area.to_terrain_water_area())
                 .collect::<Vec<_>>();
             let area_count = areas.len();
-            let mut guard = game_client::terrain::terrain_visual::get_terrain_visual().ok()?;
-            let visual = guard.as_mut()?;
+            let visual = self.native_terrain.as_mut()?;
             visual.set_map_water_areas(areas);
             Some((area_count, visual.polygon_water_mesh_count()))
         }
@@ -434,12 +328,10 @@ impl RenderPipeline {
             // Always push roads/bridges (even empty) so scorches bake like C++
             // HeightMapRenderObjClass::updateScorches — independent of road presence.
 
-            if let Ok(mut guard) = game_client::terrain::terrain_visual::get_terrain_visual() {
-                if let Some(visual) = guard.as_mut() {
-                    visual
-                        .set_runtime_map_road_segments(&road_segments, &bridge_segments)
-                        .map_err(|e| anyhow::anyhow!("Terrain map-road sync failed: {}", e))?;
-                }
+            if let Some(visual) = self.native_terrain.as_mut() {
+                visual
+                    .set_runtime_map_road_segments(&road_segments, &bridge_segments)
+                    .map_err(|e| anyhow::anyhow!("Terrain map-road sync failed: {}", e))?;
             }
         }
 
@@ -460,10 +352,8 @@ impl RenderPipeline {
         self.heightmap_world_size = Some((width, height));
 
         #[cfg(feature = "game_client")]
-        if let Ok(mut guard) = game_client::terrain::terrain_visual::get_terrain_visual() {
-            if let Some(visual) = guard.as_mut() {
-                visual.set_world_size(width, height);
-            }
+        if let Some(visual) = self.native_terrain.as_mut() {
+            visual.set_world_size(width, height);
         }
     }
 
@@ -503,16 +393,14 @@ impl RenderPipeline {
         #[cfg(feature = "game_client")]
         if let Some(grid) = grid.as_ref() {
             if let Some(r8) = self.presentation_terrain_fow_r8() {
-                if let Ok(mut guard) = game_client::terrain::terrain_visual::get_terrain_visual() {
-                    if let Some(visual) = guard.as_mut() {
-                        visual.set_shroud_overlay_r8(
-                            grid.width as i32,
-                            grid.height as i32,
-                            grid.cell_size,
-                            grid.world_origin_xy,
-                            &r8,
-                        );
-                    }
+                if let Some(visual) = self.native_terrain.as_mut() {
+                    visual.set_shroud_overlay_r8(
+                        grid.width as i32,
+                        grid.height as i32,
+                        grid.cell_size,
+                        grid.world_origin_xy,
+                        &r8,
+                    );
                 }
             }
         }
@@ -700,7 +588,7 @@ impl RenderPipeline {
     }
 
     pub(super) fn refresh_minimap_terrain_base(&mut self) -> Result<()> {
-        let Some(renderer) = self.minimap_renderer.as_mut() else {
+        let Some(renderer) = self.minimap_renderer.as_ref() else {
             return Ok(());
         };
         if !self.minimap_base_needs_refresh {
@@ -717,13 +605,19 @@ impl RenderPipeline {
         } else {
             (None, None)
         };
-        let base_texture = Self::build_minimap_terrain_base_texture(dimensions, bounds, height_env);
-        renderer.set_base_terrain_texture(base_texture)?;
+        let base_texture = self.build_minimap_terrain_base_texture(dimensions, bounds, height_env);
+        // Only immutable receiving-owner sampling occurred since the checked
+        // renderer observation; this exclusive self loan cannot replace it.
+        self.minimap_renderer
+            .as_mut()
+            .expect("minimap renderer retained during immutable terrain sampling")
+            .set_base_terrain_texture(base_texture)?;
         self.minimap_base_needs_refresh = false;
         Ok(())
     }
 
     pub(super) fn build_minimap_terrain_base_texture(
+        &self,
         dimensions: MinimapDimensions,
         bounds_override: Option<(Vec3, Vec3)>,
         height_env: Option<&crate::presentation_frame::PresentationWorldEnv>,
@@ -826,31 +720,28 @@ impl RenderPipeline {
 
         #[cfg(feature = "game_client")]
         {
-            if let Ok(guard) = game_client::terrain::terrain_visual::get_terrain_visual() {
-                if let Some(visual) = guard.as_ref() {
-                    let samples = visual.minimap_road_samples(10);
-                    let span_norm = world_span_x.max(world_span_z).max(1.0);
+            if let Some(visual) = self.native_terrain.as_ref() {
+                let samples = visual.minimap_road_samples(10);
+                let span_norm = world_span_x.max(world_span_z).max(1.0);
 
-                    for sample in samples {
-                        let nx = ((sample.position.x - world_min.x) / world_span_x).clamp(0.0, 1.0);
-                        let nz = ((sample.position.z - world_min.z) / world_span_z).clamp(0.0, 1.0);
-                        let cx = (nx * (width - 1) as f32).round() as i32;
-                        let cy = (nz * (height - 1) as f32).round() as i32;
-                        let radius = ((sample.width / span_norm) * width.max(height) as f32 * 0.55)
-                            .clamp(1.0, 4.0) as i32;
-                        let blend =
-                            (0.30 + (sample.width / 14.0).clamp(0.0, 0.28)).clamp(0.22, 0.60);
-                        Self::paint_minimap_circle(
-                            &mut texture,
-                            width,
-                            height,
-                            cx,
-                            cy,
-                            radius,
-                            sample.tint_rgb,
-                            blend,
-                        );
-                    }
+                for sample in samples {
+                    let nx = ((sample.position.x - world_min.x) / world_span_x).clamp(0.0, 1.0);
+                    let nz = ((sample.position.z - world_min.z) / world_span_z).clamp(0.0, 1.0);
+                    let cx = (nx * (width - 1) as f32).round() as i32;
+                    let cy = (nz * (height - 1) as f32).round() as i32;
+                    let radius = ((sample.width / span_norm) * width.max(height) as f32 * 0.55)
+                        .clamp(1.0, 4.0) as i32;
+                    let blend = (0.30 + (sample.width / 14.0).clamp(0.0, 0.28)).clamp(0.22, 0.60);
+                    Self::paint_minimap_circle(
+                        &mut texture,
+                        width,
+                        height,
+                        cx,
+                        cy,
+                        radius,
+                        sample.tint_rgb,
+                        blend,
+                    );
                 }
             }
         }

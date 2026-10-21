@@ -580,6 +580,11 @@ impl ForwardPass {
         mut post_draw_overlay: Option<
             &mut dyn FnMut(&mut ww3d_engine::RenderFrame) -> RendererResult<()>,
         >,
+        #[cfg(feature = "game_client")] native_terrain: Option<
+            &game_client::terrain::terrain_visual::TerrainVisualImpl,
+        >,
+        #[cfg(feature = "game_client")] terrain_viewport: (f32, f32, f32, f32),
+        #[cfg(feature = "game_client")] terrain_clear_color: wgpu::Color,
     ) -> Result<()> {
         let native_radar_frame = self.native_radar_frame.clone();
         // Check if renderer is ready before attempting to render
@@ -810,6 +815,26 @@ impl ForwardPass {
         };
 
         // Scene effects finish on this frame, before its UI overlay and submission.
+        #[cfg(feature = "game_client")]
+        {
+            let mut native_pass = |kind, frame: &mut ww3d_engine::RenderFrame| {
+                native_terrain_pass::record(
+                    kind,
+                    native_terrain,
+                    frame,
+                    terrain_viewport,
+                    terrain_clear_color,
+                )
+            };
+            self.renderer
+                .end_frame_with_scoped_native_passes(
+                    skip_scene,
+                    Some(&mut finish_scene),
+                    Some(&mut native_pass),
+                )
+                .map_err(|e| anyhow::anyhow!("WW3D renderer end_frame failed: {e:?}"))?;
+        }
+        #[cfg(not(feature = "game_client"))]
         self.renderer
             .end_frame_with_scene_policy(skip_scene, Some(&mut finish_scene))
             .map_err(|e| anyhow::anyhow!("WW3D renderer end_frame failed: {e:?}"))?;

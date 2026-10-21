@@ -15,6 +15,23 @@ impl GameLogic {
         input: OnDieInput,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
     ) {
+        self.run_authored_die_modules_with_effects(
+            id,
+            killer,
+            input,
+            interpreter,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(super) fn run_authored_die_modules_with_effects(
+        &mut self,
+        id: ObjectId,
+        killer: Option<Team>,
+        input: OnDieInput,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         // Immutable receiving declarations, operation-local owned loan. There
         // is no per-object second order or active-world content discovery.
         let declarations = self
@@ -27,7 +44,7 @@ impl GameLogic {
                 break;
             };
             if object.native_die_runtime.pending_create == Some(declaration.source_index) {
-                self.apply_pending_create_object_die(id);
+                self.apply_pending_create_object_die_with_effects(id, presentation_effects);
                 continue;
             }
             let jet_ground = matches!(
@@ -57,9 +74,12 @@ impl GameLogic {
                     .insert(declaration.source_index);
             }
             match &declaration.kind {
-                NativeDieKind::Fx(fx) => {
-                    self.run_authored_fx_die(id, input.source, &mut fx.configuration())
-                }
+                NativeDieKind::Fx(fx) => self.run_authored_fx_die_with_effects(
+                    id,
+                    input.source,
+                    &mut fx.configuration(),
+                    presentation_effects,
+                ),
                 NativeDieKind::Create { config } => {
                     if let Some(config) = config {
                         let Some(object) = self.objects.get(&id) else {
@@ -69,7 +89,7 @@ impl GameLogic {
                         // history, unlike the current OCL damage-dealer input.
                         let maximum = object.health.maximum.max(object.max_health).max(1.0);
                         let previous = object.previous_health;
-                        self.execute_create_object_die_spawns(
+                        self.execute_create_object_die_spawns_with_effects(
                             id,
                             config.spawn_templates.clone(),
                             (maximum - previous).max(0.0),
@@ -79,6 +99,7 @@ impl GameLogic {
                             object.team,
                             object.owner_player_id,
                             object.get_position(),
+                            presentation_effects,
                         );
                     }
                 }
@@ -98,7 +119,7 @@ impl GameLogic {
                 // neither requests deletion nor prevents a later DestroyDie.
                 NativeDieKind::Keep => {}
                 NativeDieKind::Destroy => {
-                    self.request_object_destruction(id, killer);
+                    self.request_object_destruction_with_effects(id, killer, presentation_effects);
                 }
                 NativeDieKind::Instant {
                     config: ini,
@@ -116,7 +137,13 @@ impl GameLogic {
                     // Select immediately before each effect: an earlier
                     // callback may consume the same session random stream.
                     if let Some(fx) = self.choose_authored_die_entry(&ini.fx) {
-                        self.run_authored_named_die_fx(id, None, &fx, true);
+                        self.run_authored_named_die_fx_with_effects(
+                            id,
+                            None,
+                            &fx,
+                            true,
+                            presentation_effects,
+                        );
                     }
                     if let Some(ocl) = self.choose_authored_die_entry(&ini.ocls) {
                         if let Some(config) = ini
@@ -127,7 +154,7 @@ impl GameLogic {
                             .and_then(Option::as_ref)
                         {
                             if let Some(object) = self.objects.get(&id) {
-                                self.execute_create_object_die_spawns(
+                                self.execute_create_object_die_spawns_with_effects(
                                     id,
                                     config.spawn_templates.clone(),
                                     0.0,
@@ -137,6 +164,7 @@ impl GameLogic {
                                     object.team,
                                     object.owner_player_id,
                                     object.get_position(),
+                                    presentation_effects,
                                 );
                             }
                         }
@@ -147,9 +175,13 @@ impl GameLogic {
                             weapon_template_name: weapon,
                             weapon_slot: crate::game_logic::host_temporary_weapon_behavior::TemporaryWeaponSlot::Primary,
                         };
-                        let _ = self.create_and_fire_temp_weapon(id, &spec);
+                        let _ = self.create_and_fire_temp_weapon_with_effects(
+                            id,
+                            &spec,
+                            presentation_effects,
+                        );
                     }
-                    self.request_object_destruction(id, killer);
+                    self.request_object_destruction_with_effects(id, killer, presentation_effects);
                 }
                 NativeDieKind::Slow { .. } => {
                     if jet_ground {
@@ -173,10 +205,20 @@ impl GameLogic {
                             .get_mut(&id)
                             .and_then(|object| object.pending_death_fx.take());
                         if let Some(fx) = fx {
-                            self.run_authored_named_die_fx(id, None, &fx, true);
+                            self.run_authored_named_die_fx_with_effects(
+                                id,
+                                None,
+                                &fx,
+                                true,
+                                presentation_effects,
+                            );
                         }
-                        self.apply_pending_create_object_die(id);
-                        self.request_object_destruction(id, killer);
+                        self.apply_pending_create_object_die_with_effects(id, presentation_effects);
+                        self.request_object_destruction_with_effects(
+                            id,
+                            killer,
+                            presentation_effects,
+                        );
                         continue;
                     }
                     if !self.admit_authored_death_ai(id) {
@@ -242,7 +284,13 @@ impl GameLogic {
                                     .get_mut(&id)
                                     .and_then(|object| object.pending_death_fx.take());
                                 if let Some(fx) = fx {
-                                    self.run_authored_named_die_fx(id, None, &fx, true);
+                                    self.run_authored_named_die_fx_with_effects(
+                                        id,
+                                        None,
+                                        &fx,
+                                        true,
+                                        presentation_effects,
+                                    );
                                 }
                                 break;
                             }
@@ -256,27 +304,35 @@ impl GameLogic {
                             object.native_die_runtime.ai_dead = true;
                         }
                     }
-                    self.try_begin_structure_die_with_override(
+                    self.try_begin_structure_die_with_override_with_effects(
                         id,
                         input.source,
                         interpreter,
                         Some(matches!(&declaration.kind, NativeDieKind::Collapse)),
+                        presentation_effects,
                     );
                 }
                 NativeDieKind::DeadWeapon => {
-                    let _ = self
-                        .execute_temporary_weapon_die_slot(id, declaration.source_index as usize);
+                    let _ = self.execute_temporary_weapon_die_slot_with_effects(
+                        id,
+                        declaration.source_index as usize,
+                        presentation_effects,
+                    );
                 }
                 NativeDieKind::Production => {
                     self.cancel_all_production(id);
                 }
                 NativeDieKind::Completion => self.maybe_notify_special_power_completion(id),
                 NativeDieKind::Dam => self.maybe_apply_dam_die(id),
-                NativeDieKind::Pilot => self.maybe_apply_eject_pilot_die(id),
-                NativeDieKind::Spawn => self.apply_spawned_require_spawner_on_die(id),
+                NativeDieKind::Pilot => {
+                    self.maybe_apply_eject_pilot_die_with_effects(id, presentation_effects)
+                }
+                NativeDieKind::Spawn => {
+                    self.apply_spawned_require_spawner_on_die_with_effects(id, presentation_effects)
+                }
                 NativeDieKind::Upgrade => self.maybe_apply_upgrade_die(id),
                 NativeDieKind::Rebuild => {
-                    let _ = self.maybe_spawn_rebuild_hole(id);
+                    let _ = self.maybe_spawn_rebuild_hole_with_effects(id, presentation_effects);
                 }
                 NativeDieKind::Contain { overlord } => {
                     if *overlord {
@@ -285,15 +341,24 @@ impl GameLogic {
                             if let Some(object) = self.objects.get_mut(&id) {
                                 object.overlord_redirection_active = false;
                             }
-                            self.apply_owned_kill(
+                            self.apply_owned_kill_with_effects(
                                 redirected,
                                 crate::game_logic::combat::DamageType::Unresistable,
                                 crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+                                presentation_effects,
                             );
-                            self.remove_direct_contained_child(id, redirected);
+                            self.remove_direct_contained_child_with_effects(
+                                id,
+                                redirected,
+                                presentation_effects,
+                            );
                         }
                     }
-                    self.complete_installed_containment_death(id, killer);
+                    self.complete_installed_containment_death_with_effects(
+                        id,
+                        killer,
+                        presentation_effects,
+                    );
                 }
                 NativeDieKind::Bridge => {
                     let deletion_queued =
@@ -304,7 +369,7 @@ impl GameLogic {
                             deletion_queued,
                         );
                     }
-                    self.apply_owned_bridge_death_links(id);
+                    self.apply_owned_bridge_death_links_with_effects(id, presentation_effects);
                 }
             }
         }
@@ -355,6 +420,21 @@ impl GameLogic {
         source: Option<ObjectId>,
         config: &mut crate::game_logic::host_fx_list_die::HostFxListDieData,
     ) {
+        self.run_authored_fx_die_with_effects(
+            id,
+            source,
+            config,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    fn run_authored_fx_die_with_effects(
+        &mut self,
+        id: ObjectId,
+        source: Option<ObjectId>,
+        config: &mut crate::game_logic::host_fx_list_die::HostFxListDieData,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         #[cfg(feature = "game_client")]
         {
             let player = self.local_player_id();
@@ -363,10 +443,13 @@ impl GameLogic {
                 .map(|object| {
                     Self::observe_host_fx_object(object, player, self.world_services.shroud())
                 });
-            Self::with_host_fx_view_parts(
+            Self::with_host_fx_view_parts_and_terrain(
                 &mut self.session_view,
                 player,
                 self.world_services.shroud(),
+                presentation_effects.terrain.as_mut().map(|terrain| {
+                    &mut **terrain as &mut dyn crate::game_logic::NativeTerrainEffects
+                }),
                 |view| {
                     if let Some(object) = self.objects.get_mut(&id) {
                         object.fire_fx_list_die_config_with_fx(
@@ -424,8 +507,25 @@ impl GameLogic {
         name: &str,
         at_object: bool,
     ) {
+        self.run_authored_named_die_fx_with_effects(
+            id,
+            source,
+            name,
+            at_object,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    fn run_authored_named_die_fx_with_effects(
+        &mut self,
+        id: ObjectId,
+        source: Option<ObjectId>,
+        name: &str,
+        at_object: bool,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let mut config = crate::game_logic::host_fx_list_die::HostFxListDieData::with_fx(name);
         config.orient_to_object = at_object;
-        self.run_authored_fx_die(id, source, &mut config);
+        self.run_authored_fx_die_with_effects(id, source, &mut config, presentation_effects);
     }
 }

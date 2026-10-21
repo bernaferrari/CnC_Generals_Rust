@@ -13,6 +13,23 @@ impl GameLogic {
         aim: glam::Vec3,
         intended: Option<ObjectId>,
     ) -> Option<ObjectId> {
+        self.spawn_neutron_cannon_shell_projectile_with_effects(
+            source_id,
+            from,
+            aim,
+            intended,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn spawn_neutron_cannon_shell_projectile_with_effects(
+        &mut self,
+        source_id: ObjectId,
+        from: glam::Vec3,
+        aim: glam::Vec3,
+        intended: Option<ObjectId>,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> Option<ObjectId> {
         use crate::game_logic::host_neutron_shell::{
             NEUTRON_CANNON_SHELL_PROJECTILE, NEUTRON_SHELL_MAX_HEALTH, neutron_shell_flight_frames,
         };
@@ -84,7 +101,13 @@ impl GameLogic {
 
         let mut start = from;
         start.y = start.y.max(aim.y) + 2.0;
-        let pid = self.create_object(NEUTRON_CANNON_SHELL_PROJECTILE, team, start)?;
+        let pid = self.create_object_with_script_effects(
+            NEUTRON_CANNON_SHELL_PROJECTILE,
+            team,
+            start,
+            None,
+            presentation_effects,
+        )?;
         let frames = neutron_shell_flight_frames(start, aim).max(1);
         if let Some(o) = self.objects.get_mut(&pid) {
             o.neutron_cannon_shell_projectile = true;
@@ -107,6 +130,15 @@ impl GameLogic {
     }
 
     pub fn update_neutron_cannon_shell_projectiles(&mut self) {
+        self.update_neutron_cannon_shell_projectiles_with_effects(
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn update_neutron_cannon_shell_projectiles_with_effects(
+        &mut self,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         use crate::game_logic::host_neutron_shell::neutron_shell_bezier_point;
         let frame = self.frame;
         let flying: Vec<ObjectId> = self
@@ -143,7 +175,7 @@ impl GameLogic {
             let pos = neutron_shell_bezier_point(from, aim, t);
             if let Some(o) = self.objects.get_mut(&id) {
                 let prev = o.get_position();
-                o.set_position(pos);
+                o.set_position_with_effects(pos, self.frame, presentation_effects);
                 let d = pos - prev;
                 if d.length_squared() > 1e-6 {
                     o.set_orientation(d.z.atan2(d.x));
@@ -164,14 +196,20 @@ impl GameLogic {
                 o.status.destroyed = true;
                 o.status.effectively_dead = true;
                 o.neutron_cannon_shell_projectile = false;
-                o.set_position(pos);
+                o.set_position_with_effects(pos, self.frame, presentation_effects);
             }
             // DetonateCallsKill residual: NeutronBlastBehavior on shell die.
             let caster_team = source
                 .and_then(|sid| self.objects.get(&sid).map(|s| s.team))
                 .unwrap_or(team);
-            let _ = self.apply_neutron_blast_at(pos, caster_team, source, true);
-            self.mark_object_for_destruction(id, Some(team));
+            let _ = self.apply_neutron_blast_at_with_effects(
+                pos,
+                caster_team,
+                source,
+                true,
+                presentation_effects,
+            );
+            self.mark_object_for_destruction_with_effects(id, Some(team), presentation_effects);
         }
     }
 
@@ -188,6 +226,23 @@ impl GameLogic {
         caster_team: Team,
         caster_id: Option<ObjectId>,
         affect_allies: bool,
+    ) -> (u32, u32, u32) {
+        self.apply_neutron_blast_at_with_effects(
+            impact,
+            caster_team,
+            caster_id,
+            affect_allies,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn apply_neutron_blast_at_with_effects(
+        &mut self,
+        impact: glam::Vec3,
+        caster_team: Team,
+        caster_id: Option<ObjectId>,
+        affect_allies: bool,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> (u32, u32, u32) {
         use crate::game_logic::host_neutron_shell::{
             HOST_NEUTRON_BLAST_RADIUS, NEUTRON_SHELL_AUDIO, NeutronEffect,
@@ -282,7 +337,7 @@ impl GameLogic {
                     // Residual: kill infantry (take full health damage).
                     let receiving_damage_id = obj.id;
                     let receiving_damage_argument_1 = obj.health.current.max(1.0) * 10.0;
-                    let _ = self.apply_residual_damage_owned(
+                    let _ = self.apply_residual_damage_owned_with_effects(
                         receiving_damage_id,
                         receiving_damage_argument_1,
                         caster_id,
@@ -291,6 +346,7 @@ impl GameLogic {
                             crate::game_logic::combat::DamageType::Unresistable,
                         ),
                         None,
+                        presentation_effects,
                     );
                     let obj = self
                         .objects
@@ -302,7 +358,7 @@ impl GameLogic {
                     } else {
                         // Force kill residual.
                         let receiving_damage_id = obj.id;
-                        let _ = self.apply_residual_damage_owned(
+                        let _ = self.apply_residual_damage_owned_with_effects(
                             receiving_damage_id,
                             999_999.0,
                             caster_id,
@@ -311,6 +367,7 @@ impl GameLogic {
                                 crate::game_logic::combat::DamageType::Unresistable,
                             ),
                             None,
+                            presentation_effects,
                         );
                         let obj = self
                             .objects
@@ -340,7 +397,7 @@ impl GameLogic {
                 NeutronEffect::KillVehicle => {
                     let receiving_damage_target_id = obj.id;
                     let receiving_damage_argument_1 = obj.health.current.max(1.0) * 10.0;
-                    let _ = self.apply_residual_damage_owned(
+                    let _ = self.apply_residual_damage_owned_with_effects(
                         receiving_damage_target_id,
                         receiving_damage_argument_1,
                         caster_id,
@@ -349,6 +406,7 @@ impl GameLogic {
                             crate::game_logic::combat::DamageType::Unresistable,
                         ),
                         None,
+                        presentation_effects,
                     );
                     vehicle_kills = vehicle_kills.saturating_add(1);
                     destroy_ids.push(id);
@@ -377,7 +435,7 @@ impl GameLogic {
                 occ.set_ai_state(AIState::Idle);
                 let receiving_damage_id = occ.id;
                 let receiving_damage_argument_1 = occ.health.current.max(1.0) * 10.0;
-                let _ = self.apply_residual_damage_owned(
+                let _ = self.apply_residual_damage_owned_with_effects(
                     receiving_damage_id,
                     receiving_damage_argument_1,
                     caster_id,
@@ -386,6 +444,7 @@ impl GameLogic {
                         crate::game_logic::combat::DamageType::Unresistable,
                     ),
                     None,
+                    presentation_effects,
                 );
                 let occ = self
                     .objects
@@ -393,7 +452,7 @@ impl GameLogic {
                     .expect("bounded residual victim remains installed");
                 if occ.is_alive() && occ.health.current > 0.0 && !occ.status.destroyed {
                     let receiving_damage_target_id = occ.id;
-                    let _ = self.apply_residual_damage_owned(
+                    let _ = self.apply_residual_damage_owned_with_effects(
                         receiving_damage_target_id,
                         999_999.0,
                         caster_id,
@@ -402,6 +461,7 @@ impl GameLogic {
                             crate::game_logic::combat::DamageType::Unresistable,
                         ),
                         None,
+                        presentation_effects,
                     );
                 }
                 passengers_killed = passengers_killed.saturating_add(1);
@@ -424,10 +484,14 @@ impl GameLogic {
         }
 
         for id in destroy_ids {
-            self.mark_object_for_destruction(id, Some(caster_team));
+            self.mark_object_for_destruction_with_effects(
+                id,
+                Some(caster_team),
+                presentation_effects,
+            );
         }
         for id in bomb_detonate_ids {
-            let _ = self.maybe_detonate_carbomb_on_unmanned(id);
+            let _ = self.maybe_detonate_carbomb_on_unmanned_with_effects(id, presentation_effects);
         }
 
         self.neutron_shell_residual_blasts = self.neutron_shell_residual_blasts.saturating_add(1);

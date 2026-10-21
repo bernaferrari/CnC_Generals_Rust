@@ -119,6 +119,13 @@ impl GameLogic {
     }
 
     pub fn evaluate_victory_condition(&mut self) -> Option<VictoryCondition> {
+        self.evaluate_victory_condition_with_effects(&mut Default::default())
+    }
+
+    pub(crate) fn evaluate_victory_condition_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> Option<VictoryCondition> {
         // Player life is derived from this session's canonical objects at the
         // original victory phase, regardless of any comparison context.
         self.update_player_alive_state();
@@ -133,7 +140,7 @@ impl GameLogic {
         // C++ VictoryConditions.cpp:196 p->killPlayer() on first defeat frame.
         let pending = self.victory_conditions.take_pending_kills();
         for player_id in pending {
-            self.kill_player_for_victory(player_id);
+            self.kill_player_for_victory_with_effects(player_id, effects);
         }
         // Publish only after defeat callbacks complete. C++ GameLogic.cpp:3769
         // owns the update; observers must not rerun its player census or kills.

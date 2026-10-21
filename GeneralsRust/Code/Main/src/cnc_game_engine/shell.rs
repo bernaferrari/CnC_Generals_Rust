@@ -1116,31 +1116,14 @@ impl CnCGameEngine {
         ocl_application_base: Arc<
             std::collections::HashMap<String, gamelogic::effects::ObjectCreationList>,
         >,
+        terrain_definition_seed: Arc<game_engine::common::ini::ini_terrain::TerrainTypes>,
+        mut recorder_inputs: game_engine::common::recorder::RecorderOwnerInputs,
     ) -> StartupLoadState {
         let (sender, receiver) = mpsc::channel();
         let worker_gen = startup_worker_generation();
-        // Driving-thread application ingress, frozen before this worker exists.
-        // INI CRC is supplied by this worker's actual content walk below.
-        let mut recorder_inputs = {
-            let data = game_engine::common::ini::ini_game_data::ensure_global_data();
-            let data = data.read();
-            let directory = if data.get_path_user_data().trim().is_empty() {
-                let mut path = std::env::current_exe().unwrap_or_default();
-                path.pop();
-                path
-            } else {
-                std::path::PathBuf::from(data.get_path_user_data())
-            };
-            game_engine::common::recorder::RecorderOwnerInputs {
-                map: map_to_load.clone().unwrap_or_default(),
-                seed: 0,
-                replay_directory: directory.join("Replays"),
-                exe_crc: data.exe_crc,
-                ini_crc: 0,
-                save_stats: data.save_stats,
-                stats_directory: std::path::PathBuf::from(data.base_stats_dir.trim()),
-            }
-        };
+        // The driving application already admitted these immutable paths before
+        // Options IO. Carry that same Recorder input into the worker; later
+        // match resets retain the directory and update only map/seed.
         thread::spawn(move || {
             Self::emit_startup_load_progress(&sender, 0.03, "Preparing startup archive access");
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(
@@ -1288,19 +1271,10 @@ impl CnCGameEngine {
                     // Multiplayer definitions were admitted once by boot before
                     // spawning this worker. Re-parsing appends StartingMoney choices.
 
-                    let _ = game_engine::common::ini::ini_terrain::initialize_terrain_types();
-                    // C++ parity: GameEngine.cpp:400 — load Terrain.ini (Default + override)
-                    {
-                        for terrain_path in ["Data/INI/Default/Terrain.ini", "Data/INI/Terrain.ini"] {
-                            if let Some(content) = extract_ini_text_from_archives(terrain_path) {
-                                let mut ini = game_engine::common::ini::INI::new();
-                                match ini.with_inline_source(&content, |ini| ini.parse_current_file()) {
-                                    Ok(()) => info!("Loaded terrain definitions from {}", terrain_path),
-                                    Err(err) => warn!("Failed parsing Terrain.ini '{}': {}", terrain_path, err),
-                                }
-                            }
-                        }
-                    }
+                    // GameEngine.cpp400 Terrain.ini application definitions were parsed
+                    // once at driving application admission, before this worker.
+                    // Keep this phase's owned input, without ambient publication.
+                    let terrain_definitions = Arc::clone(&terrain_definition_seed);
 
                     let _ = game_engine::common::ini::ini_terrain_bridge::initialize_terrain_roads();
                     // C++ parity: GameEngine.cpp:401 — load Roads.ini (Default + override)
@@ -1724,6 +1698,7 @@ impl CnCGameEngine {
                     worker_stop_if_abandoned()?;
                     Self::emit_startup_load_progress(&sender, 0.18, "Creating game session");
                     let mut game_logic = GameLogic::initialize();
+                    game_logic.admit_terrain_definitions(terrain_definitions)?;
                     recorder_inputs.seed = game_logic.logic_base_seed;
                     game_logic.replay_pending.reset_recorder_owned(recorder_inputs);
                     game_logic.seed_ocl_application_definitions(ocl_application_base);
@@ -1851,6 +1826,7 @@ impl CnCGameEngine {
                     game_logic.admit_new_game_starting_cash(game_info_starting_cash, default_starting_cash);
 
                     let mut loaded_map_name = None;
+                    let mut native_map = super::map_native_admission::NativeMapCandidate::default();
                     // C++ Shell::showShellMap(TRUE) (Shell.cpp:448-466) starts
                     // GAME_SHELL with m_shellMapName even on the main menu.
                     // Windowed boot used to skip ShellMapMD so Menu could paint;
@@ -1867,9 +1843,9 @@ impl CnCGameEngine {
                     {
                         Self::emit_startup_load_progress(&sender, 0.24, "Loading map data");
                         let map_loaded =
-                            game_logic.load_map_with_progress(&map_to_load, |progress, phase| {
+                            game_logic.load_map_with_progress_and_native(&map_to_load, |progress, phase| {
                                 Self::emit_startup_load_progress(&sender, progress, phase);
-                            });
+                            }, native_map.receiver());
                         if !map_loaded {
                             if replay_startup_requested && !start_in_menu {
                                 // This worker owns the failed candidate only. Close its
@@ -1938,7 +1914,9 @@ impl CnCGameEngine {
 
                     Self::emit_startup_load_progress(&sender, 0.984, "Finalizing startup data");
 
+                    if loaded_map_name.is_none() { native_map = Default::default(); }
                     Ok(StartupLoadResult {
+                        native_map,
                         default_starting_cash,
                         game_logic,
                         loaded_map_name,
@@ -2028,7 +2006,7 @@ impl CnCGameEngine {
         self.default_starting_cash = result.default_starting_cash;
         // Admit the detached worker's actual start_new_game reset only now.
         self.reset_replay_pacing_for_new_game();
-        self.host_replace_game_logic(result.game_logic);
+        self.host_replace_game_logic(result.game_logic, result.native_map);
         // The worker has finished PlayerTemplate/Multiplayer definitions and
         // its actual INI CRC. Admit these application observations on the UI
         // thread, not lazily on the first mouse move.
@@ -2116,6 +2094,7 @@ impl CnCGameEngine {
                 &self.game_logic.session_view.camera.view_matrix,
                 &self.game_logic.session_view.camera.projection_matrix,
                 &self.game_client.snow_render_state(),
+                crate::presentation_frame::PresentationTerrainMotion::from_logic(&self.game_logic),
             ) {
                 warn!("Shell terrain warmup failed: {err}");
             } else {

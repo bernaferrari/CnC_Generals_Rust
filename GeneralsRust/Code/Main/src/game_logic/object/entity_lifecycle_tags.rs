@@ -139,6 +139,8 @@ pub const TAG_RAILROAD: &str = "RailroadBehavior";
 
 /// Declaration-order inventory. Producer emits tags in this sequence.
 pub const INVENTORY_TAGS: &[&str] = &[
+    TAG_WEAPON_SLOTS,
+    TAG_TURRET_RUNTIME,
     TAG_UPGRADE_DIE,
     TAG_SPECIAL_POWER_COMPLETION,
     TAG_BATTLE_BUS_BODY,
@@ -189,10 +191,10 @@ pub const INVENTORY_TAGS: &[&str] = &[
     TAG_MINE,
     TAG_SPAWN_BEHAVIOR,
     TAG_FIRING_TRACKER,
-    TAG_TURRET_RUNTIME,
     TAG_FIRE_OCL_AFTER_COOLDOWN,
     TAG_ASSAULT_TRANSPORT,
     TAG_DEPLOY_STYLE,
+    TAG_SLAVED_UPDATE,
     TAG_COMMAND_BUTTON_HUNT,
     TAG_FIRE_WEAPON_WHEN_DEAD,
     TAG_CREATE_OBJECT_DIE_TRANSFER,
@@ -205,7 +207,6 @@ pub const INVENTORY_TAGS: &[&str] = &[
     TAG_RAILROAD,
     TAG_PATH_EXTRA_DISTANCE,
     TAG_OVERLORD_ADDON,
-    TAG_SLAVED_UPDATE,
 ];
 
 /// CPP WeaponSet selected active three slots and row flags.

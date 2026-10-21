@@ -395,7 +395,7 @@ impl GameLogic {
                 spawn_pos: [spawn_pos.x, spawn_pos.y, spawn_pos.z],
                 rally: custom_rally.map(|rally| [rally.x, rally.y, rally.z]),
             };
-        let _ = self.host_apply_supply_spawn_ready_completion(event);
+        let _ = self.host_apply_supply_spawn_ready_completion_with_effects(event, ui);
         self.grant_supply_center_exit_temporary_stealth(center_id, spawned_id);
         if let Some(center) = self.host_object_mut(center_id) {
             center.supply_center_spawn_behavior_fired = true;
@@ -871,6 +871,13 @@ impl GameLogic {
 
     /// Sync Stinger residual roster with world soldiers and fill due replacements.
     pub(crate) fn update_stinger_hive_world_soldiers(&mut self) {
+        self.update_stinger_hive_world_soldiers_with_effects(&mut Default::default())
+    }
+
+    pub(crate) fn update_stinger_hive_world_soldiers_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         use crate::game_logic::host_base_defense::{
             STINGER_SPAWN_NUMBER, count_alive_hive_slaves, is_stinger_site_structure,
             next_stinger_slave_respawn_frame, sync_hive_slave_mirrors,
@@ -962,7 +969,7 @@ impl GameLogic {
                 .host_object(site_id)
                 .is_some_and(|site| Self::spawn_behavior_should_try(site, false))
             {
-                self.spawn_missing_hive_world_soldiers(site_id, &spec);
+                self.spawn_missing_hive_world_soldiers_with_effects(site_id, &spec, None, effects);
             }
             self.sync_spawn_behavior_veterancy(site_id, &spec.spawn_template);
         }
@@ -1038,6 +1045,14 @@ impl GameLogic {
 
     /// C++ `SpawnBehavior::onDie` / `onDelete` SpawnedRequireSpawner kill.
     pub(crate) fn apply_spawned_require_spawner_on_die(&mut self, parent_id: ObjectId) {
+        self.apply_spawned_require_spawner_on_die_with_effects(parent_id, &mut Default::default())
+    }
+
+    pub(crate) fn apply_spawned_require_spawner_on_die_with_effects(
+        &mut self,
+        parent_id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let Some(template_name) = self
             .host_object(parent_id)
             .map(|object| object.template_name.clone())
@@ -1073,7 +1088,7 @@ impl GameLogic {
                 object.internal_change_health(-object.health.current);
                 object.status.effectively_dead = true;
             }
-            self.mark_object_for_destruction(victim, None);
+            self.mark_object_for_destruction_with_effects(victim, None, effects);
         }
     }
 
@@ -1231,7 +1246,7 @@ impl GameLogic {
         {
             let object = self.objects.get_mut(&id)?;
             object.producer_id = Some(producer_id);
-            object.set_position(ground_position);
+            object.set_position_with_effects(ground_position, self.frame, ui);
             object.set_orientation(orientation);
         }
         self.movement_events.record(
@@ -1269,11 +1284,16 @@ impl GameLogic {
         owner_player_id: Option<u32>,
         position: Vec3,
     ) -> Option<ObjectId> {
-        match owner_player_id {
-            Some(player_id) => self.create_object_for_player(template_name, player_id, position),
-            None => self.create_object(template_name, team, position),
-        }
+        self.create_object_for_owner_or_team_with_effects(
+            template_name,
+            team,
+            owner_player_id,
+            position,
+            None,
+            &mut Default::default(),
+        )
     }
+
     pub(crate) fn create_object_for_owner_or_team_with_effects(
         &mut self,
         template_name: &str,
@@ -1659,7 +1679,7 @@ impl GameLogic {
             }
             object.partition_cash_value = partition_cash;
             object.partition_threat_value = partition_threat;
-            object.set_position(position);
+            object.set_position_with_effects(position, self.frame, ui);
             {}
             let starts_under_construction = object.status.under_construction;
 
@@ -2668,7 +2688,7 @@ impl GameLogic {
 
             // C++ GrantUpgradeCreate::onCreate for map-placed / instant-finished
             // objects (ExemptStatus=UNDER_CONSTRUCTION and not constructing).
-            self.apply_grant_upgrade_create_on_create(id);
+            self.apply_grant_upgrade_create_on_create_with_effects(id, ui);
             if !starts_under_construction && creation_purpose == FactoryCreationPurpose::AtCreation
             {
                 // C++ GameLogic.cpp:1878-1885 every map object runs CreateModules
@@ -2914,7 +2934,7 @@ impl GameLogic {
             // End-of-tick host_spawn_log drain remains idempotent for unmapped IDs.
 
             // C++ Object.cpp:473 TheRadar->addObject(this) after modules ready.
-            self.host_radar_add_object(id);
+            self.host_radar_add_object_with_effects(id, ui);
             self.apply_difficulty_bonuses_for_object(id);
             self.spawn_particle_sys_bones_for_object(id);
             // C++ Drawable ctor / onLevelStart startAmbientSound.
@@ -2930,6 +2950,14 @@ impl GameLogic {
     /// C++ `GrantUpgradeCreate::onCreate` — grant when ExemptStatus includes
     /// UNDER_CONSTRUCTION and the object is not currently constructing.
     pub(in super::super) fn apply_grant_upgrade_create_on_create(&mut self, object_id: ObjectId) {
+        self.apply_grant_upgrade_create_on_create_with_effects(object_id, &mut Default::default())
+    }
+
+    pub(in super::super) fn apply_grant_upgrade_create_on_create_with_effects(
+        &mut self,
+        object_id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let Some(obj) = self.objects.get(&object_id) else {
             return;
         };
@@ -2944,7 +2972,7 @@ impl GameLogic {
             .filter(|grant| grant.exempt_under_construction)
             .cloned()
             .collect();
-        self.apply_grant_upgrade_creates(object_id, &grants);
+        self.apply_grant_upgrade_creates_with_effects(object_id, &grants, effects);
     }
 
     /// C++ GameLogic.cpp:1878-1885 / ProductionUpdate.cpp:819-825 — every
@@ -2970,7 +2998,7 @@ impl GameLogic {
             .get(&object_id)
             .map(|obj| obj.thing().template.grant_upgrade_creates.clone())
             .unwrap_or_default();
-        self.apply_grant_upgrade_creates(object_id, &grants);
+        self.apply_grant_upgrade_creates_with_effects(object_id, &grants, ui);
         self.apply_lock_weapon_create(object_id);
         // C++ SpecialPowerCreate::onBuildComplete walks every getSpecialPower().
         self.on_structure_superweapon_creation(object_id);

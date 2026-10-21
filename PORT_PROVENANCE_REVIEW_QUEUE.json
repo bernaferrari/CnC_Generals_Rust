@@ -10456,6 +10456,11 @@
               "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_terrain.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_terrain_owner_tests.rs"
             }
           ],
           "entry_id": "game_engine:Source/Common/INI/INITerrain.cpp",
@@ -21253,6 +21258,11 @@
               "cargo_reachable": true,
               "classification": "test",
               "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/fx_client_bone_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/global_boundary_fixture.rs"
             },
             {
               "cargo_reachable": true,
@@ -189932,7 +189942,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "068ebe50cef5f147baafd8068715fa5e093ae190b72ee42cc63960b4a4363724",
+  "provenance_input_digest": "54a8de561d73edb15710885dc4e397455a991e19369ae9b58ef3d41e43802393",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,

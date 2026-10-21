@@ -51,6 +51,8 @@ impl RenderPipeline {
         info!("RenderPipeline initialized successfully");
 
         Ok(Self {
+            #[cfg(feature = "game_client")]
+            native_terrain: None,
             forward_pass,
             #[cfg(feature = "game_client")]
             view_filter_resources: Default::default(),

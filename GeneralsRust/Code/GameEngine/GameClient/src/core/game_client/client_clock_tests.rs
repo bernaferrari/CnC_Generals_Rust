@@ -2,7 +2,19 @@ use super::*;
 
 #[test]
 fn actual_presentation_shell_preserves_the_admitted_client_frame() {
+    if crate::core::game_client::global_boundary_fixture::run_in_private_child(
+        module_path!(),
+        "actual_presentation_shell_preserves_the_admitted_client_frame",
+    ) {
+        return;
+    }
     // The real shell service has an initialization contract even without devices.
+    // A fresh standalone public shell routes to the real local player queue.
+    gamelogic::commands::command_queue::get_command_queue_manager()
+        .lock()
+        .expect("standalone command manager")
+        .initialize_player(0)
+        .expect("fresh local player command queue");
     get_shell().init().unwrap();
     let mut client = GameClient::new().unwrap();
     client.initialized = true;

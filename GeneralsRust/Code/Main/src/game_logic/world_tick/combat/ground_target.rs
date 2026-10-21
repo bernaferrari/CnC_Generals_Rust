@@ -7,6 +7,19 @@ impl GameLogic {
         input: CombatAttackInput,
         target_location: Vec3,
     ) -> CombatShotResult {
+        self.update_ground_target_combat_with_effects(
+            input,
+            target_location,
+            &mut Default::default(),
+        )
+    }
+
+    pub(super) fn update_ground_target_combat_with_effects(
+        &mut self,
+        input: CombatAttackInput,
+        target_location: Vec3,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> CombatShotResult {
         let CombatAttackInput {
             attacker_id,
             attacker_team,
@@ -192,13 +205,14 @@ impl GameLogic {
                 .objects
                 .get(&attacker_id)
                 .map_or(Vec3::ZERO, Object::get_position);
-            let visual = self.begin_owned_weapon_effects(
+            let visual = self.begin_owned_weapon_effects_with_effects(
                 attacker_id,
                 ground_slot,
                 None,
                 Some(target_location),
                 origin,
                 None,
+                effects,
             );
             shot = CombatShotResult::Fired(ground_slot, visual);
 
@@ -215,8 +229,13 @@ impl GameLogic {
                     }
                 });
                 if let Some(kind) = aurora {
-                    let _ =
-                        self.queue_aurora_bomb(kind, attacker_id, attacker_team, target_location);
+                    let _ = self.queue_aurora_bomb_with_effects(
+                        kind,
+                        attacker_id,
+                        attacker_team,
+                        target_location,
+                        effects,
+                    );
                     true
                 } else {
                     false
@@ -277,9 +296,18 @@ impl GameLogic {
                         .get(&attacker_id)
                         .map(|o| o.get_position())
                         .unwrap_or(target_location);
-                    let _ = self.spawn_comanche_rocket_pod_projectile(attacker_id, from, aim, idx);
-                    let (hits, _) =
-                        self.apply_comanche_rocket_pod_area_at(target_location, Some(attacker_id));
+                    let _ = self.spawn_comanche_rocket_pod_projectile_with_effects(
+                        attacker_id,
+                        from,
+                        aim,
+                        idx,
+                        effects,
+                    );
+                    let (hits, _) = self.apply_comanche_rocket_pod_area_at_with_effects(
+                        target_location,
+                        Some(attacker_id),
+                        effects,
+                    );
                     let _ = weapon_damage; // area residual owns damage
                 } else if buggy_ground {
                     let from = self
@@ -288,11 +316,12 @@ impl GameLogic {
                         .map(|a| a.get_position())
                         .unwrap_or(target_location);
                     let spawned = self
-                        .spawn_rocket_buggy_missile_projectile(
+                        .spawn_rocket_buggy_missile_projectile_with_effects(
                             attacker_id,
                             from,
                             target_location,
                             None,
+                            effects,
                         )
                         .is_some();
                     let (hits, _) = if spawned {
@@ -300,10 +329,11 @@ impl GameLogic {
                             self.rocket_buggy_residual_fires.saturating_add(1);
                         (1, false)
                     } else {
-                        self.apply_rocket_buggy_residual_at(
+                        self.apply_rocket_buggy_residual_at_with_effects(
                             target_location,
                             Some(attacker_id),
                             None,
+                            effects,
                         )
                     };
                     let _ = weapon_damage;
@@ -323,22 +353,24 @@ impl GameLogic {
                         .map(|a| a.get_position())
                         .unwrap_or(target_location);
                     let spawned = self
-                        .spawn_scud_launcher_missile_projectile(
+                        .spawn_scud_launcher_missile_projectile_with_effects(
                             attacker_id,
                             from,
                             target_location,
                             None,
                             toxin,
+                            effects,
                         )
                         .is_some();
                     let (hits, _) = if spawned {
                         (1, false)
                     } else {
-                        self.apply_scud_area_at(
+                        self.apply_scud_area_at_with_effects(
                             target_location,
                             Some(attacker_id),
                             attacker_team,
                             toxin,
+                            effects,
                         )
                     };
                     let _ = weapon_damage;
@@ -349,14 +381,25 @@ impl GameLogic {
                         .map(|a| a.get_position())
                         .unwrap_or(target_location);
                     let spawned = self
-                        .spawn_tomahawk_missile_projectile(attacker_id, from, target_location, None)
+                        .spawn_tomahawk_missile_projectile_with_effects(
+                            attacker_id,
+                            from,
+                            target_location,
+                            None,
+                            effects,
+                        )
                         .is_some();
                     let (hits, _) = if spawned {
                         self.tomahawk_residual_fires =
                             self.tomahawk_residual_fires.saturating_add(1);
                         (1, false)
                     } else {
-                        self.apply_tomahawk_residual_at(target_location, Some(attacker_id), None)
+                        self.apply_tomahawk_residual_at_with_effects(
+                            target_location,
+                            Some(attacker_id),
+                            None,
+                            effects,
+                        )
                     };
                     let _ = weapon_damage;
                 } else if let Some(ground_target_id) =
@@ -387,7 +430,7 @@ impl GameLogic {
                         damage_type,
                         selected_rule.as_deref(),
                     );
-                    let _ = self.apply_owned_damage(
+                    let _ = self.apply_owned_damage_with_effects(
                         ground_target_id,
                         weapon_damage,
                         Some(attacker_id),
@@ -396,7 +439,7 @@ impl GameLogic {
                             .unwrap_or_else(|| crate::game_logic::host_usa_pilot::HostDeathType::from_host_damage_type(damage_type)),
                         None,
                         &context,
-                    );
+                     effects);
                 }
 
                 // Inferno Cannon residual: ground attack also seeds FireFieldSmall.
@@ -417,11 +460,12 @@ impl GameLogic {
                                 )
                             })
                             .unwrap_or(false);
-                        let _ = self.spawn_inferno_fire_zone(
+                        let _ = self.spawn_inferno_fire_zone_with_effects(
                             attacker_id,
                             attacker_team,
                             target_location,
                             upgraded,
+                            effects,
                         );
                     }
                 }

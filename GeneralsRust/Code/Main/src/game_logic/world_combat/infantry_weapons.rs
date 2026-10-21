@@ -11,6 +11,23 @@ impl GameLogic {
         source_team: Team,
         toxin_warhead: bool,
     ) -> (u32, bool) {
+        self.apply_scud_area_at_with_effects(
+            impact,
+            source,
+            source_team,
+            toxin_warhead,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn apply_scud_area_at_with_effects(
+        &mut self,
+        impact: Vec3,
+        source: Option<ObjectId>,
+        source_team: Team,
+        toxin_warhead: bool,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> (u32, bool) {
         use crate::game_logic::host_scud_launcher::{
             SCUD_DAMAGE_TYPE, SCUD_DEATH_TYPE, SCUD_FIRE_AUDIO, SCUD_POISON_AUDIO,
             SCUD_POISON_DAMAGE_TYPE, SCUD_POISON_DEATH_TYPE, UPGRADE_GLA_ANTHRAX_BETA,
@@ -74,7 +91,7 @@ impl GameLogic {
                     (SCUD_DAMAGE_TYPE, SCUD_DEATH_TYPE)
                 };
                 let receiving_damage_target_id = obj.id;
-                let destroyed = self.apply_residual_damage_owned(
+                let destroyed = self.apply_residual_damage_owned_with_effects(
                     receiving_damage_target_id,
                     dmg,
                     source,
@@ -85,6 +102,7 @@ impl GameLogic {
                         death_name,
                     ),
                     None,
+                    presentation_effects,
                 );
                 hits = hits.saturating_add(1);
                 if destroyed {
@@ -95,7 +113,7 @@ impl GameLogic {
         }
 
         for (id, killer) in destroy_ids {
-            self.mark_object_for_destruction(id, killer);
+            self.mark_object_for_destruction_with_effects(id, killer, presentation_effects);
         }
 
         self.scud_poison_zones.record_area_blast(hits);
@@ -264,6 +282,13 @@ impl GameLogic {
 
     /// C++ FloatUpdate residual (boat sway / optional water snap).
     pub(in super::super) fn update_float_update(&mut self) {
+        self.update_float_update_with_effects(&mut Default::default());
+    }
+
+    pub(in super::super) fn update_float_update_with_effects(
+        &mut self,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let frame = self.frame as u32;
         let ids: Vec<ObjectId> = self
             .objects
@@ -295,7 +320,7 @@ impl GameLogic {
             if let Some(wy) = fu.snap_height_y(water_y) {
                 let mut p = obj.get_position();
                 p.y = wy;
-                obj.set_position(p);
+                obj.set_position_with_effects(p, self.frame, presentation_effects);
                 self.float_update_reg.record_snap();
             }
         }
@@ -341,10 +366,24 @@ impl GameLogic {
         caster_id: ObjectId,
         target_pos: Vec3,
     ) -> Option<ObjectId> {
-        self.initiate_spectre_gunship_deployment_with_tier(
+        self.initiate_spectre_gunship_deployment_with_effects(
+            caster_id,
+            target_pos,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn initiate_spectre_gunship_deployment_with_effects(
+        &mut self,
+        caster_id: ObjectId,
+        target_pos: Vec3,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> Option<ObjectId> {
+        self.initiate_spectre_gunship_deployment_with_tier_with_effects(
             caster_id,
             target_pos,
             crate::game_logic::special_power_strikes::SpectreGunshipScienceTier::Level2,
+            presentation_effects,
         )
     }
 
@@ -362,6 +401,21 @@ impl GameLogic {
         caster_id: ObjectId,
         target_pos: Vec3,
         tier: crate::game_logic::special_power_strikes::SpectreGunshipScienceTier,
+    ) -> Option<ObjectId> {
+        self.initiate_spectre_gunship_deployment_with_tier_with_effects(
+            caster_id,
+            target_pos,
+            tier,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn initiate_spectre_gunship_deployment_with_tier_with_effects(
+        &mut self,
+        caster_id: ObjectId,
+        target_pos: Vec3,
+        tier: crate::game_logic::special_power_strikes::SpectreGunshipScienceTier,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> Option<ObjectId> {
         use crate::game_logic::host_spectre_gunship_deployment::{
             SPECTRE_GUNSHIP_TEMPLATE, airf_gunship_template_for_tier, default_map_extents,
@@ -428,7 +482,13 @@ impl GameLogic {
         }
 
         let caster_owner = self.objects.get(&caster_id).and_then(|o| o.owner_player_id);
-        let gunship_id = self.create_object(&plan.gunship_template, team, plan.spawn_pos)?;
+        let gunship_id = self.create_object_with_script_effects(
+            &plan.gunship_template,
+            team,
+            plan.spawn_pos,
+            None,
+            presentation_effects,
+        )?;
         if let Some(g) = self.objects.get_mut(&gunship_id) {
             g.producer_id = Some(caster_id);
             if let Some(owner) = caster_owner {
@@ -439,7 +499,7 @@ impl GameLogic {
             // Preferred altitude residual.
             let mut p = g.get_position();
             p.y = plan.spawn_pos.y;
-            g.set_position(p);
+            g.set_position_with_effects(p, self.frame, presentation_effects);
             // C++ SpectreGunshipUpdate::initiateIntent: INSERTING, doors CLOSING,
             // afterburners on, panic loco, overridable reticle dest.
             g.set_special_power_overridable_destination(
@@ -508,6 +568,15 @@ impl GameLogic {
 
     /// C++ SpectreGunshipUpdate::update insertion / orbit / departure residual.
     pub(in super::super) fn update_spectre_gunship_flights(&mut self) {
+        self.update_spectre_gunship_flights_with_effects(
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(in super::super) fn update_spectre_gunship_flights_with_effects(
+        &mut self,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         use crate::game_logic::host_spectre_gunship_update::apply_spectre_door_and_afterburner;
         use crate::game_logic::host_upgrade_module_residuals::{
             HostLocomotorSetKind, apply_choose_locomotor_set,
@@ -541,7 +610,7 @@ impl GameLogic {
             };
             let was_ab = data.afterburners_on;
             let tick = data.tick(pos, facing, frame);
-            o.set_position(tick.pos);
+            o.set_position_with_effects(tick.pos, self.frame, presentation_effects);
             o.movement.velocity = tick.vel;
             if tick.vel.length_squared() > 1.0e-6 {
                 o.set_orientation(tick.vel.z.atan2(tick.vel.x));
@@ -574,7 +643,7 @@ impl GameLogic {
             self.queue_afterburner_per_unit_sound(id, &template_name, pos, on);
         }
         for id in destroy {
-            self.mark_object_for_destruction(id, None);
+            self.mark_object_for_destruction_with_effects(id, None, presentation_effects);
             if let Some(o) = self.objects.get_mut(&id) {
                 o.spectre_gunship_update = None;
             }
@@ -589,6 +658,25 @@ impl GameLogic {
         origin: Vec3,
         inherit_vel: Vec3,
         owner_player_id: Option<u32>,
+    ) -> Vec<ObjectId> {
+        self.spawn_ocl_create_debris_with_effects(
+            plan,
+            team,
+            origin,
+            inherit_vel,
+            owner_player_id,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn spawn_ocl_create_debris_with_effects(
+        &mut self,
+        plan: &crate::game_logic::host_ocl_create_debris::HostOclCreateDebrisPlan,
+        team: Team,
+        origin: Vec3,
+        inherit_vel: Vec3,
+        owner_player_id: Option<u32>,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> Vec<ObjectId> {
         use crate::game_logic::host_ocl_create_debris::{
             debris_initial_velocity, spin_rate_rad_per_frame,
@@ -613,8 +701,14 @@ impl GameLogic {
             // slight index scatter residual
             pos.x += (i as f32) * 0.5;
             pos.z += (i as f32) * 0.35;
-            let Some(id) = self.create_object_for_owner_or_team(&name, team, owner_player_id, pos)
-            else {
+            let Some(id) = self.create_object_for_owner_or_team_with_effects(
+                &name,
+                team,
+                owner_player_id,
+                pos,
+                None,
+                presentation_effects,
+            ) else {
                 continue;
             };
             let vel = debris_initial_velocity(
@@ -657,6 +751,23 @@ impl GameLogic {
         primary: Vec3,
         secondary: Vec3,
     ) -> Option<ObjectId> {
+        self.execute_ocl_fire_weapon_with_effects(
+            ocl_or_weapon,
+            source_id,
+            primary,
+            secondary,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn execute_ocl_fire_weapon_with_effects(
+        &mut self,
+        ocl_or_weapon: &str,
+        source_id: ObjectId,
+        primary: Vec3,
+        secondary: Vec3,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> Option<ObjectId> {
         use crate::game_logic::host_ocl_fire_weapon_attack::fire_weapon_plan_for_ocl;
         use crate::game_logic::{KindOf, ThingTemplate};
 
@@ -676,7 +787,13 @@ impl GameLogic {
             self.templates.insert(plan.projectile_template.clone(), t);
         }
         // Spawn at primary (launcher) residual; smart-bomb course toward secondary.
-        let id = self.create_object(&plan.projectile_template, team, primary)?;
+        let id = self.create_object_with_script_effects(
+            &plan.projectile_template,
+            team,
+            primary,
+            None,
+            presentation_effects,
+        )?;
         if let Some(o) = self.objects.get_mut(&id) {
             o.note_producer(source_id);
             let yaw = (secondary.z - primary.z).atan2(secondary.x - primary.x);
@@ -691,7 +808,7 @@ impl GameLogic {
                 // Non-neutron projectiles: smart-bomb course residual.
                 let mut p = o.get_position();
                 p.y = p.y.max(80.0);
-                o.set_position(p);
+                o.set_position_with_effects(p, self.frame, presentation_effects);
                 let _ = o.set_smart_bomb_target(secondary);
                 let dx = secondary.x - primary.x;
                 let dz = secondary.z - primary.z;
@@ -878,6 +995,15 @@ impl GameLogic {
     }
 
     pub(in super::super) fn spawn_due_scud_storm_missiles(&mut self) {
+        self.spawn_due_scud_storm_missiles_with_effects(
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(in super::super) fn spawn_due_scud_storm_missiles_with_effects(
+        &mut self,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         use crate::game_logic::host_scud_storm_missile_flight::HostScudStormMissileFlightData;
         use crate::game_logic::special_power_strikes::SCUD_STORM_MISSILE_OBJECT;
 
@@ -899,7 +1025,13 @@ impl GameLogic {
                 .get(&ObjectId(p.source_id))
                 .map(|o| o.team)
                 .unwrap_or(Team::Neutral);
-            let Some(mid) = self.create_object(SCUD_STORM_MISSILE_OBJECT, team, p.launch) else {
+            let Some(mid) = self.create_object_with_script_effects(
+                SCUD_STORM_MISSILE_OBJECT,
+                team,
+                p.launch,
+                None,
+                presentation_effects,
+            ) else {
                 continue;
             };
             if let Some(o) = self.objects.get_mut(&mid) {
@@ -965,6 +1097,21 @@ impl GameLogic {
         caster_id: ObjectId,
         target_pos: Vec3,
     ) -> Option<ObjectId> {
+        self.execute_ocl_special_power_with_effects(
+            power_template,
+            caster_id,
+            target_pos,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn execute_ocl_special_power_with_effects(
+        &mut self,
+        power_template: &str,
+        caster_id: ObjectId,
+        target_pos: Vec3,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> Option<ObjectId> {
         use crate::game_logic::host_ocl_special_power::{
             OclExecuteMode, create_object_for_ocl, deliver_payload_for_ocl,
             ocl_execute_mode_for_template,
@@ -1002,11 +1149,13 @@ impl GameLogic {
                             .set_health(100.0);
                         self.templates.insert(name.clone(), tpl);
                     }
-                    if let Some(id) = self.create_object_for_owner_or_team(
+                    if let Some(id) = self.create_object_for_owner_or_team_with_effects(
                         name,
                         team,
                         source_owner_player_id,
                         plan.target_coord,
+                        None,
+                        presentation_effects,
                     ) {
                         if let Some(o) = self.objects.get_mut(&id) {
                             o.producer_id = Some(caster_id);
@@ -1031,11 +1180,13 @@ impl GameLogic {
                 .set_health(500.0);
             self.templates.insert(deliver.transport.clone(), tpl);
         }
-        let transport_id = self.create_object_for_owner_or_team(
+        let transport_id = self.create_object_for_owner_or_team_with_effects(
             &deliver.transport,
             team,
             source_owner_player_id,
             plan.creation_coord,
+            None,
+            presentation_effects,
         )?;
         if let Some(t) = self.objects.get_mut(&transport_id) {
             t.producer_id = Some(caster_id);
@@ -1047,7 +1198,7 @@ impl GameLogic {
             if deliver.start_at_preferred_height {
                 let mut pos = p;
                 pos.y = pos.y.max(120.0);
-                t.set_position(pos);
+                t.set_position_with_effects(pos, self.frame, presentation_effects);
             }
         }
 
@@ -1124,7 +1275,7 @@ impl GameLogic {
                     plan.target_coord,
                 );
             if let Some(t) = self.objects.get_mut(&transport_id) {
-                t.set_position(edge);
+                t.set_position_with_effects(edge, self.frame, presentation_effects);
                 let yaw = flight.dir_z.atan2(flight.dir_x);
                 t.set_orientation(yaw);
             }
@@ -1139,6 +1290,19 @@ impl GameLogic {
         power_template: &str,
         caster_id: ObjectId,
     ) -> Option<ObjectId> {
+        self.execute_ocl_special_power_no_target_with_effects(
+            power_template,
+            caster_id,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn execute_ocl_special_power_no_target_with_effects(
+        &mut self,
+        power_template: &str,
+        caster_id: ObjectId,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> Option<ObjectId> {
         let pos = self.objects.get(&caster_id)?.get_position();
         let mut plan = self.plan_ocl_special_power(power_template, caster_id, pos)?;
         plan.create_owner =
@@ -1149,7 +1313,12 @@ impl GameLogic {
             self.ocl_special_power_reg.record_transport_spawn();
             return Some(caster_id);
         }
-        self.execute_ocl_special_power(power_template, caster_id, pos)
+        self.execute_ocl_special_power_with_effects(
+            power_template,
+            caster_id,
+            pos,
+            presentation_effects,
+        )
     }
 
     /// C++ `TheTerrainLogic->getExtent()` for OCL CreateAtEdge.
@@ -1240,6 +1409,15 @@ impl GameLogic {
     /// C++ SmartBombTargetHomingUpdate::update residual.
     /// C++ SlowDeathBehavior on FuelAir gas: midpoint flame + final detonation.
     pub fn update_fuel_air_gas_slow_death(&mut self) {
+        self.update_fuel_air_gas_slow_death_with_effects(
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn update_fuel_air_gas_slow_death_with_effects(
+        &mut self,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         use crate::game_logic::combat::DamageType;
         use crate::game_logic::host_fuel_air_gas_slow_death::FuelAirGasTickEvent;
 
@@ -1289,7 +1467,7 @@ impl GameLogic {
                     weapon: _,
                 } => {
                     self.fuel_air_gas_reg.record_midpoint();
-                    let _ = self.apply_fuel_air_radius_damage(
+                    let _ = self.apply_fuel_air_radius_damage_with_effects(
                         id,
                         producer,
                         team,
@@ -1297,6 +1475,7 @@ impl GameLogic {
                         damage,
                         radius,
                         DamageType::Flame,
+                        presentation_effects,
                     );
                 }
                 FuelAirGasTickEvent::FinalDetonation {
@@ -1306,7 +1485,7 @@ impl GameLogic {
                     fx: _,
                 } => {
                     self.fuel_air_gas_reg.record_final();
-                    let _ = self.apply_fuel_air_radius_damage(
+                    let _ = self.apply_fuel_air_radius_damage_with_effects(
                         id,
                         producer,
                         team,
@@ -1314,6 +1493,7 @@ impl GameLogic {
                         damage,
                         radius,
                         DamageType::Explosive,
+                        presentation_effects,
                     );
                     let _ = self.combat_particles.spawn(
                         CombatParticleKind::DeathExplosion,
@@ -1330,7 +1510,7 @@ impl GameLogic {
             self.fuel_air_gas_reg.record_destroy();
             // SlowDeathBehavior.cpp448-449: FINAL completes with direct
             // destruction, never a second authored Object::onDie admission.
-            self.destroy_object(id);
+            self.destroy_object_with_effects(id, presentation_effects);
         }
     }
 
@@ -1346,6 +1526,29 @@ impl GameLogic {
         damage: f32,
         radius: f32,
         damage_type: crate::game_logic::combat::DamageType,
+    ) -> (f32, u32, u32) {
+        self.apply_fuel_air_radius_damage_with_effects(
+            source_id,
+            producer,
+            _source_team,
+            epicenter,
+            damage,
+            radius,
+            damage_type,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn apply_fuel_air_radius_damage_with_effects(
+        &mut self,
+        source_id: ObjectId,
+        producer: Option<ObjectId>,
+        _source_team: Team,
+        epicenter: Vec3,
+        damage: f32,
+        radius: f32,
+        damage_type: crate::game_logic::combat::DamageType,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> (f32, u32, u32) {
         let r2 = radius * radius;
         let killer = producer.or(Some(source_id));
@@ -1375,7 +1578,7 @@ impl GameLogic {
         for vid in victims {
             // Weapon.cpp:1470 completes this victim's callbacks and onDie
             // before visiting the next frozen candidate. Keep objects installed.
-            let Some(result) = self.apply_owned_damage(
+            let Some(result) = self.apply_owned_damage_with_effects(
                 vid,
                 damage,
                 killer,
@@ -1385,6 +1588,7 @@ impl GameLogic {
                 ),
                 None,
                 &crate::game_logic::object::DamageHitContext::default(),
+                presentation_effects,
             ) else {
                 continue;
             };
@@ -1398,6 +1602,13 @@ impl GameLogic {
     }
 
     pub(in super::super) fn update_smart_bomb_target_homing(&mut self) {
+        self.update_smart_bomb_target_homing_with_effects(&mut Default::default());
+    }
+
+    pub(in super::super) fn update_smart_bomb_target_homing_with_effects(
+        &mut self,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         use crate::game_logic::host_smart_bomb_target_homing::SMART_BOMB_SIGNIFICANTLY_ABOVE_TERRAIN;
         let ids: Vec<ObjectId> = self
             .objects
@@ -1423,7 +1634,7 @@ impl GameLogic {
             if let Some(np) = h.tick(pos, hat.max(0.0)) {
                 // Only apply when clearly above threshold (tick already gates).
                 if hat >= SMART_BOMB_SIGNIFICANTLY_ABOVE_TERRAIN {
-                    obj.set_position(np);
+                    obj.set_position_with_effects(np, self.frame, presentation_effects);
                     self.smart_bomb_target_homing_reg.record_steer();
                 }
             }
@@ -1680,6 +1891,15 @@ impl GameLogic {
     }
 
     pub(in super::super) fn update_base_regenerate(&mut self) {
+        self.update_base_regenerate_with_effects(
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(in super::super) fn update_base_regenerate_with_effects(
+        &mut self,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let frame = self.frame as u32;
         let ids: Vec<ObjectId> = self
             .objects
@@ -1711,7 +1931,12 @@ impl GameLogic {
             }
             if amount > 0.0 {
                 // CPP BaseRenerateUpdate118 uses Object::attemptHealing.
-                let _ = self.apply_owned_healing(id, amount, Some(id));
+                let _ = self.apply_owned_healing_with_effects(
+                    id,
+                    amount,
+                    Some(id),
+                    presentation_effects,
+                );
                 self.base_regenerate_reg.record_heal(amount);
             }
         }
@@ -1733,6 +1958,17 @@ impl GameLogic {
     pub(crate) fn apply_fire_spread_tick_event(
         &mut self,
         ev: crate::game_logic::host_fire_spread_log::FireSpreadTickEvent,
+    ) {
+        self.apply_fire_spread_tick_event_with_effects(
+            ev,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn apply_fire_spread_tick_event_with_effects(
+        &mut self,
+        ev: crate::game_logic::host_fire_spread_log::FireSpreadTickEvent,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         use crate::game_logic::host_fire_spread::{HostFireSpreadData, HostFlammableState};
         if let Some(obj) = self.objects.get_mut(&ev.id) {
@@ -1771,7 +2007,12 @@ impl GameLogic {
                 .get(&ev.id)
                 .and_then(|o| o.fire_spread.as_ref().map(|f| f.ocl_embers.clone()))
                 .unwrap_or_default();
-            let _ = self.spawn_fire_spread_embers(ev.id, ev.pos, &ocl);
+            let _ = self.spawn_fire_spread_embers_with_effects(
+                ev.id,
+                ev.pos,
+                &ocl,
+                presentation_effects,
+            );
         }
         if ev.try_spread {
             self.fire_spread_reg.record_spread();
@@ -1784,6 +2025,15 @@ impl GameLogic {
     }
 
     pub(in super::super) fn update_fire_spread(&mut self) {
+        self.update_fire_spread_with_effects(
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(in super::super) fn update_fire_spread_with_effects(
+        &mut self,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         use crate::game_logic::host_fire_spread::fire_spread_center_3d_distance;
 
         let frame = self.frame as u32;
@@ -1905,7 +2155,7 @@ impl GameLogic {
             }
         }
         for (id, pos, ocl) in ember_spawns {
-            let _ = self.spawn_fire_spread_embers(id, pos, &ocl);
+            let _ = self.spawn_fire_spread_embers_with_effects(id, pos, &ocl, presentation_effects);
         }
         for (id, pos, sound) in start_sounds {
             self.start_fire_spread_burning_sound(id, pos, &sound);
@@ -1923,19 +2173,27 @@ impl GameLogic {
         for (id, dmg) in aflame_dots {
             if let Some(o) = self.objects.get_mut(&id) {
                 let receiving_damage_target_id = o.id;
-                let _ = self.apply_residual_damage_owned(
+                let _ = self.apply_residual_damage_owned_with_effects(
                     receiving_damage_target_id,
                     dmg,
                     Some(id),
                     crate::game_logic::combat::DamageType::Flame,
                     crate::game_logic::host_usa_pilot::HostDeathType::Burned,
                     None,
+                    presentation_effects,
                 );
             }
         }
     }
 
     pub(in super::super) fn update_tensile_formations(&mut self) {
+        self.update_tensile_formations_with_effects(&mut Default::default());
+    }
+
+    pub(in super::super) fn update_tensile_formations_with_effects(
+        &mut self,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         use crate::game_logic::AudioEventRequest;
         use crate::game_logic::host_tensile_formation::{
             TENSILE_BODY_DAMAGED_HEALTH_FRAC, TENSILE_CRACK_SOUND, TENSILE_PROPAGATE_RADIUS,
@@ -2060,7 +2318,7 @@ impl GameLogic {
 
         for (id, np) in position_updates {
             if let Some(o) = self.objects.get_mut(&id) {
-                o.set_position(np);
+                o.set_position_with_effects(np, self.frame, presentation_effects);
             }
         }
 
@@ -2123,6 +2381,15 @@ impl GameLogic {
     }
 
     pub(in super::super) fn update_scud_poison_zones(&mut self) {
+        self.update_scud_poison_zones_with_effects(
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(in super::super) fn update_scud_poison_zones_with_effects(
+        &mut self,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let object_positions: Vec<(ObjectId, Vec3, Team, bool, bool)> = self
             .objects
             .iter()
@@ -2154,13 +2421,14 @@ impl GameLogic {
                         continue;
                     }
                     let receiving_damage_target_id = target.id;
-                    let killed = self.apply_residual_damage_owned(
+                    let killed = self.apply_residual_damage_owned_with_effects(
                         receiving_damage_target_id,
                         hit.damage,
                         Some(plan.source_object),
                         crate::game_logic::host_poisoned_behavior::poison_weapon_damage_type(),
                         plan.death_type,
                         None,
+                        presentation_effects,
                     );
                     total_damage += hit.damage;
                     applications += 1;
@@ -2172,7 +2440,11 @@ impl GameLogic {
             }
 
             for (id, killer_team) in destroy_ids {
-                self.mark_object_for_destruction(id, Some(killer_team));
+                self.mark_object_for_destruction_with_effects(
+                    id,
+                    Some(killer_team),
+                    presentation_effects,
+                );
             }
 
             self.scud_poison_zones.record_tick_complete(
@@ -2189,6 +2461,15 @@ impl GameLogic {
 
     /// Advance Nuke Cannon MediumRadiationField residual zones.
     pub(in super::super) fn update_nuke_cannon_radiation_zones(&mut self) {
+        self.update_nuke_cannon_radiation_zones_with_effects(
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(in super::super) fn update_nuke_cannon_radiation_zones_with_effects(
+        &mut self,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let object_positions: Vec<(ObjectId, Vec3, Team, bool)> = self
             .objects
             .iter()
@@ -2227,7 +2508,11 @@ impl GameLogic {
             }
 
             for (id, killer_team) in destroy_ids {
-                self.mark_object_for_destruction(id, Some(killer_team));
+                self.mark_object_for_destruction_with_effects(
+                    id,
+                    Some(killer_team),
+                    presentation_effects,
+                );
             }
 
             self.nuke_cannon_residual.record_tick_complete(
@@ -2252,6 +2537,23 @@ impl GameLogic {
         from: glam::Vec3,
         aim: glam::Vec3,
         intended: Option<ObjectId>,
+    ) -> Option<ObjectId> {
+        self.spawn_nuke_cannon_shell_projectile_with_effects(
+            source_id,
+            from,
+            aim,
+            intended,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn spawn_nuke_cannon_shell_projectile_with_effects(
+        &mut self,
+        source_id: ObjectId,
+        from: glam::Vec3,
+        aim: glam::Vec3,
+        intended: Option<ObjectId>,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> Option<ObjectId> {
         use crate::game_logic::host_nuke_cannon::{
             NUKE_CANNON_PROJECTILE, NUKE_SHELL_MAX_HEALTH, nuke_shell_flight_frames,
@@ -2321,7 +2623,13 @@ impl GameLogic {
 
         let mut start = from;
         start.y = start.y.max(aim.y) + 2.0;
-        let pid = self.create_object(NUKE_CANNON_PROJECTILE, team, start)?;
+        let pid = self.create_object_with_script_effects(
+            NUKE_CANNON_PROJECTILE,
+            team,
+            start,
+            None,
+            presentation_effects,
+        )?;
         let frames = nuke_shell_flight_frames(start, aim).max(1);
         if let Some(o) = self.objects.get_mut(&pid) {
             o.nuke_cannon_shell_projectile = true;
@@ -2342,6 +2650,15 @@ impl GameLogic {
     }
 
     pub fn update_nuke_cannon_shell_projectiles(&mut self) {
+        self.update_nuke_cannon_shell_projectiles_with_effects(
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn update_nuke_cannon_shell_projectiles_with_effects(
+        &mut self,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         use crate::game_logic::host_nuke_cannon::nuke_shell_bezier_point;
         let frame = self.frame;
         let flying: Vec<ObjectId> = self
@@ -2387,7 +2704,7 @@ impl GameLogic {
             let pos = nuke_shell_bezier_point(from, aim, t);
             if let Some(o) = self.objects.get_mut(&id) {
                 let prev = o.get_position();
-                o.set_position(pos);
+                o.set_position_with_effects(pos, self.frame, presentation_effects);
                 let d = pos - prev;
                 if d.length_squared() > 1.0e-6 {
                     o.set_orientation(d.z.atan2(d.x));
@@ -2408,10 +2725,15 @@ impl GameLogic {
                 o.status.destroyed = true;
                 o.status.effectively_dead = true;
                 o.nuke_cannon_shell_projectile = false;
-                o.set_position(pos);
+                o.set_position_with_effects(pos, self.frame, presentation_effects);
             }
-            let _ = self.apply_nuke_cannon_primary_at(pos, source, team);
-            self.mark_object_for_destruction(id, shell_team);
+            let _ = self.apply_nuke_cannon_primary_at_with_effects(
+                pos,
+                source,
+                team,
+                presentation_effects,
+            );
+            self.mark_object_for_destruction_with_effects(id, shell_team, presentation_effects);
         }
     }
 

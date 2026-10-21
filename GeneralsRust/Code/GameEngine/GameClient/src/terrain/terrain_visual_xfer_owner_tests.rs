@@ -179,3 +179,125 @@ fn actual_waveguide_configuration_uses_explicit_definitions_and_optional_deliver
     assert_eq!(disabled, [false]);
     assert!(!no_waveguide.is_water_grid_enabled());
 }
+
+#[test]
+fn prepared_native_admission_changes_only_receiving_visual_and_preserves_absent_scorch_tail() {
+    use crate::terrain::{HeightMap, terrain_visual::TerrainVisualImpl};
+    let source = terrain(40, true);
+    let mark = ScorchMark {
+        location: [10., 20., 3.],
+        radius: 5.,
+        scorch_type: 2,
+    };
+    let bytes = capture_owned_terrain_visual_for_terrain(&source, Some(&[mark])).unwrap();
+    let prepared = prepare_terrain_visual_for_terrain(&source, &bytes)
+        .unwrap()
+        .unwrap();
+    let mut a = TerrainVisualImpl::new();
+    let mut b = TerrainVisualImpl::new();
+    a.load_heightmap_from_data(HeightMap::new(2, 2, 0., 10.), None, None)
+        .unwrap();
+    b.load_heightmap_from_data(HeightMap::new(2, 2, 0., 10.), None, None)
+        .unwrap();
+    let foreign = ScorchMark {
+        location: [30., 40., 5.],
+        radius: 9.,
+        scorch_type: 1,
+    };
+    b.add_scorch(foreign.location, foreign.radius, foreign.scorch_type);
+    prepared.apply_native(&mut a);
+    assert!(a.water_grid_enabled());
+    assert!(!b.water_grid_enabled());
+    assert_eq!(a.scorch_marks(), [mark]);
+    assert_eq!(b.scorch_marks(), [foreign]);
+    let absent = capture_owned_terrain_visual_for_terrain(&source, None).unwrap();
+    prepare_terrain_visual_for_terrain(&source, &absent)
+        .unwrap()
+        .unwrap()
+        .apply_native(&mut a);
+    assert_eq!(
+        a.scorch_marks(),
+        [mark],
+        "historical absent tail is not a native clear"
+    );
+    let clear = capture_owned_terrain_visual_for_terrain(&source, Some(&[])).unwrap();
+    prepare_terrain_visual_for_terrain(&source, &clear)
+        .unwrap()
+        .unwrap()
+        .apply_native(&mut a);
+    assert!(a.scorch_marks().is_empty());
+    assert_eq!(b.scorch_marks(), [foreign]);
+}
+
+#[test]
+fn native_water_motion_is_captured_from_receiving_visual_without_changing_logical_only_codec() {
+    use crate::terrain::terrain_visual::TerrainVisualImpl;
+    let logical = terrain(40, true);
+    let mut native = TerrainVisualImpl::new();
+    native.admit_water_state(logical.water_grid_state());
+    native.set_water_attenuation_factors(1.0, 0.0, 0.0, 1.0);
+    native.add_water_velocity(0.0, 0.0, 3.0, 17.0);
+    let observed = native.capture_water_state();
+    assert!(
+        !observed.mesh_motion.is_empty(),
+        "actual native velocity producer"
+    );
+    assert!(logical.water_grid_state().mesh_motion.is_empty());
+    let bytes = capture_terrain_visual_with_water(&logical, Some(&observed), Some(&[])).unwrap();
+    let prepared = prepare_terrain_visual_for_terrain(&logical, &bytes)
+        .unwrap()
+        .unwrap();
+    assert_eq!(prepared.grid().mesh_motion, observed.mesh_motion);
+    assert_eq!(prepared.heights(), &[40; 4]);
+    let logical_bytes = capture_owned_terrain_visual_for_terrain(&logical, None).unwrap();
+    let logical_prepared = prepare_terrain_visual_for_terrain(&logical, &logical_bytes)
+        .unwrap()
+        .unwrap();
+    assert!(logical_prepared.grid().mesh_motion.is_empty());
+    let mut receiver = TerrainVisualImpl::new();
+    receiver.admit_water_state(logical.water_grid_state());
+    let mut peer = TerrainVisualImpl::new();
+    peer.admit_water_state(logical.water_grid_state());
+    let peer_before = peer.capture_water_state();
+    let before = receiver.capture_water_state();
+    let corrupt = &bytes[..bytes.len() - 1];
+    assert!(prepare_terrain_visual_for_terrain(&logical, corrupt).is_err());
+    assert_eq!(
+        receiver.capture_water_state(),
+        before,
+        "failed parse does not apply native motion"
+    );
+    prepared.apply_native(&mut receiver);
+    assert_eq!(
+        receiver.capture_water_state().mesh_motion,
+        observed.mesh_motion
+    );
+    assert_eq!(peer.capture_water_state(), peer_before);
+}
+
+#[test]
+fn native_water_admission_and_recapture_preserves_complete_source_status_byte() {
+    use crate::terrain::terrain_visual::TerrainVisualImpl;
+    let mut logical = terrain(40, true);
+    logical.water_grid_state_mut().mesh_motion.insert(
+        (0, 0),
+        gamelogic::terrain_water::WaterGridMeshMotion {
+            velocity: 3.0,
+            status: 0x82,
+            preferred_height: 17,
+        },
+    );
+    let mut visual = TerrainVisualImpl::new();
+    visual.admit_water_state(logical.water_grid_state());
+    assert_eq!(
+        visual.capture_water_state().mesh_motion[&(0, 0)].status,
+        0x82
+    );
+    visual.set_water_attenuation_factors(1.0, 0.0, 0.0, 1.0);
+    visual.add_water_velocity(0.0, 0.0, 2.0, 19.0);
+    assert_eq!(
+        visual.capture_water_state().mesh_motion[&(0, 0)].status,
+        0x83,
+        "C++ BitSet preserves accepted upper status bits"
+    );
+}

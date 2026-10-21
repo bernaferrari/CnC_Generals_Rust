@@ -14,6 +14,13 @@ impl GameLogic {
     ///
     /// Fail-closed: not full cargo-plane Object flight / full container Object.
     pub fn update_deliver_payloads(&mut self) {
+        self.update_deliver_payloads_with_effects(&mut Default::default())
+    }
+
+    pub(crate) fn update_deliver_payloads_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         use crate::game_logic::host_deliver_payload::SUPPLY_DROP_PAYLOAD_RESIDUAL_TEMPLATE;
         use crate::game_logic::host_supply_drop_zone::{
             SUPPLY_DROP_ZONE_DROP_CASH, drop_cash_amount,
@@ -38,7 +45,7 @@ impl GameLogic {
             .collect();
         for (tid, pos, yaw) in flight_sync {
             if let Some(o) = self.objects.get_mut(&tid) {
-                o.set_position(pos);
+                o.set_position_with_effects(pos, self.frame, effects);
                 o.set_orientation(yaw);
             }
         }
@@ -66,10 +73,20 @@ impl GameLogic {
             // first USA player.  Genuinely unowned missions keep the legacy
             // team-only constructor and stay unowned when that team is ambiguous.
             let spawned_id = match plan.source_owner_player_id {
-                Some(player_id) => {
-                    self.create_object_for_player(&template_name, player_id, plan.spawn_position)
-                }
-                None => self.create_object(&template_name, plan.source_team, plan.spawn_position),
+                Some(player_id) => self.create_object_for_player_with_effects(
+                    &template_name,
+                    player_id,
+                    plan.spawn_position,
+                    None,
+                    effects,
+                ),
+                None => self.create_object_with_script_effects(
+                    &template_name,
+                    plan.source_team,
+                    plan.spawn_position,
+                    None,
+                    effects,
+                ),
             };
             if let Some(id) = spawned_id {
                 if plan.kind
@@ -217,16 +234,30 @@ impl GameLogic {
     ///
     /// Destroys (NOT kills) crates whose dieFrame has elapsed.
     pub fn update_crate_deletion_updates(&mut self) {
+        self.update_crate_deletion_updates_with_effects(&mut Default::default())
+    }
+
+    pub(crate) fn update_crate_deletion_updates_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let expired = self.host_money_crates.expired_ids(self.frame);
         for id in expired {
             self.host_money_crates.forget(id);
             // Destroy object if still present (C++ destroyObject, not kill).
             if self.objects.contains_key(&id) {
-                self.mark_object_for_destruction(id, None);
+                self.mark_object_for_destruction_with_effects(id, None, effects);
             }
         }
     }
     pub fn update_money_crate_collides(&mut self) {
+        self.update_money_crate_collides_with_effects(&mut Default::default())
+    }
+
+    pub(crate) fn update_money_crate_collides_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         use crate::game_logic::host_deliver_payload::crate_is_above_terrain;
         use crate::game_logic::host_money_crate::{
             HostMoneyCrateRegistry, MONEY_CRATE_BUILDING_PICKUP_RADIUS, MONEY_CRATE_PICKUP_AUDIO,
@@ -569,7 +600,7 @@ impl GameLogic {
                         .with_position(pos)
                         .with_priority(110),
                 );
-                self.destroy_object(crate_id);
+                self.destroy_object_with_effects(crate_id, effects);
                 continue;
             }
             // C++ HealCrateCollide residual path.
@@ -592,15 +623,16 @@ impl GameLogic {
                         .with_position(pos)
                         .with_priority(110),
                 );
-                self.destroy_object(crate_id);
+                self.destroy_object_with_effects(crate_id, effects);
                 continue;
             }
             // C++ UnitCrateCollide residual path.
             if entry.is_unit_crate {
-                let _ = self.execute_unit_crate_behavior(
+                let _ = self.execute_unit_crate_behavior_with_effects(
                     picker_id,
                     &entry.unit_crate_type,
                     entry.unit_crate_count,
+                    effects,
                 );
                 if !self
                     .host_money_crates
@@ -619,7 +651,7 @@ impl GameLogic {
                         .with_position(pos)
                         .with_priority(110),
                 );
-                self.destroy_object(crate_id);
+                self.destroy_object_with_effects(crate_id, effects);
                 continue;
             }
             // C++ VeterancyCrateCollide residual path.
@@ -656,7 +688,7 @@ impl GameLogic {
                         .with_position(pos)
                         .with_priority(110),
                 );
-                self.destroy_object(crate_id);
+                self.destroy_object_with_effects(crate_id, effects);
                 continue;
             }
             // C++ SalvageCrateCollide residual path.
@@ -747,7 +779,7 @@ impl GameLogic {
                         .with_priority(110),
                 );
             }
-            self.destroy_object(crate_id);
+            self.destroy_object_with_effects(crate_id, effects);
             log::info!(
                 "Host MoneyCrateCollide residual: crate {:?} → picker {:?} team={:?} amount={} building={}",
                 crate_id,
@@ -765,6 +797,14 @@ impl GameLogic {
     /// (PutInContainer AmericaCrateParachute). Fail-closed: not full container
     /// Object / W3D bone / CrateParachuteLocomotor force matrix.
     pub(crate) fn tick_crate_parachute_residual(&mut self, crate_id: ObjectId) {
+        self.tick_crate_parachute_residual_with_effects(crate_id, &mut Default::default());
+    }
+
+    pub(crate) fn tick_crate_parachute_residual_with_effects(
+        &mut self,
+        crate_id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         use crate::game_logic::host_deliver_payload::{
             CRATE_PARACHUTE_LAND_AUDIO, CRATE_PARACHUTE_OPEN_AUDIO, should_open_crate_parachute,
             tick_crate_parachute_height,
@@ -825,7 +865,7 @@ impl GameLogic {
             p.x = nx;
             p.z = nz;
             p.y = new_y;
-            obj.set_position(p);
+            obj.set_position_with_effects(p, self.frame, effects);
             {}
             if landed {
                 obj.clear_eject_parachuting();
@@ -868,9 +908,16 @@ impl GameLogic {
     /// China CC RadarUpgrade TriggeredBy Upgrade_ChinaRadar (researched);
     /// GLA RadarVan GrantUpgradeCreate Upgrade_GLARadar + RadarUpgrade DisableProof.
     pub(crate) fn update_player_radar(&mut self) {
+        self.update_player_radar_with_effects(&mut Default::default())
+    }
+
+    pub(crate) fn update_player_radar_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let ids: Vec<_> = self.objects.keys().copied().collect();
         for id in ids {
-            self.admit_host_radar_provider(id);
+            self.admit_host_radar_provider_with_effects(id, effects);
         }
         let removed: Vec<_> = self
             .host_radar
@@ -975,6 +1022,17 @@ impl GameLogic {
     /// C++ GarrisonContain::onBodyDamageStateChange: BODY_REALLYDAMAGED edge
     /// ejects occupants unless KINDOF_GARRISONABLE_UNTIL_DESTROYED.
     pub(in super::super) fn check_building_damage_states(&mut self, object_ids: &[ObjectId]) {
+        self.check_building_damage_states_with_effects(
+            object_ids,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(in super::super) fn check_building_damage_states_with_effects(
+        &mut self,
+        object_ids: &[ObjectId],
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         // Collect garrison buildings that need evacuation (borrow-safe).
         let mut evacuate_ids: Vec<(ObjectId, Vec<ObjectId>)> = Vec::new();
 
@@ -1002,7 +1060,7 @@ impl GameLogic {
 
         // C++ orderAllPassengersToExit → exitObjectViaDoor walk, not a ring dump.
         for (cid, occupants) in evacuate_ids {
-            let _ = self.evacuate_container_now(cid, false);
+            let _ = self.evacuate_container_now_with_effects(cid, false, presentation_effects);
             for occ_id in occupants {
                 if let Some(unit) = self.objects.get(&occ_id) {
                     let p = unit.get_position();

@@ -39,8 +39,8 @@ impl GameLogic {
             .then_some((id, object.get_position()))
         });
         let start = if let Some((id, pos)) = center {
-            self.destroy_object(id);
-            self.process_destroy_list();
+            self.destroy_object_with_effects(id, ui);
+            self.process_destroy_list_with_effects(ui);
             pos
         } else {
             fallback
@@ -259,6 +259,7 @@ impl GameLogic {
         ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
     ) {
         let mut effects = crate::game_logic::ScriptPresentationEffects {
+            terrain: None,
             ui: ui
                 .as_mut()
                 .map(|ui| &mut **ui as &mut dyn crate::game_logic::ScriptUiEffects),

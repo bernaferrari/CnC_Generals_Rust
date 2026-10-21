@@ -4,6 +4,14 @@ use crate::game_logic::object::unit_ai_runtime::GuardPhase;
 
 impl GameLogic {
     pub(crate) fn tick_host_guard_states(&mut self, object_ids: &[ObjectId]) {
+        self.tick_host_guard_states_with_effects(object_ids, &mut Default::default())
+    }
+
+    pub(crate) fn tick_host_guard_states_with_effects(
+        &mut self,
+        object_ids: &[ObjectId],
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         for &object_id in object_ids {
             let Some(unit) = self.objects.get(&object_id) else {
                 continue;
@@ -25,7 +33,7 @@ impl GameLogic {
                 continue;
             }
             let finished = self.finish_quick_exit_if_due(object_id, guard_target);
-            self.update_host_guard_base_state(object_id);
+            self.update_host_guard_base_state_with_effects(object_id, effects);
             if finished {
                 // AIUpdate::update consumes movementComplete after the whole
                 // state-machine call, including the resumed base state.
@@ -35,6 +43,14 @@ impl GameLogic {
     }
 
     fn update_host_guard_base_state(&mut self, object_id: ObjectId) {
+        self.update_host_guard_base_state_with_effects(object_id, &mut Default::default())
+    }
+
+    fn update_host_guard_base_state_with_effects(
+        &mut self,
+        object_id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let Some(unit) = self.objects.get(&object_id) else {
             return;
         };
@@ -165,11 +181,12 @@ impl GameLogic {
                     ) {
                         self.set_host_team_common_target(object_id, Some(enemy_id));
                         if enter_guard {
-                            if self.try_guard_enter_or_hijack(
+                            if self.try_guard_enter_or_hijack_with_effects(
                                 object_id,
                                 enemy_id,
                                 hijack_guard,
                                 team,
+                                effects,
                             ) {
                                 return;
                             }
@@ -254,11 +271,12 @@ impl GameLogic {
                             hijack_guard,
                             None,
                         ) {
-                            if self.try_guard_enter_or_hijack(
+                            if self.try_guard_enter_or_hijack_with_effects(
                                 object_id,
                                 enemy_id,
                                 hijack_guard,
                                 team,
+                                effects,
                             ) {
                                 return;
                             }
@@ -319,7 +337,7 @@ impl GameLogic {
             _ => {}
         }
         if returning {
-            self.finish_guard_return_if_arrived(object_id);
+            self.finish_guard_return_if_arrived(object_id, effects);
         }
     }
 }

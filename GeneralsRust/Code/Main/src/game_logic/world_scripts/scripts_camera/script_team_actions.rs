@@ -6,6 +6,13 @@ impl GameLogic {
     /// C++ `doTeamGuardPosition` / `Object` / `Area` / `InTunnelNetwork`.
     /// Leftover queues [`gamelogic::scripting::HostScriptGuardVariantRequest`].
     pub(super) fn apply_host_guard_variant_script_requests(&mut self) {
+        self.apply_host_guard_variant_script_requests_with_effects(&mut Default::default())
+    }
+
+    pub(super) fn apply_host_guard_variant_script_requests_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         use gamelogic::scripting::HostScriptGuardVariantRequest;
         for req in gamelogic::scripting::take_host_script_guard_variant_requests() {
             match req {
@@ -15,7 +22,8 @@ impl GameLogic {
                     };
                     for id in self.host_script_team_member_ids(&team) {
                         if self.host_script_unit_can_guard(id) {
-                            let _ = self.unit_command_guard_position(id, dest);
+                            let _ =
+                                self.unit_command_guard_position_with_effects(id, dest, effects);
                         }
                     }
                 }
@@ -36,7 +44,8 @@ impl GameLogic {
                     let poly_radius = self.host_named_guard_area_polygon(&area).map(|(_, r, _)| r);
                     for id in self.host_script_team_member_ids(&team) {
                         if self.host_script_unit_can_guard(id) {
-                            let _ = self.unit_command_guard_position(id, dest);
+                            let _ =
+                                self.unit_command_guard_position_with_effects(id, dest, effects);
                             if let Some(u) = self.objects.get_mut(&id) {
                                 u.guard_area_trigger = Some(area.clone());
                                 if let Some(r) = poly_radius {
@@ -286,17 +295,24 @@ impl GameLogic {
     /// C++ `ScriptActions::doNamedSetBoobytrapped` / `doTeamSetBoobytrapped`.
     /// Leftover queues [`gamelogic::scripting::HostScriptBoobytrapRequest`].
     pub(super) fn apply_host_boobytrap_script_requests(&mut self) {
+        self.apply_host_boobytrap_script_requests_with_effects(&mut Default::default())
+    }
+
+    pub(super) fn apply_host_boobytrap_script_requests_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         use gamelogic::scripting::HostScriptBoobytrapRequest;
         for req in gamelogic::scripting::take_host_script_boobytrap_requests() {
             match req {
                 HostScriptBoobytrapRequest::Named { thing, unit } => {
                     if let Some(id) = self.host_object_id_by_script_name(&unit) {
-                        self.host_script_plant_boobytrap(&thing, id);
+                        self.host_script_plant_boobytrap_with_effects(&thing, id, effects);
                     }
                 }
                 HostScriptBoobytrapRequest::Team { thing, team } => {
                     for id in self.host_script_team_member_ids(&team) {
-                        self.host_script_plant_boobytrap(&thing, id);
+                        self.host_script_plant_boobytrap_with_effects(&thing, id, effects);
                     }
                 }
             }
@@ -306,6 +322,13 @@ impl GameLogic {
     /// C++ `ScriptActions::doNamedSetUnmanned` / `doTeamSetUnmanned` /
     /// `deleteAllUnmanned`. Leftover queues [`gamelogic::scripting::HostScriptUnmannedRequest`].
     pub(in crate::game_logic::game_logic) fn apply_host_unmanned_script_requests(&mut self) {
+        self.apply_host_unmanned_script_requests_with_effects(&mut Default::default())
+    }
+
+    pub(in crate::game_logic::game_logic) fn apply_host_unmanned_script_requests_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         use gamelogic::scripting::HostScriptUnmannedRequest;
         for req in gamelogic::scripting::take_host_script_unmanned_requests() {
             match req {
@@ -327,7 +350,7 @@ impl GameLogic {
                         .map(|obj| obj.id)
                         .collect();
                     for id in ids {
-                        self.destroy_object(id);
+                        self.destroy_object_with_effects(id, effects);
                     }
                 }
             }
@@ -451,6 +474,15 @@ impl GameLogic {
     /// C++ `TheThingFactory->newObject(thing, obj->getTeam())` then
     /// `StickyBombUpdate::initStickyBomb(obj, NULL, &perimeterPos)`.
     pub(super) fn host_script_plant_boobytrap(&mut self, thing: &str, target_id: ObjectId) {
+        self.host_script_plant_boobytrap_with_effects(thing, target_id, &mut Default::default())
+    }
+
+    pub(super) fn host_script_plant_boobytrap_with_effects(
+        &mut self,
+        thing: &str,
+        target_id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         use crate::game_logic::host_booby_trap::BOOBY_TRAP_OBJECT;
 
         let thing = thing.trim();
@@ -480,9 +512,11 @@ impl GameLogic {
         let frame = self.frame;
 
         let charge = if self.templates.contains_key(thing) {
-            self.create_object_for_owner_or_team(thing, team, owner, pos)
+            self.create_object_for_owner_or_team_with_effects(
+                thing, team, owner, pos, None, effects,
+            )
         } else if thing.eq_ignore_ascii_case(BOOBY_TRAP_OBJECT) {
-            self.spawn_booby_trap_special_object(target_id, team, target_id)
+            self.spawn_booby_trap_special_object_with_effects(target_id, team, target_id, effects)
         } else {
             None
         };
@@ -522,6 +556,13 @@ impl GameLogic {
     /// C++ SKIRMISH_ATTACK_NEAREST_GROUP_WITH_VALUE /
     /// SKIRMISH_PERFORM_COMMANDBUTTON_ON_MOST_VALUABLE_OBJECT.
     pub(super) fn apply_host_skirmish_fight_script_requests(&mut self) {
+        self.apply_host_skirmish_fight_script_requests_with_effects(&mut Default::default())
+    }
+
+    pub(super) fn apply_host_skirmish_fight_script_requests_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let attacks = gamelogic::scripting::take_host_skirmish_attack_nearest_group_requests();
         for (team, comparison, value) in attacks {
             let members = self.host_script_team_member_ids(&team);
@@ -557,7 +598,7 @@ impl GameLogic {
                 }
             }
             for id in members {
-                let _ = self.unit_command_attack_move_to(id, dest);
+                let _ = self.unit_command_attack_move_to_with_effects(id, dest, effects);
             }
         }
 
@@ -1362,6 +1403,13 @@ impl GameLogic {
 
     /// C++ enter/garrison/exit family live drain (`aiEnter` / `aiEvacuate` / `aiExit`).
     pub fn apply_host_garrison_enter_exit_script_requests(&mut self) {
+        self.apply_host_garrison_enter_exit_script_requests_with_effects(&mut Default::default())
+    }
+
+    pub(crate) fn apply_host_garrison_enter_exit_script_requests_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         use gamelogic::scripting::HostScriptGarrisonEnterExitRequest;
         for req in gamelogic::scripting::take_host_script_garrison_enter_requests() {
             match req {
@@ -1387,11 +1435,11 @@ impl GameLogic {
                     let Some(id) = self.host_object_id_by_script_name(&unit) else {
                         continue;
                     };
-                    self.host_script_ai_evacuate(id);
+                    self.host_script_ai_evacuate_with_effects(id, effects);
                 }
                 HostScriptGarrisonEnterExitRequest::TeamExitAll { team } => {
                     for id in self.host_script_garrison_team_member_ids(&team) {
-                        self.host_script_ai_evacuate(id);
+                        self.host_script_ai_evacuate_with_effects(id, effects);
                     }
                 }
                 HostScriptGarrisonEnterExitRequest::TeamGarrisonSpecific { team, building } => {
@@ -1419,14 +1467,14 @@ impl GameLogic {
                     {
                         continue;
                     }
-                    self.host_script_ai_evacuate(id);
+                    self.host_script_ai_evacuate_with_effects(id, effects);
                 }
                 HostScriptGarrisonEnterExitRequest::TeamGarrisonNearest { team } => {
                     self.host_script_team_garrison_nearest(&team);
                 }
                 HostScriptGarrisonEnterExitRequest::TeamExitAllBuildings { team } => {
                     for id in self.host_script_garrison_team_member_ids(&team) {
-                        self.host_script_ai_exit(id);
+                        self.host_script_ai_exit_with_effects(id, effects);
                     }
                 }
                 HostScriptGarrisonEnterExitRequest::NamedGarrisonSpecific { unit, building } => {
@@ -1449,13 +1497,13 @@ impl GameLogic {
                     let Some(id) = self.host_object_id_by_script_name(&unit) else {
                         continue;
                     };
-                    self.host_script_ai_exit(id);
+                    self.host_script_ai_exit_with_effects(id, effects);
                 }
                 HostScriptGarrisonEnterExitRequest::PlayerGarrisonAll { player } => {
                     self.host_script_player_garrison_all(&player);
                 }
                 HostScriptGarrisonEnterExitRequest::PlayerExitAll { player } => {
-                    self.host_script_player_exit_all(&player);
+                    self.host_script_player_exit_all_with_effects(&player, effects);
                 }
             }
         }
@@ -1526,12 +1574,28 @@ impl GameLogic {
     }
 
     pub(super) fn host_script_ai_evacuate(&mut self, id: ObjectId) {
+        self.host_script_ai_evacuate_with_effects(id, &mut Default::default())
+    }
+
+    pub(super) fn host_script_ai_evacuate_with_effects(
+        &mut self,
+        id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         self.host_object_leave_group(id);
         let _ = self.apply_unit_locomotor_set(id, "normal");
-        let _ = self.evacuate_container_now(id, false);
+        let _ = self.evacuate_container_now_with_effects(id, false, effects);
     }
 
     pub(super) fn host_script_ai_exit(&mut self, id: ObjectId) {
+        self.host_script_ai_exit_with_effects(id, &mut Default::default());
+    }
+
+    pub(super) fn host_script_ai_exit_with_effects(
+        &mut self,
+        id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         self.host_object_leave_group(id);
         let _ = self.apply_unit_locomotor_set(id, "normal");
         let Some(cid) = self.host_object(id).and_then(|obj| obj.contained_by) else {
@@ -1541,7 +1605,7 @@ impl GameLogic {
             .host_object(cid)
             .map(|obj| obj.get_position())
             .unwrap_or(glam::Vec3::ZERO);
-        let _ = self.unit_command_exit_drop(id, pos);
+        let _ = self.unit_command_exit_drop_with_effects(id, pos, effects);
     }
 
     pub(super) fn host_script_is_garrison_nearest_candidate(
@@ -1746,6 +1810,14 @@ impl GameLogic {
     }
 
     pub(super) fn host_script_player_exit_all(&mut self, player: &str) {
+        self.host_script_player_exit_all_with_effects(player, &mut Default::default())
+    }
+
+    pub(super) fn host_script_player_exit_all_with_effects(
+        &mut self,
+        player: &str,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         use crate::game_logic::KindOf;
         let Some(pid) = self.host_player_id_for_script_token(player) else {
             return;
@@ -1762,7 +1834,7 @@ impl GameLogic {
             .map(|obj| obj.id)
             .collect();
         for id in ids {
-            self.host_script_ai_evacuate(id);
+            self.host_script_ai_evacuate_with_effects(id, effects);
         }
     }
 
@@ -2257,6 +2329,21 @@ impl GameLogic {
         area: &str,
         this_object: Option<ObjectId>,
     ) {
+        self.apply_owned_named_attack_area_with_effects(
+            unit,
+            area,
+            this_object,
+            &mut Default::default(),
+        )
+    }
+
+    pub(super) fn apply_owned_named_attack_area_with_effects(
+        &mut self,
+        unit: &str,
+        area: &str,
+        this_object: Option<ObjectId>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let Some(id) = self.owned_named_script_object(unit, this_object) else {
             return;
         };
@@ -2271,10 +2358,19 @@ impl GameLogic {
             .unwrap()
             .set_formation(0, glam::Vec2::ZERO);
         self.apply_unit_locomotor_set(id, "normal");
-        self.host_script_attack_area(id, area);
+        self.host_script_attack_area_with_effects(id, area, effects);
     }
 
     pub(super) fn host_script_attack_area(&mut self, unit_id: ObjectId, area_name: &str) {
+        self.host_script_attack_area_with_effects(unit_id, area_name, &mut Default::default())
+    }
+
+    pub(super) fn host_script_attack_area_with_effects(
+        &mut self,
+        unit_id: ObjectId,
+        area_name: &str,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let tag = format!("AIGroup.AttackArea.poly:{area_name}");
         let center = self
             .host_named_guard_area_polygon(area_name)
@@ -2296,7 +2392,7 @@ impl GameLogic {
                 unit.attack_priority_set = Some(tag);
             }
         } else if let Some(dest) = center {
-            let _ = self.unit_command_script_attack_move_to(unit_id, dest);
+            let _ = self.unit_command_script_attack_move_to_with_effects(unit_id, dest, effects);
             if let Some(unit) = self.objects.get_mut(&unit_id) {
                 unit.attack_priority_set = Some(tag);
             }

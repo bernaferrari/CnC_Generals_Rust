@@ -53,7 +53,11 @@ impl<'a> HostScriptExecutionDriver<'a> {
         interpreter: &'a gamelogic::scripting::engine::ScriptEngine,
         mut ui: Option<&'a mut dyn crate::game_logic::ScriptUiEffects>,
     ) -> Self {
-        let effects = crate::game_logic::ScriptPresentationEffects { ui: ui, view: None };
+        let effects = crate::game_logic::ScriptPresentationEffects {
+            terrain: None,
+            ui: ui,
+            view: None,
+        };
         Self::with_effects(world, interpreter, effects)
     }
 
@@ -223,12 +227,13 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         calling: Option<u32>,
         condition: Option<u32>,
     ) -> Option<gamelogic::GameLogicResult<()>> {
-        Some(self.world.apply_owned_script_lifecycle(
+        Some(self.world.apply_owned_script_lifecycle_with_effects(
             request,
             this_object.map(ObjectId),
             calling,
             condition,
             self.interpreter,
+            &mut self.ui,
         ))
     }
 
@@ -238,8 +243,11 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         current: Option<&str>,
     ) -> Option<gamelogic::GameLogicResult<()>> {
         if let Some(id) = self.script_player_id(player, current) {
-            self.world
-                .kill_player_with_interpreter(id, self.interpreter);
+            self.world.kill_player_with_interpreter_with_effects(
+                id,
+                self.interpreter,
+                &mut self.ui,
+            );
         }
         Some(Ok(()))
     }
@@ -358,7 +366,8 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
                     };
                     for id in ids {
                         if matches!(request, Unmanned::DeleteAll) {
-                            self.world.destroy_object(ObjectId(id));
+                            self.world
+                                .destroy_object_with_effects(ObjectId(id), &mut self.ui);
                         } else {
                             self.world.host_script_set_unmanned(ObjectId(id));
                         }
@@ -616,10 +625,14 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         calling: Option<u32>,
         condition: Option<u32>,
     ) -> Option<gamelogic::GameLogicResult<()>> {
-        Some(
-            self.world
-                .apply_owned_team_damage(team, amount, calling, condition, self.interpreter),
-        )
+        Some(self.world.apply_owned_team_damage_with_effects(
+            team,
+            amount,
+            calling,
+            condition,
+            self.interpreter,
+            &mut self.ui,
+        ))
     }
     fn team_attack_team(
         &mut self,
@@ -678,7 +691,8 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         current_player: Option<&str>,
     ) -> Option<gamelogic::GameLogicResult<()>> {
         if let Some(player) = self.script_player_id(player, current_player) {
-            self.world.apply_owned_sell_everything(player);
+            self.world
+                .apply_owned_sell_everything_with_effects(player, &mut self.ui);
         }
         Some(Ok(()))
     }
@@ -708,8 +722,12 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         let Some(area) = self.qualified_area(area, current_player) else {
             return Some(Ok(()));
         };
-        self.world
-            .apply_owned_named_attack_area(unit, &area, this_object.map(ObjectId));
+        self.world.apply_owned_named_attack_area_with_effects(
+            unit,
+            &area,
+            this_object.map(ObjectId),
+            &mut self.ui,
+        );
         Some(Ok(()))
     }
 
@@ -1309,10 +1327,13 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         condition: Option<gamelogic::team::TeamID>,
         disband: bool,
     ) -> Option<gamelogic::GameLogicResult<()>> {
-        Some(
-            self.world
-                .apply_owned_team_stop(team, calling, condition, disband),
-        )
+        Some(self.world.apply_owned_team_stop_with_effects(
+            team,
+            calling,
+            condition,
+            disband,
+            &mut self.ui,
+        ))
     }
 
     fn team_attitude(
@@ -1512,18 +1533,22 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
             .find(|object| !object.name.is_empty() && object.name.eq_ignore_ascii_case(name))
             .map(|object| object.id);
         if let Some(id) = id {
-            self.world.host_script_damage_with_interpreter(
+            self.world.host_script_damage_with_interpreter_with_effects(
                 id,
                 amount as f32,
                 false,
                 self.interpreter,
+                &mut self.ui,
             );
         }
         Some(Ok(()))
     }
 
     fn water(&mut self, request: ScriptWaterRequest<'_>) -> Option<gamelogic::GameLogicResult<()>> {
-        Some(self.world.apply_owned_script_water(request))
+        Some(
+            self.world
+                .apply_owned_script_water_with_effects(request, &mut self.ui),
+        )
     }
 
     fn ai_player(
@@ -2232,6 +2257,7 @@ impl GameLogic {
         ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
     ) {
         let mut effects = crate::game_logic::ScriptPresentationEffects {
+            terrain: None,
             ui: ui
                 .as_mut()
                 .map(|ui| &mut **ui as &mut dyn crate::game_logic::ScriptUiEffects),

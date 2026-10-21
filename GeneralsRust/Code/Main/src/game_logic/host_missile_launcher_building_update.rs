@@ -471,7 +471,7 @@ mod tests {
             .unwrap()
             + native_start;
         let native_door = &native[native_start..native_end];
-        assert!(native_door.contains("Self::with_host_fx_view_parts("));
+        assert!(native_door.contains("Self::with_host_fx_view_parts_and_terrain("));
         assert!(native_door.contains("&mut self.session_view"));
         assert!(native_door.contains("Self::dispatch_object_phase_fx_with_view("));
         assert!(

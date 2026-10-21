@@ -9,6 +9,14 @@ impl GameLogic {
     /// This method extracts all data needed for UI rendering each frame
     /// Matches pattern from C++ InGameUI::preDraw() (InGameUI.h line 466)
     pub fn update_ui_state(&mut self, player_id: u32) -> crate::ui::GameUIState {
+        self.update_ui_state_with_effects(player_id, &mut Default::default())
+    }
+
+    pub(crate) fn update_ui_state_with_effects(
+        &mut self,
+        player_id: u32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> crate::ui::GameUIState {
         use crate::ui::{
             BuildQueueEntry, GameUIState, MinimapDot, RadarMessageEntry, RadarPing, RadarPingKind,
             UnitDisplayInfo,
@@ -20,7 +28,7 @@ impl GameLogic {
         // highlight bibs left by the last blocked preview frame are stale and
         // must go (the audit's persistent yellow grid).
         if !Self::placement_preview_pending() {
-            self.clear_placement_highlight_bibs();
+            self.clear_placement_highlight_bibs_with_effects(effects);
         }
 
         // Get player associated with the current viewport/camera
@@ -504,6 +512,7 @@ impl GameLogic {
         ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
     ) {
         let mut effects = crate::game_logic::ScriptPresentationEffects {
+            terrain: None,
             ui: ui
                 .as_mut()
                 .map(|ui| &mut **ui as &mut dyn crate::game_logic::ScriptUiEffects),
@@ -617,15 +626,33 @@ impl GameLogic {
         template_name: &str,
         builder_id: Option<ObjectId>,
     ) -> u32 {
+        self.legal_build_code_at_for_builder_with_effects(
+            team,
+            position,
+            template_name,
+            builder_id,
+            &mut Default::default(),
+        )
+    }
+
+    pub(crate) fn legal_build_code_at_for_builder_with_effects(
+        &self,
+        team: Team,
+        position: glam::Vec3,
+        template_name: &str,
+        builder_id: Option<ObjectId>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> u32 {
         use crate::game_logic::host_production_buildable_command_residual::{
             LOCAL_LEGAL_FAIL_STEALTHED_WITHOUT_FEEDBACK, LOCAL_LEGAL_IGNORE_STEALTHED,
         };
-        self.legal_build_code_at_for_builder_ex(
+        self.legal_build_code_at_for_builder_ex_with_effects(
             team,
             position,
             template_name,
             builder_id,
             LOCAL_LEGAL_IGNORE_STEALTHED | LOCAL_LEGAL_FAIL_STEALTHED_WITHOUT_FEEDBACK,
+            effects,
         )
     }
 
@@ -637,13 +664,31 @@ impl GameLogic {
         template_name: &str,
         builder_id: Option<ObjectId>,
     ) -> u32 {
+        self.legal_build_code_at_for_preview_with_effects(
+            team,
+            position,
+            template_name,
+            builder_id,
+            &mut Default::default(),
+        )
+    }
+
+    pub(crate) fn legal_build_code_at_for_preview_with_effects(
+        &self,
+        team: Team,
+        position: glam::Vec3,
+        template_name: &str,
+        builder_id: Option<ObjectId>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> u32 {
         use crate::game_logic::host_production_buildable_command_residual::LOCAL_LEGAL_IGNORE_STEALTHED;
-        self.legal_build_code_at_for_builder_ex(
+        self.legal_build_code_at_for_builder_ex_with_effects(
             team,
             position,
             template_name,
             builder_id,
             LOCAL_LEGAL_IGNORE_STEALTHED,
+            effects,
         )
     }
 
@@ -655,16 +700,36 @@ impl GameLogic {
         builder_id: Option<ObjectId>,
         options: u32,
     ) -> u32 {
+        self.legal_build_code_at_for_builder_ex_with_effects(
+            team,
+            position,
+            template_name,
+            builder_id,
+            options,
+            &mut Default::default(),
+        )
+    }
+
+    pub(crate) fn legal_build_code_at_for_builder_ex_with_effects(
+        &self,
+        team: Team,
+        position: glam::Vec3,
+        template_name: &str,
+        builder_id: Option<ObjectId>,
+        options: u32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> u32 {
         // Existing angleless callers retain their authored view-angle policy.
         // Resolve it once; explicit commands bypass this compatibility route.
         let orientation = leftover_placement_view_angle(template_name);
-        self.legal_build_code_at_angle_for_builder_ex(
+        self.legal_build_code_at_angle_for_builder_ex_with_effects(
             team,
             position,
             template_name,
             orientation,
             builder_id,
             options,
+            effects,
         )
     }
 
@@ -679,6 +744,27 @@ impl GameLogic {
         orientation: f32,
         builder_id: Option<ObjectId>,
         options: u32,
+    ) -> u32 {
+        self.legal_build_code_at_angle_for_builder_ex_with_effects(
+            team,
+            position,
+            template_name,
+            orientation,
+            builder_id,
+            options,
+            &mut Default::default(),
+        )
+    }
+
+    pub(crate) fn legal_build_code_at_angle_for_builder_ex_with_effects(
+        &self,
+        team: Team,
+        position: glam::Vec3,
+        template_name: &str,
+        orientation: f32,
+        builder_id: Option<ObjectId>,
+        options: u32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> u32 {
         use crate::game_logic::host_production_buildable_command_residual::{
             STRUCTURE_PLACE_CLEARANCE_RESIDUAL, cell_shroud_blocks_build_residual,
@@ -893,7 +979,7 @@ impl GameLogic {
         // unboundedly and stale highlight rectangles disappear as soon as the
         // cursor leaves the blocked spot.
         if !busy_ally_in_way {
-            self.bib_blocking_objects_for_build(position, &blocker_ids);
+            self.bib_blocking_objects_for_build_with_effects(position, &blocker_ids, effects);
         }
         // KINDOF_CANNOT_BUILD_NEAR_SUPPLIES bit, rather than assigning the
         // rule to every supply-looking basename.
@@ -961,14 +1047,23 @@ impl GameLogic {
         _position: glam::Vec3,
         blocker_ids: &[ObjectId],
     ) {
-        #[cfg(feature = "game_client")]
+        self.bib_blocking_objects_for_build_with_effects(
+            _position,
+            blocker_ids,
+            &mut Default::default(),
+        )
+    }
+
+    pub(crate) fn bib_blocking_objects_for_build_with_effects(
+        &self,
+        _position: glam::Vec3,
+        blocker_ids: &[ObjectId],
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
+        let Some(visual) = effects.terrain.as_mut() else {
+            return;
+        };
         {
-            let Ok(mut guard) = game_client::terrain::terrain_visual::get_terrain_visual() else {
-                return;
-            };
-            let Some(visual) = guard.as_mut() else {
-                return;
-            };
             for id in blocker_ids {
                 let Some(obj) = self.objects.get(id) else {
                     continue;
@@ -993,27 +1088,12 @@ impl GameLogic {
                         (r, r, false)
                     }
                 };
-                let _ = visual.add_faction_bib(
-                    id.0,
-                    game_client::terrain::terrain_visual::TerrainBibOwnerKind::Object,
-                    transform,
-                    major,
-                    minor,
-                    is_box,
-                    0.0,
-                    0.0,
-                    true,
-                    0.0,
-                );
+                visual.placement_bib(id.0, transform, major, minor, is_box);
             }
             // Bound the session: drop Object-kind bibs that were added by
             // earlier preview frames but are no longer in the blocker set.
             let owners: Vec<u32> = blocker_ids.iter().map(|id| id.0).collect();
-            visual.retain_placement_highlight_bibs(&owners);
-        }
-        #[cfg(not(feature = "game_client"))]
-        {
-            let _ = blocker_ids;
+            visual.retain_placement_bibs(&owners);
         }
     }
 
@@ -1026,14 +1106,15 @@ impl GameLogic {
     ///     placement is pending, so a last-frame blocked preview cannot leave
     ///     highlight rectangles behind (the audit's yellow grid).
     pub(crate) fn clear_placement_highlight_bibs(&self) {
-        #[cfg(feature = "game_client")]
-        {
-            let Ok(mut guard) = game_client::terrain::terrain_visual::get_terrain_visual() else {
-                return;
-            };
-            if let Some(visual) = guard.as_mut() {
-                visual.clear_placement_highlight_bibs();
-            }
+        self.clear_placement_highlight_bibs_with_effects(&mut Default::default())
+    }
+
+    pub(crate) fn clear_placement_highlight_bibs_with_effects(
+        &self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
+        if let Some(visual) = effects.terrain.as_mut() {
+            visual.clear_placement_bibs();
         }
     }
 
@@ -1146,12 +1227,30 @@ impl GameLogic {
         orientation: f32,
         builder_id: Option<ObjectId>,
     ) -> bool {
-        self.move_objects_for_construction_with_candidates(
+        self.move_objects_for_construction_with_effects(
+            template_name,
+            location,
+            orientation,
+            builder_id,
+            &mut Default::default(),
+        )
+    }
+
+    pub(crate) fn move_objects_for_construction_with_effects(
+        &mut self,
+        template_name: &str,
+        location: glam::Vec3,
+        orientation: f32,
+        builder_id: Option<ObjectId>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
+        self.move_objects_for_construction_with_candidates_with_effects(
             template_name,
             location,
             orientation,
             builder_id,
             None,
+            effects,
         )
     }
 
@@ -1168,6 +1267,25 @@ impl GameLogic {
         orientation: f32,
         builder_id: Option<ObjectId>,
         eligible_candidates: Option<&std::collections::HashSet<ObjectId>>,
+    ) -> bool {
+        self.move_objects_for_construction_with_candidates_with_effects(
+            template_name,
+            location,
+            orientation,
+            builder_id,
+            eligible_candidates,
+            &mut Default::default(),
+        )
+    }
+
+    pub(crate) fn move_objects_for_construction_with_candidates_with_effects(
+        &mut self,
+        template_name: &str,
+        location: glam::Vec3,
+        orientation: f32,
+        builder_id: Option<ObjectId>,
+        eligible_candidates: Option<&std::collections::HashSet<ObjectId>>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> bool {
         use game_engine::common::system::kind_of::KindOfMask;
         let builder = builder_id.and_then(|id| self.objects.get(&id)).cloned();
@@ -1280,7 +1398,7 @@ impl GameLogic {
         // (InGameUI::destroyPlacementIcons removeAllBibs on placement end).
         let moved = !any_unmovables;
         if moved {
-            self.clear_placement_highlight_bibs();
+            self.clear_placement_highlight_bibs_with_effects(effects);
         }
         moved
     }
@@ -1323,7 +1441,11 @@ impl GameLogic {
     /// C++ DozerAIUpdate.cpp:1692-1696 flattenTerrain + getGroundHeight Z snap.
     /// C++ `TerrainLogic::flattenTerrain` uses GEOMETRY_BOX two-triangle coverage
     /// (TerrainLogic.cpp:2620-2746); cylinder/sphere uses majorRadius disk.
-    pub(in super::super) fn flatten_and_snap_construction(&mut self, id: ObjectId) {
+    pub(in super::super) fn flatten_and_snap_construction(
+        &mut self,
+        id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let Some(obj) = self.objects.get(&id) else {
             return;
         };
@@ -1333,6 +1455,11 @@ impl GameLogic {
         let radius = Self::structure_place_radius(obj).max(1.0);
         // C++ flattenTerrain returns immediately for GeometryIsSmall.
         let skip_flatten = geom.authored && geom.is_small;
+        let mut accepted_height = |change| {
+            if let Some(receiver) = effects.terrain.as_mut() {
+                receiver.accepted_height(change);
+            }
+        };
         let snapped_height = {
             let mut terrain = self
                 .world_services
@@ -1344,17 +1471,34 @@ impl GameLogic {
                     if geom.authored
                         && matches!(geom.geom_type, crate::game_logic::HostGeometryType::Box)
                     {
-                        terrain.flatten_terrain_box_at(
+                        if let Err(error) = terrain.flatten_terrain_box_at_with_effects(
                             pos.x,
                             pos.z,
                             angle,
                             geom.major_radius,
                             geom.minor_radius,
-                        );
+                            &mut accepted_height,
+                        ) {
+                            log::warn!("construction terrain flatten rejected: {error}");
+                        }
                     } else if geom.authored {
-                        terrain.flatten_terrain_at(pos.x, pos.z, geom.major_radius);
+                        if let Err(error) = terrain.flatten_terrain_at_with_effects(
+                            pos.x,
+                            pos.z,
+                            geom.major_radius,
+                            &mut accepted_height,
+                        ) {
+                            log::warn!("construction terrain flatten rejected: {error}");
+                        }
                     } else {
-                        terrain.flatten_terrain_at(pos.x, pos.z, radius);
+                        if let Err(error) = terrain.flatten_terrain_at_with_effects(
+                            pos.x,
+                            pos.z,
+                            radius,
+                            &mut accepted_height,
+                        ) {
+                            log::warn!("construction terrain flatten rejected: {error}");
+                        }
                     }
                 }
                 Some(terrain.get_ground_height(pos.x, pos.z, None))
@@ -1366,10 +1510,14 @@ impl GameLogic {
         // Source order remains flatten -> snap -> pathfinder admission.
         if let Some(h) = snapped_height.or_else(|| self.terrain_height_at(pos)) {
             if let Some(obj) = self.objects.get_mut(&id) {
-                obj.set_position(glam::Vec3::new(pos.x, h, pos.z));
+                obj.set_position_with_effects(
+                    glam::Vec3::new(pos.x, h, pos.z),
+                    self.frame,
+                    effects,
+                );
             }
         }
-        self.sweep_under_construction_footprint_mines(id);
+        self.sweep_under_construction_footprint_mines_with_effects(id, effects);
     }
 
     /// C++ AIUpdateInterface::isQuickPathAvailable residual (simplified host pathfind).
@@ -1478,7 +1626,28 @@ impl GameLogic {
         position: glam::Vec3,
         template_name: &str,
     ) -> bool {
-        self.is_location_legal_to_build_for_builder(team, position, template_name, None)
+        self.is_location_legal_to_build_with_effects(
+            team,
+            position,
+            template_name,
+            &mut Default::default(),
+        )
+    }
+
+    pub(crate) fn is_location_legal_to_build_with_effects(
+        &self,
+        team: Team,
+        position: glam::Vec3,
+        template_name: &str,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
+        self.is_location_legal_to_build_for_builder_with_effects(
+            team,
+            position,
+            template_name,
+            None,
+            effects,
+        )
     }
 
     /// Confirm placement using the caller's explicit footprint orientation.
@@ -1490,16 +1659,36 @@ impl GameLogic {
         orientation: f32,
         builder_id: Option<ObjectId>,
     ) -> bool {
+        self.is_location_legal_to_build_at_angle_for_builder_with_effects(
+            team,
+            position,
+            template_name,
+            orientation,
+            builder_id,
+            &mut Default::default(),
+        )
+    }
+
+    pub(crate) fn is_location_legal_to_build_at_angle_for_builder_with_effects(
+        &self,
+        team: Team,
+        position: glam::Vec3,
+        template_name: &str,
+        orientation: f32,
+        builder_id: Option<ObjectId>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
         use crate::game_logic::host_production_buildable_command_residual::{
             LBC_OK, LOCAL_LEGAL_FAIL_STEALTHED_WITHOUT_FEEDBACK, LOCAL_LEGAL_IGNORE_STEALTHED,
         };
-        self.legal_build_code_at_angle_for_builder_ex(
+        self.legal_build_code_at_angle_for_builder_ex_with_effects(
             team,
             position,
             template_name,
             orientation,
             builder_id,
             LOCAL_LEGAL_IGNORE_STEALTHED | LOCAL_LEGAL_FAIL_STEALTHED_WITHOUT_FEEDBACK,
+            effects,
         ) == LBC_OK
     }
 
@@ -1510,8 +1699,31 @@ impl GameLogic {
         template_name: &str,
         builder_id: Option<ObjectId>,
     ) -> bool {
+        self.is_location_legal_to_build_for_builder_with_effects(
+            team,
+            position,
+            template_name,
+            builder_id,
+            &mut Default::default(),
+        )
+    }
+
+    pub(crate) fn is_location_legal_to_build_for_builder_with_effects(
+        &self,
+        team: Team,
+        position: glam::Vec3,
+        template_name: &str,
+        builder_id: Option<ObjectId>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
         use crate::game_logic::host_production_buildable_command_residual::LBC_OK;
-        self.legal_build_code_at_for_builder(team, position, template_name, builder_id) == LBC_OK
+        self.legal_build_code_at_for_builder_with_effects(
+            team,
+            position,
+            template_name,
+            builder_id,
+            effects,
+        ) == LBC_OK
     }
 
     /// Count living/under-construction Superweapon-link-key objects for a team residual.

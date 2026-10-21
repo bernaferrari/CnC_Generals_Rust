@@ -146,8 +146,8 @@ fn collector_joins_completed_bundle_before_meshes_and_never_queries_live_snapsho
     assert!(!source.contains("presentation_specialized_draw_snapshot("));
     let capture = include_str!("../../cnc_game_engine/camera_drain.rs");
     let sync = capture
-        .find("sync_presentation_drawables(sync_entries)")
-        .unwrap();
+        .find(".sync_presentation_drawables_observed(sync_entries, sync_ms,")
+        .expect("receiving drawable synchronization");
     let capture = capture.find(".capture_specialized_draw_inputs(").unwrap();
     assert!(sync < capture);
 }

@@ -92,29 +92,9 @@ impl GameLogic {
     pub(in super::super) fn apply_map_object_scorch(
         obj: &super::script_loader::PlacedObject,
     ) -> bool {
-        use game_engine::common::dict::DictType;
-        use game_engine::common::name_key_generator::NameKeyGenerator;
-
-        let scorch_key = NameKeyGenerator::name_to_key("scorchType");
-        if obj.properties.get_type(scorch_key).is_none() {
-            return false;
-        }
-        let scorch_type = match obj.properties.get_type(scorch_key) {
-            Some(DictType::Int) => obj.properties.get_int(scorch_key),
-            Some(DictType::Real) => obj.properties.get_real(scorch_key) as i32,
-            _ => 0,
-        };
-        let radius_key = NameKeyGenerator::name_to_key("objectRadius");
-        let radius = match obj.properties.get_type(radius_key) {
-            Some(DictType::Real) => obj.properties.get_real(radius_key),
-            Some(DictType::Int) => obj.properties.get_int(radius_key) as f32,
-            _ => 0.0,
-        };
-        let loc = gamelogic::common::Coord3D::new(obj.position.x, obj.position.y, obj.position.z);
-        if let Some(client) = gamelogic::helpers::TheGameClient::get() {
-            client.add_scorch(&loc, radius, scorch_type);
-        }
-        true
+        // Classification only. The immutable map definition is admitted by
+        // the receiving native terrain owner, never by detached world loading.
+        obj.terrain_scorch().is_some()
     }
 
     /// C++ `Object::updateObjValuesFromMapProperties` at live map spawn.
@@ -123,6 +103,19 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
         properties: &game_engine::common::dict::Dict,
+    ) {
+        self.apply_update_obj_values_from_map_properties_with_effects(
+            id,
+            properties,
+            &mut Default::default(),
+        )
+    }
+
+    pub(in super::super) fn apply_update_obj_values_from_map_properties_with_effects(
+        &mut self,
+        id: ObjectId,
+        properties: &game_engine::common::dict::Dict,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         use game_engine::common::dict::DictType;
         use game_engine::common::name_key_generator::NameKeyGenerator;
@@ -262,7 +255,7 @@ impl GameLogic {
             grant_upgrades.push(upgrade_name);
         }
         for upgrade_name in grant_upgrades {
-            self.apply_upgrade_to_object(id, &upgrade_name);
+            self.apply_upgrade_to_object_with_effects(id, &upgrade_name, effects);
         }
 
         if let Some(time_val) = get_int(well_known_keys::key_object_time()) {
@@ -350,8 +343,17 @@ impl GameLogic {
         object_id: ObjectId,
         ability: PendingSpecialAbility,
     ) {
+        self.queue_pending_special_ability_with_effects(object_id, ability, &mut Default::default())
+    }
+
+    pub(crate) fn queue_pending_special_ability_with_effects(
+        &mut self,
+        object_id: ObjectId,
+        ability: PendingSpecialAbility,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         if Self::leftover_sa_exclusive_pending(ability) {
-            self.abort_leftover_sa_channel_on_new_order(object_id);
+            self.abort_leftover_sa_channel_on_new_order_with_effects(object_id, effects);
         }
         self.pending_special_abilities.insert(object_id, ability);
     }
@@ -1039,6 +1041,21 @@ impl GameLogic {
         height: u32,
         heights: &[f32],
     ) -> bool {
+        self.restore_terrain_heights_from_grid_with_effects(
+            width,
+            height,
+            heights,
+            &mut Default::default(),
+        )
+    }
+
+    pub(crate) fn restore_terrain_heights_from_grid_with_effects(
+        &mut self,
+        width: u32,
+        height: u32,
+        heights: &[f32],
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
         let expected_len = (width as usize).saturating_mul(height as usize);
         if width == 0 || height == 0 || heights.len() != expected_len {
             return false;
@@ -1080,7 +1097,7 @@ impl GameLogic {
             );
             self.terrain = Some(terrain);
             self.copy_crate_water_into_host_terrain();
-            self.seed_pathfinding_from_terrain();
+            self.seed_pathfinding_from_terrain_with_effects(effects);
             let wall_height = self.pathfind_ai_rules().wall_height;
             ({
                 let ground_owner = self.world_services.terrain();
@@ -1122,9 +1139,16 @@ impl GameLogic {
     /// Re-apply structure footprints onto the static path/LOS grid.
     /// Call after map object spawn bulk and when a structure dies.
     pub fn sync_structure_path_blocks(&mut self) {
+        self.sync_structure_path_blocks_with_effects(&mut Default::default())
+    }
+
+    pub(crate) fn sync_structure_path_blocks_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let had_terrain = self.terrain.is_some();
         if had_terrain {
-            self.seed_pathfinding_from_terrain();
+            self.seed_pathfinding_from_terrain_with_effects(effects);
             let wall_height = self.pathfind_ai_rules().wall_height;
             ({
                 let ground_owner = self.world_services.terrain();
@@ -1207,8 +1231,15 @@ impl GameLogic {
             .is_static_blocked(super::pathfinding::GridPos::new(x, y))
     }
     pub(in super::super) fn seed_pathfinding_from_terrain(&mut self) {
-        self.register_landmark_bridges_from_spawned_objects();
-        self.ensure_generic_bridge_objects();
+        self.seed_pathfinding_from_terrain_with_effects(&mut Default::default())
+    }
+
+    pub(in super::super) fn seed_pathfinding_from_terrain_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
+        self.register_landmark_bridges_from_spawned_objects_with_effects(effects);
+        self.ensure_generic_bridge_objects_with_effects(effects);
         let owner = self.world_services.terrain().clone();
         let terrain = owner.read().unwrap_or_else(|e| e.into_inner());
         self.reclassify_pathfinding_from_terrain(&terrain);
@@ -1267,8 +1298,15 @@ impl GameLogic {
     }
 
     pub(in super::super) fn stamp_live_bridge_decks_and_zones(&mut self) {
-        self.register_landmark_bridges_from_spawned_objects();
-        self.ensure_generic_bridge_objects();
+        self.stamp_live_bridge_decks_and_zones_with_effects(&mut Default::default())
+    }
+
+    pub(in super::super) fn stamp_live_bridge_decks_and_zones_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
+        self.register_landmark_bridges_from_spawned_objects_with_effects(effects);
+        self.ensure_generic_bridge_objects_with_effects(effects);
         self.pathfinding_system.grid.pinch_tighten_cliffs();
         self.refresh_owned_bridge_pathfinder_states();
         self.pathfinding_system.grid.rebuild_terrain_zones();
@@ -1276,6 +1314,13 @@ impl GameLogic {
     }
 
     pub(crate) fn ensure_generic_bridge_objects(&mut self) {
+        self.ensure_generic_bridge_objects_with_effects(&mut Default::default())
+    }
+
+    pub(crate) fn ensure_generic_bridge_objects_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let mut jobs = Vec::new();
         let owner = self.world_services.terrain().clone();
         if let Ok(tl) = owner.read() {
@@ -1296,7 +1341,13 @@ impl GameLogic {
             let cy = (info.from_left.y + info.to_right.y) * 0.5;
             let cz = (info.from_left.z + info.to_right.z) * 0.5;
             let pos = Vec3::new(cx, cz, cy);
-            let Some(id) = self.create_object("GenericBridge", Team::Neutral, pos) else {
+            let Some(id) = self.create_object_with_script_effects(
+                "GenericBridge",
+                Team::Neutral,
+                pos,
+                None,
+                effects,
+            ) else {
                 continue;
             };
             let angle =
@@ -1359,6 +1410,13 @@ impl GameLogic {
 
     /// Safety net for objects not in `spawned_map_object_ids` (side builds).
     pub(crate) fn register_landmark_bridges_from_spawned_objects(&mut self) {
+        self.register_landmark_bridges_from_spawned_objects_with_effects(&mut Default::default())
+    }
+
+    pub(crate) fn register_landmark_bridges_from_spawned_objects_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let jobs: Vec<(ObjectId, String)> = self
             .objects
             .values()
@@ -1366,7 +1424,7 @@ impl GameLogic {
             .map(|obj| (obj.id, obj.template_name.clone()))
             .collect();
         for (id, template_name) in jobs {
-            self.register_landmark_bridge_object(id, &template_name);
+            self.register_landmark_bridge_object_with_effects(id, &template_name, effects);
         }
     }
 
@@ -1377,6 +1435,19 @@ impl GameLogic {
         &mut self,
         objects: &[super::script_loader::PlacedObject],
         spawned_object_ids: &[(ObjectId, usize)],
+    ) {
+        self.register_spawned_landmark_bridges_with_effects(
+            objects,
+            spawned_object_ids,
+            &mut Default::default(),
+        )
+    }
+
+    pub(crate) fn register_spawned_landmark_bridges_with_effects(
+        &mut self,
+        objects: &[super::script_loader::PlacedObject],
+        spawned_object_ids: &[(ObjectId, usize)],
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         let jobs: Vec<(ObjectId, String)> = spawned_object_ids
             .iter()
@@ -1391,7 +1462,7 @@ impl GameLogic {
             })
             .collect();
         for (id, template_name) in jobs {
-            self.register_landmark_bridge_object(id, &template_name);
+            self.register_landmark_bridge_object_with_effects(id, &template_name, effects);
         }
     }
 
@@ -1418,6 +1489,19 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
         template_name: &str,
+    ) {
+        self.register_landmark_bridge_object_with_effects(
+            id,
+            template_name,
+            &mut Default::default(),
+        )
+    }
+
+    pub(in super::super) fn register_landmark_bridge_object_with_effects(
+        &mut self,
+        id: ObjectId,
+        template_name: &str,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         if self
             .pathfinding_system
@@ -1458,7 +1542,7 @@ impl GameLogic {
             Vec3::new(info.to_left.x, info.to_left.z, info.to_left.y),
             Vec3::new(info.to_right.x, info.to_right.z, info.to_right.y),
         );
-        self.create_landmark_bridge_towers(id, team, angle, &info);
+        self.create_landmark_bridge_towers_with_effects(id, team, angle, &info, effects);
     }
 
     /// C++ `Bridge::Bridge(Object*)` creates four targetable tower objects.
@@ -1468,6 +1552,23 @@ impl GameLogic {
         team: Team,
         bridge_angle: f32,
         info: &gamelogic::terrain::BridgeInfo,
+    ) {
+        self.create_landmark_bridge_towers_with_effects(
+            bridge_id,
+            team,
+            bridge_angle,
+            info,
+            &mut Default::default(),
+        )
+    }
+
+    pub(in super::super) fn create_landmark_bridge_towers_with_effects(
+        &mut self,
+        bridge_id: ObjectId,
+        team: Team,
+        bridge_angle: f32,
+        info: &gamelogic::terrain::BridgeInfo,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         let Some(roads) = game_engine::common::ini::try_get_terrain_roads() else {
             return;
@@ -1523,7 +1624,9 @@ impl GameLogic {
                 corner.z,
             );
             let host_pos = Vec3::new(leftover_pos.x, leftover_pos.z, leftover_pos.y);
-            let Some(tower_id) = self.create_object(name, team, host_pos) else {
+            let Some(tower_id) =
+                self.create_object_with_script_effects(name, team, host_pos, None, effects)
+            else {
                 continue;
             };
             let tower_angle = if index < 2 {

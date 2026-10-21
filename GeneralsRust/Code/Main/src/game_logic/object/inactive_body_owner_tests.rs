@@ -160,13 +160,34 @@ fn encoded_body_kind_restores_with_and_without_receiving_definitions() {
     let snapshot = builder.create_world_snapshot(&source).unwrap();
     let bytes = bincode_legacy::serialize(&snapshot).unwrap();
     let decoded = crate::save_load::snapshot::decode_bincode_world_snapshot(&bytes).unwrap();
+    // The Body capsule can supply an unspecified receiving Body class; it
+    // cannot replace the independently admitted Die module identity catalog.
+    let mut missing_catalog = GameLogic::new();
+    missing_catalog.frame = 99;
+    let error = builder
+        .restore_from_snapshot(&decoded, &mut missing_catalog)
+        .unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("receiving Die declarations differ")
+    );
+    assert_eq!(
+        missing_catalog.frame, 99,
+        "missing declarations reject before mutation"
+    );
+    assert!(missing_catalog.host_objects().is_empty());
     for loaded_definition in [false, true] {
         let mut receiving = GameLogic::new();
-        if loaded_definition {
-            receiving
-                .templates
-                .insert(name.into(), template(name, true));
+        let mut receiving_definition = template(name, true);
+        assert!(receiving_definition.native_die_declarations.is_some());
+        if !loaded_definition {
+            receiving_definition.body_kind = None;
         }
+        assert_eq!(receiving_definition.body_kind.is_some(), loaded_definition);
+        receiving
+            .templates
+            .insert(name.into(), receiving_definition);
         builder
             .restore_from_snapshot(&decoded, &mut receiving)
             .unwrap();
@@ -347,6 +368,13 @@ fn exercise_native_field_body(spawner: usize) {
         let bytes = bincode_legacy::serialize(&snapshot).unwrap();
         let decoded = crate::save_load::snapshot::decode_bincode_world_snapshot(&bytes).unwrap();
         let mut restored = GameLogic::new();
+        // Re-admit the actual authored Object definitions, including empty
+        // authored Die catalogs, independently of the saved runtime records.
+        for name in names {
+            let receiving_definition = template(name, inactive);
+            assert!(receiving_definition.native_die_declarations.is_some());
+            restored.templates.insert(name.into(), receiving_definition);
+        }
         builder
             .restore_from_snapshot(&decoded, &mut restored)
             .unwrap();

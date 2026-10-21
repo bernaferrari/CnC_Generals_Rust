@@ -28,7 +28,7 @@ impl ScaffoldAttempt {
             self.cost,
             ui,
         )?;
-        self.admit_construct_order(world, structure)
+        self.admit_construct_order(world, structure, ui)
     }
 
     #[cfg(test)]
@@ -45,12 +45,13 @@ impl ScaffoldAttempt {
             self.cost,
             observe,
         )?;
-        self.admit_construct_order(world, structure)
+        self.admit_construct_order(world, structure, &mut Default::default())
     }
     fn admit_construct_order(
         &self,
         world: &mut GameLogic,
         structure: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> Option<ObjectId> {
         if world.resume_construction(&[self.dozer], structure)
             && world.unit_command_begin_construct(self.dozer, self.position)
@@ -58,7 +59,7 @@ impl ScaffoldAttempt {
             return Some(structure);
         }
         world.cancel_dozers_building(structure);
-        world.destroy_object(structure);
+        world.destroy_object_with_effects(structure, effects);
         None
     }
 }

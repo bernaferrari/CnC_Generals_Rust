@@ -1108,11 +1108,18 @@ impl GameLogic {
     /// C++ `doTeamWander` / `doTeamPanic` / `doTeamWanderInPlace`: chooseLocomotorSet
     /// then `aiWander` / `aiPanic` / `aiWanderInPlace` (`CMD_FROM_SCRIPT`).
     pub fn apply_host_loco_set_script_requests(&mut self) {
+        self.apply_host_loco_set_script_requests_with_effects(&mut Default::default())
+    }
+
+    pub(crate) fn apply_host_loco_set_script_requests_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         self.apply_host_team_factory_script_requests();
-        self.apply_host_merge_team_script_requests();
+        self.apply_host_merge_team_script_requests_with_effects(effects);
         self.apply_host_capture_nearest_unowned_script_requests();
         self.apply_host_load_transports_script_requests();
-        self.apply_host_named_fire_weapon_path_script_requests();
+        self.apply_host_named_fire_weapon_path_script_requests_with_effects(effects);
         for (team_name, set, waypoint) in gamelogic::scripting::take_host_team_loco_set_requests() {
             self.host_script_apply_team_wander_panic(&team_name, &set, waypoint.as_deref());
         }
@@ -1627,8 +1634,19 @@ impl GameLogic {
     /// C++ `doNamedFireWeaponFollowingWaypointPath` live drain.
     /// Leftover forceFire + leftover follow-waypoint-path on the live projectile.
     pub fn apply_host_named_fire_weapon_path_script_requests(&mut self) {
+        self.apply_host_named_fire_weapon_path_script_requests_with_effects(&mut Default::default())
+    }
+
+    pub(crate) fn apply_host_named_fire_weapon_path_script_requests_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         for req in gamelogic::scripting::take_host_script_named_fire_weapon_path_requests() {
-            self.host_script_named_fire_weapon_following_path(&req.unit, &req.waypoint);
+            self.host_script_named_fire_weapon_following_path_with_effects(
+                &req.unit,
+                &req.waypoint,
+                effects,
+            );
         }
     }
 
@@ -1636,6 +1654,19 @@ impl GameLogic {
     /// then projectile `leaveGroup` + `chooseLocomotorSet(NORMAL)` +
     /// `aiFollowWaypointPath(..., CMD_FROM_SCRIPT)`.
     fn host_script_named_fire_weapon_following_path(&mut self, unit: &str, waypoint: &str) {
+        self.host_script_named_fire_weapon_following_path_with_effects(
+            unit,
+            waypoint,
+            &mut Default::default(),
+        )
+    }
+
+    fn host_script_named_fire_weapon_following_path_with_effects(
+        &mut self,
+        unit: &str,
+        waypoint: &str,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         use crate::game_logic::weapon_bootstrap::host_projectile_name_for_weapon_name;
 
         let Some(id) = self.host_object_id_by_script_name(unit) else {
@@ -1664,7 +1695,9 @@ impl GameLogic {
                 .add_kind_of(KindOf::Aircraft);
             self.templates.insert(proj_name.clone(), tmpl);
         }
-        let Some(proj_id) = self.create_object(&proj_name, team, pos) else {
+        let Some(proj_id) =
+            self.create_object_with_script_effects(&proj_name, team, pos, None, effects)
+        else {
             return;
         };
         if let Some(obj) = self.host_object_mut(proj_id) {

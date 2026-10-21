@@ -3,10 +3,8 @@ use game_client_rust::{
     terrain::{
         TILE_BYTES_PER_PIXEL, TREE_TILE_DATA_LEN, TerrainTrackHeightProvider, TerrainTracksConfig,
         TreeModuleData, TreeRegion2D, TreeSphere, TreeTgaHeader, TreeTileImageSpec, TreeTypeMesh,
-        add_terrain_scorch, blit_tree_tile_into_atlas, do_lighting, do_tree_atlas_mip,
-        generate_box_mip_chain,
+        blit_tree_tile_into_atlas, do_lighting, do_tree_atlas_mip, generate_box_mip_chain,
         height_map::HeightMap,
-        terrain_scorch_count,
         terrain_visual::{TerrainBibOwnerKind, TerrainSourceTileClass, TerrainVisualImpl},
         textures::{BlendTileInfo, FLIPPED_MASK, TileData},
     },
@@ -405,7 +403,11 @@ fn skybox_candidates_swap_tga_to_dds_and_search_art_and_map_dir() {
         .iter()
         .position(|c| c == "Art/Textures/TSMorningN.tga")
         .expect("base TGA candidate");
-    assert_eq!(base_dds + 1, base_tga, "DDS must precede TGA in one search directory");
+    assert_eq!(
+        base_dds + 1,
+        base_tga,
+        "DDS must precede TGA in one search directory"
+    );
     assert!(
         as_str
             .iter()
@@ -711,7 +713,7 @@ fn water_grid_velocity_only_applies_when_enabled_and_in_bounds() {
         .expect("center water vertex should be in motion");
     assert_eq!(center_motion.velocity, 1.5);
     assert_eq!(center_motion.preferred_height, 7.0);
-    assert!(center_motion.in_motion);
+    assert_ne!(center_motion.status & 0x01, 0);
 }
 
 #[test]
@@ -825,6 +827,14 @@ fn tree_atlas_mips_reach_terrain_visual_upload_path() {
     tile[0..4].copy_from_slice(&[11, 22, 33, 44]);
     assert!(visual.tree_buffer_mut().set_source_tile_bgra(0, &tile));
     assert_eq!(visual.tree_buffer_mut().update_tree_texture_class(1), 512);
+    assert!(
+        visual.tree_buffer_mut().trees().is_empty(),
+        "prepared atlas does not require a tree instance"
+    );
+    assert!(
+        visual.tree_buffer_mut().num_tiles() > 0,
+        "actual packed source tiles must exist before draw"
+    );
     visual.update_tree_meshes();
     let expected_len = visual.tree_buffer_mut().atlas_mips().len() - 1;
     let uploaded = visual.last_tree_atlas_mips();
@@ -857,6 +867,14 @@ fn tree_atlas_live_draw_matches_cpp_blit_mip_and_lod() {
             header: TreeTgaHeader::truecolor(64, 64),
         }]);
     visual.tree_buffer_mut().set_texture_lod(1);
+    assert!(
+        visual.tree_buffer_mut().trees().is_empty(),
+        "prepared atlas does not require a tree instance"
+    );
+    assert!(
+        visual.tree_buffer_mut().num_tiles() > 0,
+        "actual packed source tiles must exist before draw"
+    );
     visual.update_tree_meshes();
 
     let (width, height) = visual.tree_buffer_mut().texture_size();
@@ -879,16 +897,24 @@ fn tree_atlas_live_draw_matches_cpp_blit_mip_and_lod() {
 /// C++ BaseHeightMap.cpp:618 `reset` → `clearAllScorches`.
 #[test]
 fn terrain_visual_reset_clears_all_scorches() {
-    add_terrain_scorch([12.0, 8.0, 0.0], 18.0, 2);
+    let mut visual = TerrainVisualImpl::new();
+    let mut peer = TerrainVisualImpl::new();
+    assert!(visual.add_scorch([12.0, 8.0, 0.0], 18.0, 2));
+    assert!(peer.add_scorch([31.0, 25.0, 0.0], 7.0, 1));
+    let peer_marks = peer.scorch_marks().to_vec();
     assert!(
-        terrain_scorch_count() > 0,
+        !visual.scorch_marks().is_empty(),
         "pre-reset scorches must exist so the clear is observable"
     );
-    let mut visual = TerrainVisualImpl::new();
     visual.reset().expect("TerrainVisual::reset");
     assert_eq!(
-        terrain_scorch_count(),
+        visual.scorch_marks().len(),
         0,
-        "hq-y8cc2: reset must call clear_terrain_scorches"
+        "hq-y8cc2: reset must call clearAllScorches on the receiving visual"
+    );
+    assert_eq!(
+        peer.scorch_marks(),
+        peer_marks.as_slice(),
+        "peer scorches remain unchanged"
     );
 }

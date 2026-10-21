@@ -238,6 +238,12 @@ impl CnCGameEngine {
                     .replay_version_differs_owned(filename.to_owned())
                     .unwrap_or(false)
             };
+            let render_pipeline = &mut self.render_pipeline;
+            let mut terrain_lod = |reduction| {
+                if let Some(terrain) = render_pipeline.native_terrain_mut() {
+                    terrain.apply_texture_lod_reduction(reduction);
+                }
+            };
             let mut context = game_client::gui::window_manager::ControlBarInputContext {
                 replay_menu: Some(&mut replay_operation),
                 replay_version: Some(&mut replay_version),
@@ -246,7 +252,8 @@ impl CnCGameEngine {
                     game_client::gui::window_manager::CameraOptionsInputContext::new(
                         self.ui_manager.options_preferences_mut(),
                         camera_rules,
-                    ),
+                    )
+                    .with_terrain_lod(&mut terrain_lod),
                 ),
                 control_bar: &mut self.control_bar,
                 viewport: &mut self.game_logic.session_view.camera,
@@ -424,6 +431,12 @@ impl CnCGameEngine {
                 .replay_version_differs_owned(filename.to_owned())
                 .unwrap_or(false)
         };
+        let render_pipeline = &mut self.render_pipeline;
+        let mut terrain_lod = |reduction| {
+            if let Some(terrain) = render_pipeline.native_terrain_mut() {
+                terrain.apply_texture_lod_reduction(reduction);
+            }
+        };
         let mut context = game_client::gui::window_manager::ControlBarInputContext {
             replay_menu: Some(&mut replay_operation),
             replay_version: Some(&mut replay_version),
@@ -432,7 +445,8 @@ impl CnCGameEngine {
                 game_client::gui::window_manager::CameraOptionsInputContext::new(
                     self.ui_manager.options_preferences_mut(),
                     camera_rules,
-                ),
+                )
+                .with_terrain_lod(&mut terrain_lod),
             ),
             control_bar: &mut self.control_bar,
             viewport: &mut self.game_logic.session_view.camera,

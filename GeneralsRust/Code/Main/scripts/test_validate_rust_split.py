@@ -1,3 +1,4 @@
+import argparse
 from pathlib import Path
 import subprocess
 import sys
@@ -449,6 +450,23 @@ impl First {
             'const TEXT: &str = r#"\nimpl Forged {\n pub(crate) fn advance() {}\n}\n"#;\n'
         )
         self.assertEqual([], occurrences)
+
+    def test_expected_crate_api_parser_preserves_qualified_method_name(self) -> None:
+        path = Path("GeneralsRust/Code/Main/src/large/driver.rs")
+        self.assertEqual(
+            (path, "GameLogic::advance_with_effects"),
+            validate_rust_split.parse_expected_crate_api(
+                f"{path.as_posix()}:GameLogic::advance_with_effects"
+            ),
+        )
+        self.assertEqual(
+            (path, "Driver"),
+            validate_rust_split.parse_expected_crate_api(f"{path.as_posix()}:Driver"),
+        )
+        for malformed in (path.as_posix(), ":Driver", f"{path.as_posix()}:"):
+            with self.subTest(malformed=malformed):
+                with self.assertRaises(argparse.ArgumentTypeError):
+                    validate_rust_split.parse_expected_crate_api(malformed)
 
     def test_expected_crate_api_accepts_exact_internal_declaration(self) -> None:
         self.assertEqual(

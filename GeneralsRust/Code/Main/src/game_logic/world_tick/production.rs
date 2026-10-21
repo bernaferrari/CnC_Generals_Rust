@@ -445,6 +445,7 @@ impl GameLogic {
         ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
     ) {
         let mut effects = crate::game_logic::ScriptPresentationEffects {
+            terrain: None,
             ui: ui
                 .as_mut()
                 .map(|ui| &mut **ui as &mut dyn crate::game_logic::ScriptUiEffects),
@@ -746,7 +747,7 @@ impl GameLogic {
 
         let (upgrade_completions, unit_completions) = self.host_collect_production_completions(dt);
         // Wave 595/608: host production complete/spawn apply residual via host helpers.
-        self.apply_upgrade_production_completions(upgrade_completions);
+        self.apply_upgrade_production_completions_with_effects(upgrade_completions, ui);
         self.apply_unit_production_completions_with_effects(unit_completions, ui);
     }
 
@@ -1012,8 +1013,19 @@ impl GameLogic {
         &mut self,
         upgrade_completions: Vec<(Team, String, ObjectId)>,
     ) {
+        self.apply_upgrade_production_completions_with_effects(
+            upgrade_completions,
+            &mut Default::default(),
+        )
+    }
+
+    pub(in super::super) fn apply_upgrade_production_completions_with_effects(
+        &mut self,
+        upgrade_completions: Vec<(Team, String, ObjectId)>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         // Wave 608: thin wrapper — production complete apply via host helper.
-        self.host_apply_upgrade_production_completions(upgrade_completions)
+        self.host_apply_upgrade_production_completions_with_effects(upgrade_completions, effects)
     }
 
     /// Wave 595: host upgrade production completion residual (still host-side under
@@ -1022,7 +1034,18 @@ impl GameLogic {
         &mut self,
         upgrade_completions: Vec<(Team, String, ObjectId)>,
     ) {
-        self.apply_upgrade_completions_on_owner(None, upgrade_completions);
+        self.host_apply_upgrade_production_completions_with_effects(
+            upgrade_completions,
+            &mut Default::default(),
+        )
+    }
+
+    pub(in super::super) fn host_apply_upgrade_production_completions_with_effects(
+        &mut self,
+        upgrade_completions: Vec<(Team, String, ObjectId)>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
+        self.apply_upgrade_completions_on_owner_with_effects(None, upgrade_completions, effects);
     }
 
     /// The borrowed interpreter comes from the driving operation, never an
@@ -1033,13 +1056,43 @@ impl GameLogic {
         engine: &gamelogic::scripting::engine::ScriptEngine,
         upgrade_completions: Vec<(Team, String, ObjectId)>,
     ) {
-        self.apply_upgrade_completions_on_owner(Some(engine), upgrade_completions);
+        self.host_apply_upgrade_production_completions_with_interpreter_with_effects(
+            engine,
+            upgrade_completions,
+            &mut Default::default(),
+        )
+    }
+
+    pub(crate) fn host_apply_upgrade_production_completions_with_interpreter_with_effects(
+        &mut self,
+        engine: &gamelogic::scripting::engine::ScriptEngine,
+        upgrade_completions: Vec<(Team, String, ObjectId)>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
+        self.apply_upgrade_completions_on_owner_with_effects(
+            Some(engine),
+            upgrade_completions,
+            effects,
+        );
     }
 
     fn apply_upgrade_completions_on_owner(
         &mut self,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         upgrade_completions: Vec<(Team, String, ObjectId)>,
+    ) {
+        self.apply_upgrade_completions_on_owner_with_effects(
+            interpreter,
+            upgrade_completions,
+            &mut Default::default(),
+        )
+    }
+
+    fn apply_upgrade_completions_on_owner_with_effects(
+        &mut self,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        upgrade_completions: Vec<(Team, String, ObjectId)>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         for (team, upgrade_name, producer_id) in upgrade_completions {
             // Production completion carries its producer ObjectId, which in
@@ -1088,7 +1141,12 @@ impl GameLogic {
                     // (FALSE) + ScoreKeeper::addMoneySpent (ProductionUpdate.cpp:874-879 / 931).
                 }
                 if !already {
-                    self.apply_host_upgrade_complete(team, pid, &upgrade_name);
+                    self.apply_host_upgrade_complete_with_effects(
+                        team,
+                        pid,
+                        &upgrade_name,
+                        effects,
+                    );
                 }
             }
         }
@@ -1137,7 +1195,31 @@ impl GameLogic {
         owner_player_id: Option<u32>,
         spawn_pos: Vec3,
     ) -> Option<ObjectId> {
-        self.create_object_for_owner_or_team(template, team, owner_player_id, spawn_pos)
+        self.host_spawn_rebuild_object_with_effects(
+            template,
+            team,
+            owner_player_id,
+            spawn_pos,
+            &mut Default::default(),
+        )
+    }
+
+    pub(in super::super) fn host_spawn_rebuild_object_with_effects(
+        &mut self,
+        template: &str,
+        team: Team,
+        owner_player_id: Option<u32>,
+        spawn_pos: Vec3,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> Option<ObjectId> {
+        self.create_object_for_owner_or_team_with_effects(
+            template,
+            team,
+            owner_player_id,
+            spawn_pos,
+            None,
+            effects,
+        )
     }
 
     pub(in super::super) fn host_spawn_production_unit(
@@ -1286,14 +1368,18 @@ impl GameLogic {
                     });
                 if airfield_output {
                     if self.reserve_produced_aircraft_parking_space(producer_id, new_id) {
-                        let _ = self.place_produced_jet_at_parking_pose(producer_id, new_id);
+                        let _ = self.place_produced_jet_at_parking_pose_with_effects(
+                            producer_id,
+                            new_id,
+                            ui,
+                        );
                     } else {
                         log::warn!(
                             "Production aircraft {:?} from airfield {:?} held: no ParkingPlace stall",
                             new_id,
                             producer_id
                         );
-                        self.destroy_object(new_id);
+                        self.destroy_object_with_effects(new_id, ui);
                         continue;
                     }
                 }
@@ -1597,11 +1683,18 @@ impl GameLogic {
         &mut self,
         event: crate::game_logic::host_production_spawn_ready_log::HostProductionSpawnReadyEvent,
     ) -> usize {
+        self.host_apply_supply_spawn_ready_completion_with_effects(event, &mut Default::default())
+    }
+    pub(crate) fn host_apply_supply_spawn_ready_completion_with_effects(
+        &mut self,
+        event: crate::game_logic::host_production_spawn_ready_log::HostProductionSpawnReadyEvent,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> usize {
         self.apply_spawn_ready_events(
             std::iter::once(event),
             SpawnReadyCallbacks::AlreadyNotified,
             |_, _, _| {},
-            &mut Default::default(),
+            effects,
         )
     }
 
@@ -1616,6 +1709,7 @@ impl GameLogic {
         ),
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> usize {
+        let pose_frame = self.frame;
         let mut n = 0usize;
         let mut voice_create_played: std::collections::HashSet<ObjectId> =
             std::collections::HashSet::new();
@@ -1709,7 +1803,7 @@ impl GameLogic {
                 }
                 if let Some(unit) = self.objects.get_mut(&new_id) {
                     {
-                        unit.set_position(spawn_pos);
+                        unit.set_position_with_effects(spawn_pos, pose_frame, ui);
                     }
                 }
                 // C++ QueueProductionExitUpdate.cpp:91-105: kick after snap when
@@ -1857,6 +1951,13 @@ impl GameLogic {
     /// Spawns each active skirmish/SP player's starting construction unit near their
     /// base if they do not already own a matching mobile builder.
     pub(crate) fn spawn_skirmish_starting_units(&mut self) {
+        self.spawn_skirmish_starting_units_with_effects(&mut Default::default())
+    }
+
+    pub(crate) fn spawn_skirmish_starting_units_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         use crate::game_logic::host_faction_skirmish_residual::{
             find_player_template_by_side, find_player_template_residual,
         };
@@ -1983,7 +2084,10 @@ impl GameLogic {
                         pos.y = h;
                     }
                     self.ensure_ai_faction_templates(player.team);
-                    if self.create_object_for_player(building, pid, pos).is_some() {
+                    if self
+                        .create_object_for_player_with_effects(building, pid, pos, None, effects)
+                        .is_some()
+                    {
                         gamelogic::player::notify_skirmish_starting_object(pid, building, true);
                         base = Some(pos);
                         log::info!(
@@ -2063,7 +2167,9 @@ impl GameLogic {
                 if let Some(h) = self.terrain_height_at(Vec3::new(unit_pos.x, 0.0, unit_pos.z)) {
                     unit_pos.y = h;
                 }
-                if let Some(id) = self.create_object_for_player(unit_name, pid, unit_pos) {
+                if let Some(id) = self
+                    .create_object_for_player_with_effects(unit_name, pid, unit_pos, None, effects)
+                {
                     if let Some(obj) = self.host_object_mut(id) {
                         if obj.is_mobile()
                             && !obj.is_kind_of(crate::game_logic::KindOf::Selectable)
@@ -2094,7 +2200,9 @@ impl GameLogic {
                         if fallback.eq_ignore_ascii_case(unit_name) {
                             continue;
                         }
-                        if let Some(id) = self.create_object_for_player(fallback, pid, unit_pos) {
+                        if let Some(id) = self.create_object_for_player_with_effects(
+                            fallback, pid, unit_pos, None, effects,
+                        ) {
                             if let Some(obj) = self.host_object_mut(id) {
                                 if obj.is_mobile()
                                     && !obj.is_kind_of(crate::game_logic::KindOf::Selectable)

@@ -13,6 +13,23 @@ impl GameLogic {
         aim: glam::Vec3,
         intended: Option<ObjectId>,
     ) -> Option<ObjectId> {
+        self.spawn_stealth_jet_missile_projectile_with_effects(
+            source_id,
+            from,
+            aim,
+            intended,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn spawn_stealth_jet_missile_projectile_with_effects(
+        &mut self,
+        source_id: ObjectId,
+        from: glam::Vec3,
+        aim: glam::Vec3,
+        intended: Option<ObjectId>,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> Option<ObjectId> {
         use crate::game_logic::host_stealth_fighter::{
             STEALTH_FIGHTER_PROJECTILE_SPEED, STEALTH_JET_MISSILE_KILL_SELF_DELAY_FRAMES,
             STEALTH_JET_MISSILE_MAX_HEALTH, STEALTH_JET_MISSILE_PROJECTILE,
@@ -86,7 +103,13 @@ impl GameLogic {
 
         let mut start = from;
         start.y = start.y.max(aim.y + 20.0);
-        let pid = self.create_object(STEALTH_JET_MISSILE_PROJECTILE, team, start)?;
+        let pid = self.create_object_with_script_effects(
+            STEALTH_JET_MISSILE_PROJECTILE,
+            team,
+            start,
+            None,
+            presentation_effects,
+        )?;
         let launch = STEALTH_MISSILE_INITIAL_VELOCITY / 30.0;
         let to_aim = aim - start;
         let dist = to_aim.length().max(0.001);
@@ -124,6 +147,15 @@ impl GameLogic {
     }
 
     pub fn update_stealth_jet_missile_projectiles(&mut self) {
+        self.update_stealth_jet_missile_projectiles_with_effects(
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn update_stealth_jet_missile_projectiles_with_effects(
+        &mut self,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         use crate::game_logic::host_bunker_buster::{
             BUNKER_BUSTER_CRASH_THROUGH_FX, should_play_crash_through_fx,
         };
@@ -234,7 +266,7 @@ impl GameLogic {
             let new_pos = pos + vel;
             if let Some(o) = self.objects.get_mut(&id) {
                 o.movement.velocity = vel;
-                o.set_position(new_pos);
+                o.set_position_with_effects(new_pos, self.frame, presentation_effects);
                 o.stealth_jet_missile_travelled += step;
                 o.stealth_jet_missile_aim = Some([aim.x, aim.y, aim.z]);
                 o.set_orientation(vel.z.atan2(vel.x));
@@ -246,7 +278,7 @@ impl GameLogic {
                     o.set_status_no_collisions(true);
                     o.stealth_jet_missile_expires_frame =
                         Some(frame.saturating_add(STEALTH_JET_MISSILE_KILL_SELF_DELAY_FRAMES));
-                    o.set_position(aim);
+                    o.set_position_with_effects(aim, self.frame, presentation_effects);
                     o.stealth_jet_missile_aim = Some([aim.x, aim.y, aim.z]);
                 }
                 if should_play_crash_through_fx(frame, true) {
@@ -255,7 +287,12 @@ impl GameLogic {
             }
         }
         for id in crash_fx {
-            let _ = self.dispatch_fx_list_at_host_object(BUNKER_BUSTER_CRASH_THROUGH_FX, id, None);
+            let _ = self.dispatch_fx_list_at_host_object_with_effects(
+                BUNKER_BUSTER_CRASH_THROUGH_FX,
+                id,
+                None,
+                presentation_effects,
+            );
         }
         for (id, source, intended, pos) in impact {
             let team = self.objects.get(&id).map(|o| o.team);
@@ -268,10 +305,15 @@ impl GameLogic {
                 o.status.destroyed = true;
                 o.status.effectively_dead = true;
                 o.stealth_jet_missile_projectile = false;
-                o.set_position(pos);
+                o.set_position_with_effects(pos, self.frame, presentation_effects);
             }
-            let _ = self.apply_stealth_fighter_residual_at(pos, source, intended);
-            self.mark_object_for_destruction(id, team);
+            let _ = self.apply_stealth_fighter_residual_at_with_effects(
+                pos,
+                source,
+                intended,
+                presentation_effects,
+            );
+            self.mark_object_for_destruction_with_effects(id, team, presentation_effects);
         }
     }
 
@@ -284,6 +326,21 @@ impl GameLogic {
         impact: Vec3,
         source: Option<ObjectId>,
         intended_target: Option<ObjectId>,
+    ) -> (u32, bool) {
+        self.apply_stealth_fighter_residual_at_with_effects(
+            impact,
+            source,
+            intended_target,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn apply_stealth_fighter_residual_at_with_effects(
+        &mut self,
+        impact: Vec3,
+        source: Option<ObjectId>,
+        intended_target: Option<ObjectId>,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> (u32, bool) {
         use crate::game_logic::host_bunker_buster::{
             UPGRADE_AMERICA_BUNKER_BUSTERS, is_bunker_buster_carrier, should_apply_bunker_buster,
@@ -375,12 +432,14 @@ impl GameLogic {
         // Skip splash so garrisoned occupants are not pre-killed outside contain bookkeeping.
         if bunker_buster_hit {
             if let Some(tid) = intended_target {
-                let (kills, _structure_dmg, destroyed) = self.apply_bunker_buster_to_target(
-                    tid,
-                    source_team,
-                    STEALTH_FIGHTER_DAMAGE,
-                    source,
-                );
+                let (kills, _structure_dmg, destroyed) = self
+                    .apply_bunker_buster_to_target_with_effects(
+                        tid,
+                        source_team,
+                        STEALTH_FIGHTER_DAMAGE,
+                        source,
+                        presentation_effects,
+                    );
                 hits = hits.saturating_add(1).saturating_add(kills);
                 if destroyed {
                     any_destroyed = true;
@@ -433,7 +492,7 @@ impl GameLogic {
                 }
                 if let Some(obj) = self.objects.get_mut(&id) {
                     let receiving_damage_target_id = obj.id;
-                    let destroyed = self.apply_residual_damage_owned(
+                    let destroyed = self.apply_residual_damage_owned_with_effects(
                         receiving_damage_target_id,
                         dmg,
                         source,
@@ -444,6 +503,7 @@ impl GameLogic {
                             STEALTH_FIGHTER_DEATH_TYPE,
                         ),
                         None,
+                        presentation_effects,
                     );
                     hits = hits.saturating_add(1);
                     if destroyed {
@@ -454,7 +514,7 @@ impl GameLogic {
             }
 
             for (id, killer) in destroy_ids {
-                self.mark_object_for_destruction(id, killer);
+                self.mark_object_for_destruction_with_effects(id, killer, presentation_effects);
             }
         }
 
@@ -497,6 +557,21 @@ impl GameLogic {
         source: Option<ObjectId>,
         intended_target: Option<ObjectId>,
     ) -> (u32, bool) {
+        self.apply_comanche_cannon_residual_at_with_effects(
+            impact,
+            source,
+            intended_target,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(in super::super) fn apply_comanche_cannon_residual_at_with_effects(
+        &mut self,
+        impact: Vec3,
+        source: Option<ObjectId>,
+        intended_target: Option<ObjectId>,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> (u32, bool) {
         use crate::game_logic::host_comanche_rocket_pods::{
             COMANCHE_CANNON_DAMAGE, COMANCHE_CANNON_DAMAGE_TYPE, COMANCHE_CANNON_DEATH_TYPE,
             COMANCHE_CANNON_FIRE_AUDIO, is_comanche_template, is_legal_comanche_target,
@@ -535,7 +610,7 @@ impl GameLogic {
             if legal {
                 if let Some(obj) = self.objects.get_mut(&tid) {
                     let receiving_damage_target_id = obj.id;
-                    let destroyed = self.apply_residual_damage_owned(
+                    let destroyed = self.apply_residual_damage_owned_with_effects(
                         receiving_damage_target_id,
                         dmg,
                         source,
@@ -546,6 +621,7 @@ impl GameLogic {
                             COMANCHE_CANNON_DEATH_TYPE,
                         ),
                         None,
+                        presentation_effects,
                     );
                     hits = 1;
                     if destroyed {
@@ -557,7 +633,7 @@ impl GameLogic {
         }
 
         for (id, killer) in destroy_ids {
-            self.mark_object_for_destruction(id, killer);
+            self.mark_object_for_destruction_with_effects(id, killer, presentation_effects);
         }
 
         self.comanche_cannon_residual_fires = self.comanche_cannon_residual_fires.saturating_add(1);
@@ -599,6 +675,21 @@ impl GameLogic {
         source: Option<ObjectId>,
         intended_target: Option<ObjectId>,
     ) -> (u32, bool) {
+        self.apply_helix_minigun_residual_at_with_effects(
+            impact,
+            source,
+            intended_target,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(in super::super) fn apply_helix_minigun_residual_at_with_effects(
+        &mut self,
+        impact: Vec3,
+        source: Option<ObjectId>,
+        intended_target: Option<ObjectId>,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> (u32, bool) {
         use crate::game_logic::host_helix_minigun::{
             HELIX_MINIGUN_DAMAGE, HELIX_MINIGUN_DAMAGE_TYPE, HELIX_MINIGUN_DEATH_TYPE,
             HELIX_MINIGUN_FIRE_AUDIO, is_legal_helix_minigun_target,
@@ -638,7 +729,7 @@ impl GameLogic {
             if legal {
                 if let Some(obj) = self.objects.get_mut(&tid) {
                     let receiving_damage_target_id = obj.id;
-                    let destroyed = self.apply_residual_damage_owned(
+                    let destroyed = self.apply_residual_damage_owned_with_effects(
                         receiving_damage_target_id,
                         dmg,
                         source,
@@ -649,6 +740,7 @@ impl GameLogic {
                             HELIX_MINIGUN_DEATH_TYPE,
                         ),
                         None,
+                        presentation_effects,
                     );
                     hits = 1;
                     if destroyed {
@@ -660,7 +752,7 @@ impl GameLogic {
         }
 
         for (id, killer) in destroy_ids {
-            self.mark_object_for_destruction(id, killer);
+            self.mark_object_for_destruction_with_effects(id, killer, presentation_effects);
         }
 
         self.helix_minigun_residual_fires = self.helix_minigun_residual_fires.saturating_add(1);
@@ -701,6 +793,21 @@ impl GameLogic {
         impact: Vec3,
         source: Option<ObjectId>,
         intended_target: Option<ObjectId>,
+    ) -> (u32, bool) {
+        self.apply_comanche_antitank_residual_at_with_effects(
+            impact,
+            source,
+            intended_target,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(in super::super) fn apply_comanche_antitank_residual_at_with_effects(
+        &mut self,
+        impact: Vec3,
+        source: Option<ObjectId>,
+        intended_target: Option<ObjectId>,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> (u32, bool) {
         use crate::game_logic::host_comanche_rocket_pods::{
             COMANCHE_AT_DAMAGE_TYPE, COMANCHE_AT_DEATH_TYPE, COMANCHE_AT_FIRE_AUDIO,
@@ -814,7 +921,7 @@ impl GameLogic {
             }
             if let Some(obj) = self.objects.get_mut(&id) {
                 let receiving_damage_target_id = obj.id;
-                let destroyed = self.apply_residual_damage_owned(
+                let destroyed = self.apply_residual_damage_owned_with_effects(
                     receiving_damage_target_id,
                     dmg,
                     source,
@@ -825,6 +932,7 @@ impl GameLogic {
                         COMANCHE_AT_DEATH_TYPE,
                     ),
                     None,
+                    presentation_effects,
                 );
                 hits = hits.saturating_add(1);
                 if destroyed {
@@ -835,7 +943,7 @@ impl GameLogic {
         }
 
         for (id, killer) in destroy_ids {
-            self.mark_object_for_destruction(id, killer);
+            self.mark_object_for_destruction_with_effects(id, killer, presentation_effects);
         }
 
         self.comanche_antitank_residual_fires =
@@ -879,6 +987,21 @@ impl GameLogic {
         source: Option<ObjectId>,
         intended_target: Option<ObjectId>,
     ) -> (u32, bool) {
+        self.apply_battle_drone_residual_at_with_effects(
+            impact,
+            source,
+            intended_target,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(in super::super) fn apply_battle_drone_residual_at_with_effects(
+        &mut self,
+        impact: Vec3,
+        source: Option<ObjectId>,
+        intended_target: Option<ObjectId>,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> (u32, bool) {
         use crate::game_logic::host_slave_drones::{
             BATTLE_DRONE_FIRE_AUDIO, BATTLE_DRONE_GUN_DAMAGE, BATTLE_DRONE_GUN_DAMAGE_TYPE,
             BATTLE_DRONE_GUN_DEATH_TYPE, is_battle_drone_template,
@@ -896,7 +1019,7 @@ impl GameLogic {
             if let Some(obj) = self.objects.get_mut(&tid) {
                 if obj.is_alive() && !obj.status.under_construction {
                     let receiving_damage_target_id = obj.id;
-                    let destroyed = self.apply_residual_damage_owned(
+                    let destroyed = self.apply_residual_damage_owned_with_effects(
                         receiving_damage_target_id,
                         BATTLE_DRONE_GUN_DAMAGE,
                         source,
@@ -907,6 +1030,7 @@ impl GameLogic {
                             BATTLE_DRONE_GUN_DEATH_TYPE,
                         ),
                         None,
+                        presentation_effects,
                     );
                     hits = 1;
                     if destroyed {
@@ -918,7 +1042,7 @@ impl GameLogic {
         }
 
         for (id, killer) in destroy_ids {
-            self.mark_object_for_destruction(id, killer);
+            self.mark_object_for_destruction_with_effects(id, killer, presentation_effects);
         }
 
         self.battle_drone_residual_fires = self.battle_drone_residual_fires.saturating_add(1);
@@ -988,6 +1112,23 @@ impl GameLogic {
         aim: glam::Vec3,
         intended: Option<ObjectId>,
     ) -> Option<ObjectId> {
+        self.spawn_overlord_shell_projectile_with_effects(
+            source_id,
+            from,
+            aim,
+            intended,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn spawn_overlord_shell_projectile_with_effects(
+        &mut self,
+        source_id: ObjectId,
+        from: glam::Vec3,
+        aim: glam::Vec3,
+        intended: Option<ObjectId>,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> Option<ObjectId> {
         use crate::game_logic::host_overlord_gun::{
             OVERLORD_PROJECTILE, OVERLORD_SHELL_MAX_HEALTH, overlord_shell_flight_frames,
         };
@@ -1055,7 +1196,13 @@ impl GameLogic {
 
         let mut start = from;
         start.y = start.y.max(aim.y) + 4.0;
-        let pid = self.create_object(OVERLORD_PROJECTILE, team, start)?;
+        let pid = self.create_object_with_script_effects(
+            OVERLORD_PROJECTILE,
+            team,
+            start,
+            None,
+            presentation_effects,
+        )?;
         let frames = overlord_shell_flight_frames(start, aim).max(1);
         if let Some(o) = self.objects.get_mut(&pid) {
             o.overlord_shell_projectile = true;
@@ -1077,6 +1224,15 @@ impl GameLogic {
     }
 
     pub fn update_overlord_shell_projectiles(&mut self) {
+        self.update_overlord_shell_projectiles_with_effects(
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn update_overlord_shell_projectiles_with_effects(
+        &mut self,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         use crate::game_logic::host_overlord_gun::overlord_shell_bezier_point;
         let frame = self.frame;
         let flying: Vec<ObjectId> = self
@@ -1119,7 +1275,7 @@ impl GameLogic {
             let pos = overlord_shell_bezier_point(from, aim, t);
             if let Some(o) = self.objects.get_mut(&id) {
                 let prev = o.get_position();
-                o.set_position(pos);
+                o.set_position_with_effects(pos, self.frame, presentation_effects);
                 let d = pos - prev;
                 if d.length_squared() > 1.0e-6 {
                     o.set_orientation(d.z.atan2(d.x));
@@ -1140,10 +1296,15 @@ impl GameLogic {
                 o.status.destroyed = true;
                 o.status.effectively_dead = true;
                 o.overlord_shell_projectile = false;
-                o.set_position(pos);
+                o.set_position_with_effects(pos, self.frame, presentation_effects);
             }
-            let _ = self.apply_overlord_gun_residual_at(pos, source, intended);
-            self.mark_object_for_destruction(id, team);
+            let _ = self.apply_overlord_gun_residual_at_with_effects(
+                pos,
+                source,
+                intended,
+                presentation_effects,
+            );
+            self.mark_object_for_destruction_with_effects(id, team, presentation_effects);
         }
     }
 
@@ -1156,6 +1317,21 @@ impl GameLogic {
         impact: Vec3,
         source: Option<ObjectId>,
         intended_target: Option<ObjectId>,
+    ) -> (u32, bool) {
+        self.apply_overlord_gun_residual_at_with_effects(
+            impact,
+            source,
+            intended_target,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn apply_overlord_gun_residual_at_with_effects(
+        &mut self,
+        impact: Vec3,
+        source: Option<ObjectId>,
+        intended_target: Option<ObjectId>,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> (u32, bool) {
         use crate::game_logic::host_overlord_gun::{
             OVERLORD_DAMAGE_TYPE, OVERLORD_DEATH_TYPE, OVERLORD_FIRE_AUDIO,
@@ -1271,7 +1447,7 @@ impl GameLogic {
             }
             if let Some(obj) = self.objects.get_mut(&id) {
                 let receiving_damage_target_id = obj.id;
-                let destroyed = self.apply_residual_damage_owned(
+                let destroyed = self.apply_residual_damage_owned_with_effects(
                     receiving_damage_target_id,
                     dmg,
                     source,
@@ -1282,6 +1458,7 @@ impl GameLogic {
                         OVERLORD_DEATH_TYPE,
                     ),
                     None,
+                    presentation_effects,
                 );
                 hits = hits.saturating_add(1);
                 if destroyed {
@@ -1292,7 +1469,7 @@ impl GameLogic {
         }
 
         for (id, killer) in destroy_ids {
-            self.mark_object_for_destruction(id, killer);
+            self.mark_object_for_destruction_with_effects(id, killer, presentation_effects);
         }
 
         self.overlord_gun_residual_fires = self.overlord_gun_residual_fires.saturating_add(1);
@@ -1352,6 +1529,21 @@ impl GameLogic {
         source: Option<ObjectId>,
         intended_target: Option<ObjectId>,
     ) -> (u32, bool) {
+        self.apply_jarmen_kell_residual_at_with_effects(
+            impact,
+            source,
+            intended_target,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(in super::super) fn apply_jarmen_kell_residual_at_with_effects(
+        &mut self,
+        impact: Vec3,
+        source: Option<ObjectId>,
+        intended_target: Option<ObjectId>,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> (u32, bool) {
         use crate::game_logic::host_jarmen_kell::{
             JARMEN_KELL_DAMAGE_TYPE, JARMEN_KELL_DEATH_TYPE, JARMEN_KELL_FIRE_AUDIO,
             has_ap_bullets_upgrade, is_jarmen_kell_template, is_legal_jarmen_kell_target,
@@ -1399,7 +1591,7 @@ impl GameLogic {
                     combat_kind,
                 ) {
                     let receiving_damage_target_id = obj.id;
-                    let destroyed = self.apply_residual_damage_owned(
+                    let destroyed = self.apply_residual_damage_owned_with_effects(
                         receiving_damage_target_id,
                         damage,
                         source,
@@ -1410,6 +1602,7 @@ impl GameLogic {
                             JARMEN_KELL_DEATH_TYPE,
                         ),
                         None,
+                        presentation_effects,
                     );
                     hits = 1;
                     if destroyed {
@@ -1421,7 +1614,7 @@ impl GameLogic {
         }
 
         for (id, killer) in destroy_ids {
-            self.mark_object_for_destruction(id, killer);
+            self.mark_object_for_destruction_with_effects(id, killer, presentation_effects);
         }
 
         self.jarmen_kell_residual_fires = self.jarmen_kell_residual_fires.saturating_add(1);
@@ -1645,6 +1838,25 @@ impl GameLogic {
         weapon_speed: f32,
         intended: Option<ObjectId>,
     ) -> Option<ObjectId> {
+        self.spawn_usa_tank_shell_projectile_with_effects(
+            source_id,
+            from,
+            aim,
+            weapon_speed,
+            intended,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn spawn_usa_tank_shell_projectile_with_effects(
+        &mut self,
+        source_id: ObjectId,
+        from: glam::Vec3,
+        aim: glam::Vec3,
+        weapon_speed: f32,
+        intended: Option<ObjectId>,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> Option<ObjectId> {
         use crate::game_logic::host_usa_tanks::{
             USA_SHELL_MAX_HEALTH, USA_TANK_GUN_PROJECTILE, usa_tank_shell_flight_frames,
         };
@@ -1710,7 +1922,13 @@ impl GameLogic {
 
         let mut start = from;
         start.y = start.y.max(aim.y) + 4.0;
-        let pid = self.create_object(USA_TANK_GUN_PROJECTILE, team, start)?;
+        let pid = self.create_object_with_script_effects(
+            USA_TANK_GUN_PROJECTILE,
+            team,
+            start,
+            None,
+            presentation_effects,
+        )?;
         let frames = usa_tank_shell_flight_frames(start, aim, weapon_speed).max(1);
         if let Some(o) = self.objects.get_mut(&pid) {
             o.usa_tank_shell_projectile = true;
@@ -1733,6 +1951,15 @@ impl GameLogic {
     }
 
     pub fn update_usa_tank_shell_projectiles(&mut self) {
+        self.update_usa_tank_shell_projectiles_with_effects(
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn update_usa_tank_shell_projectiles_with_effects(
+        &mut self,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         use crate::game_logic::host_usa_tanks::usa_tank_shell_bezier_point;
         let frame = self.frame;
         let flying: Vec<ObjectId> = self
@@ -1775,7 +2002,7 @@ impl GameLogic {
             let pos = usa_tank_shell_bezier_point(from, aim, t);
             if let Some(o) = self.objects.get_mut(&id) {
                 let prev = o.get_position();
-                o.set_position(pos);
+                o.set_position_with_effects(pos, self.frame, presentation_effects);
                 let d = pos - prev;
                 if d.length_squared() > 1.0e-6 {
                     o.set_orientation(d.z.atan2(d.x));
@@ -1796,10 +2023,15 @@ impl GameLogic {
                 o.status.destroyed = true;
                 o.status.effectively_dead = true;
                 o.usa_tank_shell_projectile = false;
-                o.set_position(pos);
+                o.set_position_with_effects(pos, self.frame, presentation_effects);
             }
-            let _ = self.apply_usa_tank_gun_residual_at(pos, source, intended);
-            self.mark_object_for_destruction(id, team);
+            let _ = self.apply_usa_tank_gun_residual_at_with_effects(
+                pos,
+                source,
+                intended,
+                presentation_effects,
+            );
+            self.mark_object_for_destruction_with_effects(id, team, presentation_effects);
         }
     }
 
@@ -1818,6 +2050,21 @@ impl GameLogic {
         impact: Vec3,
         source: Option<ObjectId>,
         intended_target: Option<ObjectId>,
+    ) -> (u32, bool) {
+        self.apply_usa_tank_gun_residual_at_with_effects(
+            impact,
+            source,
+            intended_target,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn apply_usa_tank_gun_residual_at_with_effects(
+        &mut self,
+        impact: Vec3,
+        source: Option<ObjectId>,
+        intended_target: Option<ObjectId>,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> (u32, bool) {
         use crate::game_logic::host_usa_tanks::{
             CRUSADER_FIRE_AUDIO, PALADIN_FIRE_AUDIO, USA_TANK_GUN_DAMAGE, USA_TANK_GUN_DAMAGE_TYPE,
@@ -1941,7 +2188,7 @@ impl GameLogic {
             }
             if let Some(obj) = self.objects.get_mut(&id) {
                 let receiving_damage_target_id = obj.id;
-                let destroyed = self.apply_residual_damage_owned(
+                let destroyed = self.apply_residual_damage_owned_with_effects(
                     receiving_damage_target_id,
                     dmg,
                     source,
@@ -1952,6 +2199,7 @@ impl GameLogic {
                         USA_TANK_GUN_DEATH_TYPE,
                     ),
                     None,
+                    presentation_effects,
                 );
                 hits = hits.saturating_add(1);
                 if destroyed {
@@ -1961,7 +2209,7 @@ impl GameLogic {
             }
         }
         for (id, killer) in destroy_ids {
-            self.mark_object_for_destruction(id, killer);
+            self.mark_object_for_destruction_with_effects(id, killer, presentation_effects);
         }
         self.usa_tank_residual_units_hit = self.usa_tank_residual_units_hit.saturating_add(hits);
         let _audio = if is_paladin {

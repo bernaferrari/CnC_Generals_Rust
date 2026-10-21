@@ -1,5 +1,6 @@
 pub mod global_data;
 pub mod ini_parser;
+pub(crate) mod startup_paths;
 
 pub use global_data::{ConfigurationSystem, GlobalData};
 pub use ini_parser::{IniParser, IniSection, IniValue};

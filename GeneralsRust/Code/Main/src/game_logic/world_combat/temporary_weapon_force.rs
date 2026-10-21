@@ -29,6 +29,15 @@ impl GameLogic {
         source: ObjectId,
         key: TemporaryWeaponRuntimeKey,
     ) -> u32 {
+        self.force_fire_temporary_runtime_with_effects(source, key, &mut Default::default())
+    }
+
+    pub(super) fn force_fire_temporary_runtime_with_effects(
+        &mut self,
+        source: ObjectId,
+        key: TemporaryWeaponRuntimeKey,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> u32 {
         let (template_name, barrel) = {
             let object = match self.objects.get_mut(&source) {
                 Some(object) => object,
@@ -53,13 +62,29 @@ impl GameLogic {
         let Some(fields) = self.temporary_weapon_fields(&template_name) else {
             return 0;
         };
-        self.force_fire_named_temporary(source, &template_name, barrel, Some(key), fields)
+        self.force_fire_named_temporary_with_effects(
+            source,
+            &template_name,
+            barrel,
+            Some(key),
+            fields,
+            effects,
+        )
     }
 
     pub(crate) fn create_and_fire_temp_weapon(
         &mut self,
         source: ObjectId,
         spec: &crate::game_logic::host_temporary_weapon_behavior::FireWeaponWhenDeadEphemeralWeaponSpec,
+    ) -> Option<u32> {
+        self.create_and_fire_temp_weapon_with_effects(source, spec, &mut Default::default())
+    }
+
+    pub(crate) fn create_and_fire_temp_weapon_with_effects(
+        &mut self,
+        source: ObjectId,
+        spec: &crate::game_logic::host_temporary_weapon_behavior::FireWeaponWhenDeadEphemeralWeaponSpec,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> Option<u32> {
         let fields = self.temporary_weapon_fields(&spec.weapon_template_name)?;
         let runtime_spec = TemporaryWeaponRuntimeSpec {
@@ -81,12 +106,13 @@ impl GameLogic {
         {
             return None;
         }
-        Some(self.force_fire_named_temporary(
+        Some(self.force_fire_named_temporary_with_effects(
             source,
             &spec.weapon_template_name,
             ephemeral.current_barrel,
             None,
             fields,
+            effects,
         ))
     }
 
@@ -97,6 +123,25 @@ impl GameLogic {
         current_barrel: i32,
         persist: Option<TemporaryWeaponRuntimeKey>,
         fields: super::temporary_weapon_status::TemporaryWeaponStoreFields,
+    ) -> u32 {
+        self.force_fire_named_temporary_with_effects(
+            source,
+            template_name,
+            current_barrel,
+            persist,
+            fields,
+            &mut Default::default(),
+        )
+    }
+
+    fn force_fire_named_temporary_with_effects(
+        &mut self,
+        source: ObjectId,
+        template_name: &str,
+        current_barrel: i32,
+        persist: Option<TemporaryWeaponRuntimeKey>,
+        fields: super::temporary_weapon_status::TemporaryWeaponStoreFields,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> u32 {
         let (pos, team, suspend_fx_frame, ammo) = self
             .objects
@@ -127,7 +172,7 @@ impl GameLogic {
                 pos,
             );
         }
-        let hits = self.apply_instant_hit_splash_at(
+        let hits = self.apply_instant_hit_splash_at_with_effects(
             pos,
             fields.primary_damage,
             fields.secondary_damage,
@@ -137,6 +182,7 @@ impl GameLogic {
             team,
             source,
             Some(template_name),
+            effects,
         );
         if let Some(key) = persist {
             if let Some(object) = self.objects.get_mut(&source) {
@@ -150,7 +196,7 @@ impl GameLogic {
                 }
             }
         }
-        let _ = self.record_accepted_weapon_discharge(source, 0);
+        let _ = self.record_accepted_weapon_discharge_with_effects(source, 0, effects);
         hits
     }
 }

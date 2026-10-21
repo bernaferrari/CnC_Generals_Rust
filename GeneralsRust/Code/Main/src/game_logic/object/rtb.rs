@@ -816,6 +816,15 @@ impl Object {
     /// `minSpeed == 0` → ANGLE goal + `locoUpdate_moveTowardsAngle`.
     /// Else → POSITION_EXPLICIT so Wings/Thrust fly a curve at the face point.
     pub fn tick_face_towards(&mut self, target_pos: glam::Vec3, dt: f32, frame: u32) -> bool {
+        self.tick_face_towards_with_effects(target_pos, dt, frame, &mut Default::default())
+    }
+    pub(crate) fn tick_face_towards_with_effects(
+        &mut self,
+        target_pos: glam::Vec3,
+        dt: f32,
+        frame: u32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
         if !self.arm_face_locomotor_goal(target_pos) {
             return false;
         }
@@ -824,7 +833,12 @@ impl Object {
         }
         self.face_loco_frame = frame;
         if self.locomotor_goal_type == LocoGoalType::Angle {
-            self.loco_update_move_towards_angle(self.locomotor_goal_angle, dt.max(1.0 / 30.0));
+            self.loco_update_move_towards_angle_with_effects(
+                self.locomotor_goal_angle,
+                dt.max(1.0 / 30.0),
+                frame,
+                effects,
+            );
         }
         true
     }

@@ -14,13 +14,23 @@ pub fn capture_receiving_terrain_visual_xfer_bytes(
     world: &crate::game_logic::GameLogic,
     scorches: Option<&[game_client::terrain::scorch_mesh::ScorchMark]>,
 ) -> SaveLoadResult<Vec<u8>> {
+    capture_receiving_terrain_visual_with_water(world, None, scorches)
+}
+
+pub fn capture_receiving_terrain_visual_with_water(
+    world: &crate::game_logic::GameLogic,
+    native_water: Option<&gamelogic::terrain_water::WaterGridState>,
+    scorches: Option<&[game_client::terrain::scorch_mesh::ScorchMark]>,
+) -> SaveLoadResult<Vec<u8>> {
     let terrain = world
         .world_services
         .terrain()
         .read()
         .map_err(|_| SaveLoadError::Serialization("receiving terrain lock poisoned".into()))?;
-    game_client::terrain::terrain_visual_xfer::capture_owned_terrain_visual_for_terrain(
-        &terrain, scorches,
+    game_client::terrain::terrain_visual_xfer::capture_terrain_visual_with_water(
+        &terrain,
+        native_water,
+        scorches,
     )
     .map_err(SaveLoadError::Serialization)
 }

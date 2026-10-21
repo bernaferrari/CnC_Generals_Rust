@@ -13,8 +13,19 @@ impl GameLogic {
         &mut self,
         callbacks: BridgeBodyCallbacks,
     ) {
+        self.complete_owned_bridge_body_callbacks_with_effects(
+            callbacks,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(in crate::game_logic) fn complete_owned_bridge_body_callbacks_with_effects(
+        &mut self,
+        callbacks: BridgeBodyCallbacks,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         if callbacks.health_changed {
-            self.propagate_owned_bridge_body_change(callbacks);
+            self.propagate_owned_bridge_body_change_with_effects(callbacks, presentation_effects);
         }
         // Nested onDamage/onHealing callbacks finish first. Original ActiveBody
         // compares the live body with its captured old state after that chain.
@@ -30,12 +41,13 @@ impl GameLogic {
         }
         self.bridge_behavior
             .note_body_state(callbacks.victim, state.ordinal());
-        self.play_bridge_body_transition(
+        self.play_bridge_body_transition_with_effects(
             callbacks.victim,
             callbacks.old_state.ordinal(),
             state.ordinal(),
+            presentation_effects,
         );
-        self.update_owned_bridge_damage_states();
+        self.update_owned_bridge_damage_states_with_effects(presentation_effects);
         if state == HostBodyDamageType::Rubble || callbacks.old_state == HostBodyDamageType::Rubble
         {
             self.host_radar_queue_terrain_refresh();
@@ -43,6 +55,17 @@ impl GameLogic {
     }
 
     fn propagate_owned_bridge_body_change(&mut self, callbacks: BridgeBodyCallbacks) {
+        self.propagate_owned_bridge_body_change_with_effects(
+            callbacks,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    fn propagate_owned_bridge_body_change_with_effects(
+        &mut self,
+        callbacks: BridgeBodyCallbacks,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         if callbacks.input_amount <= 0.0
             || !callbacks.input_amount.is_finite()
             || callbacks.max_health <= 0.0
@@ -77,8 +100,12 @@ impl GameLogic {
             // CPP BridgeBehavior::onHealing479 uses Object::attemptHealing,
             // including dead tower revival, rather than damage admission.
             if callbacks.damage_type == DamageType::Healing {
-                let _ =
-                    self.apply_owned_healing(target, fraction * maximum, Some(callbacks.victim));
+                let _ = self.apply_owned_healing_with_effects(
+                    target,
+                    fraction * maximum,
+                    Some(callbacks.victim),
+                    presentation_effects,
+                );
                 continue;
             }
             let context = DamageHitContext::new(
@@ -86,7 +113,7 @@ impl GameLogic {
                 None,
                 callbacks.damage_type,
             );
-            let _ = self.apply_owned_damage(
+            let _ = self.apply_owned_damage_with_effects(
                 target,
                 fraction * maximum,
                 Some(callbacks.victim),
@@ -94,6 +121,7 @@ impl GameLogic {
                 callbacks.death_type,
                 None,
                 &context,
+                presentation_effects,
             );
         }
     }
@@ -101,6 +129,15 @@ impl GameLogic {
     /// Full original terrain linked-list walk. Release its borrow before
     /// occupant callbacks, then read the next body's current state.
     fn update_owned_bridge_damage_states(&mut self) {
+        self.update_owned_bridge_damage_states_with_effects(
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    fn update_owned_bridge_damage_states_with_effects(
+        &mut self,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let owner = self.world_services.terrain().clone();
         let mut ids = Vec::new();
         owner
@@ -189,7 +226,7 @@ impl GameLogic {
                         None,
                         DamageType::Falling,
                     );
-                    let _ = self.apply_owned_damage(
+                    let _ = self.apply_owned_damage_with_effects(
                         occupant,
                         crate::game_logic::host_bridge_behavior::BRIDGE_SPLAT_DAMAGE,
                         Some(occupant),
@@ -197,6 +234,7 @@ impl GameLogic {
                         HostDeathType::Splatted,
                         None,
                         &context,
+                        presentation_effects,
                     );
                 }
             }
@@ -234,6 +272,17 @@ impl GameLogic {
     /// CPP tower onDie kills the span; span onDie kills towers in slot order.
     /// Existing onDie admission prevents recursive linked kills from repeating.
     pub(in crate::game_logic) fn apply_owned_bridge_death_links(&mut self, victim: ObjectId) {
+        self.apply_owned_bridge_death_links_with_effects(
+            victim,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(in crate::game_logic) fn apply_owned_bridge_death_links_with_effects(
+        &mut self,
+        victim: ObjectId,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let Some(span) = self.bridge_behavior.span_id_for(victim) else {
             return;
         };
@@ -244,7 +293,12 @@ impl GameLogic {
         };
         self.bridge_behavior.record_death_link_applied();
         for target in targets {
-            let _ = self.apply_owned_kill(target, DamageType::Unresistable, HostDeathType::Normal);
+            let _ = self.apply_owned_kill_with_effects(
+                target,
+                DamageType::Unresistable,
+                HostDeathType::Normal,
+                presentation_effects,
+            );
         }
         if span == victim {
             self.bridge_behavior.mark_death(span, self.frame);
@@ -259,6 +313,25 @@ impl GameLogic {
         duration_frames: u32,
         frame: u32,
     ) -> bool {
+        self.attempt_owned_healing_from_sole_benefactor_with_effects(
+            victim,
+            amount,
+            source,
+            duration_frames,
+            frame,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(in crate::game_logic) fn attempt_owned_healing_from_sole_benefactor_with_effects(
+        &mut self,
+        victim: ObjectId,
+        amount: f32,
+        source: ObjectId,
+        duration_frames: u32,
+        frame: u32,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
         if !self.objects.contains_key(&source) {
             return false;
         }
@@ -269,7 +342,12 @@ impl GameLogic {
         {
             return false;
         }
-        let _ = self.apply_owned_healing(victim, amount, Some(source));
+        let _ = self.apply_owned_healing_with_effects(
+            victim,
+            amount,
+            Some(source),
+            presentation_effects,
+        );
         true
     }
 }

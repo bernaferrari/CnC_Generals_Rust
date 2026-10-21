@@ -631,7 +631,19 @@ impl GameLogic {
         unit_id: ObjectId,
         airfield_id: ObjectId,
     ) {
-        if self.try_jet_enter_or_repair_airfield(unit_id, airfield_id) {
+        self.try_aircraft_land_for_repair_with_effects(
+            unit_id,
+            airfield_id,
+            &mut Default::default(),
+        );
+    }
+    pub(crate) fn try_aircraft_land_for_repair_with_effects(
+        &mut self,
+        unit_id: ObjectId,
+        airfield_id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
+        if self.try_jet_enter_or_repair_airfield_with_effects(unit_id, airfield_id, effects) {
             return;
         }
         let Some(pos) = self.objects.get(&airfield_id).map(|a| a.get_position()) else {
@@ -654,7 +666,7 @@ impl GameLogic {
             }
         }
         if helipad {
-            let _ = self.try_return_to_base_rearm(unit_id);
+            let _ = self.try_return_to_base_rearm_with_effects(unit_id, effects);
         }
     }
     /// C++ `RepairDockUpdate::action` drone snap-to-max via `findMyDrone`.
@@ -663,10 +675,23 @@ impl GameLogic {
         dock_id: ObjectId,
         master_id: ObjectId,
     ) {
+        self.heal_slave_drone_with_repair_dock_with_effects(
+            dock_id,
+            master_id,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(super) fn heal_slave_drone_with_repair_dock_with_effects(
+        &mut self,
+        dock_id: ObjectId,
+        master_id: ObjectId,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let Some(drone_id) = self.find_repair_dock_drone(master_id) else {
             return;
         };
-        self.heal_repair_dock_drone(dock_id, drone_id);
+        self.heal_repair_dock_drone_with_effects(dock_id, drone_id, presentation_effects);
     }
 
     // Ordered player-team traversal requires canonical admission/capture closure
@@ -679,6 +704,19 @@ impl GameLogic {
     }
 
     fn heal_repair_dock_drone(&mut self, dock_id: ObjectId, drone_id: ObjectId) {
+        self.heal_repair_dock_drone_with_effects(
+            dock_id,
+            drone_id,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    fn heal_repair_dock_drone_with_effects(
+        &mut self,
+        dock_id: ObjectId,
+        drone_id: ObjectId,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         if let Some(maximum) = self
             .objects
             .get(&drone_id)
@@ -686,7 +724,12 @@ impl GameLogic {
         {
             // RepairDockUpdate::action reuses the dock-sourced DamageInfo for
             // the drone after the master's receiving Body has completed.
-            self.apply_owned_healing(drone_id, maximum, Some(dock_id));
+            self.apply_owned_healing_with_effects(
+                drone_id,
+                maximum,
+                Some(dock_id),
+                presentation_effects,
+            );
         }
     }
 
@@ -696,6 +739,19 @@ impl GameLogic {
         &mut self,
         dock_id: ObjectId,
         docker_id: ObjectId,
+    ) -> bool {
+        self.repair_dock_action_owned_with_effects(
+            dock_id,
+            docker_id,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(in crate::game_logic) fn repair_dock_action_owned_with_effects(
+        &mut self,
+        dock_id: ObjectId,
+        docker_id: ObjectId,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> bool {
         if !self.objects.get(&dock_id).is_some_and(|dock| {
             dock.thing()
@@ -722,9 +778,14 @@ impl GameLogic {
             }
             return false;
         }
-        self.apply_owned_healing(docker_id, amount, Some(dock_id));
+        self.apply_owned_healing_with_effects(
+            docker_id,
+            amount,
+            Some(dock_id),
+            presentation_effects,
+        );
         if let Some(drone_id) = drone_id {
-            self.heal_repair_dock_drone(dock_id, drone_id);
+            self.heal_repair_dock_drone_with_effects(dock_id, drone_id, presentation_effects);
         }
         true
     }

@@ -497,12 +497,16 @@ impl<'a> CommandExecutor<'a> {
                 .host_object(unit_id)
                 .is_some_and(|unit| unit.is_mobile() || unit.can_attack());
             if has_ai {
-                let _ = self.game_logic.unit_command_stop(unit_id);
+                let _ = self
+                    .game_logic
+                    .unit_command_stop_with_effects(unit_id, &mut self.ui);
             }
         }
         self.apply_player_stealth_mood_delay(units);
         for p in extra_stop {
-            let _ = self.game_logic.unit_command_stop(p);
+            let _ = self
+                .game_logic
+                .unit_command_stop_with_effects(p, &mut self.ui);
         }
         // C++ SpawnBehavior::orderSlavesToGoIdle after the member idle pass.
         for hive_id in hive_ids {
@@ -638,10 +642,12 @@ impl<'a> CommandExecutor<'a> {
         };
         let mut any = false;
         for &unit_id in units {
-            if self
-                .game_logic
-                .unit_command_set_weapon_lock(unit_id, slot, lock_type)
-            {
+            if self.game_logic.unit_command_set_weapon_lock_with_effects(
+                unit_id,
+                slot,
+                lock_type,
+                &mut self.ui,
+            ) {
                 any = true;
             }
         }

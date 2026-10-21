@@ -306,10 +306,11 @@ impl<'a> CommandExecutor<'a> {
             // C++ producer-first ParkingPlace reservation before it mutates
             // landing state; no team/name airfield search or generic Dock is
             // allowed on this route.
-            if self
-                .game_logic
-                .request_return_to_base(unit_id, self.current_player_id)
-            {
+            if self.game_logic.request_return_to_base_with_effects(
+                unit_id,
+                self.current_player_id,
+                &mut self.ui,
+            ) {
                 any = true;
             }
         }
@@ -758,14 +759,21 @@ impl<'a> CommandExecutor<'a> {
                 if is_aircraft
                     && self
                         .game_logic
-                        .try_jet_enter_or_repair_airfield(unit_id, target_id)
+                        .try_jet_enter_or_repair_airfield_with_effects(
+                            unit_id,
+                            target_id,
+                            &mut self.ui,
+                        )
                 {
                     any = true;
                     continue;
                 }
                 if is_aircraft {
-                    self.game_logic
-                        .try_aircraft_land_for_repair(unit_id, target_id);
+                    self.game_logic.try_aircraft_land_for_repair_with_effects(
+                        unit_id,
+                        target_id,
+                        &mut self.ui,
+                    );
                 }
                 if self.begin_support_order(unit_id, target_id, target_pos, AIState::SeekingRepair)
                 {
@@ -938,10 +946,13 @@ impl<'a> CommandExecutor<'a> {
             tpl.set_health(1.0);
             self.game_logic.templates.insert(template_name.clone(), tpl);
         }
-        let Some(beacon_id) =
-            self.game_logic
-                .create_object_for_player(&template_name, player_id, pos)
-        else {
+        let Some(beacon_id) = self.game_logic.create_object_for_player_with_effects(
+            &template_name,
+            player_id,
+            pos,
+            None,
+            &mut self.ui,
+        ) else {
             self.notify_beacon_placement_failed(pos);
             return CommandResult::InvalidCommand;
         };
@@ -1032,7 +1043,8 @@ impl<'a> CommandExecutor<'a> {
                 if let Some(pos) = pos {
                     self.game_logic.note_beacon_removed_at(pos);
                 }
-                self.game_logic.destroy_object(id);
+                self.game_logic
+                    .destroy_object_with_effects(id, &mut self.ui);
                 live_beacon_clear(id);
                 any = true;
             } else if local_id == Some(player_id) {
@@ -1113,7 +1125,7 @@ impl<'a> CommandExecutor<'a> {
                 host_transfer_assets_from(self.game_logic, ally_id, player_id);
             }
         }
-        host_kill_player(self.game_logic, player_id);
+        host_kill_player(self.game_logic, player_id, &mut self.ui);
         CommandResult::Success
     }
 
@@ -1246,14 +1258,18 @@ fn host_transfer_assets_from(logic: &mut GameLogic, dest_player: u32, source_pla
     }
 }
 
-fn host_kill_player(logic: &mut GameLogic, player_id: u32) {
+fn host_kill_player(
+    logic: &mut GameLogic,
+    player_id: u32,
+    effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+) {
     // C++ Player::killPlayer — same army/beacon/tech/SP-AI path as victory.
     let ids: Vec<ObjectId> = logic
         .host_objects()
         .iter()
         .filter_map(|(id, obj)| (obj.owner_player_id == Some(player_id)).then_some(*id))
         .collect();
-    logic.kill_player_for_victory(player_id);
+    logic.kill_player_for_victory_with_effects(player_id, effects);
     for id in ids {
         live_beacon_clear(id);
     }

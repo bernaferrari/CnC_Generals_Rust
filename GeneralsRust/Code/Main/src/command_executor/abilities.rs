@@ -106,9 +106,10 @@ impl<'a> CommandExecutor<'a> {
         }
 
         for unit_id in issued_units {
-            self.game_logic.queue_pending_special_ability(
+            self.game_logic.queue_pending_special_ability_with_effects(
                 unit_id,
                 PendingSpecialAbility::Hijack { target_id },
+                &mut self.ui,
             );
         }
 
@@ -170,9 +171,10 @@ impl<'a> CommandExecutor<'a> {
         }
 
         for unit_id in issued_units {
-            self.game_logic.queue_pending_special_ability(
+            self.game_logic.queue_pending_special_ability_with_effects(
                 unit_id,
                 PendingSpecialAbility::Sabotage { target_id },
+                &mut self.ui,
             );
         }
 
@@ -237,9 +239,10 @@ impl<'a> CommandExecutor<'a> {
         }
 
         for unit_id in issued_units {
-            self.game_logic.queue_pending_special_ability(
+            self.game_logic.queue_pending_special_ability_with_effects(
                 unit_id,
                 PendingSpecialAbility::CarBomb { target_id },
+                &mut self.ui,
             );
         }
 
@@ -416,9 +419,10 @@ impl<'a> CommandExecutor<'a> {
         }
 
         for unit_id in issued_units {
-            self.game_logic.queue_pending_special_ability(
+            self.game_logic.queue_pending_special_ability_with_effects(
                 unit_id,
                 PendingSpecialAbility::SnipeVehicle { target_id },
+                &mut self.ui,
             );
         }
 
@@ -498,9 +502,10 @@ impl<'a> CommandExecutor<'a> {
         }
 
         for unit_id in issued_units {
-            self.game_logic.queue_pending_special_ability(
+            self.game_logic.queue_pending_special_ability_with_effects(
                 unit_id,
                 PendingSpecialAbility::PlantBoobyTrap { target_id },
+                &mut self.ui,
             );
         }
 
@@ -573,9 +578,10 @@ impl<'a> CommandExecutor<'a> {
         }
 
         for unit_id in issued_units {
-            self.game_logic.queue_pending_special_ability(
+            self.game_logic.queue_pending_special_ability_with_effects(
                 unit_id,
                 PendingSpecialAbility::PlantTimedDemoCharge { target_id },
+                &mut self.ui,
             );
         }
 
@@ -650,9 +656,10 @@ impl<'a> CommandExecutor<'a> {
         }
 
         for unit_id in issued_units {
-            self.game_logic.queue_pending_special_ability(
+            self.game_logic.queue_pending_special_ability_with_effects(
                 unit_id,
                 PendingSpecialAbility::PlantRemoteDemoCharge { target_id },
+                &mut self.ui,
             );
         }
 
@@ -682,7 +689,9 @@ impl<'a> CommandExecutor<'a> {
         if producers.is_empty() {
             return CommandResult::InvalidCommand;
         }
-        let detonated = self.game_logic.detonate_remote_demo_charges(&producers);
+        let detonated = self
+            .game_logic
+            .detonate_remote_demo_charges_with_effects(&producers, &mut self.ui);
         if detonated > 0 {
             CommandResult::Success
         } else {
@@ -696,7 +705,10 @@ impl<'a> CommandExecutor<'a> {
     pub(super) fn execute_demo_tertiary_suicide(&mut self, units: &[ObjectId]) -> CommandResult {
         let mut any = false;
         for &unit_id in units {
-            if self.game_logic.issue_demo_tertiary_suicide(unit_id) {
+            if self
+                .game_logic
+                .issue_demo_tertiary_suicide_with_effects(unit_id, &mut self.ui)
+            {
                 any = true;
             }
         }
@@ -789,9 +801,10 @@ impl<'a> CommandExecutor<'a> {
         }
 
         for unit_id in issued_units {
-            self.game_logic.queue_pending_special_ability(
+            self.game_logic.queue_pending_special_ability_with_effects(
                 unit_id,
                 PendingSpecialAbility::StealCashHack { target_id },
+                &mut self.ui,
             );
         }
 
@@ -879,9 +892,10 @@ impl<'a> CommandExecutor<'a> {
         }
 
         for unit_id in issued_units {
-            self.game_logic.queue_pending_special_ability(
+            self.game_logic.queue_pending_special_ability_with_effects(
                 unit_id,
                 PendingSpecialAbility::DisableVehicleHack { target_id },
+                &mut self.ui,
             );
         }
 
@@ -917,9 +931,10 @@ impl<'a> CommandExecutor<'a> {
             {
                 continue;
             }
-            self.game_logic.queue_pending_special_ability(
+            self.game_logic.queue_pending_special_ability_with_effects(
                 unit_id,
                 PendingSpecialAbility::HackerDisableBuilding { target_id },
+                &mut self.ui,
             );
             any = true;
         }
@@ -1009,9 +1024,10 @@ impl<'a> CommandExecutor<'a> {
         }
 
         for unit_id in issued_units {
-            self.game_logic.queue_pending_special_ability(
+            self.game_logic.queue_pending_special_ability_with_effects(
                 unit_id,
                 PendingSpecialAbility::DisguiseAsVehicle { target_id },
+                &mut self.ui,
             );
         }
 

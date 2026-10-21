@@ -3,6 +3,13 @@
 use super::super::*;
 impl GameLogic {
     pub(crate) fn tick_physics_collisions_all(&mut self) -> u32 {
+        self.tick_physics_collisions_all_with_effects(&mut Default::default())
+    }
+
+    pub(crate) fn tick_physics_collisions_all_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> u32 {
         self.sync_all_contained_items_mass();
         // Per-frame blocked bookkeeping residual (before new collide pairs).
         // Snapshot ground heights before mut pass (terrain borrow).
@@ -66,10 +73,11 @@ impl GameLogic {
         self.requeue_expired_path_requests(&expired_paths);
         let mut landed: Vec<ObjectId> = Vec::new();
         for (id, ground_y) in ground_heights {
-            self.drive_owned_contact(
+            self.drive_owned_contact_with_effects(
                 id,
                 crate::game_logic::object::MotionContact::Start(ground_y),
-                Object::step_motion_contact,
+                Object::step_motion_contact_with_effects,
+                effects,
             );
             if self
                 .objects
@@ -80,7 +88,7 @@ impl GameLogic {
             }
         }
         for id in landed {
-            self.dispatch_physics_ground_collide(id);
+            self.dispatch_physics_ground_collide_with_effects(id, effects);
         }
         // Rebuild partition cells (C++ registerObject residual each update).
         // Dead wrecks stay registered and still onCollide (C++ PartitionManager).
@@ -169,12 +177,14 @@ impl GameLogic {
 
                     // Both onCollide (hq-uerpy): higher-id crusher still crushes.
                     // try_physics_collide dispatches host collide modules once per side.
-                    if self.try_physics_collide(*a_id, b_id, a_r) {
+                    if self.try_physics_collide_with_effects(*a_id, b_id, a_r, effects) {
                         handled = handled.saturating_add(1);
                     }
                     let reverse_ok = self.objects.get(a_id).is_some_and(|o| !o.status.destroyed)
                         && self.objects.get(&b_id).is_some_and(|o| !o.status.destroyed);
-                    if reverse_ok && self.try_physics_collide(b_id, *a_id, b_r) {
+                    if reverse_ok
+                        && self.try_physics_collide_with_effects(b_id, *a_id, b_r, effects)
+                    {
                         handled = handled.saturating_add(1);
                     }
                 }
@@ -210,6 +220,13 @@ impl GameLogic {
     }
 
     pub(crate) fn tick_shock_stun_all(&mut self) {
+        self.tick_shock_stun_all_with_effects(&mut Default::default())
+    }
+
+    pub(crate) fn tick_shock_stun_all_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         // Include bounce_audio_pending so land audio drains even after stun ends.
         let ids: Vec<ObjectId> = self
             .objects
@@ -243,10 +260,11 @@ impl GameLogic {
                 .get(&id)
                 .is_some_and(|o| o.shock_stun_frames > 0)
             {
-                self.drive_owned_contact(
+                self.drive_owned_contact_with_effects(
                     id,
                     crate::game_logic::object::StunContact::Start,
-                    Object::step_stun_contact,
+                    Object::step_stun_contact_with_effects,
+                    effects,
                 );
             }
             if let Some(o) = self.objects.get_mut(&id) {
@@ -364,6 +382,33 @@ impl GameLogic {
         attacker_team: Team,
         intended_id: ObjectId,
         weapon_name: Option<&str>,
+    ) -> u32 {
+        self.apply_instant_hit_splash_at_with_effects(
+            impact,
+            primary_damage,
+            secondary_damage,
+            primary_radius,
+            secondary_radius,
+            attacker_id,
+            attacker_team,
+            intended_id,
+            weapon_name,
+            &mut Default::default(),
+        )
+    }
+
+    pub(crate) fn apply_instant_hit_splash_at_with_effects(
+        &mut self,
+        impact: glam::Vec3,
+        primary_damage: f32,
+        secondary_damage: f32,
+        primary_radius: f32,
+        secondary_radius: f32,
+        attacker_id: ObjectId,
+        attacker_team: Team,
+        intended_id: ObjectId,
+        weapon_name: Option<&str>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> u32 {
         // Content cannot be changed by an earlier victim's callbacks. Keep
         // this accepted rule alive while preserving original visitation order.
@@ -518,7 +563,7 @@ impl GameLogic {
                 // C++ Weapon::dealDamageInternal completes each attemptDamage:
                 // body callbacks -> scoreTheKill -> onDie -> fresh-source FX.
                 if self
-                    .apply_owned_damage_with_killer_team(
+                    .apply_owned_damage_with_killer_team_with_effects(
                         id,
                         dmg,
                         Some(attacker_id),
@@ -527,6 +572,7 @@ impl GameLogic {
                         None,
                         &context,
                         Some(attacker_team),
+                        effects,
                     )
                     .is_some()
                 {
@@ -552,6 +598,29 @@ impl GameLogic {
         attacker_team: Team,
         skip_id: ObjectId,
         weapon_name: Option<&str>,
+    ) -> u32 {
+        self.apply_scatter_miss_splash_at_with_effects(
+            impact,
+            weapon_damage,
+            splash_radius,
+            attacker_id,
+            attacker_team,
+            skip_id,
+            weapon_name,
+            &mut Default::default(),
+        )
+    }
+
+    pub(crate) fn apply_scatter_miss_splash_at_with_effects(
+        &mut self,
+        impact: glam::Vec3,
+        weapon_damage: f32,
+        splash_radius: f32,
+        attacker_id: ObjectId,
+        attacker_team: Team,
+        skip_id: ObjectId,
+        weapon_name: Option<&str>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> u32 {
         // Content cannot be changed by an earlier victim's callbacks. Keep
         // this accepted rule alive while preserving original visitation order.
@@ -741,7 +810,7 @@ impl GameLogic {
                 // C++ Weapon::dealDamageInternal completes each attemptDamage:
                 // body callbacks -> scoreTheKill -> onDie -> fresh-source FX.
                 if self
-                    .apply_owned_damage_with_killer_team(
+                    .apply_owned_damage_with_killer_team_with_effects(
                         id,
                         dmg,
                         Some(attacker_id),
@@ -750,6 +819,7 @@ impl GameLogic {
                         None,
                         &context,
                         Some(attacker_team),
+                        effects,
                     )
                     .is_some()
                 {

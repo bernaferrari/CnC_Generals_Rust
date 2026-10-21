@@ -89,7 +89,15 @@ fn present_groups(
     railroad: Option<&crate::game_logic::host_railroad::HostRailroadCar>,
 ) -> Vec<&'static str> {
     let mut out = Vec::new();
-    let pairs: [(&'static str, bool); 65] = [
+    let pairs: [(&'static str, bool); 68] = [
+        (
+            TAG_WEAPON_SLOTS,
+            super::entity_lifecycle_weapon_slots::WeaponSlotsResidual::present(object),
+        ),
+        (
+            TAG_TURRET_RUNTIME,
+            object.turret_enabled || object.turret_runtime.seeded,
+        ),
         (TAG_UPGRADE_DIE, object.upgrade_die.is_some()),
         (
             TAG_SPECIAL_POWER_COMPLETION,
@@ -210,6 +218,7 @@ fn present_groups(
         ),
         (TAG_ASSAULT_TRANSPORT, object.assault_transport.is_some()),
         (TAG_DEPLOY_STYLE, object.deploy_style.is_some()),
+        (TAG_SLAVED_UPDATE, object.slaved_update.is_some()),
         (
             TAG_COMMAND_BUTTON_HUNT,
             object.command_button_hunt.is_some(),
@@ -335,6 +344,7 @@ fn representative_objects_emit_present_groups_in_declaration_order() {
     vehicle_t.add_kind_of(KindOf::Vehicle);
     let mut vehicle = Object::new(vehicle_t, ObjectId(2), Team::USA);
     vehicle.weapon = Some(Weapon::default());
+    vehicle.slaved_update = Some(Default::default());
     vehicle.lifetime_update = Some(HostLifetimeUpdateData {
         expire_at_frame: 30,
         active: true,

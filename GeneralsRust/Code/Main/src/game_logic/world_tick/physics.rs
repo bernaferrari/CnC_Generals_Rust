@@ -118,11 +118,22 @@ impl GameLogic {
     /// as DAMAGE_WATER (DEATH_NORMAL). C++ has no aircraft/boat skip.
     /// Returns number of objects damaged.
     pub fn apply_water_rise_damage(&mut self, damage_amount: f32) -> u32 {
+        self.apply_water_rise_damage_with_effects(
+            damage_amount,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn apply_water_rise_damage_with_effects(
+        &mut self,
+        damage_amount: f32,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> u32 {
         if damage_amount <= 0.0 {
             return 0;
         }
         let ids = self.objects.keys().copied().collect();
-        self.damage_owned_water_candidates(ids, damage_amount)
+        self.damage_owned_water_candidates_with_effects(ids, damage_amount, presentation_effects)
     }
 
     /// Refresh underwater/cliff cells. C++ never damages on dry→wet walk-in;
@@ -181,6 +192,21 @@ impl GameLogic {
     /// → immobile bounce/crash. Sets last_collidee when a real collide runs.
     /// Returns true if the pair was handled (skip generic bounce force).
     pub fn try_physics_collide(&mut self, a_id: ObjectId, b_id: ObjectId, us_radius: f32) -> bool {
+        self.try_physics_collide_with_effects(
+            a_id,
+            b_id,
+            us_radius,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn try_physics_collide_with_effects(
+        &mut self,
+        a_id: ObjectId,
+        b_id: ObjectId,
+        us_radius: f32,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
         // Snapshot flags without holding borrows across mutates.
         let (
             a_ignore_b,
@@ -227,7 +253,7 @@ impl GameLogic {
         }
         // C++ Object::onCollide walks only this object's collide modules.
         // Reverse side is the pair loop's second try_physics_collide.
-        self.dispatch_host_collide_modules(a_id, b_id);
+        self.dispatch_host_collide_modules_with_effects(a_id, b_id, presentation_effects);
         // C++ PhysicsUpdate.cpp:1167-1172 — container/occupant never bounce/crush.
         if a_contained_by == Some(b_id) || b_contained_by == Some(a_id) {
             return true;
@@ -235,7 +261,10 @@ impl GameLogic {
         // C++ PhysicsUpdate.cpp:1182-1213: recrew only inside
         // ai->getIgnoredObstacleID() == other->getID(); else bounce/crush.
         if a_ignore_obs {
-            if a_infantry && b_unmanned && self.try_infantry_unmanned_reclaim(a_id, b_id) {
+            if a_infantry
+                && b_unmanned
+                && self.try_infantry_unmanned_reclaim_with_effects(a_id, b_id, presentation_effects)
+            {
                 if let Some(a) = self.objects.get_mut(&a_id) {
                     a.last_collidee = Some(b_id);
                 }
@@ -253,7 +282,10 @@ impl GameLogic {
                 .get(&a_id)
                 .map(|o| o.status.disabled_unmanned)
                 .unwrap_or(false);
-            if b_inf && a_unm && self.try_infantry_unmanned_reclaim(b_id, a_id) {
+            if b_inf
+                && a_unm
+                && self.try_infantry_unmanned_reclaim_with_effects(b_id, a_id, presentation_effects)
+            {
                 if let Some(a) = self.objects.get_mut(&a_id) {
                     a.last_collidee = Some(b_id);
                 }
@@ -264,14 +296,16 @@ impl GameLogic {
         let is_ally = self.crush_relationship_is_allies(a_id, b_id);
         let other_sees_us_as_ally = self.crush_relationship_is_allies(b_id, a_id);
         // C++ ToppleUpdate::onCollide residual: crusher_level > 1 topples trees/props.
-        if self.try_topple_on_collide(a_id, b_id) || self.try_topple_on_collide(b_id, a_id) {
+        if self.try_topple_on_collide_with_effects(a_id, b_id, presentation_effects)
+            || self.try_topple_on_collide_with_effects(b_id, a_id, presentation_effects)
+        {
             if let Some(a) = self.objects.get_mut(&a_id) {
                 a.last_collidee = Some(b_id);
             }
             return true;
         }
         // Overlap crush (may handle the pair).
-        if self.apply_overlap_crush_check(a_id, b_id, is_ally) {
+        if self.apply_overlap_crush_check_with_effects(a_id, b_id, is_ally, presentation_effects) {
             if let Some(a) = self.objects.get_mut(&a_id) {
                 a.last_collidee = Some(b_id);
             }
@@ -315,7 +349,12 @@ impl GameLogic {
             if !allow {
                 return true; // handled as no-force
             }
-            let handled = self.apply_immobile_collide_bounce(a_id, b_id, us_radius);
+            let handled = self.apply_immobile_collide_bounce_with_effects(
+                a_id,
+                b_id,
+                us_radius,
+                presentation_effects,
+            );
             if handled {
                 if let Some(a) = self.objects.get_mut(&a_id) {
                     a.last_collidee = Some(b_id);
@@ -716,6 +755,19 @@ impl GameLogic {
         crusher_id: ObjectId,
         prop_id: ObjectId,
     ) -> bool {
+        self.try_topple_on_collide_with_effects(
+            crusher_id,
+            prop_id,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(in super::super) fn try_topple_on_collide_with_effects(
+        &mut self,
+        crusher_id: ObjectId,
+        prop_id: ObjectId,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
         let (level, cpos, speed) = {
             let Some(c) = self.objects.get(&crusher_id) else {
                 return false;
@@ -739,10 +791,13 @@ impl GameLogic {
                 return false;
             };
             #[cfg(feature = "game_client")]
-            let kill_now = Self::with_host_fx_view_parts(
+            let kill_now = Self::with_host_fx_view_parts_and_terrain(
                 &mut self.session_view,
                 fx_player,
                 self.world_services.shroud(),
+                presentation_effects.terrain.as_mut().map(|terrain| {
+                    &mut **terrain as &mut dyn crate::game_logic::NativeTerrainEffects
+                }),
                 |view| {
                     prop.try_topple_from_crusher_with_fx(
                         level,
@@ -783,10 +838,10 @@ impl GameLogic {
             (kill_now, handled, stump, pos, ori)
         };
         if let Some((name, burned)) = stump {
-            self.spawn_topple_stump(&name, pos, ori, burned);
+            self.spawn_topple_stump_with_effects(&name, pos, ori, burned, presentation_effects);
         }
         if kill_now {
-            self.mark_object_for_destruction(prop_id, None);
+            self.mark_object_for_destruction_with_effects(prop_id, None, presentation_effects);
         }
         handled
     }
@@ -799,6 +854,23 @@ impl GameLogic {
         orientation: f32,
         burned: bool,
     ) {
+        self.spawn_topple_stump_with_effects(
+            stump_name,
+            pos,
+            orientation,
+            burned,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(in super::super) fn spawn_topple_stump_with_effects(
+        &mut self,
+        stump_name: &str,
+        pos: glam::Vec3,
+        orientation: f32,
+        burned: bool,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         if stump_name.is_empty() {
             return;
         }
@@ -807,7 +879,13 @@ impl GameLogic {
             t.set_health(1.0);
             self.templates.insert(stump_name.to_string(), t);
         }
-        let Some(id) = self.create_object(stump_name, crate::game_logic::Team::Neutral, pos) else {
+        let Some(id) = self.create_object_with_script_effects(
+            stump_name,
+            crate::game_logic::Team::Neutral,
+            pos,
+            None,
+            presentation_effects,
+        ) else {
             return;
         };
         if let Some(stump) = self.objects.get_mut(&id) {
@@ -839,6 +917,21 @@ impl GameLogic {
         crushee_id: ObjectId,
         is_ally: bool,
     ) -> bool {
+        self.apply_overlap_crush_check_with_effects(
+            crusher_id,
+            crushee_id,
+            is_ally,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn apply_overlap_crush_check_with_effects(
+        &mut self,
+        crusher_id: ObjectId,
+        crushee_id: ObjectId,
+        is_ally: bool,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
         if crusher_id == crushee_id {
             return false;
         }
@@ -866,7 +959,7 @@ impl GameLogic {
                         None,
                         request.damage_type,
                     );
-                    self.apply_owned_damage(
+                    self.apply_owned_damage_with_effects(
                         request.victim,
                         request.amount,
                         request.source,
@@ -874,6 +967,7 @@ impl GameLogic {
                         request.death_type,
                         None,
                         &context,
+                        presentation_effects,
                     );
                     // score -> actual onDie -> fresh Armor all finish before
                     // reacquiring either installed Object for the next statement.
@@ -888,6 +982,21 @@ impl GameLogic {
         mover_id: ObjectId,
         immobile_id: ObjectId,
         us_radius: f32,
+    ) -> bool {
+        self.apply_immobile_collide_bounce_with_effects(
+            mover_id,
+            immobile_id,
+            us_radius,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn apply_immobile_collide_bounce_with_effects(
+        &mut self,
+        mover_id: ObjectId,
+        immobile_id: ObjectId,
+        us_radius: f32,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> bool {
         let (mover_para, imm_center, imm_ok) = {
             let Some(m) = self.objects.get(&mover_id) else {
@@ -974,15 +1083,25 @@ impl GameLogic {
                 }
                 bounce_id
             };
+            let pose_frame = self.frame;
             if let Some(bounce) = self.objects.get_mut(&bounce_id) {
-                bounce.apply_parachute_building_bounce_out(imm_center, us_radius);
+                bounce.apply_parachute_building_bounce_out_with_effects(
+                    imm_center,
+                    us_radius,
+                    pose_frame,
+                    presentation_effects,
+                );
             }
             return true;
         }
         // C++ PhysicsUpdate.cpp:1353-1365 — fall-into-structure destroyObject
         // (weapon only if vehicle) before stiffness bounce.
         if self
-            .apply_vehicle_crash_into_immobile(mover_id, immobile_id)
+            .apply_vehicle_crash_into_immobile_with_effects(
+                mover_id,
+                immobile_id,
+                presentation_effects,
+            )
             .is_some()
             && self
                 .objects
@@ -1008,6 +1127,19 @@ impl GameLogic {
         &mut self,
         vehicle_id: ObjectId,
         other_id: ObjectId,
+    ) -> Option<&'static str> {
+        self.apply_vehicle_crash_into_immobile_with_effects(
+            vehicle_id,
+            other_id,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn apply_vehicle_crash_into_immobile_with_effects(
+        &mut self,
+        vehicle_id: ObjectId,
+        other_id: ObjectId,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> Option<&'static str> {
         use crate::game_logic::host_partition_collision_physics_residual::{
             VehicleCrashImmobileOutcome, vehicle_crash_destroys_vehicle, vehicle_crash_weapon_name,
@@ -1040,7 +1172,11 @@ impl GameLogic {
                 weapon_slot:
                     crate::game_logic::host_temporary_weapon_behavior::TemporaryWeaponSlot::Primary,
             };
-            let _ = self.create_and_fire_temp_weapon(vehicle_id, &spec);
+            let _ = self.create_and_fire_temp_weapon_with_effects(
+                vehicle_id,
+                &spec,
+                presentation_effects,
+            );
         }
         if vehicle_crash_destroys_vehicle(outcome) {
             if let Some(v) = self.objects.get_mut(&vehicle_id) {
@@ -1343,6 +1479,23 @@ impl GameLogic {
         goal_y: Option<f32>,
         terrain: Option<&super::flight_terrain::FlightTerrainView<'_>>,
     ) {
+        Self::apply_live_handle_behavior_z_with_effects(
+            obj,
+            ground_y,
+            goal_y,
+            terrain,
+            0,
+            &mut Default::default(),
+        );
+    }
+    pub(in super::super) fn apply_live_handle_behavior_z_with_effects(
+        obj: &mut Object,
+        ground_y: f32,
+        goal_y: Option<f32>,
+        terrain: Option<&super::flight_terrain::FlightTerrainView<'_>>,
+        frame: u32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         // C++ handleBehaviorZ always receives locomotor goalPos; PRECISE_Z_POS
         // selects goal.z over preferredHeight + surface (Locomotor.cpp:2296-2300).
         let goal_y = goal_y.or_else(|| obj.movement.target_position.map(|p| p.y));
@@ -1391,7 +1544,7 @@ impl GameLogic {
                         obj.invalidate_velocity_magnitude();
                         let mut p = obj.get_position();
                         p.y += obj.movement.velocity.y;
-                        obj.set_position(p);
+                        obj.set_position_with_effects(p, frame, effects);
                     }
                 }
             }
@@ -1421,6 +1574,17 @@ impl GameLogic {
 
     /// C++ PhysicsBehavior::update obj->onCollide(NULL) after landing.
     pub(crate) fn dispatch_physics_ground_collide(&mut self, id: ObjectId) {
+        self.dispatch_physics_ground_collide_with_effects(
+            id,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn dispatch_physics_ground_collide_with_effects(
+        &mut self,
+        id: ObjectId,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let (container, is_chute) = {
             let Some(o) = self.objects.get_mut(&id) else {
                 return;
@@ -1442,7 +1606,7 @@ impl GameLogic {
         };
         if let Some(cid) = chute_id {
             // C++ ParachuteContain::onCollide(NULL) land residual.
-            self.tick_eject_parachute_residual(cid);
+            self.tick_eject_parachute_residual_with_effects(cid, presentation_effects);
         }
     }
 

@@ -87,13 +87,20 @@ fn match_seed_primes_direct_bindings_before_first_ingame_render() {
     let start = &start_game[start_game
         .find("pub(super) fn complete_parked_match_start(")
         .expect("parked start finish authority")..];
+    let transition = start
+        .find("self.transition_to_state(if mode == GameMode::Shell {")
+        .expect("loaded mode transition");
+    let loaded_mode = start[transition..]
+        .split_inclusive("});")
+        .next()
+        .expect("loaded mode target");
+    let loaded_mode: String = loaded_mode.split_whitespace().collect();
+    assert!(loaded_mode.contains("GameMode::Shell{GameState::Menu}else{GameState::InGame}"));
     assert!(
         start
             .find("self.seed_presentation_after_match_start();")
             .expect("start-game presentation seed")
-            < start
-                .find("self.transition_to_state(GameState::InGame);")
-                .expect("start-game InGame transition"),
+            < transition,
         "new matches must hydrate direct bindings before their first InGame render"
     );
 

@@ -672,7 +672,11 @@ impl<'a> CommandExecutor<'a> {
                 };
                 if !self
                     .game_logic
-                    .activate_missile_defender_laser_guided(unit_id, *tid)
+                    .activate_missile_defender_laser_guided_with_effects(
+                        unit_id,
+                        *tid,
+                        &mut self.ui,
+                    )
                 {
                     continue;
                 }
@@ -714,7 +718,10 @@ impl<'a> CommandExecutor<'a> {
                 let PowerTarget::Object(tid) = target else {
                     continue;
                 };
-                if !self.game_logic.activate_defector(unit_id, *tid) {
+                if !self
+                    .game_logic
+                    .activate_defector_with_effects(unit_id, *tid, &mut self.ui)
+                {
                     continue;
                 }
                 if !self
@@ -728,12 +735,20 @@ impl<'a> CommandExecutor<'a> {
                 // location only ThingFactory-creates DetonationObject.
                 match target {
                     PowerTarget::Location(loc) => {
-                        if !self.game_logic.activate_baikonur_detonation(unit_id, *loc) {
+                        if !self.game_logic.activate_baikonur_detonation_with_effects(
+                            unit_id,
+                            *loc,
+                            &mut self.ui,
+                        ) {
                             continue;
                         }
                     }
                     PowerTarget::LocationFacing { pos, .. } => {
-                        if !self.game_logic.activate_baikonur_detonation(unit_id, *pos) {
+                        if !self.game_logic.activate_baikonur_detonation_with_effects(
+                            unit_id,
+                            *pos,
+                            &mut self.ui,
+                        ) {
                             continue;
                         }
                     }
@@ -757,20 +772,23 @@ impl<'a> CommandExecutor<'a> {
                     // (ChinaJetCargoPlane + bomb); mines place on bomb impact.
                     if self
                         .game_logic
-                        .spawn_cluster_mines_flight(unit_id, pos)
+                        .spawn_cluster_mines_flight_with_effects(unit_id, pos, &mut self.ui)
                         .is_none()
                     {
                         // C++ createViewObject still fires when OCL create fails.
-                        let _ = self.game_logic.create_special_power_view_object_at(
+                        let _ = self.game_logic.create_special_power_view_object_at_with_effects(
                             unit_id,
                             pos,
                             crate::game_logic::host_mines::CLUSTER_MINES_VIEW_OBJECT_RANGE,
                             crate::game_logic::host_mines::CLUSTER_MINES_VIEW_OBJECT_DURATION_FRAMES,
-                        );
+                         &mut self.ui);
                         // Fail-open residual: place mines immediately if flight spawn fails.
-                        let placed = self
-                            .game_logic
-                            .place_cluster_mines(team, pos, Some(unit_id));
+                        let placed = self.game_logic.place_cluster_mines_with_effects(
+                            team,
+                            pos,
+                            Some(unit_id),
+                            &mut self.ui,
+                        );
                         if placed.is_empty() {
                             continue;
                         }
@@ -781,11 +799,12 @@ impl<'a> CommandExecutor<'a> {
                         .host_object(unit_id)
                         .map(|o| o.team)
                         .unwrap_or(crate::game_logic::Team::Neutral);
-                    if !self.game_logic.activate_radar_scan(
+                    if !self.game_logic.activate_radar_scan_with_effects(
                         self.current_player_id,
                         team,
                         pos,
                         Some(unit_id),
+                        &mut self.ui,
                     ) {
                         continue;
                     }
@@ -795,11 +814,12 @@ impl<'a> CommandExecutor<'a> {
                         .host_object(unit_id)
                         .map(|o| o.team)
                         .unwrap_or(crate::game_logic::Team::Neutral);
-                    if !self.game_logic.activate_spy_satellite(
+                    if !self.game_logic.activate_spy_satellite_with_effects(
                         self.current_player_id,
                         team,
                         pos,
                         Some(unit_id),
+                        &mut self.ui,
                     ) {
                         continue;
                     }
@@ -809,19 +829,21 @@ impl<'a> CommandExecutor<'a> {
                         .host_object(unit_id)
                         .map(|o| o.team)
                         .unwrap_or(crate::game_logic::Team::Neutral);
-                    if !self.game_logic.activate_spy_drone(
+                    if !self.game_logic.activate_spy_drone_with_effects(
                         self.current_player_id,
                         team,
                         pos,
                         Some(unit_id),
+                        &mut self.ui,
                     ) {
                         continue;
                     }
                 } else if *power_type == SpecialPowerType::EmpPulse {
-                    if !self.game_logic.activate_emp_pulse(
+                    if !self.game_logic.activate_emp_pulse_with_effects(
                         self.current_player_id,
                         pos,
                         Some(unit_id),
+                        &mut self.ui,
                     ) {
                         continue;
                     }
@@ -835,11 +857,12 @@ impl<'a> CommandExecutor<'a> {
                             .player_unlocked_sciences(self.current_player_id);
                         highest_frenzy_level_from_sciences(sciences.iter().map(|s| s.as_str()))
                     };
-                    if !self.game_logic.activate_frenzy(
+                    if !self.game_logic.activate_frenzy_with_effects(
                         self.current_player_id,
                         pos,
                         Some(unit_id),
                         level,
+                        &mut self.ui,
                     ) {
                         continue;
                     }
@@ -876,21 +899,23 @@ impl<'a> CommandExecutor<'a> {
                             sciences.iter().map(|s| s.as_str()),
                         )
                     };
-                    if !self.game_logic.activate_emergency_repair(
+                    if !self.game_logic.activate_emergency_repair_with_effects(
                         self.current_player_id,
                         pos,
                         Some(unit_id),
                         level,
+                        &mut self.ui,
                     ) {
                         continue;
                     }
                 } else if *power_type == SpecialPowerType::GpsScrambler
                     || *power_type == SpecialPowerType::StealthGpsScrambler
                 {
-                    if !self.game_logic.activate_gps_scrambler(
+                    if !self.game_logic.activate_gps_scrambler_with_effects(
                         self.current_player_id,
                         pos,
                         Some(unit_id),
+                        &mut self.ui,
                     ) {
                         continue;
                     }
@@ -900,7 +925,7 @@ impl<'a> CommandExecutor<'a> {
                 {
                     if self
                         .game_logic
-                        .queue_paradrop(power_type, unit_id, pos)
+                        .queue_paradrop_with_effects(power_type, unit_id, pos, &mut self.ui)
                         .is_none()
                     {
                         continue;
@@ -910,7 +935,7 @@ impl<'a> CommandExecutor<'a> {
                 {
                     if self
                         .game_logic
-                        .queue_ambush(power_type, unit_id, pos)
+                        .queue_ambush_with_effects(power_type, unit_id, pos, &mut self.ui)
                         .is_none()
                     {
                         continue;
@@ -920,7 +945,7 @@ impl<'a> CommandExecutor<'a> {
                 {
                     if self
                         .game_logic
-                        .queue_leaflet_drop(power_type, unit_id, pos)
+                        .queue_leaflet_drop_with_effects(power_type, unit_id, pos, &mut self.ui)
                         .is_none()
                     {
                         continue;
@@ -928,18 +953,23 @@ impl<'a> CommandExecutor<'a> {
                 } else if *power_type == SpecialPowerType::SneakAttack {
                     if self
                         .game_logic
-                        .queue_sneak_attack_facing(
+                        .queue_sneak_attack_facing_with_effects(
                             power_type,
                             unit_id,
                             pos,
                             target.location_angle(),
+                            &mut self.ui,
                         )
                         .is_none()
                     {
                         continue;
                     }
                 } else if *power_type == SpecialPowerType::FireWall {
-                    if self.game_logic.activate_firewall(unit_id, pos).is_none() {
+                    if self
+                        .game_logic
+                        .activate_firewall_with_effects(unit_id, pos, &mut self.ui)
+                        .is_none()
+                    {
                         continue;
                     }
                 } else if *power_type == SpecialPowerType::HelixNapalmBomb
@@ -949,10 +979,11 @@ impl<'a> CommandExecutor<'a> {
                         continue;
                     }
                 } else if *power_type == SpecialPowerType::CrateDrop {
-                    let _n = self.game_logic.activate_crate_drop(
+                    let _n = self.game_logic.activate_crate_drop_with_effects(
                         self.current_player_id,
                         pos,
                         Some(unit_id),
+                        &mut self.ui,
                     );
                 } else if *power_type == SpecialPowerType::CleanupArea {
                     if !self.game_logic.activate_cleanup_area(
@@ -981,9 +1012,12 @@ impl<'a> CommandExecutor<'a> {
                         }
                     }
                 } else {
-                    let _ = self
-                        .game_logic
-                        .queue_special_power_strike(power_type, unit_id, pos);
+                    let _ = self.game_logic.queue_special_power_strike_with_effects(
+                        power_type,
+                        unit_id,
+                        pos,
+                        &mut self.ui,
+                    );
                 }
             }
             if *power_type != SpecialPowerType::CleanupArea
@@ -1182,9 +1216,10 @@ impl<'a> CommandExecutor<'a> {
             .game_logic
             .unit_command_stop_moving_order_target(unit_id, Some(target_id));
         let _ = self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility);
-        self.game_logic.queue_pending_special_ability(
+        self.game_logic.queue_pending_special_ability_with_effects(
             unit_id,
             PendingSpecialAbility::PlantTimedDemoCharge { target_id },
+            &mut self.ui,
         );
         true
     }
@@ -1221,9 +1256,10 @@ impl<'a> CommandExecutor<'a> {
             .game_logic
             .unit_command_stop_moving_order_target(unit_id, Some(target_id));
         let _ = self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility);
-        self.game_logic.queue_pending_special_ability(
+        self.game_logic.queue_pending_special_ability_with_effects(
             unit_id,
             PendingSpecialAbility::PlantRemoteDemoCharge { target_id },
+            &mut self.ui,
         );
         true
     }
@@ -1278,9 +1314,10 @@ impl<'a> CommandExecutor<'a> {
                 return false;
             }
         }
-        self.game_logic.queue_pending_special_ability(
+        self.game_logic.queue_pending_special_ability_with_effects(
             unit_id,
             PendingSpecialAbility::PlantTimedDemoCharge { target_id },
+            &mut self.ui,
         );
         let _ = TNT_START_ABILITY_RANGE;
         true
@@ -1313,8 +1350,11 @@ impl<'a> CommandExecutor<'a> {
             .game_logic
             .unit_command_stop_moving_order_target(unit_id, None);
         let _ = self.path_to_goal_with_state(unit_id, pos, AIState::SpecialAbility);
-        self.game_logic
-            .queue_pending_special_ability(unit_id, PendingSpecialAbility::helix_napalm_at(pos));
+        self.game_logic.queue_pending_special_ability_with_effects(
+            unit_id,
+            PendingSpecialAbility::helix_napalm_at(pos),
+            &mut self.ui,
+        );
         true
     }
 }

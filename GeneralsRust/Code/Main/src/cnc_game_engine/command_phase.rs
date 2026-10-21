@@ -147,8 +147,12 @@ impl CnCGameEngine {
         )
         .with_cinematic_input(cinematic_input);
         #[cfg(feature = "game_client")]
+        let (poses, terrain) = self
+            .render_pipeline
+            .borrow_native_installed_poses_and_terrain();
+        #[cfg(feature = "game_client")]
         let mut view = super::native_view_effects::NativeRendererViewEffects::new(
-            self.render_pipeline.borrow_native_installed_poses(),
+            poses,
             &mut self.graphics_system,
             presence,
             self.host_direct_visual_world_epoch,
@@ -156,6 +160,8 @@ impl CnCGameEngine {
         );
         #[cfg(feature = "game_client")]
         let effects = crate::game_logic::ScriptPresentationEffects {
+            terrain: terrain
+                .map(|terrain| terrain as &mut dyn crate::game_logic::NativeTerrainEffects),
             ui: Some(&mut ui),
             view: Some(&mut view),
         };

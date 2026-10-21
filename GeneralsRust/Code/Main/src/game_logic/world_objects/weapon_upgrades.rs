@@ -145,6 +145,19 @@ impl GameLogic {
         team: Team,
         upgrade_name: &str,
     ) -> u32 {
+        self.apply_slave_drone_upgrade_to_team_with_effects(
+            team,
+            upgrade_name,
+            &mut Default::default(),
+        )
+    }
+
+    pub(in super::super) fn apply_slave_drone_upgrade_to_team_with_effects(
+        &mut self,
+        team: Team,
+        upgrade_name: &str,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> u32 {
         use crate::game_logic::host_slave_drones::{
             SlaveDroneKind, is_slave_drone_master_template, slave_drone_conflicts_with_owned,
         };
@@ -172,7 +185,10 @@ impl GameLogic {
 
         let mut n = 0u32;
         for mid in masters {
-            if self.residual_attach_slave_drone(mid, kind).is_some() {
+            if self
+                .residual_attach_slave_drone_with_effects(mid, kind, effects)
+                .is_some()
+            {
                 if let Some(m) = self.objects.get_mut(&mid) {
                     m.apply_upgrade_tag(upgrade_name);
                     m.apply_upgrade_tag(tag);
@@ -338,16 +354,38 @@ impl GameLogic {
         team: Team,
         upgrade_name: &str,
     ) -> u32 {
+        self.apply_radar_research_to_team_with_effects(team, upgrade_name, &mut Default::default())
+    }
+
+    pub(in super::super) fn apply_radar_research_to_team_with_effects(
+        &mut self,
+        team: Team,
+        upgrade_name: &str,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> u32 {
         let Some(owner) = self.unique_player_id_for_team(team) else {
             return 0;
         };
-        self.apply_radar_research_to_player(owner, upgrade_name)
+        self.apply_radar_research_to_player_with_effects(owner, upgrade_name, effects)
     }
 
     pub(in super::super) fn apply_radar_research_to_player(
         &mut self,
         owner: u32,
         upgrade_name: &str,
+    ) -> u32 {
+        self.apply_radar_research_to_player_with_effects(
+            owner,
+            upgrade_name,
+            &mut Default::default(),
+        )
+    }
+
+    pub(in super::super) fn apply_radar_research_to_player_with_effects(
+        &mut self,
+        owner: u32,
+        upgrade_name: &str,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> u32 {
         use crate::game_logic::host_radar::{UPGRADE_GLA_RADAR, is_radar_provider_template};
         use crate::game_logic::host_structure_economy_residual::UPGRADE_AMERICA_RADAR;
@@ -398,7 +436,7 @@ impl GameLogic {
             n = n.saturating_add(1);
         }
         for id in ids {
-            self.admit_host_radar_provider(id);
+            self.admit_host_radar_provider_with_effects(id, effects);
         }
         n
     }

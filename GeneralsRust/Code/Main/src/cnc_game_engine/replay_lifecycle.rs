@@ -6,16 +6,11 @@ impl CnCGameEngine {
     pub(super) fn capture_recorder_application_inputs(
         map: String,
         seed: u32,
+        user_data_root: &std::path::Path,
     ) -> game_engine::common::recorder::RecorderOwnerInputs {
         let data = game_engine::common::ini::ini_game_data::ensure_global_data();
         let data = data.read();
-        let directory = if data.get_path_user_data().trim().is_empty() {
-            let mut path = std::env::current_exe().unwrap_or_default();
-            path.pop();
-            path
-        } else {
-            std::path::PathBuf::from(data.get_path_user_data())
-        };
+        let directory = user_data_root;
         game_engine::common::recorder::RecorderOwnerInputs {
             map,
             seed,

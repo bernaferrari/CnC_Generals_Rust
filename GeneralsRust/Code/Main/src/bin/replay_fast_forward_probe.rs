@@ -30,7 +30,7 @@ fn replay_probe_child_command(
     // A wall clock is not a uniqueness guarantee across parallel launchers.
     let root = create_probe_directory(nonce)?;
     let root = root.canonicalize()?;
-    for directory in ["cwd", "home", "appdata", "userdata"] {
+    for directory in ["cwd", "userdata"] {
         std::fs::create_dir(root.join(directory))?;
     }
     eprintln!("replay probe private evidence: {}", root.display());
@@ -38,11 +38,7 @@ fn replay_probe_child_command(
     command
         .current_dir(root.join("cwd"))
         .env(PRIVATE_ROOT, &root)
-        .env(SOURCE_ROOT, &original)
-        .env("HOME", root.join("home"))
-        .env("USERPROFILE", root.join("home"))
-        .env("APPDATA", root.join("appdata"))
-        .env("LOCALAPPDATA", root.join("appdata"));
+        .env(SOURCE_ROOT, &original);
     // Preserve explicit licensed asset configuration and every other inherited input.
     if std::env::var_os("GENERALS_ASSETS_DIR").is_none() {
         command.env("GENERALS_ASSETS_DIR", original);
@@ -246,14 +242,8 @@ mod tests {
                 assert!(generals_main::gameworld_shadow::gameworld_shadow_enabled());
                 let root = std::path::PathBuf::from(std::env::var_os(PRIVATE_ROOT).unwrap());
                 assert_eq!(std::env::current_dir().unwrap(), root.join("cwd"));
-                assert_eq!(
-                    std::env::var_os("HOME"),
-                    Some(root.join("home").into_os_string())
-                );
-                assert_eq!(
-                    std::env::var_os("APPDATA"),
-                    Some(root.join("appdata").into_os_string())
-                );
+                assert!(!root.join("home").exists());
+                assert!(!root.join("appdata").exists());
                 assert!(!root.join("userdata/Options.ini").exists());
             },
         );
@@ -268,6 +258,11 @@ mod tests {
     fn launcher_preserves_cli_and_rejects_incorrect_child_marker() {
         let mut command = replay_probe_child_command(std::path::Path::new("replay-probe")).unwrap();
         command.args(["original-arg", "second-arg"]);
+        assert!(command.get_envs().all(|(key, _)| {
+            !["HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA"]
+                .iter()
+                .any(|name| key == std::ffi::OsStr::new(name))
+        }));
         assert_eq!(
             command.get_args().collect::<Vec<_>>(),
             [

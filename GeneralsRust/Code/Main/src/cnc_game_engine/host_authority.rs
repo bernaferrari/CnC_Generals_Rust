@@ -5,6 +5,7 @@ use super::*;
 /// process-global runtime bundle that map loading touched while staging it.
 /// The bundle stays opaque until the single combined commit boundary below.
 struct StagedRestoreWorld {
+    native_map: super::map_native_admission::NativeMapCandidate,
     logic: crate::game_logic::GameLogic,
     info: SaveGameInfo,
     runtime_world: gamelogic::runtime_world_transaction::StagedHostRuntimeWorld,
@@ -155,9 +156,12 @@ impl CnCGameEngine {
         let min = glam::Vec3::new(-half_w, 0.0, -half_h);
         let max = glam::Vec3::new(half_w, 0.0, half_h);
         if self.host_match_world_bounds != Some((min, max)) {
-            self.host_game_logic_mut().apply_session_control_op(
-                crate::game_logic::SessionControlOp::OverrideWorldSize { width, height },
-            );
+            self.with_native_camera_input_effects(|logic, effects, _| {
+                logic.apply_session_control_op_with_effects(
+                    crate::game_logic::SessionControlOp::OverrideWorldSize { width, height },
+                    effects,
+                )
+            });
             self.host_match_world_bounds = Some((min, max));
         }
     }
@@ -339,12 +343,15 @@ impl CnCGameEngine {
         } else if self.host_match_local_supplies.is_some_and(|s| s >= floor) {
             return;
         }
-        let _ = self.host_game_logic_mut().apply_host_support_op(
-            crate::game_logic::HostSupportOp::EnsurePlayerMinSupplies {
-                player_id: pid,
-                floor,
-            },
-        );
+        let _ = self.with_native_camera_input_effects(|world, effects, _| {
+            world.apply_host_support_op_with_effects(
+                crate::game_logic::HostSupportOp::EnsurePlayerMinSupplies {
+                    player_id: pid,
+                    floor,
+                },
+                effects,
+            )
+        });
     }
 
     /// Wave 871: clear all host_match_* residuals (reset/load/start boundaries).
@@ -502,6 +509,8 @@ impl CnCGameEngine {
         #[cfg(feature = "game_client")]
         self.game_client.invalidate_presentation_drawable_world();
         self.render_pipeline.invalidate_world_visual_state();
+        #[cfg(feature = "game_client")]
+        self.render_pipeline.clear_native_terrain();
         self.invalidate_presentation_terrain_cache();
         self.host_clear_match_residuals();
         self.selected_objects.clear();
@@ -520,9 +529,12 @@ impl CnCGameEngine {
                 .any(|o| o.id == id && (o.destroyed || o.health_current <= 0.0))
         });
         if !already_destroyed {
-            let _ = self
-                .game_logic
-                .apply_object_lifecycle_op(crate::game_logic::ObjectLifecycleOp::Destroy { id });
+            let _ = self.with_native_camera_input_effects(|world, effects, _| {
+                world.apply_object_lifecycle_op_with_effects(
+                    crate::game_logic::ObjectLifecycleOp::Destroy { id },
+                    effects,
+                )
+            });
             if self.last_presentation_frame.is_none() {
                 self.host_refresh_local_train_producer_residuals();
             }
@@ -565,9 +577,11 @@ impl CnCGameEngine {
             return true;
         }
         let ok = matches!(
-            self.host_game_logic_mut().apply_object_lifecycle_op(
-                crate::game_logic::ObjectLifecycleOp::ClearMovementPath { id },
-            ),
+            self.with_native_camera_input_effects(|world, effects, _| world
+                .apply_object_lifecycle_op_with_effects(
+                    crate::game_logic::ObjectLifecycleOp::ClearMovementPath { id },
+                    effects
+                )),
             crate::game_logic::ObjectLifecycleResult::Bool(true)
         );
         if ok && self.last_presentation_frame.is_none() {
@@ -593,9 +607,12 @@ impl CnCGameEngine {
                     .map(|o| o.guard_radius)
             });
         }
-        let r = match self.host_game_logic_mut().apply_object_lifecycle_op(
-            crate::game_logic::ObjectLifecycleOp::AdjustGuardRadius { id, delta },
-        ) {
+        let r = match self.with_native_camera_input_effects(|world, effects, _| {
+            world.apply_object_lifecycle_op_with_effects(
+                crate::game_logic::ObjectLifecycleOp::AdjustGuardRadius { id, delta },
+                effects,
+            )
+        }) {
             crate::game_logic::ObjectLifecycleResult::Radius(r) => r,
             _ => None,
         };
@@ -621,9 +638,11 @@ impl CnCGameEngine {
             return true;
         }
         let ok = matches!(
-            self.host_game_logic_mut().apply_object_lifecycle_op(
-                crate::game_logic::ObjectLifecycleOp::ForceCompleteConstruction { id },
-            ),
+            self.with_native_camera_input_effects(|world, effects, _| world
+                .apply_object_lifecycle_op_with_effects(
+                    crate::game_logic::ObjectLifecycleOp::ForceCompleteConstruction { id },
+                    effects
+                )),
             crate::game_logic::ObjectLifecycleResult::Bool(true)
         );
         if ok && self.last_presentation_frame.is_none() {
@@ -648,9 +667,11 @@ impl CnCGameEngine {
             return true;
         }
         let ok = matches!(
-            self.host_game_logic_mut().apply_host_support_op(
-                crate::game_logic::HostSupportOp::EnsureBarracksBuildingData { id },
-            ),
+            self.with_native_camera_input_effects(|world, effects, _| world
+                .apply_host_support_op_with_effects(
+                    crate::game_logic::HostSupportOp::EnsureBarracksBuildingData { id },
+                    effects
+                )),
             crate::game_logic::HostSupportResult::Bool(true)
         );
         if ok && self.last_presentation_frame.is_none() {
@@ -674,9 +695,11 @@ impl CnCGameEngine {
             return true;
         }
         let ok = matches!(
-            self.host_game_logic_mut().apply_host_support_op(
-                crate::game_logic::HostSupportOp::ForceEnsureBarracksBuildingData { id },
-            ),
+            self.with_native_camera_input_effects(|world, effects, _| world
+                .apply_host_support_op_with_effects(
+                    crate::game_logic::HostSupportOp::ForceEnsureBarracksBuildingData { id },
+                    effects
+                )),
             crate::game_logic::HostSupportResult::Bool(true)
         );
         if ok && self.last_presentation_frame.is_none() {
@@ -692,7 +715,9 @@ impl CnCGameEngine {
         order: crate::game_logic::DirectPlayerOrder,
     ) {
         // Wave 929/930: single GameLogic direct-order authority boundary + stamp.
-        self.host_game_logic_mut().apply_direct_player_order(order);
+        self.with_native_camera_input_effects(|world, effects, _| {
+            world.apply_direct_player_order_with_effects(order, effects)
+        });
         self.host_stamp_after_authority_command();
     }
 
@@ -776,9 +801,10 @@ impl CnCGameEngine {
         if let Some(code) = self.host_legal_build_cache.get(&key).copied() {
             return code;
         }
-        let code = self
-            .game_logic
-            .legal_build_code_at_for_builder(team, loc, template, builder);
+        let code = self.with_native_camera_input_effects(|logic, effects, _| {
+            logic
+                .legal_build_code_at_for_builder_with_effects(team, loc, template, builder, effects)
+        });
         self.host_legal_build_cache.insert(key, code);
         code
     }
@@ -814,9 +840,26 @@ impl CnCGameEngine {
         if let Some(code) = self.host_legal_build_cache.get(&key).copied() {
             return code;
         }
+        #[cfg(feature = "game_client")]
+        let terrain = self
+            .render_pipeline
+            .native_terrain_mut()
+            .map(|terrain| terrain as &mut dyn crate::game_logic::NativeTerrainEffects);
+        #[cfg(not(feature = "game_client"))]
+        let terrain = None;
         let code = self
             .game_logic
-            .legal_build_code_at_for_preview(team, loc, template, builder);
+            .legal_build_code_at_for_preview_with_effects(
+                team,
+                loc,
+                template,
+                builder,
+                &mut crate::game_logic::ScriptPresentationEffects {
+                    ui: None,
+                    view: None,
+                    terrain,
+                },
+            );
         self.host_legal_build_cache.insert(key, code);
         code
     }
@@ -880,12 +923,14 @@ impl CnCGameEngine {
         // Wave 582/868/919/931: enqueue residual via object-lifecycle authority.
         // Skip producer residual refresh under presentation freeze (freeze owns scan).
         let ok = matches!(
-            self.host_game_logic_mut().apply_object_lifecycle_op(
-                crate::game_logic::ObjectLifecycleOp::EnqueueProduction {
-                    producer,
-                    template_name,
-                },
-            ),
+            self.with_native_camera_input_effects(|world, effects, _| world
+                .apply_object_lifecycle_op_with_effects(
+                    crate::game_logic::ObjectLifecycleOp::EnqueueProduction {
+                        producer,
+                        template_name,
+                    },
+                    effects
+                )),
             crate::game_logic::ObjectLifecycleResult::Bool(true)
         );
         if ok && self.last_presentation_frame.is_none() {
@@ -917,13 +962,16 @@ impl CnCGameEngine {
     ) -> Option<crate::game_logic::ObjectId> {
         // Wave 581/867/919/931: host spawn residual via object-lifecycle authority.
         // Under presentation freeze, next finalize refreshes alive residuals.
-        let res = self.host_game_logic_mut().apply_object_lifecycle_op(
-            crate::game_logic::ObjectLifecycleOp::Create {
-                name: name.to_string(),
-                team,
-                spawn_at,
-            },
-        );
+        let res = self.with_native_camera_input_effects(|world, effects, _| {
+            world.apply_object_lifecycle_op_with_effects(
+                crate::game_logic::ObjectLifecycleOp::Create {
+                    name: name.to_string(),
+                    team,
+                    spawn_at,
+                },
+                effects,
+            )
+        });
         let id = match res {
             crate::game_logic::ObjectLifecycleResult::Created(id) => id,
             _ => None,
@@ -1191,7 +1239,11 @@ impl CnCGameEngine {
 
     /// Wave 935: intentional full GameLogic replace boundary (map-load install).
     #[inline]
-    pub(super) fn host_replace_game_logic(&mut self, mut logic: crate::game_logic::GameLogic) {
+    pub(super) fn host_replace_game_logic(
+        &mut self,
+        mut logic: crate::game_logic::GameLogic,
+        native_map: super::map_native_admission::NativeMapCandidate,
+    ) {
         if logic
             .session_view
             .camera
@@ -1241,6 +1293,7 @@ impl CnCGameEngine {
                 &self.game_logic.world_services,
             )));
         self.render_pipeline.invalidate_world_visual_state();
+        native_map.install(&mut self.render_pipeline);
         self.invalidate_presentation_terrain_cache();
         self.draw_module_name_cache.borrow_mut().clear();
         self.kind_name_cache.borrow_mut().clear();
@@ -1280,6 +1333,7 @@ impl CnCGameEngine {
         // Reject unexplained Core callbacks before invalidating the old UI,
         // replacing its world, or admitting the candidate camera continuation.
         let StagedRestoreWorld {
+            native_map,
             mut logic,
             info: _,
             runtime_world,
@@ -1338,6 +1392,7 @@ impl CnCGameEngine {
             .as_ref()
             .and_then(|initial| initial.local_slot);
         let old_logic = std::mem::replace(&mut self.game_logic, logic);
+        native_map.install(&mut self.render_pipeline);
         if let Some(local) = saved_local {
             self.current_player_id = local;
             self.host_match_local_player_id = Some(local);
@@ -1399,13 +1454,13 @@ impl CnCGameEngine {
         }
         // Native map actions already ran at definition admission and saved team
         // state replaced their runtime state. No Core script is replayed here.
-        // TerrainVisual follows the client/view blocks in the original named
-        // stream. This remaining native adapter is intentionally visible:
-        // x3l7v still tracks renderer-owned water/scorch service migration.
-        if let Some(terrain_visual) = terrain_visual {
-            terrain_visual.commit_legacy_native();
-        } else if let Some(configured) = map_water_configuration {
-            gamelogic::terrain_water::publish_map_water_legacy_native(&configured);
+        // Native effects follow client/view admission, on this renderer only.
+        if let Some(visual) = self.render_pipeline.native_terrain_mut() {
+            if let Some(terrain_visual) = terrain_visual {
+                terrain_visual.apply_native(visual);
+            } else if let Some(configured) = map_water_configuration {
+                visual.admit_map_water_configuration(&configured);
+            }
         }
         native_commit.finish_after_logic_commit();
         // Movement receipts belong to runtime output, not the save wire. Map
@@ -1600,19 +1655,17 @@ impl CnCGameEngine {
             .render_pipeline
             .capture_client_drawable_snapshot(&visual_world);
         let save_path = self.save_file_manager.get_save_path(slot);
-        // Transitional native-only observation; never discovers raw/water owner.
-        // Replace this global scorch adapter when RenderPipeline owns its buffer.
-        let terrain_scorches = game_client::terrain::scorch_mesh::terrain_scorch_marks();
+        let native_terrain = self.render_pipeline.native_terrain();
         let result = self
             .save_file_manager
-            .save_game_with_client_save_state_and_terrain_scorches(
+            .save_game_with_client_save_state_and_native_terrain(
                 slot,
                 &self.game_logic,
                 client_drawables,
                 &mut self.game_client,
                 save_info,
                 client_save,
-                Some(&terrain_scorches),
+                native_terrain,
             )
             .map_err(|e| format!("{e}"));
         // C++ GameState::saveGame (GameState.cpp:547-597): HUD
@@ -1720,6 +1773,7 @@ impl CnCGameEngine {
         ai_definition_base: &game_engine::common::ini::AIData,
         production_energy_base: game_engine::common::ini::ini_game_data::ProductionEnergyRules,
         physics_rules_base: game_engine::common::ini::ini_game_data::PhysicsContentRules,
+        terrain_definition_seed: &Arc<game_engine::common::ini::ini_terrain::TerrainTypes>,
         camera_settings: crate::presentation_frame::camera::settings::CameraSettings,
         camera_clip_policy: crate::presentation_frame::camera::clip::CameraClipPolicy,
         camera_shake_policy: crate::presentation_frame::camera::shake_rules::CameraShakePolicy,
@@ -1737,7 +1791,8 @@ impl CnCGameEngine {
             .load_game_snapshot(slot)
             .map_err(|err| format!("{err}"))?;
 
-        Self::stage_decoded_saved_world_for_restore(
+        let mut native_map = super::map_native_admission::NativeMapCandidate::default();
+        let mut staged = Self::stage_decoded_saved_world_for_restore_with_native(
             &snapshot,
             save_info,
             saved_game_mode,
@@ -1752,6 +1807,7 @@ impl CnCGameEngine {
             ai_definition_base,
             production_energy_base,
             physics_rules_base,
+            terrain_definition_seed,
             camera_settings,
             camera_clip_policy,
             camera_shake_policy,
@@ -1763,7 +1819,10 @@ impl CnCGameEngine {
                     .restore_game_snapshot(snapshot, staged)
                     .map_err(|err| format!("{err}"))
             },
-        )
+            native_map.receiver(),
+        )?;
+        staged.native_map = native_map;
+        Ok(staged)
     }
 
     /// Stage a decoded save behind a raw singleton/TLS transaction boundary.
@@ -1811,6 +1870,7 @@ impl CnCGameEngine {
             live.ai_definitions.baseline(),
             live.production_energy_baseline(),
             live.physics_rules_baseline(),
+            live.effective_terrain_definitions(),
             live.session_view.camera.settings,
             live.session_view.camera.clip_policy,
             live.session_view.camera.shake_policy,
@@ -1903,6 +1963,7 @@ impl CnCGameEngine {
         candidate.set_ai_definition_base(live.ai_definitions.baseline().clone());
         candidate.admit_production_energy_base(live.production_energy_baseline());
         candidate.admit_physics_rules_base(live.physics_rules_baseline())?;
+        candidate.admit_terrain_definitions(Arc::clone(live.effective_terrain_definitions()))?;
         candidate.session_view.camera.settings = live.session_view.camera.settings.reset_seed();
         candidate.session_view.camera.clip_policy =
             live.session_view.camera.clip_policy.reset_seed();
@@ -1973,6 +2034,7 @@ impl CnCGameEngine {
         ai_definition_base: &game_engine::common::ini::AIData,
         production_energy_base: game_engine::common::ini::ini_game_data::ProductionEnergyRules,
         physics_rules_base: game_engine::common::ini::ini_game_data::PhysicsContentRules,
+        terrain_definition_seed: &Arc<game_engine::common::ini::ini_terrain::TerrainTypes>,
         camera_settings: crate::presentation_frame::camera::settings::CameraSettings,
         camera_clip_policy: crate::presentation_frame::camera::clip::CameraClipPolicy,
         camera_shake_policy: crate::presentation_frame::camera::shake_rules::CameraShakePolicy,
@@ -1980,6 +2042,68 @@ impl CnCGameEngine {
         camera_input_policy: crate::presentation_frame::camera::input_rules::CameraInputPolicy,
         live_services: &Arc<gamelogic::system::engine_stores::WorldServices>,
         restore_snapshot: F,
+    ) -> Result<StagedRestoreWorld, String>
+    where
+        F: FnOnce(
+            &crate::save_load::WorldSnapshot,
+            &mut crate::game_logic::GameLogic,
+        ) -> Result<(), String>,
+    {
+        Self::stage_decoded_saved_world_for_restore_with_native(
+            snapshot,
+            save_info,
+            saved_game_mode,
+            game_client_xfer_bytes,
+            terrain_visual_xfer_bytes,
+            slot,
+            active_mode,
+            template_catalog,
+            weapon_catalog,
+            projectile_definitions,
+            ocl_application_base,
+            ai_definition_base,
+            production_energy_base,
+            physics_rules_base,
+            terrain_definition_seed,
+            camera_settings,
+            camera_clip_policy,
+            camera_shake_policy,
+            camera_movement_policy,
+            camera_input_policy,
+            live_services,
+            restore_snapshot,
+            None,
+        )
+    }
+
+    fn stage_decoded_saved_world_for_restore_with_native<F>(
+        snapshot: &crate::save_load::WorldSnapshot,
+        save_info: SaveGameInfo,
+        saved_game_mode: Option<i32>,
+        game_client_xfer_bytes: Option<Vec<u8>>,
+        terrain_visual_xfer_bytes: Option<Vec<u8>>,
+        slot: &str,
+        active_mode: crate::game_logic::GameMode,
+        template_catalog: &std::collections::HashMap<String, crate::game_logic::ThingTemplate>,
+        weapon_catalog: &Option<
+            std::collections::HashMap<String, Arc<gamelogic::weapon::WeaponTemplate>>,
+        >,
+        projectile_definitions: &crate::game_logic::projectile_definitions::ProjectileDefinitions,
+        ocl_application_base: &Arc<
+            std::collections::HashMap<String, gamelogic::effects::ObjectCreationList>,
+        >,
+        ai_definition_base: &game_engine::common::ini::AIData,
+        production_energy_base: game_engine::common::ini::ini_game_data::ProductionEnergyRules,
+        physics_rules_base: game_engine::common::ini::ini_game_data::PhysicsContentRules,
+        terrain_definition_seed: &Arc<game_engine::common::ini::ini_terrain::TerrainTypes>,
+        camera_settings: crate::presentation_frame::camera::settings::CameraSettings,
+        camera_clip_policy: crate::presentation_frame::camera::clip::CameraClipPolicy,
+        camera_shake_policy: crate::presentation_frame::camera::shake_rules::CameraShakePolicy,
+        camera_movement_policy: crate::presentation_frame::camera::movement_rules::CameraMovementPolicy,
+        camera_input_policy: crate::presentation_frame::camera::input_rules::CameraInputPolicy,
+        live_services: &Arc<gamelogic::system::engine_stores::WorldServices>,
+        restore_snapshot: F,
+        mut native: Option<&mut dyn crate::game_logic::NativeMapAdmission>,
     ) -> Result<StagedRestoreWorld, String>
     where
         F: FnOnce(
@@ -2063,6 +2187,7 @@ impl CnCGameEngine {
         staged.set_ai_definition_base(ai_definition_base.clone());
         staged.admit_production_energy_base(production_energy_base);
         staged.admit_physics_rules_base(physics_rules_base)?;
+        staged.admit_terrain_definitions(Arc::clone(terrain_definition_seed))?;
         staged.start_new_game_for_restore(mode);
         if let Some(initial) = &initial_skirmish {
             initial.admit(&mut staged)?;
@@ -2089,10 +2214,13 @@ impl CnCGameEngine {
         let mut capture_map_water = |state: &gamelogic::terrain_water::WaterGridState| {
             map_water_configuration = Some(state.clone());
         };
-        if !staged.load_map_with_definition_source_and_water_delivery(
+        if !staged.load_map_with_definition_source_and_water_delivery_and_native(
             saved_map,
             definition_source,
             Some(&mut capture_map_water),
+            native
+                .as_mut()
+                .map(|native| &mut **native as &mut dyn crate::game_logic::NativeMapAdmission),
         ) {
             return Err(format!(
                 "failed to load saved map '{saved_map}' from '{resolved_map_name}'"
@@ -2117,6 +2245,13 @@ impl CnCGameEngine {
                 .map_err(|error| error.to_string())?;
         }
 
+        // Snapshot/companion admission may replace canonical raw heights after
+        // map factories ran. Finish that SAME detached native owner now; saved
+        // water and the optional scorch tail still apply at native commit.
+        if let Some(native) = native.as_mut() {
+            native.admit_restored_heights(&staged)?;
+        }
+
         // Snapshot restoration must not turn a successful map load into a
         // false in-game claim.  It currently restores terrain/objects but not
         // GameMode/map identity, so these checks also guard future changes.
@@ -2132,6 +2267,7 @@ impl CnCGameEngine {
         let runtime_world = runtime_stage.finish_and_restore_live(&staged.world_services);
         staged_effects.finish_and_restore_live();
         Ok(StagedRestoreWorld {
+            native_map: Default::default(),
             logic: staged,
             info: save_info,
             runtime_world,
@@ -2189,6 +2325,7 @@ impl CnCGameEngine {
             self.game_logic.ai_definitions.baseline(),
             self.game_logic.production_energy_baseline(),
             self.game_logic.physics_rules_baseline(),
+            self.game_logic.effective_terrain_definitions(),
             self.game_logic.session_view.camera.settings,
             self.game_logic.session_view.camera.clip_policy,
             self.game_logic.session_view.camera.shake_policy,

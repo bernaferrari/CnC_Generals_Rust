@@ -700,8 +700,17 @@ impl GameLogic {
 
     /// C++ player `TheTacticalView->lookAt`: cancel then queue the snap.
     pub fn request_player_camera_look_at(&mut self, position: Vec3) {
+        self.request_player_camera_look_at_with_effects(position, &mut Default::default());
+    }
+    pub(crate) fn request_player_camera_look_at_with_effects(
+        &mut self,
+        position: Vec3,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         self.cancel_scripted_camera_from_player_look_at();
-        self.request_camera_focus(position);
+        if let Err(error) = self.request_camera_focus_with_effects(position, effects) {
+            log::error!("camera LookAt admission: {error}");
+        }
     }
 
     fn clear_in_flight_scripted_camera_move(&mut self) {

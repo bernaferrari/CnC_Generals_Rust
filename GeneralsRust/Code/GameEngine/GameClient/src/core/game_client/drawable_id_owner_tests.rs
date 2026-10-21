@@ -27,6 +27,12 @@ fn actual_registration_uses_only_the_receiving_clients_counter() {
 
 #[test]
 fn detached_empty_save_and_failed_load_cannot_change_running_allocation() {
+    if crate::core::game_client::global_boundary_fixture::run_in_private_child(
+        module_path!(),
+        "detached_empty_save_and_failed_load_cannot_change_running_allocation",
+    ) {
+        return;
+    }
     let mut running = GameClient::new().unwrap();
     assert_eq!(register(&mut running), DrawableId(1));
     // GameClient.cpp1353 deliberately does not save m_nextDrawableID.

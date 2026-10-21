@@ -3,6 +3,13 @@ use super::super::super::*;
 
 impl GameLogic {
     pub(super) fn tick_heal_contain_and_tunnel(&mut self) {
+        self.tick_heal_contain_and_tunnel_with_effects(&mut Default::default())
+    }
+
+    pub(super) fn tick_heal_contain_and_tunnel_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         use crate::game_logic::host_tunnel_network::{
             TUNNEL_FULL_HEAL_FRAMES, heal_contain_done, tunnel_tracker_heal_amount,
         };
@@ -52,7 +59,12 @@ impl GameLogic {
                 }) {
                     // CPP HealContain::doHeal uses the container source and
                     // finishes Body callbacks before exit/next-passenger work.
-                    let _ = self.apply_owned_healing(unit_id, amount, Some(container_id));
+                    let _ = self.apply_owned_healing_with_effects(
+                        unit_id,
+                        amount,
+                        Some(container_id),
+                        effects,
+                    );
                     if amount > 0.0 {
                         self.tunnel_network.record_heal_tick();
                     }
@@ -63,7 +75,7 @@ impl GameLogic {
                 // OpenContain::reserveDoorForExit returns DOOR_1 for
                 // HealContain, even while its door countdown is active. The
                 // receiving exit operation removes the passenger exactly once.
-                self.walk_unit_via_open_contain_exit(unit_id, container_id);
+                self.walk_unit_via_open_contain_exit_with_effects(unit_id, container_id, effects);
                 self.tunnel_network.clear_contained_by_frame(unit_id);
                 self.tunnel_network.record_heal_auto_exit();
             }
@@ -100,7 +112,7 @@ impl GameLogic {
                     tunnel_tracker_heal_amount(unit.health.maximum, contained_frames, frames)
                 }) {
                     // CPP TunnelTracker::healObject leaves source invalid.
-                    let _ = self.apply_owned_healing(unit_id, amount, None);
+                    let _ = self.apply_owned_healing_with_effects(unit_id, amount, None, effects);
                     if amount > 0.0 {
                         self.tunnel_network.record_heal_tick();
                     }
@@ -149,7 +161,7 @@ impl GameLogic {
                     )
                 }) {
                     // CPP GarrisonContain::healSingleObject leaves source invalid.
-                    let _ = self.apply_owned_healing(unit_id, amount, None);
+                    let _ = self.apply_owned_healing_with_effects(unit_id, amount, None, effects);
                 }
             }
         }
@@ -176,6 +188,13 @@ impl GameLogic {
 
     /// C++ TunnelContain::update nemesis write + AITNGuard sally from the pool.
     pub(super) fn tick_tunnel_network_nemesis(&mut self) {
+        self.tick_tunnel_network_nemesis_with_effects(&mut Default::default());
+    }
+    pub(super) fn tick_tunnel_network_nemesis_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
+        let tree_move_frame = self.frame;
         use crate::game_logic::KindOf;
         use gamelogic::common::Relationship;
 
@@ -365,7 +384,7 @@ impl GameLogic {
                 }
                 if let Some(unit) = self.objects.get_mut(&uid) {
                     unit.set_contained_by(None);
-                    unit.set_position(start);
+                    unit.set_position_with_effects(start, tree_move_frame, effects);
                     unit.set_orientation(yaw);
                     // OpenContain.cpp:1086 setLayer before adjustToPossibleDestination.
                     unit.pathfind_layer = layer;

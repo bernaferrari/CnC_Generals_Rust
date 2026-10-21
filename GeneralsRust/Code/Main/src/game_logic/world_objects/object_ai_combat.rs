@@ -5,6 +5,15 @@ use super::super::*;
 
 impl GameLogic {
     pub(in super::super) fn update_object_ai(&mut self, object_id: ObjectId, _dt: f32) {
+        self.update_object_ai_with_effects(object_id, _dt, &mut Default::default())
+    }
+
+    pub(in super::super) fn update_object_ai_with_effects(
+        &mut self,
+        object_id: ObjectId,
+        _dt: f32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         // Get object state for AI processing
         let (ai_state, target_id, _position) = {
             if let Some(obj) = self.objects.get(&object_id) {
@@ -64,7 +73,9 @@ impl GameLogic {
                                         if let Some((slot, shot)) = prepared {
                                             let capture =
                                                 attacker.take_pending_weapon_visual_capture();
-                                            self.deliver_owned_weapon_shot(slot, shot, capture);
+                                            self.deliver_owned_weapon_shot_with_effects(
+                                                slot, shot, capture, effects,
+                                            );
                                         }
                                     }
                                 }
@@ -368,7 +379,7 @@ impl GameLogic {
                     self.set_turret_target_position(object_id, None);
                 }
                 if self
-                    .record_accepted_weapon_discharge(object_id, fired_slot)
+                    .record_accepted_weapon_discharge_with_effects(object_id, fired_slot, effects)
                     .is_none()
                 {
                     if let Some(attacker) = self.objects.get_mut(&object_id) {
@@ -380,6 +391,15 @@ impl GameLogic {
     }
 
     pub(in super::super) fn update_object_combat(&mut self, attacker_id: ObjectId, _dt: f32) {
+        self.update_object_combat_with_effects(attacker_id, _dt, &mut Default::default())
+    }
+
+    pub(in super::super) fn update_object_combat_with_effects(
+        &mut self,
+        attacker_id: ObjectId,
+        _dt: f32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         // Get attacker and target info
         let (weapon_damage, target_id, attacker_team, _attacker_owner_player_id) = {
             if let Some(attacker) = self.objects.get(&attacker_id) {
@@ -405,7 +425,7 @@ impl GameLogic {
             };
             let before = target.health.current;
             let receiving_damage_id = target.id;
-            let destroyed = self.apply_residual_damage_owned(
+            let destroyed = self.apply_residual_damage_owned_with_effects(
                 receiving_damage_id,
                 weapon_damage,
                 Some(attacker_id),
@@ -414,6 +434,7 @@ impl GameLogic {
                     crate::game_logic::combat::DamageType::Unresistable,
                 ),
                 None,
+                effects,
             );
             let target = self
                 .objects
@@ -438,7 +459,7 @@ impl GameLogic {
             log::debug!("Object {} destroyed object {}", attacker_id, target_id);
             // Skill points are awarded once on the destroy-list scoreTheKill path
             // (C++ Player::addSkillPointsForKill / victim SkillPointValue).
-            self.mark_object_for_destruction(target_id, Some(attacker_team));
+            self.mark_object_for_destruction_with_effects(target_id, Some(attacker_team), effects);
             let wname = self.objects.get(&attacker_id).and_then(|a| {
                 a.thing()
                     .template
@@ -457,6 +478,13 @@ impl GameLogic {
     }
 
     pub(in super::super) fn update_player_upgrades(&mut self) {
+        self.update_player_upgrades_with_effects(&mut Default::default())
+    }
+
+    pub(in super::super) fn update_player_upgrades_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         // Residual: complete research when residual frames elapse for entries
         // that are NOT still advancing on a building PRODUCTION_UPGRADE queue.
         // Building-path completions are applied in `update_production`.
@@ -588,7 +616,7 @@ impl GameLogic {
                 );
             }
             if !already {
-                self.apply_host_upgrade_complete(team, player_id, &name);
+                self.apply_host_upgrade_complete_with_effects(team, player_id, &name, effects);
             }
         }
     }
@@ -753,6 +781,21 @@ impl GameLogic {
         player_id: u32,
         upgrade_name: &str,
     ) {
+        self.apply_host_upgrade_complete_with_effects(
+            team,
+            player_id,
+            upgrade_name,
+            &mut Default::default(),
+        )
+    }
+
+    pub(crate) fn apply_host_upgrade_complete_with_effects(
+        &mut self,
+        team: Team,
+        player_id: u32,
+        upgrade_name: &str,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         use crate::game_logic::host_upgrades::{HostUpgradeKind, upgrade_mux_target_ids};
 
         // All fan-out routines retain a `*_to_team` compatibility API, but a
@@ -861,9 +904,11 @@ impl GameLogic {
                 HostUpgradeKind::FortifiedStructure => {
                     self.apply_fortified_structure_to_team(team, upgrade_name)
                 }
-                HostUpgradeKind::Radar => {
-                    self.apply_radar_research_to_player(player_id, upgrade_name)
-                }
+                HostUpgradeKind::Radar => self.apply_radar_research_to_player_with_effects(
+                    player_id,
+                    upgrade_name,
+                    effects,
+                ),
                 HostUpgradeKind::RadarVanScan => {
                     self.apply_player_unlock_upgrade(team, upgrade_name, "Upgrade_GLARadarVanScan")
                 }
@@ -880,7 +925,7 @@ impl GameLogic {
                     self.apply_countermeasures_to_team(team, upgrade_name)
                 }
                 HostUpgradeKind::SlaveDrone => {
-                    self.apply_slave_drone_upgrade_to_team(team, upgrade_name)
+                    self.apply_slave_drone_upgrade_to_team_with_effects(team, upgrade_name, effects)
                 }
                 HostUpgradeKind::CashBounty => {
                     self.apply_cash_bounty_upgrade_to_team(team, upgrade_name)
@@ -947,7 +992,7 @@ impl GameLogic {
         for id in mux_ids {
             // C++ Object::updateUpgradeModules → UpgradeMux::attemptUpgrade
             // (ReplaceObject / GrantScience / Unpause / StatusBits / add-ons).
-            self.apply_upgrade_to_object(id, upgrade_name);
+            self.apply_upgrade_to_object_with_effects(id, upgrade_name, effects);
             mux_n = mux_n.saturating_add(1);
         }
 

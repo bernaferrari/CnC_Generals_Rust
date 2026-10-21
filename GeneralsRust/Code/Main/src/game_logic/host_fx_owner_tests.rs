@@ -416,6 +416,7 @@ fn authored_nested_bone_fx_borrows_same_session_impulse_and_world_visibility() {
                     vec![Matrix3D::IDENTITY]
                 };
                 let mut receiving = game_client::fx_list::FxViewServices {
+                    add_scorch: &mut |_, _, _| {},
                     shake: &mut *services.shake,
                     find_list: &mut *services.find_list,
                     bone_transforms: &mut bones,

@@ -2,6 +2,12 @@ use super::*;
 
 #[test]
 fn actual_client_xfer_preserves_separate_receiving_clock_and_wire() {
+    if crate::core::game_client::global_boundary_fixture::run_in_private_child(
+        module_path!(),
+        "actual_client_xfer_preserves_separate_receiving_clock_and_wire",
+    ) {
+        return;
+    }
     use game_engine::ClientFrameContext;
     use game_engine::common::system::xfer_load::XferLoad;
     use game_engine::common::system::xfer_save::XferSave;

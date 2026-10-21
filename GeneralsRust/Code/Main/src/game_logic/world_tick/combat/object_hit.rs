@@ -13,6 +13,29 @@ impl GameLogic {
         enemy_or_forced: bool,
         mut weapon_damage: f32,
     ) {
+        self.apply_combat_object_hit_with_effects(
+            attacker_id,
+            attacker_team,
+            target_id,
+            target_position,
+            slot,
+            enemy_or_forced,
+            weapon_damage,
+            &mut Default::default(),
+        )
+    }
+
+    pub(super) fn apply_combat_object_hit_with_effects(
+        &mut self,
+        attacker_id: ObjectId,
+        attacker_team: Team,
+        target_id: ObjectId,
+        target_position: Vec3,
+        slot: u8,
+        enemy_or_forced: bool,
+        mut weapon_damage: f32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let native_rule = self
             .objects
             .get(&attacker_id)
@@ -34,7 +57,13 @@ impl GameLogic {
             });
             if let Some(kind) = aurora {
                 let impact = target_position;
-                let _ = self.queue_aurora_bomb(kind, attacker_id, attacker_team, impact);
+                let _ = self.queue_aurora_bomb_with_effects(
+                    kind,
+                    attacker_id,
+                    attacker_team,
+                    impact,
+                    effects,
+                );
                 true
             } else {
                 false
@@ -170,7 +199,7 @@ impl GameLogic {
                     let destroyed = {
                         let owned_victim_id = target.id;
                         let owned_damage_type = crate::game_logic::combat::DamageType::Unresistable;
-                        self.apply_residual_damage_owned(
+                        self.apply_residual_damage_owned_with_effects(
                             owned_victim_id,
                             weapon_damage,
                             Some(attacker_id),
@@ -179,6 +208,7 @@ impl GameLogic {
                                 owned_damage_type,
                             ),
                             None,
+                            effects,
                         )
                     };
                     if destroyed {
@@ -187,7 +217,11 @@ impl GameLogic {
                         };
                         let victim_pos = target.get_position();
                         let victim_team = target.team;
-                        self.mark_object_for_destruction(target_id, Some(attacker_team));
+                        self.mark_object_for_destruction_with_effects(
+                            target_id,
+                            Some(attacker_team),
+                            effects,
+                        );
                         let wname = self
                             .objects
                             .get(&attacker_id)
@@ -246,11 +280,12 @@ impl GameLogic {
                         .map(|a| a.get_position())
                         .unwrap_or(impact);
                     let spawned = self
-                        .spawn_nuke_cannon_shell_projectile(
+                        .spawn_nuke_cannon_shell_projectile_with_effects(
                             attacker_id,
                             from,
                             impact,
                             Some(target_id),
+                            effects,
                         )
                         .is_some();
                     let (hits, _destroyed_any) = if spawned {
@@ -258,7 +293,12 @@ impl GameLogic {
                         // count residual fire at spawn for combat-gate honesty.
                         (1, false)
                     } else {
-                        self.apply_nuke_cannon_primary_at(impact, Some(attacker_id), attacker_team)
+                        self.apply_nuke_cannon_primary_at_with_effects(
+                            impact,
+                            Some(attacker_id),
+                            attacker_team,
+                            effects,
+                        )
                     };
                 } else if neutron_blast {
                     let impact = target_position;
@@ -268,11 +308,12 @@ impl GameLogic {
                         .map(|a| a.get_position())
                         .unwrap_or(impact);
                     let spawned = self
-                        .spawn_neutron_cannon_shell_projectile(
+                        .spawn_neutron_cannon_shell_projectile_with_effects(
                             attacker_id,
                             from,
                             impact,
                             Some(target_id),
+                            effects,
                         )
                         .is_some();
                     let (ik, vu, _vk) = if spawned {
@@ -281,7 +322,13 @@ impl GameLogic {
                             self.neutron_shell_residual_blasts.saturating_add(1);
                         (0, 0, 0)
                     } else {
-                        self.apply_neutron_blast_at(impact, attacker_team, Some(attacker_id), true)
+                        self.apply_neutron_blast_at_with_effects(
+                            impact,
+                            attacker_team,
+                            Some(attacker_id),
+                            true,
+                            effects,
+                        )
                     };
                     // Stop attack after residual blast shot (slow reload residual).
                 } else if {
@@ -301,10 +348,11 @@ impl GameLogic {
                         .unwrap_or(false)
                 } {
                     let impact = target_position;
-                    let (hits, _destroyed_any) = self.apply_helix_minigun_residual_at(
+                    let (hits, _destroyed_any) = self.apply_helix_minigun_residual_at_with_effects(
                         impact,
                         Some(attacker_id),
                         Some(target_id),
+                        effects,
                     );
                 } else if {
                     // Comanche residual: 20mm primary / anti-tank secondary /
@@ -359,31 +407,38 @@ impl GameLogic {
                                     .get(&attacker_id)
                                     .map(|o| o.get_position())
                                     .unwrap_or(impact);
-                                let _ = self.spawn_comanche_rocket_pod_projectile(
+                                let _ = self.spawn_comanche_rocket_pod_projectile_with_effects(
                                     attacker_id,
                                     from,
                                     aim,
                                     idx,
+                                    effects,
                                 );
                                 // Area residual still centers on intended aim
                                 // (ScatterTarget is projectile flight residual).
-                                self.apply_comanche_rocket_pod_area_at(impact, Some(attacker_id))
+                                self.apply_comanche_rocket_pod_area_at_with_effects(
+                                    impact,
+                                    Some(attacker_id),
+                                    effects,
+                                )
                             }
                         } else if should_apply_comanche_antitank_residual(
                             is_comanche,
                             slot,
                             has_pods,
                         ) {
-                            self.apply_comanche_antitank_residual_at(
+                            self.apply_comanche_antitank_residual_at_with_effects(
                                 impact,
                                 Some(attacker_id),
                                 Some(target_id),
+                                effects,
                             )
                         } else if should_apply_comanche_cannon_residual(is_comanche, slot) {
-                            self.apply_comanche_cannon_residual_at(
+                            self.apply_comanche_cannon_residual_at_with_effects(
                                 impact,
                                 Some(attacker_id),
                                 Some(target_id),
+                                effects,
                             )
                         } else {
                             (0, false)
@@ -409,11 +464,12 @@ impl GameLogic {
                         .map(|a| a.get_position())
                         .unwrap_or(impact);
                     let spawned = self
-                        .spawn_rocket_buggy_missile_projectile(
+                        .spawn_rocket_buggy_missile_projectile_with_effects(
                             attacker_id,
                             from,
                             impact,
                             Some(target_id),
+                            effects,
                         )
                         .is_some();
                     let (hits, _destroyed_any) = if spawned {
@@ -421,10 +477,11 @@ impl GameLogic {
                             self.rocket_buggy_residual_fires.saturating_add(1);
                         (1, false)
                     } else {
-                        self.apply_rocket_buggy_residual_at(
+                        self.apply_rocket_buggy_residual_at_with_effects(
                             impact,
                             Some(attacker_id),
                             Some(target_id),
+                            effects,
                         )
                     };
                 } else if {
@@ -453,18 +510,25 @@ impl GameLogic {
                         .map(|a| a.get_position())
                         .unwrap_or(impact);
                     let spawned = self
-                        .spawn_scud_launcher_missile_projectile(
+                        .spawn_scud_launcher_missile_projectile_with_effects(
                             attacker_id,
                             from,
                             impact,
                             Some(target_id),
                             toxin,
+                            effects,
                         )
                         .is_some();
                     let (hits, _destroyed_any) = if spawned {
                         (1, false) // fire residual honesty; blast deferred to impact
                     } else {
-                        self.apply_scud_area_at(impact, Some(attacker_id), attacker_team, toxin)
+                        self.apply_scud_area_at_with_effects(
+                            impact,
+                            Some(attacker_id),
+                            attacker_team,
+                            toxin,
+                            effects,
+                        )
                     };
                 } else if {
                     // GLA Technical residual: MG direct or cannon/RPG splash salvage tiers.
@@ -501,11 +565,12 @@ impl GameLogic {
                         .unwrap_or(impact);
                     let (hits, _destroyed_any) = if should_apply_technical_rpg_missile(true, tier) {
                         let spawned = self
-                            .spawn_technical_rpg_missile_projectile(
+                            .spawn_technical_rpg_missile_projectile_with_effects(
                                 attacker_id,
                                 from,
                                 impact,
                                 Some(target_id),
+                                effects,
                             )
                             .is_some();
                         if spawned {
@@ -513,19 +578,21 @@ impl GameLogic {
                                 self.technical_residual_fires.saturating_add(1);
                             (1, false)
                         } else {
-                            self.apply_technical_residual_at(
+                            self.apply_technical_residual_at_with_effects(
                                 impact,
                                 Some(attacker_id),
                                 Some(target_id),
+                                effects,
                             )
                         }
                     } else if should_apply_technical_cannon_shell(true, tier) {
                         let spawned = self
-                            .spawn_technical_cannon_shell_projectile(
+                            .spawn_technical_cannon_shell_projectile_with_effects(
                                 attacker_id,
                                 from,
                                 impact,
                                 Some(target_id),
+                                effects,
                             )
                             .is_some();
                         if spawned {
@@ -533,14 +600,20 @@ impl GameLogic {
                                 self.technical_residual_fires.saturating_add(1);
                             (1, false)
                         } else {
-                            self.apply_technical_residual_at(
+                            self.apply_technical_residual_at_with_effects(
                                 impact,
                                 Some(attacker_id),
                                 Some(target_id),
+                                effects,
                             )
                         }
                     } else {
-                        self.apply_technical_residual_at(impact, Some(attacker_id), Some(target_id))
+                        self.apply_technical_residual_at_with_effects(
+                            impact,
+                            Some(attacker_id),
+                            Some(target_id),
+                            effects,
+                        )
                     };
                 } else if {
                     // GLA Marauder residual: salvage fire-rate tiers + small splash.
@@ -579,12 +652,13 @@ impl GameLogic {
                         })
                         .unwrap_or(MARAUDER_SPEED_TIER0);
                     let spawned = self
-                        .spawn_marauder_shell_projectile(
+                        .spawn_marauder_shell_projectile_with_effects(
                             attacker_id,
                             from,
                             impact,
                             Some(target_id),
                             speed,
+                            effects,
                         )
                         .is_some();
                     let (hits, _destroyed_any) = if spawned {
@@ -592,7 +666,12 @@ impl GameLogic {
                             self.marauder_residual_fires.saturating_add(1);
                         (1, false)
                     } else {
-                        self.apply_marauder_residual_at(impact, Some(attacker_id), Some(target_id))
+                        self.apply_marauder_residual_at_with_effects(
+                            impact,
+                            Some(attacker_id),
+                            Some(target_id),
+                            effects,
+                        )
                     };
                 } else if {
                     // GLA Scorpion residual: gun splash or rocket dual-radius secondary.
@@ -613,21 +692,23 @@ impl GameLogic {
                         .map(|a| a.get_position())
                         .unwrap_or(impact);
                     let spawned = if slot == 0 {
-                        self.spawn_scorpion_shell_projectile(
+                        self.spawn_scorpion_shell_projectile_with_effects(
                             attacker_id,
                             from,
                             impact,
                             Some(target_id),
                             slot,
+                            effects,
                         )
                         .is_some()
                     } else {
-                        self.spawn_scorpion_missile_projectile(
+                        self.spawn_scorpion_missile_projectile_with_effects(
                             attacker_id,
                             from,
                             impact,
                             Some(target_id),
                             slot,
+                            effects,
                         )
                         .is_some()
                     };
@@ -641,11 +722,12 @@ impl GameLogic {
                         }
                         (1, false)
                     } else {
-                        self.apply_scorpion_residual_at(
+                        self.apply_scorpion_residual_at_with_effects(
                             impact,
                             Some(attacker_id),
                             Some(target_id),
                             slot,
+                            effects,
                         )
                     };
                 } else if {
@@ -667,11 +749,12 @@ impl GameLogic {
                         .map(|a| a.get_position())
                         .unwrap_or(impact);
                     let spawned = self
-                        .spawn_tomahawk_missile_projectile(
+                        .spawn_tomahawk_missile_projectile_with_effects(
                             attacker_id,
                             from,
                             impact,
                             Some(target_id),
+                            effects,
                         )
                         .is_some();
                     let (hits, _destroyed_any) = if spawned {
@@ -679,7 +762,12 @@ impl GameLogic {
                             self.tomahawk_residual_fires.saturating_add(1);
                         (1, false)
                     } else {
-                        self.apply_tomahawk_residual_at(impact, Some(attacker_id), Some(target_id))
+                        self.apply_tomahawk_residual_at_with_effects(
+                            impact,
+                            Some(attacker_id),
+                            Some(target_id),
+                            effects,
+                        )
                     };
                 } else if {
                     // USA Raptor residual: jet missiles + Laser Missiles splash.
@@ -698,13 +786,24 @@ impl GameLogic {
                         .map(|a| a.get_position())
                         .unwrap_or(impact);
                     let spawned = self
-                        .spawn_raptor_missile_projectile(attacker_id, from, impact, Some(target_id))
+                        .spawn_raptor_missile_projectile_with_effects(
+                            attacker_id,
+                            from,
+                            impact,
+                            Some(target_id),
+                            effects,
+                        )
                         .is_some();
                     let (hits, _destroyed_any) = if spawned {
                         self.raptor_residual_fires = self.raptor_residual_fires.saturating_add(1);
                         (1, false)
                     } else {
-                        self.apply_raptor_residual_at(impact, Some(attacker_id), Some(target_id))
+                        self.apply_raptor_residual_at_with_effects(
+                            impact,
+                            Some(attacker_id),
+                            Some(target_id),
+                            effects,
+                        )
                     };
                 } else if {
                     // China MiG residual: dual-radius napalm / Nuke missiles + field residual.
@@ -721,13 +820,24 @@ impl GameLogic {
                         .map(|a| a.get_position())
                         .unwrap_or(impact);
                     let spawned = self
-                        .spawn_mig_missile_projectile(attacker_id, from, impact, Some(target_id))
+                        .spawn_mig_missile_projectile_with_effects(
+                            attacker_id,
+                            from,
+                            impact,
+                            Some(target_id),
+                            effects,
+                        )
                         .is_some();
                     let (hits, _destroyed_any) = if spawned {
                         self.mig_residual_fires = self.mig_residual_fires.saturating_add(1);
                         (1, false)
                     } else {
-                        self.apply_mig_residual_at(impact, Some(attacker_id), Some(target_id))
+                        self.apply_mig_residual_at_with_effects(
+                            impact,
+                            Some(attacker_id),
+                            Some(target_id),
+                            effects,
+                        )
                     };
                 } else if {
                     // America Fire Base residual: howitzer primary-radius splash.
@@ -748,11 +858,12 @@ impl GameLogic {
                         .map(|a| a.get_position())
                         .unwrap_or(impact);
                     let spawned = self
-                        .spawn_fire_base_shell_projectile(
+                        .spawn_fire_base_shell_projectile_with_effects(
                             attacker_id,
                             from,
                             impact,
                             Some(target_id),
+                            effects,
                         )
                         .is_some();
                     let (hits, _destroyed_any) = if spawned {
@@ -760,7 +871,12 @@ impl GameLogic {
                             self.fire_base_residual_fires.saturating_add(1);
                         (1, false)
                     } else {
-                        self.apply_fire_base_residual_at(impact, Some(attacker_id), Some(target_id))
+                        self.apply_fire_base_residual_at_with_effects(
+                            impact,
+                            Some(attacker_id),
+                            Some(target_id),
+                            effects,
+                        )
                     };
                 } else if {
                     // USA Stealth Fighter residual: jet missiles splash + bunker-buster structure path.
@@ -783,11 +899,12 @@ impl GameLogic {
                         .map(|a| a.get_position())
                         .unwrap_or(impact);
                     let spawned = self
-                        .spawn_stealth_jet_missile_projectile(
+                        .spawn_stealth_jet_missile_projectile_with_effects(
                             attacker_id,
                             from,
                             impact,
                             Some(target_id),
+                            effects,
                         )
                         .is_some();
                     let (hits, _destroyed_any) = if spawned {
@@ -795,10 +912,11 @@ impl GameLogic {
                             self.stealth_fighter_residual_fires.saturating_add(1);
                         (1, false)
                     } else {
-                        self.apply_stealth_fighter_residual_at(
+                        self.apply_stealth_fighter_residual_at_with_effects(
                             impact,
                             Some(attacker_id),
                             Some(target_id),
+                            effects,
                         )
                     };
                 } else if {
@@ -810,10 +928,11 @@ impl GameLogic {
                         .unwrap_or(false)
                 } {
                     let impact = target_position;
-                    let (hits, _destroyed_any) = self.apply_battle_drone_residual_at(
+                    let (hits, _destroyed_any) = self.apply_battle_drone_residual_at_with_effects(
                         impact,
                         Some(attacker_id),
                         Some(target_id),
+                        effects,
                     );
                 } else if {
                     // China Overlord / Emperor residual: dual-radius main gun (no gattling addon).
@@ -837,15 +956,22 @@ impl GameLogic {
                         .map(|a| a.get_position())
                         .unwrap_or(impact);
                     let spawned = self
-                        .spawn_overlord_shell_projectile(attacker_id, from, impact, Some(target_id))
+                        .spawn_overlord_shell_projectile_with_effects(
+                            attacker_id,
+                            from,
+                            impact,
+                            Some(target_id),
+                            effects,
+                        )
                         .is_some();
                     let (hits, _destroyed_any) = if spawned {
                         (1, false)
                     } else {
-                        self.apply_overlord_gun_residual_at(
+                        self.apply_overlord_gun_residual_at_with_effects(
                             impact,
                             Some(attacker_id),
                             Some(target_id),
+                            effects,
                         )
                     };
                 } else if {
@@ -863,10 +989,11 @@ impl GameLogic {
                         .unwrap_or(false)
                 } {
                     let impact = target_position;
-                    let (hits, _destroyed_any) = self.apply_jarmen_kell_residual_at(
+                    let (hits, _destroyed_any) = self.apply_jarmen_kell_residual_at_with_effects(
                         impact,
                         Some(attacker_id),
                         Some(target_id),
+                        effects,
                     );
                 } else if {
                     // USA Crusader/Paladin residual: GenericTankShell Bezier + splash.
@@ -908,21 +1035,23 @@ impl GameLogic {
                         .unwrap_or((CRUSADER_WEAPON_SPEED, false));
                     let _ = is_pal;
                     let spawned = self
-                        .spawn_usa_tank_shell_projectile(
+                        .spawn_usa_tank_shell_projectile_with_effects(
                             attacker_id,
                             from,
                             impact,
                             speed,
                             Some(target_id),
+                            effects,
                         )
                         .is_some();
                     let (hits, _destroyed_any) = if spawned {
                         (1, false)
                     } else {
-                        self.apply_usa_tank_gun_residual_at(
+                        self.apply_usa_tank_gun_residual_at_with_effects(
                             impact,
                             Some(attacker_id),
                             Some(target_id),
+                            effects,
                         )
                     };
                     if let Some(attacker) = self.objects.get_mut(&attacker_id) {
@@ -954,20 +1083,22 @@ impl GameLogic {
                         .map(|a| a.get_position())
                         .unwrap_or(impact);
                     let spawned = self
-                        .spawn_battlemaster_shell_projectile(
+                        .spawn_battlemaster_shell_projectile_with_effects(
                             attacker_id,
                             from,
                             impact,
                             Some(target_id),
+                            effects,
                         )
                         .is_some();
                     let (hits, _destroyed_any) = if spawned {
                         (1, false)
                     } else {
-                        self.apply_battlemaster_residual_at(
+                        self.apply_battlemaster_residual_at_with_effects(
                             impact,
                             Some(attacker_id),
                             Some(target_id),
+                            effects,
                         )
                     };
                 } else if {
@@ -991,11 +1122,12 @@ impl GameLogic {
                         .map(|a| a.get_position())
                         .unwrap_or(impact);
                     let spawned = self
-                        .spawn_tank_hunter_missile_projectile(
+                        .spawn_tank_hunter_missile_projectile_with_effects(
                             attacker_id,
                             from,
                             impact,
                             Some(target_id),
+                            effects,
                         )
                         .is_some();
                     let (hits, _destroyed_any) = if spawned {
@@ -1003,10 +1135,11 @@ impl GameLogic {
                             self.tank_hunter_residual_fires.saturating_add(1);
                         (1, false)
                     } else {
-                        self.apply_tank_hunter_residual_at(
+                        self.apply_tank_hunter_residual_at_with_effects(
                             impact,
                             Some(attacker_id),
                             Some(target_id),
+                            effects,
                         )
                     };
                 } else if {
@@ -1021,10 +1154,11 @@ impl GameLogic {
                         })
                         .unwrap_or(false)
                 } {
-                    let (hits, _destroyed_any) = self.apply_red_guard_residual_at(
+                    let (hits, _destroyed_any) = self.apply_red_guard_residual_at_with_effects(
                         target_position,
                         Some(attacker_id),
                         Some(target_id),
+                        effects,
                     );
                 } else if {
                     // GLA RPG Trooper residual: rocket splash + AA capable residual.
@@ -1047,11 +1181,12 @@ impl GameLogic {
                         .map(|a| a.get_position())
                         .unwrap_or(impact);
                     let spawned = self
-                        .spawn_rpg_trooper_missile_projectile(
+                        .spawn_rpg_trooper_missile_projectile_with_effects(
                             attacker_id,
                             from,
                             impact,
                             Some(target_id),
+                            effects,
                         )
                         .is_some();
                     let (hits, _destroyed_any) = if spawned {
@@ -1059,10 +1194,11 @@ impl GameLogic {
                             self.rpg_trooper_residual_fires.saturating_add(1);
                         (1, false)
                     } else {
-                        self.apply_rpg_trooper_residual_at(
+                        self.apply_rpg_trooper_residual_at_with_effects(
                             impact,
                             Some(attacker_id),
                             Some(target_id),
+                            effects,
                         )
                     };
                 } else if {
@@ -1077,8 +1213,11 @@ impl GameLogic {
                         })
                         .unwrap_or(false)
                 } {
-                    let (hits, _destroyed_any) =
-                        self.apply_terrorist_residual_at(Some(attacker_id), Some(target_id));
+                    let (hits, _destroyed_any) = self.apply_terrorist_residual_at_with_effects(
+                        Some(attacker_id),
+                        Some(target_id),
+                        effects,
+                    );
                 } else if {
                     // USA Missile Defender residual: missile splash + laser guided secondary.
                     use crate::game_logic::host_missile_defender::{
@@ -1105,12 +1244,13 @@ impl GameLogic {
                         .map(|a| a.get_position())
                         .unwrap_or(impact);
                     let spawned = self
-                        .spawn_missile_defender_missile_projectile(
+                        .spawn_missile_defender_missile_projectile_with_effects(
                             attacker_id,
                             from,
                             impact,
                             Some(target_id),
                             laser_slot,
+                            effects,
                         )
                         .is_some();
                     let (hits, _destroyed_any) = if spawned {
@@ -1123,11 +1263,12 @@ impl GameLogic {
                         }
                         (1, false)
                     } else {
-                        self.apply_missile_defender_residual_at(
+                        self.apply_missile_defender_residual_at_with_effects(
                             impact,
                             Some(attacker_id),
                             Some(target_id),
                             laser_slot,
+                            effects,
                         )
                     };
                 } else if {
@@ -1142,10 +1283,11 @@ impl GameLogic {
                         })
                         .unwrap_or(false)
                 } {
-                    let (hits, _destroyed_any) = self.apply_rebel_residual_at(
+                    let (hits, _destroyed_any) = self.apply_rebel_residual_at_with_effects(
                         target_position,
                         Some(attacker_id),
                         Some(target_id),
+                        effects,
                     );
                 } else if {
                     // USA Ranger residual: rifle intended-only or FlashBang dual-radius splash.
@@ -1166,11 +1308,12 @@ impl GameLogic {
                             .map(|a| a.get_position())
                             .unwrap_or(impact);
                         let spawned = self
-                            .spawn_flashbang_grenade_projectile(
+                            .spawn_flashbang_grenade_projectile_with_effects(
                                 attacker_id,
                                 from,
                                 impact,
                                 Some(target_id),
+                                effects,
                             )
                             .is_some();
                         if spawned {
@@ -1178,19 +1321,21 @@ impl GameLogic {
                                 self.ranger_residual_flashbang_fires.saturating_add(1);
                             (1, false)
                         } else {
-                            self.apply_ranger_residual_at(
+                            self.apply_ranger_residual_at_with_effects(
                                 impact,
                                 Some(attacker_id),
                                 Some(target_id),
                                 true,
+                                effects,
                             )
                         }
                     } else {
-                        self.apply_ranger_residual_at(
+                        self.apply_ranger_residual_at_with_effects(
                             impact,
                             Some(attacker_id),
                             Some(target_id),
                             false,
+                            effects,
                         )
                     };
                 } else if {
@@ -1228,12 +1373,13 @@ impl GameLogic {
                         .map(|a| a.get_position())
                         .unwrap_or(impact);
                     let spawned = self
-                        .spawn_humvee_tow_missile_projectile(
+                        .spawn_humvee_tow_missile_projectile_with_effects(
                             attacker_id,
                             from,
                             impact,
                             Some(target_id),
                             air,
+                            effects,
                         )
                         .is_some();
                     let (hits, _destroyed_any) = if spawned {
@@ -1243,11 +1389,12 @@ impl GameLogic {
                     } else {
                         self.humvee_tow_residual_fires =
                             self.humvee_tow_residual_fires.saturating_add(1);
-                        self.apply_humvee_tow_residual_at(
+                        self.apply_humvee_tow_residual_at_with_effects(
                             impact,
                             Some(attacker_id),
                             Some(target_id),
                             air,
+                            effects,
                         )
                     };
                     let _ = HV_TOW_AUDIO;
@@ -1265,11 +1412,12 @@ impl GameLogic {
                         })
                         .unwrap_or(false)
                 } {
-                    let (hits, _destroyed_any) = self.apply_minigunner_residual_at(
+                    let (hits, _destroyed_any) = self.apply_minigunner_residual_at_with_effects(
                         target_position,
                         Some(attacker_id),
                         Some(target_id),
                         slot,
+                        effects,
                     );
                 } else if {
                     // Colonel Burton residual: knife one-shot vs close infantry, else sniper.
@@ -1285,10 +1433,11 @@ impl GameLogic {
                         })
                         .unwrap_or(false)
                 } {
-                    let (hits, _destroyed_any) = self.apply_burton_residual_at(
+                    let (hits, _destroyed_any) = self.apply_burton_residual_at_with_effects(
                         target_position,
                         Some(attacker_id),
                         Some(target_id),
+                        effects,
                     );
                 } else if {
                     // China Troop Crawler residual: TroopCrawlerAssault DEPLOY → unload + attack.
@@ -1304,7 +1453,11 @@ impl GameLogic {
                         })
                         .unwrap_or(false)
                 } {
-                    let _ordered = self.apply_troop_crawler_assault_deploy(attacker_id, target_id);
+                    let _ordered = self.apply_troop_crawler_assault_deploy_with_effects(
+                        attacker_id,
+                        target_id,
+                        effects,
+                    );
                     // DEPLOY residual deals no meaningful HP damage (PrimaryDamage ~0).
                 } else if {
                     // China Dragon Tank residual: DragonTankFlameProjectile flight + dual-radius splash.
@@ -1327,7 +1480,13 @@ impl GameLogic {
                         .map(|a| a.get_position())
                         .unwrap_or(impact);
                     let spawned = self
-                        .spawn_dragon_flame_projectile(attacker_id, from, impact, Some(target_id))
+                        .spawn_dragon_flame_projectile_with_effects(
+                            attacker_id,
+                            from,
+                            impact,
+                            Some(target_id),
+                            effects,
+                        )
                         .is_some();
                     let (hits, _destroyed_any) = if spawned {
                         self.dragon_tank_residual_fires =
@@ -1336,10 +1495,11 @@ impl GameLogic {
                     } else {
                         self.dragon_tank_residual_fires =
                             self.dragon_tank_residual_fires.saturating_add(1);
-                        self.apply_dragon_flame_residual_at(
+                        self.apply_dragon_flame_residual_at_with_effects(
                             impact,
                             Some(attacker_id),
                             Some(target_id),
+                            effects,
                         )
                     };
                 } else if {
@@ -1351,11 +1511,12 @@ impl GameLogic {
                         .unwrap_or(false)
                 } {
                     let impact = target_position;
-                    let (hits, _destroyed_any) = self.apply_gattling_tank_residual_at(
+                    let (hits, _destroyed_any) = self.apply_gattling_tank_residual_at_with_effects(
                         impact,
                         Some(attacker_id),
                         Some(target_id),
                         slot,
+                        effects,
                     );
                 } else if {
                     // Portable gattling is independent (try_overlord_gattling_addon_independent_fire).
@@ -1378,10 +1539,11 @@ impl GameLogic {
                         .unwrap_or(false)
                 } {
                     let impact = target_position;
-                    let (hits, _destroyed_any) = self.apply_combat_cycle_residual_at(
+                    let (hits, _destroyed_any) = self.apply_combat_cycle_residual_at_with_effects(
                         impact,
                         Some(attacker_id),
                         Some(target_id),
+                        effects,
                     );
                 } else if {
                     // GLA Toxin Tractor residual: poison stream primary or contaminate spray.
@@ -1394,7 +1556,12 @@ impl GameLogic {
                     let impact = target_position;
                     let spray = slot == 1;
                     let (hits, _destroyed_any) = if spray {
-                        self.apply_toxin_tractor_spray_at(impact, Some(attacker_id), attacker_team)
+                        self.apply_toxin_tractor_spray_at_with_effects(
+                            impact,
+                            Some(attacker_id),
+                            attacker_team,
+                            effects,
+                        )
                     } else {
                         let from = self
                             .objects
@@ -1402,21 +1569,23 @@ impl GameLogic {
                             .map(|a| a.get_position())
                             .unwrap_or(impact);
                         let spawned = self
-                            .spawn_toxin_stream_projectile(
+                            .spawn_toxin_stream_projectile_with_effects(
                                 attacker_id,
                                 from,
                                 impact,
                                 Some(target_id),
+                                effects,
                             )
                             .is_some();
                         if spawned {
                             (1, false)
                         } else {
-                            self.apply_toxin_tractor_stream_at(
+                            self.apply_toxin_tractor_stream_at_with_effects(
                                 impact,
                                 Some(attacker_id),
                                 Some(target_id),
                                 attacker_team,
+                                effects,
                             )
                         }
                     };
@@ -1466,21 +1635,23 @@ impl GameLogic {
 
                     if bunker_buster_hit {
                         let (_kills, _structure_dmg, destroyed) = self
-                            .apply_bunker_buster_to_target(
+                            .apply_bunker_buster_to_target_with_effects(
                                 target_id,
                                 attacker_team,
                                 weapon_damage,
                                 Some(attacker_id),
+                                effects,
                             );
                         if destroyed {
                             self.stop_attack_decision_aware(attacker_id);
                         }
                     } else if kill_garrisoned_hit {
-                        let _kills = self.apply_kill_garrisoned_to_target(
+                        let _kills = self.apply_kill_garrisoned_to_target_with_effects(
                             target_id,
                             attacker_team,
                             weapon_damage,
                             Some(attacker_id),
+                            effects,
                         );
                     } else if {
                         let table_offset =
@@ -1502,7 +1673,7 @@ impl GameLogic {
                                     self.objects.get(&attacker_id).and_then(|attacker| {
                                         attacker.weapon_name_for_slot(slot).map(str::to_owned)
                                     });
-                                let hits = self.apply_scatter_miss_splash_at(
+                                let hits = self.apply_scatter_miss_splash_at_with_effects(
                                     sc_impact,
                                     weapon_damage,
                                     sc_splash,
@@ -1510,6 +1681,7 @@ impl GameLogic {
                                     attacker_team,
                                     target_id,
                                     wname_splash.as_deref(),
+                                    effects,
                                 );
                             }
                             true
@@ -1566,7 +1738,7 @@ impl GameLogic {
                                 target.get_sneaky_targeting_offset(self.frame).is_none()
                             });
                             if admitted {
-                                if let Some(result) = self.apply_owned_damage(
+                                if let Some(result) = self.apply_owned_damage_with_effects(
                                     target_id,
                                     weapon_damage,
                                     Some(attacker_id),
@@ -1574,6 +1746,7 @@ impl GameLogic {
                                     death_type,
                                     None,
                                     &context,
+                                    effects,
                                 ) {
                                     if result.destroyed {
                                         self.continue_or_stop_after_kill(
@@ -1638,7 +1811,7 @@ impl GameLogic {
                                     target_position
                                 };
                                 let splash_intended = if at_self { ObjectId(0) } else { target_id };
-                                let hits = self.apply_instant_hit_splash_at(
+                                let hits = self.apply_instant_hit_splash_at_with_effects(
                                     splash_pos,
                                     weapon_damage,
                                     sec_dmg,
@@ -1648,6 +1821,7 @@ impl GameLogic {
                                     attacker_team,
                                     splash_intended,
                                     wname.as_deref(),
+                                    effects,
                                 );
                             }
                         }
@@ -1683,17 +1857,23 @@ impl GameLogic {
                     .map(|a| a.get_position())
                     .unwrap_or(impact);
                 let spawned = self
-                    .spawn_inferno_shell_projectile(
+                    .spawn_inferno_shell_projectile_with_effects(
                         attacker_id,
                         from,
                         impact,
                         Some(target_id),
                         upgraded,
+                        effects,
                     )
                     .is_some();
                 if !spawned {
-                    let _ =
-                        self.spawn_inferno_fire_zone(attacker_id, attacker_team, impact, upgraded);
+                    let _ = self.spawn_inferno_fire_zone_with_effects(
+                        attacker_id,
+                        attacker_team,
+                        impact,
+                        upgraded,
+                        effects,
+                    );
                 }
             }
         }

@@ -127,7 +127,20 @@ impl TerrainVisualImpl {
         ]
     }
 
+    /// Immutable definitions admitted by the driving application before map loading.
+    /// An explicitly empty catalog is authoritative and never triggers fallback IO.
+    pub fn admit_terrain_definitions(&mut self, catalog: Arc<ini_terrain::TerrainTypes>) {
+        self.terrain_definitions = TerrainDefinitionOwner::Admitted(catalog);
+        self.loaded_terrain_sources.clear();
+    }
+
     fn ensure_terrain_definitions(&mut self, reference: Option<&Path>) -> TerrainResult<()> {
+        if matches!(
+            self.terrain_definitions,
+            TerrainDefinitionOwner::Admitted(_)
+        ) {
+            return Ok(());
+        }
         let reference = reference.or_else(|| {
             if self.filename.is_empty() {
                 None
@@ -135,58 +148,56 @@ impl TerrainVisualImpl {
                 Some(Path::new(&self.filename))
             }
         });
-
-        let sources = Self::collect_terrain_ini_sources(reference);
+        // Compatibility-only standalone discovery. Native map admission supplies
+        // one explicit catalog and never reparses map-directory Terrain.ini.
+        let loose = Self::collect_terrain_ini_sources(reference);
+        let mut sources: Vec<(String, Vec<u8>)> = loose
+            .iter()
+            .map(|path| {
+                std::fs::read(path)
+                    .map(|bytes| (path.to_string_lossy().into_owned(), bytes))
+                    .map_err(|error| {
+                        TerrainError::InvalidData(format!("{}: {error}", path.display()))
+                    })
+            })
+            .collect::<TerrainResult<_>>()?;
+        let loose_names: HashSet<String> = sources.iter().map(|(name, _)| name.clone()).collect();
+        let archive_count = Self::append_archive_terrain_ini_sources(&loose, &mut sources);
         if sources.is_empty() {
             return Ok(());
         }
-
-        if sources == self.loaded_terrain_sources {
+        let source_paths: Vec<PathBuf> = sources
+            .iter()
+            .map(|(name, _)| PathBuf::from(name))
+            .collect();
+        if source_paths == self.loaded_terrain_sources {
             return Ok(());
         }
-
-        debug!(
-            "Loading terrain definitions from: {}",
-            sources
+        let parse = |sources: &[(String, Vec<u8>)]| {
+            let borrowed: Vec<(&str, &[u8])> = sources
                 .iter()
-                .map(|p| p.display().to_string())
-                .collect::<Vec<_>>()
-                .join(", ")
-        );
-        let archive_source_count = sources
-            .iter()
-            .filter(|p| Self::is_archive_extracted_terrain_source(p))
-            .count();
-        let count = match ini_terrain::load_terrain_definitions(&sources) {
-            Ok(count) => count,
-            Err(err) if archive_source_count > 0 => {
-                // A corrupt archive copy must not blank the whole registry:
-                // retry with the loose sources only (C++ would have fallen
-                // back to whatever the local Data/INI tree provides).
-                warn!(
-                    "Terrain definition load failed with archive sources ({}); retrying loose-only: {}",
-                    archive_source_count, err
-                );
-                let loose_sources: Vec<PathBuf> = sources
-                    .iter()
-                    .filter(|p| !Self::is_archive_extracted_terrain_source(p))
-                    .cloned()
-                    .collect();
-                ini_terrain::load_terrain_definitions(&loose_sources)?
-            }
-            Err(err) => return Err(err.into()),
+                .map(|(name, bytes)| (name.as_str(), bytes.as_slice()))
+                .collect();
+            ini_terrain::read_terrain_definition_sources(&borrowed)
         };
-        if count == 0 {
-            warn!(
-                "No terrain definitions were loaded from the resolved sources: {}",
-                sources
+        let catalog = match parse(&sources) {
+            Ok(catalog) => catalog,
+            Err(error) if archive_count > 0 && !loose_names.is_empty() => {
+                warn!(
+                    "Terrain archive definitions failed ({error}); retrying existing loose sources"
+                );
+                let loose: Vec<(&str, &[u8])> = sources
                     .iter()
-                    .map(|p| p.display().to_string())
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            );
-        }
-        self.loaded_terrain_sources = sources;
+                    .filter(|(name, _)| loose_names.contains(name))
+                    .map(|(name, bytes)| (name.as_str(), bytes.as_slice()))
+                    .collect();
+                ini_terrain::read_terrain_definition_sources(&loose)?
+            }
+            Err(error) => return Err(error.into()),
+        };
+        // Failed parsing never replaces this visual's prior immutable catalog.
+        self.terrain_definitions = TerrainDefinitionOwner::Standalone(Arc::new(catalog));
+        self.loaded_terrain_sources = source_paths;
 
         let using_fallback_defaults = !self.texture_rules.is_empty()
             && self.texture_rules.iter().all(|rule| {
@@ -248,63 +259,41 @@ impl TerrainVisualImpl {
             Self::push_if_exists(&mut sources, &mut seen, PathBuf::from(fallback));
         }
 
-
         if let Some(reference_path) = reference {
             if let Some(map_dir) = reference_path.parent() {
                 Self::collect_map_specific_sources(map_dir, &mut sources, &mut seen);
             }
         }
 
-        Self::append_archive_terrain_ini_sources(&mut sources);
-
         sources
     }
 
-    /// Retail installs carry Terrain.ini only inside `INIZH.big`
-    /// (`Data\INI\Default\Terrain.ini` base plus the `Data\INI\Terrain.ini`
-    /// override). When no loose source was discovered, extract the archive
-    /// copy through the game file system into temp files so the existing
-    /// parser can consume them; loose files always keep precedence.
-    fn append_archive_terrain_ini_sources(sources: &mut Vec<PathBuf>) {
-        let has_loose = |relative: &str| sources.iter().any(|p| p.ends_with(relative));
-
-        let mut extracted_default = None;
-        if !has_loose("Data/INI/Default/Terrain.ini") {
-            extracted_default = Self::extract_archive_ini_to_temp(
-                "Data/INI/Default/Terrain.ini",
-                "generals_default_terrain.ini",
-            );
+    /// Standalone compatibility: loose files win for each source; missing
+    /// default/override sources are read as owned game-FS bytes, never tempfiles.
+    fn append_archive_terrain_ini_sources(
+        loose: &[PathBuf],
+        sources: &mut Vec<(String, Vec<u8>)>,
+    ) -> usize {
+        let has_loose = |relative: &str| loose.iter().any(|path| path.ends_with(relative));
+        let mut count = 0;
+        for (path, first) in [
+            ("Data/INI/Default/Terrain.ini", true),
+            ("Data/INI/Terrain.ini", false),
+        ] {
+            if has_loose(path) {
+                continue;
+            }
+            if let Some(bytes) = crate::terrain::tree_buffer::read_game_fs_bytes(path) {
+                let source = (path.to_string(), bytes);
+                if first {
+                    sources.insert(0, source);
+                } else {
+                    sources.push(source);
+                }
+                count += 1;
+            }
         }
-        let mut extracted_override = None;
-        if !has_loose("Data/INI/Terrain.ini") {
-            extracted_override =
-                Self::extract_archive_ini_to_temp("Data/INI/Terrain.ini", "generals_terrain.ini");
-        }
-
-        // Base (Default) definitions must parse before the override so the
-        // retail load order is preserved even when the two halves come from
-        // different places.
-        if let Some(path) = extracted_default {
-            sources.insert(0, path);
-        }
-        if let Some(path) = extracted_override {
-            sources.push(path);
-        }
-    }
-
-    fn extract_archive_ini_to_temp(virtual_path: &str, temp_name: &str) -> Option<PathBuf> {
-        let bytes = crate::terrain::tree_buffer::read_game_fs_bytes(virtual_path)?;
-        let path = std::env::temp_dir().join(temp_name);
-        std::fs::write(&path, bytes).ok()?;
-        Some(path)
-    }
-
-    /// Temp-file marker for the archive-extracted sources appended by
-    /// [`Self::append_archive_terrain_ini_sources`].
-    fn is_archive_extracted_terrain_source(path: &Path) -> bool {
-        path.file_name()
-            .and_then(|name| name.to_str())
-            .is_some_and(|name| name == "generals_terrain.ini" || name == "generals_default_terrain.ini")
+        count
     }
 
     fn collect_from_ancestors(
@@ -383,8 +372,8 @@ impl TerrainVisualImpl {
 
         let mut defaults = Vec::new();
 
-        if let Some(registry) = ini_terrain::get_terrain_types() {
-            let guard = registry.read();
+        {
+            let guard = self.terrain_definitions.catalog();
             let desired_surfaces = [
                 TerrainSurface::Grass,
                 TerrainSurface::Rock,
@@ -576,8 +565,7 @@ impl TerrainVisualImpl {
     }
 
     fn find_terrain_type_for_texture(&self, texture: &TerrainTexture) -> Option<TerrainType> {
-        let registry = ini_terrain::get_terrain_types()?;
-        let guard = registry.read();
+        let guard = self.terrain_definitions.catalog();
 
         let mut candidates: Vec<AsciiString> = Vec::new();
         if !texture.name.is_empty() {
@@ -876,9 +864,7 @@ mod terrain_ini_archive_tests {
 
     fn assets_root() -> Option<PathBuf> {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../Main/assets");
-        root.join("INIZH.big")
-            .is_file()
-            .then_some(root)
+        root.join("INIZH.big").is_file().then_some(root)
     }
 
     /// (a) The terrain class registry must populate from INIZH.big when no
@@ -892,32 +878,30 @@ mod terrain_ini_archive_tests {
         };
         crate::terrain::tree_buffer::add_game_fs_search_roots(&[assets], true);
 
-        let sources = TerrainVisualImpl::collect_terrain_ini_sources(None);
-        let archive_sources = sources
-            .iter()
-            .filter(|p| TerrainVisualImpl::is_archive_extracted_terrain_source(p))
-            .count();
+        let mut sources = Vec::new();
+        let archive_sources =
+            TerrainVisualImpl::append_archive_terrain_ini_sources(&[], &mut sources);
         assert!(
             archive_sources > 0,
-            "expected archive-extracted Terrain.ini sources, got {sources:?}"
+            "expected owned archive Terrain.ini bytes"
         );
-
-        let count = ini_terrain::load_terrain_definitions(&sources)
+        let borrowed: Vec<(&str, &[u8])> = sources
+            .iter()
+            .map(|(name, bytes)| (name.as_str(), bytes.as_slice()))
+            .collect();
+        let catalog = ini_terrain::read_terrain_definition_sources(&borrowed)
             .expect("retail Terrain.ini must parse");
-        assert!(count > 0, "terrain registry must be non-empty");
-
-        // (b) A known retail class maps to a texture that resolves through
-        // the game FS into TerrainZH.big (Art\Terrain\TMGras37a.tga).
-        let registry = ini_terrain::get_terrain_types().expect("terrain registry");
-        let guard = registry.read();
-        let terrain = guard
+        assert!(
+            catalog.get_terrain_count() > 0,
+            "terrain registry must be non-empty"
+        );
+        let terrain = catalog
             .find_terrain(&AsciiString::from("GrassMediumType37a"))
             .expect("known retail terrain class GrassMediumType37a");
         let texture = format!(
             "{TERRAIN_TGA_DIR_PATH}{}",
             terrain.texture_name.as_str().trim()
         );
-        drop(guard);
         let resolved = TerrainTextures::resolve_texture_path(&texture)
             .expect("class texture must resolve through the game FS");
         assert!(
@@ -929,3 +913,7 @@ mod terrain_ini_archive_tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "owned_definition_tests.rs"]
+mod owned_definition_tests;

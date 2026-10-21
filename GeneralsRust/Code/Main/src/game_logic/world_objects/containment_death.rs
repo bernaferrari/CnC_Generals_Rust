@@ -79,6 +79,8 @@ fn apply_transport_death_scatter(
     container_id: ObjectId,
     container_pos: glam::Vec3,
     bounding_radius: f32,
+    frame: u32,
+    effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
 ) -> glam::Vec3 {
     let leftover = gamelogic::object::contain::open_contain::leftover_scatter_to_nearby_position(
         container_pos.x,
@@ -91,7 +93,7 @@ fn apply_transport_death_scatter(
     unit.stop_moving();
     unit.target = None;
     unit.set_contained_by(None);
-    unit.set_position(container_pos);
+    unit.set_position_with_effects(container_pos, frame, effects);
     unit.set_orientation(leftover.orientation);
     unit.set_ai_state(AIState::Moving);
     unit.status.moving = true;
@@ -173,6 +175,19 @@ impl GameLogic {
         id: ObjectId,
         killer: Option<Team>,
     ) {
+        self.complete_installed_containment_death_with_effects(
+            id,
+            killer,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(in crate::game_logic) fn complete_installed_containment_death_with_effects(
+        &mut self,
+        id: ObjectId,
+        killer: Option<Team>,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let Some(container) = self.objects.get(&id) else {
             return;
         };
@@ -193,7 +208,7 @@ impl GameLogic {
             if !applicable {
                 return;
             }
-            self.unregister_tunnel_containment(id);
+            self.unregister_tunnel_containment_with_effects(id, presentation_effects);
             return;
         }
         if container.is_cave_style_container() {
@@ -226,7 +241,7 @@ impl GameLogic {
                         child.set_contained_by(None);
                     }
                     // TunnelTracker cave-in is direct destruction, not body death.
-                    self.destroy_object(child);
+                    self.destroy_object_with_effects(child, presentation_effects);
                 }
             } else if let Some(entrance) = outcome.remapped_to {
                 for child in self.cave_system.contained_for_index(index) {
@@ -253,14 +268,18 @@ impl GameLogic {
             // ParachuteContain618 removes the literal roster before damaging
             // its first rider; the subsequent OpenContain sees an empty list.
             for &rider in &riders {
-                self.remove_direct_contained_child(id, rider);
+                self.remove_direct_contained_child_with_effects(id, rider, presentation_effects);
             }
             if let Some(rider) = riders.first() {
-                self.apply_rider_free_fall_damage(*rider, position);
+                self.apply_rider_free_fall_damage_with_effects(
+                    *rider,
+                    position,
+                    presentation_effects,
+                );
             }
             self.car_bomb.record_airborne_parachute_free_fall();
         }
-        self.complete_open_contain_death(id, killer);
+        self.complete_open_contain_death_with_effects(id, killer, presentation_effects);
     }
 
     /// TransportContain389 scatters during onRemoving, before mood reset.
@@ -268,6 +287,19 @@ impl GameLogic {
         &mut self,
         container_id: ObjectId,
         rider_id: ObjectId,
+    ) {
+        self.scatter_dying_transport_rider_with_effects(
+            container_id,
+            rider_id,
+            &mut Default::default(),
+        );
+    }
+
+    pub(in crate::game_logic) fn scatter_dying_transport_rider_with_effects(
+        &mut self,
+        container_id: ObjectId,
+        rider_id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         let Some(container) = self.objects.get(&container_id) else {
             return;
@@ -294,7 +326,14 @@ impl GameLogic {
                 .objects
                 .get_mut(&rider_id)
                 .expect("installed contain rider");
-            apply_transport_death_scatter(rider, container_id, position, radius)
+            apply_transport_death_scatter(
+                rider,
+                container_id,
+                position,
+                radius,
+                self.frame,
+                effects,
+            )
         };
         self.path_approach_with_state_ignoring(
             rider_id,
@@ -310,6 +349,19 @@ impl GameLogic {
         &mut self,
         container_id: ObjectId,
         _killer: Option<Team>,
+    ) {
+        self.complete_open_contain_death_with_effects(
+            container_id,
+            _killer,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(in crate::game_logic) fn complete_open_contain_death_with_effects(
+        &mut self,
+        container_id: ObjectId,
+        _killer: Option<Team>,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         let Some(container) = self.objects.get(&container_id) else {
             return;
@@ -356,30 +408,36 @@ impl GameLogic {
                 if let Some(rider) = self.objects.get(id) {
                     let damage = rider.max_health * damage_percentage;
                     let receiving_damage_id = rider.id;
-                    died = self.apply_residual_damage_owned(
+                    died = self.apply_residual_damage_owned_with_effects(
                         receiving_damage_id,
                         damage,
                         Some(container_id),
                         crate::game_logic::combat::DamageType::Unresistable,
                         passenger_death_type,
                         None,
+                        presentation_effects,
                     );
                     if !died
                         && damage_percentage == 1.0
                         && self.objects.get(id).is_some_and(Object::is_alive)
                     {
                         died = self
-                            .apply_owned_kill(
+                            .apply_owned_kill_with_effects(
                                 *id,
                                 crate::game_logic::combat::DamageType::Unresistable,
                                 crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+                                presentation_effects,
                             )
                             .is_some_and(|result| result.destroyed());
                     }
                 }
             }
             if died {
-                self.mark_object_for_destruction(*id, Some(container_team));
+                self.mark_object_for_destruction_with_effects(
+                    *id,
+                    Some(container_team),
+                    presentation_effects,
+                );
             }
         }
         for &id in &riders {
@@ -398,18 +456,19 @@ impl GameLogic {
                     });
             if !free && self.objects.get(&id).is_some_and(Object::is_alive) {
                 if destroy_unfree {
-                    self.destroy_object(id);
+                    self.destroy_object_with_effects(id, presentation_effects);
                     continue;
                 }
-                self.apply_owned_kill(
+                self.apply_owned_kill_with_effects(
                     id,
                     crate::game_logic::combat::DamageType::Unresistable,
                     crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+                    presentation_effects,
                 );
             }
         }
         for id in riders {
-            self.remove_direct_contained_child(container_id, id);
+            self.remove_direct_contained_child_with_effects(container_id, id, presentation_effects);
         }
     }
 }

@@ -158,8 +158,20 @@ fn valid_missing_native_capabilities_preserve_supported_emitters_and_particle_ti
 
 #[test]
 fn public_shell_missing_native_capabilities_reaches_actual_hud_and_existing_fx() {
+    if crate::core::game_client::global_boundary_fixture::run_in_private_child(
+        module_path!(),
+        "public_shell_missing_native_capabilities_reaches_actual_hud_and_existing_fx",
+    ) {
+        return;
+    }
     // The public operation still owns these existing application boundaries.
     // This test is run serially; no fixture mutex or alternate renderer is added.
+    // A fresh standalone public shell routes to the real local player queue.
+    gamelogic::commands::command_queue::get_command_queue_manager()
+        .lock()
+        .expect("standalone command manager")
+        .initialize_player(0)
+        .expect("fresh local player command queue");
     get_shell().init().unwrap();
     let mut bridge = crate::render_bridge::RenderBridge::new();
     *bridge.asset_manager_mut() = static_asset();

@@ -184,7 +184,16 @@ impl Object {
     pub(in crate::game_logic) fn step_stamp_contact(
         &mut self,
         state: StampContact,
+        killed: bool,
+    ) -> ContactStep<StampContact, ()> {
+        self.step_stamp_contact_with_effects(state, killed, 0, &mut Default::default())
+    }
+    pub(in crate::game_logic) fn step_stamp_contact_with_effects(
+        &mut self,
+        state: StampContact,
         _killed: bool,
+        frame: u32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> ContactStep<StampContact, ()> {
         match state {
             StampContact::Start(ground_y) => {
@@ -200,7 +209,7 @@ impl Object {
                     }
                     self.invalidate_velocity_magnitude();
                     pos.y = ground_y;
-                    self.set_position(pos);
+                    self.set_position_with_effects(pos, frame, effects);
                     self.allow_to_fall = false;
                     if was_airborne && !self.immune_to_falling_damage {
                         self.record_bounce_land(old_y);
@@ -215,20 +224,30 @@ impl Object {
                     if was_airborne && !self.immune_to_falling_damage {
                         self.landing_splat_done = true;
                     }
-                    return self.step_stamp_contact(StampContact::Grounded, false);
+                    return self.step_stamp_contact_with_effects(
+                        StampContact::Grounded,
+                        false,
+                        frame,
+                        effects,
+                    );
                 } else if self.is_in_freefall {
                     self.set_status_disabled_freefall(true);
                     self.model_condition_bits |=
                         1u128 << crate::game_logic::host_enum_table_residual::MC_BIT_FREEFALL;
                 } else if self.stick_to_ground && !self.allow_to_fall {
                     pos.y = ground_y;
-                    self.set_position(pos);
+                    self.set_position_with_effects(pos, frame, effects);
                 }
             }
             StampContact::AfterFall => {
                 self.finish_fall_contact();
                 self.landing_splat_done = true;
-                return self.step_stamp_contact(StampContact::Grounded, false);
+                return self.step_stamp_contact_with_effects(
+                    StampContact::Grounded,
+                    false,
+                    frame,
+                    effects,
+                );
             }
             StampContact::Grounded => {
                 self.was_airborne_last_frame = false;
@@ -258,6 +277,15 @@ impl Object {
         &mut self,
         state: MotionContact,
         killed: bool,
+    ) -> ContactStep<MotionContact, bool> {
+        self.step_motion_contact_with_effects(state, killed, 0, &mut Default::default())
+    }
+    pub(in crate::game_logic) fn step_motion_contact_with_effects(
+        &mut self,
+        state: MotionContact,
+        killed: bool,
+        frame: u32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> ContactStep<MotionContact, bool> {
         match state {
             MotionContact::Start(ground_y) => {
@@ -380,7 +408,7 @@ impl Object {
                     self.invalidate_velocity_magnitude();
                     return ContactStep::Complete(false);
                 }
-                self.set_position_keep_rotation(new_pos);
+                self.set_position_keep_rotation_with_effects(new_pos, frame, effects);
 
                 let tail = LandingTail {
                     airborne: new_pos.y > ground_y + 0.05,
@@ -456,6 +484,15 @@ impl Object {
         &mut self,
         state: StunContact,
         killed: bool,
+    ) -> ContactStep<StunContact, ()> {
+        self.step_stun_contact_with_effects(state, killed, 0, &mut Default::default())
+    }
+    pub(in crate::game_logic) fn step_stun_contact_with_effects(
+        &mut self,
+        state: StunContact,
+        killed: bool,
+        frame: u32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> ContactStep<StunContact, ()> {
         match state {
             StunContact::Start => {
@@ -534,10 +571,10 @@ impl Object {
                                 next: StunContact::AfterBounce(data),
                             };
                         }
-                        return self.continue_stun_landing(data);
+                        return self.continue_stun_landing(data, frame, effects);
                     } else {
                         pos.y = new_y;
-                        self.set_position_keep_rotation(pos);
+                        self.set_position_keep_rotation_with_effects(pos, frame, effects);
                         self.shock_was_airborne = true;
                         self.set_status_disabled_freefall(true);
                     }
@@ -558,7 +595,7 @@ impl Object {
                 if killed {
                     data.bounce = 0.0;
                 }
-                self.continue_stun_landing(data)
+                self.continue_stun_landing(data, frame, effects)
             }
             StunContact::AfterFall(data) => {
                 self.finish_fall_contact();
@@ -603,9 +640,14 @@ impl Object {
             (0.0, None)
         }
     }
-    fn continue_stun_landing(&mut self, mut data: StunLanding) -> ContactStep<StunContact, ()> {
+    fn continue_stun_landing(
+        &mut self,
+        mut data: StunLanding,
+        frame: u32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> ContactStep<StunContact, ()> {
         data.pos.y = data.ground_y;
-        self.set_position_keep_rotation(data.pos);
+        self.set_position_keep_rotation_with_effects(data.pos, frame, effects);
         if !self.shock_grounded_once {
             self.shock_grounded_once = true;
         }
@@ -663,24 +705,63 @@ impl crate::game_logic::GameLogic {
     pub(in crate::game_logic) fn drive_owned_contact<S, T>(
         &mut self,
         id: ObjectId,
+        state: S,
+        step: fn(
+            &mut Object,
+            S,
+            bool,
+            u32,
+            &mut crate::game_logic::ScriptPresentationEffects<'_>,
+        ) -> ContactStep<S, T>,
+    ) -> Option<T> {
+        self.drive_owned_contact_with_effects(
+            id,
+            state,
+            step,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(in crate::game_logic) fn drive_owned_contact_with_effects<S, T>(
+        &mut self,
+        id: ObjectId,
         mut state: S,
-        step: fn(&mut Object, S, bool) -> ContactStep<S, T>,
+        step: fn(
+            &mut Object,
+            S,
+            bool,
+            u32,
+            &mut crate::game_logic::ScriptPresentationEffects<'_>,
+        ) -> ContactStep<S, T>,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> Option<T> {
         let mut killed = false;
         loop {
-            let next = step(self.objects.get_mut(&id)?, state, killed);
+            let frame = self.frame;
+            let next = step(
+                self.objects.get_mut(&id)?,
+                state,
+                killed,
+                frame,
+                presentation_effects,
+            );
             match next {
                 ContactStep::Complete(value) => return Some(value),
                 ContactStep::Damage { request, next } => {
                     let result = if request.kill {
-                        self.apply_owned_kill(id, request.kind, request.death)
+                        self.apply_owned_kill_with_effects(
+                            id,
+                            request.kind,
+                            request.death,
+                            presentation_effects,
+                        )
                     } else {
                         let context = DamageHitContext::new(
                             request.source.and_then(|source| self.objects.get(&source)),
                             None,
                             request.kind,
                         );
-                        self.apply_owned_damage(
+                        self.apply_owned_damage_with_effects(
                             id,
                             request.amount,
                             request.source,
@@ -688,6 +769,7 @@ impl crate::game_logic::GameLogic {
                             request.death,
                             None,
                             &context,
+                            presentation_effects,
                         )
                     };
                     killed = result.is_some_and(|result| result.destroyed());

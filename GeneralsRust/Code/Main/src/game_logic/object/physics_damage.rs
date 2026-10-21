@@ -140,72 +140,70 @@ impl crate::game_logic::GameLogic {
         sources: &PhysicsDamageSources,
         run: impl FnOnce(&mut BodyStateFxReceiver<'_>) -> R,
     ) -> R {
+        Self::with_physics_body_fx_parts_with_effects(
+            session_view,
+            player,
+            shroud,
+            particles,
+            frame,
+            sources,
+            run,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(in crate::game_logic) fn with_physics_body_fx_parts_with_effects<R>(
+        session_view: &mut crate::presentation_frame::SessionView,
+        player: Option<u32>,
+        shroud: &std::sync::Arc<std::sync::Mutex<gamelogic::system::shroud_manager::ShroudManager>>,
+        particles: &mut crate::game_logic::combat_particles::CombatParticleRegistry,
+        frame: u32,
+        sources: &PhysicsDamageSources,
+        run: impl FnOnce(&mut BodyStateFxReceiver<'_>) -> R,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> R {
         #[cfg(feature = "game_client")]
         {
-            Self::with_host_fx_view_parts(session_view, player, shroud, |view| {
-                run(&mut |object, effect, source| match effect {
-                    BodyStateFx::Transition(event) => Self::execute_transition_damage_fx_with_view(
-                        object, event, source, particles, frame, view,
-                    ),
-                    BodyStateFx::ArmorDamage {
-                        damage_type,
-                        actual_damage,
-                        frame,
-                    } => {
-                        let secondary = source.and_then(|source| {
-                            sources
-                                .poses
-                                .iter()
-                                .flatten()
-                                .find(|pose| pose.id == source.id)
-                        });
-                        Self::execute_armor_damage_fx_with_view(
-                            object,
+            Self::with_host_fx_view_parts_and_terrain(
+                session_view,
+                player,
+                shroud,
+                presentation_effects.terrain.as_mut().map(|terrain| {
+                    &mut **terrain as &mut dyn crate::game_logic::NativeTerrainEffects
+                }),
+                |view| {
+                    run(&mut |object, effect, source| match effect {
+                        BodyStateFx::Transition(event) => {
+                            Self::execute_transition_damage_fx_with_view(
+                                object, event, source, particles, frame, view,
+                            )
+                        }
+                        BodyStateFx::ArmorDamage {
                             damage_type,
                             actual_damage,
                             frame,
-                            source,
-                            secondary,
-                            player,
-                            shroud,
-                            view,
-                        );
-                    }
-                    BodyStateFx::FxListDie => {
-                        object.fire_fx_list_die_with_fx(&mut |name, object, at_object| {
-                            if at_object {
-                                let primary = Self::observe_host_fx_object(object, player, shroud);
-                                let secondary = source.and_then(|value| {
-                                    if value.id == primary.id {
-                                        Some(&primary)
-                                    } else {
-                                        sources
-                                            .poses
-                                            .iter()
-                                            .flatten()
-                                            .find(|pose| pose.id == value.id)
-                                    }
-                                });
-                                Self::dispatch_fx_list_at_object_with_view(
-                                    name, &primary, secondary, view,
-                                )
-                            } else {
-                                Self::dispatch_fx_list_at_position_with_view(
-                                    name,
-                                    object.get_position(),
-                                    None,
-                                    0.0,
-                                    0.0,
-                                    None,
-                                    view,
-                                )
-                            }
-                        });
-                    }
-                    BodyStateFx::FxListDieSlot(mut config) => {
-                        object.fire_fx_list_die_config_with_fx(
-                            &mut config,
-                            &mut |name, object, at_object| {
+                        } => {
+                            let secondary = source.and_then(|source| {
+                                sources
+                                    .poses
+                                    .iter()
+                                    .flatten()
+                                    .find(|pose| pose.id == source.id)
+                            });
+                            Self::execute_armor_damage_fx_with_view(
+                                object,
+                                damage_type,
+                                actual_damage,
+                                frame,
+                                source,
+                                secondary,
+                                player,
+                                shroud,
+                                view,
+                            );
+                        }
+                        BodyStateFx::FxListDie => {
+                            object.fire_fx_list_die_with_fx(&mut |name, object, at_object| {
                                 if at_object {
                                     let primary =
                                         Self::observe_host_fx_object(object, player, shroud);
@@ -234,16 +232,51 @@ impl crate::game_logic::GameLogic {
                                         view,
                                     )
                                 }
-                            },
-                        );
-                    }
-                    BodyStateFx::ObjectPhase { name, at_object } => {
-                        Self::dispatch_object_phase_fx_with_view(
-                            &name, object, at_object, player, shroud, view,
-                        )
-                    }
-                })
-            })
+                            });
+                        }
+                        BodyStateFx::FxListDieSlot(mut config) => {
+                            object.fire_fx_list_die_config_with_fx(
+                                &mut config,
+                                &mut |name, object, at_object| {
+                                    if at_object {
+                                        let primary =
+                                            Self::observe_host_fx_object(object, player, shroud);
+                                        let secondary = source.and_then(|value| {
+                                            if value.id == primary.id {
+                                                Some(&primary)
+                                            } else {
+                                                sources
+                                                    .poses
+                                                    .iter()
+                                                    .flatten()
+                                                    .find(|pose| pose.id == value.id)
+                                            }
+                                        });
+                                        Self::dispatch_fx_list_at_object_with_view(
+                                            name, &primary, secondary, view,
+                                        )
+                                    } else {
+                                        Self::dispatch_fx_list_at_position_with_view(
+                                            name,
+                                            object.get_position(),
+                                            None,
+                                            0.0,
+                                            0.0,
+                                            None,
+                                            view,
+                                        )
+                                    }
+                                },
+                            );
+                        }
+                        BodyStateFx::ObjectPhase { name, at_object } => {
+                            Self::dispatch_object_phase_fx_with_view(
+                                &name, object, at_object, player, shroud, view,
+                            )
+                        }
+                    })
+                },
+            )
         }
         #[cfg(not(feature = "game_client"))]
         {

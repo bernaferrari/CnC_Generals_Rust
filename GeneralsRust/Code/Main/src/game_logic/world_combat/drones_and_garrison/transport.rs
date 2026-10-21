@@ -10,6 +10,17 @@ impl GameLogic {
         &mut self,
         passenger_id: ObjectId,
     ) {
+        self.try_transport_passenger_residual_fire_with_effects(
+            passenger_id,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(in crate::game_logic) fn try_transport_passenger_residual_fire_with_effects(
+        &mut self,
+        passenger_id: ObjectId,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let current_time = self.frame as f32 * LOGIC_FRAME_TIMESTEP;
 
         let Some(attacker) = self.objects.get(&passenger_id) else {
@@ -146,7 +157,13 @@ impl GameLogic {
             return;
         };
 
-        if !self.fire_owned_passive_weapon(passenger_id, target_id, 0, fire_pos) {
+        if !self.fire_owned_passive_weapon_with_effects(
+            passenger_id,
+            target_id,
+            0,
+            fire_pos,
+            presentation_effects,
+        ) {
             return;
         }
 

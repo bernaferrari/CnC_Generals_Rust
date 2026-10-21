@@ -372,8 +372,14 @@ impl RenderPipeline {
         view_matrix: &Mat4,
         projection_matrix: &Mat4,
         snow: &game_client::snow::SnowRenderState,
+        motion: crate::presentation_frame::PresentationTerrainMotion,
     ) -> Result<()> {
-        self.update_and_enqueue_terrain_pass(view_matrix, projection_matrix, snow)
+        self.update_and_enqueue_terrain_pass_with_motion(
+            view_matrix,
+            projection_matrix,
+            snow,
+            Some(motion),
+        )
     }
 
     #[cfg(feature = "game_client")]
@@ -382,6 +388,17 @@ impl RenderPipeline {
         view_matrix: &Mat4,
         projection_matrix: &Mat4,
         snow: &game_client::snow::SnowRenderState,
+    ) -> Result<()> {
+        self.update_and_enqueue_terrain_pass_with_motion(view_matrix, projection_matrix, snow, None)
+    }
+
+    #[cfg(feature = "game_client")]
+    pub(super) fn update_and_enqueue_terrain_pass_with_motion(
+        &mut self,
+        view_matrix: &Mat4,
+        projection_matrix: &Mat4,
+        snow: &game_client::snow::SnowRenderState,
+        warm_motion: Option<crate::presentation_frame::PresentationTerrainMotion>,
     ) -> Result<()> {
         static LOGGED_ZERO_TERRAIN_CHUNKS: AtomicBool = AtomicBool::new(false);
         static LOGGED_NONZERO_TERRAIN_CHUNKS: AtomicBool = AtomicBool::new(false);
@@ -392,59 +409,61 @@ impl RenderPipeline {
             .and_then(|frame| frame.world_env.runtime_heightmap.as_ref())
             .map_or(0., |heightmap| heightmap.min_height);
         let terrain_pass_started = Instant::now();
-        if let Ok(mut guard) = game_client::terrain::terrain_visual::get_terrain_visual() {
-            if let Some(terrain_visual) = guard.as_mut() {
-                let client_view_matrix = Mat4::from_cols_array_2d(&view_matrix.to_cols_array_2d());
-                let client_projection_matrix =
-                    Mat4::from_cols_array_2d(&projection_matrix.to_cols_array_2d());
-                let terrain_render_started = Instant::now();
-                terrain_visual
-                    .render_native_y_up(
-                        &client_view_matrix,
-                        &client_projection_matrix,
-                        snow_min_height,
-                        snow,
-                    )
-                    .map_err(|e| {
-                        anyhow::anyhow!("terrain visual render state update failed: {}", e)
-                    })?;
-                let terrain_render_elapsed = terrain_render_started.elapsed();
-                let terrain_update_started = Instant::now();
-                terrain_visual
-                    .update()
-                    .map_err(|e| anyhow::anyhow!("terrain visual update failed: {}", e))?;
-                let terrain_update_elapsed = terrain_update_started.elapsed();
+        let motion = warm_motion.or_else(|| {
+            self.presentation_frame
+                .as_ref()
+                .map(|frame| frame.world_env.terrain_motion)
+        });
+        if let Some(terrain_visual) = self.native_terrain.as_mut() {
+            let motion = motion
+                .ok_or_else(|| anyhow::anyhow!("receiving terrain frame observation is absent"))?
+                .native()
+                .map_err(anyhow::Error::msg)?;
+            let client_view_matrix = Mat4::from_cols_array_2d(&view_matrix.to_cols_array_2d());
+            let client_projection_matrix =
+                Mat4::from_cols_array_2d(&projection_matrix.to_cols_array_2d());
+            let terrain_render_started = Instant::now();
+            terrain_visual
+                .render_native_y_up_with_motion(
+                    &client_view_matrix,
+                    &client_projection_matrix,
+                    snow_min_height,
+                    snow,
+                    motion,
+                )
+                .map_err(|e| anyhow::anyhow!("terrain visual render state update failed: {}", e))?;
+            let terrain_render_elapsed = terrain_render_started.elapsed();
+            let terrain_update_started = Instant::now();
+            terrain_visual
+                .update_native(motion)
+                .map_err(|e| anyhow::anyhow!("terrain visual update failed: {}", e))?;
+            let terrain_update_elapsed = terrain_update_started.elapsed();
 
-                let chunk_count = terrain_visual.chunk_draw_count();
-                let terrain_total_elapsed = terrain_pass_started.elapsed();
-                if terrain_total_elapsed >= PROFILE_STEP_LOG_THRESHOLD
-                    || terrain_render_elapsed >= PROFILE_STEP_LOG_THRESHOLD
-                    || terrain_update_elapsed >= PROFILE_STEP_LOG_THRESHOLD
-                {
-                    debug!(
-                        "TerrainVisual breakdown: total={:?} render={:?} update={:?} visible_chunks={} total_chunks={} pending_visible_chunks={}",
-                        terrain_total_elapsed,
-                        terrain_render_elapsed,
-                        terrain_update_elapsed,
-                        terrain_visual.debug_visible_chunk_count(),
-                        terrain_visual.debug_total_chunk_count(),
-                        terrain_visual.debug_pending_visible_chunk_count()
-                    );
+            let chunk_count = terrain_visual.chunk_draw_count();
+            let terrain_total_elapsed = terrain_pass_started.elapsed();
+            if terrain_total_elapsed >= PROFILE_STEP_LOG_THRESHOLD
+                || terrain_render_elapsed >= PROFILE_STEP_LOG_THRESHOLD
+                || terrain_update_elapsed >= PROFILE_STEP_LOG_THRESHOLD
+            {
+                debug!(
+                    "TerrainVisual breakdown: total={:?} render={:?} update={:?} visible_chunks={} total_chunks={} pending_visible_chunks={}",
+                    terrain_total_elapsed,
+                    terrain_render_elapsed,
+                    terrain_update_elapsed,
+                    terrain_visual.debug_visible_chunk_count(),
+                    terrain_visual.debug_total_chunk_count(),
+                    terrain_visual.debug_pending_visible_chunk_count()
+                );
+            }
+            if chunk_count == 0 {
+                if !LOGGED_ZERO_TERRAIN_CHUNKS.swap(true, Ordering::Relaxed) {
+                    warn!("Terrain visual updated but no visible chunks were selected for drawing");
                 }
-                if chunk_count == 0 {
-                    if !LOGGED_ZERO_TERRAIN_CHUNKS.swap(true, Ordering::Relaxed) {
-                        warn!(
-                            "Terrain visual updated but no visible chunks were selected for drawing"
-                        );
-                    }
-                } else if !LOGGED_NONZERO_TERRAIN_CHUNKS.swap(true, Ordering::Relaxed) {
-                    info!(
-                        "Terrain visual selected {} visible chunks for drawing",
-                        chunk_count
-                    );
-                }
-            } else {
-                return Ok(());
+            } else if !LOGGED_NONZERO_TERRAIN_CHUNKS.swap(true, Ordering::Relaxed) {
+                info!(
+                    "Terrain visual selected {} visible chunks for drawing",
+                    chunk_count
+                );
             }
         } else {
             return Ok(());
@@ -456,58 +475,9 @@ impl RenderPipeline {
         // backbuffer. Clear BLACK like C++ Begin_Render, not fog peach.
         let clear_color = self.terrain_clear_color();
         let (vp_x, vp_y, vp_w, vp_h) = self.tactical_viewport.pixel_rect();
-        self.forward_pass.enqueue_pre_scene_callback(move |frame| {
-            let terrain_draw_started = Instant::now();
-            let depth_view = frame.depth_view_arc();
-            let color_view = frame.color_view_arc();
-            let encoder = frame.encoder();
-            let terrain_visual_guard =
-                game_client::terrain::terrain_visual::get_terrain_visual().ok();
-            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("main terrain pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: color_view.as_ref(),
-                    depth_slice: None,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(clear_color),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: depth_view.as_ref().map(|depth| {
-                    wgpu::RenderPassDepthStencilAttachment {
-                        view: depth.as_ref(),
-                        depth_ops: Some(wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(1.0),
-                            store: wgpu::StoreOp::Store,
-                        }),
-                        stencil_ops: None,
-                    }
-                }),
-                timestamp_writes: None,
-                occlusion_query_set: None,
-                multiview_mask: None,
-            });
-            render_pass.set_viewport(vp_x, vp_y, vp_w, vp_h, 0.0, 1.0);
-            render_pass.set_scissor_rect(vp_x as u32, vp_y as u32, vp_w as u32, vp_h as u32);
-
-            if let Some(terrain_guard) = terrain_visual_guard.as_ref() {
-                if let Some(terrain_visual) = terrain_guard.as_ref() {
-                    terrain_visual.record_chunk_draws(&mut render_pass);
-                }
-            }
-            drop(render_pass);
-
-            let terrain_draw_elapsed = terrain_draw_started.elapsed();
-            if terrain_draw_elapsed >= PROFILE_STEP_LOG_THRESHOLD {
-                debug!(
-                    "TerrainVisual chunk draw recording took {:?}",
-                    terrain_draw_elapsed
-                );
-            }
-
-            Ok(())
-        });
+        self.forward_pass.renderer.enqueue_scoped_pre_scene_pass(
+            ww3d_renderer_3d::rendering::wgpu_main_renderer::ScopedNativePass::TerrainGround,
+        );
 
         Ok(())
     }

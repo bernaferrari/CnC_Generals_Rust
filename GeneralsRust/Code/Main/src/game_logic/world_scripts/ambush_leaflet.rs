@@ -18,6 +18,21 @@ impl GameLogic {
         source_object: ObjectId,
         target_position: Vec3,
     ) -> Option<u32> {
+        self.queue_paradrop_with_effects(
+            power,
+            source_object,
+            target_position,
+            &mut Default::default(),
+        )
+    }
+
+    pub(crate) fn queue_paradrop_with_effects(
+        &mut self,
+        power: &crate::command_system::SpecialPowerType,
+        source_object: ObjectId,
+        target_position: Vec3,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> Option<u32> {
         use crate::game_logic::host_paradrop::{HostParadropKind, PARADROP_RESIDUAL_TEMPLATE};
         let kind = HostParadropKind::from_command_power(power)?;
         let (source_team, source_owner_player_id) = {
@@ -83,7 +98,8 @@ impl GameLogic {
             frame,
             String::new(),
         );
-        let _ = self.spawn_paradrop_cargo_plane(source_object, target_position);
+        let _ =
+            self.spawn_paradrop_cargo_plane_with_effects(source_object, target_position, effects);
 
         self.queue_audio_event(
             AudioEventRequest::new(kind.activate_audio())
@@ -151,6 +167,13 @@ impl GameLogic {
     }
     /// Advance pending host paradrops to drop frame and spawn infantry near target.
     pub fn update_paradrops(&mut self) {
+        self.update_paradrops_with_effects(&mut Default::default())
+    }
+
+    pub(crate) fn update_paradrops_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         self.host_paradrops.clear_frame_events();
 
         let plans = self.host_paradrops.plan_due_drops(self.frame);
@@ -166,11 +189,13 @@ impl GameLogic {
 
             let mut spawned: Vec<ObjectId> = Vec::with_capacity(plan.spawn_positions.len());
             for pos in &plan.spawn_positions {
-                if let Some(id) = self.create_object_for_owner_or_team(
+                if let Some(id) = self.create_object_for_owner_or_team_with_effects(
                     &template_name,
                     plan.source_team,
                     plan.source_owner_player_id,
                     *pos,
+                    None,
+                    effects,
                 ) {
                     // C++ Paradrop PutInContainer AmericaParachute + ParachuteDirectly
                     // residual: elevated infantry freefall aiming at LZ.
@@ -179,7 +204,7 @@ impl GameLogic {
                         let mut p = obj.get_position();
                         if p.y < 80.0 {
                             p.y = 120.0;
-                            obj.set_position(p);
+                            obj.set_position_with_effects(p, self.frame, effects);
                             {}
                         }
                         obj.apply_eject_parachuting();
@@ -250,6 +275,21 @@ impl GameLogic {
         source_object: ObjectId,
         target_position: Vec3,
     ) -> Option<u32> {
+        self.queue_ambush_with_effects(
+            power,
+            source_object,
+            target_position,
+            &mut Default::default(),
+        )
+    }
+
+    pub(crate) fn queue_ambush_with_effects(
+        &mut self,
+        power: &crate::command_system::SpecialPowerType,
+        source_object: ObjectId,
+        target_position: Vec3,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> Option<u32> {
         use crate::game_logic::host_ambush::{HostAmbushKind, resolve_ambush_ocl_payload};
         let kind = HostAmbushKind::from_command_power(power)?;
         let (source_team, source_owner_player_id) = {
@@ -312,7 +352,7 @@ impl GameLogic {
             None,
         );
         // C++ ObjectCreationList::create is synchronous in doSpecialPowerAtLocation.
-        self.spawn_due_ambushes();
+        self.spawn_due_ambushes_with_effects(effects);
         Some(id)
     }
 
@@ -338,6 +378,13 @@ impl GameLogic {
 
     /// Advance pending host ambushes to spawn frame and create infantry near target.
     pub fn update_ambushes(&mut self) {
+        self.update_ambushes_with_effects(&mut Default::default())
+    }
+
+    pub(crate) fn update_ambushes_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         self.host_ambushes.clear_frame_events();
 
         // C++ FadeIn residual: clear STEALTHED after FadeTime frames.
@@ -351,10 +398,17 @@ impl GameLogic {
             }
         }
 
-        self.spawn_due_ambushes();
+        self.spawn_due_ambushes_with_effects(effects);
     }
 
     fn spawn_due_ambushes(&mut self) {
+        self.spawn_due_ambushes_with_effects(&mut Default::default())
+    }
+
+    fn spawn_due_ambushes_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let plans = self.host_ambushes.plan_due_spawns(self.frame);
         for plan in plans {
             if !self.templates.contains_key(&plan.unit_template) {
@@ -368,11 +422,13 @@ impl GameLogic {
 
             let mut spawned: Vec<ObjectId> = Vec::with_capacity(plan.spawn_positions.len());
             for pos in &plan.spawn_positions {
-                if let Some(id) = self.create_object_for_owner_or_team(
+                if let Some(id) = self.create_object_for_owner_or_team_with_effects(
                     &template_name,
                     plan.source_team,
                     plan.source_owner_player_id,
                     *pos,
+                    None,
+                    effects,
                 ) {
                     // C++ CreateObject FadeIn residual: STEALTHED until FadeTime.
                     if crate::game_logic::host_ambush::AMBUSH_FADE_IN {
@@ -399,7 +455,7 @@ impl GameLogic {
                                 o.set_status_stealthed(false);
                             }
                             self.host_ambushes.record_dies_on_bad_land_kill();
-                            self.mark_object_for_destruction(id, None);
+                            self.mark_object_for_destruction_with_effects(id, None, effects);
                             // Do not count drowned residual as successful spawn.
                             continue;
                         }
@@ -445,6 +501,21 @@ impl GameLogic {
         source_object: ObjectId,
         target_position: Vec3,
     ) -> Option<u32> {
+        self.queue_leaflet_drop_with_effects(
+            power,
+            source_object,
+            target_position,
+            &mut Default::default(),
+        )
+    }
+
+    pub(crate) fn queue_leaflet_drop_with_effects(
+        &mut self,
+        power: &crate::command_system::SpecialPowerType,
+        source_object: ObjectId,
+        target_position: Vec3,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> Option<u32> {
         use crate::game_logic::host_leaflet_drop::HostLeafletDropKind;
         let kind = HostLeafletDropKind::from_command_power(power)?;
         let source_team = self
@@ -462,14 +533,15 @@ impl GameLogic {
         // AmericaJetB52. Dedicated spawn_leaflet_b52_flight owns that transport
         // (same as A10/Daisy skip execute_ocl). LeafletDropBehavior disable
         // stays host-owned via host_leaflet_drops.queue.
-        let _ = self.spawn_leaflet_b52_flight(source_object, target_position);
+        let _ = self.spawn_leaflet_b52_flight_with_effects(source_object, target_position, effects);
         // C++ SpecialPowerModule::triggerSpecialPower createViewObject
         // SuperweaponLeafletDrop ViewObjectRange 250 / Duration 30000ms.
-        let _ = self.create_special_power_view_object_at(
+        let _ = self.create_special_power_view_object_at_with_effects(
             source_object,
             target_position,
             crate::game_logic::host_leaflet_drop::LEAFLET_VIEW_OBJECT_RANGE,
             crate::game_logic::host_leaflet_drop::LEAFLET_VIEW_OBJECT_DURATION_FRAMES,
+            effects,
         );
 
         self.queue_audio_event(
@@ -615,7 +687,28 @@ impl GameLogic {
         source_object: ObjectId,
         target_position: Vec3,
     ) -> Option<u32> {
-        self.queue_sneak_attack_facing(power, source_object, target_position, 0.0)
+        self.queue_sneak_attack_with_effects(
+            power,
+            source_object,
+            target_position,
+            &mut Default::default(),
+        )
+    }
+
+    pub(crate) fn queue_sneak_attack_with_effects(
+        &mut self,
+        power: &crate::command_system::SpecialPowerType,
+        source_object: ObjectId,
+        target_position: Vec3,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> Option<u32> {
+        self.queue_sneak_attack_facing_with_effects(
+            power,
+            source_object,
+            target_position,
+            0.0,
+            effects,
+        )
     }
 
     /// Same as [`queue_sneak_attack`] with C++ PlaceEvent placement angle.
@@ -625,6 +718,23 @@ impl GameLogic {
         source_object: ObjectId,
         target_position: Vec3,
         placement_angle: f32,
+    ) -> Option<u32> {
+        self.queue_sneak_attack_facing_with_effects(
+            power,
+            source_object,
+            target_position,
+            placement_angle,
+            &mut Default::default(),
+        )
+    }
+
+    pub(crate) fn queue_sneak_attack_facing_with_effects(
+        &mut self,
+        power: &crate::command_system::SpecialPowerType,
+        source_object: ObjectId,
+        target_position: Vec3,
+        placement_angle: f32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> Option<u32> {
         use crate::game_logic::host_sneak_attack::{
             HostSneakAttackKind, SNEAK_ATTACK_RESIDUAL_TEMPLATE,
@@ -674,12 +784,13 @@ impl GameLogic {
             frame,
         );
         // C++ OCL_CreateSneakAttackTunnelStart residual (Start object, Lifetime 5000ms).
-        let _ = self.spawn_sneak_attack_tunnel_start(
+        let _ = self.spawn_sneak_attack_tunnel_start_with_effects(
             id,
             source_team,
             source_owner_player_id,
             target_position,
             placement_angle,
+            effects,
         );
 
         // C++ SuperweaponLaunched Sneak Attack EVA residual.
@@ -729,6 +840,13 @@ impl GameLogic {
     ///
     /// TunnelStart object residual closed; fail-closed vs full Start animation / TunnelContain.
     pub fn update_sneak_attacks(&mut self) {
+        self.update_sneak_attacks_with_effects(&mut Default::default())
+    }
+
+    pub(crate) fn update_sneak_attacks_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         use crate::game_logic::host_sneak_attack::{
             SNEAK_ATTACK_RESIDUAL_TEMPLATE, in_sneak_shockwave_radius_2d,
             is_legal_sneak_shockwave_target,
@@ -772,7 +890,7 @@ impl GameLogic {
                 let destroyed = {
                     let owned_victim_id = target.id;
                     let owned_damage_type = crate::game_logic::combat::DamageType::Unresistable;
-                    self.apply_residual_damage_owned(
+                    self.apply_residual_damage_owned_with_effects(
                         owned_victim_id,
                         pulse.damage,
                         Some(pulse.source_object),
@@ -781,6 +899,7 @@ impl GameLogic {
                             owned_damage_type,
                         ),
                         None,
+                        effects,
                     )
                 };
                 hits = hits.saturating_add(1);
@@ -789,7 +908,7 @@ impl GameLogic {
                 }
             }
             for (id, killer_team) in destroy_ids {
-                self.mark_object_for_destruction(id, Some(killer_team));
+                self.mark_object_for_destruction_with_effects(id, Some(killer_team), effects);
             }
             if hits > 0 || pulse.pulse_index == 0 {
                 let _ = self.combat_particles.spawn(
@@ -824,14 +943,16 @@ impl GameLogic {
                 .get(plan.mission_id)
                 .and_then(|m| m.tunnel_start_object)
             {
-                self.mark_object_for_destruction(start_id, None);
+                self.mark_object_for_destruction_with_effects(start_id, None, effects);
             }
 
-            let tunnel_id = self.create_object_for_owner_or_team(
+            let tunnel_id = self.create_object_for_owner_or_team_with_effects(
                 &template_name,
                 plan.source_team,
                 plan.source_owner_player_id,
                 plan.target_position,
+                None,
+                effects,
             );
             if let Some(id) = tunnel_id {
                 if let Some(o) = self.objects.get_mut(&id) {

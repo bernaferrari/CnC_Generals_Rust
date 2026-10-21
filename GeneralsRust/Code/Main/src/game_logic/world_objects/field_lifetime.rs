@@ -79,18 +79,47 @@ impl FieldLifetime {
 
 impl GameLogic {
     pub fn update_inferno_fire_field_objects(&mut self) {
-        self.expire_field_lifetimes(FieldLifetime::Fire);
+        self.update_inferno_fire_field_objects_with_effects(&mut Default::default())
+    }
+
+    pub(crate) fn update_inferno_fire_field_objects_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
+        self.expire_field_lifetimes_with_effects(FieldLifetime::Fire, effects);
     }
 
     pub fn update_anthrax_toxin_field_objects(&mut self) {
-        self.expire_field_lifetimes(FieldLifetime::Toxin);
+        self.update_anthrax_toxin_field_objects_with_effects(&mut Default::default())
+    }
+
+    pub(crate) fn update_anthrax_toxin_field_objects_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
+        self.expire_field_lifetimes_with_effects(FieldLifetime::Toxin, effects);
     }
 
     pub fn update_nuke_radiation_field_objects(&mut self) {
-        self.expire_field_lifetimes(FieldLifetime::Radiation);
+        self.update_nuke_radiation_field_objects_with_effects(&mut Default::default())
+    }
+
+    pub(crate) fn update_nuke_radiation_field_objects_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
+        self.expire_field_lifetimes_with_effects(FieldLifetime::Radiation, effects);
     }
 
     fn expire_field_lifetimes(&mut self, kind: FieldLifetime) {
+        self.expire_field_lifetimes_with_effects(kind, &mut Default::default())
+    }
+
+    fn expire_field_lifetimes_with_effects(
+        &mut self,
+        kind: FieldLifetime,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let frame = self.frame;
         let due: Vec<_> = self
             .objects
@@ -107,7 +136,7 @@ impl GameLogic {
             };
             kind.consume_projection(object);
             if object.native_lifecycle.is_some() {
-                self.tick_native_lifetime_timers(id);
+                self.tick_native_lifetime_timers_with_effects(id, effects);
                 continue;
             }
             let deletion = matches!(kind, FieldLifetime::Fire);
@@ -132,13 +161,14 @@ impl GameLogic {
             // End the Object loan before immediate onDelete/onDie callbacks.
             if deletion {
                 // CPP DeletionUpdate.cpp:82: direct destruction bypasses Body.
-                self.destroy_object(id);
+                self.destroy_object_with_effects(id, effects);
             } else {
                 // CPP LifetimeUpdate.cpp:70 / Object.h:206 default kill input.
-                self.apply_owned_kill(
+                self.apply_owned_kill_with_effects(
                     id,
                     crate::game_logic::combat::DamageType::Unresistable,
                     crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+                    effects,
                 );
             }
         }

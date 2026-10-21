@@ -7,6 +7,11 @@ struct Camera {
     proj: mat4x4<f32>,
     position: vec4<f32>,
     time: f32,
+    _time_padding_0: f32,
+    _time_padding_1: f32,
+    _time_padding_2: f32,
+    fog_color: vec4<f32>,
+    fog_range: vec4<f32>,
 }
 struct TerrainVertex {
     @location(0) position: vec3<f32>,
@@ -24,6 +29,7 @@ struct VertexOutput {
     @location(2) tex_coords: vec2<f32>,
     @location(3) blend_weights: vec4<f32>,
     @location(4) color: vec4<f32>,
+    @location(5) fog_factor: f32,
 }
 
 @group(0) @binding(0)
@@ -52,6 +58,14 @@ fn vs_main(vertex: TerrainVertex) -> VertexOutput {
     out.blend_weights = vertex.blend_weights;
     // C++ HeightMap VB `diffuse` already includes doTheDynamicLight.
     out.color = vertex.color;
+    // DX8Wrapper sets FOGVERTEXMODE=LINEAR and enables range fog when supported.
+    // Compute on vertices so raster interpolation follows that original phase.
+    out.fog_factor = 0.0;
+    let fog_span = camera.fog_range.y - camera.fog_range.x;
+    if (fog_span > 0.0) {
+        let fog_distance = distance(camera.position.xyz, world_position);
+        out.fog_factor = clamp((fog_distance - camera.fog_range.x) / fog_span, 0.0, 1.0);
+    }
     
     return out;
 }
@@ -85,7 +99,16 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     }
 
     // Modulate by baked vb.diffuse (doTheDynamicLight). Do not fake-N·L again.
-    return vec4<f32>(final_color.rgb * in.color.rgb, final_color.a * in.color.a);
+    var lit_color = vec4<f32>(final_color.rgb * in.color.rgb, final_color.a * in.color.a);
+    // SceneClass defaults FogEnabled=false. The receiving visual admits a
+    // nonzero range explicitly; a color alone never enables terrain fog.
+    // DX8 linear range fog: original color weight=(end-distance)/(end-start).
+    let fog_span = camera.fog_range.y - camera.fog_range.x;
+    if (fog_span > 0.0) {
+        let fog_factor = in.fog_factor;
+        lit_color = vec4<f32>(mix(lit_color.rgb, camera.fog_color.rgb, fog_factor), lit_color.a);
+    }
+    return lit_color;
 }
 
 fn hash2(p: vec2<f32>) -> f32 {

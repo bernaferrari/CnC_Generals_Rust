@@ -75,6 +75,21 @@ impl GameLogic {
         source_team: Team,
         source_pos: Vec3,
     ) -> bool {
+        self.apply_demo_suicide_bomb_death_at_with_effects(
+            source_id,
+            source_team,
+            source_pos,
+            &mut Default::default(),
+        )
+    }
+
+    pub(crate) fn apply_demo_suicide_bomb_death_at_with_effects(
+        &mut self,
+        source_id: ObjectId,
+        source_team: Team,
+        source_pos: Vec3,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
         use crate::game_logic::host_demo_suicide_bomb::{
             DEMO_SUICIDE_BOMB_AUDIO, plan_demo_destroyed_hits,
         };
@@ -105,7 +120,7 @@ impl GameLogic {
                 if {
                     let owned_victim_id = victim.id;
                     let owned_damage_type = crate::game_logic::combat::DamageType::Unresistable;
-                    self.apply_residual_damage_owned(
+                    self.apply_residual_damage_owned_with_effects(
                         owned_victim_id,
                         hit.damage,
                         Some(source_id),
@@ -114,6 +129,7 @@ impl GameLogic {
                             owned_damage_type,
                         ),
                         None,
+                        effects,
                     )
                 } {
                     destroy_ids.push((hit.target_id, source_team));
@@ -137,7 +153,7 @@ impl GameLogic {
             None,
         );
         for (vid, killer) in destroy_ids {
-            self.mark_object_for_destruction(vid, Some(killer));
+            self.mark_object_for_destruction_with_effects(vid, Some(killer), effects);
         }
         true
     }
@@ -148,6 +164,21 @@ impl GameLogic {
         source_id: ObjectId,
         source_team: Team,
         source_pos: Vec3,
+    ) -> bool {
+        self.apply_demo_plus_fire_death_at_with_effects(
+            source_id,
+            source_team,
+            source_pos,
+            &mut Default::default(),
+        )
+    }
+
+    pub(crate) fn apply_demo_plus_fire_death_at_with_effects(
+        &mut self,
+        source_id: ObjectId,
+        source_team: Team,
+        source_pos: Vec3,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> bool {
         use crate::game_logic::host_demo_suicide_bomb::{
             DEMO_SUICIDE_BOMB_AUDIO, DEMO_SUICIDE_DYNAMITE_PLUS_FIRE, plan_demo_plus_fire_hits,
@@ -180,7 +211,7 @@ impl GameLogic {
                 if {
                     let owned_victim_id = victim.id;
                     let owned_damage_type = crate::game_logic::combat::DamageType::Unresistable;
-                    self.apply_residual_damage_owned(
+                    self.apply_residual_damage_owned_with_effects(
                         owned_victim_id,
                         hit.damage,
                         Some(source_id),
@@ -189,6 +220,7 @@ impl GameLogic {
                             owned_damage_type,
                         ),
                         None,
+                        effects,
                     )
                 } {
                     destroy_ids.push((hit.target_id, source_team));
@@ -212,7 +244,7 @@ impl GameLogic {
             None,
         );
         for (vid, killer) in destroy_ids {
-            self.mark_object_for_destruction(vid, Some(killer));
+            self.mark_object_for_destruction_with_effects(vid, Some(killer), effects);
         }
         true
     }
@@ -222,6 +254,14 @@ impl GameLogic {
     /// Fail-closed: requires SuicideBomb upgrade + CommandSetUpgrade residual.
     /// Terrorists keep host_terrorist path (not TertiarySuicide).
     pub fn issue_demo_tertiary_suicide(&mut self, unit_id: ObjectId) -> bool {
+        self.issue_demo_tertiary_suicide_with_effects(unit_id, &mut Default::default())
+    }
+
+    pub(crate) fn issue_demo_tertiary_suicide_with_effects(
+        &mut self,
+        unit_id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
         use crate::game_logic::host_demo_suicide_bomb::{
             can_issue_demo_tertiary_suicide, command_set_enables_tertiary_suicide,
         };
@@ -256,8 +296,13 @@ impl GameLogic {
             );
         }
         self.demo_suicide_bomb.record_tertiary_suicide_issued();
-        let _ = self.apply_demo_plus_fire_death_at(unit_id, source_team, source_pos);
-        self.mark_object_for_destruction(unit_id, Some(source_team));
+        let _ = self.apply_demo_plus_fire_death_at_with_effects(
+            unit_id,
+            source_team,
+            source_pos,
+            effects,
+        );
+        self.mark_object_for_destruction_with_effects(unit_id, Some(source_team), effects);
         true
     }
 
@@ -1103,6 +1148,17 @@ impl GameLogic {
     /// C++ Object::updateUpgradeModules — walk the player's completed PLAYER
     /// upgrades onto a building that just left UNDER_CONSTRUCTION.
     pub(crate) fn apply_researched_player_upgrades_to_object(&mut self, structure_id: ObjectId) {
+        self.apply_researched_player_upgrades_to_object_with_effects(
+            structure_id,
+            &mut Default::default(),
+        )
+    }
+
+    pub(crate) fn apply_researched_player_upgrades_to_object_with_effects(
+        &mut self,
+        structure_id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let Some(obj) = self.objects.get(&structure_id) else {
             return;
         };
@@ -1143,7 +1199,7 @@ impl GameLogic {
             if self.is_object_scoped_upgrade(&name) {
                 continue;
             }
-            self.apply_upgrade_to_object(structure_id, &name);
+            self.apply_upgrade_to_object_with_effects(structure_id, &name, effects);
         }
     }
 
@@ -1192,6 +1248,7 @@ impl GameLogic {
         ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
     ) {
         let mut effects = crate::game_logic::ScriptPresentationEffects {
+            terrain: None,
             ui: ui
                 .as_mut()
                 .map(|ui| &mut **ui as &mut dyn crate::game_logic::ScriptUiEffects),
@@ -1294,7 +1351,7 @@ impl GameLogic {
         }
         // C++ Object::updateUpgradeModules after UNDER_CONSTRUCTION clears
         // (DozerAIUpdate.cpp:539-591 / Object.cpp:2410-2438).
-        self.apply_researched_player_upgrades_to_object(structure_id);
+        self.apply_researched_player_upgrades_to_object_with_effects(structure_id, ui);
         let local = self
             .players
             .values()
@@ -1538,6 +1595,14 @@ impl GameLogic {
     /// If vehicle has WEAPONSET_CARBOMB / IS_CARBOMB, sniping the pilot detonates
     /// it instead of leaving an unmanned car bomb.
     pub fn maybe_detonate_carbomb_on_unmanned(&mut self, vehicle_id: ObjectId) -> bool {
+        self.maybe_detonate_carbomb_on_unmanned_with_effects(vehicle_id, &mut Default::default())
+    }
+
+    pub(crate) fn maybe_detonate_carbomb_on_unmanned_with_effects(
+        &mut self,
+        vehicle_id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
         let is_bomb = self
             .objects
             .get(&vehicle_id)
@@ -1553,7 +1618,7 @@ impl GameLogic {
             o.status.unmanned_owner_player_id = None;
         }
         self.admit_host_radar_disabled_edges(vehicle_id);
-        let ok = self.detonate_car_bomb(vehicle_id);
+        let ok = self.detonate_car_bomb_with_effects(vehicle_id, effects);
         if ok {
             self.carbomb_unmanned_detonations = self.carbomb_unmanned_detonations.saturating_add(1);
         }
@@ -1634,6 +1699,14 @@ impl GameLogic {
     /// C++ OverchargeBehavior::update residual — drain HP while the typed
     /// behavior is active, then evaluate its authored strict health threshold.
     pub fn update_overcharge_drain(&mut self, dt: f32) {
+        self.update_overcharge_drain_with_effects(dt, &mut Default::default())
+    }
+
+    pub(crate) fn update_overcharge_drain_with_effects(
+        &mut self,
+        dt: f32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         if dt <= 0.0 {
             return;
         }
@@ -1683,7 +1756,7 @@ impl GameLogic {
                         let _ = {
                             let owned_victim_id = obj.id;
                             let owned_damage_type = crate::game_logic::combat::DamageType::Penalty;
-                            self.apply_residual_damage_owned(owned_victim_id, damage, Some(id), owned_damage_type, crate::game_logic::host_usa_pilot::HostDeathType::from_host_damage_type(owned_damage_type), None)
+                            self.apply_residual_damage_owned_with_effects(owned_victim_id, damage, Some(id), owned_damage_type, crate::game_logic::host_usa_pilot::HostDeathType::from_host_damage_type(owned_damage_type), None, effects)
                         };
                     }
                     self.overcharge_drain_ticks = self.overcharge_drain_ticks.saturating_add(1);
@@ -1732,7 +1805,7 @@ impl GameLogic {
                 }
             }
             if dead {
-                self.mark_object_for_destruction(id, None);
+                self.mark_object_for_destruction_with_effects(id, None, effects);
             }
         }
     }

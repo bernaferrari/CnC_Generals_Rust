@@ -249,7 +249,18 @@ impl crate::game_logic::GameLogic {
     /// CPP doFXPos samples a positional cell, separately from an object's
     /// attached-FX status. Both viewer and shroud belong to this match.
     pub(crate) fn dispatch_fx_list_at_host_position(&mut self, name: &str, position: Vec3) -> bool {
-        self.dispatch_fx_list_at_host_position_oriented(name, position, None, 0.0, 0.0, None)
+        self.dispatch_fx_list_at_host_position_with_effects(name, position, &mut Default::default())
+    }
+
+    pub(crate) fn dispatch_fx_list_at_host_position_with_effects(
+        &mut self,
+        name: &str,
+        position: Vec3,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
+        self.dispatch_fx_list_at_host_position_oriented_with_effects(
+            name, position, None, 0.0, 0.0, None, effects,
+        )
     }
 
     pub(crate) fn dispatch_fx_list_at_host_position_oriented(
@@ -261,17 +272,43 @@ impl crate::game_logic::GameLogic {
         radius: f32,
         matrix: Option<glam::Mat4>,
     ) -> bool {
+        self.dispatch_fx_list_at_host_position_oriented_with_effects(
+            name,
+            position,
+            secondary,
+            speed,
+            radius,
+            matrix,
+            &mut Default::default(),
+        )
+    }
+
+    pub(crate) fn dispatch_fx_list_at_host_position_oriented_with_effects(
+        &mut self,
+        name: &str,
+        position: Vec3,
+        secondary: Option<Vec3>,
+        speed: f32,
+        radius: f32,
+        matrix: Option<glam::Mat4>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
         let name = strip_fx_list_prefix(name);
         if is_none_fx_list(name) {
             return false;
         }
         #[cfg(feature = "game_client")]
         {
-            self.with_host_fx_view(|view| {
-                Self::dispatch_fx_list_at_position_with_view(
-                    name, position, secondary, speed, radius, matrix, view,
-                )
-            })
+            self.with_host_fx_view_and_terrain(
+                effects.terrain.as_mut().map(|terrain| {
+                    &mut **terrain as &mut dyn crate::game_logic::NativeTerrainEffects
+                }),
+                |view| {
+                    Self::dispatch_fx_list_at_position_with_view(
+                        name, position, secondary, speed, radius, matrix, view,
+                    )
+                },
+            )
         }
         #[cfg(not(feature = "game_client"))]
         {
@@ -292,6 +329,22 @@ impl crate::game_logic::GameLogic {
             &mut self.session_view,
             player,
             self.world_services.shroud(),
+            run,
+        )
+    }
+
+    #[cfg(feature = "game_client")]
+    pub(crate) fn with_host_fx_view_and_terrain<R>(
+        &mut self,
+        terrain: Option<&mut dyn crate::game_logic::NativeTerrainEffects>,
+        run: impl FnOnce(&mut game_client::fx_list::FxViewServices<'_>) -> R,
+    ) -> R {
+        let player = self.local_player_id();
+        Self::with_host_fx_view_parts_and_terrain(
+            &mut self.session_view,
+            player,
+            self.world_services.shroud(),
+            terrain,
             run,
         )
     }
@@ -352,6 +405,50 @@ impl crate::game_logic::GameLogic {
         shroud: &std::sync::Arc<std::sync::Mutex<gamelogic::system::shroud_manager::ShroudManager>>,
         run: impl FnOnce(&mut game_client::fx_list::FxViewServices<'_>) -> R,
     ) -> R {
+        // Standalone compatibility entrypoint; native production roots must
+        // pass their actual borrowed terrain via the receiving variant.
+        let mut add_scorch = |position, radius, kind| {
+            game_client::terrain::scorch_mesh::add_terrain_scorch(position, radius, kind);
+        };
+        Self::with_host_fx_view_parts_with_scorch(
+            session_view,
+            player,
+            shroud,
+            &mut add_scorch,
+            run,
+        )
+    }
+
+    #[cfg(feature = "game_client")]
+    pub(crate) fn with_host_fx_view_parts_and_terrain<R>(
+        session_view: &mut crate::presentation_frame::SessionView,
+        player: Option<u32>,
+        shroud: &std::sync::Arc<std::sync::Mutex<gamelogic::system::shroud_manager::ShroudManager>>,
+        mut terrain: Option<&mut dyn crate::game_logic::NativeTerrainEffects>,
+        run: impl FnOnce(&mut game_client::fx_list::FxViewServices<'_>) -> R,
+    ) -> R {
+        let mut add_scorch = |position, radius, kind| {
+            if let Some(receiver) = terrain.as_mut() {
+                receiver.add_scorch(position, radius, kind);
+            }
+        };
+        Self::with_host_fx_view_parts_with_scorch(
+            session_view,
+            player,
+            shroud,
+            &mut add_scorch,
+            run,
+        )
+    }
+
+    #[cfg(feature = "game_client")]
+    pub(crate) fn with_host_fx_view_parts_with_scorch<R>(
+        session_view: &mut crate::presentation_frame::SessionView,
+        player: Option<u32>,
+        shroud: &std::sync::Arc<std::sync::Mutex<gamelogic::system::shroud_manager::ShroudManager>>,
+        add_scorch: &mut dyn FnMut([f32; 3], f32, i32),
+        run: impl FnOnce(&mut game_client::fx_list::FxViewServices<'_>) -> R,
+    ) -> R {
         let target = session_view.target;
         let rules = session_view.camera.shake_policy.current();
         let impulse = &mut session_view.impulse;
@@ -391,6 +488,7 @@ impl crate::game_logic::GameLogic {
             )
         };
         run(&mut game_client::fx_list::FxViewServices {
+            add_scorch,
             shake: &mut shake,
             find_list: &mut find_list,
             bone_transforms: &mut bone_transforms,
@@ -430,6 +528,21 @@ impl crate::game_logic::GameLogic {
         primary_id: crate::game_logic::ObjectId,
         secondary_id: Option<crate::game_logic::ObjectId>,
     ) -> bool {
+        self.dispatch_fx_list_at_host_object_with_effects(
+            name,
+            primary_id,
+            secondary_id,
+            &mut Default::default(),
+        )
+    }
+
+    pub(crate) fn dispatch_fx_list_at_host_object_with_effects(
+        &mut self,
+        name: &str,
+        primary_id: crate::game_logic::ObjectId,
+        secondary_id: Option<crate::game_logic::ObjectId>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
         let player = self.local_player_id();
         let primary = self.host_object(primary_id).map(|object| {
             Self::observe_host_fx_object(object, player, self.world_services.shroud())
@@ -460,9 +573,12 @@ impl crate::game_logic::GameLogic {
             let Some(fx) = fx else {
                 return false;
             };
-            self.with_host_fx_view(|view| {
-                fx.do_fx_obj_host_with_view(&primary, secondary.as_ref(), view)
-            });
+            self.with_host_fx_view_and_terrain(
+                effects.terrain.as_mut().map(|terrain| {
+                    &mut **terrain as &mut dyn crate::game_logic::NativeTerrainEffects
+                }),
+                |view| fx.do_fx_obj_host_with_view(&primary, secondary.as_ref(), view),
+            );
             return true;
         }
         #[cfg(not(feature = "game_client"))]

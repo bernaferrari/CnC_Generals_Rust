@@ -20,6 +20,7 @@ impl GameLogic {
         &mut self,
         objects: &[super::script_loader::PlacedObject],
         spawned_object_ids: &[(ObjectId, usize)],
+        effects: &mut ScriptPresentationEffects<'_>,
     ) {
         if self.terrain.is_none() || spawned_object_ids.is_empty() {
             return;
@@ -39,11 +40,12 @@ impl GameLogic {
             ));
         }
 
+        let frame = self.frame;
         for ((object_id, _), (_, x, y, z)) in
             spawned_object_ids.iter().copied().zip(grounded_positions)
         {
             if let Some(object) = self.objects.get_mut(&object_id) {
-                object.set_position(Vec3::new(x, y, z));
+                object.set_position_with_effects(Vec3::new(x, y, z), frame, effects);
                 // y is world height after grounding; residual height sample = y when terrain present.
                 object.set_ground_height_residual(y, true);
                 {}
@@ -76,14 +78,48 @@ impl GameLogic {
         F: FnMut(f32, &str),
     {
         let services = Arc::clone(&self.world_services);
-        let mut delivery = gamelogic::terrain_water::publish_map_water_legacy_native;
         gamelogic::system::engine_stores::with_world_services(&services, || {
             self.load_map_with_definition_source_and_progress(
                 map_name,
                 None,
                 difficulty,
-                Some(&mut delivery),
+                None,
+                None,
                 report_progress,
+            )
+        })
+    }
+
+    pub(crate) fn load_map_with_progress_and_native<F>(
+        &mut self,
+        map_name: &str,
+        progress: F,
+        native: Option<&mut dyn crate::game_logic::NativeMapAdmission>,
+    ) -> bool
+    where
+        F: FnMut(f32, &str),
+    {
+        let difficulty = self
+            .owned_script_engine
+            .as_ref()
+            .map(|engine| engine.get_global_difficulty());
+        self.load_map_with_script_difficulty_and_native(map_name, difficulty, progress, native)
+    }
+
+    fn load_map_with_script_difficulty_and_native<F>(
+        &mut self,
+        map_name: &str,
+        difficulty: Option<gamelogic::player::GameDifficulty>,
+        progress: F,
+        native: Option<&mut dyn crate::game_logic::NativeMapAdmission>,
+    ) -> bool
+    where
+        F: FnMut(f32, &str),
+    {
+        let services = Arc::clone(&self.world_services);
+        gamelogic::system::engine_stores::with_world_services(&services, || {
+            self.load_map_with_definition_source_and_progress(
+                map_name, None, difficulty, None, native, progress,
             )
         })
     }
@@ -91,12 +127,7 @@ impl GameLogic {
     /// Saved geometry stays on the extracted map; only companion INIs use the
     /// original source, as in C++ GameLogic::loadMapINI saved-directory branch.
     pub(crate) fn load_map_with_definition_source(&mut self, map_name: &str, source: &str) -> bool {
-        let mut delivery = gamelogic::terrain_water::publish_map_water_legacy_native;
-        self.load_map_with_definition_source_and_water_delivery(
-            map_name,
-            source,
-            Some(&mut delivery),
-        )
+        self.load_map_with_definition_source_and_water_delivery(map_name, source, None)
     }
 
     pub(crate) fn load_map_with_definition_source_and_water_delivery(
@@ -104,6 +135,21 @@ impl GameLogic {
         map_name: &str,
         source: &str,
         water_delivery: Option<&mut dyn FnMut(&gamelogic::terrain_water::WaterGridState)>,
+    ) -> bool {
+        self.load_map_with_definition_source_and_water_delivery_and_native(
+            map_name,
+            source,
+            water_delivery,
+            None,
+        )
+    }
+
+    pub(crate) fn load_map_with_definition_source_and_water_delivery_and_native(
+        &mut self,
+        map_name: &str,
+        source: &str,
+        water_delivery: Option<&mut dyn FnMut(&gamelogic::terrain_water::WaterGridState)>,
+        native: Option<&mut dyn crate::game_logic::NativeMapAdmission>,
     ) -> bool {
         let difficulty = self
             .owned_script_engine
@@ -116,6 +162,7 @@ impl GameLogic {
                 Some(source),
                 difficulty,
                 water_delivery,
+                native,
                 |_, _| {},
             )
         })
@@ -127,6 +174,7 @@ impl GameLogic {
         definition_source: Option<&str>,
         map_script_difficulty: Option<gamelogic::player::GameDifficulty>,
         water_delivery: Option<&mut dyn FnMut(&gamelogic::terrain_water::WaterGridState)>,
+        mut native: Option<&mut dyn crate::game_logic::NativeMapAdmission>,
         mut report_progress: F,
     ) -> bool
     where
@@ -240,7 +288,7 @@ impl GameLogic {
                 report_progress(0.36, "Reading map settings");
                 let ai_draft = self.ai_definitions.map_override_draft();
                 let parsed =
-                    super::script_loader::parse_map_settings_from_chunky_with_camera_and_clip_rules(
+                    super::script_loader::parse_map_settings_from_chunky_with_owned_terrain_definitions(
                         &chunky,
                         std::sync::Arc::clone(&ai_draft),
                         &definition_source,
@@ -249,10 +297,14 @@ impl GameLogic {
                         Some(self.session_view.camera.settings.current()),
                         Some(self.session_view.camera.clip_policy.current()),
                         Some(self.session_view.camera.shake_policy.current()),
+                        Arc::clone(self.effective_terrain_definitions()),
                     );
                 let parsed_settings = match parsed {
                     Ok(meta) => match self.admit_ai_map_overrides(ai_draft) {
                         Ok(()) => {
+                            if let Some(definitions) = &meta.terrain_definitions {
+                                self.terrain_definitions = Arc::clone(definitions);
+                            }
                             self.weather_definition_updates =
                                 meta.weather_definition_updates.clone();
                             if let Some(rules) = meta.camera_shake_rules {
@@ -311,6 +363,10 @@ impl GameLogic {
                     &chunky,
                     map_script_difficulty,
                     water_delivery,
+                    native.as_mut().map(|native| {
+                        &mut **native as &mut dyn crate::game_logic::NativeMapAdmission
+                    }),
+                    parsed_settings.as_ref(),
                     &mut report_progress,
                 ) {
                     return false;
@@ -462,15 +518,25 @@ impl GameLogic {
                                     .get(player_id)
                                     .is_some_and(|player| player.is_alive && player.team == team)
                             });
+                            let mut effects = native
+                                .as_mut()
+                                .map(|native| native.effects())
+                                .unwrap_or_default();
                             let created = match owner_player_id {
-                                Some(player_id) => self.create_object_for_player(
+                                Some(player_id) => self.create_object_for_player_with_effects(
                                     obj.template.as_str(),
                                     player_id,
                                     spawn_position,
+                                    None,
+                                    &mut effects,
                                 ),
-                                None => {
-                                    self.create_object(obj.template.as_str(), team, spawn_position)
-                                }
+                                None => self.create_object_with_script_effects(
+                                    obj.template.as_str(),
+                                    team,
+                                    spawn_position,
+                                    None,
+                                    &mut effects,
+                                ),
                             };
                             if let Some(id) = created {
                                 if let Some(team_name) = obj
@@ -482,12 +548,21 @@ impl GameLogic {
                                     if let Some(created) = self.objects.get_mut(&id) {
                                         created.team_instance_name = team_name.to_string();
                                     }
-                                    self.activate_leftover_team_for_host_object(id);
+                                    self.admit_team_for_host_object_with_effects(
+                                        id,
+                                        None,
+                                        true,
+                                        &mut effects,
+                                    );
                                 }
                                 spawned_object_ids.push((id, index));
-                                self.apply_update_obj_values_from_map_properties(
+                                self.apply_update_obj_values_from_map_properties_with_effects(
                                     id,
                                     &obj.properties,
+                                    &mut native
+                                        .as_mut()
+                                        .map(|native| native.effects())
+                                        .unwrap_or_default(),
                                 );
                                 if obj.unsellable == Some(true) {
                                     if let Some(created) = self.objects.get_mut(&id) {
@@ -543,7 +618,14 @@ impl GameLogic {
                                                 continue;
                                             }
                                         }
-                                        self.apply_upgrade_to_object(id, trimmed);
+                                        self.apply_upgrade_to_object_with_effects(
+                                            id,
+                                            trimmed,
+                                            &mut native
+                                                .as_mut()
+                                                .map(|native| native.effects())
+                                                .unwrap_or_default(),
+                                        );
                                     }
                                 }
                             }
@@ -551,7 +633,14 @@ impl GameLogic {
                         report_progress(0.80, "World objects spawned");
                         let spawned_ids = spawned_object_ids;
                         self.spawned_map_object_ids = spawned_ids.clone();
-                        self.register_spawned_landmark_bridges(objects, &spawned_ids);
+                        self.register_spawned_landmark_bridges_with_effects(
+                            objects,
+                            &spawned_ids,
+                            &mut native
+                                .as_mut()
+                                .map(|native| native.effects())
+                                .unwrap_or_default(),
+                        );
                         // Wave 831: SidesList build-list faction bases (skirmish armies).
                         let side_spawned =
                             self.spawn_side_build_list(&meta.side_builds, &map_player_to_team);
@@ -563,9 +652,20 @@ impl GameLogic {
                             );
                         }
                         // Wave 831: starting yard+dozer at Player_N_Start waypoints.
-                        self.spawn_skirmish_starting_units();
+                        self.spawn_skirmish_starting_units_with_effects(
+                            &mut native
+                                .as_mut()
+                                .map(|native| native.effects())
+                                .unwrap_or_default(),
+                        );
                         report_progress(0.82, "Finalizing world objects");
-                        self.ensure_non_shell_player_presence(parsed_settings.as_ref());
+                        self.ensure_non_shell_player_presence_with_effects(
+                            parsed_settings.as_ref(),
+                            &mut native
+                                .as_mut()
+                                .map(|native| native.effects())
+                                .unwrap_or_default(),
+                        );
                         log::info!(
                             "Spawned {} objects from map placement data for '{}' in {:.2}s",
                             self.objects.len(),
@@ -576,38 +676,12 @@ impl GameLogic {
                 }
                 let bounds_started = Instant::now();
                 report_progress(0.84, "Building world bounds");
-                let mut bounds_override = parsed_settings.as_ref().and_then(|m| {
-                    m.world_min.zip(m.world_max).map(|(min, max)| {
-                        (
-                            Vec3::new(min.x, min.y, min.z),
-                            Vec3::new(max.x, max.y, max.z),
-                        )
-                    })
-                });
-                if let Some((min, max)) = bounds_override {
-                    let extent_x = (max.x - min.x).abs();
-                    let extent_z = (max.z - min.z).abs();
-                    if extent_x < 1.0 || extent_z < 1.0 {
-                        log::warn!(
-                            "Map '{}' reported degenerate bounds ({:.2}x{:.2}); deriving bounds from terrain/object data",
-                            map_name,
-                            extent_x,
-                            extent_z
-                        );
-                        bounds_override = None;
-                    }
-                }
-                if bounds_override.is_none() {
-                    if let Some(hm) = heightmap_data.as_ref() {
-                        use gamelogic::common::MAP_XY_FACTOR;
-                        let playable_w = (hm.width - 2 * hm.border_size).max(1) as f32;
-                        let playable_h = (hm.height - 2 * hm.border_size).max(1) as f32;
-                        bounds_override = Some((
-                            Vec3::new(0.0, 0.0, 0.0),
-                            Vec3::new(playable_w * MAP_XY_FACTOR, 0.0, playable_h * MAP_XY_FACTOR),
-                        ));
-                    }
-                }
+                let mut bounds_override = super::script_loader::resolved_map_height_bounds(
+                    parsed_settings.as_ref(),
+                    heightmap_data
+                        .as_ref()
+                        .map(|map| (map.width, map.height, map.border_size)),
+                );
                 if bounds_override.is_none() && !self.objects.is_empty() {
                     // Derive bounds from placed objects when map metadata is missing.
                     let mut min = Vec3::splat(f32::MAX);
@@ -731,9 +805,18 @@ impl GameLogic {
                                 self.ground_loaded_map_objects_to_terrain(
                                     &meta.objects,
                                     &spawned_map_object_ids,
+                                    &mut native
+                                        .as_mut()
+                                        .map(|native| native.effects())
+                                        .unwrap_or_default(),
                                 );
                             }
-                            self.seed_pathfinding_from_terrain();
+                            self.seed_pathfinding_from_terrain_with_effects(
+                                &mut native
+                                    .as_mut()
+                                    .map(|native| native.effects())
+                                    .unwrap_or_default(),
+                            );
                             let wall_height = self.pathfind_ai_rules().wall_height;
                             ({
                                 let ground_owner = self.world_services.terrain();
@@ -849,9 +932,18 @@ impl GameLogic {
                                 self.ground_loaded_map_objects_to_terrain(
                                     &meta.objects,
                                     &spawned_map_object_ids,
+                                    &mut native
+                                        .as_mut()
+                                        .map(|native| native.effects())
+                                        .unwrap_or_default(),
                                 );
                             }
-                            self.seed_pathfinding_from_terrain();
+                            self.seed_pathfinding_from_terrain_with_effects(
+                                &mut native
+                                    .as_mut()
+                                    .map(|native| native.effects())
+                                    .unwrap_or_default(),
+                            );
                             let wall_height = self.pathfind_ai_rules().wall_height;
                             ({
                                 let ground_owner = self.world_services.terrain();
@@ -915,12 +1007,22 @@ impl GameLogic {
             self.rebind_host_ai_after_map_load();
             // C++ GameLogic.cpp placeObjectAtPosition loop for PlayerTemplate StartingUnitN.
             // Without this, Lone Eagle-style maps keep buildings but no dozers/workers.
-            self.spawn_skirmish_starting_units();
+            self.spawn_skirmish_starting_units_with_effects(
+                &mut native
+                    .as_mut()
+                    .map(|native| native.effects())
+                    .unwrap_or_default(),
+            );
         }
 
         // C++ TerrainLogic.cpp:2589 TheRadar->newMap after bounds, then
         // re-add live objects. Stay off sides_list / polygon.
-        self.host_radar_on_map_loaded();
+        self.host_radar_on_map_loaded_with_effects(
+            &mut native
+                .as_mut()
+                .map(|native| native.effects())
+                .unwrap_or_default(),
+        );
 
         self.map_loaded = true;
         // C++ start-of-match residual: reveal FOW around loaded units/structures
@@ -964,16 +1066,37 @@ impl GameLogic {
     where
         F: FnMut(f32, &str),
     {
+        self.load_map_or_fallback_with_progress_and_native(
+            map_name,
+            fallback,
+            report_progress,
+            None,
+        )
+    }
+
+    pub fn load_map_or_fallback_with_progress_and_native<F>(
+        &mut self,
+        map_name: &str,
+        fallback: &str,
+        mut report_progress: F,
+        mut native: Option<&mut dyn crate::game_logic::NativeMapAdmission>,
+    ) -> Option<String>
+    where
+        F: FnMut(f32, &str),
+    {
         // One admission owns both attempts. The first failure may already
         // have retired its interpreter; never recapture from that dirty world.
         let difficulty = self
             .owned_script_engine
             .as_ref()
             .map(|engine| engine.get_global_difficulty());
-        if self.load_map_with_script_difficulty_and_progress(
+        if self.load_map_with_script_difficulty_and_native(
             map_name,
             difficulty,
             |progress, phase| report_progress(progress, phase),
+            native
+                .as_mut()
+                .map(|native| &mut **native as &mut dyn crate::game_logic::NativeMapAdmission),
         ) && self.map_loaded
         {
             return Some(self.map_name.clone());
@@ -983,10 +1106,13 @@ impl GameLogic {
         // already was the fallback. More importantly, never report a fallback
         // name unless that attempt really reached the successful load tail.
         if map_name != fallback
-            && self.load_map_with_script_difficulty_and_progress(
+            && self.load_map_with_script_difficulty_and_native(
                 fallback,
                 difficulty,
                 |progress, phase| report_progress(progress, phase),
+                native
+                    .as_mut()
+                    .map(|native| &mut **native as &mut dyn crate::game_logic::NativeMapAdmission),
             )
             && self.map_loaded
         {
@@ -1184,7 +1310,7 @@ pub(in super::super) fn apply_cpp_heightmap_xy_and_border(
     map_border: i32,
 ) {
     use gamelogic::common::MAP_XY_FACTOR;
-    // C++ MapObject.h MAP_XY_FACTOR; WorldHeightMap::m_borderSize else ZH 70.
+    // WorldHeightMap.cpp866-873 preserves the authored border; pre-v3 is zero.
     heightmap.scale = MAP_XY_FACTOR;
-    heightmap.border_size = if map_border > 0 { map_border } else { 70 };
+    heightmap.border_size = map_border;
 }

@@ -159,3 +159,96 @@ fn no_core_map_retains_detached_fixture_ground_and_snapshot() {
     let frozen = logic.terrain_heightmap_snapshot().unwrap();
     assert_eq!(frozen.max_height, 99.);
 }
+
+#[test]
+#[cfg(feature = "game_client")]
+fn actual_chunky_zero_and_positive_borders_survive_core_freeze_and_native_admission() {
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "actual_chunky_zero_and_positive_borders_survive_core_freeze_and_native_admission",
+        || {
+            let directory = tempfile::tempdir().unwrap();
+            for border in [0, 70] {
+                let size = 8 + 2 * border;
+                let count = size * size;
+                let mut data = game_engine::common::system::DataChunkOutput::new();
+                data.open_data_chunk("HeightMapData", 3);
+                for value in [size, size, border, count] {
+                    data.write_int(value);
+                }
+                for _ in 0..count {
+                    data.write_byte(40);
+                }
+                data.close_data_chunk();
+                let path = directory.path().join(format!("owned-border-{border}.map"));
+                std::fs::write(&path, data.into_ckmp_bytes()).unwrap();
+                let mut world = crate::game_logic::GameLogic::new();
+                assert!(world.load_map(path.to_str().unwrap()));
+                assert_eq!(
+                    world
+                        .terrain
+                        .as_ref()
+                        .unwrap()
+                        .heightmap_clone()
+                        .border_size,
+                    border
+                );
+                let env = crate::presentation_frame::PresentationWorldEnv::from_logic(&world);
+                let frozen = env.runtime_heightmap.as_ref().unwrap().to_height_map();
+                assert_eq!(frozen.border_size, border);
+                let mut native =
+                    crate::graphics::render_pipeline::RenderPipeline::prepare_native_terrain_cpu(
+                        &env,
+                    )
+                    .unwrap()
+                    .unwrap();
+                let peer =
+                    crate::graphics::render_pipeline::RenderPipeline::prepare_native_terrain_cpu(
+                        &env,
+                    )
+                    .unwrap()
+                    .unwrap();
+                assert_eq!(native.get_raw_map_height(1, 1), 40);
+                world
+                    .world_services
+                    .terrain()
+                    .write()
+                    .unwrap()
+                    .set_raw_map_height_with_effects(1, 1, -1, &mut |change| {
+                        assert_eq!((change.sample_x, change.sample_y), (border + 1, border + 1));
+                        native.apply_accepted_height(
+                            change.sample_x,
+                            change.sample_y,
+                            change.raw_height,
+                        );
+                    });
+                assert_eq!(
+                    native.get_raw_map_height(1, 1),
+                    255,
+                    "authored border={border}"
+                );
+                assert_eq!(peer.get_raw_map_height(1, 1), 40);
+                assert_eq!(
+                    world
+                        .world_services
+                        .terrain()
+                        .read()
+                        .unwrap()
+                        .logic_height_map_border_size(),
+                    border
+                );
+                // Saved canonical-grid admission validates the exact preserved native shape.
+                let terrain = world.world_services.terrain().read().unwrap();
+                native
+                    .admit_canonical_height_grid(
+                        size,
+                        size,
+                        border,
+                        terrain.logic_height_map_bytes(),
+                    )
+                    .unwrap();
+                assert_eq!(native.get_raw_map_height(1, 1), 255);
+            }
+        },
+    );
+}

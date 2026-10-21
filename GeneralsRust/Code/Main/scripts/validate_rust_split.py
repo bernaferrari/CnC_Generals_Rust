@@ -694,7 +694,7 @@ def validate(
 
 
 def parse_expected_crate_api(value: str) -> tuple[Path, str]:
-    path_text, separator, name = value.rpartition(":")
+    path_text, separator, name = value.partition(":")
     if not separator or not path_text or not name:
         raise argparse.ArgumentTypeError("expected PATH:NAME")
     return Path(path_text), name

@@ -236,11 +236,11 @@ impl GameLogic {
         }
         {
             let object = self.objects.get_mut(&id)?;
-            object.set_position(position);
+            object.set_position_with_effects(position, self.frame, ui);
             object.set_orientation(orientation);
         }
         // DozerAIUpdate.cpp:1692-1702: flatten, snap, then path admission.
-        self.flatten_and_snap_construction(id);
+        self.flatten_and_snap_construction(id, ui);
         self.block_structure_object_path(id);
         if let Some(object) = self.objects.get(&id) {
             if object.is_kind_of(KindOf::WalkOnTopOfWall) {

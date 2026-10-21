@@ -466,8 +466,22 @@ impl PresentationWaterArea {
     }
 }
 
+/// Immutable authored map decal definition, not runtime scorch authority.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PresentationTerrainScorch {
+    pub location: [f32; 3],
+    pub radius: f32,
+    pub kind: i32,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct PresentationWorldEnv {
+    #[serde(default)]
+    pub terrain_definitions: Option<Arc<game_engine::common::ini::ini_terrain::TerrainTypes>>,
+    #[serde(default)]
+    pub terrain_motion: PresentationTerrainMotion,
+    #[serde(default)]
+    pub authored_scorches: Vec<PresentationTerrainScorch>,
     pub map_name: String,
     /// Wave 509: snow weather residual for mesh model-condition SNOW bank.
     #[serde(default)]
@@ -684,6 +698,18 @@ impl PresentationWorldEnv {
             })
             .unwrap_or((default_clear_alpha(), default_fog_alpha()));
         Self {
+            terrain_motion: PresentationTerrainMotion::from_logic(logic),
+            terrain_definitions: Some(Arc::clone(logic.effective_terrain_definitions())),
+            authored_scorches: meta
+                .as_ref()
+                .into_iter()
+                .flat_map(|meta| &meta.authored_scorches)
+                .map(|&(location, radius, kind)| PresentationTerrainScorch {
+                    location,
+                    radius,
+                    kind,
+                })
+                .collect(),
             map_name: logic.get_current_map_name().trim().to_string(),
             is_snow,
             is_night,

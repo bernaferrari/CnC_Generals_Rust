@@ -5,7 +5,15 @@ use super::*;
 impl GameLogic {
     /// C++ GameLogic.cpp:1888 `team->setActive()` when the team first has members.
     pub fn activate_leftover_team_for_host_object(&mut self, id: ObjectId) {
-        self.admit_team_for_host_object(id, None, true);
+        self.activate_leftover_team_for_host_object_with_effects(id, &mut Default::default())
+    }
+
+    pub(crate) fn activate_leftover_team_for_host_object_with_effects(
+        &mut self,
+        id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
+        self.admit_team_for_host_object_with_effects(id, None, true, effects);
     }
 
     pub(crate) fn admit_team_for_host_object(
@@ -229,14 +237,32 @@ impl GameLogic {
     /// Leftover `set_team` misses empty `OBJECT_REGISTRY`; rewrite live
     /// `team_instance_name` so TEAM/NAMED census follows dest.
     pub fn apply_host_merge_team_script_requests(&mut self) {
+        self.apply_host_merge_team_script_requests_with_effects(&mut Default::default())
+    }
+
+    pub(crate) fn apply_host_merge_team_script_requests_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         for req in gamelogic::scripting::take_host_script_merge_team_requests() {
-            self.host_script_merge_team_into_team(&req.source, &req.dest);
+            self.host_script_merge_team_into_team_with_effects(&req.source, &req.dest, effects);
         }
     }
 
     /// C++ `obj->setTeam(teamDest)` + `updateTeamAndPlayerStuff` + dest `setActive`.
     fn host_script_merge_team_into_team(&mut self, source: &str, dest: &str) {
-        if let Err(error) = self.merge_owned_script_team(source, dest, None, None, None) {
+        self.host_script_merge_team_into_team_with_effects(source, dest, &mut Default::default())
+    }
+
+    fn host_script_merge_team_into_team_with_effects(
+        &mut self,
+        source: &str,
+        dest: &str,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
+        if let Err(error) =
+            self.merge_owned_script_team_with_effects(source, dest, None, None, None, effects)
+        {
             log::error!("owned team merge failed: {error}");
         }
     }

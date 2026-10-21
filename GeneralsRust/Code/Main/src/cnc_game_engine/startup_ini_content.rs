@@ -11,6 +11,7 @@ impl CnCGameEngine {
         paths: &[&'static str],
     ) -> Result<Vec<(&'static str, String)>, String> {
         let mut texts = Vec::new();
+        let mut startup_archive = None;
         for &path in paths {
             let text = if let Some(text) = Self::read_startup_ini_from_disk(path) {
                 Some(text)
@@ -26,7 +27,24 @@ impl CnCGameEngine {
                         Err(_) => None,
                     }
                 } else {
-                    None
+                    if startup_archive.is_none() {
+                        let mut archive = crate::assets::archive::ArchiveFileSystem::new();
+                        archive
+                            .init()
+                            .await
+                            .map_err(|error| format!("startup archive admission: {error}"))?;
+                        startup_archive = Some(archive);
+                    }
+                    match startup_archive
+                        .as_mut()
+                        .expect("local archive initialized")
+                        .open_file_sync(path)
+                    {
+                        Ok(bytes) => Some(
+                            String::from_utf8(bytes).map_err(|error| format!("{path}: {error}"))?,
+                        ),
+                        Err(_) => None,
+                    }
                 }
             };
             if let Some(text) = text {

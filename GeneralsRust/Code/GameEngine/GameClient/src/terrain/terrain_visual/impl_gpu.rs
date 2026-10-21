@@ -927,7 +927,7 @@ impl TerrainVisualImpl {
             self.scorch_meshes.clear();
             return;
         };
-        let baked = bake_terrain_scorch_gpu_mesh(height_map, 0xffff_ffff);
+        let baked = self.scorches.update_scorches(height_map, 0xffff_ffff);
         if baked.vertices.is_empty() || baked.indices.is_empty() {
             self.scorch_meshes.clear();
             return;
@@ -1987,6 +1987,12 @@ impl TerrainVisualImpl {
 
     /// C++ `W3DTreeBuffer::drawTrees` VB fill + wgpu upload. Called every update/draw.
     pub fn update_tree_meshes(&mut self) {
+        self.update_tree_meshes_observed(None);
+    }
+    pub fn update_tree_meshes_for_motion(&mut self, motion: TerrainVisualMotion) {
+        self.update_tree_meshes_observed(Some(motion));
+    }
+    fn update_tree_meshes_observed(&mut self, motion: Option<TerrainVisualMotion>) {
         self.rebind_skybox_background_for_camera();
         self.tree_buffer
             .tick_cpu(false, |_| TreeShroudStatus::Clear);
@@ -1994,10 +2000,14 @@ impl TerrainVisualImpl {
             self.tree_buffer.force_vertex_rebuild();
         }
         // C++ `W3DTreeBuffer::drawTrees`: ScriptEngine breeze + versioned updateSway.
-        let pause = gamelogic::helpers::TheScriptEngine::is_time_frozen()
-            || gamelogic::helpers::TheGameLogic::is_game_paused();
+        let pause = motion.map(|motion| motion.paused).unwrap_or_else(|| {
+            gamelogic::helpers::TheScriptEngine::is_time_frozen()
+                || gamelogic::helpers::TheGameLogic::is_game_paused()
+        });
         if !pause {
-            let breeze = script_tree_breeze();
+            let breeze = motion
+                .map(|motion| motion.breeze)
+                .unwrap_or_else(script_tree_breeze);
             if self.tree_buffer.cur_sway_version() != breeze.breeze_version {
                 self.tree_buffer.update_sway(breeze, &mut GameClientSwayRng);
                 self.overlay.last_sway_version = breeze.breeze_version;
@@ -2011,7 +2021,11 @@ impl TerrainVisualImpl {
                 .any(|tree| tree.tree_type >= 0)
             {
                 self.tree_buffer.force_vertex_rebuild();
-            } else if !self.tree_buffer.need_to_update_texture() {
+            } else if !self.tree_buffer.need_to_update_texture()
+                && self.tree_buffer.num_tiles() == 0
+            {
+                // C++ drawTrees processes an existing atlas even with no tree instances.
+                // A prepared tile pack still needs the normal mip/LOD upload route.
                 return;
             }
         }
@@ -2533,8 +2547,8 @@ impl TerrainVisualImpl {
 
     /// C++ `drawScorches` → `updateScorches` when `m_scorchesInBuffer == 0`.
     pub(crate) fn scorches_need_gpu_rebuild(&self) -> bool {
-        let in_buffer = terrain_scorches_in_buffer();
-        let count = terrain_scorch_count();
+        let in_buffer = self.scorches.scorches_in_buffer;
+        let count = self.scorches.len();
         if count == 0 {
             return !self.scorch_meshes.is_empty();
         }

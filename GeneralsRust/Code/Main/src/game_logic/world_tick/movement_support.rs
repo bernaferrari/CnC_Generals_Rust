@@ -397,6 +397,16 @@ impl GameLogic {
         object_ids: &[ObjectId],
         dt: f32,
     ) {
+        self.update_movement_locomotor_pass_with_effects(object_ids, dt, &mut Default::default())
+    }
+
+    pub(in super::super) fn update_movement_locomotor_pass_with_effects(
+        &mut self,
+        object_ids: &[ObjectId],
+        dt: f32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
+        let pose_frame = self.frame;
         // C++ m_isBlockedAndStuck → patchPath; requestSafePath → findSafePath Dijkstra.
         let mut repaths: Vec<(ObjectId, Vec<Vec3>, bool)> = Vec::new();
         let mut concessions: Vec<(ObjectId, bool, u32, bool, f32)> = Vec::new();
@@ -1087,10 +1097,11 @@ impl GameLogic {
                             // Release both the object and borrowed terrain view before original Body callbacks.
                             let _ = obj;
                             let _ = flight_terrain;
-                            self.drive_owned_contact(
+                            self.drive_owned_contact_with_effects(
                                 id,
                                 crate::game_logic::object::StampContact::Start(ground_y),
-                                Object::step_stamp_contact,
+                                Object::step_stamp_contact_with_effects,
+                                effects,
                             );
                             let flight_terrain = super::flight_terrain::FlightTerrainView {
                                 logical: Some(self.world_services.terrain().as_ref()),
@@ -1112,10 +1123,11 @@ impl GameLogic {
                         // Release both the object and borrowed terrain view before original Body callbacks.
                         let _ = obj;
                         let _ = flight_terrain;
-                        self.drive_owned_contact(
+                        self.drive_owned_contact_with_effects(
                             id,
                             crate::game_logic::object::StampContact::Start(ground_y),
-                            Object::step_stamp_contact,
+                            Object::step_stamp_contact_with_effects,
+                            effects,
                         );
                         let flight_terrain = super::flight_terrain::FlightTerrainView {
                             logical: Some(self.world_services.terrain().as_ref()),
@@ -1137,7 +1149,12 @@ impl GameLogic {
                         // C++ doLocomotor ANGLE: locoUpdate_moveTowardsAngle, not path.
                         obj.do_final_position = false;
                         if obj.face_loco_frame != self.frame || self.frame == 0 {
-                            obj.loco_update_move_towards_angle(obj.locomotor_goal_angle, dt);
+                            obj.loco_update_move_towards_angle_with_effects(
+                                obj.locomotor_goal_angle,
+                                dt,
+                                pose_frame,
+                                effects,
+                            );
                             obj.face_loco_frame = self.frame;
                         }
                         // Leftover unused `handle_behavior_z_for` via leftover
@@ -1150,14 +1167,22 @@ impl GameLogic {
                         } else {
                             obj.leftover_surface_ht(surface_y)
                         };
-                        Self::apply_live_handle_behavior_z(obj, sy, None, Some(&flight_terrain));
+                        Self::apply_live_handle_behavior_z_with_effects(
+                            obj,
+                            sy,
+                            None,
+                            Some(&flight_terrain),
+                            pose_frame,
+                            effects,
+                        );
                         // Release both the object and borrowed terrain view before original Body callbacks.
                         let _ = obj;
                         let _ = flight_terrain;
-                        self.drive_owned_contact(
+                        self.drive_owned_contact_with_effects(
                             id,
                             crate::game_logic::object::StampContact::Start(ground_y),
-                            Object::step_stamp_contact,
+                            Object::step_stamp_contact_with_effects,
+                            effects,
                         );
                         let flight_terrain = super::flight_terrain::FlightTerrainView {
                             logical: Some(self.world_services.terrain().as_ref()),
@@ -1194,10 +1219,11 @@ impl GameLogic {
                         // Release both the object and borrowed terrain view before original Body callbacks.
                         let _ = obj;
                         let _ = flight_terrain;
-                        self.drive_owned_contact(
+                        self.drive_owned_contact_with_effects(
                             id,
                             crate::game_logic::object::StampContact::Start(ground_y),
-                            Object::step_stamp_contact,
+                            Object::step_stamp_contact_with_effects,
+                            effects,
                         );
                         let flight_terrain = super::flight_terrain::FlightTerrainView {
                             logical: Some(self.world_services.terrain().as_ref()),
@@ -1280,19 +1306,22 @@ impl GameLogic {
                                 &self.pathfinding_system.grid,
                                 surfaces,
                             ) {
-                                Self::apply_live_handle_behavior_z(
+                                Self::apply_live_handle_behavior_z_with_effects(
                                     obj,
                                     surface_y,
                                     None,
                                     Some(&flight_terrain),
+                                    pose_frame,
+                                    effects,
                                 );
                                 // Release both the object and borrowed terrain view before original Body callbacks.
                                 let _ = obj;
                                 let _ = flight_terrain;
-                                self.drive_owned_contact(
+                                self.drive_owned_contact_with_effects(
                                     id,
                                     crate::game_logic::object::StampContact::Start(ground_y),
-                                    Object::step_stamp_contact,
+                                    Object::step_stamp_contact_with_effects,
+                                    effects,
                                 );
                                 let flight_terrain = super::flight_terrain::FlightTerrainView {
                                     logical: Some(self.world_services.terrain().as_ref()),
@@ -1316,19 +1345,22 @@ impl GameLogic {
                             obj.num_frames_blocked = 1;
                         }
                         obj.cur_max_blocked_speed = 999_999.0;
-                        Self::apply_live_handle_behavior_z(
+                        Self::apply_live_handle_behavior_z_with_effects(
                             obj,
                             surface_y,
                             None,
                             Some(&flight_terrain),
+                            pose_frame,
+                            effects,
                         );
                         // Release both the object and borrowed terrain view before original Body callbacks.
                         let _ = obj;
                         let _ = flight_terrain;
-                        self.drive_owned_contact(
+                        self.drive_owned_contact_with_effects(
                             id,
                             crate::game_logic::object::StampContact::Start(ground_y),
-                            Object::step_stamp_contact,
+                            Object::step_stamp_contact_with_effects,
+                            effects,
                         );
                         let flight_terrain = super::flight_terrain::FlightTerrainView {
                             logical: Some(self.world_services.terrain().as_ref()),
@@ -1419,7 +1451,9 @@ impl GameLogic {
                                     plant_goal = obj.movement.path.last().copied();
                                     obj.finish_locomotor_path_leg();
                                     if obj.holds_air_position_when_idle() {
-                                        let _ = obj.loco_maintain_appearance(dt);
+                                        let _ = obj.loco_maintain_appearance_with_effects(
+                                            dt, pose_frame, effects,
+                                        );
                                     }
                                 } else if obj.holds_air_position_when_idle() {
                                     obj.movement.path.clear();
@@ -1434,7 +1468,9 @@ impl GameLogic {
                                     if adjusts_destination_now(obj) {
                                         obj.set_locomotor_goal_none();
                                     }
-                                    let _ = obj.loco_maintain_appearance(dt);
+                                    let _ = obj.loco_maintain_appearance_with_effects(
+                                        dt, pose_frame, effects,
+                                    );
                                 } else {
                                     plant_goal = obj.movement.path.last().copied();
                                     if matches!(obj.ai_state, AIState::AttackMoving) {
@@ -1476,19 +1512,22 @@ impl GameLogic {
                                     obj.pending_evacuate_on_stop = true;
                                     obj.pending_exit_after_evacuate = and_exit;
                                 }
-                                Self::apply_live_handle_behavior_z(
+                                Self::apply_live_handle_behavior_z_with_effects(
                                     obj,
                                     surface_y,
                                     None,
                                     Some(&flight_terrain),
+                                    pose_frame,
+                                    effects,
                                 );
                                 // Release both the object and borrowed terrain view before original Body callbacks.
                                 let _ = obj;
                                 let _ = flight_terrain;
-                                self.drive_owned_contact(
+                                self.drive_owned_contact_with_effects(
                                     id,
                                     crate::game_logic::object::StampContact::Start(ground_y),
-                                    Object::step_stamp_contact,
+                                    Object::step_stamp_contact_with_effects,
+                                    effects,
                                 );
                                 let flight_terrain = super::flight_terrain::FlightTerrainView {
                                     logical: Some(self.world_services.terrain().as_ref()),
@@ -1611,10 +1650,13 @@ impl GameLogic {
                                     // C++ Locomotor.cpp:1035: blocked stays set only
                                     // while the pivot yaw is not TURN_NONE. AIUpdate.cpp:2270
                                     // then clamps m_blockedFrames back to 1.
-                                    let (turning, _) = obj.rotate_obj_around_loco_pivot(
-                                        flat_target,
-                                        obj.effective_turn_rate() * dt,
-                                    );
+                                    let (turning, _) = obj
+                                        .rotate_obj_around_loco_pivot_with_effects(
+                                            flat_target,
+                                            obj.effective_turn_rate() * dt,
+                                            pose_frame,
+                                            effects,
+                                        );
                                     if turning == crate::game_logic::PhysicsTurningType::TurnNone {
                                         blocked_out = false;
                                         if obj.num_frames_blocked > 1 {
@@ -1623,19 +1665,22 @@ impl GameLogic {
                                     }
                                 }
 
-                                Self::apply_live_handle_behavior_z(
+                                Self::apply_live_handle_behavior_z_with_effects(
                                     obj,
                                     surface_y,
                                     None,
                                     Some(&flight_terrain),
+                                    pose_frame,
+                                    effects,
                                 );
                                 // Release both the object and borrowed terrain view before original Body callbacks.
                                 let _ = obj;
                                 let _ = flight_terrain;
-                                self.drive_owned_contact(
+                                self.drive_owned_contact_with_effects(
                                     id,
                                     crate::game_logic::object::StampContact::Start(ground_y),
-                                    Object::step_stamp_contact,
+                                    Object::step_stamp_contact_with_effects,
+                                    effects,
                                 );
                                 let flight_terrain = super::flight_terrain::FlightTerrainView {
                                     logical: Some(self.world_services.terrain().as_ref()),
@@ -1749,19 +1794,22 @@ impl GameLogic {
                             if matches!(obj.loco_appearance, LocomotorAppearance::LegsTwo)
                                 && obj.downhill_only_blocks_goal(current_pos.y, goal_y)
                             {
-                                Self::apply_live_handle_behavior_z(
+                                Self::apply_live_handle_behavior_z_with_effects(
                                     obj,
                                     surface_y,
                                     None,
                                     Some(&flight_terrain),
+                                    pose_frame,
+                                    effects,
                                 );
                                 // Release both the object and borrowed terrain view before original Body callbacks.
                                 let _ = obj;
                                 let _ = flight_terrain;
-                                self.drive_owned_contact(
+                                self.drive_owned_contact_with_effects(
                                     id,
                                     crate::game_logic::object::StampContact::Start(ground_y),
-                                    Object::step_stamp_contact,
+                                    Object::step_stamp_contact_with_effects,
+                                    effects,
                                 );
                                 let flight_terrain = super::flight_terrain::FlightTerrainView {
                                     logical: Some(self.world_services.terrain().as_ref()),
@@ -1779,21 +1827,30 @@ impl GameLogic {
                             // Live `move_towards_thrust` already ports the 3D mover
                             // (hq-sw06m); production march must dispatch it (hq-zx7lx).
                             if matches!(obj.loco_appearance, LocomotorAppearance::Thrust) {
-                                obj.move_towards_thrust(target_pos, on_path_dist, speed, dt);
-                                obj.notify_terrain_trees_on_unit_move();
-                                Self::apply_live_handle_behavior_z(
+                                obj.move_towards_thrust_with_effects(
+                                    target_pos,
+                                    on_path_dist,
+                                    speed,
+                                    dt,
+                                    pose_frame,
+                                    effects,
+                                );
+                                Self::apply_live_handle_behavior_z_with_effects(
                                     obj,
                                     surface_y,
                                     None,
                                     Some(&flight_terrain),
+                                    pose_frame,
+                                    effects,
                                 );
                                 // Release both the object and borrowed terrain view before original Body callbacks.
                                 let _ = obj;
                                 let _ = flight_terrain;
-                                self.drive_owned_contact(
+                                self.drive_owned_contact_with_effects(
                                     id,
                                     crate::game_logic::object::StampContact::Start(ground_y),
-                                    Object::step_stamp_contact,
+                                    Object::step_stamp_contact_with_effects,
+                                    effects,
                                 );
                                 let flight_terrain = super::flight_terrain::FlightTerrainView {
                                     logical: Some(self.world_services.terrain().as_ref()),
@@ -1829,7 +1886,9 @@ impl GameLogic {
                                         if obj.needs_internal_move_arrival_observation() {
                                             obj.finish_locomotor_path_leg();
                                             if obj.holds_air_position_when_idle() {
-                                                let _ = obj.loco_maintain_appearance(dt);
+                                                let _ = obj.loco_maintain_appearance_with_effects(
+                                                    dt, pose_frame, effects,
+                                                );
                                             }
                                         } else if obj.holds_air_position_when_idle() {
                                             obj.movement.path.clear();
@@ -1844,7 +1903,9 @@ impl GameLogic {
                                             if adjusts_destination_now(obj) {
                                                 obj.set_locomotor_goal_none();
                                             }
-                                            let _ = obj.loco_maintain_appearance(dt);
+                                            let _ = obj.loco_maintain_appearance_with_effects(
+                                                dt, pose_frame, effects,
+                                            );
                                         } else {
                                             plant_goal = obj.movement.path.last().copied();
                                             if matches!(obj.ai_state, AIState::AttackMoving) {
@@ -2050,24 +2111,29 @@ impl GameLogic {
                                 ) {
                                     // C++ rotateTowardsPosition (full maxTurnRate,
                                     // no wheeled turnFactor) + applyMotiveForce(0).
-                                    let _ = obj.rotate_obj_around_loco_pivot(
+                                    let _ = obj.rotate_obj_around_loco_pivot_with_effects(
                                         flat_target,
                                         obj.effective_turn_rate() * dt,
+                                        pose_frame,
+                                        effects,
                                     );
 
-                                    Self::apply_live_handle_behavior_z(
+                                    Self::apply_live_handle_behavior_z_with_effects(
                                         obj,
                                         surface_y,
                                         None,
                                         Some(&flight_terrain),
+                                        pose_frame,
+                                        effects,
                                     );
                                     // Release both the object and borrowed terrain view before original Body callbacks.
                                     let _ = obj;
                                     let _ = flight_terrain;
-                                    self.drive_owned_contact(
+                                    self.drive_owned_contact_with_effects(
                                         id,
                                         crate::game_logic::object::StampContact::Start(ground_y),
-                                        Object::step_stamp_contact,
+                                        Object::step_stamp_contact_with_effects,
+                                        effects,
                                     );
                                     let flight_terrain = super::flight_terrain::FlightTerrainView {
                                         logical: Some(self.world_services.terrain().as_ref()),
@@ -2153,8 +2219,13 @@ impl GameLogic {
                                             current_pos.z + (-desired_angle.sin()) * 1000.0,
                                         )
                                     };
-                                    let (_turning, _rel) =
-                                        obj.rotate_towards_position(rotate_goal, dt);
+                                    let (_turning, _rel) = obj
+                                        .rotate_towards_position_with_effects(
+                                            rotate_goal,
+                                            dt,
+                                            pose_frame,
+                                            effects,
+                                        );
                                     obj.get_orientation()
                                 };
 
@@ -2236,16 +2307,14 @@ impl GameLogic {
                                 }
                             }
 
-                            obj.set_position(new_position);
-                            // C++ Object.cpp:2580-2583 notifyTerrainObjectMoved →
-                            // W3DTreeBuffer::unitMoved (topple/push). set_position
-                            // also notifies on integer XY change for GameWorld writeback.
-                            obj.notify_terrain_trees_on_unit_move();
-                            Self::apply_live_handle_behavior_z(
+                            obj.set_position_with_effects(new_position, pose_frame, effects);
+                            Self::apply_live_handle_behavior_z_with_effects(
                                 obj,
                                 surface_y,
                                 None,
                                 Some(&flight_terrain),
+                                pose_frame,
+                                effects,
                             );
                             if was_braking {
                                 // C++ :981 dx/dy/dz are not recomputed. :1096 reads
@@ -2254,7 +2323,7 @@ impl GameLogic {
                                 let posed = obj.get_position();
                                 let entry_target = posed + (target_pos - current_pos);
                                 let cheated = obj.braking_cheat_step(posed, entry_target, dt);
-                                obj.set_position(cheated);
+                                obj.set_position_with_effects(cheated, pose_frame, effects);
                                 if obj.is_kind_of(KindOf::Projectile)
                                     || obj.object_type == crate::game_logic::ObjectType::Projectile
                                 {
@@ -2273,7 +2342,7 @@ impl GameLogic {
                                 } else {
                                     posed + obj.movement.velocity * dt
                                 };
-                                obj.set_position(stepped);
+                                obj.set_position_with_effects(stepped, pose_frame, effects);
                             }
                             if matches!(obj.loco_appearance, LocomotorAppearance::Hover) {
                                 // C++ moveTowardsPositionHover checks water after the
@@ -2306,7 +2375,9 @@ impl GameLogic {
                                         plant_goal = obj.movement.path.last().copied();
                                         obj.finish_locomotor_path_leg();
                                         if obj.holds_air_position_when_idle() {
-                                            let _ = obj.loco_maintain_appearance(dt);
+                                            let _ = obj.loco_maintain_appearance_with_effects(
+                                                dt, pose_frame, effects,
+                                            );
                                         }
                                     } else if obj.holds_air_position_when_idle() {
                                         obj.end_temporary_move_overlay();
@@ -2315,7 +2386,9 @@ impl GameLogic {
                                         obj.ignored_obstacle_id = None;
                                         obj.set_precise_z_pos(false);
                                         obj.set_locomotor_goal_none();
-                                        let _ = obj.loco_maintain_appearance(dt);
+                                        let _ = obj.loco_maintain_appearance_with_effects(
+                                            dt, pose_frame, effects,
+                                        );
                                     } else if obj.temporary_move_frames > 0
                                         && !matches!(obj.ai_state, AIState::Moving)
                                     {
@@ -2393,7 +2466,8 @@ impl GameLogic {
                             if position_goal {
                                 obj.maintain_pos_valid = false;
                             }
-                            let _ = obj.loco_maintain_appearance(dt);
+                            let _ =
+                                obj.loco_maintain_appearance_with_effects(dt, pose_frame, effects);
                             let sy = if matches!(obj.loco_appearance, LocomotorAppearance::Wings) {
                                 if matches!(
                                     obj.loco_behavior_z,
@@ -2411,11 +2485,13 @@ impl GameLogic {
                             } else {
                                 obj.maintain_pos.map(|p| p.y)
                             };
-                            Self::apply_live_handle_behavior_z(
+                            Self::apply_live_handle_behavior_z_with_effects(
                                 obj,
                                 sy,
                                 goal_y,
                                 Some(&flight_terrain),
+                                pose_frame,
+                                effects,
                             );
                             // C++ friend_endingMove only runs from the move state.
                             // Idle maintain (goal still coincident) must not clear
@@ -2480,9 +2556,9 @@ impl GameLogic {
                             }
                         }
                     } else {
-                        leftover_settle_final_position_on_object(obj);
+                        leftover_settle_final_position_on_object(obj, pose_frame, effects);
                         // C++ maintainCurrentPosition: appearance, then one Z update.
-                        let _ = obj.loco_maintain_appearance(dt);
+                        let _ = obj.loco_maintain_appearance_with_effects(dt, pose_frame, effects);
                         let sy = if matches!(obj.loco_appearance, LocomotorAppearance::Wings) {
                             if matches!(
                                 obj.loco_behavior_z,
@@ -2495,11 +2571,13 @@ impl GameLogic {
                         } else {
                             surface_y
                         };
-                        Self::apply_live_handle_behavior_z(
+                        Self::apply_live_handle_behavior_z_with_effects(
                             obj,
                             sy,
                             obj.maintain_pos.map(|p| p.y),
                             Some(&flight_terrain),
+                            pose_frame,
+                            effects,
                         );
                     }
                     // C++ AIUpdate.cpp:2270. Clamp from this frame's locomotor
@@ -2540,10 +2618,11 @@ impl GameLogic {
                             }
                         }
                     }
-                    self.drive_owned_contact(
+                    self.drive_owned_contact_with_effects(
                         id,
                         crate::game_logic::object::StampContact::Start(gy),
-                        Object::step_stamp_contact,
+                        Object::step_stamp_contact_with_effects,
+                        effects,
                     );
                 }
             }
@@ -2551,10 +2630,10 @@ impl GameLogic {
             if let Some(goal) = plant_goal {
                 self.apply_arrival_goal_snap(id, Some(goal));
             }
-            self.finish_transport_return_phase(id);
+            self.finish_transport_return_phase_with_effects(id, effects);
         }
 
-        self.drain_pending_transport_exits();
+        self.drain_pending_transport_exits_with_effects(effects);
     }
     /// Closest-segment projection on the host XZ polyline — the same loop as
     /// `PathfindingSystem::compute_point_on_path_for`
@@ -2776,6 +2855,14 @@ impl GameLogic {
         &mut self,
         object_ids: &[ObjectId],
     ) {
+        self.stamp_airborne_targets_from_locomotor_with_effects(object_ids, &mut Default::default())
+    }
+
+    pub(in super::super) fn stamp_airborne_targets_from_locomotor_with_effects(
+        &mut self,
+        object_ids: &[ObjectId],
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         for &id in object_ids {
             let Some((pos, fallback)) = self.objects.get(&id).and_then(|obj| {
                 (!(obj.is_disabled() && !obj.status.disabled_freefall))
@@ -2784,10 +2871,11 @@ impl GameLogic {
                 continue;
             };
             let ground_y = self.terrain_height_at(pos).unwrap_or(fallback);
-            self.drive_owned_contact(
+            self.drive_owned_contact_with_effects(
                 id,
                 crate::game_logic::object::StampContact::Start(ground_y),
-                Object::step_stamp_contact,
+                Object::step_stamp_contact_with_effects,
+                effects,
             );
             self.admit_host_radar_disabled_edges(id);
         }
@@ -2847,6 +2935,13 @@ impl GameLogic {
     /// with no hull-stop requirement. move-to-and-evacuate still waits for
     /// arrival (`pending_stream_exit` stays false until the first dump).
     pub(in super::super) fn drain_pending_transport_exits(&mut self) {
+        self.drain_pending_transport_exits_with_effects(&mut Default::default())
+    }
+
+    pub(in super::super) fn drain_pending_transport_exits_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let mut evac_now: Vec<(ObjectId, bool)> = Vec::new();
         for (id, obj) in &self.objects {
             if !obj.pending_evacuate_on_stop {
@@ -2878,7 +2973,7 @@ impl GameLogic {
             }
         }
         for (id, and_exit) in evac_now {
-            let _ = self.evacuate_container_now(id, and_exit);
+            let _ = self.evacuate_container_now_with_effects(id, and_exit, effects);
         }
     }
     /// Update AI behavior for all objects
@@ -2886,6 +2981,13 @@ impl GameLogic {
 
     /// Drain this world's accepted shots into its CombatSystem (fire-spawn authority apply).
     pub(crate) fn drain_pending_projectiles_into_combat(&mut self) {
+        self.drain_pending_projectiles_into_combat_with_effects(&mut Default::default())
+    }
+
+    pub(crate) fn drain_pending_projectiles_into_combat_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         crate::game_logic::host_historic_bonus::set_logic_frame(self.frame);
         let projectile_terrain = crate::game_logic::game_logic::FlightTerrainView {
             grid: &self.pathfinding_system.grid,
@@ -2899,17 +3001,24 @@ impl GameLogic {
             self.frame,
             Some(&projectile_terrain),
         );
-        self.apply_owned_projectileless_delayed_damage();
-        self.execute_pending_weapon_fire_ocls();
+        self.apply_owned_projectileless_delayed_damage_with_effects(effects);
+        self.execute_pending_weapon_fire_ocls_with_effects(effects);
     }
 
     /// Complete projectile contacts without advancing their flight positions.
     pub(crate) fn resolve_projectiles_hits_only(&mut self) -> Vec<ObjectId> {
+        self.resolve_projectiles_hits_only_with_effects(&mut Default::default())
+    }
+
+    pub(crate) fn resolve_projectiles_hits_only_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> Vec<ObjectId> {
         self.combat_system.refresh_homing_aims(&self.objects);
         // Use the same installed receiving-owner completion as the ordinary
         // projectile step; zero dt preserves this hit-only admission boundary.
-        let hits = self.update_owned_projectile_impacts(0.0);
-        self.flush_projectile_impact_fx();
+        let hits = self.update_owned_projectile_impacts_with_effects(0.0, effects);
+        self.flush_projectile_impact_fx_with_effects(effects);
         hits
     }
 }
@@ -3031,7 +3140,11 @@ fn leftover_cpp_to_host(pos: gamelogic::common::Coord3D) -> Vec3 {
 
 /// Leftover `Locomotor::settle_final_position` (NONE-goal half of
 /// `loco_update_when_goal_none`). Live idle already runs maintain.
-fn leftover_settle_final_position_on_object(obj: &mut Object) {
+fn leftover_settle_final_position_on_object(
+    obj: &mut Object,
+    pose_frame: u32,
+    effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+) {
     if !obj.do_final_position {
         return;
     }
@@ -3042,5 +3155,5 @@ fn leftover_settle_final_position_on_object(obj: &mut Object) {
         on_ground,
     );
     obj.do_final_position = still;
-    obj.set_position(leftover_cpp_to_host(pos));
+    obj.set_position_with_effects(leftover_cpp_to_host(pos), pose_frame, effects);
 }

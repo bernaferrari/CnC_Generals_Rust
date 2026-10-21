@@ -96,6 +96,19 @@ impl GameLogic {
         infantry_id: ObjectId,
         vehicle_id: ObjectId,
     ) -> bool {
+        self.try_infantry_unmanned_reclaim_with_effects(
+            infantry_id,
+            vehicle_id,
+            &mut Default::default(),
+        )
+    }
+
+    pub(crate) fn try_infantry_unmanned_reclaim_with_effects(
+        &mut self,
+        infantry_id: ObjectId,
+        vehicle_id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
         let (inf_team, inf_owner_player_id, inf_level, is_pilot) =
             match self.objects.get(&infantry_id) {
                 Some(inf) => (
@@ -123,8 +136,8 @@ impl GameLogic {
             }
             self.admit_host_radar_disabled_edges(vehicle_id);
             let _ = self.transfer_script_object_name(infantry_id, vehicle_id);
-            self.destroy_object(infantry_id);
-            self.process_destroy_list();
+            self.destroy_object_with_effects(infantry_id, effects);
+            self.process_destroy_list_with_effects(effects);
             self.unmanned_reclaims = self.unmanned_reclaims.saturating_add(1);
             return true;
         }
@@ -147,9 +160,9 @@ impl GameLogic {
         }
         self.admit_host_radar_disabled_edges(vehicle_id);
         let _ = self.transfer_script_object_name(infantry_id, vehicle_id);
-        self.destroy_object(infantry_id);
+        self.destroy_object_with_effects(infantry_id, effects);
         // C++ destroyObject is immediate for collision reclaim residual path.
-        self.process_destroy_list();
+        self.process_destroy_list_with_effects(effects);
         self.unmanned_reclaims = self.unmanned_reclaims.saturating_add(1);
         true
     }
@@ -164,6 +177,21 @@ impl GameLogic {
         tunnel_id: ObjectId,
         old_team: Team,
         new_team: Team,
+    ) {
+        self.on_capture_tunnel_network_residual_with_effects(
+            tunnel_id,
+            old_team,
+            new_team,
+            &mut Default::default(),
+        )
+    }
+
+    pub(crate) fn on_capture_tunnel_network_residual_with_effects(
+        &mut self,
+        tunnel_id: ObjectId,
+        old_team: Team,
+        new_team: Team,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         let is_tunnel = self
             .objects
@@ -239,7 +267,7 @@ impl GameLogic {
                 // AI decision channel (Object::onDie → aiIdle family); the
                 // cave-in eject must log StopAttack under decision authority.
                 self.clear_target_decision_aware(uid);
-                self.mark_object_for_destruction(uid, Some(new_team));
+                self.mark_object_for_destruction_with_effects(uid, Some(new_team), effects);
                 self.capture_tunnel_last_ejects = self.capture_tunnel_last_ejects.saturating_add(1);
             }
         } else if let Some(valid) = outcome.remapped_to {
@@ -283,11 +311,32 @@ impl GameLogic {
         old_team: Team,
         new_team: Team,
     ) {
+        self.on_capture_object_residual_with_effects(
+            object_id,
+            old_team,
+            new_team,
+            &mut Default::default(),
+        )
+    }
+
+    pub(crate) fn on_capture_object_residual_with_effects(
+        &mut self,
+        object_id: ObjectId,
+        old_team: Team,
+        new_team: Team,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         // Compatibility entrypoint for callers that still identify owners by faction.
-        self.on_capture_object_owned(object_id, old_team, new_team, old_team != new_team);
+        self.on_capture_object_owned_with_effects(
+            object_id,
+            old_team,
+            new_team,
+            old_team != new_team,
+            effects,
+        );
         if old_team != new_team {
             // Object::defect owns this phase; retain it only for unmigrated callers.
-            self.defect_all_parked_units(object_id);
+            self.defect_all_parked_units_with_effects(object_id, effects);
             if let Some(object) = self.objects.get_mut(&object_id) {
                 object.set_private_captured(true);
                 object.deselect();
@@ -311,6 +360,23 @@ impl GameLogic {
         old_team: Team,
         new_team: Team,
         owner_changed: bool,
+    ) {
+        self.on_capture_object_owned_with_effects(
+            object_id,
+            old_team,
+            new_team,
+            owner_changed,
+            &mut Default::default(),
+        )
+    }
+
+    pub(in crate::game_logic) fn on_capture_object_owned_with_effects(
+        &mut self,
+        object_id: ObjectId,
+        old_team: Team,
+        new_team: Team,
+        owner_changed: bool,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         let Some(object) = self.objects.get(&object_id) else {
             return;
@@ -342,9 +408,16 @@ impl GameLogic {
         }
 
         // Module callbacks run even for different teams controlled by one player.
-        self.on_capture_tunnel_network_residual(object_id, old_team, new_team);
-        self.on_capture_kick_passengers_owned(object_id, new_team, owner_changed);
-        self.capture_authored_radar_provider(object_id);
+        self.on_capture_tunnel_network_residual_with_effects(
+            object_id, old_team, new_team, effects,
+        );
+        self.on_capture_kick_passengers_owned_with_effects(
+            object_id,
+            new_team,
+            owner_changed,
+            effects,
+        );
+        self.capture_authored_radar_provider_with_effects(object_id, effects);
 
         // C++ Player::becomingTeamMember → awardInitialCaptureBonus always
         // resets depositOnFrame. Recapture must re-arm the 12s clock even
@@ -412,7 +485,7 @@ impl GameLogic {
             .unwrap_or(false);
         if owner_changed && new_owner_is_ai && is_faction {
             // C++ TheBuildAssistant->sellObject(this)
-            if self.start_sell_object(object_id) {
+            if self.start_sell_object_with_effects(object_id, effects) {
                 self.capture_ai_auto_sells = self.capture_ai_auto_sells.saturating_add(1);
             }
         }
@@ -441,7 +514,27 @@ impl GameLogic {
         new_team: Team,
         owner_changed: bool,
     ) {
-        self.capture_passengers_owned(container_id, new_team, owner_changed, false);
+        self.on_capture_kick_passengers_owned_with_effects(
+            container_id,
+            new_team,
+            owner_changed,
+            &mut Default::default(),
+        );
+    }
+    pub(in crate::game_logic) fn on_capture_kick_passengers_owned_with_effects(
+        &mut self,
+        container_id: ObjectId,
+        new_team: Team,
+        owner_changed: bool,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
+        self.capture_passengers_owned_with_effects(
+            container_id,
+            new_team,
+            owner_changed,
+            false,
+            effects,
+        );
     }
 
     /// Object::defect's post-voice removeAllContained(TRUE) phase, independent
@@ -452,16 +545,30 @@ impl GameLogic {
         container_id: ObjectId,
         new_team: Team,
     ) {
-        self.capture_passengers_owned(container_id, new_team, true, true);
+        self.on_defect_kick_passengers_owned_with_effects(
+            container_id,
+            new_team,
+            &mut Default::default(),
+        );
+    }
+    pub(in crate::game_logic) fn on_defect_kick_passengers_owned_with_effects(
+        &mut self,
+        container_id: ObjectId,
+        new_team: Team,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
+        self.capture_passengers_owned_with_effects(container_id, new_team, true, true, effects);
     }
 
-    fn capture_passengers_owned(
+    fn capture_passengers_owned_with_effects(
         &mut self,
         container_id: ObjectId,
         new_team: Team,
         owner_changed: bool,
         immediate: bool,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
+        let tree_move_frame = self.frame;
         let Some(container) = self.objects.get(&container_id) else {
             return;
         };
@@ -556,7 +663,7 @@ impl GameLogic {
                 let angle = (uid.0 as f32 + i as f32 * 1.11) * 0.7;
                 let offset = glam::Vec3::new(angle.cos(), 0.0, angle.sin()) * 10.0;
                 unit.stop_moving();
-                unit.set_position(pos + offset);
+                unit.set_position_with_effects(pos + offset, tree_move_frame, effects);
                 {}
                 unit.clear_target();
                 {}
@@ -583,6 +690,15 @@ impl GameLogic {
     /// - Eject garrison/transport occupants (orderAllPassengersToExit residual)
     /// - Kill parked aircraft at airfield hangar (grounded only)
     pub fn on_selling_container_residual(&mut self, structure_id: ObjectId) {
+        self.on_selling_container_residual_with_effects(structure_id, &mut Default::default())
+    }
+
+    pub(crate) fn on_selling_container_residual_with_effects(
+        &mut self,
+        structure_id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
+        let tree_move_frame = self.frame;
         let Some(pos) = self.objects.get(&structure_id).map(|o| o.get_position()) else {
             return;
         };
@@ -627,7 +743,7 @@ impl GameLogic {
                 let angle = (uid.0 as f32 + i as f32 * 1.11) * 0.7;
                 let offset = glam::Vec3::new(angle.cos(), 0.0, angle.sin()) * 10.0;
                 unit.stop_moving();
-                unit.set_position(pos + offset);
+                unit.set_position_with_effects(pos + offset, tree_move_frame, effects);
                 {}
                 unit.clear_target();
                 unit.set_contained_by(None);
@@ -686,7 +802,7 @@ impl GameLogic {
                             let angle = (uid.0 as f32 + i as f32 * 1.11) * 0.7;
                             let offset = glam::Vec3::new(angle.cos(), 0.0, angle.sin()) * 10.0;
                             unit.stop_moving();
-                            unit.set_position(pos + offset);
+                            unit.set_position_with_effects(pos + offset, tree_move_frame, effects);
                             {}
                             unit.clear_target();
                             unit.set_contained_by(None);
@@ -730,11 +846,19 @@ impl GameLogic {
         }
         // Wave 482: flush sell residual kills (parked aircraft) same frame.
         if self.sell_parked_units_killed > 0 {
-            self.process_destroy_list();
+            self.process_destroy_list_with_effects(effects);
         }
     }
 
     pub fn start_sell_object(&mut self, object_id: ObjectId) -> bool {
+        self.start_sell_object_with_effects(object_id, &mut Default::default())
+    }
+
+    pub(crate) fn start_sell_object_with_effects(
+        &mut self,
+        object_id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
         let Some(obj) = self.objects.get(&object_id) else {
             return false;
         };
@@ -758,7 +882,7 @@ impl GameLogic {
         // Cancel production + refund queue first (C++ ProductionUpdate cancelAndRefundAllProduction).
         self.cancel_all_production(object_id);
         // C++ contain->onSelling() + ParkingPlace killAllParkedUnits residual.
-        self.on_selling_container_residual(object_id);
+        self.on_selling_container_residual_with_effects(object_id, effects);
         if let Some(obj) = self.objects.get_mut(&object_id) {
             // C++ setConstructionPercent(99.9f) on 0..100 scale → host 0.999
             obj.construction_percent = 0.999;
@@ -809,7 +933,7 @@ impl GameLogic {
             })
             .collect();
         for mid in mine_ids {
-            self.destroy_object(mid);
+            self.destroy_object_with_effects(mid, effects);
             self.sell_owned_mines_destroyed = self.sell_owned_mines_destroyed.saturating_add(1);
         }
         let _ = team;
@@ -819,6 +943,13 @@ impl GameLogic {
     /// C++ BuildAssistant::update sell list residual.
 
     pub(crate) fn update_sell_list(&mut self) {
+        self.update_sell_list_with_effects(&mut Default::default())
+    }
+
+    pub(crate) fn update_sell_list_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         if self.sell_list.is_empty() {
             return;
         }
@@ -881,7 +1012,7 @@ impl GameLogic {
             }
             // Cancel any leftover production (C++ cancel again at finish).
             self.cancel_all_production(id);
-            self.destroy_object(id);
+            self.destroy_object_with_effects(id, effects);
             self.sell_process_finishes = self.sell_process_finishes.saturating_add(1);
             let msg = crate::localization::localize("hud.sell.complete", "Structure sold");
             self.queue_radar_message_for_team(team, msg);
@@ -1663,11 +1794,19 @@ impl GameLogic {
     /// always `TheGameLogic->destroyObject(worker)` so the UNSELECTABLE
     /// generated worker cannot leak when the hole or scaffold dies.
     fn destroy_rebuild_hole_worker(&mut self, hole_id: ObjectId) {
+        self.destroy_rebuild_hole_worker_with_effects(hole_id, &mut Default::default())
+    }
+
+    fn destroy_rebuild_hole_worker_with_effects(
+        &mut self,
+        hole_id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let Some(wid) = self.objects.get(&hole_id).and_then(|h| h.rebuild_worker_id) else {
             return;
         };
         if self.objects.contains_key(&wid) {
-            self.destroy_object(wid);
+            self.destroy_object_with_effects(wid, effects);
         }
         if let Some(h) = self.objects.get_mut(&hole_id) {
             h.rebuild_worker_id = None;
@@ -1677,6 +1816,14 @@ impl GameLogic {
     /// C++ Object::onDie RECONSTRUCTING residual — transfer attackers back to hole
     /// and restart RebuildHole worker spawn process.
     pub fn handle_reconstructing_death(&mut self, destroyed_id: ObjectId) -> bool {
+        self.handle_reconstructing_death_with_effects(destroyed_id, &mut Default::default())
+    }
+
+    pub(crate) fn handle_reconstructing_death_with_effects(
+        &mut self,
+        destroyed_id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
         let (is_recon, producer, template_name) = {
             let Some(o) = self.objects.get(&destroyed_id) else {
                 return false;
@@ -1700,7 +1847,7 @@ impl GameLogic {
             return false;
         }
         // C++ startRebuildProcess → newWorkerRespawnProcess(existingWorker).
-        self.destroy_rebuild_hole_worker(hole_id);
+        self.destroy_rebuild_hole_worker_with_effects(hole_id, effects);
         let Some(hole) = self.objects.get_mut(&hole_id) else {
             return false;
         };
@@ -1776,6 +1923,14 @@ impl GameLogic {
     /// RebuildHoleExposeDie templates. Gate is Neutral / isPlayerActive /
     /// UNDER_CONSTRUCTION, not faction (captured GLA still exposes a hole).
     pub fn maybe_spawn_rebuild_hole(&mut self, destroyed_id: ObjectId) -> Option<ObjectId> {
+        self.maybe_spawn_rebuild_hole_with_effects(destroyed_id, &mut Default::default())
+    }
+
+    pub(crate) fn maybe_spawn_rebuild_hole_with_effects(
+        &mut self,
+        destroyed_id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> Option<ObjectId> {
         let (
             team,
             owner_player_id,
@@ -1808,7 +1963,7 @@ impl GameLogic {
         };
         // C++ RebuildHoleBehavior::onDie: hole death destroys the generated worker.
         if is_hole {
-            self.destroy_rebuild_hole_worker(destroyed_id);
+            self.destroy_rebuild_hole_worker_with_effects(destroyed_id, effects);
             return None;
         }
         // Death-start peel + destroy-list fallback: do not spawn a second crater.
@@ -1855,7 +2010,13 @@ impl GameLogic {
             .map(|t| t.max_health)
             .unwrap_or(hole_max_health)
             .min(hole_max_health);
-        let hole_id = self.host_spawn_rebuild_object(&hole_name, team, owner_player_id, pos)?;
+        let hole_id = self.host_spawn_rebuild_object_with_effects(
+            &hole_name,
+            team,
+            owner_player_id,
+            pos,
+            effects,
+        )?;
         if let Some(h) = self.objects.get_mut(&hole_id) {
             // A rebuild hole is a continuation of the destroyed building, not
             // a new team-level object.  Preserve exact ownership for the
@@ -1906,6 +2067,13 @@ impl GameLogic {
     /// - worker starts reconstruction; hole masked while reconstructing
     /// - when reconstruction completes, hole is destroyed
     pub fn update_rebuild_holes(&mut self) {
+        self.update_rebuild_holes_with_effects(&mut Default::default())
+    }
+
+    pub(crate) fn update_rebuild_holes_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let now = self.frame;
         let dt = 1.0 / 30.0;
         let heal_frac = REBUILD_HOLE_HEALTH_REGEN_PERCENT_PER_SEC * dt;
@@ -2009,14 +2177,14 @@ impl GameLogic {
                     // Destroy residual unselectable worker if still around.
                     if let Some(wid) = self.objects.get(&hole_id).and_then(|h| h.rebuild_worker_id)
                     {
-                        self.destroy_object(wid);
+                        self.destroy_object_with_effects(wid, effects);
                     }
                     holes_to_remove.push(hole_id);
                     self.rebuild_hole_completes = self.rebuild_hole_completes.saturating_add(1);
                     continue;
                 } else {
                     // Reconstructing object died — C++ newWorkerRespawnProcess(worker).
-                    self.destroy_rebuild_hole_worker(hole_id);
+                    self.destroy_rebuild_hole_worker_with_effects(hole_id, effects);
                     if let Some(h) = self.objects.get_mut(&hole_id) {
                         h.rebuild_reconstructing_id = None;
                         h.set_status_masked(false);
@@ -2058,11 +2226,12 @@ impl GameLogic {
                 self.templates
                     .insert(REBUILD_HOLE_WORKER_TEMPLATE.to_string(), wt);
             }
-            let worker_id = self.host_spawn_rebuild_object(
+            let worker_id = self.host_spawn_rebuild_object_with_effects(
                 REBUILD_HOLE_WORKER_TEMPLATE,
                 team,
                 owner_player_id,
                 pos,
+                effects,
             );
             let Some(worker_id) = worker_id else {
                 continue;
@@ -2142,10 +2311,14 @@ impl GameLogic {
 
             // Spawn reconstructing building (C++ ai->construct residual).
             // Wave 740: entity-first bind when GW pre-spawned the structure.
-            let Some(new_id) =
-                self.host_spawn_rebuild_object(&rebuild_name, team, owner_player_id, pos)
-            else {
-                self.destroy_object(worker_id);
+            let Some(new_id) = self.host_spawn_rebuild_object_with_effects(
+                &rebuild_name,
+                team,
+                owner_player_id,
+                pos,
+                effects,
+            ) else {
+                self.destroy_object_with_effects(worker_id, effects);
                 continue;
             };
             if let Some(o) = self.objects.get_mut(&new_id) {
@@ -2220,7 +2393,7 @@ impl GameLogic {
         for hid in holes_to_remove {
             // C++ RebuildHoleBehavior.cpp:309 TheGameLogic->destroyObject(hole).
             // Hashmap-remove left radar / pathfind / GameWorld crater ghosts.
-            self.destroy_object(hid);
+            self.destroy_object_with_effects(hid, effects);
         }
     }
 

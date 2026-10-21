@@ -148,6 +148,14 @@ impl GameLogic {
 
     /// Bounded owned continuation after this object's real motion/arrival phase.
     pub(crate) fn finish_transport_return_phase(&mut self, id: ObjectId) {
+        self.finish_transport_return_phase_with_effects(id, &mut Default::default())
+    }
+
+    pub(crate) fn finish_transport_return_phase_with_effects(
+        &mut self,
+        id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         if let Some((active, expires_frame)) = self.host_object(id).and_then(|object| match object
             .transport_return_state
         {
@@ -194,8 +202,8 @@ impl GameLogic {
             TransportReturnState::MoveAndEvacuate { origin } => {
                 // CPP orders riders to exit, activates the team and returns
                 // immediately; delayed rider exits do not hold the hull here.
-                self.evacuate_container_now(id, false);
-                self.activate_leftover_team_for_host_object(id);
+                self.evacuate_container_now_with_effects(id, false, effects);
+                self.activate_leftover_team_for_host_object_with_effects(id, effects);
                 self.begin_transport_return(id, origin);
             }
             TransportReturnState::MoveAndDelete { .. } => {
@@ -205,7 +213,7 @@ impl GameLogic {
                 }
                 // Actual GameLogic destruction at the completed state callback,
                 // never a fabricated health/death flag or end-frame substitute.
-                self.destroy_object(id);
+                self.destroy_object_with_effects(id, effects);
             }
         }
     }

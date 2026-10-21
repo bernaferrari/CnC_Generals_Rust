@@ -34,6 +34,19 @@ impl GameLogic {
         source_id: ObjectId,
         location: glam::Vec3,
     ) -> bool {
+        self.activate_baikonur_detonation_with_effects(
+            source_id,
+            location,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn activate_baikonur_detonation_with_effects(
+        &mut self,
+        source_id: ObjectId,
+        location: glam::Vec3,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
         use crate::game_logic::host_baikonur_launch::{
             BAIKONUR_DETONATION_OBJECT, BAIKONUR_NUKE_FX,
         };
@@ -52,7 +65,13 @@ impl GameLogic {
             self.templates
                 .insert(BAIKONUR_DETONATION_OBJECT.to_string(), t);
         }
-        let det_id = match self.create_object(BAIKONUR_DETONATION_OBJECT, team, location) {
+        let det_id = match self.create_object_with_script_effects(
+            BAIKONUR_DETONATION_OBJECT,
+            team,
+            location,
+            None,
+            presentation_effects,
+        ) {
             Some(id) => id,
             None => return false,
         };
@@ -62,10 +81,13 @@ impl GameLogic {
             let player = self.local_player_id();
             let frame = self.frame;
             let receiver = &mut self.special_power_strikes;
-            Self::with_host_fx_view_parts(
+            Self::with_host_fx_view_parts_and_terrain(
                 &mut self.session_view,
                 player,
                 self.world_services.shroud(),
+                presentation_effects.terrain.as_mut().map(|terrain| {
+                    &mut **terrain as &mut dyn crate::game_logic::NativeTerrainEffects
+                }),
                 |view| {
                     receiver.spawn_neutron_slow_death_field_with_view(
                         det_id, team, location, frame, 0, view,
@@ -112,16 +134,31 @@ impl GameLogic {
         location: Vec3,
         caster_id: Option<ObjectId>,
     ) -> bool {
+        self.activate_emp_pulse_with_effects(
+            player_id,
+            location,
+            caster_id,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn activate_emp_pulse_with_effects(
+        &mut self,
+        player_id: u32,
+        location: Vec3,
+        caster_id: Option<ObjectId>,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
         // C++ SUPERWEAPON_EMPPulse DeliverPayload residual: cargo plane + bomb first.
         if let Some(cid) = caster_id {
             if self
-                .spawn_emp_pulse_flight(cid, location, player_id)
+                .spawn_emp_pulse_flight_with_effects(cid, location, player_id, presentation_effects)
                 .is_some()
             {
                 return true;
             }
         }
-        self.apply_emp_pulse_at(player_id, location, caster_id)
+        self.apply_emp_pulse_at_with_effects(player_id, location, caster_id, presentation_effects)
     }
 
     /// Apply EMP disable field residual at location (bomb impact / fail-open path).
@@ -135,17 +172,30 @@ impl GameLogic {
         location: Vec3,
         caster_id: Option<ObjectId>,
     ) -> bool {
+        self.apply_emp_pulse_at_with_effects(
+            player_id,
+            location,
+            caster_id,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn apply_emp_pulse_at_with_effects(
+        &mut self,
+        player_id: u32,
+        location: Vec3,
+        caster_id: Option<ObjectId>,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
         use crate::game_logic::host_emp_pulse::EMP_PULSE_ACTIVATE_AUDIO;
 
         let frame = self.frame;
         let spheroid_id = if let Some(pid) = caster_id {
-            self.spawn_emp_pulse_spheroid(location, pid)
+            self.spawn_emp_pulse_spheroid_with_effects(location, pid, presentation_effects)
         } else {
-            self.objects
-                .keys()
-                .next()
-                .copied()
-                .and_then(|pid| self.spawn_emp_pulse_spheroid(location, pid))
+            self.objects.keys().next().copied().and_then(|pid| {
+                self.spawn_emp_pulse_spheroid_with_effects(location, pid, presentation_effects)
+            })
         };
         if let Some(sid) = spheroid_id {
             self.emp_pulses
@@ -176,6 +226,21 @@ impl GameLogic {
         player_id: u32,
         location: Vec3,
         caster_id: Option<ObjectId>,
+    ) -> bool {
+        self.apply_emp_pulse_disable_field_at_with_effects(
+            player_id,
+            location,
+            caster_id,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn apply_emp_pulse_disable_field_at_with_effects(
+        &mut self,
+        player_id: u32,
+        location: Vec3,
+        caster_id: Option<ObjectId>,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> bool {
         use crate::game_logic::host_emp_pulse::{
             EMP_PULSE_DISABLED_DURATION_FRAMES, HOST_EMP_PULSE_RADIUS, HostEmpPulse,
@@ -292,7 +357,11 @@ impl GameLogic {
             let killer_team = caster_id
                 .and_then(|cid| self.objects.get(&cid).map(|o| o.team))
                 .unwrap_or(Team::Neutral);
-            self.mark_object_for_destruction(id, Some(killer_team));
+            self.mark_object_for_destruction_with_effects(
+                id,
+                Some(killer_team),
+                presentation_effects,
+            );
         }
         // C++ doDisableAttack EMPSparks on disabled victims (not airborne kills).
         for vid in spark_ids {
@@ -316,6 +385,15 @@ impl GameLogic {
 
     /// Fire leftover EMPUpdate doDisableAttack on StartFadeTime frames.
     pub fn apply_due_emp_pulse_disables(&mut self) {
+        self.apply_due_emp_pulse_disables_with_effects(
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn apply_due_emp_pulse_disables_with_effects(
+        &mut self,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         use crate::game_logic::host_emp_pulse::EMP_SPHEROID_GEOMETRY_RADIUS;
 
         let now = self.frame;
@@ -337,8 +415,12 @@ impl GameLogic {
         let due = self.emp_pulses.due_disable_spheroids(now);
         for sph in due {
             self.emp_pulses.mark_disable_applied(sph.id);
-            let _ =
-                self.apply_emp_pulse_disable_field_at(sph.player_id, sph.location, sph.caster_id);
+            let _ = self.apply_emp_pulse_disable_field_at_with_effects(
+                sph.player_id,
+                sph.location,
+                sph.caster_id,
+                presentation_effects,
+            );
         }
     }
 

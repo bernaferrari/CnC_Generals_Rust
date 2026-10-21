@@ -20,13 +20,30 @@ impl GameLogic {
         actual_damage: f32,
         damage_type_ordinal: u32,
     ) -> u32 {
+        self.execute_temporary_weapon_on_damage_with_effects(
+            source,
+            actual_damage,
+            damage_type_ordinal,
+            &mut Default::default(),
+        )
+    }
+
+    pub(in super::super) fn execute_temporary_weapon_on_damage_with_effects(
+        &mut self,
+        source: ObjectId,
+        actual_damage: f32,
+        damage_type_ordinal: u32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> u32 {
         // C++ Object::onDamage delivers to every damage module; leftover
         // FireWeaponWhenDamagedBehavior::on_damage fires each instance whose
         // reaction weapon is READY_TO_FIRE. Do not stop at the first ready.
         let plans = self.damaged_reaction_plan(source, actual_damage, damage_type_ordinal);
         let mut hits = 0u32;
         for plan in plans {
-            hits = hits.saturating_add(self.force_fire_temporary_runtime(source, plan));
+            hits = hits.saturating_add(
+                self.force_fire_temporary_runtime_with_effects(source, plan, effects),
+            );
         }
         hits
     }
@@ -35,16 +52,34 @@ impl GameLogic {
         &mut self,
         source: ObjectId,
     ) -> u32 {
+        self.execute_temporary_weapon_continuous_with_effects(source, &mut Default::default())
+    }
+
+    pub(in super::super) fn execute_temporary_weapon_continuous_with_effects(
+        &mut self,
+        source: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> u32 {
         // C++ UpdateModule::update walks every instance independently.
         let plans = self.damaged_continuous_plan(source);
         let mut hits = 0u32;
         for plan in plans {
-            hits = hits.saturating_add(self.force_fire_temporary_runtime(source, plan));
+            hits = hits.saturating_add(
+                self.force_fire_temporary_runtime_with_effects(source, plan, effects),
+            );
         }
         hits
     }
 
     pub(in super::super) fn execute_temporary_weapon_on_die(&mut self, source: ObjectId) -> u32 {
+        self.execute_temporary_weapon_on_die_with_effects(source, &mut Default::default())
+    }
+
+    pub(in super::super) fn execute_temporary_weapon_on_die_with_effects(
+        &mut self,
+        source: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> u32 {
         let specs = self.dead_ephemeral_specs(source);
         if specs.is_empty() {
             return 0;
@@ -52,7 +87,9 @@ impl GameLogic {
         let mut hits = 0u32;
         let mut fired = false;
         for spec in specs {
-            if let Some(fired_hits) = self.create_and_fire_temp_weapon(source, &spec) {
+            if let Some(fired_hits) =
+                self.create_and_fire_temp_weapon_with_effects(source, &spec, effects)
+            {
                 fired = true;
                 hits = hits.saturating_add(fired_hits);
             }
@@ -73,13 +110,28 @@ impl GameLogic {
         source: ObjectId,
         source_index: usize,
     ) -> u32 {
+        self.execute_temporary_weapon_die_slot_with_effects(
+            source,
+            source_index,
+            &mut Default::default(),
+        )
+    }
+
+    pub(in super::super) fn execute_temporary_weapon_die_slot_with_effects(
+        &mut self,
+        source: ObjectId,
+        source_index: usize,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> u32 {
         let specs = self.dead_ephemeral_specs_for(source, Some(source_index));
         let mut hits = 0;
         for spec in specs
             .into_iter()
             .filter(|spec| spec.module_source_index as usize == source_index)
         {
-            if let Some(count) = self.create_and_fire_temp_weapon(source, &spec) {
+            if let Some(count) =
+                self.create_and_fire_temp_weapon_with_effects(source, &spec, effects)
+            {
                 hits += count;
             }
         }
@@ -87,6 +139,13 @@ impl GameLogic {
     }
 
     pub(in super::super) fn fire_temporary_weapons_for_pending_deaths(&mut self) {
+        self.fire_temporary_weapons_for_pending_deaths_with_effects(&mut Default::default())
+    }
+
+    pub(in super::super) fn fire_temporary_weapons_for_pending_deaths_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let ids: Vec<ObjectId> = self
             .objects
             .iter()
@@ -98,7 +157,7 @@ impl GameLogic {
             })
             .collect();
         for id in ids {
-            let _ = self.execute_temporary_weapon_on_die(id);
+            let _ = self.execute_temporary_weapon_on_die_with_effects(id, effects);
         }
     }
 

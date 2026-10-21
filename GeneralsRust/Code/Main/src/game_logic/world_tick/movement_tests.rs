@@ -337,11 +337,11 @@ fn object_default_braking_is_bignum() {
 /// C++ Object.cpp:2580-2583 notifyTerrainObjectMoved → W3DTreeBuffer::unitMoved.
 #[test]
 fn unit_move_notifies_tree_buffer_topple() {
-    let _ = game_client::terrain::terrain_visual::init_terrain_visual();
-    let tree_ndx = {
-        let mut guard = game_client::terrain::terrain_visual::get_terrain_visual()
-            .expect("terrain visual lock");
-        let visual = guard.as_mut().expect("terrain visual");
+    fn receiving_tree() -> (
+        game_client::terrain::terrain_visual::TerrainVisualImpl,
+        usize,
+    ) {
+        let mut visual = game_client::terrain::terrain_visual::TerrainVisualImpl::new();
         visual.tree_buffer_mut().clear_all_trees();
         visual
             .tree_buffer_mut()
@@ -352,7 +352,7 @@ fn unit_move_notifies_tree_buffer_topple() {
         let mut data = game_client::terrain::TreeModuleData::default();
         data.model_name = "Oak".into();
         data.do_topple = true;
-        visual
+        let index = visual
             .tree_buffer_mut()
             .add_tree(
                 77,
@@ -366,8 +366,11 @@ fn unit_move_notifies_tree_buffer_topple() {
                     radius: 5.0,
                 },
             )
-            .expect("add tree")
-    };
+            .expect("add tree");
+        (visual, index)
+    }
+    let (mut visual, tree_ndx) = receiving_tree();
+    let (mut peer, peer_tree_ndx) = receiving_tree();
 
     let mut tank_tmpl = ThingTemplate::new("CrusherTank");
     tank_tmpl.add_kind_of(KindOf::Vehicle);
@@ -376,11 +379,19 @@ fn unit_move_notifies_tree_buffer_topple() {
     tank.crusher_level = 2;
     tank.selection_radius = 8.0;
     // Integer XY change from (0,0) → (10,10) must notify trees.
-    tank.set_position(Vec3::new(10.0, 0.0, 10.0));
-
-    let mut guard =
-        game_client::terrain::terrain_visual::get_terrain_visual().expect("terrain visual lock");
-    let visual = guard.as_mut().expect("terrain visual");
+    tank.set_position_with_effects(
+        Vec3::new(10.0, 0.0, 10.0),
+        1,
+        &mut crate::game_logic::ScriptPresentationEffects {
+            terrain: Some(&mut visual),
+            ..Default::default()
+        },
+    );
+    assert_ne!(
+        peer.tree_buffer_mut().trees()[peer_tree_ndx].topple_state,
+        game_client::terrain::W3DToppleState::Falling,
+        "peer terrain must not receive the driving unit movement"
+    );
     assert_eq!(
         visual.tree_buffer_mut().trees()[tree_ndx].topple_state,
         game_client::terrain::W3DToppleState::Falling,
@@ -3953,3 +3964,7 @@ fn blocked_not_jammed_unit_concedes_without_tunnel() {
         "tunnel arms only for blocked-and-stuck jams"
     );
 }
+
+#[cfg(feature = "game_client")]
+#[path = "movement_tests/tree_owner.rs"]
+mod tree_owner;

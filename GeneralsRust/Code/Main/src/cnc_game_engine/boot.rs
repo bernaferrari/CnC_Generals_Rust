@@ -19,6 +19,14 @@ impl CnCGameEngine {
         }
         Ok(rules)
     }
+    pub(super) async fn load_application_terrain_definitions()
+    -> Result<Arc<game_engine::common::ini::ini_terrain::TerrainTypes>, String> {
+        let sources =
+            Self::load_startup_ini_texts(&["Data/INI/Default/Terrain.ini", "Data/INI/Terrain.ini"])
+                .await?;
+        crate::game_logic::terrain_definitions::parse_application_terrain_sources(&sources)
+    }
+
     pub(super) async fn load_physics_rules_baseline()
     -> Result<game_engine::common::ini::ini_game_data::PhysicsContentRules, String> {
         let mut rules =
@@ -33,7 +41,10 @@ impl CnCGameEngine {
         rules.validate()
     }
 
-    pub(super) async fn load_camera_rules_baseline() -> Result<
+    pub(super) fn load_camera_rules_baseline(
+        sources: Vec<(&'static str, String)>,
+        user_data_root: &Path,
+    ) -> Result<
         (
             game_engine::common::ini::ini_game_data::CameraContentRules,
             game_engine::common::ini::ini_game_data::CameraClipRules,
@@ -50,16 +61,15 @@ impl CnCGameEngine {
         let mut shake = game_engine::common::ini::ini_game_data::CameraShakeRules::default();
         let mut movement = game_engine::common::ini::ini_game_data::CameraMovementRules::default();
         let mut input = game_engine::common::ini::ini_game_data::CameraInputRules::default();
-        let sources = Self::load_startup_game_data_texts().await?;
-        let (options_root, replay_fast_forward) =
-            crate::config::GlobalData::camera_startup_options_from_texts(
-                &sources
-                    .iter()
-                    .map(|(_, text)| text.clone())
-                    .collect::<Vec<_>>(),
-            )
-            .map_err(|e| e.to_string())?;
-        let options_path = options_root.join("Options.ini");
+        let (_, replay_fast_forward) = crate::config::GlobalData::startup_options_from_texts(
+            &sources
+                .iter()
+                .map(|(_, text)| text.clone())
+                .collect::<Vec<_>>(),
+            Some(user_data_root),
+        )
+        .map_err(|e| e.to_string())?;
+        let options_path = user_data_root.join("Options.ini");
         for (path, text) in sources {
             rules = rules
                 .overlay_ini_text(&text)
@@ -119,7 +129,24 @@ impl CnCGameEngine {
             info!("⚡ QuickStart enabled: skipping intro sequences (handled by SAGE runtime).");
         }
 
-        init_subsystem_manager()
+        // Resolve one application-owned root before subsystems can open Options,
+        // campaign progress, saves or replays. No environment override is involved.
+        let startup_sources = Self::load_startup_game_data_texts()
+            .await
+            .map_err(anyhow::Error::msg)?;
+        let application_paths = crate::config::startup_paths::StartupUserData::admit(
+            &startup_sources
+                .iter()
+                .map(|(_, text)| text.clone())
+                .collect::<Vec<_>>(),
+            &command_line,
+        )?;
+        application_paths
+            .initialize_with_admitted_paths(|| {
+                crate::subsystem_manager::init_subsystem_manager_for_user_data(Some(
+                    application_paths.root(),
+                ))
+            })
             .map_err(|err| warn!("Subsystem manager initialization failed: {err}"))
             .ok();
         Self::apply_command_line_overrides(&command_line);
@@ -145,9 +172,11 @@ impl CnCGameEngine {
         game_engine::common::random_value::init_random();
         Self::remove_legacy_duplicate_inizh_big_best_effort();
 
-        init_game_state_system()
-            .map_err(|err| warn!("Game state system init failed: {err}"))
-            .ok();
+        crate::save_load::game_state::init_game_state_system_for_user_data(
+            application_paths.root(),
+        )
+        .map_err(|err| warn!("Game state system init failed: {err}"))
+        .ok();
 
         // Initialize subsystems first (matches C++ GameEngine initialization order)
         if let Some(handle) = get_subsystem_manager() {
@@ -328,8 +357,7 @@ impl CnCGameEngine {
             camera_input_base,
             camera_options_path,
             replay_fast_forward,
-        ) = Self::load_camera_rules_baseline()
-            .await
+        ) = Self::load_camera_rules_baseline(startup_sources, application_paths.root())
             .map_err(anyhow::Error::msg)?;
         // C++ GameEngine.cpp339 then357: application INI before CLI.
         // Reuse the actual ordered CLI decoder; never copy late GlobalData.
@@ -340,15 +368,25 @@ impl CnCGameEngine {
         );
         // Actual application Options owner is loaded once before worker handoff.
         let mut camera_options = game_engine::common::user_preferences::UserPreferences::new();
-        let _ = camera_options.load(
-            camera_options_path
-                .to_str()
-                .ok_or_else(|| anyhow::anyhow!("Options path is not UTF-8"))?,
-        );
+        let camera_options_filename = camera_options_path
+            .to_str()
+            .ok_or_else(|| anyhow::anyhow!("Options path is not UTF-8"))?;
+        if !camera_options.load(camera_options_filename) {
+            info!(
+                "No readable camera Options.ini at admitted application path {}; retaining defaults",
+                camera_options_path.display()
+            );
+        }
         let ocl_sources = Self::load_ocl_application_sources()
             .await
             .map_err(anyhow::Error::msg)?;
+        let terrain_definition_seed = Self::load_application_terrain_definitions()
+            .await
+            .map_err(anyhow::Error::msg)?;
         let mut game_logic = GameLogic::initialize();
+        game_logic
+            .admit_terrain_definitions(terrain_definition_seed)
+            .map_err(anyhow::Error::msg)?;
         game_logic
             .admit_ocl_application_sources(&ocl_sources)
             .map_err(anyhow::Error::msg)?;
@@ -376,12 +414,14 @@ impl CnCGameEngine {
         let recorder_inputs = Self::capture_recorder_application_inputs(
             game_logic.get_current_map_name().to_owned(),
             game_logic.logic_base_seed,
+            application_paths.root(),
         );
         game_logic
             .replay_pending
-            .reset_recorder_owned(recorder_inputs);
+            .reset_recorder_owned(recorder_inputs.clone());
         let resource_manager = ResourceManager::new();
-        let mut save_file_manager = SaveFileManager::new();
+        let mut save_file_manager =
+            SaveFileManager::with_save_directory(application_paths.save_directory());
         save_file_manager
             .init()
             .map_err(|err| anyhow::anyhow!("Save file manager init failed: {err}"))?;
@@ -480,6 +520,8 @@ impl CnCGameEngine {
                 camera_movement_base,
                 camera_input_base,
                 game_logic.ocl_application_definitions(),
+                Arc::clone(game_logic.effective_terrain_definitions()),
+                recorder_inputs,
             )
         };
 

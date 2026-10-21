@@ -41,6 +41,14 @@ impl GameLogic {
         &mut self,
         host_id: ObjectId,
     ) -> Option<ObjectId> {
+        self.ensure_overlord_portable_addon_occupant_with_effects(host_id, &mut Default::default())
+    }
+
+    pub(crate) fn ensure_overlord_portable_addon_occupant_with_effects(
+        &mut self,
+        host_id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> Option<ObjectId> {
         let (kind, is_helix, team, pos, owner, existing, stealthed) = {
             let host = self.objects.get(&host_id)?;
             let emperor = is_emperor_template(&host.template_name);
@@ -67,13 +75,15 @@ impl GameLogic {
                 occ.template_name == template && !occ.status.destroyed && occ.is_alive()
             }) {
                 self.attach_overlord_portable_occupant(host_id, id);
-                self.mirror_overlord_addon_damage_to_occupant(host_id);
+                self.mirror_overlord_addon_damage_to_occupant_with_effects(host_id, effects);
                 return Some(id);
             }
             self.detach_overlord_portable_occupant(host_id, id);
         }
         self.ensure_overlord_payload_template(template);
-        let occupant_id = self.create_object_for_owner_or_team(template, team, owner, pos)?;
+        let occupant_id = self.create_object_for_owner_or_team_with_effects(
+            template, team, owner, pos, None, effects,
+        )?;
         self.attach_overlord_portable_occupant(host_id, occupant_id);
         if stealthed {
             if let Some(occ) = self.objects.get_mut(&occupant_id) {
@@ -85,7 +95,7 @@ impl GameLogic {
                 }
             }
         }
-        self.mirror_overlord_addon_damage_to_occupant(host_id);
+        self.mirror_overlord_addon_damage_to_occupant_with_effects(host_id, effects);
         Some(occupant_id)
     }
 
@@ -128,6 +138,17 @@ impl GameLogic {
     }
 
     pub(crate) fn mirror_overlord_addon_damage_to_occupant(&mut self, host_id: ObjectId) {
+        self.mirror_overlord_addon_damage_to_occupant_with_effects(
+            host_id,
+            &mut Default::default(),
+        );
+    }
+
+    pub(crate) fn mirror_overlord_addon_damage_to_occupant_with_effects(
+        &mut self,
+        host_id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let (maybe_state, occupant_hint, candidates, pos) = {
             let Some(host) = self.objects.get(&host_id) else {
                 return;
@@ -167,7 +188,7 @@ impl GameLogic {
             if occ.body_damage_state != state {
                 occ.apply_overlord_addon_set_damage_state(state);
             }
-            occ.set_position(pos);
+            occ.set_position_with_effects(pos, self.frame, effects);
         }
         if let Some(host) = self.objects.get_mut(&host_id) {
             host.overlord_addon_body_damage_state = state;
@@ -175,7 +196,10 @@ impl GameLogic {
         }
     }
 
-    pub(crate) fn mirror_overlord_addon_damage_after_combat(&mut self) {
+    pub(crate) fn mirror_overlord_addon_damage_after_combat_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let hosts: Vec<ObjectId> = self
             .objects
             .values()
@@ -190,7 +214,7 @@ impl GameLogic {
             .map(|obj| obj.id)
             .collect();
         for id in hosts {
-            self.mirror_overlord_addon_damage_to_occupant(id);
+            self.mirror_overlord_addon_damage_to_occupant_with_effects(id, effects);
         }
     }
 

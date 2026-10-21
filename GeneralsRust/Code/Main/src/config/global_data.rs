@@ -289,12 +289,28 @@ impl GlobalData {
 
     /// Resolve the same startup Paths input without publishing configuration.
     pub(crate) fn camera_startup_options_from_texts(texts: &[String]) -> Result<(PathBuf, bool)> {
+        Self::startup_options_from_texts(texts, None)
+    }
+
+    /// Resolve the admitted application root without publishing or reading preferences.
+    /// Ordered INI overlays precede the already decoded native CLI value.
+    pub(crate) fn startup_options_from_texts(
+        texts: &[String],
+        user_data_override: Option<&Path>,
+    ) -> Result<(PathBuf, bool)> {
         let mut draft = Self::new();
         for text in texts {
             draft
                 .ini_parser
                 .load_from_string(text, LoadMode::MultiFile)?;
             draft.load_settings_from_ini();
+        }
+        if let Some(root) = user_data_override {
+            anyhow::ensure!(
+                !root.as_os_str().is_empty(),
+                "-userdata requires a nonempty path"
+            );
+            draft.user_data_path = root.to_owned();
         }
         let tivo = draft.tivo_fast_mode;
         let path = draft.user_data_path;
@@ -306,6 +322,10 @@ impl GlobalData {
             },
             tivo,
         ))
+    }
+
+    pub(crate) fn admit_user_data_root(&mut self, root: &Path) {
+        self.user_data_path = root.to_owned();
     }
 
     /// Get user data path

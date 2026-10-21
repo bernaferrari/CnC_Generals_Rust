@@ -707,6 +707,21 @@ impl Object {
 
     /// C++ HijackerUpdate exit when vehicle dies residual.
     pub fn end_hijacker_in_vehicle(&mut self, eject_pos: glam::Vec3, was_airborne: bool) {
+        self.end_hijacker_in_vehicle_with_effects(
+            eject_pos,
+            was_airborne,
+            0,
+            &mut Default::default(),
+        );
+    }
+
+    pub(crate) fn end_hijacker_in_vehicle_with_effects(
+        &mut self,
+        eject_pos: glam::Vec3,
+        was_airborne: bool,
+        frame: u32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         self.hijack_vehicle_id = None;
         self.hijacker_in_vehicle = false;
         self.hijacker_update_active = false;
@@ -715,7 +730,7 @@ impl Object {
         self.set_status_unselectable(false);
         self.hijacker_was_airborne = was_airborne;
         self.hijacker_eject_pos = Some(eject_pos);
-        self.set_position(eject_pos);
+        self.set_position_with_effects(eject_pos, frame, effects);
         // C++ HijackerUpdate eject: setDrawableHidden(false) + registerObject.
         self.set_drawable_hidden(false);
         self.stop_moving();
@@ -730,10 +745,29 @@ impl Object {
         vehicle_level: crate::game_logic::VeterancyLevel,
         vehicle_xp: f32,
     ) {
+        self.tick_hijacker_in_vehicle_with_effects(
+            vehicle_pos,
+            vehicle_airborne,
+            vehicle_level,
+            vehicle_xp,
+            0,
+            &mut Default::default(),
+        );
+    }
+
+    pub(crate) fn tick_hijacker_in_vehicle_with_effects(
+        &mut self,
+        vehicle_pos: glam::Vec3,
+        vehicle_airborne: bool,
+        vehicle_level: crate::game_logic::VeterancyLevel,
+        vehicle_xp: f32,
+        frame: u32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         if !self.hijacker_in_vehicle {
             return;
         }
-        self.set_position(vehicle_pos);
+        self.set_position_with_effects(vehicle_pos, frame, effects);
         self.hijacker_was_airborne = vehicle_airborne;
         self.hijacker_eject_pos = Some(vehicle_pos);
 

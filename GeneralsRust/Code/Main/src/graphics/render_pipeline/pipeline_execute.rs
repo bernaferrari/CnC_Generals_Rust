@@ -67,6 +67,11 @@ impl RenderPipeline {
             ),
         >,
     ) -> Result<()> {
+        #[cfg(feature = "game_client")]
+        let native_terrain_viewport = self.tactical_viewport.pixel_rect();
+        #[cfg(feature = "game_client")]
+        let native_terrain_clear_color = self.terrain_clear_color();
+
         let execute_started = std::time::Instant::now();
         trace!("RenderPipeline::execute frame {}", self.frame_number + 1);
         if (self.frame_number + 1).is_multiple_of(300) {
@@ -526,6 +531,12 @@ impl RenderPipeline {
             Some(&mut finish_overlay),
             #[cfg(not(feature = "game_client"))]
             None,
+            #[cfg(feature = "game_client")]
+            self.native_terrain.as_ref(),
+            #[cfg(feature = "game_client")]
+            native_terrain_viewport,
+            #[cfg(feature = "game_client")]
+            native_terrain_clear_color,
         )?;
 
         let forward_elapsed = forward_started.elapsed();

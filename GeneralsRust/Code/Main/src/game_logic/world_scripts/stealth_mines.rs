@@ -4,6 +4,10 @@
 #![allow(unused_imports, non_snake_case)]
 use super::super::*;
 
+mod cluster_placement;
+mod construction_clearance;
+mod reveal_response;
+
 impl GameLogic {
     /// Host residual for C++ StealthUpdate + StealthDetectorUpdate targetability.
     ///
@@ -13,6 +17,13 @@ impl GameLogic {
     /// - Sentry / Camo Rebel / heroes apply StealthDelay before re-cloak
     /// - Stealth Fighter + mines innate cloak; contained detectors do not scan
     pub fn update_stealth_and_detection(&mut self) {
+        self.update_stealth_and_detection_with_effects(&mut Default::default())
+    }
+
+    pub(crate) fn update_stealth_and_detection_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let frame = self.frame;
         // C++ StealthUpdate.cpp:725-780 cloak/destalth/detect SoundStealthOn/Off.
         let stealth_snap: Vec<(ObjectId, bool, bool)> = self
@@ -1577,7 +1588,17 @@ impl GameLogic {
         position: Vec3,
         producer: Option<ObjectId>,
     ) -> Option<ObjectId> {
-        self.place_mine_kind(
+        self.place_land_mine_with_effects(team, position, producer, &mut Default::default())
+    }
+
+    pub(crate) fn place_land_mine_with_effects(
+        &mut self,
+        team: Team,
+        position: Vec3,
+        producer: Option<ObjectId>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> Option<ObjectId> {
+        self.place_mine_kind_with_effects(
             crate::game_logic::host_mines::HostMineKind::LandMine,
             "TestLandMine",
             team,
@@ -1585,6 +1606,7 @@ impl GameLogic {
             producer,
             None,
             None,
+            effects,
         )
     }
 
@@ -1595,7 +1617,24 @@ impl GameLogic {
         position: Vec3,
         producer: Option<ObjectId>,
     ) -> Option<ObjectId> {
-        self.place_demo_trap_named("TestDemoTrap", team, position, producer, false)
+        self.place_demo_trap_with_effects(team, position, producer, &mut Default::default())
+    }
+
+    pub(crate) fn place_demo_trap_with_effects(
+        &mut self,
+        team: Team,
+        position: Vec3,
+        producer: Option<ObjectId>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> Option<ObjectId> {
+        self.place_demo_trap_named_with_effects(
+            "TestDemoTrap",
+            team,
+            position,
+            producer,
+            false,
+            effects,
+        )
     }
 
     /// Place a residual demo trap with Chem/Demo/Standard profile from template name.
@@ -1609,11 +1648,31 @@ impl GameLogic {
         producer: Option<ObjectId>,
         has_gamma: bool,
     ) -> Option<ObjectId> {
+        self.place_demo_trap_named_with_effects(
+            template_name,
+            team,
+            position,
+            producer,
+            has_gamma,
+            &mut Default::default(),
+        )
+    }
+
+    pub(crate) fn place_demo_trap_named_with_effects(
+        &mut self,
+        template_name: &str,
+        team: Team,
+        position: Vec3,
+        producer: Option<ObjectId>,
+        has_gamma: bool,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> Option<ObjectId> {
         use crate::game_logic::host_mines::{HostMineData, HostMineKind, demo_trap_profile};
 
         let profile = demo_trap_profile(template_name, has_gamma, false);
         self.ensure_residual_mine_template(template_name, HostMineKind::DemoTrap);
-        let id = self.create_object(template_name, team, position)?;
+        let id =
+            self.create_object_with_script_effects(template_name, team, position, None, effects)?;
         let mut data = HostMineData::demo_trap_with_profile(profile);
         if let Some(p) = producer {
             data = data.with_producer(p);
@@ -1647,6 +1706,25 @@ impl GameLogic {
         attach_to: Option<ObjectId>,
         delay_frames: Option<u32>,
     ) -> Option<ObjectId> {
+        self.place_timed_demo_charge_with_effects(
+            team,
+            position,
+            producer,
+            attach_to,
+            delay_frames,
+            &mut Default::default(),
+        )
+    }
+
+    pub(crate) fn place_timed_demo_charge_with_effects(
+        &mut self,
+        team: Team,
+        position: Vec3,
+        producer: Option<ObjectId>,
+        attach_to: Option<ObjectId>,
+        delay_frames: Option<u32>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> Option<ObjectId> {
         use crate::game_logic::host_mines::{
             retail_timed_charge_lifetime_frames, retail_timed_charge_template,
         };
@@ -1655,7 +1733,7 @@ impl GameLogic {
         let template_name = retail_timed_charge_template(producer_template.as_deref());
         let delay =
             delay_frames.or_else(|| Some(retail_timed_charge_lifetime_frames(template_name)));
-        self.place_mine_kind(
+        self.place_mine_kind_with_effects(
             crate::game_logic::host_mines::HostMineKind::TimedDemoCharge,
             template_name,
             team,
@@ -1663,6 +1741,7 @@ impl GameLogic {
             producer,
             attach_to,
             delay,
+            effects,
         )
     }
 
@@ -1675,8 +1754,25 @@ impl GameLogic {
         producer: Option<ObjectId>,
         attach_to: Option<ObjectId>,
     ) -> Option<ObjectId> {
+        self.place_remote_demo_charge_with_effects(
+            team,
+            position,
+            producer,
+            attach_to,
+            &mut Default::default(),
+        )
+    }
+
+    pub(crate) fn place_remote_demo_charge_with_effects(
+        &mut self,
+        team: Team,
+        position: Vec3,
+        producer: Option<ObjectId>,
+        attach_to: Option<ObjectId>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> Option<ObjectId> {
         use crate::game_logic::host_mines::BURTON_REMOTE_CHARGE_OBJECT;
-        self.place_mine_kind(
+        self.place_mine_kind_with_effects(
             crate::game_logic::host_mines::HostMineKind::RemoteDemoCharge,
             BURTON_REMOTE_CHARGE_OBJECT,
             team,
@@ -1684,6 +1780,7 @@ impl GameLogic {
             producer,
             attach_to,
             None,
+            effects,
         )
     }
 
@@ -1691,6 +1788,14 @@ impl GameLogic {
     /// Matches C++ SPECIAL_REMOTE_CHARGES no-target path (StickyBombUpdate::detonate).
     /// Returns the number of charges detonated.
     pub fn detonate_remote_demo_charges(&mut self, producers: &[ObjectId]) -> u32 {
+        self.detonate_remote_demo_charges_with_effects(producers, &mut Default::default())
+    }
+
+    pub(crate) fn detonate_remote_demo_charges_with_effects(
+        &mut self,
+        producers: &[ObjectId],
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> u32 {
         use crate::game_logic::host_mines::{HostMineDetonateReason, HostMineKind};
 
         if producers.is_empty() {
@@ -1718,7 +1823,12 @@ impl GameLogic {
 
         let mut count = 0u32;
         for mine_id in due {
-            if self.detonate_mine_internal(mine_id, HostMineDetonateReason::Manual, None) {
+            if self.detonate_mine_internal_with_effects(
+                mine_id,
+                HostMineDetonateReason::Manual,
+                None,
+                effects,
+            ) {
                 count = count.saturating_add(1);
             }
         }
@@ -1726,64 +1836,6 @@ impl GameLogic {
             self.hero_abilities.record_remote_charge_detonate(count);
         }
         count
-    }
-
-    /// Cluster Mines special-power residual: SmartBorder field around the drop.
-    /// C++ ClusterMinesBomb GenerateMinefieldBehavior SmartBorder + DistanceAroundObject 80.
-    pub fn place_cluster_mines(
-        &mut self,
-        team: Team,
-        center: Vec3,
-        producer: Option<ObjectId>,
-    ) -> Vec<ObjectId> {
-        use crate::game_logic::host_mines::{
-            apply_cluster_mines_drop_variance, cluster_mines_drop_unit_samples,
-        };
-        let seed = producer.map(|p| p.0).unwrap_or(0).wrapping_add(self.frame);
-        let (ux, uy) = cluster_mines_drop_unit_samples(seed);
-        let center = apply_cluster_mines_drop_variance(center, ux, uy);
-        self.place_cluster_mines_unvaried(team, center, producer)
-    }
-
-    /// SmartBorder around an already-offset drop (cargo-bomb impact).
-    pub fn place_cluster_mines_unvaried(
-        &mut self,
-        team: Team,
-        center: Vec3,
-        producer: Option<ObjectId>,
-    ) -> Vec<ObjectId> {
-        use crate::game_logic::host_mines::{
-            CLUSTER_MINES_MINE_TEMPLATE, cluster_smart_border_positions,
-        };
-        // Leftover GenerateMinefieldBehavior::place_mines play_fx GenerationFX
-        // at the bomb/object center (`TheFXList::do_fx_at_position`).
-        let _ = self.dispatch_fx_list_at_host_position(
-            &crate::game_logic::host_cluster_mines_flight::cluster_mines_generation_fx_name(),
-            center,
-        );
-
-        let positions = cluster_smart_border_positions(center);
-        let mut ids = Vec::with_capacity(positions.len());
-        for pos in positions {
-            if self.mine_spot_blocked(pos) {
-                continue;
-            }
-            if let Some(id) =
-                self.place_land_mine_named(CLUSTER_MINES_MINE_TEMPLATE, team, pos, producer)
-            {
-                // C++ ClusterMinesBomb is the producer; scoot from impact, not the plane.
-                self.apply_land_mine_scoot(id, center, pos);
-                ids.push(id);
-            }
-        }
-        if !ids.is_empty() {
-            self.queue_audio_event(
-                AudioEventRequest::new("MineFieldPlaced")
-                    .with_position(center)
-                    .with_priority(160),
-            );
-        }
-        ids
     }
 
     /// C++ GenerateMinefieldBehavior::placeMineAt underwater / cliff / under-structure skip.
@@ -1816,7 +1868,24 @@ impl GameLogic {
         position: Vec3,
         producer: Option<ObjectId>,
     ) -> Option<ObjectId> {
-        self.place_mine_kind(
+        self.place_land_mine_named_with_effects(
+            template_name,
+            team,
+            position,
+            producer,
+            &mut Default::default(),
+        )
+    }
+
+    pub(crate) fn place_land_mine_named_with_effects(
+        &mut self,
+        template_name: &str,
+        team: Team,
+        position: Vec3,
+        producer: Option<ObjectId>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> Option<ObjectId> {
+        self.place_mine_kind_with_effects(
             crate::game_logic::host_mines::HostMineKind::LandMine,
             template_name,
             team,
@@ -1824,6 +1893,7 @@ impl GameLogic {
             producer,
             None,
             None,
+            effects,
         )
     }
 
@@ -1832,6 +1902,19 @@ impl GameLogic {
         &mut self,
         object_id: ObjectId,
         upgrade: &str,
+    ) -> u32 {
+        self.apply_structure_minefield_upgrade_with_effects(
+            object_id,
+            upgrade,
+            &mut Default::default(),
+        )
+    }
+
+    pub(in super::super) fn apply_structure_minefield_upgrade_with_effects(
+        &mut self,
+        object_id: ObjectId,
+        upgrade: &str,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> u32 {
         use crate::game_logic::host_mines::{
             HostMineKind, china_mine_template_for_upgrade, is_china_emp_mines_upgrade,
@@ -1885,7 +1968,7 @@ impl GameLogic {
                 })
                 .collect();
             for id in old {
-                self.mark_object_for_destruction(id, None);
+                self.mark_object_for_destruction_with_effects(id, None, effects);
                 if let Some(o) = self.objects.get_mut(&id) {
                     if let Some(md) = o.mine_data.as_mut() {
                         md.detonated = true;
@@ -1913,7 +1996,7 @@ impl GameLogic {
                 continue;
             }
             if self
-                .place_land_mine_named(template, team, spot, Some(object_id))
+                .place_land_mine_named_with_effects(template, team, spot, Some(object_id), effects)
                 .is_some()
             {
                 placed = placed.saturating_add(1);
@@ -1925,7 +2008,14 @@ impl GameLogic {
     }
 
     /// C++ LandMineInterface::setScootParms(start, dest) after placeMineAt.
-    fn apply_land_mine_scoot(&mut self, mine_id: ObjectId, start: Vec3, dest: Vec3) {
+    fn apply_land_mine_scoot_with_effects(
+        &mut self,
+        mine_id: ObjectId,
+        start: Vec3,
+        dest: Vec3,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
+        let tree_move_frame = self.frame;
         let ground_y = self.terrain_height_at(dest).unwrap_or(dest.y);
         let Some(obj) = self.objects.get_mut(&mine_id) else {
             return;
@@ -1940,11 +2030,15 @@ impl GameLogic {
             return;
         }
         let spawn = md.set_scoot_parms(start, dest, ground_y);
-        obj.set_position(spawn);
+        obj.set_position_with_effects(spawn, tree_move_frame, effects);
     }
 
     /// C++ MinefieldBehavior::update scoot integrate.
-    fn update_land_mine_scoot(&mut self) {
+    fn update_land_mine_scoot_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
+        let tree_move_frame = self.frame;
         let ids: Vec<ObjectId> = self
             .objects
             .iter()
@@ -1966,7 +2060,7 @@ impl GameLogic {
             if let Some(obj) = self.objects.get_mut(&id) {
                 if let Some(md) = obj.mine_data.as_mut() {
                     if let Some(next) = md.tick_scoot(pos, ground_y) {
-                        obj.set_position(next);
+                        obj.set_position_with_effects(next, tree_move_frame, effects);
                     }
                 }
             }
@@ -2012,6 +2106,30 @@ impl GameLogic {
         attach_to: Option<ObjectId>,
         delay_frames: Option<u32>,
     ) -> Option<ObjectId> {
+        self.place_mine_kind_with_effects(
+            kind,
+            template_name,
+            team,
+            position,
+            producer,
+            attach_to,
+            delay_frames,
+            &mut Default::default(),
+        )
+    }
+
+    pub(in super::super) fn place_mine_kind_with_effects(
+        &mut self,
+        kind: crate::game_logic::host_mines::HostMineKind,
+        template_name: &str,
+        team: Team,
+        position: Vec3,
+        producer: Option<ObjectId>,
+        attach_to: Option<ObjectId>,
+        delay_frames: Option<u32>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> Option<ObjectId> {
+        let tree_move_frame = self.frame;
         use crate::game_logic::host_mines::{
             BURTON_UNIQUE_CHARGE_TARGETS, HostMineData, HostMineKind, can_place_remote_charge,
             can_place_timed_charge,
@@ -2080,7 +2198,8 @@ impl GameLogic {
         }
 
         self.ensure_residual_mine_template(template_name, kind);
-        let id = self.create_object(template_name, team, position)?;
+        let id =
+            self.create_object_with_script_effects(template_name, team, position, None, effects)?;
 
         let mut data = match kind {
             crate::game_logic::host_mines::HostMineKind::LandMine => {
@@ -2152,7 +2271,7 @@ impl GameLogic {
                 if let Some(start) = producer_pos {
                     if let Some(md) = obj.mine_data.as_mut() {
                         let spawn = md.set_scoot_parms(start, position, dest_ground);
-                        obj.set_position(spawn);
+                        obj.set_position_with_effects(spawn, tree_move_frame, effects);
                     }
                 }
             }
@@ -2185,8 +2304,21 @@ impl GameLogic {
 
     /// Manually detonate a residual demo trap / charge (command residual).
     pub fn manual_detonate_mine(&mut self, mine_id: ObjectId) -> bool {
+        self.manual_detonate_mine_with_effects(mine_id, &mut Default::default())
+    }
+
+    pub(crate) fn manual_detonate_mine_with_effects(
+        &mut self,
+        mine_id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
         use crate::game_logic::host_mines::HostMineDetonateReason;
-        self.detonate_mine_internal(mine_id, HostMineDetonateReason::Manual, None)
+        self.detonate_mine_internal_with_effects(
+            mine_id,
+            HostMineDetonateReason::Manual,
+            None,
+            effects,
+        )
     }
 
     /// Advance residual mines: dozer clear + proximity scan + timed detonation.
@@ -2203,6 +2335,14 @@ impl GameLogic {
     /// If the target dies, the charge is destroyed (C++ destroyObject(self)).
     /// Every LOGICFRAMES_PER_SECOND plays per-unit UnitBombPing.
     pub(crate) fn update_sticky_bomb_attachments(&mut self) {
+        self.update_sticky_bomb_attachments_with_effects(&mut Default::default())
+    }
+
+    pub(crate) fn update_sticky_bomb_attachments_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
+        let tree_move_frame = self.frame;
         use crate::game_logic::host_mines::{
             HostMineKind, STICKY_OFFSET_Z, UNIT_BOMB_PING_AUDIO, UNIT_BOMB_PING_FRAMES,
             sticky_immobile_follow_pos, sticky_vehicle_follow_pos,
@@ -2277,7 +2417,7 @@ impl GameLogic {
 
         for (charge_id, pos) in moves {
             if let Some(obj) = self.objects.get_mut(&charge_id) {
-                obj.set_position(pos);
+                obj.set_position_with_effects(pos, tree_move_frame, effects);
             }
             self.sticky_bomb_follow_ticks = self.sticky_bomb_follow_ticks.saturating_add(1);
         }
@@ -2303,7 +2443,7 @@ impl GameLogic {
         }
         for charge_id in destroy_charges {
             self.sticky_bomb_target_deaths = self.sticky_bomb_target_deaths.saturating_add(1);
-            self.destroy_object(charge_id);
+            self.destroy_object_with_effects(charge_id, effects);
         }
     }
 
@@ -2320,7 +2460,11 @@ impl GameLogic {
         }
     }
 
-    fn restore_booby_plant_xy_and_ping(&mut self) {
+    fn restore_booby_plant_xy_and_ping_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
+        let tree_move_frame = self.frame;
         use crate::game_logic::host_mines::{UNIT_BOMB_PING_AUDIO, UNIT_BOMB_PING_FRAMES};
         let frame = self.frame;
         let jobs: Vec<(ObjectId, ObjectId)> = self
@@ -2339,7 +2483,7 @@ impl GameLogic {
                 .unwrap_or(0.0);
             if let Some(pos) = self.booby_trap.immobile_follow_pos(sid, ground_y) {
                 if let Some(obj) = self.objects.get_mut(&cid) {
-                    obj.set_position(pos);
+                    obj.set_position_with_effects(pos, tree_move_frame, effects);
                 }
             }
         }
@@ -2368,6 +2512,13 @@ impl GameLogic {
     /// C++ RemoteC4Charge SpecialObjectsPersistWhenOwnerDies = No residual.
     /// TimedC4Charge persists (BURTON_TIMED_PERSIST_WHEN_OWNER_DIES = true).
     pub fn cleanup_remote_charges_when_owner_dies(&mut self) {
+        self.cleanup_remote_charges_when_owner_dies_with_effects(&mut Default::default())
+    }
+
+    pub(crate) fn cleanup_remote_charges_when_owner_dies_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         use crate::game_logic::host_mines::HostMineKind;
         let due: Vec<ObjectId> = self
             .objects
@@ -2402,12 +2553,19 @@ impl GameLogic {
                     md.detonated = true;
                 }
             }
-            self.mark_object_for_destruction(id, None);
+            self.mark_object_for_destruction_with_effects(id, None, effects);
         }
     }
 
     /// C++ MinefieldBehavior::update producer-death drain + AutoHeal + onDamage virtual sync.
     fn update_land_mine_regen_and_virtual(&mut self) {
+        self.update_land_mine_regen_and_virtual_with_effects(&mut Default::default())
+    }
+
+    fn update_land_mine_regen_and_virtual_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         use crate::game_logic::host_mines::{HostMineKind, MINE_CREATOR_DEATH_CHECK_FRAMES};
         let frame = self.frame;
         let ids: Vec<ObjectId> = self
@@ -2476,25 +2634,27 @@ impl GameLogic {
             if amount > 0.0 {
                 if healing {
                     // CPP AutoHealBehavior284: direct healing, self benefactor.
-                    let _ = self.apply_owned_healing(id, amount, Some(id));
+                    let _ = self.apply_owned_healing_with_effects(id, amount, Some(id), effects);
                 } else {
-                    self.apply_residual_damage_owned(
+                    self.apply_residual_damage_owned_with_effects(
                         id,
                         amount,
                         Some(id),
                         crate::game_logic::combat::DamageType::Unresistable,
                         crate::game_logic::host_usa_pilot::HostDeathType::Normal,
                         None,
+                        effects,
                     );
                 }
             }
             // Finish this pad's real onHealing/onDamage callback before the
             // next actor. No batch of synthetic HP or delayed virtual blasts.
             if amount > 0.0 || needs_sync {
-                self.synchronize_mine_body_owned(
+                self.synchronize_mine_body_owned_with_effects(
                     id,
                     amount > 0.0 && healing,
                     amount > 0.0 && self_drain,
+                    effects,
                 );
             }
         }
@@ -2502,6 +2662,13 @@ impl GameLogic {
     }
 
     pub fn update_mines_and_demo_traps(&mut self) {
+        self.update_mines_and_demo_traps_with_effects(&mut Default::default())
+    }
+
+    pub(crate) fn update_mines_and_demo_traps_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         use crate::game_logic::host_mines::{
             DOZER_MINE_CLEAR_RANGE, DOZER_MINE_CLEAR_SCAN_RANGE, HostMineDetonateReason,
             HostMineKind, can_clear_mine_kind, demo_trap_skips_dozer_disarm_while_attacking,
@@ -2511,26 +2678,26 @@ impl GameLogic {
 
         let frame = self.frame;
         for id in crate::game_logic::host_status_log::drain_under_construction_mine_sweeps() {
-            self.sweep_under_construction_footprint_mines(id);
+            self.sweep_under_construction_footprint_mines_with_effects(id, effects);
         }
 
-        self.update_land_mine_scoot();
+        self.update_land_mine_scoot_with_effects(effects);
 
-        self.update_land_mine_regen_and_virtual();
+        self.update_land_mine_regen_and_virtual_with_effects(effects);
 
         // C++ StickyBombUpdate::update residual — stick to target / die with target.
         // Wave 807: under coupled shadow, attach follow owned by GW expire + logs.
         {
-            self.update_sticky_bomb_attachments();
+            self.update_sticky_bomb_attachments_with_effects(effects);
         }
         // Wave 807: under coupled shadow, attach follow owned by GW expire + logs.
         {
             self.capture_booby_plant_xy();
-            self.update_booby_trap_special_attachments();
-            self.restore_booby_plant_xy_and_ping();
+            self.update_booby_trap_special_attachments_with_effects(effects);
+            self.restore_booby_plant_xy_and_ping_with_effects(effects);
         }
         // C++ SpecialObjectsPersistWhenOwnerDies = No for RemoteC4Charge residual.
-        self.cleanup_remote_charges_when_owner_dies();
+        self.cleanup_remote_charges_when_owner_dies_with_effects(effects);
         let mut due: Vec<(ObjectId, HostMineDetonateReason)> = Vec::new();
         let mut clear_due: Vec<(ObjectId, ObjectId)> = Vec::new(); // (mine_id, clearer_id)
         let mut approach: Vec<(ObjectId, Vec3)> = Vec::new(); // clearer moves toward mine
@@ -2923,7 +3090,7 @@ impl GameLogic {
 
         // Safe clears first (mine gone, no splash).
         for (mine_id, clearer_id) in clear_due {
-            let _ = self.clear_mine_internal(mine_id, clearer_id);
+            let _ = self.clear_mine_internal_with_effects(mine_id, clearer_id, effects);
         }
 
         // Idle clearer approach: set move toward nearest enemy mine.
@@ -2949,16 +3116,25 @@ impl GameLogic {
         }
 
         for (mine_id, _victim, vpos) in land_trips {
-            let _ = self.trip_virtual_land_mine(mine_id, vpos);
+            let _ = self.trip_virtual_land_mine_with_effects(mine_id, vpos, effects);
         }
 
         for (mine_id, reason) in due {
-            let _ = self.detonate_mine_internal(mine_id, reason, None);
+            let _ = self.detonate_mine_internal_with_effects(mine_id, reason, None, effects);
         }
     }
 
     /// C++ MinefieldBehavior::detonateOnce — one virtual mine, pad may persist.
     fn trip_virtual_land_mine(&mut self, mine_id: ObjectId, victim_pos: Vec3) -> bool {
+        self.trip_virtual_land_mine_with_effects(mine_id, victim_pos, &mut Default::default())
+    }
+
+    fn trip_virtual_land_mine_with_effects(
+        &mut self,
+        mine_id: ObjectId,
+        victim_pos: Vec3,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
         use crate::game_logic::host_enum_table_residual::rubble_model_bit;
         use crate::game_logic::host_mines::{
             LAND_MINE_GEOMETRY_RADIUS, MINE_MIN_HEALTH, clip_point_to_mine_footprint,
@@ -3001,8 +3177,8 @@ impl GameLogic {
         );
         self.mine_residual_proximity_detonations =
             self.mine_residual_proximity_detonations.saturating_add(1);
-        self.apply_mine_splash(
-            mine_id, blast_pos, damage, radius, kind, mine_team, producer,
+        self.apply_mine_splash_with_effects(
+            mine_id, blast_pos, damage, radius, kind, mine_team, producer, effects,
         );
         let destroy_pad = {
             let Some(obj) = self.objects.get_mut(&mine_id) else {
@@ -3016,7 +3192,7 @@ impl GameLogic {
         if destroy_pad {
             // This blast already ran. CPP requests deletion, not another
             // weapon fire or a synthetic lethal Body/onDie operation.
-            self.destroy_object(mine_id);
+            self.destroy_object_with_effects(mine_id, effects);
         }
 
         // CPP MinefieldBehavior.cpp:271-292: persistent pads drain through Body.
@@ -3032,7 +3208,7 @@ impl GameLogic {
             })
             .unwrap_or(0.0);
         if !destroy_pad {
-            self.apply_guarded_mine_body_drain(mine_id, amount);
+            self.apply_guarded_mine_body_drain_with_effects(mine_id, amount, effects);
         }
         // Re-resolve the canonical pad after callbacks. The guard suppresses
         // only Minefield's recursive virtual-count reaction, not other modules.
@@ -3059,6 +3235,15 @@ impl GameLogic {
     /// CPP Minefield detonation/disarm ignoreDamage guards only its own
     /// virtual-count reaction; the admitted Body hit still reaches AutoHeal.
     fn apply_guarded_mine_body_drain(&mut self, mine_id: ObjectId, amount: f32) {
+        self.apply_guarded_mine_body_drain_with_effects(mine_id, amount, &mut Default::default())
+    }
+
+    fn apply_guarded_mine_body_drain_with_effects(
+        &mut self,
+        mine_id: ObjectId,
+        amount: f32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         if amount <= 0.0 {
             return;
         }
@@ -3074,13 +3259,14 @@ impl GameLogic {
             data.ignore_damage = true;
             previous
         };
-        self.apply_residual_damage_owned(
+        self.apply_residual_damage_owned_with_effects(
             mine_id,
             amount,
             Some(mine_id),
             crate::game_logic::combat::DamageType::Unresistable,
             crate::game_logic::host_usa_pilot::HostDeathType::None,
             None,
+            effects,
         );
         if let Some(obj) = self.objects.get_mut(&mine_id) {
             let hp = obj.health.current;
@@ -3095,6 +3281,15 @@ impl GameLogic {
     /// C++ Weapon DAMAGE_DISARM → LandMineInterface::disarm / destroyObject residual.
     /// Demo traps (KINDOF_DEMOTRAP) are disarmed the same way — no explosion.
     pub fn clear_mine_internal(&mut self, mine_id: ObjectId, clearer_id: ObjectId) -> bool {
+        self.clear_mine_internal_with_effects(mine_id, clearer_id, &mut Default::default())
+    }
+
+    pub(crate) fn clear_mine_internal_with_effects(
+        &mut self,
+        mine_id: ObjectId,
+        clearer_id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
         use crate::game_logic::host_mines::{MINE_CLEARED_AUDIO, can_clear_mine_kind};
 
         let Some(mine) = self.objects.get(&mine_id) else {
@@ -3128,7 +3323,7 @@ impl GameLogic {
                 .get(&mine_id)
                 .map(|obj| obj.health.current - MINE_MIN_HEALTH)
                 .unwrap_or(0.0);
-            self.apply_guarded_mine_body_drain(mine_id, amount);
+            self.apply_guarded_mine_body_drain_with_effects(mine_id, amount, effects);
             if let Some(obj) = self.objects.get_mut(&mine_id) {
                 if let Some(md) = obj.mine_data.as_mut() {
                     // CPP disarm's count reset follows the guarded damage callback.
@@ -3157,7 +3352,7 @@ impl GameLogic {
         );
 
         if !keep_regen_pad {
-            self.mark_object_for_destruction(mine_id, None);
+            self.mark_object_for_destruction_with_effects(mine_id, None, effects);
         }
 
         if let Some(clearer) = self.objects.get_mut(&clearer_id) {
@@ -3184,6 +3379,19 @@ impl GameLogic {
         // detonation weapon at the clipped victim point (MinefieldBehavior.cpp:257,
         // :422-424); DemoTrapUpdate::detonate / onDamage pass the object position.
         blast_at: Option<Vec3>,
+    ) -> bool {
+        self.detonate_mine_internal_with_effects(mine_id, reason, blast_at, &mut Default::default())
+    }
+
+    pub(in super::super) fn detonate_mine_internal_with_effects(
+        &mut self,
+        mine_id: ObjectId,
+        reason: crate::game_logic::host_mines::HostMineDetonateReason,
+        // C++ MinefieldBehavior::detonateOnce(position): onCollide fires the
+        // detonation weapon at the clipped victim point (MinefieldBehavior.cpp:257,
+        // :422-424); DemoTrapUpdate::detonate / onDamage pass the object position.
+        blast_at: Option<Vec3>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> bool {
         use crate::game_logic::host_mines::{HostMineDetonateReason, damage_at_distance};
 
@@ -3332,7 +3540,7 @@ impl GameLogic {
                         } else {
                             crate::game_logic::combat::DamageType::Explosive
                         };
-                        self.apply_residual_damage_owned(
+                        self.apply_residual_damage_owned_with_effects(
                             owned_victim_id,
                             dmg,
                             Some(mine_id),
@@ -3341,6 +3549,7 @@ impl GameLogic {
                                 owned_damage_type,
                             ),
                             None,
+                            effects,
                         )
                     } && !chain_pad
                     {
@@ -3351,7 +3560,7 @@ impl GameLogic {
                 }
             }
             for id in chain_ids {
-                self.chain_detonate_land_mine_from_splash(id);
+                self.chain_detonate_land_mine_from_splash_with_effects(id, effects);
             }
         }
 
@@ -3382,11 +3591,15 @@ impl GameLogic {
         );
 
         // Destroy the mine/trap itself.
-        self.mark_object_for_destruction(mine_id, producer.map(|_| mine_team));
+        self.mark_object_for_destruction_with_effects(
+            mine_id,
+            producer.map(|_| mine_team),
+            effects,
+        );
         for (vid, killer) in destroy_ids {
             // C++ scoreTheKill on the charge; addExperiencePoints sinks to planter.
             self.award_score_the_kill_experience(mine_id, vid);
-            self.mark_object_for_destruction(vid, Some(killer));
+            self.mark_object_for_destruction_with_effects(vid, Some(killer), effects);
         }
 
         true
@@ -3401,6 +3614,29 @@ impl GameLogic {
         kind: crate::game_logic::host_mines::HostMineKind,
         mine_team: Team,
         producer: Option<ObjectId>,
+    ) {
+        self.apply_mine_splash_with_effects(
+            mine_id,
+            blast_pos,
+            damage,
+            radius,
+            kind,
+            mine_team,
+            producer,
+            &mut Default::default(),
+        )
+    }
+
+    fn apply_mine_splash_with_effects(
+        &mut self,
+        mine_id: ObjectId,
+        blast_pos: Vec3,
+        damage: f32,
+        radius: f32,
+        kind: crate::game_logic::host_mines::HostMineKind,
+        mine_team: Team,
+        producer: Option<ObjectId>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         use crate::game_logic::host_mines::damage_at_distance;
         let neutron_blast = self
@@ -3425,7 +3661,7 @@ impl GameLogic {
             );
             for (vid, killer) in destroy_ids {
                 self.award_score_the_kill_experience(mine_id, vid);
-                self.mark_object_for_destruction(vid, Some(killer));
+                self.mark_object_for_destruction_with_effects(vid, Some(killer), effects);
             }
             return;
         }
@@ -3471,7 +3707,7 @@ impl GameLogic {
                         } else {
                             crate::game_logic::combat::DamageType::Explosive
                         };
-                    self.apply_residual_damage_owned(
+                    self.apply_residual_damage_owned_with_effects(
                         owned_victim_id,
                         dmg,
                         Some(mine_id),
@@ -3480,6 +3716,7 @@ impl GameLogic {
                             owned_damage_type,
                         ),
                         None,
+                        effects,
                     )
                 } && !chain_pad
                 {
@@ -3487,7 +3724,7 @@ impl GameLogic {
                 } else if chain_pad {
                     // Original weapon iteration completes this victim's
                     // onDamage before advancing to the next radius victim.
-                    self.chain_detonate_land_mine_from_splash(vid);
+                    self.chain_detonate_land_mine_from_splash_with_effects(vid, effects);
                 }
             }
         }
@@ -3506,16 +3743,39 @@ impl GameLogic {
         );
         for (vid, killer) in destroy_ids {
             self.award_score_the_kill_experience(mine_id, vid);
-            self.mark_object_for_destruction(vid, Some(killer));
+            self.mark_object_for_destruction_with_effects(vid, Some(killer), effects);
         }
     }
 
     /// C++ MinefieldBehavior::onDamage after splash `attemptDamage`.
     fn chain_detonate_land_mine_from_splash(&mut self, mine_id: ObjectId) {
-        self.synchronize_mine_body_owned(mine_id, false, false);
+        self.chain_detonate_land_mine_from_splash_with_effects(mine_id, &mut Default::default())
+    }
+
+    fn chain_detonate_land_mine_from_splash_with_effects(
+        &mut self,
+        mine_id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
+        self.synchronize_mine_body_owned_with_effects(mine_id, false, false, effects);
     }
 
     fn synchronize_mine_body_owned(&mut self, mine_id: ObjectId, healing: bool, self_drain: bool) {
+        self.synchronize_mine_body_owned_with_effects(
+            mine_id,
+            healing,
+            self_drain,
+            &mut Default::default(),
+        )
+    }
+
+    fn synchronize_mine_body_owned_with_effects(
+        &mut self,
+        mine_id: ObjectId,
+        healing: bool,
+        self_drain: bool,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         // CPP onDamage rereads Body health after every nested detonateOnce.
         loop {
             let Some(obj) = self.objects.get(&mine_id) else {
@@ -3549,7 +3809,7 @@ impl GameLogic {
                 crate::game_logic::host_mines::MineOnDamageStep::Detonate => {}
             }
             let pos = self.objects[&mine_id].get_position();
-            if !self.trip_virtual_land_mine(mine_id, pos) {
+            if !self.trip_virtual_land_mine_with_effects(mine_id, pos, effects) {
                 break;
             }
         }
@@ -3581,7 +3841,7 @@ impl GameLogic {
                     .as_ref()
                     .is_some_and(|data| !data.regenerates && data.virtual_mines_remaining == 0)
         }) {
-            self.mark_object_for_destruction(mine_id, None);
+            self.mark_object_for_destruction_with_effects(mine_id, None, effects);
         }
     }
     fn apply_neutron_mine_blast(
@@ -3690,183 +3950,6 @@ impl GameLogic {
             !land_mine_proximity_trips(rel == Relationship::Enemies, rel == Relationship::Neutral)
         } else {
             !demo_trap_proximity_requires_enemies(rel == Relationship::Enemies)
-        }
-    }
-
-    /// C++ `StealthUpdate::markAsDetected` (`StealthUpdate.cpp:892-910`) +
-    /// `setWakeupIfInRange` / `wakeUpAndAttemptToTarget`.
-    ///
-    /// Object has no world access, so the idle-enemy walk lives here. Retail
-    /// Burton / Kell / Lotus / Pathfinder / Listening Outpost / CamoNetting
-    /// author `OrderIdleEnemiesToAttackMeUponReveal`. Idle enemy AI in vision
-    /// gets `m_nextMoodCheckTime = now` so same-frame mood acquire can fire.
-    pub(crate) fn order_idle_enemies_to_attack_on_reveal(&mut self, victim_id: ObjectId) {
-        let Some(victim) = self.objects.get(&victim_id) else {
-            return;
-        };
-        if !crate::game_logic::object::order_idle_enemies_on_reveal(&victim.template_name) {
-            return;
-        }
-        let v_team = victim.team;
-        let v_owner = victim.owner_player_id;
-        let v_pos = victim.get_position();
-        let now = self.frame;
-
-        let idle_in_vision: Vec<ObjectId> = self
-            .objects
-            .iter()
-            .filter_map(|(&id, o)| {
-                if id == victim_id || !o.is_alive() {
-                    return None;
-                }
-                // C++ `setWakeupIfInRange` requires `getAI()`.
-                if matches!(o.object_type, ObjectType::Projectile) {
-                    return None;
-                }
-                // C++ Object::getRelationship (Object.cpp:1548-1568) falls through
-                // to the controlling players' team relationship: two living
-                // players on different non-neutral teams are ENEMIES even when
-                // the lobby carries no explicit playerEnemies row. A strict
-                // player-map NEUTRAL must not hard-reject the wake.
-                let mut enemy = match (o.owner_player_id, v_owner) {
-                    (Some(a), Some(b)) => {
-                        self.player_relationship(a, b) == gamelogic::common::Relationship::Enemies
-                    }
-                    _ => o.team != v_team && o.team != Team::Neutral && v_team != Team::Neutral,
-                };
-                if !enemy
-                    && o.owner_player_id.is_some()
-                    && v_owner.is_some()
-                    && o.team != Team::Neutral
-                    && v_team != Team::Neutral
-                    && o.team != v_team
-                {
-                    enemy = true;
-                }
-                if !enemy {
-                    return None;
-                }
-                let vision = if o.vision_range > 0.0 {
-                    o.vision_range
-                } else {
-                    o.get_template().sight_range.max(0.0)
-                };
-                if vision <= 0.0 || o.get_position().distance(v_pos) > vision {
-                    return None;
-                }
-                // C++ `wakeUpAndAttemptToTarget` no-ops unless idle.
-                let idle = matches!(o.ai_state, AIState::Idle) && o.target.is_none();
-                idle.then_some(id)
-            })
-            .collect();
-
-        for eid in idle_in_vision {
-            if let Some(enemy) = self.objects.get_mut(&eid) {
-                enemy.next_mood_check_time = now;
-                let can_attack = enemy.weapon.is_some()
-                    || enemy.is_kind_of(KindOf::Attackable)
-                    || enemy.can_attack()
-                    || matches!(
-                        enemy.object_type,
-                        ObjectType::Infantry | ObjectType::Vehicle | ObjectType::Aircraft
-                    );
-                if !can_attack
-                    || enemy.is_kind_of(KindOf::Structure)
-                    || enemy.is_kind_of(KindOf::Worker)
-                    || enemy.is_worker()
-                {
-                    continue;
-                }
-                enemy.set_target(Some(victim_id), &mut self.attack_events);
-                {}
-                self.camo_netting_order_idle_enemies_count =
-                    self.camo_netting_order_idle_enemies_count.saturating_add(1);
-            }
-        }
-    }
-
-    /// C++ Object::setStatus UNDER_CONSTRUCTION edge (Object.cpp:985-1011).
-    /// Leftover `object_status::set_status` is the reference: enemy mines
-    /// `kill(LANDMINE, EXPLODED)`, ally/neutral mines silent `destroyObject`.
-    pub(in super::super) fn sweep_under_construction_footprint_mines(
-        &mut self,
-        building_id: ObjectId,
-    ) {
-        use crate::game_logic::host_mines::HostMineDetonateReason;
-        use gamelogic::common::Relationship;
-
-        let Some(building) = self.objects.get(&building_id) else {
-            return;
-        };
-        if building.status.destroyed {
-            return;
-        }
-        let bpos = building.get_position();
-        let br = if building.thing().template.geometry_info.authored {
-            building
-                .thing()
-                .template
-                .geometry_info
-                .bounding_circle_radius()
-        } else {
-            Self::structure_place_radius(building)
-        }
-        .max(1.0);
-
-        let mut hits: Vec<(ObjectId, Relationship, bool)> = Vec::new();
-        for (id, obj) in &self.objects {
-            if *id == building_id || obj.status.destroyed {
-                continue;
-            }
-            let is_mine = obj.is_kind_of(KindOf::Mine) || obj.mine_data.is_some();
-            if !is_mine {
-                continue;
-            }
-            let mpos = obj.get_position();
-            let mr = if obj.thing().template.geometry_info.authored {
-                obj.thing().template.geometry_info.bounding_circle_radius()
-            } else {
-                obj.selection_radius.max(1.0)
-            };
-            let dx = mpos.x - bpos.x;
-            let dz = mpos.z - bpos.z;
-            let limit = br + mr;
-            if dx * dx + dz * dz > limit * limit {
-                continue;
-            }
-            let rel = self.object_relationship(building, obj);
-            hits.push((*id, rel, obj.mine_data.is_some()));
-        }
-
-        for (mine_id, rel, has_data) in hits {
-            match rel {
-                Relationship::Enemies => {
-                    if has_data {
-                        let _ = self.detonate_mine_internal(
-                            mine_id,
-                            HostMineDetonateReason::Proximity,
-                            None,
-                        );
-                    } else if let Some(obj) = self.objects.get_mut(&mine_id) {
-                        {
-                            let owned_victim_id = obj.id;
-                            let owned_damage_amount = obj.health.maximum.max(1.0);
-                            let owned_damage_type = crate::game_logic::combat::DamageType::LandMine;
-                            self.apply_residual_damage_owned(
-                                owned_victim_id,
-                                owned_damage_amount,
-                                Some(building_id),
-                                owned_damage_type,
-                                crate::game_logic::host_usa_pilot::HostDeathType::Exploded,
-                                None,
-                            )
-                        };
-                    }
-                }
-                Relationship::Allies | Relationship::Neutral => {
-                    self.destroy_object(mine_id);
-                }
-            }
         }
     }
 }

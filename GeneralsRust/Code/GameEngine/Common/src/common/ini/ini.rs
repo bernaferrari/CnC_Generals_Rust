@@ -219,6 +219,9 @@ pub struct INI {
     script_template_definitions: Vec<super::ini_script::ScriptTemplateDefinition>,
     // Explicit engine-owner target for AIData content loading.
     ai_data_store_target: Option<Arc<RwLock<super::ini_ai_data::AIDataStore>>>,
+    // One operation-owned Terrain catalogue. None retains the standalone
+    // application compatibility parser; Some(empty) is explicitly authoritative.
+    terrain_types_target: Option<super::ini_terrain::TerrainTypes>,
     // Explicit engine-owner target for `Upgrade` block parsing.
     upgrade_center_target: Option<Arc<RwLock<crate::common::system::upgrade::UpgradeCenter>>>,
     #[cfg(debug_assertions)]
@@ -743,6 +746,11 @@ fn parse_special_power_block(ini: &mut INI) -> INIResult<()> {
 
 fn parse_terrain_block(ini: &mut INI) -> INIResult<()> {
     let (name, properties) = parse_named_property_block(ini)?;
+    if let Some(target) = ini.terrain_types_target.as_mut() {
+        return target
+            .register_terrain_properties(AsciiString::from(name.as_str()), &properties)
+            .map_err(|_| INIError::InvalidData);
+    }
     let terrain = super::ini_terrain::IniTerrain::parse_terrain_block(
         AsciiString::from(name.as_str()),
         properties,
@@ -1204,6 +1212,7 @@ impl INI {
             script_template_definitions: Vec::new(),
             ai_data_store_target: None,
             upgrade_center_target: None,
+            terrain_types_target: None,
             #[cfg(debug_assertions)]
             cur_block_start: String::new(),
         }
@@ -1222,6 +1231,15 @@ impl INI {
         &self,
     ) -> Option<Arc<RwLock<super::ini_ai_data::AIDataStore>>> {
         self.ai_data_store_target.as_ref().map(Arc::clone)
+    }
+
+    /// Bind Terrain blocks to an owned definition draft for this parser only.
+    /// No mutable registry or borrowed owner is published or retained externally.
+    pub fn set_terrain_types_target(&mut self, target: super::ini_terrain::TerrainTypes) {
+        self.terrain_types_target = Some(target);
+    }
+    pub fn take_terrain_types_target(&mut self) -> Option<super::ini_terrain::TerrainTypes> {
+        self.terrain_types_target.take()
     }
 
     /// Bind `Upgrade` block parsing in this INI operation to an explicit
@@ -2453,8 +2471,66 @@ mod tests {
         );
     }
 
+    // These assertions intentionally exercise the public application-global
+    // SpecialPower parser/store. Give each fixture its own process so another
+    // concurrently parsed authored INI cannot reset or consume its template IDs.
+    fn special_power_global_fixture_child(leaf: &str) -> bool {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            const CHILD: &str = "GENERALS_COMMON_SPECIAL_POWER_FIXTURE_CHILD";
+            let module = module_path!().split_once("::").unwrap().1;
+            let exact = format!("{module}::{leaf}");
+            if std::env::var_os(CHILD).as_deref() == Some(std::ffi::OsStr::new(&exact)) {
+                return false;
+            }
+            let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+                .arg("--exact")
+                .arg(&exact)
+                .arg("--nocapture")
+                .env(CHILD, &exact)
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
+                .spawn()
+                .unwrap();
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(25);
+            loop {
+                if child.try_wait().unwrap().is_some() {
+                    let output = child.wait_with_output().unwrap();
+                    assert!(
+                        output.status.success(),
+                        "actual SpecialPower fixture child {exact} failed: {}\n{}\n{}",
+                        output.status,
+                        String::from_utf8_lossy(&output.stdout),
+                        String::from_utf8_lossy(&output.stderr)
+                    );
+                    let stdout = String::from_utf8_lossy(&output.stdout);
+                    assert!(
+                        stdout.contains("running 1 test")
+                            && stdout.contains("test result: ok. 1 passed; 0 failed"),
+                        "actual SpecialPower fixture child {exact} must execute exactly one test: {stdout}"
+                    );
+                    return true;
+                }
+                if std::time::Instant::now() >= deadline {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    panic!("actual SpecialPower fixture child {exact} exceeded 25 seconds");
+                }
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            let _ = leaf;
+            false
+        }
+    }
+
     #[test]
     fn special_power_block_populates_rts_store() {
+        if special_power_global_fixture_child("special_power_block_populates_rts_store") {
+            return;
+        }
         reset_special_power_store();
 
         let mut ini = INI::new();
@@ -2484,6 +2560,11 @@ End
 
     #[test]
     fn special_power_block_rejects_duplicate_without_override_load() {
+        if special_power_global_fixture_child(
+            "special_power_block_rejects_duplicate_without_override_load",
+        ) {
+            return;
+        }
         reset_special_power_store();
 
         let mut ini = INI::new();

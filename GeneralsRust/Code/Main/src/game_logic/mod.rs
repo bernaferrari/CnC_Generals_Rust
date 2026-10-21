@@ -27,11 +27,13 @@ pub(crate) mod native_lifecycle_definition;
 pub(crate) mod physics_rules;
 pub(crate) mod production_energy;
 mod script_ui;
+pub(crate) mod terrain_definitions;
 pub(crate) use game_logic::PathfindingHeightSamples;
 pub(crate) use script_ui::ScriptUiEffects;
 mod script_presentation;
 pub(crate) use script_presentation::{
-    NativeSlaveSource, NativeViewEffects, ScriptPresentationEffects,
+    NativeMapAdmission, NativeSlaveSource, NativeTerrainEffects, NativeViewEffects,
+    ScriptPresentationEffects,
 };
 
 #[cfg(test)]

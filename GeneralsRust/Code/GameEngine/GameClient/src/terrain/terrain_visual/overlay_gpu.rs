@@ -240,6 +240,12 @@ impl TerrainVisualImpl {
     /// are NOT applied here (C++ clamps only in `changeGridHeight`).
     fn simulate_water_grid(&mut self, _dt: f32) {
         self.drain_leftover_water_velocity();
+        self.simulate_water_grid_observed(None);
+    }
+    fn simulate_water_grid_with_gravity(&mut self, gravity: f32) {
+        self.simulate_water_grid_observed(Some(gravity));
+    }
+    fn simulate_water_grid_observed(&mut self, gravity: Option<f32>) {
         if !self.water_grid_enabled {
             return;
         }
@@ -249,7 +255,8 @@ impl TerrainVisualImpl {
         }
         const PREFERRED_HEIGHT_FUDGE: f32 = 1.0;
         const AT_REST_VELOCITY_FUDGE: f32 = 1.0;
-        let gravity = get_global_data().map(|g| g.read().gravity).unwrap_or(-1.0);
+        let gravity =
+            gravity.unwrap_or_else(|| get_global_data().map(|g| g.read().gravity).unwrap_or(-1.0));
         let max_x = cells_x as i32;
         let max_y = cells_y as i32;
         let keys: Vec<(i32, i32)> = self.water_grid.point_motions.keys().copied().collect();
@@ -262,7 +269,7 @@ impl TerrainVisualImpl {
             let Some(motion) = self.water_grid.point_motions.get(&key).copied() else {
                 continue;
             };
-            if !motion.in_motion {
+            if motion.status & 0x01 == 0 {
                 continue;
             }
             let height = self
@@ -288,7 +295,7 @@ impl TerrainVisualImpl {
                     .insert(key, motion.preferred_height);
                 if let Some(m) = self.water_grid.point_motions.get_mut(&key) {
                     m.velocity = 0.0;
-                    m.in_motion = false;
+                    m.status &= !0x01;
                 }
             } else {
                 self.water_grid.height_deltas.insert(key, new_height);

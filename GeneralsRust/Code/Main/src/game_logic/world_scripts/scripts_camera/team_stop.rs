@@ -9,6 +9,23 @@ impl GameLogic {
         condition: Option<u32>,
         disband: bool,
     ) -> gamelogic::GameLogicResult<()> {
+        self.apply_owned_team_stop_with_effects(
+            raw_team,
+            calling,
+            condition,
+            disband,
+            &mut Default::default(),
+        )
+    }
+
+    pub(super) fn apply_owned_team_stop_with_effects(
+        &mut self,
+        raw_team: &str,
+        calling: Option<u32>,
+        condition: Option<u32>,
+        disband: bool,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
         let Some((source_id, members)) =
             self.resolve_owned_script_team(raw_team, calling, condition)?
         else {
@@ -20,9 +37,10 @@ impl GameLogic {
                 .host_object(ObjectId(*id))
                 .is_some_and(|object| object.has_ai_update_interface() && !object.is_contained())
             {
-                self.unit_command_stop_with_source(
+                self.unit_command_stop_with_source_with_effects(
                     ObjectId(*id),
                     crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT,
+                    effects,
                 );
             }
         }

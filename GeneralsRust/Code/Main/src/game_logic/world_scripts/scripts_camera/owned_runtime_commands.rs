@@ -31,6 +31,25 @@ impl GameLogic {
         condition: Option<u32>,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
     ) -> gamelogic::GameLogicResult<()> {
+        self.apply_owned_team_damage_with_effects(
+            team,
+            amount,
+            calling,
+            condition,
+            interpreter,
+            &mut Default::default(),
+        )
+    }
+
+    pub(super) fn apply_owned_team_damage_with_effects(
+        &mut self,
+        team: &str,
+        amount: f32,
+        calling: Option<u32>,
+        condition: Option<u32>,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
         let Some((_, members)) = self.resolve_owned_script_team(team, calling, condition)? else {
             return Ok(());
         };
@@ -41,7 +60,13 @@ impl GameLogic {
             }) {
                 continue;
             }
-            self.host_script_damage_with_interpreter(id, amount, amount < 0.0, interpreter);
+            self.host_script_damage_with_interpreter_with_effects(
+                id,
+                amount,
+                amount < 0.0,
+                interpreter,
+                effects,
+            );
         }
         Ok(())
     }
@@ -170,6 +195,14 @@ impl GameLogic {
     }
 
     pub(super) fn apply_owned_sell_everything(&mut self, player: u32) {
+        self.apply_owned_sell_everything_with_effects(player, &mut Default::default())
+    }
+
+    pub(super) fn apply_owned_sell_everything_with_effects(
+        &mut self,
+        player: u32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let ids: Vec<ObjectId> = self
             .host_objects()
             .values()
@@ -184,7 +217,7 @@ impl GameLogic {
             .map(|object| object.id)
             .collect();
         for id in ids {
-            self.start_sell_object(id);
+            self.start_sell_object_with_effects(id, effects);
         }
     }
 }

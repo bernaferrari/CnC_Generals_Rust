@@ -659,9 +659,18 @@ pub(crate) struct FilterCameraMatrices {
 }
 
 mod filter_scene;
+#[cfg(feature = "game_client")]
+mod native_terrain_admission;
+mod native_terrain_owner;
+#[cfg(feature = "game_client")]
+mod native_terrain_pass;
 
 /// Main render pipeline - equivalent to C++ SAGE RenderPipeline
 pub struct RenderPipeline {
+    /// Map-native mutable presentation state belongs to this receiving pipeline.
+    #[cfg(feature = "game_client")]
+    native_terrain: Option<game_client::terrain::terrain_visual::TerrainVisualImpl>,
+
     // WW3D renderer bridge
     forward_pass: ForwardPass,
     #[cfg(feature = "game_client")]

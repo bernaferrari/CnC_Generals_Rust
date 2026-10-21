@@ -8,6 +8,14 @@ impl GameLogic {
         &mut self,
         request: ScriptWaterRequest<'_>,
     ) -> gamelogic::GameLogicResult<()> {
+        self.apply_owned_script_water_with_effects(request, &mut Default::default())
+    }
+
+    pub(in crate::game_logic) fn apply_owned_script_water_with_effects(
+        &mut self,
+        request: ScriptWaterRequest<'_>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
         let handle = self.world_services.terrain().clone();
         let change = {
             let mut terrain = handle.write().map_err(|_| {
@@ -29,12 +37,19 @@ impl GameLogic {
             }
         };
         if let Some(change) = change {
-            self.apply_owned_water_change(change);
+            self.apply_owned_water_change(change, effects);
         }
         Ok(())
     }
 
     pub(in crate::game_logic) fn update_owned_water(&mut self) {
+        self.update_owned_water_with_effects(&mut Default::default());
+    }
+
+    pub(in crate::game_logic) fn update_owned_water_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let handle = self.world_services.terrain().clone();
         // CPP TerrainLogic.cpp:1007: scripts observe last frame's bridge
         // transitions before this terrain phase clears the aggregate gate.
@@ -52,7 +67,7 @@ impl GameLogic {
                 .expect("owned terrain write")
                 .advance_dynamic_water(index, self.frame);
             if let Some((change, terminal)) = change {
-                self.apply_owned_water_change(change);
+                self.apply_owned_water_change(change, effects);
                 handle
                     .write()
                     .expect("owned terrain write")
@@ -61,7 +76,11 @@ impl GameLogic {
         }
     }
 
-    fn apply_owned_water_change(&mut self, change: WaterHeightChange) {
+    fn apply_owned_water_change(
+        &mut self,
+        change: WaterHeightChange,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let handle = self.world_services.terrain().clone();
         let ids = {
             let terrain = handle.read().expect("owned terrain read");
@@ -70,10 +89,12 @@ impl GameLogic {
                 self.reclassify_pathfinding_from_terrain(&terrain);
             }
             let ids = self.owned_water_damage_candidates(&terrain, change);
-            terrain.water_grid_state().publish_visual();
+            if let Some(receiver) = effects.terrain.as_mut() {
+                receiver.water_state(terrain.water_grid_state());
+            }
             ids
         }; // Release terrain before object damage/destruction callbacks.
-        self.damage_owned_water_candidates(ids, change.damage_amount);
+        self.damage_owned_water_candidates_with_effects(ids, change.damage_amount, effects);
     }
 
     fn owned_water_damage_candidates(
@@ -110,6 +131,15 @@ impl GameLogic {
         ids: Vec<ObjectId>,
         damage: f32,
     ) -> u32 {
+        self.damage_owned_water_candidates_with_effects(ids, damage, &mut Default::default())
+    }
+
+    pub(in crate::game_logic) fn damage_owned_water_candidates_with_effects(
+        &mut self,
+        ids: Vec<ObjectId>,
+        damage: f32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> u32 {
         let mut hit = 0;
         let terrain = self.world_services.terrain().clone();
         for id in ids {
@@ -134,7 +164,7 @@ impl GameLogic {
             // TerrainLogic has no projectile/aircraft/boat exclusion. Complete
             // the canonical body callbacks before the next water candidate.
             let result = self
-                .apply_owned_damage(
+                .apply_owned_damage_with_effects(
                     id,
                     damage,
                     None,
@@ -142,6 +172,7 @@ impl GameLogic {
                     crate::game_logic::host_usa_pilot::HostDeathType::Normal,
                     None,
                     &crate::game_logic::object::DamageHitContext::default(),
+                    effects,
                 )
                 .expect("admitted water victim remains installed");
             hit += 1;
@@ -151,7 +182,7 @@ impl GameLogic {
                     .get(&id)
                     .is_some_and(|object| object.status.destroyed || object.health.current <= 0.0)
             {
-                self.mark_object_for_destruction(id, None);
+                self.mark_object_for_destruction_with_effects(id, None, effects);
             }
         }
         hit

@@ -41,6 +41,9 @@ impl TerrainVisualImpl {
             lod_setting: TerrainVisualLOD::default(),
             filename: String::new(),
             loaded_terrain_sources: Vec::new(),
+            terrain_definitions: TerrainDefinitionOwner::Standalone(Arc::new(
+                ini_terrain::TerrainTypes::new(),
+            )),
             height_map: None,
             chunk_manager: ChunkManager::new(),
             texture_system: TerrainTextures::new(),
@@ -117,6 +120,7 @@ impl TerrainVisualImpl {
             road_meshes: Vec::new(),
             bridge_meshes: Vec::new(),
             scorch_meshes: Vec::new(),
+            scorches: TerrainScorchBuffer::new(),
             scorch_texture: None,
             scorch_sampler: None,
             scorch_texture_bind_group: None,
@@ -437,8 +441,145 @@ impl TerrainVisualImpl {
         }
     }
 
+    /// Admit the byte already accepted by the receiving canonical terrain.
+    /// Sample coordinates include the canonical flattened-index alias resolution.
+    pub fn apply_accepted_height(&mut self, sample_x: i32, sample_y: i32, raw_height: u8) {
+        let Some(height_map) = self.height_map.as_mut() else {
+            return;
+        };
+        height_map.set_raw_height(sample_x, sample_y, raw_height);
+        self.static_lighting_changed();
+    }
+
+    /// Finish a detached saved-world admission using the canonical restored
+    /// grid, without replacing this owner or its authored/factory effects.
+    pub fn admit_canonical_height_grid(
+        &mut self,
+        width: i32,
+        height: i32,
+        border: i32,
+        data: &[u8],
+    ) -> Result<(), String> {
+        let map = self
+            .height_map
+            .as_ref()
+            .ok_or("receiving native terrain is absent")?;
+        if i32::try_from(map.width).ok() != Some(width)
+            || i32::try_from(map.height).ok() != Some(height)
+            || map.border_size != border
+            || map.heights.len() != data.len()
+        {
+            return Err("restored canonical grid differs from receiving native map shape".into());
+        }
+        self.apply_logic_height_map_bytes(data);
+        Ok(())
+    }
+
+    /// Observe the actual receiving water-render owner at the save boundary.
+    /// W3DTerrainVisual::xfer snapshots m_waterRenderObject, including motion
+    /// admitted by native WaveGuide callbacks after logical map configuration.
+    pub fn capture_water_state(&self) -> gamelogic::terrain_water::WaterGridState {
+        gamelogic::terrain_water::WaterGridState {
+            enabled: self.water_grid_enabled,
+            transform: self.water_grid.transform,
+            resolution: self.water_grid.resolution,
+            height_clamps: self.water_grid.height_clamps,
+            attenuation: self.water_grid.attenuation,
+            height_deltas: self
+                .water_grid
+                .height_deltas
+                .iter()
+                .map(|(k, v)| (*k, *v))
+                .collect(),
+            mesh_motion: self
+                .water_grid
+                .point_motions
+                .iter()
+                .map(|(k, v)| {
+                    (
+                        *k,
+                        gamelogic::terrain_water::WaterGridMeshMotion {
+                            velocity: v.velocity,
+                            status: v.status,
+                            // The native producer already stores source UnsignedByte values.
+                            preferred_height: v.preferred_height as u8,
+                        },
+                    )
+                })
+                .collect(),
+        }
+    }
+
+    /// Receive a completed logical water value synchronously, in source order.
+    pub fn admit_water_state(&mut self, state: &gamelogic::terrain_water::WaterGridState) {
+        self.set_water_grid_height_clamps(state.height_clamps.0, state.height_clamps.1);
+        self.set_water_transform_matrix(state.transform);
+        self.set_water_grid_resolution(state.resolution.0, state.resolution.1, state.resolution.2);
+        self.set_water_attenuation_factors(
+            state.attenuation.0,
+            state.attenuation.1,
+            state.attenuation.2,
+            state.attenuation.3,
+        );
+        self.enable_water_grid(state.enabled);
+        self.admit_water_mesh(state);
+    }
+
+    /// Map disable changes only enablement, unlike a completed saved water mesh.
+    pub fn admit_map_water_configuration(
+        &mut self,
+        state: &gamelogic::terrain_water::WaterGridState,
+    ) {
+        if state.enabled {
+            self.admit_water_state(state);
+        } else {
+            self.enable_water_grid(false);
+        }
+    }
+
+    fn admit_water_mesh(&mut self, state: &gamelogic::terrain_water::WaterGridState) {
+        // Presentation receives owned copies of the completed
+        // logical mesh. It cannot write the terrain owner back.
+        self.water_grid.height_deltas = state
+            .height_deltas
+            .iter()
+            .map(|(key, height)| (*key, *height))
+            .collect();
+        self.water_grid.point_motions = state
+            .mesh_motion
+            .iter()
+            .map(|(key, motion)| {
+                (
+                    *key,
+                    WaterGridPointMotion {
+                        velocity: motion.velocity,
+                        preferred_height: motion.preferred_height as f32,
+                        status: motion.status,
+                    },
+                )
+            })
+            .collect();
+        self.overlay.water_grid_dirty = true;
+    }
+
+    pub fn scorch_marks(&self) -> &[ScorchMark] {
+        self.scorches.marks()
+    }
+
+    pub fn add_scorch(&mut self, location: [f32; 3], radius: f32, scorch_type: i32) -> bool {
+        self.scorches.add_scorch(location, radius, scorch_type)
+    }
+
+    pub fn clear_scorches(&mut self) {
+        self.scorches.clear();
+        self.scorch_meshes.clear();
+    }
+
     /// C++ `HeightMapRenderObjClass::staticLightingChanged`.
     pub fn static_lighting_changed(&mut self) {
+        // BaseHeightMap invalidates GPU scorch geometry, retaining logical marks.
+        self.scorches.scorches_in_buffer = 0;
+        self.scorch_meshes.clear();
         let Some(height_map) = self.height_map.as_ref() else {
             return;
         };
@@ -681,7 +822,7 @@ impl TerrainVisualImpl {
         let classes = self.source_tile_classes.clone();
         let mut ids = Vec::new();
         for class in &classes {
-            let Some(path) = Self::resolve_source_tile_texture_path(&class.name) else {
+            let Some(path) = self.resolve_source_tile_texture_path(&class.name) else {
                 continue;
             };
             let Some(path_str) = path.to_str() else {
@@ -731,7 +872,8 @@ impl TerrainVisualImpl {
         // synthesize a deterministic stand-in tile per class name so the radar
         // band shows the same terrain coloring as the world view instead of
         // black / unresolved samples.
-        let resolved_image = Self::resolve_source_tile_texture_path(&class.name)
+        let resolved_image = self
+            .resolve_source_tile_texture_path(&class.name)
             .and_then(|path| Self::open_source_tile_image(&path))
             .map(|img| img.to_rgba8());
         let (image_width, image_height, available_tiles) = match resolved_image.as_ref() {
@@ -812,7 +954,7 @@ impl TerrainVisualImpl {
         0
     }
 
-    fn resolve_source_tile_texture_path(class_name: &str) -> Option<PathBuf> {
+    fn resolve_source_tile_texture_path(&self, class_name: &str) -> Option<PathBuf> {
         // Map tile-texture class names are extension-less (e.g.
         // "GrassMediumType22"); the on-disk / BIG-archive assets are
         // `Art/Terrain/<name>.tga`. C++ WorldHeightMap loads tile textures
@@ -832,8 +974,8 @@ impl TerrainVisualImpl {
         };
 
         let mut candidates = Vec::new();
-        if let Some(registry) = ini_terrain::get_terrain_types() {
-            let guard = registry.read();
+        {
+            let guard = self.terrain_definitions.catalog();
             let key = AsciiString::from(class_name);
             if let Some(terrain) = guard.find_terrain(&key) {
                 let texture = terrain.texture_name.as_str().trim();

@@ -742,7 +742,7 @@ mod tests {
             .unwrap()
             + native_start;
         let native_land = &native_tick[native_start..native_end];
-        assert!(native_land.contains("Self::with_host_fx_view_parts("));
+        assert!(native_land.contains("Self::with_host_fx_view_parts_and_terrain("));
         assert!(native_land.contains("&mut self.session_view"));
         assert!(native_land.contains("bus.tick_battle_bus_slow_death_with_fx("));
         assert!(native_land.contains("Self::dispatch_object_phase_fx_with_view("));

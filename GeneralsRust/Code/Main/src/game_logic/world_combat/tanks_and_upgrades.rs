@@ -57,6 +57,23 @@ impl GameLogic {
         aim: glam::Vec3,
         intended: Option<ObjectId>,
     ) -> Option<ObjectId> {
+        self.spawn_battlemaster_shell_projectile_with_effects(
+            source_id,
+            from,
+            aim,
+            intended,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn spawn_battlemaster_shell_projectile_with_effects(
+        &mut self,
+        source_id: ObjectId,
+        from: glam::Vec3,
+        aim: glam::Vec3,
+        intended: Option<ObjectId>,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> Option<ObjectId> {
         use crate::game_logic::host_battlemaster::{
             BATTLE_MASTER_PROJECTILE, BM_SHELL_MAX_HEALTH, battlemaster_shell_flight_frames,
         };
@@ -125,7 +142,13 @@ impl GameLogic {
 
         let mut start = from;
         start.y = start.y.max(aim.y) + 4.0;
-        let pid = self.create_object(BATTLE_MASTER_PROJECTILE, team, start)?;
+        let pid = self.create_object_with_script_effects(
+            BATTLE_MASTER_PROJECTILE,
+            team,
+            start,
+            None,
+            presentation_effects,
+        )?;
         let frames = battlemaster_shell_flight_frames(start, aim).max(1);
         if let Some(o) = self.objects.get_mut(&pid) {
             o.battlemaster_shell_projectile = true;
@@ -147,6 +170,15 @@ impl GameLogic {
     }
 
     pub fn update_battlemaster_shell_projectiles(&mut self) {
+        self.update_battlemaster_shell_projectiles_with_effects(
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn update_battlemaster_shell_projectiles_with_effects(
+        &mut self,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         use crate::game_logic::host_battlemaster::battlemaster_shell_bezier_point;
         let frame = self.frame;
         let flying: Vec<ObjectId> = self
@@ -189,7 +221,7 @@ impl GameLogic {
             let pos = battlemaster_shell_bezier_point(from, aim, t);
             if let Some(o) = self.objects.get_mut(&id) {
                 let prev = o.get_position();
-                o.set_position(pos);
+                o.set_position_with_effects(pos, self.frame, presentation_effects);
                 let d = pos - prev;
                 if d.length_squared() > 1.0e-6 {
                     o.set_orientation(d.z.atan2(d.x));
@@ -210,10 +242,15 @@ impl GameLogic {
                 o.status.destroyed = true;
                 o.status.effectively_dead = true;
                 o.battlemaster_shell_projectile = false;
-                o.set_position(pos);
+                o.set_position_with_effects(pos, self.frame, presentation_effects);
             }
-            let _ = self.apply_battlemaster_residual_at(pos, source, intended);
-            self.mark_object_for_destruction(id, team);
+            let _ = self.apply_battlemaster_residual_at_with_effects(
+                pos,
+                source,
+                intended,
+                presentation_effects,
+            );
+            self.mark_object_for_destruction_with_effects(id, team, presentation_effects);
         }
     }
 
@@ -226,6 +263,21 @@ impl GameLogic {
         impact: Vec3,
         source: Option<ObjectId>,
         intended_target: Option<ObjectId>,
+    ) -> (u32, bool) {
+        self.apply_battlemaster_residual_at_with_effects(
+            impact,
+            source,
+            intended_target,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn apply_battlemaster_residual_at_with_effects(
+        &mut self,
+        impact: Vec3,
+        source: Option<ObjectId>,
+        intended_target: Option<ObjectId>,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> (u32, bool) {
         use crate::game_logic::host_battlemaster::{
             BATTLE_MASTER_DAMAGE, BATTLE_MASTER_DAMAGE_TYPE, BATTLE_MASTER_DEATH_TYPE,
@@ -337,7 +389,7 @@ impl GameLogic {
             }
             if let Some(obj) = self.objects.get_mut(&id) {
                 let receiving_damage_target_id = obj.id;
-                let destroyed = self.apply_residual_damage_owned(
+                let destroyed = self.apply_residual_damage_owned_with_effects(
                     receiving_damage_target_id,
                     dmg,
                     source,
@@ -348,6 +400,7 @@ impl GameLogic {
                         BATTLE_MASTER_DEATH_TYPE,
                     ),
                     None,
+                    presentation_effects,
                 );
                 hits = hits.saturating_add(1);
                 if destroyed {
@@ -358,7 +411,7 @@ impl GameLogic {
         }
 
         for (id, killer) in destroy_ids {
-            self.mark_object_for_destruction(id, killer);
+            self.mark_object_for_destruction_with_effects(id, killer, presentation_effects);
         }
 
         self.battlemaster_residual_fires = self.battlemaster_residual_fires.saturating_add(1);
@@ -725,6 +778,21 @@ impl GameLogic {
         source: Option<ObjectId>,
         intended_target: Option<ObjectId>,
     ) -> (u32, bool) {
+        self.apply_red_guard_residual_at_with_effects(
+            impact,
+            source,
+            intended_target,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(in super::super) fn apply_red_guard_residual_at_with_effects(
+        &mut self,
+        impact: Vec3,
+        source: Option<ObjectId>,
+        intended_target: Option<ObjectId>,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> (u32, bool) {
         use crate::game_logic::host_red_guard::{
             BAYONET_DAMAGE, BAYONET_DAMAGE_TYPE, BAYONET_FIRE_AUDIO, REDGUARD_DAMAGE,
             REDGUARD_DAMAGE_TYPE, REDGUARD_DEATH_TYPE, REDGUARD_FIRE_AUDIO, distance_2d,
@@ -769,7 +837,7 @@ impl GameLogic {
                 (REDGUARD_DAMAGE_TYPE, REDGUARD_DEATH_TYPE)
             };
             let receiving_damage_target_id = obj.id;
-            let destroyed = self.apply_residual_damage_owned(
+            let destroyed = self.apply_residual_damage_owned_with_effects(
                 receiving_damage_target_id,
                 damage,
                 source,
@@ -780,11 +848,16 @@ impl GameLogic {
                     death_name,
                 ),
                 None,
+                presentation_effects,
             );
             hits = 1;
             if destroyed {
                 any_destroyed = true;
-                self.mark_object_for_destruction(target_id, Some(source_team));
+                self.mark_object_for_destruction_with_effects(
+                    target_id,
+                    Some(source_team),
+                    presentation_effects,
+                );
             }
         }
 
@@ -828,6 +901,23 @@ impl GameLogic {
         from: glam::Vec3,
         aim: glam::Vec3,
         intended: Option<ObjectId>,
+    ) -> Option<ObjectId> {
+        self.spawn_tank_hunter_missile_projectile_with_effects(
+            source_id,
+            from,
+            aim,
+            intended,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn spawn_tank_hunter_missile_projectile_with_effects(
+        &mut self,
+        source_id: ObjectId,
+        from: glam::Vec3,
+        aim: glam::Vec3,
+        intended: Option<ObjectId>,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> Option<ObjectId> {
         use crate::game_logic::host_tank_hunter::{
             TANK_HUNTER_MISSILE_FUEL_FRAMES, TANK_HUNTER_MISSILE_INITIAL_VELOCITY,
@@ -897,7 +987,13 @@ impl GameLogic {
 
         let mut start = from;
         start.y = start.y.max(aim.y) + 6.0;
-        let pid = self.create_object(TANK_HUNTER_PROJECTILE, team, start)?;
+        let pid = self.create_object_with_script_effects(
+            TANK_HUNTER_PROJECTILE,
+            team,
+            start,
+            None,
+            presentation_effects,
+        )?;
         let launch = TANK_HUNTER_MISSILE_INITIAL_VELOCITY / 30.0;
         let to_aim = aim - start;
         let dist = to_aim.length().max(0.001);
@@ -924,6 +1020,15 @@ impl GameLogic {
     }
 
     pub fn update_tank_hunter_missile_projectiles(&mut self) {
+        self.update_tank_hunter_missile_projectiles_with_effects(
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn update_tank_hunter_missile_projectiles_with_effects(
+        &mut self,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         use crate::game_logic::host_tank_hunter::{
             TANK_HUNTER_MISSILE_INITIAL_VELOCITY, TANK_HUNTER_MISSILE_TURN_DISTANCE,
             TANK_HUNTER_PROJECTILE_SPEED,
@@ -989,7 +1094,7 @@ impl GameLogic {
             let step = vel.length().max(speed);
             if let Some(o) = self.objects.get_mut(&id) {
                 o.movement.velocity = vel;
-                o.set_position(pos + vel);
+                o.set_position_with_effects(pos + vel, self.frame, presentation_effects);
                 o.tank_hunter_missile_travelled += step;
                 o.tank_hunter_missile_aim = Some([aim.x, aim.y, aim.z]);
                 o.set_orientation(vel.z.atan2(vel.x));
@@ -1011,10 +1116,15 @@ impl GameLogic {
                 o.status.destroyed = true;
                 o.status.effectively_dead = true;
                 o.tank_hunter_missile_projectile = false;
-                o.set_position(pos);
+                o.set_position_with_effects(pos, self.frame, presentation_effects);
             }
-            let _ = self.apply_tank_hunter_residual_at(pos, source, intended);
-            self.mark_object_for_destruction(id, team);
+            let _ = self.apply_tank_hunter_residual_at_with_effects(
+                pos,
+                source,
+                intended,
+                presentation_effects,
+            );
+            self.mark_object_for_destruction_with_effects(id, team, presentation_effects);
         }
     }
 
@@ -1027,6 +1137,21 @@ impl GameLogic {
         impact: Vec3,
         source: Option<ObjectId>,
         intended_target: Option<ObjectId>,
+    ) -> (u32, bool) {
+        self.apply_tank_hunter_residual_at_with_effects(
+            impact,
+            source,
+            intended_target,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn apply_tank_hunter_residual_at_with_effects(
+        &mut self,
+        impact: Vec3,
+        source: Option<ObjectId>,
+        intended_target: Option<ObjectId>,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> (u32, bool) {
         use crate::game_logic::host_tank_hunter::{
             TANK_HUNTER_DAMAGE, TANK_HUNTER_DAMAGE_TYPE, TANK_HUNTER_DEATH_TYPE,
@@ -1138,7 +1263,7 @@ impl GameLogic {
             }
             if let Some(obj) = self.objects.get_mut(&id) {
                 let receiving_damage_target_id = obj.id;
-                let destroyed = self.apply_residual_damage_owned(
+                let destroyed = self.apply_residual_damage_owned_with_effects(
                     receiving_damage_target_id,
                     dmg,
                     source,
@@ -1149,6 +1274,7 @@ impl GameLogic {
                         TANK_HUNTER_DEATH_TYPE,
                     ),
                     None,
+                    presentation_effects,
                 );
                 hits = hits.saturating_add(1);
                 if destroyed {
@@ -1159,7 +1285,7 @@ impl GameLogic {
         }
 
         for (id, killer) in destroy_ids {
-            self.mark_object_for_destruction(id, killer);
+            self.mark_object_for_destruction_with_effects(id, killer, presentation_effects);
         }
 
         self.tank_hunter_residual_fires = self.tank_hunter_residual_fires.saturating_add(1);
@@ -1231,6 +1357,23 @@ impl GameLogic {
         aim: glam::Vec3,
         intended: Option<ObjectId>,
     ) -> Option<ObjectId> {
+        self.spawn_flashbang_grenade_projectile_with_effects(
+            source_id,
+            from,
+            aim,
+            intended,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn spawn_flashbang_grenade_projectile_with_effects(
+        &mut self,
+        source_id: ObjectId,
+        from: glam::Vec3,
+        aim: glam::Vec3,
+        intended: Option<ObjectId>,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> Option<ObjectId> {
         use crate::game_logic::host_ranger::{
             FLASHBANG_GRENADE_MAX_HEALTH, FLASHBANG_GRENADE_PROJECTILE,
             flashbang_shell_flight_frames,
@@ -1292,7 +1435,13 @@ impl GameLogic {
 
         let mut start = from;
         start.y = start.y.max(aim.y) + 4.0;
-        let pid = self.create_object(FLASHBANG_GRENADE_PROJECTILE, team, start)?;
+        let pid = self.create_object_with_script_effects(
+            FLASHBANG_GRENADE_PROJECTILE,
+            team,
+            start,
+            None,
+            presentation_effects,
+        )?;
         let frames = flashbang_shell_flight_frames(start, aim).max(1);
         if let Some(o) = self.objects.get_mut(&pid) {
             o.flashbang_grenade_projectile = true;
@@ -1314,6 +1463,15 @@ impl GameLogic {
     }
 
     pub fn update_flashbang_grenade_projectiles(&mut self) {
+        self.update_flashbang_grenade_projectiles_with_effects(
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn update_flashbang_grenade_projectiles_with_effects(
+        &mut self,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         use crate::game_logic::host_ranger::flashbang_shell_bezier_point;
         let frame = self.frame;
         let flying: Vec<ObjectId> = self
@@ -1356,7 +1514,7 @@ impl GameLogic {
             let pos = flashbang_shell_bezier_point(from, aim, t);
             if let Some(o) = self.objects.get_mut(&id) {
                 let prev = o.get_position();
-                o.set_position(pos);
+                o.set_position_with_effects(pos, self.frame, presentation_effects);
                 let d = pos - prev;
                 if d.length_squared() > 1.0e-6 {
                     o.set_orientation(d.z.atan2(d.x));
@@ -1377,10 +1535,16 @@ impl GameLogic {
                 o.status.destroyed = true;
                 o.status.effectively_dead = true;
                 o.flashbang_grenade_projectile = false;
-                o.set_position(pos);
+                o.set_position_with_effects(pos, self.frame, presentation_effects);
             }
-            let _ = self.apply_ranger_residual_at(pos, source, intended, true);
-            self.mark_object_for_destruction(id, team);
+            let _ = self.apply_ranger_residual_at_with_effects(
+                pos,
+                source,
+                intended,
+                true,
+                presentation_effects,
+            );
+            self.mark_object_for_destruction_with_effects(id, team, presentation_effects);
         }
     }
 
@@ -1392,6 +1556,25 @@ impl GameLogic {
         aim: glam::Vec3,
         intended: Option<ObjectId>,
         air: bool,
+    ) -> Option<ObjectId> {
+        self.spawn_humvee_tow_missile_projectile_with_effects(
+            source_id,
+            from,
+            aim,
+            intended,
+            air,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn spawn_humvee_tow_missile_projectile_with_effects(
+        &mut self,
+        source_id: ObjectId,
+        from: glam::Vec3,
+        aim: glam::Vec3,
+        intended: Option<ObjectId>,
+        air: bool,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> Option<ObjectId> {
         use crate::game_logic::host_humvee::{
             HUMVEE_AIR_TOW_MISSILE_FUEL_FRAMES, HUMVEE_AIR_TOW_MISSILE_IGNITION_DELAY_FRAMES,
@@ -1484,7 +1667,8 @@ impl GameLogic {
         } else {
             start.y = start.y.max(2.0);
         }
-        let pid = self.create_object(name, team, start)?;
+        let pid =
+            self.create_object_with_script_effects(name, team, start, None, presentation_effects)?;
         let expires = self.frame.saturating_add(fuel_frames.max(1));
         let ignites = self.frame.saturating_add(ign_delay);
         if let Some(o) = self.objects.get_mut(&pid) {
@@ -1504,6 +1688,15 @@ impl GameLogic {
     }
 
     pub fn update_humvee_tow_missile_projectiles(&mut self) {
+        self.update_humvee_tow_missile_projectiles_with_effects(
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn update_humvee_tow_missile_projectiles_with_effects(
+        &mut self,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         use crate::game_logic::host_humvee::{
             HUMVEE_AIR_TOW_MISSILE_LOCK_DISTANCE, HUMVEE_AIR_TOW_MISSILE_TURN_DISTANCE,
             HUMVEE_GROUND_TOW_MISSILE_TURN_DISTANCE, humvee_air_tow_missile_step_speed,
@@ -1596,7 +1789,7 @@ impl GameLogic {
             let new_pos = pos + vel;
             if let Some(o) = self.objects.get_mut(&id) {
                 o.movement.velocity = vel;
-                o.set_position(new_pos);
+                o.set_position_with_effects(new_pos, self.frame, presentation_effects);
                 o.humvee_tow_travelled += step;
                 o.humvee_tow_aim = Some([aim.x, aim.y, aim.z]);
                 o.set_orientation(vel.z.atan2(vel.x));
@@ -1622,10 +1815,16 @@ impl GameLogic {
                 o.status.destroyed = true;
                 o.status.effectively_dead = true;
                 o.humvee_tow_projectile = false;
-                o.set_position(pos);
+                o.set_position_with_effects(pos, self.frame, presentation_effects);
             }
-            let _ = self.apply_humvee_tow_residual_at(pos, source, intended, air);
-            self.mark_object_for_destruction(id, team);
+            let _ = self.apply_humvee_tow_residual_at_with_effects(
+                pos,
+                source,
+                intended,
+                air,
+                presentation_effects,
+            );
+            self.mark_object_for_destruction_with_effects(id, team, presentation_effects);
         }
     }
 
@@ -1636,6 +1835,23 @@ impl GameLogic {
         from: glam::Vec3,
         aim: glam::Vec3,
         intended: Option<ObjectId>,
+    ) -> Option<ObjectId> {
+        self.spawn_dragon_flame_projectile_with_effects(
+            source_id,
+            from,
+            aim,
+            intended,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn spawn_dragon_flame_projectile_with_effects(
+        &mut self,
+        source_id: ObjectId,
+        from: glam::Vec3,
+        aim: glam::Vec3,
+        intended: Option<ObjectId>,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> Option<ObjectId> {
         use crate::game_logic::host_dragon_tank::{
             DRAGON_FLAME_MISSILE_FUEL_FRAMES, DRAGON_FLAME_MISSILE_IGNITION_DELAY_FRAMES,
@@ -1658,7 +1874,13 @@ impl GameLogic {
             .unwrap_or(Team::Neutral);
         let mut start = from;
         start.y = start.y.max(2.0);
-        let pid = self.create_object(DRAGON_FLAME_PROJECTILE, team, start)?;
+        let pid = self.create_object_with_script_effects(
+            DRAGON_FLAME_PROJECTILE,
+            team,
+            start,
+            None,
+            presentation_effects,
+        )?;
         let expires = self
             .frame
             .saturating_add(DRAGON_FLAME_MISSILE_FUEL_FRAMES.max(1));
@@ -1693,6 +1915,15 @@ impl GameLogic {
     }
 
     pub fn update_dragon_flame_projectiles(&mut self) {
+        self.update_dragon_flame_projectiles_with_effects(
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn update_dragon_flame_projectiles_with_effects(
+        &mut self,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         use crate::game_logic::host_dragon_tank::{
             DRAGON_FLAME_MISSILE_DETONATE_ON_NO_FUEL, DRAGON_FLAME_MISSILE_TURN_DISTANCE,
             DRAGON_FLAME_STREAM, dragon_flame_missile_step_speed,
@@ -1757,7 +1988,7 @@ impl GameLogic {
             let new_pos = pos + vel;
             if let Some(o) = self.objects.get_mut(&id) {
                 o.movement.velocity = vel;
-                o.set_position(new_pos);
+                o.set_position_with_effects(new_pos, self.frame, presentation_effects);
                 o.dragon_flame_travelled += step;
                 o.dragon_flame_aim = Some([aim.x, aim.y, aim.z]);
                 o.set_orientation(vel.z.atan2(vel.x));
@@ -1792,10 +2023,15 @@ impl GameLogic {
                 o.status.destroyed = true;
                 o.status.effectively_dead = true;
                 o.dragon_flame_projectile = false;
-                o.set_position(pos);
+                o.set_position_with_effects(pos, self.frame, presentation_effects);
             }
-            let _ = self.apply_dragon_flame_residual_at(pos, source, intended);
-            self.mark_object_for_destruction(id, team);
+            let _ = self.apply_dragon_flame_residual_at_with_effects(
+                pos,
+                source,
+                intended,
+                presentation_effects,
+            );
+            self.mark_object_for_destruction_with_effects(id, team, presentation_effects);
         }
     }
 
@@ -1806,6 +2042,23 @@ impl GameLogic {
         from: glam::Vec3,
         aim: glam::Vec3,
         intended: Option<ObjectId>,
+    ) -> Option<ObjectId> {
+        self.spawn_toxin_stream_projectile_with_effects(
+            source_id,
+            from,
+            aim,
+            intended,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn spawn_toxin_stream_projectile_with_effects(
+        &mut self,
+        source_id: ObjectId,
+        from: glam::Vec3,
+        aim: glam::Vec3,
+        intended: Option<ObjectId>,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> Option<ObjectId> {
         use crate::game_logic::host_toxin_tractor::{
             TOXIN_STREAM_MISSILE_FUEL_FRAMES, TOXIN_STREAM_MISSILE_IGNITION_DELAY_FRAMES,
@@ -1848,7 +2101,8 @@ impl GameLogic {
             .unwrap_or(Team::Neutral);
         let mut start = from;
         start.y = start.y.max(2.0);
-        let pid = self.create_object(name, team, start)?;
+        let pid =
+            self.create_object_with_script_effects(name, team, start, None, presentation_effects)?;
         let expires = self
             .frame
             .saturating_add(TOXIN_STREAM_MISSILE_FUEL_FRAMES.max(1));
@@ -1880,6 +2134,15 @@ impl GameLogic {
     }
 
     pub fn update_toxin_stream_projectiles(&mut self) {
+        self.update_toxin_stream_projectiles_with_effects(
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn update_toxin_stream_projectiles_with_effects(
+        &mut self,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         use crate::game_logic::host_toxin_tractor::{
             TOXIN_STREAM_MISSILE_TURN_DISTANCE, TOXIN_STREAM_NAME, toxin_stream_missile_step_speed,
         };
@@ -1948,7 +2211,7 @@ impl GameLogic {
             let new_pos = pos + vel;
             if let Some(o) = self.objects.get_mut(&id) {
                 o.movement.velocity = vel;
-                o.set_position(new_pos);
+                o.set_position_with_effects(new_pos, self.frame, presentation_effects);
                 o.toxin_stream_travelled += step;
                 o.toxin_stream_aim = Some([aim.x, aim.y, aim.z]);
                 o.set_orientation(vel.z.atan2(vel.x));
@@ -1982,13 +2245,19 @@ impl GameLogic {
                 o.status.destroyed = true;
                 o.status.effectively_dead = true;
                 o.toxin_stream_projectile = false;
-                o.set_position(pos);
+                o.set_position_with_effects(pos, self.frame, presentation_effects);
             }
             let source_team = source
                 .and_then(|sid| self.objects.get(&sid).map(|o| o.team))
                 .unwrap_or(team);
-            let _ = self.apply_toxin_tractor_stream_at(pos, source, intended, source_team);
-            self.mark_object_for_destruction(id, Some(team));
+            let _ = self.apply_toxin_tractor_stream_at_with_effects(
+                pos,
+                source,
+                intended,
+                source_team,
+                presentation_effects,
+            );
+            self.mark_object_for_destruction_with_effects(id, Some(team), presentation_effects);
         }
     }
 
@@ -1999,6 +2268,23 @@ impl GameLogic {
         from: glam::Vec3,
         aim: glam::Vec3,
         intended: Option<ObjectId>,
+    ) -> Option<ObjectId> {
+        self.spawn_technical_rpg_missile_projectile_with_effects(
+            source_id,
+            from,
+            aim,
+            intended,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn spawn_technical_rpg_missile_projectile_with_effects(
+        &mut self,
+        source_id: ObjectId,
+        from: glam::Vec3,
+        aim: glam::Vec3,
+        intended: Option<ObjectId>,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> Option<ObjectId> {
         use crate::game_logic::host_technical::{
             TECH_RPG_MISSILE_FUEL_FRAMES, TECH_RPG_MISSILE_IGNITION_DELAY_FRAMES,
@@ -2020,7 +2306,13 @@ impl GameLogic {
             .unwrap_or(Team::Neutral);
         let mut start = from;
         start.y = start.y.max(aim.y) + 6.0;
-        let pid = self.create_object(TECHNICAL_RPG_MISSILE, team, start)?;
+        let pid = self.create_object_with_script_effects(
+            TECHNICAL_RPG_MISSILE,
+            team,
+            start,
+            None,
+            presentation_effects,
+        )?;
         let expires = self
             .frame
             .saturating_add(TECH_RPG_MISSILE_FUEL_FRAMES.max(1));

@@ -836,6 +836,14 @@ fn xz_dist(a: Vec3, b: Vec3) -> f32 {
 impl GameLogic {
     /// Live host railroad tick. C++ `RailroadBehavior::update` per locomotive.
     pub fn update_railroads(&mut self) {
+        self.update_railroads_with_effects(&mut Default::default())
+    }
+
+    pub(crate) fn update_railroads_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
+        let pose_frame = self.frame;
         let living: Vec<(ObjectId, String, Vec3, bool)> = self
             .objects
             .iter()
@@ -956,7 +964,9 @@ impl GameLogic {
             if trailer.is_none() {
                 if let Some(first) = templates.first() {
                     let spawn_pos = Vec3::new(loco_pos.x - hitch_r * 2.0, loco_pos.y, loco_pos.z);
-                    if let Some(cid) = self.create_object(first, team, spawn_pos) {
+                    if let Some(cid) = self
+                        .create_object_with_script_effects(first, team, spawn_pos, None, effects)
+                    {
                         trailer = Some(cid);
                     }
                 }
@@ -985,7 +995,9 @@ impl GameLogic {
                         .unwrap_or(loco_pos);
                     let spawn_pos =
                         Vec3::new(parent_pos.x - hitch_r * 2.0, parent_pos.y, parent_pos.z);
-                    let Some(cid) = self.create_object(extra, team, spawn_pos) else {
+                    let Some(cid) = self
+                        .create_object_with_script_effects(extra, team, spawn_pos, None, effects)
+                    else {
                         break;
                     };
                     self.with_railroad_registry_mut(|reg| {
@@ -1126,7 +1138,7 @@ impl GameLogic {
         }
         for (id, pos, heading) in poses {
             if let Some(obj) = self.objects.get_mut(&id) {
-                obj.set_position(pos);
+                obj.set_position_with_effects(pos, pose_frame, effects);
                 obj.set_orientation(heading);
             }
         }

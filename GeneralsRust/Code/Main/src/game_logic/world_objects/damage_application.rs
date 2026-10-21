@@ -100,6 +100,27 @@ impl GameLogic {
         death_type: crate::game_logic::host_usa_pilot::HostDeathType,
         fx_override: Option<crate::game_logic::combat::DamageType>,
     ) -> bool {
+        self.apply_residual_damage_owned_with_effects(
+            victim_id,
+            amount,
+            source_id,
+            damage_type,
+            death_type,
+            fx_override,
+            &mut Default::default(),
+        )
+    }
+
+    pub(in crate::game_logic) fn apply_residual_damage_owned_with_effects(
+        &mut self,
+        victim_id: ObjectId,
+        amount: f32,
+        source_id: Option<ObjectId>,
+        damage_type: crate::game_logic::combat::DamageType,
+        death_type: crate::game_logic::host_usa_pilot::HostDeathType,
+        fx_override: Option<crate::game_logic::combat::DamageType>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
         let Some(previous_source) = self
             .objects
             .get(&victim_id)
@@ -137,10 +158,13 @@ impl GameLogic {
                     Self::observe_host_fx_object(object, player, self.world_services.shroud())
                 })
             });
-            Self::with_host_fx_view_parts(
+            Self::with_host_fx_view_parts_and_terrain(
                 &mut self.session_view,
                 player,
                 self.world_services.shroud(),
+                effects.terrain.as_mut().map(|terrain| {
+                    &mut **terrain as &mut dyn crate::game_logic::NativeTerrainEffects
+                }),
                 |view| {
                     let victim = self
                         .objects
@@ -238,6 +262,21 @@ impl GameLogic {
         damage_type: crate::game_logic::combat::DamageType,
         death_type: crate::game_logic::host_usa_pilot::HostDeathType,
     ) -> Option<OwnedDamageResult> {
+        self.apply_owned_kill_with_effects(
+            victim_id,
+            damage_type,
+            death_type,
+            &mut Default::default(),
+        )
+    }
+
+    pub(in crate::game_logic) fn apply_owned_kill_with_effects(
+        &mut self,
+        victim_id: ObjectId,
+        damage_type: crate::game_logic::combat::DamageType,
+        death_type: crate::game_logic::host_usa_pilot::HostDeathType,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> Option<OwnedDamageResult> {
         let victim = self.objects.get(&victim_id)?;
         let amount = if victim.thing().template.body_kind.is_some() {
             // CPP Object::kill takes the actual receiving Body max health,
@@ -248,7 +287,7 @@ impl GameLogic {
         } else {
             victim.max_health.max(1.0)
         };
-        self.apply_owned_damage(
+        self.apply_owned_damage_with_effects(
             victim_id,
             amount,
             None,
@@ -256,6 +295,7 @@ impl GameLogic {
             death_type,
             None,
             &DamageHitContext::for_kill(),
+            effects,
         )
     }
 
@@ -272,7 +312,30 @@ impl GameLogic {
         fx_override: Option<crate::game_logic::combat::DamageType>,
         context: &DamageHitContext,
     ) -> Option<OwnedDamageResult> {
-        self.apply_owned_damage_with_killer_team(
+        self.apply_owned_damage_with_effects(
+            victim_id,
+            damage,
+            source_id,
+            damage_type,
+            death_type,
+            fx_override,
+            context,
+            &mut Default::default(),
+        )
+    }
+
+    pub(crate) fn apply_owned_damage_with_effects(
+        &mut self,
+        victim_id: ObjectId,
+        damage: f32,
+        source_id: Option<ObjectId>,
+        damage_type: crate::game_logic::combat::DamageType,
+        death_type: crate::game_logic::host_usa_pilot::HostDeathType,
+        fx_override: Option<crate::game_logic::combat::DamageType>,
+        context: &DamageHitContext,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> Option<OwnedDamageResult> {
+        self.apply_owned_damage_with_killer_team_with_effects(
             victim_id,
             damage,
             source_id,
@@ -281,6 +344,7 @@ impl GameLogic {
             fx_override,
             context,
             None,
+            effects,
         )
     }
 
@@ -293,13 +357,23 @@ impl GameLogic {
         amount: f32,
         source_id: Option<ObjectId>,
     ) -> Option<OwnedDamageResult> {
+        self.apply_owned_healing_with_effects(victim_id, amount, source_id, &mut Default::default())
+    }
+
+    pub(crate) fn apply_owned_healing_with_effects(
+        &mut self,
+        victim_id: ObjectId,
+        amount: f32,
+        source_id: Option<ObjectId>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> Option<OwnedDamageResult> {
         let context = DamageHitContext::new(
             source_id.and_then(|id| self.objects.get(&id)),
             None,
             crate::game_logic::combat::DamageType::Healing,
         )
         .with_healing_entry();
-        self.apply_owned_damage(
+        self.apply_owned_damage_with_effects(
             victim_id,
             amount,
             source_id,
@@ -307,6 +381,7 @@ impl GameLogic {
             crate::game_logic::host_usa_pilot::HostDeathType::None,
             None,
             &context,
+            effects,
         )
     }
 
@@ -324,7 +399,32 @@ impl GameLogic {
         context: &DamageHitContext,
         killer_team_override: Option<Team>,
     ) -> Option<OwnedDamageResult> {
-        self.apply_owned_damage_with_killer_team_and_after_fx(
+        self.apply_owned_damage_with_killer_team_with_effects(
+            victim_id,
+            damage,
+            source_id,
+            damage_type,
+            death_type,
+            fx_override,
+            context,
+            killer_team_override,
+            &mut Default::default(),
+        )
+    }
+
+    pub(in crate::game_logic) fn apply_owned_damage_with_killer_team_with_effects(
+        &mut self,
+        victim_id: ObjectId,
+        damage: f32,
+        source_id: Option<ObjectId>,
+        damage_type: crate::game_logic::combat::DamageType,
+        death_type: crate::game_logic::host_usa_pilot::HostDeathType,
+        fx_override: Option<crate::game_logic::combat::DamageType>,
+        context: &DamageHitContext,
+        killer_team_override: Option<Team>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> Option<OwnedDamageResult> {
+        self.apply_owned_damage_with_killer_team_and_after_fx_with_effects(
             victim_id,
             damage,
             source_id,
@@ -334,6 +434,7 @@ impl GameLogic {
             context,
             killer_team_override,
             |_, _| {},
+            effects,
         )
     }
 
@@ -350,6 +451,33 @@ impl GameLogic {
         context: &DamageHitContext,
         killer_team_override: Option<Team>,
         after_damage_fx: impl FnOnce(&mut Self, ObjectId),
+    ) -> Option<OwnedDamageResult> {
+        self.apply_owned_damage_with_killer_team_and_after_fx_with_effects(
+            victim_id,
+            damage,
+            source_id,
+            damage_type,
+            death_type,
+            fx_override,
+            context,
+            killer_team_override,
+            after_damage_fx,
+            &mut Default::default(),
+        )
+    }
+
+    pub(in crate::game_logic) fn apply_owned_damage_with_killer_team_and_after_fx_with_effects(
+        &mut self,
+        victim_id: ObjectId,
+        damage: f32,
+        source_id: Option<ObjectId>,
+        damage_type: crate::game_logic::combat::DamageType,
+        death_type: crate::game_logic::host_usa_pilot::HostDeathType,
+        fx_override: Option<crate::game_logic::combat::DamageType>,
+        context: &DamageHitContext,
+        killer_team_override: Option<Team>,
+        after_damage_fx: impl FnOnce(&mut Self, ObjectId),
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> Option<OwnedDamageResult> {
         // Before any reentrant world callback, ActiveBody can select either
         // this impact's source or its retained same/previous-frame source.
@@ -390,10 +518,14 @@ impl GameLogic {
             })
         });
         #[cfg(feature = "game_client")]
-        let mut application = Self::with_host_fx_view_parts(
+        let mut application = Self::with_host_fx_view_parts_and_terrain(
             &mut self.session_view,
             begin_player,
             self.world_services.shroud(),
+            effects
+                .terrain
+                .as_mut()
+                .map(|terrain| &mut **terrain as &mut dyn crate::game_logic::NativeTerrainEffects),
             |view| {
                 let victim = self
                     .objects
@@ -496,12 +628,13 @@ impl GameLogic {
                 .and_then(|object| object.take_pending_fire_when_damaged_weapon())
             {
                 reaction_callback_ran = true;
-                let _ = self.apply_fire_weapon_when_damaged_named(victim_id, &weapon);
+                let _ = self
+                    .apply_fire_weapon_when_damaged_named_with_effects(victim_id, &weapon, effects);
             }
         }
         let bridge_callbacks = application.bridge_callbacks();
         if let Some(callbacks) = bridge_callbacks {
-            self.complete_owned_bridge_body_callbacks(callbacks);
+            self.complete_owned_bridge_body_callbacks_with_effects(callbacks, effects);
         }
         let callback_source = application
             .source_id()
@@ -512,10 +645,14 @@ impl GameLogic {
         #[cfg(feature = "game_client")]
         let callback_secondary = self.observe_fx_list_die_secondary(victim_id);
         #[cfg(feature = "game_client")]
-        Self::with_host_fx_view_parts(
+        Self::with_host_fx_view_parts_and_terrain(
             &mut self.session_view,
             callback_player,
             self.world_services.shroud(),
+            effects
+                .terrain
+                .as_mut()
+                .map(|terrain| &mut **terrain as &mut dyn crate::game_logic::NativeTerrainEffects),
             |view| {
                 if let Some(victim) = self.objects.get_mut(&victim_id) {
                     application.complete_body_state_callbacks_with_body_fx(
@@ -573,7 +710,7 @@ impl GameLogic {
             }
             let killer_team = killer_team_override
                 .or_else(|| source_id.and_then(|id| self.objects.get(&id).map(|obj| obj.team)));
-            self.mark_object_for_destruction_with_topple(
+            self.mark_object_for_destruction_with_topple_with_effects(
                 victim_id,
                 killer_team,
                 crate::game_logic::object::OnDieInput {
@@ -582,6 +719,7 @@ impl GameLogic {
                     death_type,
                 },
                 context.topple_interpreter(),
+                effects,
             );
         }
         let source = application
@@ -600,10 +738,14 @@ impl GameLogic {
                 Self::observe_host_fx_object(object, armor_player, self.world_services.shroud())
             });
         #[cfg(feature = "game_client")]
-        let after_fx = Self::with_host_fx_view_parts(
+        let after_fx = Self::with_host_fx_view_parts_and_terrain(
             &mut self.session_view,
             armor_player,
             self.world_services.shroud(),
+            effects
+                .terrain
+                .as_mut()
+                .map(|terrain| &mut **terrain as &mut dyn crate::game_logic::NativeTerrainEffects),
             |view| {
                 let victim = self
                     .objects
@@ -647,10 +789,14 @@ impl GameLogic {
         #[cfg(feature = "game_client")]
         let finish_player = self.local_player_id();
         #[cfg(feature = "game_client")]
-        let destroyed = Self::with_host_fx_view_parts(
+        let destroyed = Self::with_host_fx_view_parts_and_terrain(
             &mut self.session_view,
             finish_player,
             self.world_services.shroud(),
+            effects
+                .terrain
+                .as_mut()
+                .map(|terrain| &mut **terrain as &mut dyn crate::game_logic::NativeTerrainEffects),
             |view| {
                 let victim = self
                     .objects
@@ -704,6 +850,19 @@ impl GameLogic {
         pending: crate::game_logic::combat::PendingProjectile,
         stream_binding: Option<crate::game_logic::combat::ProjectileStreamBinding>,
     ) {
+        self.materialize_owned_passive_shot_with_effects(
+            pending,
+            stream_binding,
+            &mut Default::default(),
+        )
+    }
+
+    pub(in crate::game_logic) fn materialize_owned_passive_shot_with_effects(
+        &mut self,
+        pending: crate::game_logic::combat::PendingProjectile,
+        stream_binding: Option<crate::game_logic::combat::ProjectileStreamBinding>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let projectile_name = pending.projectile_object_name.clone();
         let projectile_terrain = crate::game_logic::game_logic::FlightTerrainView {
             grid: &self.pathfinding_system.grid,
@@ -734,12 +893,23 @@ impl GameLogic {
                 limit,
             );
             for event in events {
-                self.apply_owned_combat_damage(&event, ImpactRelationships::QueuedProjectileless);
+                self.apply_owned_combat_damage_with_effects(
+                    &event,
+                    ImpactRelationships::QueuedProjectileless,
+                    effects,
+                );
             }
         }
     }
 
     pub(in crate::game_logic) fn apply_owned_projectileless_delayed_damage(&mut self) {
+        self.apply_owned_projectileless_delayed_damage_with_effects(&mut Default::default())
+    }
+
+    pub(in crate::game_logic) fn apply_owned_projectileless_delayed_damage_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         use crate::game_logic::combat::take_ready_projectileless_delayed_damage;
         let ready = take_ready_projectileless_delayed_damage(&mut self.combat_system, self.frame);
         let limit = game_engine::common::global_data::read().historic_damage_limit;
@@ -751,7 +921,11 @@ impl GameLogic {
                 limit,
             );
             for event in events {
-                self.apply_owned_combat_damage(&event, ImpactRelationships::QueuedProjectileless);
+                self.apply_owned_combat_damage_with_effects(
+                    &event,
+                    ImpactRelationships::QueuedProjectileless,
+                    effects,
+                );
             }
         }
     }
@@ -761,11 +935,19 @@ impl GameLogic {
         &mut self,
         dt: f32,
     ) -> Vec<ObjectId> {
+        self.update_owned_projectile_impacts_with_effects(dt, &mut Default::default())
+    }
+
+    pub(in crate::game_logic) fn update_owned_projectile_impacts_with_effects(
+        &mut self,
+        dt: f32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> Vec<ObjectId> {
         let ids = self.combat_system.projectile_update_ids();
         let limit = game_engine::common::global_data::read().historic_damage_limit;
         let mut retired = Vec::new();
         for id in ids {
-            let removals = self.update_owned_projectile_impact(id, dt, limit);
+            let removals = self.update_owned_projectile_impact_with_effects(id, dt, limit, effects);
             retired.extend(removals);
         }
         // Retain registered entries across callbacks until the existing removal
@@ -782,6 +964,21 @@ impl GameLogic {
         dt: f32,
         historic_damage_limit: u32,
     ) -> Vec<ObjectId> {
+        self.update_owned_projectile_impact_with_effects(
+            id,
+            dt,
+            historic_damage_limit,
+            &mut Default::default(),
+        )
+    }
+
+    pub(in crate::game_logic) fn update_owned_projectile_impact_with_effects(
+        &mut self,
+        id: ObjectId,
+        dt: f32,
+        historic_damage_limit: u32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> Vec<ObjectId> {
         #[cfg(feature = "game_client")]
         let player = self.local_player_id();
         let terrain = crate::game_logic::game_logic::FlightTerrainView {
@@ -793,60 +990,68 @@ impl GameLogic {
         #[cfg(feature = "game_client")]
         let (events, retired) = {
             let shroud = self.world_services.shroud();
-            Self::with_host_fx_view_parts(&mut self.session_view, player, shroud, |view| {
-                self.combat_system.prepare_projectile_impact_with_fx(
-                    id,
-                    dt,
-                    &mut self.objects,
-                    Some(&mut self.countermeasures),
-                    self.frame,
-                    Some(&terrain),
-                    &mut self.ownership_events,
-                    historic_damage_limit,
-                    &mut |name, object| {
-                        let pose = match object {
-                            crate::game_logic::combat::ProjectileFxObject::Object(object) => {
-                                Self::observe_host_fx_object(object, player, shroud)
-                            }
-                            crate::game_logic::combat::ProjectileFxObject::Projectile(
-                                projectile,
-                            ) => {
-                                use gamelogic::common::types::ObjectShroudStatus;
-                                let is_shrouded = match (player, shroud.lock()) {
-                                    (Some(player), Ok(shroud)) => shroud
-                                        .get_host_object_shroud_status(player, projectile.id.0)
-                                        .is_some_and(|status| {
-                                            (status as u8) >= ObjectShroudStatus::Fogged as u8
-                                        }),
-                                    _ => true,
-                                };
-                                let pos = projectile.position;
-                                let position = gamelogic::common::types::Coord3D {
-                                    x: pos.x,
-                                    y: pos.z,
-                                    z: pos.y,
-                                };
-                                gamelogic::helpers::HostFxObjectPose {
-                                    id: projectile.id.0,
-                                    position,
-                                    transform: glam::Mat4::from_translation(glam::Vec3::new(
-                                        pos.x, pos.z, pos.y,
-                                    )) * glam::Mat4::from_rotation_z(
-                                        projectile.velocity.z.atan2(projectile.velocity.x),
-                                    ),
-                                    player_index: projectile
-                                        .source_owner_player_id
-                                        .map(|id| id as i32)
-                                        .unwrap_or(-1),
-                                    bounding_circle_radius: 0.0,
-                                    is_shrouded,
+            Self::with_host_fx_view_parts_and_terrain(
+                &mut self.session_view,
+                player,
+                shroud,
+                effects.terrain.as_mut().map(|terrain| {
+                    &mut **terrain as &mut dyn crate::game_logic::NativeTerrainEffects
+                }),
+                |view| {
+                    self.combat_system.prepare_projectile_impact_with_fx(
+                        id,
+                        dt,
+                        &mut self.objects,
+                        Some(&mut self.countermeasures),
+                        self.frame,
+                        Some(&terrain),
+                        &mut self.ownership_events,
+                        historic_damage_limit,
+                        &mut |name, object| {
+                            let pose = match object {
+                                crate::game_logic::combat::ProjectileFxObject::Object(object) => {
+                                    Self::observe_host_fx_object(object, player, shroud)
                                 }
-                            }
-                        };
-                        Self::dispatch_fx_list_at_object_with_view(name, &pose, None, view);
-                    },
-                )
-            })
+                                crate::game_logic::combat::ProjectileFxObject::Projectile(
+                                    projectile,
+                                ) => {
+                                    use gamelogic::common::types::ObjectShroudStatus;
+                                    let is_shrouded = match (player, shroud.lock()) {
+                                        (Some(player), Ok(shroud)) => shroud
+                                            .get_host_object_shroud_status(player, projectile.id.0)
+                                            .is_some_and(|status| {
+                                                (status as u8) >= ObjectShroudStatus::Fogged as u8
+                                            }),
+                                        _ => true,
+                                    };
+                                    let pos = projectile.position;
+                                    let position = gamelogic::common::types::Coord3D {
+                                        x: pos.x,
+                                        y: pos.z,
+                                        z: pos.y,
+                                    };
+                                    gamelogic::helpers::HostFxObjectPose {
+                                        id: projectile.id.0,
+                                        position,
+                                        transform: glam::Mat4::from_translation(glam::Vec3::new(
+                                            pos.x, pos.z, pos.y,
+                                        )) * glam::Mat4::from_rotation_z(
+                                            projectile.velocity.z.atan2(projectile.velocity.x),
+                                        ),
+                                        player_index: projectile
+                                            .source_owner_player_id
+                                            .map(|id| id as i32)
+                                            .unwrap_or(-1),
+                                        bounding_circle_radius: 0.0,
+                                        is_shrouded,
+                                    }
+                                }
+                            };
+                            Self::dispatch_fx_list_at_object_with_view(name, &pose, None, view);
+                        },
+                    )
+                },
+            )
         };
         #[cfg(not(feature = "game_client"))]
         let (events, retired) = self.combat_system.prepare_projectile_impact(
@@ -860,7 +1065,11 @@ impl GameLogic {
             historic_damage_limit,
         );
         for event in events {
-            self.apply_owned_combat_damage(&event, ImpactRelationships::MovingProjectile);
+            self.apply_owned_combat_damage_with_effects(
+                &event,
+                ImpactRelationships::MovingProjectile,
+                effects,
+            );
         }
         // Return deletion requests; do not physically remove the callback's
         // projectile while other callbacks can still inspect the arena.
@@ -871,6 +1080,15 @@ impl GameLogic {
         &mut self,
         event: &crate::game_logic::combat::DamageEvent,
         relationships: ImpactRelationships,
+    ) {
+        self.apply_owned_combat_damage_with_effects(event, relationships, &mut Default::default())
+    }
+
+    fn apply_owned_combat_damage_with_effects(
+        &mut self,
+        event: &crate::game_logic::combat::DamageEvent,
+        relationships: ImpactRelationships,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         use crate::game_logic::combat::DamageEvent;
         if let DamageEvent::Direct {
@@ -888,7 +1106,7 @@ impl GameLogic {
                 .get(&target_id)
                 .map(|o| o.health.current)
                 .unwrap_or(0.0);
-            if let Some(result) = self.apply_owned_damage(
+            if let Some(result) = self.apply_owned_damage_with_effects(
                 target_id,
                 damage,
                 Some(shooter_id),
@@ -896,6 +1114,7 @@ impl GameLogic {
                 death_type,
                 None,
                 &context,
+                effects,
             ) {
                 // Preserve excluded special-body deferred death fallback. Ordinary
                 // owned deaths have already set on_die_started and are never queued twice.
@@ -923,7 +1142,7 @@ impl GameLogic {
                 }
             }
         } else {
-            self.apply_owned_area_damage(event, relationships);
+            self.apply_owned_area_damage_with_effects(event, relationships, effects);
         }
     }
 }
@@ -933,6 +1152,15 @@ impl GameLogic {
         &mut self,
         event: &crate::game_logic::combat::DamageEvent,
         relationships: ImpactRelationships,
+    ) {
+        self.apply_owned_area_damage_with_effects(event, relationships, &mut Default::default())
+    }
+
+    fn apply_owned_area_damage_with_effects(
+        &mut self,
+        event: &crate::game_logic::combat::DamageEvent,
+        relationships: ImpactRelationships,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         use crate::game_logic::combat::{AreaDamage, DamageEvent};
         let DamageEvent::Area {
@@ -966,7 +1194,7 @@ impl GameLogic {
             let result = if damage > 0.0 {
                 let context =
                     DamageHitContext::new(self.objects.get(shooter_id), None, *damage_type);
-                self.apply_owned_damage(
+                self.apply_owned_damage_with_effects(
                     victim_id,
                     damage,
                     Some(*shooter_id),
@@ -974,6 +1202,7 @@ impl GameLogic {
                     *death_type,
                     None,
                     &context,
+                    effects,
                 )
             } else {
                 None

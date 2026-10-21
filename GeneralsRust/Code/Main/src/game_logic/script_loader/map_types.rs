@@ -27,6 +27,33 @@ pub struct PlacedObject {
     pub properties: Dict,
 }
 
+impl PlacedObject {
+    /// C++ MapObject MO_SCORCH classification and authored parameters.
+    /// Coordinates retain source XYZ; observing definitions has no native effects.
+    pub(crate) fn terrain_scorch(&self) -> Option<([f32; 3], f32, i32)> {
+        use game_engine::common::dict::DictType;
+        use game_engine::common::name_key_generator::NameKeyGenerator;
+        let key = NameKeyGenerator::name_to_key("scorchType");
+        self.properties.get_type(key)?;
+        let kind = match self.properties.get_type(key) {
+            Some(DictType::Int) => self.properties.get_int(key),
+            Some(DictType::Real) => self.properties.get_real(key) as i32,
+            _ => 0,
+        };
+        let key = NameKeyGenerator::name_to_key("objectRadius");
+        let radius = match self.properties.get_type(key) {
+            Some(DictType::Real) => self.properties.get_real(key),
+            Some(DictType::Int) => self.properties.get_int(key) as f32,
+            _ => 0.0,
+        };
+        Some((
+            [self.position.x, self.position.y, self.position.z],
+            radius,
+            kind,
+        ))
+    }
+}
+
 /// C++ SidesList build-list entry residual (skirmish army / base placements).
 #[derive(Debug, Clone)]
 pub struct SideBuildEntry {
@@ -48,6 +75,8 @@ pub struct SideBuildEntry {
 /// Top-level metadata parsed from a map file.
 #[derive(Debug, Clone, Default)]
 pub struct MapMetadata {
+    pub(crate) terrain_definitions:
+        Option<std::sync::Arc<game_engine::common::ini::ini_terrain::TerrainTypes>>,
     pub(crate) camera_clip_rules: Option<game_engine::common::ini::ini_game_data::CameraClipRules>,
     pub(crate) camera_shake_rules:
         Option<game_engine::common::ini::ini_game_data::CameraShakeRules>,
@@ -60,6 +89,9 @@ pub struct MapMetadata {
         Option<game_engine::common::ini::ini_game_data::ProductionEnergyRules>,
     /// Last GameData DefaultStartingCash from Map.ini then Solo.ini.
     pub default_starting_cash: Option<u32>,
+    /// Typed authored decals captured while the decoder owns this Dict key
+    /// namespace. Native/worker handoff readers never resolve these raw keys.
+    pub authored_scorches: Vec<([f32; 3], f32, i32)>,
     pub objects: Vec<PlacedObject>,
     /// Wave 831: SidesList build-list entries (skirmish faction bases).
     pub side_builds: Vec<SideBuildEntry>,
@@ -194,4 +226,93 @@ pub struct MapScriptLoadResult {
     pub source_path: PathBuf,
     pub script_lists: Vec<ScriptList>,
     pub total_scripts: usize,
+}
+
+/// Existing map-bounds rule shared by early native admission and the later
+/// world/pathfinder installation; object-only/mapless fallback remains later.
+pub(crate) fn resolved_map_height_bounds(
+    metadata: Option<&MapMetadata>,
+    samples: Option<(i32, i32, i32)>,
+) -> Option<(glam::Vec3, glam::Vec3)> {
+    if let Some((min, max)) = metadata.and_then(|meta| meta.world_min.zip(meta.world_max)) {
+        let min = glam::Vec3::new(min.x, min.y, min.z);
+        let max = glam::Vec3::new(max.x, max.y, max.z);
+        if (max.x - min.x).abs() >= 1.0 && (max.z - min.z).abs() >= 1.0 {
+            return Some((min, max));
+        }
+    }
+    samples.map(|(width, height, border)| {
+        let width = (width - 2 * border).max(1) as f32;
+        let height = (height - 2 * border).max(1) as f32;
+        (
+            glam::Vec3::ZERO,
+            glam::Vec3::new(
+                width * gamelogic::common::MAP_XY_FACTOR,
+                0.0,
+                height * gamelogic::common::MAP_XY_FACTOR,
+            ),
+        )
+    })
+}
+
+#[cfg(test)]
+mod authored_scorch_handoff_tests {
+    use super::*;
+    use game_engine::common::name_key_generator::NameKeyGenerator;
+
+    #[test]
+    fn typed_authored_scorch_handoff_does_not_resolve_receiving_dict_keys() {
+        // The decoder owns the raw Dict namespace. Only typed authored data is
+        // portable to the driving presentation owner after a startup worker.
+        let (frozen, decoder_key) = std::thread::spawn(|| {
+            let mut properties = Dict::new();
+            let scorch_key = NameKeyGenerator::name_to_key("scorchType");
+            properties.set_int(scorch_key, 3);
+            properties.set_real(NameKeyGenerator::name_to_key("objectRadius"), 17.5);
+            let object = PlacedObject {
+                template: "Scorch".into(),
+                name: None,
+                position: Coord3D::new(11.0, 23.0, 7.0),
+                rotation: None,
+                team_name: None,
+                player_id: None,
+                upgrade: None,
+                unsellable: None,
+                enabled: None,
+                powered: None,
+                indestructible: None,
+                object_weather: None,
+                properties,
+            };
+            (
+                object.terrain_scorch().expect("authored scorch"),
+                scorch_key,
+            )
+        })
+        .join()
+        .expect("decoder thread");
+        std::thread::spawn(move || {
+            // A fresh receiving namespace deliberately allocates another name
+            // first; this proves differing raw keys rather than relying on the
+            // test harness thread's prior allocations.
+            let _ = NameKeyGenerator::name_to_key("receivingOwnerUnrelatedDefinition");
+            let _ = NameKeyGenerator::name_to_key("objectRadius");
+            let receiving_key = NameKeyGenerator::name_to_key("scorchType");
+            assert_ne!(receiving_key, decoder_key);
+            let metadata = MapMetadata {
+                authored_scorches: vec![frozen],
+                ..Default::default()
+            };
+            assert_eq!(
+                metadata.authored_scorches,
+                vec![([11.0, 23.0, 7.0], 17.5, 3)]
+            );
+            assert!(
+                metadata.objects.is_empty(),
+                "no raw Dict is needed by receiving projection"
+            );
+        })
+        .join()
+        .expect("receiving thread");
+    }
 }

@@ -11,7 +11,78 @@ use gamelogic::world::entities::{
     TemplateRef, Transform,
 };
 
-const EXPECTED_INVENTORY_LEN: usize = 65;
+const EXPECTED_INVENTORY_LEN: usize = 68;
+
+pub(super) const EXPECTED_INVENTORY_TAGS: &[&str] = &[
+    "WeaponSlots",
+    "TurretRuntime",
+    "UpgradeDie",
+    "SpecialPowerCompletionDie",
+    "BattleBusSlowDeath",
+    "CaptureChannel",
+    "HackerDisableChannel",
+    "ToppleUpdate",
+    "StructureToppleUpdate",
+    "StructureCollapseUpdate",
+    "KeepObjectDie",
+    "WaveGuideUpdate",
+    "BoneFXDamage",
+    "PoisonedBehavior",
+    "ObjectDefectionHelper",
+    "FireWeaponPower",
+    "FireWeaponWhenDamaged",
+    "TransitionDamageFX",
+    "FXListDie",
+    "CreateObjectDie",
+    "LifetimeUpdate",
+    "SlowDeath",
+    "HeightDieUpdate",
+    "FuelAirGasSlowDeath",
+    "NeutronMissileUpdate",
+    "MissileLauncherBuildingUpdate",
+    "ScudStormMissileFlight",
+    "CarpetBombTransport",
+    "ArtilleryBarrageTransport",
+    "A10StrikeTransport",
+    "DaisyCutterTransport",
+    "AnthraxBombTransport",
+    "ClusterMinesTransport",
+    "EmpPulseTransport",
+    "TensileFormationUpdate",
+    "FireSpreadUpdate",
+    "BaseRegenerateUpdate",
+    "DefaultAutoHealBehavior",
+    "EnemyNearUpdate",
+    "AnimationSteeringUpdate",
+    "FloatUpdate",
+    "ProneUpdate",
+    "RadiusDecalUpdate",
+    "CheckpointUpdate",
+    "SpectreGunshipDeployment",
+    "SpectreGunshipUpdate",
+    "SmartBombTargetHoming",
+    "HelicopterSlowDeath",
+    "JetSlowDeath",
+    "MinefieldBehavior",
+    "SpawnBehavior",
+    "FiringTracker",
+    "FireOclAfterCooldown",
+    "AssaultTransport",
+    "DeployStyleAIUpdate",
+    "SlavedUpdate",
+    "CommandButtonHuntUpdate",
+    "FireWeaponWhenDead",
+    "CreateObjectDieTransfer",
+    "SpecialPowerCooldown",
+    "WeaponLock",
+    "EmoticonSurrender",
+    "ProjectileFlightResiduals",
+    "ActiveBody",
+    "PhysicsBehavior",
+    "RailroadBehavior",
+    "PathExtraDistance",
+    "OverlordAddon",
+];
 
 const ENTITY_ONLY_GROUPS: &[&str] = &[
     "health",
@@ -38,7 +109,6 @@ const MAIN_ONLY_TODO_GROUPS: &[&str] = &[
     "ShockStun",
     "PhysicsMotive",
     "Locomotor",
-    "WeaponSlots",
     "Turret",
     "StatusBits",
     "ModelCondition",
@@ -73,11 +143,10 @@ fn envelope_with_every_inventory_tag() -> EntityLifecycleEnvelope {
 #[test]
 fn inventory_len_and_declaration_order_are_locked() {
     assert_eq!(INVENTORY_TAGS.len(), EXPECTED_INVENTORY_LEN);
-    assert_eq!(INVENTORY_TAGS[0], "UpgradeDie");
-    assert_eq!(INVENTORY_TAGS[53], "CommandButtonHuntUpdate");
-    assert_eq!(INVENTORY_TAGS[62], "RailroadBehavior");
-    assert_eq!(INVENTORY_TAGS[63], "PathExtraDistance");
-    assert_eq!(INVENTORY_TAGS[64], "OverlordAddon");
+    assert_eq!(INVENTORY_TAGS, EXPECTED_INVENTORY_TAGS);
+    assert_eq!(INVENTORY_TAGS[0], "WeaponSlots");
+    assert_eq!(INVENTORY_TAGS[1], "TurretRuntime");
+    assert_eq!(*INVENTORY_TAGS.last().expect("tags"), "OverlordAddon");
 }
 
 #[test]
@@ -91,8 +160,12 @@ fn attach_preserves_every_envelope_tag_including_unknown() {
     );
     let envelope = envelope_with_every_inventory_tag();
     let entity = store.get_mut(id).expect("spawned");
-    entity.attach_envelope(envelope);
+    entity.attach_envelope(envelope.clone());
     let taken = entity.take_envelope().expect("attached");
+    assert_eq!(
+        taken, envelope,
+        "known and unknown tag payloads must survive unchanged"
+    );
     let tags: Vec<&str> = taken.module_states.iter().map(|m| m.tag.as_str()).collect();
     assert_eq!(tags.len(), EXPECTED_INVENTORY_LEN + 1);
     for (idx, expected) in INVENTORY_TAGS.iter().enumerate() {
@@ -125,7 +198,7 @@ fn read_inventory_audit_buckets() {
     assert_eq!(covered, EXPECTED_INVENTORY_LEN);
     assert_eq!(envelope_only, 0);
     assert_eq!(entity_only, 14);
-    assert_eq!(main_only, 13);
+    assert_eq!(main_only, 12);
 
     for todo in MAIN_ONLY_TODO_GROUPS {
         assert!(

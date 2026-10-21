@@ -106,6 +106,7 @@ fn stage(m: &mut SaveFileManager, slot: &str, w: &GameLogic) -> Result<StagedRes
         w.ai_definitions.baseline(),
         w.production_energy_baseline(),
         w.physics_rules_baseline(),
+        w.effective_terrain_definitions(),
         w.session_view.camera.settings,
         w.session_view.camera.clip_policy,
         w.session_view.camera.shake_policy,

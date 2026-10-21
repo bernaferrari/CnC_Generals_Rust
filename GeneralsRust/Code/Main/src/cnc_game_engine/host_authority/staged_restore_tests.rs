@@ -207,6 +207,7 @@ fn staged_restore_rejects_unavailable_map_before_snapshot_restore() {
                 source.ai_definitions.baseline(),
                 source.production_energy_baseline(),
                 source.physics_rules_baseline(),
+                source.effective_terrain_definitions(),
                 source.session_view.camera.settings,
                 source.session_view.camera.clip_policy,
                 source.session_view.camera.shake_policy,
@@ -256,6 +257,7 @@ fn malformed_client_chunk_rejects_candidate_before_touching_live_client() {
                 logic.ai_definitions.baseline(),
                 logic.production_energy_baseline(),
                 logic.physics_rules_baseline(),
+                logic.effective_terrain_definitions(),
                 logic.session_view.camera.settings,
                 logic.session_view.camera.clip_policy,
                 logic.session_view.camera.shake_policy,
@@ -360,6 +362,7 @@ fn staged_restore_requires_the_saved_retail_map_before_snapshot_restore() {
                 source.ai_definitions.baseline(),
                 source.production_energy_baseline(),
                 source.physics_rules_baseline(),
+                source.effective_terrain_definitions(),
                 source.session_view.camera.settings,
                 source.session_view.camera.clip_policy,
                 source.session_view.camera.shake_policy,
@@ -620,6 +623,7 @@ fn forced_post_restore_failure_restores_globals_and_tls_effect_queues() {
                 source.ai_definitions.baseline(),
                 source.production_energy_baseline(),
                 source.physics_rules_baseline(),
+                source.effective_terrain_definitions(),
                 source.session_view.camera.settings,
                 source.session_view.camera.clip_policy,
                 source.session_view.camera.shake_policy,
@@ -909,6 +913,7 @@ fn embedded_saved_map_restores_original_ai_companions_without_replacing_geometry
                         source.ai_definitions.baseline(),
                         source.production_energy_baseline(),
                         source.physics_rules_baseline(),
+                        source.effective_terrain_definitions(),
                         source.session_view.camera.settings,
                         source.session_view.camera.clip_policy,
                         source.session_view.camera.shake_policy,
@@ -1155,6 +1160,7 @@ fn staged_restore_continues_logic_rng_stream_from_save_point() {
                 source.ai_definitions.baseline(),
                 source.production_energy_baseline(),
                 source.physics_rules_baseline(),
+                source.effective_terrain_definitions(),
                 source.session_view.camera.settings,
                 source.session_view.camera.clip_policy,
                 source.session_view.camera.shake_policy,
@@ -1349,6 +1355,39 @@ fn main_services_start_and_stage_leave_foreign_core_ai_installed() {
             let temp = tempfile::tempdir().unwrap();
             let map_path = temp.path().join("OwnedServices.map");
             let mut map = game_engine::common::system::DataChunkOutput::new();
+            // Real authored receiving geometry starts at raw40; saved logical
+            // continuation below changes one sample to7 before encoding.
+            map.open_data_chunk("HeightMapData", 3);
+            for value in [8, 8, 0, 64] {
+                map.write_int(value);
+            }
+            for _ in 0..64 {
+                map.write_byte(40);
+            }
+            map.close_data_chunk();
+            map.open_data_chunk("ObjectsList", 3);
+            map.open_data_chunk("Object", 3);
+            for value in [0.0, 0.0, 0.0, 0.0] {
+                map.write_real(value);
+            }
+            map.write_int(0);
+            map.write_ascii_string("Waypoint");
+            let mut properties = game_engine::common::dict::Dict::new();
+            properties.set_int(
+                game_engine::common::name_key_generator::NameKeyGenerator::name_to_key(
+                    "waypointID",
+                ),
+                7,
+            );
+            properties.set_ascii_string(
+                game_engine::common::name_key_generator::NameKeyGenerator::name_to_key(
+                    "waypointName",
+                ),
+                "WaveGuide1",
+            );
+            map.write_dict(&properties);
+            map.close_data_chunk();
+            map.close_data_chunk();
             map.open_data_chunk("GlobalLighting", 1);
             map.write_int(2);
             for _ in 0..4 {
@@ -1378,6 +1417,12 @@ fn main_services_start_and_stage_leave_foreign_core_ai_installed() {
             gamelogic::system::engine_stores::with_active_stores(&foreign, || {
                 let foreign_parser = game_engine::common::ini::ini_ai_data::get_ai_data_store();
                 let mut source = GameLogic::new();
+                let terrain_definitions = crate::game_logic::terrain_definitions::parse_application_terrain_sources(&[
+                    ("Terrain.ini", "Terrain SavedOwnedTerrain\n Texture = owned-saved.tga\n Class = ROCK\nEnd\n".into())
+                ]).unwrap();
+                source
+                    .admit_terrain_definitions(terrain_definitions)
+                    .unwrap();
                 assert!(
                     Arc::ptr_eq(&gamelogic::system::engine_stores::active(), &foreign),
                     "constructor is inert"
@@ -1387,10 +1432,37 @@ fn main_services_start_and_stage_leave_foreign_core_ai_installed() {
                     &foreign_parser
                 ));
                 admit_skirmish_fixture(&mut source, &map_name, "Human", false);
+                game_engine::common::ini::ini_game_data::init_global_data();
+                {
+                    let definitions = game_engine::common::ini::get_global_data().unwrap();
+                    let mut definitions = definitions.write();
+                    definitions.vertex_water_available_maps[0] = map_name.clone();
+                    definitions.vertex_water_x_grid_cells[0] = 1;
+                    definitions.vertex_water_y_grid_cells[0] = 1;
+                    definitions.vertex_water_grid_size[0] = 1.0;
+                    definitions.vertex_water_attenuation_a[0] = 1.0;
+                    definitions.vertex_water_attenuation_range[0] = 1.0;
+                }
                 assert!(
                     source.load_map(&map_name),
                     "actual owned map load under foreign Core scope"
                 );
+                let mut saved_heights = source
+                    .world_services
+                    .terrain()
+                    .read()
+                    .unwrap()
+                    .logic_height_map_bytes()
+                    .to_vec();
+                assert_eq!(saved_heights[9], 40, "authored map base");
+                saved_heights[9] = 7;
+                source
+                    .world_services
+                    .terrain()
+                    .write()
+                    .unwrap()
+                    .try_apply_logic_height_map_bytes_with_effects(&saved_heights, &mut || {})
+                    .unwrap();
                 source.set_logic_random_seed(0x5EED_A001);
                 let _ = source.logic_random.next_u32();
                 let saved_rng = source.logic_random.seed_words();
@@ -1402,6 +1474,48 @@ fn main_services_start_and_stage_leave_foreign_core_ai_installed() {
                 );
                 let mut saves = SaveFileManager::with_save_directory(temp.path().join("saves"));
                 saves.init().unwrap();
+                #[cfg(feature = "game_client")]
+                let saved_native_water = {
+                    let mut visual = game_client::terrain::terrain_visual::TerrainVisualImpl::new();
+                    visual.admit_water_state(
+                        source
+                            .world_services
+                            .terrain()
+                            .read()
+                            .unwrap()
+                            .water_grid_state(),
+                    );
+                    visual.add_water_velocity(0.0, 0.0, 3.0, 17.0);
+                    let observed = visual.capture_water_state();
+                    assert!(!observed.mesh_motion.is_empty());
+                    assert!(
+                        source
+                            .world_services
+                            .terrain()
+                            .read()
+                            .unwrap()
+                            .water_grid_state()
+                            .mesh_motion
+                            .is_empty()
+                    );
+                    let mut client = game_client::core::game_client::GameClient::new().unwrap();
+                    client.bind_visual_world(gamelogic::helpers::ClientVisualHandle::new(
+                        Arc::clone(&source.world_services),
+                    ));
+                    saves
+                        .save_game_with_client_save_state_and_native_terrain(
+                            "owned_services",
+                            &source,
+                            Default::default(),
+                            &mut client,
+                            &save_info("owned_services", map_name.clone()),
+                            Default::default(),
+                            Some(&visual),
+                        )
+                        .unwrap();
+                    observed
+                };
+                #[cfg(not(feature = "game_client"))]
                 saves
                     .save_game(
                         "owned_services",
@@ -1416,7 +1530,9 @@ fn main_services_start_and_stage_leave_foreign_core_ai_installed() {
                     saved_game_mode,
                     ..
                 } = saves.load_game_snapshot("owned_services").unwrap();
-                let failure = CnCGameEngine::stage_decoded_saved_world_for_restore(
+                let mut failed_native =
+                    super::super::map_native_admission::NativeMapCandidate::default();
+                let failure = CnCGameEngine::stage_decoded_saved_world_for_restore_with_native(
                     &snapshot,
                     info,
                     saved_game_mode,
@@ -1431,6 +1547,7 @@ fn main_services_start_and_stage_leave_foreign_core_ai_installed() {
                     source.ai_definitions.baseline(),
                     source.production_energy_baseline(),
                     source.physics_rules_baseline(),
+                    source.effective_terrain_definitions(),
                     source.session_view.camera.settings,
                     source.session_view.camera.clip_policy,
                     source.session_view.camera.shake_policy,
@@ -1445,9 +1562,37 @@ fn main_services_start_and_stage_leave_foreign_core_ai_installed() {
                         ));
                         Err("owned-service rollback witness".into())
                     },
+                    failed_native.receiver(),
                 );
                 assert!(matches!(failure, Err(ref error) if error.contains("rollback witness")));
+                #[cfg(feature = "game_client")]
+                assert_eq!(
+                    failed_native.raw_height_for_test(1, 1),
+                    Some(40),
+                    "rejected native candidate is detached from receiving saved raw7"
+                );
                 assert!(source.isInGame());
+                assert!(
+                    source
+                        .world_services
+                        .terrain()
+                        .read()
+                        .unwrap()
+                        .water_grid_state()
+                        .mesh_motion
+                        .is_empty(),
+                    "failed detached stage leaves receiving logical water unchanged"
+                );
+                assert_eq!(
+                    source
+                        .world_services
+                        .terrain()
+                        .read()
+                        .unwrap()
+                        .logic_height_map_bytes(),
+                    saved_heights.as_slice(),
+                    "failed staged restore cannot change receiving saved heights"
+                );
                 assert_eq!(
                     source.logic_random.seed_words(),
                     saved_rng,
@@ -1471,6 +1616,7 @@ fn main_services_start_and_stage_leave_foreign_core_ai_installed() {
                     source.ai_definitions.baseline(),
                     source.production_energy_baseline(),
                     source.physics_rules_baseline(),
+                    source.effective_terrain_definitions(),
                     source.session_view.camera.settings,
                     source.session_view.camera.clip_policy,
                     source.session_view.camera.shake_policy,
@@ -1480,6 +1626,40 @@ fn main_services_start_and_stage_leave_foreign_core_ai_installed() {
                 )
                 .expect("successful native owned-service staging");
                 assert!(staged.logic.isInGame());
+                assert_eq!(
+                    &**staged.logic.effective_terrain_definitions(),
+                    &**source.effective_terrain_definitions(),
+                    "actual encoded save staging carries the receiving current immutable Terrain catalog"
+                );
+                assert_eq!(
+                    staged
+                        .logic
+                        .world_services
+                        .terrain()
+                        .read()
+                        .unwrap()
+                        .logic_height_map_bytes(),
+                    saved_heights.as_slice()
+                );
+                #[cfg(feature = "game_client")]
+                assert_eq!(
+                    staged.native_map.raw_height_for_test(1, 1),
+                    Some(7),
+                    "same detached native owner must contain final saved raw7, not authored raw40, before install"
+                );
+                #[cfg(feature = "game_client")]
+                assert_eq!(
+                    staged
+                        .logic
+                        .world_services
+                        .terrain()
+                        .read()
+                        .unwrap()
+                        .water_grid_state()
+                        .mesh_motion,
+                    saved_native_water.mesh_motion,
+                    "actual native archive retains receiving water motion through map staging"
+                );
                 assert_eq!(staged.logic.logic_base_seed, 0x5EED_A001);
                 assert_eq!(staged.logic.logic_random.seed_words(), saved_rng);
                 assert!(!Arc::ptr_eq(

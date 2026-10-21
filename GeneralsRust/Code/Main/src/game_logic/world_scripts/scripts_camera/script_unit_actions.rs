@@ -14,6 +14,13 @@ impl GameLogic {
     /// Leftover `OBJECT_REGISTRY` is empty on the host path; leftover actions
     /// queue [`gamelogic::scripting::HostScriptMoveAttackRequest`].
     pub(super) fn apply_host_move_attack_script_requests(&mut self) {
+        self.apply_host_move_attack_script_requests_with_effects(&mut Default::default())
+    }
+
+    pub(super) fn apply_host_move_attack_script_requests_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         use gamelogic::scripting::HostScriptMoveAttackRequest;
         for req in gamelogic::scripting::take_host_script_move_attack_requests() {
             match req {
@@ -55,7 +62,7 @@ impl GameLogic {
                         continue;
                     };
                     let _ = self.apply_unit_locomotor_set(id, "normal");
-                    self.host_script_attack_area(id, &area);
+                    self.host_script_attack_area_with_effects(id, &area, effects);
                 }
                 HostScriptMoveAttackRequest::NamedAttackTeam { unit, team } => {
                     let Some(id) = self.host_object_id_by_script_name(&unit) else {
@@ -67,7 +74,7 @@ impl GameLogic {
                 HostScriptMoveAttackRequest::TeamAttackArea { team, area } => {
                     let members = self.host_script_team_member_ids(&team);
                     for id in members {
-                        self.host_script_attack_area(id, &area);
+                        self.host_script_attack_area_with_effects(id, &area, effects);
                     }
                 }
                 HostScriptMoveAttackRequest::TeamAttackNamed { team, unit } => {
@@ -197,6 +204,13 @@ impl GameLogic {
     /// Leftover `OBJECT_REGISTRY` is empty on the host path; leftover actions
     /// queue [`gamelogic::scripting::HostScriptIdleRequest`] (`aiIdle` / `groupIdle`).
     pub(super) fn apply_host_idle_script_requests(&mut self) {
+        self.apply_host_idle_script_requests_with_effects(&mut Default::default())
+    }
+
+    pub(super) fn apply_host_idle_script_requests_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         use gamelogic::scripting::HostScriptIdleRequest;
         for req in gamelogic::scripting::take_host_script_idle_requests() {
             match req {
@@ -204,10 +218,12 @@ impl GameLogic {
                     let Some(id) = self.host_object_id_by_script_name(&unit) else {
                         continue;
                     };
-                    let _ = self.unit_command_stop(id);
+                    let _ = self.unit_command_stop_with_effects(id, effects);
                 }
                 HostScriptIdleRequest::TeamStop { team, disband } => {
-                    if let Err(error) = self.apply_owned_team_stop(&team, None, None, disband) {
+                    if let Err(error) =
+                        self.apply_owned_team_stop_with_effects(&team, None, None, disband, effects)
+                    {
                         log::warn!("Owned team stop failed for {team}: {error}");
                     }
                 }
@@ -774,23 +790,34 @@ impl GameLogic {
     /// Leftover `OBJECT_REGISTRY` is empty on the host path; leftover actions
     /// queue [`gamelogic::scripting::HostScriptKillDeleteDamageRequest`].
     pub(super) fn apply_host_kill_delete_damage_script_requests(&mut self) {
+        self.apply_host_kill_delete_damage_script_requests_with_effects(&mut Default::default())
+    }
+
+    pub(super) fn apply_host_kill_delete_damage_script_requests_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         use crate::game_logic::KindOf;
         use gamelogic::scripting::HostScriptKillDeleteDamageRequest;
         for req in gamelogic::scripting::take_host_script_kill_delete_damage_requests() {
             match req {
                 HostScriptKillDeleteDamageRequest::NamedDelete { unit } => {
                     if let Some(id) = self.host_object_id_by_script_name(&unit) {
-                        self.destroy_object(id);
+                        self.destroy_object_with_effects(id, effects);
                     }
                 }
                 HostScriptKillDeleteDamageRequest::NamedKill { unit } => {
                     if let Some(id) = self.host_object_id_by_script_name(&unit) {
-                        self.host_script_kill_object(id);
+                        self.host_script_kill_object_with_effects(id, effects);
                     }
                 }
                 HostScriptKillDeleteDamageRequest::NamedDamage { unit, amount } => {
                     if let Some(id) = self.host_object_id_by_script_name(&unit) {
-                        self.host_script_apply_unresistable(id, amount as f32);
+                        self.host_script_apply_unresistable_with_effects(
+                            id,
+                            amount as f32,
+                            effects,
+                        );
                     }
                 }
                 HostScriptKillDeleteDamageRequest::TeamDelete { team, ignore_dead } => {
@@ -805,7 +832,7 @@ impl GameLogic {
                                 continue;
                             }
                         }
-                        self.destroy_object(id);
+                        self.destroy_object_with_effects(id, effects);
                     }
                 }
                 HostScriptKillDeleteDamageRequest::TeamKill { team } => {
@@ -821,7 +848,7 @@ impl GameLogic {
                             }
                             continue;
                         }
-                        self.host_script_kill_object(id);
+                        self.host_script_kill_object_with_effects(id, effects);
                     }
                 }
                 HostScriptKillDeleteDamageRequest::TeamDamage { team, amount } => {
@@ -837,9 +864,9 @@ impl GameLogic {
                         // CPP Team::damageTeamMembers2461 distinguishes kill;
                         // NamedDamage forwards the signed amount unchanged.
                         if amount < 0.0 {
-                            self.host_script_kill_object(id);
+                            self.host_script_kill_object_with_effects(id, effects);
                         } else {
-                            self.host_script_apply_unresistable(id, amount);
+                            self.host_script_apply_unresistable_with_effects(id, amount, effects);
                         }
                     }
                 }
@@ -860,7 +887,7 @@ impl GameLogic {
                     occupants.sort_by_key(|id| id.0);
                     occupants.dedup();
                     for occ in occupants {
-                        self.host_script_kill_object(occ);
+                        self.host_script_kill_object_with_effects(occ, effects);
                     }
                     if let Some(obj) = self.host_object_mut(container) {
                         if let Some(building) = obj.building_data.as_mut() {
@@ -875,10 +902,19 @@ impl GameLogic {
 
     /// CPP Object::kill uses a max-health input and m_kill, with invalid source.
     pub(super) fn host_script_kill_object(&mut self, id: ObjectId) {
-        let _ = self.apply_owned_kill(
+        self.host_script_kill_object_with_effects(id, &mut Default::default())
+    }
+
+    pub(super) fn host_script_kill_object_with_effects(
+        &mut self,
+        id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
+        let _ = self.apply_owned_kill_with_effects(
             id,
             crate::game_logic::combat::DamageType::Unresistable,
             crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+            effects,
         );
     }
 
@@ -888,6 +924,23 @@ impl GameLogic {
         amount: f32,
         kill: bool,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+    ) {
+        self.host_script_damage_with_interpreter_with_effects(
+            id,
+            amount,
+            kill,
+            interpreter,
+            &mut Default::default(),
+        )
+    }
+
+    pub(crate) fn host_script_damage_with_interpreter_with_effects(
+        &mut self,
+        id: ObjectId,
+        amount: f32,
+        kill: bool,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         let context = if kill {
             crate::game_logic::object::DamageHitContext::for_kill()
@@ -908,7 +961,7 @@ impl GameLogic {
         } else {
             amount
         };
-        self.apply_owned_damage(
+        self.apply_owned_damage_with_effects(
             id,
             amount,
             None,
@@ -916,13 +969,23 @@ impl GameLogic {
             crate::game_logic::host_usa_pilot::HostDeathType::Normal,
             None,
             &context,
+            effects,
         );
     }
 
     /// CPP attemptDamage UNRESISTABLE with the original signed amount.
     pub(super) fn host_script_apply_unresistable(&mut self, id: ObjectId, amount: f32) {
+        self.host_script_apply_unresistable_with_effects(id, amount, &mut Default::default())
+    }
+
+    pub(super) fn host_script_apply_unresistable_with_effects(
+        &mut self,
+        id: ObjectId,
+        amount: f32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let context = crate::game_logic::object::DamageHitContext::default();
-        let _ = self.apply_owned_damage(
+        let _ = self.apply_owned_damage_with_effects(
             id,
             amount,
             None,
@@ -930,6 +993,7 @@ impl GameLogic {
             crate::game_logic::host_usa_pilot::HostDeathType::Normal,
             None,
             &context,
+            effects,
         );
     }
 
@@ -1088,6 +1152,13 @@ impl GameLogic {
     /// C++ ScriptActions NAMED/TEAM FACE_NAMED / FACE_WAYPOINT live drain.
     /// Leftover queues [`gamelogic::scripting::HostScriptFaceRequest`].
     pub(super) fn apply_host_face_script_requests(&mut self) {
+        self.apply_host_face_script_requests_with_effects(&mut Default::default())
+    }
+
+    pub(super) fn apply_host_face_script_requests_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         use gamelogic::scripting::HostScriptFaceRequest;
         for req in gamelogic::scripting::take_host_script_face_requests() {
             match req {
@@ -1107,7 +1178,7 @@ impl GameLogic {
                     let Some(pos) = self.host_script_waypoint_position(&waypoint) else {
                         continue;
                     };
-                    self.host_script_face_unit(id, pos);
+                    self.host_script_face_unit_with_effects(id, pos, effects);
                 }
                 HostScriptFaceRequest::TeamFaceNamed { team, target } => {
                     let Some(tid) = self.host_object_id_by_script_name(&target) else {
@@ -1121,7 +1192,7 @@ impl GameLogic {
                         continue;
                     };
                     for id in self.host_script_team_member_ids(&team) {
-                        self.host_script_face_unit(id, pos);
+                        self.host_script_face_unit_with_effects(id, pos, effects);
                     }
                 }
                 HostScriptFaceRequest::TeamFaceWaypoint { team, waypoint } => {
@@ -1129,7 +1200,7 @@ impl GameLogic {
                         continue;
                     };
                     for id in self.host_script_team_member_ids(&team) {
-                        self.host_script_face_unit(id, pos);
+                        self.host_script_face_unit_with_effects(id, pos, effects);
                     }
                 }
             }
@@ -1139,7 +1210,16 @@ impl GameLogic {
     /// C++ `clearWaypointQueue` + `leaveGroup` + `chooseLocomotorSet(NORMAL)` +
     /// `aiFacePosition` (`CMD_FROM_SCRIPT`).
     pub(super) fn host_script_face_unit(&mut self, id: ObjectId, pos: glam::Vec3) {
-        let _ = self.unit_command_stop(id);
+        self.host_script_face_unit_with_effects(id, pos, &mut Default::default())
+    }
+
+    pub(super) fn host_script_face_unit_with_effects(
+        &mut self,
+        id: ObjectId,
+        pos: glam::Vec3,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
+        let _ = self.unit_command_stop_with_effects(id, effects);
         let _ = self.apply_unit_locomotor_set(id, "normal");
         let _ = self.private_face_position(id, pos);
     }

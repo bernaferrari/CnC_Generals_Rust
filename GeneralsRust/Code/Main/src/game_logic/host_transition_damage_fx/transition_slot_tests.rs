@@ -220,6 +220,7 @@ fn native_transition_creates_and_retires_sparse_attachments_inline_without_repla
                 let mut bones = |_, _: &str, _, _| Vec::new();
                 let mut visible = |_: Option<&gamelogic::common::Coord3D>| true;
                 let mut view = game_client::fx_list::FxViewServices {
+                    add_scorch: &mut |_, _, _| {},
                     shake: &mut shake,
                     find_list: &mut find,
                     bone_transforms: &mut bones,

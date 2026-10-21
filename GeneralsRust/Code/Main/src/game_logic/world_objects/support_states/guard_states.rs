@@ -621,7 +621,11 @@ impl GameLogic {
 
     /// Return scans before its InternalMove succeeds, then exits movement and
     /// enters Idle exactly once. An absent/cancelled path is never arrival.
-    pub(super) fn finish_guard_return_if_arrived(&mut self, id: ObjectId) {
+    pub(super) fn finish_guard_return_if_arrived(
+        &mut self,
+        id: ObjectId,
+        effects: &mut ScriptPresentationEffects<'_>,
+    ) {
         // AIInternalMoveToState::update forces computePath when no shared
         // route remains. This is an update of the retained state, not entry:
         // its captured goal and enemy-scan deadline must survive quick exit.
@@ -670,7 +674,11 @@ impl GameLogic {
             .guard_target
             .and_then(|gid| self.objects.get(&gid).map(|g| g.get_position()));
         if ultra_snap {
-            self.objects.get_mut(&id).unwrap().set_position(goal);
+            let frame = self.frame;
+            self.objects
+                .get_mut(&id)
+                .unwrap()
+                .set_position_with_effects(goal, frame, effects);
         }
         self.apply_arrival_goal_snap(id, Some(goal));
         let deadline = self.guard_initial_scan_deadline(false);
@@ -691,6 +699,23 @@ impl GameLogic {
         hijack: bool,
         team: Team,
     ) -> bool {
+        self.try_guard_enter_or_hijack_with_effects(
+            object_id,
+            target_id,
+            hijack,
+            team,
+            &mut Default::default(),
+        )
+    }
+
+    pub(crate) fn try_guard_enter_or_hijack_with_effects(
+        &mut self,
+        object_id: ObjectId,
+        target_id: ObjectId,
+        hijack: bool,
+        team: Team,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
         if hijack {
             let legal = self.objects.get(&target_id).is_some_and(|t| {
                 t.is_alive()
@@ -706,9 +731,10 @@ impl GameLogic {
                 o.target = Some(target_id);
                 o.set_ai_state(AIState::SpecialAbility);
             }
-            self.queue_pending_special_ability(
+            self.queue_pending_special_ability_with_effects(
                 object_id,
                 crate::game_logic::PendingSpecialAbility::Hijack { target_id },
+                effects,
             );
             if let Some(pos) = pos {
                 self.path_approach_with_state_ignoring(

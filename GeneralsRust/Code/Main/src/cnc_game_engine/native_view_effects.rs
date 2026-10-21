@@ -110,8 +110,11 @@ impl CnCGameEngine {
                 &mut self.mmb_anchor,
                 frame,
             );
+            let (poses, terrain) = self
+                .render_pipeline
+                .borrow_native_installed_poses_and_terrain();
             let mut view = NativeRendererViewEffects::new(
-                self.render_pipeline.borrow_native_installed_poses(),
+                poses,
                 &mut self.graphics_system,
                 presence,
                 self.host_direct_visual_world_epoch,
@@ -120,6 +123,8 @@ impl CnCGameEngine {
             body(
                 &mut self.game_logic,
                 &mut crate::game_logic::ScriptPresentationEffects {
+                    terrain: terrain
+                        .map(|terrain| terrain as &mut dyn crate::game_logic::NativeTerrainEffects),
                     ui: None,
                     view: Some(&mut view),
                 },

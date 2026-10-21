@@ -9,6 +9,23 @@ impl GameLogic {
         slot: u8,
         origin: Vec3,
     ) -> bool {
+        self.fire_owned_passive_weapon_with_effects(
+            source,
+            target,
+            slot,
+            origin,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(in crate::game_logic) fn fire_owned_passive_weapon_with_effects(
+        &mut self,
+        source: ObjectId,
+        target: ObjectId,
+        slot: u8,
+        origin: Vec3,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
         let Some(victim) = self.objects.get(&target).filter(|o| o.is_alive()) else {
             return false;
         };
@@ -34,7 +51,7 @@ impl GameLogic {
             return false;
         };
         let capture = shooter.take_pending_weapon_visual_capture();
-        self.deliver_owned_weapon_shot(slot, shot, capture);
+        self.deliver_owned_weapon_shot_with_effects(slot, shot, capture, presentation_effects);
         true
     }
 }

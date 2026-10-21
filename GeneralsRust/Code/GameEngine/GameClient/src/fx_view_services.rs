@@ -6,6 +6,7 @@ use super::*;
 /// Catalog lookups return owned definitions so no catalog guard survives a
 /// nugget callback. BoneFX recursively uses these same receiving services.
 pub struct FxViewServices<'a> {
+    pub add_scorch: &'a mut dyn FnMut([f32; 3], f32, i32),
     pub shake: &'a mut dyn FnMut(&Coord3D, ViewShakeKind),
     pub find_list: &'a mut dyn FnMut(&str) -> Option<Arc<FXList>>,
     pub bone_transforms: &'a mut dyn FnMut(u32, &str, i32, usize) -> Vec<Matrix3D>,
@@ -30,7 +31,11 @@ pub(super) fn with_tactical_fx_view_services<R>(
             .map(|(_, matrix)| matrix)
             .collect()
     };
+    let mut add_scorch = |position, radius, kind| {
+        crate::terrain::scorch_mesh::add_terrain_scorch(position, radius, kind);
+    };
     run(&mut FxViewServices {
+        add_scorch: &mut add_scorch,
         shake: &mut shake,
         find_list: &mut find_list,
         bone_transforms: &mut bones,

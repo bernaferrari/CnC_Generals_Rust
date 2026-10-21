@@ -35,7 +35,7 @@ impl Default for WaterGridCpuState {
 pub struct WaterGridPointMotion {
     pub velocity: f32,
     pub preferred_height: f32,
-    pub in_motion: bool,
+    pub status: u8,
 }
 
 /// CPU record for C++ `addWaterVelocity`.

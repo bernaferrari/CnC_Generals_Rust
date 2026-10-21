@@ -72,12 +72,13 @@ impl CommandExecutor<'_> {
             );
             if !self
                 .game_logic
-                .move_objects_for_construction_with_candidates(
+                .move_objects_for_construction_with_candidates_with_effects(
                     template_name,
                     location,
                     orientation,
                     Some(builder),
                     Some(&collision_candidates),
+                    &mut self.ui,
                 )
                 && self.game_logic.player_is_human(self.current_player_id)
             {
@@ -107,7 +108,7 @@ impl CommandExecutor<'_> {
     }
     /// C++ `BuildAssistant::buildTiledLocations` (BuildAssistant.cpp:1090-1191).
     fn line_build_tiled_positions(
-        &self,
+        &mut self,
         builder_id: ObjectId,
         template_name: &str,
         start: Vec3,
@@ -154,12 +155,13 @@ impl CommandExecutor<'_> {
             );
             if !self
                 .game_logic
-                .is_location_legal_to_build_at_angle_for_builder(
+                .is_location_legal_to_build_at_angle_for_builder_with_effects(
                     team,
                     pos,
                     template_name,
                     orientation,
                     Some(builder_id),
+                    &mut self.ui,
                 )
             {
                 break;

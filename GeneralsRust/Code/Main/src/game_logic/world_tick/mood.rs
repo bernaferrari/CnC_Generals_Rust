@@ -483,6 +483,14 @@ impl GameLogic {
 
     /// C++ `AIUpdateInterface::resetNextMoodCheckTime` (AIUpdate.cpp:4443).
     pub(crate) fn apply_pending_idle_mood_reset(&mut self, unit_id: ObjectId) {
+        self.apply_pending_idle_mood_reset_with_effects(unit_id, &mut Default::default());
+    }
+
+    pub(crate) fn apply_pending_idle_mood_reset_with_effects(
+        &mut self,
+        unit_id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let pending = self.objects.get(&unit_id).is_some_and(|obj| {
             obj.idle_mood_reset_pending && matches!(obj.ai_state, AIState::Idle)
         });
@@ -544,7 +552,7 @@ impl GameLogic {
             if let Some(obj) = self.objects.get_mut(&unit_id) {
                 obj.pathfind_goal_cell = new_cell;
                 if let Some(goal) = goal {
-                    obj.set_position(goal);
+                    obj.set_position_with_effects(goal, self.frame, effects);
                     snapped = Some((
                         obj.get_position(),
                         obj.selection_radius,

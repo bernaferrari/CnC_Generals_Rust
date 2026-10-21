@@ -184,6 +184,19 @@ impl Object {
 
     /// Tick jet crash. `terrain_height` world Y of ground.
     pub fn tick_jet_slow_death(&mut self, current_frame: u32, terrain_height: f32) -> bool {
+        self.tick_jet_slow_death_with_effects(
+            current_frame,
+            terrain_height,
+            &mut Default::default(),
+        )
+    }
+
+    pub(crate) fn tick_jet_slow_death_with_effects(
+        &mut self,
+        current_frame: u32,
+        terrain_height: f32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
         let pos = self.get_position();
         let hat = (pos.y - terrain_height).max(0.0);
         let ori = self.get_orientation();
@@ -197,7 +210,7 @@ impl Object {
         let ev = j.take_pending_effects();
         let mut np = pos;
         np.y = (np.y + dy).max(terrain_height);
-        self.set_position(np);
+        self.set_position_with_effects(np, current_frame, effects);
         self.set_orientation(ori + d_roll);
         self.apply_jet_death_phase(ev);
         if done {
@@ -300,6 +313,19 @@ impl Object {
 
     /// Returns true when heli crash finished and should destroy.
     pub fn tick_helicopter_slow_death(&mut self, current_frame: u32, terrain_height: f32) -> bool {
+        self.tick_helicopter_slow_death_with_effects(
+            current_frame,
+            terrain_height,
+            &mut Default::default(),
+        )
+    }
+
+    pub(crate) fn tick_helicopter_slow_death_with_effects(
+        &mut self,
+        current_frame: u32,
+        terrain_height: f32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
         let pos = self.get_position();
         let hat = (pos.y - terrain_height).max(0.0);
         let ori = self.get_orientation();
@@ -315,7 +341,7 @@ impl Object {
         np.x += dx;
         np.y = (np.y + dy).max(terrain_height);
         np.z += dz;
-        self.set_position(np);
+        self.set_position_with_effects(np, current_frame, effects);
         self.set_orientation(ori + dori);
         if done {
             // Final phase reports completion; destroyObject owns admission.

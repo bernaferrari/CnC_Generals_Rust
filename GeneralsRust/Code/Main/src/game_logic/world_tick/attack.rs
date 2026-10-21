@@ -159,6 +159,21 @@ impl GameLogic {
         current_time: f32,
         logic_frame: u32,
     ) {
+        self.tick_nested_attack_machines_with_effects(
+            object_ids,
+            current_time,
+            logic_frame,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn tick_nested_attack_machines_with_effects(
+        &mut self,
+        object_ids: &[ObjectId],
+        current_time: f32,
+        logic_frame: u32,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let mut stop: Vec<ObjectId> = Vec::new();
         for &id in object_ids {
             let (drive, victim) = {
@@ -196,7 +211,14 @@ impl GameLogic {
             if !drive {
                 continue;
             }
-            match self.tick_attack_state_machine(id, victim, current_time, logic_frame, 0.35) {
+            match self.tick_attack_state_machine_with_effects(
+                id,
+                victim,
+                current_time,
+                logic_frame,
+                0.35,
+                presentation_effects,
+            ) {
                 AttackMachineResult::Continue => {}
                 AttackMachineResult::Success | AttackMachineResult::Failure => {
                     stop.push(id);
@@ -349,6 +371,25 @@ impl GameLogic {
         logic_frame: u32,
         max_turn_rad: f32,
     ) -> AttackMachineResult {
+        self.tick_attack_state_machine_with_effects(
+            unit_id,
+            victim_id,
+            current_time,
+            logic_frame,
+            max_turn_rad,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn tick_attack_state_machine_with_effects(
+        &mut self,
+        unit_id: ObjectId,
+        victim_id: ObjectId,
+        current_time: f32,
+        logic_frame: u32,
+        max_turn_rad: f32,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> AttackMachineResult {
         {
             let Some(u) = self.objects.get(&unit_id) else {
                 return AttackMachineResult::Failure;
@@ -456,7 +497,12 @@ impl GameLogic {
                     let _ = self.attack_approach_compute_path(unit_id, Some(victim_id), None);
                     return AttackMachineResult::Continue;
                 }
-                let fire = self.attack_fire_weapon_update(unit_id, victim_id, current_time);
+                let fire = self.attack_fire_weapon_update_with_effects(
+                    unit_id,
+                    victim_id,
+                    current_time,
+                    presentation_effects,
+                );
                 match fire {
                     AttackFireResult::Continue => {
                         // PRE_ATTACK wind-up — stay in FIRE.
@@ -843,7 +889,12 @@ impl GameLogic {
         }
     }
 
-    fn apply_turret_rotate_fx(&mut self, unit_id: ObjectId, prev_angle_deg: f32) {
+    fn apply_turret_rotate_fx(
+        &mut self,
+        unit_id: ObjectId,
+        prev_angle_deg: f32,
+        presentation_effects: &mut ScriptPresentationEffects<'_>,
+    ) {
         let (rotating, angle_deg, pitch_sound, pos, occupants, keep_loop, template_name) = {
             let Some(u) = self.objects.get(&unit_id) else {
                 return;
@@ -923,9 +974,10 @@ impl GameLogic {
         }
         // C++ Object::reactToTurretChange → Contain::containReactToTransformChange.
         if (angle_deg - prev_angle_deg).abs() > 0.01 {
+            let frame = self.frame;
             for pid in occupants {
                 if let Some(p) = self.objects.get_mut(&pid) {
-                    p.set_position(pos);
+                    p.set_position_with_effects(pos, frame, presentation_effects);
                 }
             }
         }
@@ -937,6 +989,21 @@ impl GameLogic {
         unit_id: ObjectId,
         current_time: f32,
         logic_frame: u32,
+    ) -> AttackAimResult {
+        self.tick_turret_state_machine_with_effects(
+            unit_id,
+            current_time,
+            logic_frame,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn tick_turret_state_machine_with_effects(
+        &mut self,
+        unit_id: ObjectId,
+        current_time: f32,
+        logic_frame: u32,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> AttackAimResult {
         use crate::game_logic::object::TurretSubState;
 
@@ -1257,9 +1324,17 @@ impl GameLogic {
                             ) || u.is_kind_of(KindOf::FSStrategyCenter))
                     });
                     let fire = if strategy_mood {
-                        self.try_strategy_center_bombardment_turret_fire(unit_id)
+                        self.try_strategy_center_bombardment_turret_fire_with_effects(
+                            unit_id,
+                            presentation_effects,
+                        )
                     } else {
-                        self.attack_fire_weapon_update(unit_id, vid, current_time)
+                        self.attack_fire_weapon_update_with_effects(
+                            unit_id,
+                            vid,
+                            current_time,
+                            presentation_effects,
+                        )
                     };
                     match fire {
                         AttackFireResult::Continue => AttackAimResult::Continue,
@@ -1377,7 +1452,7 @@ impl GameLogic {
                 }
             }
         };
-        self.apply_turret_rotate_fx(unit_id, prev_angle);
+        self.apply_turret_rotate_fx(unit_id, prev_angle, presentation_effects);
         result
     }
 
@@ -1387,6 +1462,21 @@ impl GameLogic {
         object_ids: &[ObjectId],
         current_time: f32,
         logic_frame: u32,
+    ) {
+        self.tick_all_turret_state_machines_with_effects(
+            object_ids,
+            current_time,
+            logic_frame,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn tick_all_turret_state_machines_with_effects(
+        &mut self,
+        object_ids: &[ObjectId],
+        current_time: f32,
+        logic_frame: u32,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         use crate::game_logic::object::TurretSubState;
         for &id in object_ids {
@@ -1405,7 +1495,12 @@ impl GameLogic {
                 })
                 .unwrap_or(false);
             if should {
-                let _ = self.tick_turret_state_machine(id, current_time, logic_frame);
+                let _ = self.tick_turret_state_machine_with_effects(
+                    id,
+                    current_time,
+                    logic_frame,
+                    presentation_effects,
+                );
             }
         }
     }
@@ -1763,6 +1858,21 @@ impl GameLogic {
         victim_id: ObjectId,
         current_time: f32,
     ) -> AttackFireResult {
+        self.attack_fire_weapon_update_with_effects(
+            unit_id,
+            victim_id,
+            current_time,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn attack_fire_weapon_update_with_effects(
+        &mut self,
+        unit_id: ObjectId,
+        victim_id: ObjectId,
+        current_time: f32,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> AttackFireResult {
         // Snapshot checks without holding mut.
         let (alive, can_fire_now, pre_continue, in_range) = {
             let Some(atk) = self.objects.get(&unit_id) else {
@@ -1854,7 +1964,12 @@ impl GameLogic {
                 .objects
                 .get_mut(&unit_id)
                 .and_then(Object::take_pending_weapon_visual_capture);
-            if !self.deliver_owned_weapon_shot(slot, shot, capture) {
+            if !self.deliver_owned_weapon_shot_with_effects(
+                slot,
+                shot,
+                capture,
+                presentation_effects,
+            ) {
                 if let Some(unit) = self.objects.get_mut(&unit_id) {
                     unit.advance_weapon_barrel_after_shot(slot);
                 }

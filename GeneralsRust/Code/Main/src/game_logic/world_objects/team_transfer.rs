@@ -54,6 +54,15 @@ impl GameLogic {
         id: ObjectId,
         requested: u32,
     ) -> bool {
+        self.set_host_object_team_with_effects(id, requested, &mut Default::default())
+    }
+
+    pub(in crate::game_logic) fn set_host_object_team_with_effects(
+        &mut self,
+        id: ObjectId,
+        requested: u32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
         let Some(old) = self.objects.get(&id) else {
             return false;
         };
@@ -160,11 +169,17 @@ impl GameLogic {
         }
         object.apply_fake_building_terrain_decal();
         if old_identity.is_some() {
-            self.on_capture_object_owned(id, old_faction, faction, old_owner != Some(owner));
+            self.on_capture_object_owned_with_effects(
+                id,
+                old_faction,
+                faction,
+                old_owner != Some(owner),
+                effects,
+            );
         }
         if self.radar.contains_object(id.0) {
             self.host_radar_remove_object(id);
-            self.host_radar_add_object(id);
+            self.host_radar_add_object_with_effects(id, effects);
         }
         if old_owner != Some(owner) || old_faction != faction {
             self.ownership_events.record(id, faction, Some(owner));
@@ -179,6 +194,16 @@ impl GameLogic {
         id: ObjectId,
         destination: u32,
         frames: u32,
+    ) -> bool {
+        self.defect_host_object_with_effects(id, destination, frames, &mut Default::default())
+    }
+
+    pub(in crate::game_logic) fn defect_host_object_with_effects(
+        &mut self,
+        id: ObjectId,
+        destination: u32,
+        frames: u32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> bool {
         let Some(object) = self.objects.get(&id) else {
             return false;
@@ -219,7 +244,7 @@ impl GameLogic {
             .get_mut(&id)
             .expect("admitted defector")
             .begin_undetected_defection(self.frame, frames, true);
-        if !self.set_host_object_team(id, destination) {
+        if !self.set_host_object_team_with_effects(id, destination, effects) {
             return false;
         }
         if let Some(object) = self.objects.get_mut(&id) {
@@ -259,8 +284,8 @@ impl GameLogic {
             .with_priority(160),
         );
         let faction = self.objects.get(&id).expect("receiving defector").team;
-        self.on_defect_kick_passengers_owned(id, faction);
-        self.defect_parked_units_owned(id, destination, frames);
+        self.on_defect_kick_passengers_owned_with_effects(id, faction, effects);
+        self.defect_parked_units_owned_with_effects(id, destination, frames, effects);
         // Object.cpp:6203 visits produced mines in the canonical Object list.
         let mines: Vec<_> = self
             .objects
@@ -274,7 +299,7 @@ impl GameLogic {
             })
             .collect();
         for mine in mines {
-            self.set_host_object_team(mine, destination);
+            self.set_host_object_team_with_effects(mine, destination, effects);
         }
         true
     }

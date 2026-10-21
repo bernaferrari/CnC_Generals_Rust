@@ -50,6 +50,21 @@ impl GameLogic {
         pos: Vec3,
         ocl_name: &str,
     ) -> Vec<ObjectId> {
+        self.spawn_fire_spread_embers_with_effects(
+            source_id,
+            pos,
+            ocl_name,
+            &mut Default::default(),
+        )
+    }
+
+    pub(crate) fn spawn_fire_spread_embers_with_effects(
+        &mut self,
+        source_id: ObjectId,
+        pos: Vec3,
+        ocl_name: &str,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> Vec<ObjectId> {
         use crate::game_logic::host_fire_spread::TREE_OCL_EMBERS;
         let ocl = if ocl_name.is_empty() {
             TREE_OCL_EMBERS
@@ -61,7 +76,7 @@ impl GameLogic {
             .get(&source_id)
             .map(|o| (o.team, o.get_orientation(), o.movement.velocity))
             .unwrap_or((crate::game_logic::Team::Neutral, 0.0, Vec3::ZERO));
-        let created = self.execute_parsed_weapon_ocl_at(
+        let created = self.execute_parsed_weapon_ocl_at_with_effects(
             ocl,
             Some(source_id),
             team,
@@ -69,6 +84,7 @@ impl GameLogic {
             yaw,
             vel,
             pos,
+            effects,
         );
         let _ = self.combat_particles.spawn_weapon_fire_fx_named_ocl(
             pos, None, self.frame, source_id, None, "", "", ocl, "", 0.0, 0.0,
@@ -80,7 +96,9 @@ impl GameLogic {
                 tpl.set_health(1.0);
                 self.templates.insert(EMBER_TEMPLATE.to_string(), tpl);
             }
-            if let Some(id) = self.create_object(EMBER_TEMPLATE, team, pos) {
+            if let Some(id) =
+                self.create_object_with_script_effects(EMBER_TEMPLATE, team, pos, None, effects)
+            {
                 if let Some(obj) = self.objects.get_mut(&id) {
                     obj.producer_id = Some(source_id);
                     if obj.native_lifecycle.is_none() {

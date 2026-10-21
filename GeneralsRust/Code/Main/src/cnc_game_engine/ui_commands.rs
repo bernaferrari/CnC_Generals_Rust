@@ -1179,44 +1179,63 @@ impl CnCGameEngine {
         #[cfg(feature = "game_client")]
         let mut last_load_screen_progress = None::<(f32, String)>;
 
+        let mut native_candidate = super::map_native_admission::NativeMapCandidate::default();
+        let native = native_candidate.receiver();
         let loaded = if self.game_logic.game_mode() == GameMode::Shell {
             self.game_logic
-                .load_map(map_name)
+                .load_map_with_progress_and_native(map_name, |_, _| {}, native)
                 .then(|| map_name.to_owned())
         } else if self.game_logic.game_mode() == GameMode::Replay {
             self.game_logic
-                .load_recorded_map_with_progress(map_name, |progress, phase| {
-                    #[cfg(feature = "game_client")]
-                    if let Some(kind) = active_load_screen {
-                        let progress = progress.clamp(0.0, 1.0);
-                        Self::pump_cpp_load_screen_progress(kind, progress, phase);
-                        last_load_screen_progress = Some((progress, phase.to_string()));
-                    }
-                    #[cfg(not(feature = "game_client"))]
-                    let _ = (progress, phase);
-                })
+                .load_map_with_progress_and_native(
+                    map_name,
+                    |progress, phase| {
+                        #[cfg(feature = "game_client")]
+                        if let Some(kind) = active_load_screen {
+                            let progress = progress.clamp(0.0, 1.0);
+                            Self::pump_cpp_load_screen_progress(kind, progress, phase);
+                            last_load_screen_progress = Some((progress, phase.to_string()));
+                        }
+                        #[cfg(not(feature = "game_client"))]
+                        let _ = (progress, phase);
+                    },
+                    native,
+                )
+                .then(|| map_name.to_owned())
         } else {
             #[cfg(feature = "game_client")]
             {
                 if let Some(kind) = active_load_screen {
-                    self.game_logic.load_map_or_fallback_with_progress(
-                        map_name,
-                        DEFAULT_SKIRMISH_MAP,
-                        |progress, phase| {
-                            let progress = progress.clamp(0.0, 1.0);
-                            Self::pump_cpp_load_screen_progress(kind, progress, phase);
-                            last_load_screen_progress = Some((progress, phase.to_string()));
-                        },
-                    )
+                    self.game_logic
+                        .load_map_or_fallback_with_progress_and_native(
+                            map_name,
+                            DEFAULT_SKIRMISH_MAP,
+                            |progress, phase| {
+                                let progress = progress.clamp(0.0, 1.0);
+                                Self::pump_cpp_load_screen_progress(kind, progress, phase);
+                                last_load_screen_progress = Some((progress, phase.to_string()));
+                            },
+                            native,
+                        )
                 } else {
                     self.game_logic
-                        .load_map_or_fallback(map_name, DEFAULT_SKIRMISH_MAP)
+                        .load_map_or_fallback_with_progress_and_native(
+                            map_name,
+                            DEFAULT_SKIRMISH_MAP,
+                            |_, _| {},
+                            native,
+                        )
                 }
             }
             #[cfg(not(feature = "game_client"))]
             {
                 self.game_logic
-                    .load_map_or_fallback(map_name, DEFAULT_SKIRMISH_MAP)
+                    .load_map_or_fallback_with_progress_and_native(
+                        map_name,
+                        DEFAULT_SKIRMISH_MAP,
+                        |_, _| {},
+                        native,
+                    )
             }
         };
 
@@ -1269,6 +1288,7 @@ impl CnCGameEngine {
         #[cfg(feature = "game_client")]
         self.game_client.invalidate_presentation_drawable_world();
         self.render_pipeline.invalidate_world_visual_state();
+        native_candidate.install(&mut self.render_pipeline);
         self.invalidate_presentation_terrain_cache();
         if loaded != map_name {
             warn!(
@@ -1408,8 +1428,12 @@ impl CnCGameEngine {
         )
         .with_cinematic_input(cinematic_input);
         #[cfg(feature = "game_client")]
+        let (poses, terrain) = self
+            .render_pipeline
+            .borrow_native_installed_poses_and_terrain();
+        #[cfg(feature = "game_client")]
         let mut view = super::native_view_effects::NativeRendererViewEffects::new(
-            self.render_pipeline.borrow_native_installed_poses(),
+            poses,
             &mut self.graphics_system,
             presence,
             self.host_direct_visual_world_epoch,
@@ -1417,6 +1441,8 @@ impl CnCGameEngine {
         );
         #[cfg(feature = "game_client")]
         let mut effects = crate::game_logic::ScriptPresentationEffects {
+            terrain: terrain
+                .map(|terrain| terrain as &mut dyn crate::game_logic::NativeTerrainEffects),
             ui: Some(&mut ui),
             view: Some(&mut view),
         };

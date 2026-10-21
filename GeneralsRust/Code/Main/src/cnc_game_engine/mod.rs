@@ -270,3 +270,5 @@ mod replay_window;
 mod replay_probe_paths;
 #[cfg(all(feature = "internal", not(target_arch = "wasm32")))]
 pub use replay_probe_paths::prepare_replay_probe_private_paths;
+
+mod map_native_admission;

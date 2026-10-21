@@ -564,6 +564,7 @@ pub mod parity_test_support {
 pub(crate) use crate::presentation_frame::camera::ScriptCameraShaker;
 
 pub(crate) struct StartupLoadResult {
+    pub(crate) native_map: super::map_native_admission::NativeMapCandidate,
     pub(crate) default_starting_cash: u32,
     pub(crate) game_logic: GameLogic,
     pub(crate) loaded_map_name: Option<String>,

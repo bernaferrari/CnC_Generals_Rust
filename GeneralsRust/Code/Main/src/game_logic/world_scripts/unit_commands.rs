@@ -504,13 +504,31 @@ impl GameLogic {
     /// rider (`AIUpdate.cpp:3067-3090`) so Humvee/Chinook Stop parks
     /// PassengersAllowedToFire infantry.
     pub fn unit_command_stop(&mut self, id: ObjectId) -> bool {
-        self.unit_command_stop_with_source(
+        self.unit_command_stop_with_effects(id, &mut Default::default())
+    }
+
+    pub(crate) fn unit_command_stop_with_effects(
+        &mut self,
+        id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
+        self.unit_command_stop_with_source_with_effects(
             id,
             crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_PLAYER,
+            effects,
         )
     }
 
     pub(crate) fn unit_command_stop_with_source(&mut self, id: ObjectId, source: u32) -> bool {
+        self.unit_command_stop_with_source_with_effects(id, source, &mut Default::default())
+    }
+
+    pub(crate) fn unit_command_stop_with_source_with_effects(
+        &mut self,
+        id: ObjectId,
+        source: u32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
         // C++ AIGroup::groupIdle / AICommandInterface::idle: stop clears the
         // latched target and guard anchors up front, then runs the idle state.
         if let Some(unit) = self.objects.get_mut(&id) {
@@ -528,25 +546,34 @@ impl GameLogic {
             .filter(|unit| !unit.is_kind_of(KindOf::Projectile))
             .map(|unit| unit.contained_units())
             .unwrap_or_default();
-        let ok = self.unit_command_stop_self(id);
+        let ok = self.unit_command_stop_self_with_effects(id, effects);
         if ok {
             for occ in occupants {
                 if occ != id {
-                    let _ = self.unit_command_stop_with_source(occ, source);
+                    let _ = self.unit_command_stop_with_source_with_effects(occ, source, effects);
                 }
             }
         }
         ok
     }
     fn unit_command_stop_self(&mut self, id: ObjectId) -> bool {
+        self.unit_command_stop_self_with_effects(id, &mut Default::default())
+    }
+
+    fn unit_command_stop_self_with_effects(
+        &mut self,
+        id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
         // C++ AssaultTransportAIUpdate AICMD_IDLE: retrieveMembers then reset.
         self.assault_transport_on_player_idle(id);
         self.drop_jet_targeters_on_attack_exit(id);
-        if self.flight_deck_ai_do_command(
+        if self.flight_deck_ai_do_command_with_effects(
             id,
             crate::game_logic::host_flight_deck::HostFlightDeckCommand::Idle,
             None,
             None,
+            effects,
         ) {
             return true;
         }
@@ -577,7 +604,7 @@ impl GameLogic {
                 unit.return_to_base_requested = true;
                 unit.jet_ai.allow_interrupt_for_reload = false;
             }
-            let _ = self.try_return_to_base_rearm(id);
+            let _ = self.try_return_to_base_rearm_with_effects(id, effects);
             return true;
         }
         let Some(unit) = self.objects.get_mut(&id) else {
@@ -604,12 +631,22 @@ impl GameLogic {
     }
 
     pub fn unit_command_guard_position(&mut self, id: ObjectId, pos: glam::Vec3) -> bool {
+        self.unit_command_guard_position_with_effects(id, pos, &mut Default::default())
+    }
+
+    pub(crate) fn unit_command_guard_position_with_effects(
+        &mut self,
+        id: ObjectId,
+        pos: glam::Vec3,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
         self.stamp_player_command_source(id);
-        if self.flight_deck_ai_do_command(
+        if self.flight_deck_ai_do_command_with_effects(
             id,
             crate::game_logic::host_flight_deck::HostFlightDeckCommand::GuardPosition,
             None,
             Some(pos),
+            effects,
         ) {
             return true;
         }
@@ -741,7 +778,16 @@ impl GameLogic {
 
     /// Wave 231/232: attack-move via path + AttackMoving state.
     pub fn unit_command_attack_move_to(&mut self, id: ObjectId, destination: glam::Vec3) -> bool {
-        self.unit_command_attack_move_to_ex(id, destination, -1)
+        self.unit_command_attack_move_to_with_effects(id, destination, &mut Default::default())
+    }
+
+    pub(crate) fn unit_command_attack_move_to_with_effects(
+        &mut self,
+        id: ObjectId,
+        destination: glam::Vec3,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
+        self.unit_command_attack_move_to_ex_with_effects(id, destination, -1, effects)
     }
 
     /// Wave 232: attack-move with max-shots + attack-path flags (executor residual).
@@ -751,8 +797,23 @@ impl GameLogic {
         destination: glam::Vec3,
         max_shots: i32,
     ) -> bool {
+        self.unit_command_attack_move_to_ex_with_effects(
+            id,
+            destination,
+            max_shots,
+            &mut Default::default(),
+        )
+    }
+
+    pub(crate) fn unit_command_attack_move_to_ex_with_effects(
+        &mut self,
+        id: ObjectId,
+        destination: glam::Vec3,
+        max_shots: i32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
         self.stamp_player_command_source(id);
-        self.unit_command_attack_move_owned(id, destination, max_shots)
+        self.unit_command_attack_move_owned_with_effects(id, destination, max_shots, effects)
     }
 
     /// Same movement algorithm for SCRIPT, without converting it to PLAYER.
@@ -761,12 +822,25 @@ impl GameLogic {
         id: ObjectId,
         destination: glam::Vec3,
     ) -> bool {
+        self.unit_command_script_attack_move_to_with_effects(
+            id,
+            destination,
+            &mut Default::default(),
+        )
+    }
+
+    pub(crate) fn unit_command_script_attack_move_to_with_effects(
+        &mut self,
+        id: ObjectId,
+        destination: glam::Vec3,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
         if let Some(unit) = self.host_object_mut(id) {
             unit.last_command_source =
                 crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT;
             unit.set_movement_goal_object(None);
         }
-        self.unit_command_attack_move_owned(id, destination, -1)
+        self.unit_command_attack_move_owned_with_effects(id, destination, -1, effects)
     }
 
     fn unit_command_attack_move_owned(
@@ -774,6 +848,21 @@ impl GameLogic {
         id: ObjectId,
         destination: glam::Vec3,
         max_shots: i32,
+    ) -> bool {
+        self.unit_command_attack_move_owned_with_effects(
+            id,
+            destination,
+            max_shots,
+            &mut Default::default(),
+        )
+    }
+
+    fn unit_command_attack_move_owned_with_effects(
+        &mut self,
+        id: ObjectId,
+        destination: glam::Vec3,
+        max_shots: i32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> bool {
         if self.unit_sleep_mood_blocks_ai_command(id) {
             return false;
@@ -785,11 +874,12 @@ impl GameLogic {
         ) {
             return true;
         }
-        if self.flight_deck_ai_do_command(
+        if self.flight_deck_ai_do_command_with_effects(
             id,
             crate::game_logic::host_flight_deck::HostFlightDeckCommand::AttackMoveToPosition,
             None,
             Some(destination),
+            effects,
         ) {
             return true;
         }
@@ -1926,6 +2016,14 @@ impl GameLogic {
     /// C++ `RailedTransportAIUpdate::privateEvacuate` → dock `unloadAll`.
     /// Refuses in-transit / already loading-or-unloading. Does not walk ExitStart.
     pub fn railed_transport_unload_all(&mut self, ferry_id: ObjectId) -> bool {
+        self.railed_transport_unload_all_with_effects(ferry_id, &mut Default::default())
+    }
+
+    pub(crate) fn railed_transport_unload_all_with_effects(
+        &mut self,
+        ferry_id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
         let Some(ferry) = self.objects.get(&ferry_id) else {
             return false;
         };
@@ -1954,7 +2052,7 @@ impl GameLogic {
             if let Some(p) = self.objects.get_mut(&pid) {
                 p.set_contained_by(None);
                 p.target = None;
-                p.set_position(hull);
+                p.set_position_with_effects(hull, self.frame, effects);
                 p.set_orientation(yaw);
                 p.set_destination(dest, &mut self.movement_events.writer(self.frame));
                 p.set_status_disabled_held(true);
@@ -1990,6 +2088,19 @@ impl GameLogic {
         container_id: ObjectId,
         occupant_id: ObjectId,
     ) -> bool {
+        self.unit_command_remove_occupant_with_effects(
+            container_id,
+            occupant_id,
+            &mut Default::default(),
+        )
+    }
+
+    pub(crate) fn unit_command_remove_occupant_with_effects(
+        &mut self,
+        container_id: ObjectId,
+        occupant_id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
         // C++ TransportContain onRemoving: bike secondary → Kell secondary.
         self.transfer_kell_snipe_reload_from_bike(container_id, occupant_id);
         let is_rider_change = self.objects.get(&container_id).is_some_and(|container| {
@@ -2000,7 +2111,11 @@ impl GameLogic {
             // RiderChangeContain removal owns selection/veterancy/scuttle
             // ordering.  It must not be reduced to a bare Vec removal or the
             // next normal Enter would leave the old rider/container corrupted.
-            return self.rider_change_remove_occupant(container_id, occupant_id);
+            return self.rider_change_remove_occupant_with_effects(
+                container_id,
+                occupant_id,
+                effects,
+            );
         }
         let is_garrison = self
             .objects
@@ -2062,6 +2177,15 @@ impl GameLogic {
     /// walk the *exit* entrance (not `contained_by` / entry) via
     /// `unit_command_exit_via_open_contain`.
     pub fn unit_command_exit_drop(&mut self, id: ObjectId, drop_position: glam::Vec3) -> bool {
+        self.unit_command_exit_drop_with_effects(id, drop_position, &mut Default::default())
+    }
+
+    pub(crate) fn unit_command_exit_drop_with_effects(
+        &mut self,
+        id: ObjectId,
+        drop_position: glam::Vec3,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
         let container_id = self.objects.get(&id).and_then(|u| u.contained_by);
         let walk = container_id.is_some_and(|cid| {
             self.objects
@@ -2069,7 +2193,7 @@ impl GameLogic {
                 .is_some_and(|c| !c.is_garrison_contain() && !c.is_tunnel_network_style_container())
         });
         if let (true, Some(cid)) = (walk, container_id) {
-            return self.unit_command_exit_via_open_contain(id, cid);
+            return self.unit_command_exit_via_open_contain_with_effects(id, cid, effects);
         }
         // TransportContain::onRemoving wakes only previously idle AI, before
         // exitObjectViaDoor replaces the AI state with an exit/follow order.
@@ -2083,7 +2207,7 @@ impl GameLogic {
             return false;
         };
         unit.stop_moving();
-        unit.set_position(drop_position);
+        unit.set_position_with_effects(drop_position, self.frame, effects);
         unit.set_contained_by(None);
         unit.clear_target();
         if unit.ai_state != AIState::Idle {
@@ -2111,6 +2235,19 @@ impl GameLogic {
         id: ObjectId,
         container_id: ObjectId,
     ) -> bool {
+        self.unit_command_exit_via_open_contain_with_effects(
+            id,
+            container_id,
+            &mut Default::default(),
+        )
+    }
+
+    pub(crate) fn unit_command_exit_via_open_contain_with_effects(
+        &mut self,
+        id: ObjectId,
+        container_id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
         if !self.objects.contains_key(&id) || !self.objects.contains_key(&container_id) {
             return false;
         }
@@ -2121,7 +2258,7 @@ impl GameLogic {
         {
             return false;
         }
-        self.walk_unit_via_open_contain_exit(id, container_id);
+        self.walk_unit_via_open_contain_exit_with_effects(id, container_id, effects);
         true
     }
 
@@ -2345,6 +2482,16 @@ impl GameLogic {
         slot: u8,
         lock_type: WeaponLockType,
     ) -> bool {
+        self.unit_command_set_weapon_lock_with_effects(id, slot, lock_type, &mut Default::default())
+    }
+
+    pub(crate) fn unit_command_set_weapon_lock_with_effects(
+        &mut self,
+        id: ObjectId,
+        slot: u8,
+        lock_type: WeaponLockType,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
         let is_demo_trap = self
             .objects
             .get(&id)
@@ -2372,7 +2519,7 @@ impl GameLogic {
                 2 => DemoTrapMode::Manual,
                 _ => return locked,
             };
-            let _ = self.set_demo_trap_mode(id, mode);
+            let _ = self.set_demo_trap_mode_with_effects(id, mode, effects);
         }
         locked
     }

@@ -13,22 +13,45 @@ impl Object {
     }
 
     pub fn set_position(&mut self, position: Vec3) {
+        self.set_position_with_effects(position, 0, &mut Default::default());
+    }
+
+    pub(crate) fn set_position_with_effects(
+        &mut self,
+        position: Vec3,
+        frame: u32,
+        effects: &mut crate::game_logic::script_presentation::ScriptPresentationEffects<'_>,
+    ) {
         let old_position = self.get_position();
         self.thing.set_position(position);
         self.notify_native_pose_installed();
-        self.react_to_position_change(old_position);
+        self.react_to_position_change(old_position, frame, effects);
     }
 
     /// C++ Thing::setTransformMatrix reaches Object::reactToTransformChange.
     /// Physics may retain pitch/roll while changing translation.
     pub fn set_transform_matrix(&mut self, transform: Mat4) {
+        self.set_transform_matrix_with_effects(transform, 0, &mut Default::default());
+    }
+
+    pub(crate) fn set_transform_matrix_with_effects(
+        &mut self,
+        transform: Mat4,
+        frame: u32,
+        effects: &mut crate::game_logic::script_presentation::ScriptPresentationEffects<'_>,
+    ) {
         let old_position = self.get_position();
         self.thing.set_transform_matrix(transform);
         self.notify_native_pose_installed();
-        self.react_to_position_change(old_position);
+        self.react_to_position_change(old_position, frame, effects);
     }
 
-    fn react_to_position_change(&mut self, old_position: Vec3) {
+    fn react_to_position_change(
+        &mut self,
+        old_position: Vec3,
+        frame: u32,
+        effects: &mut crate::game_logic::script_presentation::ScriptPresentationEffects<'_>,
+    ) {
         let position = self.get_position();
         let old_cell = crate::game_logic::partition_manager::PartitionManager::cell_coords(
             old_position.x,
@@ -43,8 +66,12 @@ impl Object {
         // CPP Object.cpp:2563–2587 uses integer horizontal coordinates.
         if old_position.x as i32 != position.x as i32 || old_position.z as i32 != position.z as i32
         {
-            self.notify_terrain_trees_on_unit_move();
+            // Object.cpp2564-2569 returns before the terrain/trigger phase.
             let skip = self.is_kind_of(KindOf::Projectile) || self.is_kind_of(KindOf::Inert);
+            if skip {
+                return;
+            }
+            self.notify_terrain_trees_on_unit_move_with_effects(frame, effects);
             let team = if self.team_instance_name.is_empty() {
                 None
             } else {
@@ -87,33 +114,38 @@ impl Object {
         self.thing.geometry = geometry;
     }
 
-    /// C++ `TheGameClient->notifyTerrainObjectMoved` → `W3DTreeBuffer::unitMoved`.
-    pub fn notify_terrain_trees_on_unit_move(&self) {
-        if self.is_kind_of(KindOf::Projectile) || self.is_kind_of(KindOf::Immobile) {
+    /// C++ Object.cpp2564-2587 -> W3DGameClient.cpp202 -> TreeBuffer1125.
+    /// The immediate borrowed receiver is called before host trigger updates.
+    pub(crate) fn notify_terrain_trees_on_unit_move_with_effects(
+        &self,
+        frame: u32,
+        effects: &mut crate::game_logic::script_presentation::ScriptPresentationEffects<'_>,
+    ) {
+        if self.is_kind_of(KindOf::Projectile)
+            || self.is_kind_of(KindOf::Inert)
+            || self.is_kind_of(KindOf::Immobile)
+        {
             return;
         }
         if !self.is_kind_of(KindOf::Infantry) && !self.is_kind_of(KindOf::Vehicle) {
             return;
         }
-        #[cfg(feature = "game_client")]
-        {
+        if let Some(terrain) = effects.terrain.as_deref_mut() {
             let pos = self.get_position();
             let angle = self.get_orientation();
+            // Existing host geometry approximation is preserved in this owner migration.
             let radius = self.selection_radius.max(1.0);
-            let unit = game_client::terrain::TreeCollisionUnit {
-                object_id: self.id.0,
-                // Tree buffer stores C++ XY-horizontal; host pose is Y-up.
-                position: Vec3::new(pos.x, pos.z, pos.y),
-                direction_2d: glam::Vec2::new(angle.cos(), -angle.sin()),
-                major_radius: radius,
-                minor_radius: radius,
-                geometry_type: game_client::terrain::TreeGeometryType::Cylinder,
-                crusher_level: i32::from(self.crusher_level),
-                immobile: false,
-            };
-            game_client::terrain::notify_terrain_unit_moved(
-                unit,
-                gamelogic::system::game_logic::current_frame(),
+            terrain.unit_moved(
+                crate::game_logic::script_presentation::NativeTerrainUnitMove {
+                    object_id: self.id.0,
+                    position: Vec3::new(pos.x, pos.z, pos.y),
+                    direction_2d: glam::Vec2::new(angle.cos(), -angle.sin()),
+                    major_radius: radius,
+                    minor_radius: radius,
+                    is_box: false,
+                    crusher_level: i32::from(self.crusher_level),
+                },
+                frame,
             );
         }
     }
@@ -1173,3 +1205,7 @@ mod native_pose_notification_tests {
         assert_eq!(clone.native_pose_revision(), object.native_pose_revision());
     }
 }
+
+#[cfg(test)]
+#[path = "pose/native_tree_owner_tests.rs"]
+mod native_tree_owner_tests;

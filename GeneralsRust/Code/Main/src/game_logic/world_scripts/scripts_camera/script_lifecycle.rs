@@ -11,41 +11,82 @@ impl GameLogic {
         condition: Option<u32>,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
     ) -> gamelogic::GameLogicResult<()> {
+        self.apply_owned_script_lifecycle_with_effects(
+            request,
+            this_object,
+            calling,
+            condition,
+            interpreter,
+            &mut Default::default(),
+        )
+    }
+
+    pub(super) fn apply_owned_script_lifecycle_with_effects(
+        &mut self,
+        request: &Request,
+        this_object: Option<ObjectId>,
+        calling: Option<u32>,
+        condition: Option<u32>,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
         match request {
             Request::NamedDelete { unit } => {
                 if let Some(id) = self.owned_named_script_object(unit, this_object) {
-                    self.destroy_object(id);
+                    self.destroy_object_with_effects(id, effects);
                 }
             }
             Request::NamedKill { unit } => {
                 if let Some(id) = self.owned_named_script_object(unit, this_object) {
-                    self.host_script_damage_with_interpreter(id, 0.0, true, interpreter);
+                    self.host_script_damage_with_interpreter_with_effects(
+                        id,
+                        0.0,
+                        true,
+                        interpreter,
+                        effects,
+                    );
                 }
             }
             Request::NamedDamage { unit, amount } => {
                 if let Some(id) = self.owned_named_script_object(unit, this_object) {
-                    self.host_script_damage_with_interpreter(
+                    self.host_script_damage_with_interpreter_with_effects(
                         id,
                         *amount as f32,
                         false,
                         interpreter,
+                        effects,
                     );
                 }
             }
             Request::TeamDamage { team, amount } => {
-                self.apply_owned_team_damage(team, *amount, calling, condition, interpreter)?;
+                self.apply_owned_team_damage_with_effects(
+                    team,
+                    *amount,
+                    calling,
+                    condition,
+                    interpreter,
+                    effects,
+                )?;
             }
             Request::TeamDelete { team, ignore_dead } => {
-                self.apply_owned_team_lifecycle(
+                self.apply_owned_team_lifecycle_with_effects(
                     team,
                     calling,
                     condition,
                     Some(*ignore_dead),
                     interpreter,
+                    effects,
                 )?;
             }
             Request::TeamKill { team } => {
-                self.apply_owned_team_lifecycle(team, calling, condition, None, interpreter)?;
+                self.apply_owned_team_lifecycle_with_effects(
+                    team,
+                    calling,
+                    condition,
+                    None,
+                    interpreter,
+                    effects,
+                )?;
             }
             Request::DestroyAllContained { unit } => {
                 if let Some(id) = self.owned_named_script_object(unit, this_object) {
@@ -55,7 +96,13 @@ impl GameLogic {
                         .map(|o| o.contained_units())
                         .unwrap_or_default();
                     for id in occupants {
-                        self.host_script_damage_with_interpreter(id, 0.0, true, interpreter);
+                        self.host_script_damage_with_interpreter_with_effects(
+                            id,
+                            0.0,
+                            true,
+                            interpreter,
+                            effects,
+                        );
                     }
                 }
             }
@@ -70,6 +117,25 @@ impl GameLogic {
         condition: Option<u32>,
         delete: Option<bool>,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+    ) -> gamelogic::GameLogicResult<()> {
+        self.apply_owned_team_lifecycle_with_effects(
+            raw,
+            calling,
+            condition,
+            delete,
+            interpreter,
+            &mut Default::default(),
+        )
+    }
+
+    fn apply_owned_team_lifecycle_with_effects(
+        &mut self,
+        raw: &str,
+        calling: Option<u32>,
+        condition: Option<u32>,
+        delete: Option<bool>,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
         let Some((team_id, initial)) = self.resolve_owned_script_team(raw, calling, condition)?
         else {
@@ -101,7 +167,7 @@ impl GameLogic {
                 })
                 .collect();
             for id in containers {
-                self.evacuate_container_now(id, false);
+                self.evacuate_container_now_with_effects(id, false, effects);
             }
         }
         let members = {
@@ -134,7 +200,7 @@ impl GameLogic {
                 if ignore_dead && object.status.effectively_dead {
                     continue;
                 }
-                self.destroy_object(id);
+                self.destroy_object_with_effects(id, effects);
                 continue;
             }
             if object.status.destroyed
@@ -182,7 +248,13 @@ impl GameLogic {
                     .expect("neutral transfer roster")
                     .add_member(member);
             } else {
-                self.host_script_damage_with_interpreter(id, 0.0, true, interpreter);
+                self.host_script_damage_with_interpreter_with_effects(
+                    id,
+                    0.0,
+                    true,
+                    interpreter,
+                    effects,
+                );
             }
         }
         Ok(())

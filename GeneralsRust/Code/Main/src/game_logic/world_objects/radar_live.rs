@@ -466,6 +466,13 @@ impl GameLogic {
     /// Bind terrain extent into TheRadar (`Radar::newMap`) without touching
     /// sides_list / polygon. Force-reset so a reload does not keep stale blips.
     pub(in super::super) fn host_radar_on_map_loaded(&mut self) {
+        self.host_radar_on_map_loaded_with_effects(&mut Default::default())
+    }
+
+    pub(in super::super) fn host_radar_on_map_loaded_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         self.rebuild_host_radar_provider_admission();
         self.radar_map.colors.clear();
         self.radar_map.bridges.clear();
@@ -485,7 +492,7 @@ impl GameLogic {
             .refresh_owned_terrain_with_source(&self.radar_map, self.radar_map.water_color);
         let ids: Vec<ObjectId> = self.objects.keys().copied().collect();
         for id in ids {
-            self.host_radar_add_object(id);
+            self.host_radar_add_object_with_effects(id, effects);
         }
     }
 
@@ -583,7 +590,15 @@ impl GameLogic {
 
     /// C++ `TheRadar->addObject` from Object ctor / mid-game spawn.
     pub(in super::super) fn host_radar_add_object(&mut self, id: ObjectId) {
-        self.admit_host_radar_provider(id);
+        self.host_radar_add_object_with_effects(id, &mut Default::default())
+    }
+
+    pub(in super::super) fn host_radar_add_object_with_effects(
+        &mut self,
+        id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
+        self.admit_host_radar_provider_with_effects(id, effects);
         if !self.radar.has_map_extent() {
             if let Some((lo, hi)) =
                 store_radar_map_extent(&mut self.radar_map, self.world_min, self.world_max)
@@ -621,6 +636,13 @@ impl GameLogic {
     /// pose/stealth each frame. Re-stamp every host object so cloaking,
     /// detection, and movement update the blip (hq-sn4a0).
     pub(in super::super) fn host_radar_sync_live_objects(&mut self) {
+        self.host_radar_sync_live_objects_with_effects(&mut Default::default())
+    }
+
+    pub(in super::super) fn host_radar_sync_live_objects_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let ids: Vec<ObjectId> = self.objects.keys().copied().collect();
         if let Some(local_id) = self.host_local_player().map(|local| local.id) {
             if let Ok(mut shroud) = self.world_services.shroud().lock() {
@@ -642,7 +664,7 @@ impl GameLogic {
         for id in ids {
             let alive = self.objects.get(&id).is_some_and(|obj| obj.is_alive());
             if alive {
-                self.host_radar_add_object(id);
+                self.host_radar_add_object_with_effects(id, effects);
             } else {
                 self.host_radar_remove_object(id);
             }

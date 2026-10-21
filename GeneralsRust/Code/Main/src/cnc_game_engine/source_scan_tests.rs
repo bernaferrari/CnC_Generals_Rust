@@ -625,8 +625,8 @@ fn ground_marker_circles_overlay_residual() {
 fn single_hud_construction_hotkey_route_residual() {
     let src = crate::cnc_game_engine::ENGINE_SRC;
     assert!(
-        src.contains("handle_key_press_with_hud_input(")
-            && src.contains("construction_consumed = route_host_ui_key(")
+        src.contains("handle_key_press_with_hud_input_and_terrain_lod(")
+            && src.contains("construction_consumed = route_host_ui_key_with_terrain_lod(")
             && src.contains("if chat_open && key == crate::ui::KeyCode::Escape")
             && !src.contains("Interactive::handle_key_press(&mut self.game_hud"),
         "the host must route gameplay keys through the UIManager-owned HUD once"
@@ -1112,7 +1112,7 @@ fn construction_cameo_hotkey_priority_residual() {
     assert!(
         src.contains("construction_consumed")
             && src.contains("_ if construction_consumed")
-            && src.contains("handle_key_press_with_hud_input("),
+            && src.contains("handle_key_press_with_hud_input_and_terrain_lod("),
         "construction panel must consume build keys before global hotkeys residual"
     );
     assert!(

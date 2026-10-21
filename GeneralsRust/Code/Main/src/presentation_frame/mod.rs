@@ -46,10 +46,12 @@ mod projectile;
 mod queries;
 mod restrict_a;
 mod spectre;
+mod terrain_motion;
 mod types;
 mod unit_render;
 mod weapon_visual_dispatch;
 mod world_env;
+pub use terrain_motion::PresentationTerrainMotion;
 
 #[cfg(test)]
 mod tests;

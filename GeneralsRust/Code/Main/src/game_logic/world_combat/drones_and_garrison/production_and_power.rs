@@ -170,7 +170,24 @@ impl GameLogic {
         object_id: ObjectId,
         upgrade: &str,
     ) -> u32 {
-        self.apply_structure_minefield_upgrade(object_id, upgrade)
+        self.place_structure_minefield_for_upgrade_with_effects(
+            object_id,
+            upgrade,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(in crate::game_logic) fn place_structure_minefield_for_upgrade_with_effects(
+        &mut self,
+        object_id: ObjectId,
+        upgrade: &str,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> u32 {
+        self.apply_structure_minefield_upgrade_with_effects(
+            object_id,
+            upgrade,
+            presentation_effects,
+        )
     }
 
     pub(in crate::game_logic) fn init_special_power_ctor_arms(&mut self, object_id: ObjectId) {

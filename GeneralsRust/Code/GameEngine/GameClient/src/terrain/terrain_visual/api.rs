@@ -72,28 +72,7 @@ fn register_logic_height_hooks() {
             publish_grid: Some(|state| {
                 if let Ok(mut visual) = get_terrain_visual() {
                     if let Some(visual) = visual.as_mut() {
-                        // Presentation receives owned copies of the completed
-                        // logical mesh. It cannot write the terrain owner back.
-                        visual.water_grid.height_deltas = state
-                            .height_deltas
-                            .iter()
-                            .map(|(key, height)| (*key, *height))
-                            .collect();
-                        visual.water_grid.point_motions = state
-                            .mesh_motion
-                            .iter()
-                            .map(|(key, motion)| {
-                                (
-                                    *key,
-                                    WaterGridPointMotion {
-                                        velocity: motion.velocity,
-                                        preferred_height: motion.preferred_height as f32,
-                                        in_motion: motion.status & 0x01 != 0,
-                                    },
-                                )
-                            })
-                            .collect();
-                        visual.overlay.water_grid_dirty = true;
+                        visual.admit_water_mesh(state);
                     }
                 }
             }),

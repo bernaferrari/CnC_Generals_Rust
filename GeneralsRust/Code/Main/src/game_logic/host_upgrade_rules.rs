@@ -8,6 +8,15 @@ use std::sync::Arc;
 
 impl GameLogic {
     pub(crate) fn add_completed_player_upgrade(&mut self, player_id: u32, name: &str) {
+        self.add_completed_player_upgrade_with_effects(player_id, name, &mut Default::default())
+    }
+
+    pub(crate) fn add_completed_player_upgrade_with_effects(
+        &mut self,
+        player_id: u32,
+        name: &str,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let definition = self.upgrade_template(name);
         if let Some(player) = self.get_player_mut(player_id) {
             player.add_completed_upgrade_with_definition(name, definition.as_deref());
@@ -19,7 +28,7 @@ impl GameLogic {
             .map(|object| object.id)
             .collect();
         for id in ids {
-            self.admit_host_radar_provider(id);
+            self.admit_host_radar_provider_with_effects(id, effects);
         }
     }
 

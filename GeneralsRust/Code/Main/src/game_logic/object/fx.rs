@@ -100,11 +100,22 @@ impl crate::game_logic::GameLogic {
 impl crate::game_logic::GameLogic {
     /// Complete the actual object's authored modules at this onDie point.
     pub(crate) fn fire_owned_fx_list_die(&mut self, id: crate::game_logic::ObjectId) {
+        self.fire_owned_fx_list_die_with_effects(
+            id,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn fire_owned_fx_list_die_with_effects(
+        &mut self,
+        id: crate::game_logic::ObjectId,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let source = self
             .objects
             .get(&id)
             .and_then(|object| object.last_damage_source);
-        self.fire_owned_fx_list_die_from_source(id, source);
+        self.fire_owned_fx_list_die_from_source_with_effects(id, source, presentation_effects);
     }
 
     /// Actual DamageInfo source, including explicit NULL, is distinct from
@@ -114,6 +125,19 @@ impl crate::game_logic::GameLogic {
         id: crate::game_logic::ObjectId,
         source: Option<crate::game_logic::ObjectId>,
     ) {
+        self.fire_owned_fx_list_die_from_source_with_effects(
+            id,
+            source,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(in crate::game_logic) fn fire_owned_fx_list_die_from_source_with_effects(
+        &mut self,
+        id: crate::game_logic::ObjectId,
+        source: Option<crate::game_logic::ObjectId>,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         #[cfg(feature = "game_client")]
         {
             let player = self.local_player_id();
@@ -122,10 +146,13 @@ impl crate::game_logic::GameLogic {
                 .map(|object| {
                     Self::observe_host_fx_object(object, player, self.world_services.shroud())
                 });
-            Self::with_host_fx_view_parts(
+            Self::with_host_fx_view_parts_and_terrain(
                 &mut self.session_view,
                 player,
                 self.world_services.shroud(),
+                presentation_effects.terrain.as_mut().map(|terrain| {
+                    &mut **terrain as &mut dyn crate::game_logic::NativeTerrainEffects
+                }),
                 |view| {
                     if let Some(object) = self.objects.get_mut(&id) {
                         object.fire_fx_list_die_with_fx(&mut |name, object, at_object| {

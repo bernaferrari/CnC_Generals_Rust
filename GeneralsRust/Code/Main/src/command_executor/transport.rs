@@ -99,7 +99,7 @@ impl<'a> CommandExecutor<'a> {
         // C++ JetAIUpdate::privateEnter → doLandingCommand.
         let jet_landed = units.iter().copied().any(|unit_id| {
             self.game_logic
-                .try_jet_enter_or_repair_airfield(unit_id, target_id)
+                .try_jet_enter_or_repair_airfield_with_effects(unit_id, target_id, &mut self.ui)
         });
         if jet_landed {
             return CommandResult::Success;
@@ -544,9 +544,11 @@ impl<'a> CommandExecutor<'a> {
             if !was_tunnel && !was_cave {
                 if let Some(container_id) = container_id {
                     // Wave 233: remove occupant via GameLogic authority API.
-                    let _ = self
-                        .game_logic
-                        .unit_command_remove_occupant(container_id, unit_id);
+                    let _ = self.game_logic.unit_command_remove_occupant_with_effects(
+                        container_id,
+                        unit_id,
+                        &mut self.ui,
+                    );
                 }
             }
 
@@ -682,11 +684,13 @@ impl<'a> CommandExecutor<'a> {
                 if let Some(cid) = container_id {
                     let _ = self
                         .game_logic
-                        .garrison_exit_occupant_via_door(unit_id, cid);
+                        .garrison_exit_occupant_via_door_with_effects(unit_id, cid, &mut self.ui);
                 } else {
-                    let _ = self
-                        .game_logic
-                        .unit_command_exit_drop(unit_id, drop_position);
+                    let _ = self.game_logic.unit_command_exit_drop_with_effects(
+                        unit_id,
+                        drop_position,
+                        &mut self.ui,
+                    );
                 }
             } else if let Some(cid) = container_id {
                 // C++ OpenContain::exitObjectViaDoor — ExitStart/End walk.
@@ -694,16 +698,20 @@ impl<'a> CommandExecutor<'a> {
                 // Do not Idle-teleport a 6-unit ring around the hull.
                 if !self
                     .game_logic
-                    .unit_command_exit_via_open_contain(unit_id, cid)
+                    .unit_command_exit_via_open_contain_with_effects(unit_id, cid, &mut self.ui)
                 {
-                    let _ = self
-                        .game_logic
-                        .unit_command_exit_drop(unit_id, drop_position);
+                    let _ = self.game_logic.unit_command_exit_drop_with_effects(
+                        unit_id,
+                        drop_position,
+                        &mut self.ui,
+                    );
                 }
             } else {
-                let _ = self
-                    .game_logic
-                    .unit_command_exit_drop(unit_id, drop_position);
+                let _ = self.game_logic.unit_command_exit_drop_with_effects(
+                    unit_id,
+                    drop_position,
+                    &mut self.ui,
+                );
             }
             if was_tunnel || was_cave {
                 // Counters already recorded in leftover exit_tunnel / exit_cave_unit.
@@ -806,7 +814,10 @@ impl<'a> CommandExecutor<'a> {
 
         let mut any = false;
         for ferry_id in railed_ferries {
-            if self.game_logic.railed_transport_unload_all(ferry_id) {
+            if self
+                .game_logic
+                .railed_transport_unload_all_with_effects(ferry_id, &mut self.ui)
+            {
                 any = true;
             }
         }
@@ -1112,7 +1123,11 @@ impl<'a> CommandExecutor<'a> {
                     ai.arrive_for_combat_drop();
                 }
                 any = true;
-                let _ = self.game_logic.evacuate_container_now(unit_id, false);
+                let _ = self.game_logic.evacuate_container_now_with_effects(
+                    unit_id,
+                    false,
+                    &mut self.ui,
+                );
             }
         }
         if any {

@@ -52,6 +52,20 @@ impl PreparedTerrainVisual {
         self.scorches.as_deref()
     }
 
+    /// Apply only to the receiving native owner after logical admission commits.
+    pub fn apply_native(&self, visual: &mut crate::terrain::terrain_visual::TerrainVisualImpl) {
+        visual.admit_water_state(&self.grid);
+        if self.height_present {
+            visual.apply_logic_height_map_bytes(&self.heights);
+        }
+        if let Some(marks) = &self.scorches {
+            visual.clear_scorches();
+            for mark in marks {
+                visual.add_scorch(mark.location, mark.radius, mark.scorch_type);
+            }
+        }
+    }
+
     /// Transitional native adapter, used ONLY after the candidate commits.
     /// x3l7v remains open until the renderer owns these water/scorch services.
     pub fn commit_legacy_native(&self) {
@@ -80,9 +94,21 @@ pub fn capture_owned_terrain_visual_for_terrain(
     terrain: &gamelogic::terrain::TerrainLogic,
     scorches: Option<&[ScorchMark]>,
 ) -> Result<Vec<u8>, String> {
+    capture_terrain_visual_with_water(terrain, None, scorches)
+}
+
+/// Native saves supply the actual water-render observation. Logical-only
+/// archives retain their existing Core water owner and identical wire codec.
+pub fn capture_terrain_visual_with_water(
+    terrain: &gamelogic::terrain::TerrainLogic,
+    native_water: Option<&gamelogic::terrain_water::WaterGridState>,
+    scorches: Option<&[ScorchMark]>,
+) -> Result<Vec<u8>, String> {
     terrain.validate_height_map()?;
     let mut bytes = Vec::new();
-    let mut grid = terrain.water_grid_state().clone();
+    let mut grid = native_water
+        .unwrap_or_else(|| terrain.water_grid_state())
+        .clone();
     let mut heights = terrain.logic_height_map_bytes().to_vec();
     let mut xfer = CommonXferSave::new(Cursor::new(&mut bytes), 3);
     xfer_live_terrain_visual(&mut xfer, &mut grid, &mut heights, None)?;

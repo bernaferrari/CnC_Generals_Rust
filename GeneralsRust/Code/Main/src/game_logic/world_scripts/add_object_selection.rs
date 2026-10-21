@@ -7,9 +7,17 @@ use super::super::*;
 impl GameLogic {
     /// Add object to the game world
     pub fn add_object(&mut self, object: Object) -> ObjectId {
+        self.add_object_with_effects(object, &mut Default::default())
+    }
+
+    pub(crate) fn add_object_with_effects(
+        &mut self,
+        object: Object,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> ObjectId {
         let id = object.id;
         self.admit_host_object(object);
-        self.host_radar_add_object(id);
+        self.host_radar_add_object_with_effects(id, effects);
         id
     }
 
@@ -210,6 +218,14 @@ impl GameLogic {
 
     /// Command selected units to stop all actions
     pub fn command_stop(&mut self, player_id: u32) {
+        self.command_stop_with_effects(player_id, &mut Default::default())
+    }
+
+    pub(crate) fn command_stop_with_effects(
+        &mut self,
+        player_id: u32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         if let Some(player) = self.players.get(&player_id) {
             let selected: Vec<ObjectId> = player
                 .selected_objects
@@ -222,11 +238,12 @@ impl GameLogic {
                 })
                 .collect();
             for &object_id in &selected {
-                if self.flight_deck_ai_do_command(
+                if self.flight_deck_ai_do_command_with_effects(
                     object_id,
                     crate::game_logic::host_flight_deck::HostFlightDeckCommand::Idle,
                     None,
                     None,
+                    effects,
                 ) {
                     continue;
                 }
@@ -246,6 +263,15 @@ impl GameLogic {
 
     /// Command selected units to attack-move to a position (with pathfinding)
     pub fn command_attack_move(&mut self, player_id: u32, target_position: Vec3) {
+        self.command_attack_move_with_effects(player_id, target_position, &mut Default::default())
+    }
+
+    pub(crate) fn command_attack_move_with_effects(
+        &mut self,
+        player_id: u32,
+        target_position: Vec3,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         if let Some(player) = self.players.get(&player_id) {
             let selected: Vec<ObjectId> = player
                 .selected_objects
@@ -258,12 +284,12 @@ impl GameLogic {
                 })
                 .collect();
             for &object_id in &selected {
-                if self.flight_deck_ai_do_command(
+                if self.flight_deck_ai_do_command_with_effects(
                     object_id,
                     crate::game_logic::host_flight_deck::HostFlightDeckCommand::AttackMoveToPosition,
                     None,
                     Some(target_position),
-                ) {
+                 effects) {
                     continue;
                 }
 
@@ -346,7 +372,17 @@ impl GameLogic {
         team: Team,
         position: Vec3,
     ) -> Option<ObjectId> {
-        self.create_object(template_name, team, position)
+        self.spawn_unit_with_effects(template_name, team, position, &mut Default::default())
+    }
+
+    pub(crate) fn spawn_unit_with_effects(
+        &mut self,
+        template_name: &str,
+        team: Team,
+        position: Vec3,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> Option<ObjectId> {
+        self.create_object_with_script_effects(template_name, team, position, None, effects)
     }
 
     pub(in super::super) fn template_team_hint(name: &str) -> Option<Team> {

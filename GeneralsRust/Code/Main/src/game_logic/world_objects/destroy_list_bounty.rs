@@ -17,12 +17,30 @@ impl GameLogic {
     /// Wave 912: process destroy list only when residual work is pending.
     #[inline]
     pub fn process_destroy_list_if_needed(&mut self) {
+        self.process_destroy_list_if_needed_with_effects(
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn process_destroy_list_if_needed_with_effects(
+        &mut self,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         if self.has_pending_destroy_work() {
-            self.process_destroy_list();
+            self.process_destroy_list_with_effects(presentation_effects);
         }
     }
 
     pub fn process_destroy_list(&mut self) {
+        self.process_destroy_list_with_effects(
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn process_destroy_list_with_effects(
+        &mut self,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let mut destroyed_structure = false;
         let mut rubble_stamps: Vec<(glam::Vec3, i32)> = Vec::new();
         while let Some(event) = self.objects_to_destroy.pop_front() {
@@ -46,15 +64,16 @@ impl GameLogic {
             // Damage authority / an old snapshot can enqueue a death without
             // passing through mark_object_for_destruction.  Keep the one
             // typed EjectPilotDie onDie path live before removing the object.
-            self.maybe_apply_eject_pilot_die(event.id);
+            self.maybe_apply_eject_pilot_die_with_effects(event.id, presentation_effects);
 
             // C++ Object::onDie RECONSTRUCTING residual (lost rebuild → hole).
-            let handled_recon = self.handle_reconstructing_death(event.id);
+            let handled_recon =
+                self.handle_reconstructing_death_with_effects(event.id, presentation_effects);
             // C++ RebuildHoleExposeDie residual. Primary peel is death-start
             // in mark_object_for_destruction; this is the snapshot fallback.
             // maybe_spawn_rebuild_hole is idempotent via rebuild_spawner_id.
             if !handled_recon {
-                let _ = self.maybe_spawn_rebuild_hole(event.id);
+                let _ = self.maybe_spawn_rebuild_hole_with_effects(event.id, presentation_effects);
             }
 
             // Snapshot CreateCrateDie residual fields before remove.
@@ -70,17 +89,18 @@ impl GameLogic {
                     (Vec::new(), glam::Vec3::ZERO, Team::Neutral, None)
                 };
             if !crate_data.is_empty() {
-                let _ = self.try_create_crates_on_die(
+                let _ = self.try_create_crates_on_die_with_effects(
                     event.id,
                     death_pos_pre,
                     death_team_pre,
                     &crate_data,
                     last_src,
+                    presentation_effects,
                 );
             }
 
             // C++ FireWeaponWhenDeadBehavior::onDie residual.
-            self.apply_fire_weapon_when_dead(event.id);
+            self.apply_fire_weapon_when_dead_with_effects(event.id, presentation_effects);
 
             // C++ classifyObjectFootprint: kill anyone still on LAYER_WALL
             // for this piece, then reclassify (AIPathfind.cpp:4126-4153).
@@ -101,13 +121,14 @@ impl GameLogic {
                         // C++ DAMAGE_FALLING / DEATH_SPLATTED / HUGE_DAMAGE_AMOUNT
                         // (AIPathfind.cpp:4143-4148).
                         let receiving_damage_target_id = unit.id;
-                        if self.apply_residual_damage_owned(
+                        if self.apply_residual_damage_owned_with_effects(
                             receiving_damage_target_id,
                             1.0e9,
                             Some(event.id),
                             crate::game_logic::combat::DamageType::Falling,
                             crate::game_logic::host_usa_pilot::HostDeathType::Splatted,
                             None,
+                            presentation_effects,
                         ) {
                             self.objects_to_destroy
                                 .push_back(DestructionEvent::after_death(sid, event.killer));
@@ -118,7 +139,7 @@ impl GameLogic {
 
             // Defensive admission for residual after-death queue producers;
             // ordinary onDie/onDelete already consumed this registered latch.
-            self.unregister_tunnel_containment(event.id);
+            self.unregister_tunnel_containment_with_effects(event.id, presentation_effects);
             self.finish_building_sound(event.id);
             self.detach_host_fog_ghost(event.id);
             // CPP Object destructor unlinks only at physical removal, after onDelete.
@@ -297,8 +318,12 @@ impl GameLogic {
                                 crate::game_logic::host_toxin_tractor::UPGRADE_GLA_ANTHRAX_GAMMA_ALT,
                             );
                         let profile = BombTruckDetonationProfile::from_upgrades(he, bio, anthrax);
-                        let _ = self.apply_bomb_truck_death_detonation_at(
-                            event.id, obj.team, death_pos, profile,
+                        let _ = self.apply_bomb_truck_death_detonation_at_with_effects(
+                            event.id,
+                            obj.team,
+                            death_pos,
+                            profile,
+                            presentation_effects,
                         );
                     }
                 }
@@ -315,8 +340,12 @@ impl GameLogic {
                         && has_nuclear_tanks_upgrade(&obj.applied_upgrades)
                     {
                         let nuke_gen = is_nuke_general_nuclear_tanks(&obj.template_name);
-                        let _ = self.apply_nuclear_tanks_death_detonation_at(
-                            event.id, obj.team, death_pos, nuke_gen,
+                        let _ = self.apply_nuclear_tanks_death_detonation_at_with_effects(
+                            event.id,
+                            obj.team,
+                            death_pos,
+                            nuke_gen,
+                            presentation_effects,
                         );
                     }
                 }
@@ -335,15 +364,26 @@ impl GameLogic {
                         && has_demo_suicide_bomb_upgrade(&obj.applied_upgrades)
                         && !is_terrorist_template(&obj.template_name)
                     {
-                        let _ =
-                            self.apply_demo_suicide_bomb_death_at(event.id, obj.team, death_pos);
+                        let _ = self.apply_demo_suicide_bomb_death_at_with_effects(
+                            event.id,
+                            obj.team,
+                            death_pos,
+                            presentation_effects,
+                        );
                     }
                 }
 
                 // GLA Rebel BoobyTrap residual: structure death detonates trap.
                 // C++ Object::checkAndDetonateBoobyTrap(NULL) on die path.
                 if obj.status.booby_trapped || self.booby_trap.is_booby_trapped(event.id) {
-                    let _ = self.detonate_booby_trap_at(event.id, death_pos, None, false, true);
+                    let _ = self.detonate_booby_trap_at_with_effects(
+                        event.id,
+                        death_pos,
+                        None,
+                        false,
+                        true,
+                        presentation_effects,
+                    );
                 }
 
                 log::debug!(
@@ -359,7 +399,7 @@ impl GameLogic {
 
         if destroyed_structure {
             // Rebuild static path/LOS mask without the destroyed footprint.
-            self.sync_structure_path_blocks();
+            self.sync_structure_path_blocks_with_effects(presentation_effects);
             for (pos, radius) in rubble_stamps {
                 self.pathfinding_system.stamp_rubble_at_world(pos, radius);
             }

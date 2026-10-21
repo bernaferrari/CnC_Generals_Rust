@@ -20,6 +20,21 @@ impl GameLogic {
         location: Vec3,
         caster_id: Option<ObjectId>,
     ) -> bool {
+        self.activate_gps_scrambler_with_effects(
+            player_id,
+            location,
+            caster_id,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn activate_gps_scrambler_with_effects(
+        &mut self,
+        player_id: u32,
+        location: Vec3,
+        caster_id: Option<ObjectId>,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
         use crate::game_logic::host_gps_scrambler::{
             GPS_SCRAMBLER_ACTIVATE_AUDIO, GPS_SCRAMBLER_INVISIBLE_MARKER,
             GPS_SCRAMBLER_START_RADIUS, HOST_GPS_SCRAMBLER_RADIUS, HostGpsScrambler,
@@ -111,7 +126,11 @@ impl GameLogic {
         }
 
         // C++ OCL SUPERWEAPON_GPSScrambler → GPSScrambler_InvisibleMarker residual.
-        let marker_id = self.spawn_gps_scrambler_marker(caster_team, location);
+        let marker_id = self.spawn_gps_scrambler_marker_with_effects(
+            caster_team,
+            location,
+            presentation_effects,
+        );
 
         let entry_id = self.gps_scramblers.alloc_id();
         self.gps_scramblers.record_activation(HostGpsScrambler {
@@ -177,6 +196,15 @@ impl GameLogic {
     /// Infantry/aircraft are not targets. SubdualDamageHelper.cpp:32-50 heals
     /// so disable lingers after leaving.
     pub fn update_ecm_jam_field(&mut self) {
+        self.update_ecm_jam_field_with_effects(
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn update_ecm_jam_field_with_effects(
+        &mut self,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         use crate::game_logic::host_ecm_jam::{
             ECM_VEHICLE_DISABLER_ATTACK_RANGE, ECM_VEHICLE_DISABLER_DELAY_FRAMES,
             ECM_VEHICLE_DISABLER_PRIMARY_DAMAGE, in_ecm_jam_radius_2d, is_ecm_hostile_team,
@@ -395,12 +423,13 @@ impl GameLogic {
                     // Residual WEAPONA01 bone height.
                     let from_bone = glam::Vec3::new(from.x, from.y + 8.0, from.z);
                     let to_aim = glam::Vec3::new(to.x, to.y + 5.0, to.z);
-                    let _ = self.spawn_weapon_laser_beam_object(
+                    let _ = self.spawn_weapon_laser_beam_object_with_effects(
                         ECM_DISABLE_STREAM_LASER,
                         from_id,
                         Some(to_id),
                         from_bone,
                         to_aim,
+                        presentation_effects,
                     );
                     self.weapon_lasers.push(ResidualWeaponLaser::with_bone(
                         ECM_DISABLE_STREAM_LASER,
@@ -620,6 +649,15 @@ impl GameLogic {
     }
 
     pub fn update_microwave_disable(&mut self) {
+        self.update_microwave_disable_with_effects(
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn update_microwave_disable_with_effects(
+        &mut self,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         use crate::game_logic::host_microwave::{
             HOST_MICROWAVE_DELAY_FRAMES, HOST_MICROWAVE_DISABLE_RANGE,
             HOST_MICROWAVE_SUBDUAL_PULSE, MICROWAVE_DISABLE_AUDIO, in_microwave_range_2d,
@@ -733,7 +771,7 @@ impl GameLogic {
                 // C++ ActiveBody.cpp:471-487 SUBDUAL_BUILDING — no HP; disable
                 // when currentSubdual >= maxHealth (:1292-1294).
                 let receiving_damage_id = target.id;
-                let _ = self.apply_residual_damage_owned(
+                let _ = self.apply_residual_damage_owned_with_effects(
                     receiving_damage_id,
                     HOST_MICROWAVE_SUBDUAL_PULSE,
                     None,
@@ -742,6 +780,7 @@ impl GameLogic {
                         crate::game_logic::combat::DamageType::SubdualBuilding,
                     ),
                     None,
+                    presentation_effects,
                 );
                 let target = self
                     .objects
@@ -804,12 +843,13 @@ impl GameLogic {
                 // Raise beam origin slightly for residual WEAPON02 bone height.
                 let from_bone = glam::Vec3::new(from.x, from.y + 8.0, from.z);
                 let to_aim = glam::Vec3::new(to.x, to.y + 5.0, to.z);
-                let _ = self.spawn_weapon_laser_beam_object(
+                let _ = self.spawn_weapon_laser_beam_object_with_effects(
                     HOST_MICROWAVE_LASER_NAME,
                     from_id,
                     Some(to_id),
                     from_bone,
                     to_aim,
+                    presentation_effects,
                 );
                 self.weapon_lasers.push(ResidualWeaponLaser::with_bone(
                     HOST_MICROWAVE_LASER_NAME,
@@ -840,6 +880,15 @@ impl GameLogic {
     /// Not Unresistable — Crusaders/Battlemasters in the field take 0 HP.
     ///
     pub fn update_microwave_emitter_field(&mut self) {
+        self.update_microwave_emitter_field_with_effects(
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn update_microwave_emitter_field_with_effects(
+        &mut self,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         use crate::game_logic::host_microwave::{
             HOST_MICROWAVE_EMITTER_DELAY_FRAMES, HOST_MICROWAVE_EMITTER_FX,
             HOST_MICROWAVE_EMITTER_RADIUS, MICROWAVE_DISABLE_AUDIO, in_microwave_range_2d,
@@ -943,7 +992,7 @@ impl GameLogic {
                 }
                 any_pos = Some(o.get_position());
                 let receiving_damage_id = o.id;
-                let killed = self.apply_residual_damage_owned(
+                let killed = self.apply_residual_damage_owned_with_effects(
                     receiving_damage_id,
                     dmg,
                     Some(src),
@@ -952,6 +1001,7 @@ impl GameLogic {
                         crate::game_logic::combat::DamageType::Microwave,
                     ),
                     None,
+                    presentation_effects,
                 );
                 let o = self
                     .objects
@@ -975,7 +1025,7 @@ impl GameLogic {
             }
         }
         for (id, team) in destroy_ids {
-            self.mark_object_for_destruction(id, team);
+            self.mark_object_for_destruction_with_effects(id, team, presentation_effects);
         }
     }
 
@@ -989,6 +1039,17 @@ impl GameLogic {
     /// (C++ OpenContain::addToContain → unRegisterObject); live snaps them
     /// to the hull so they must be excluded from the radius scan.
     pub fn update_propaganda_tower_pulse(&mut self, dt: f32) {
+        self.update_propaganda_tower_pulse_with_effects(
+            dt,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn update_propaganda_tower_pulse_with_effects(
+        &mut self,
+        dt: f32,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         use crate::game_logic::host_overlord_addons::{
             is_overlord_propaganda_source, overlord_propaganda_heal_amount,
         };
@@ -1184,7 +1245,12 @@ impl GameLogic {
                     PROPAGANDA_PULSE_FX
                 };
                 // C++ PropagandaTowerBehavior.cpp:450-456 doFXObj(pulse, us).
-                let _ = self.dispatch_fx_list_at_host_object(fx, tower.id, None);
+                let _ = self.dispatch_fx_list_at_host_object_with_effects(
+                    fx,
+                    tower.id,
+                    None,
+                    presentation_effects,
+                );
             }
         }
 
@@ -1293,6 +1359,17 @@ impl GameLogic {
     /// Pulse every HealingDelay (not continuous HP/s). ALLOW_ALLIES (player relationship,
     /// leftover same-team fallback). Sole-benefactor lasts HealingDelay frames.
     pub fn update_ambulance_auto_heal(&mut self, dt: f32) {
+        self.update_ambulance_auto_heal_with_effects(
+            dt,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn update_ambulance_auto_heal_with_effects(
+        &mut self,
+        dt: f32,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         use crate::game_logic::host_heal::{
             AMBULANCE_HEAL_DELAY_FRAMES, AMBULANCE_INFANTRY_HEAL_AMOUNT,
             AMBULANCE_VEHICLE_HEAL_AMOUNT, HOST_AMBULANCE_HEAL_RADIUS, ambulance_heal_is_ally,
@@ -1414,12 +1491,13 @@ impl GameLogic {
                     .objects
                     .get(target_id)
                     .is_some_and(|target| target.is_alive())
-                    && self.attempt_owned_healing_from_sole_benefactor(
+                    && self.attempt_owned_healing_from_sole_benefactor_with_effects(
                         *target_id,
                         amount,
                         *healer_id,
                         AMBULANCE_HEAL_DELAY_FRAMES,
                         now,
+                        presentation_effects,
                     )
                 {
                     heal_ticks = heal_ticks.saturating_add(1);
@@ -1435,6 +1513,15 @@ impl GameLogic {
     /// Host leftover DefaultAutoHealBehavior: trainable units self-heal after StartHealingDelay.
     /// HELD / garrisoned units still pulse (C++ DISABLED_HELD).
     pub fn update_default_auto_heal(&mut self) {
+        self.update_default_auto_heal_with_effects(
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn update_default_auto_heal_with_effects(
+        &mut self,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let frame = self.frame as u32;
         let ids: Vec<ObjectId> = self
             .objects
@@ -1459,7 +1546,12 @@ impl GameLogic {
             if amount > 0.0 {
                 // Radius-zero pulseHealObject uses the healer itself as source.
                 // Release the module loan before the real synchronous callbacks.
-                let _ = self.apply_owned_healing(id, amount, Some(id));
+                let _ = self.apply_owned_healing_with_effects(
+                    id,
+                    amount,
+                    Some(id),
+                    presentation_effects,
+                );
                 if let Some(ah) = self
                     .objects
                     .get_mut(&id)
@@ -1944,9 +2036,16 @@ mod tests {
     fn propaganda_pulse_fx_dispatches_at_host_object() {
         let src = include_str!("gps_and_fields.rs");
         let start = src.find("if do_fx {").expect("pulse do_fx");
-        let body = &src[start..start + 450];
+        let end = src[start..]
+            .find("let mut coverage")
+            .map(|offset| start + offset)
+            .expect("coverage phase after pulse FX");
+        let body = &src[start..end];
+        let normalized: String = body.chars().filter(|ch| !ch.is_whitespace()).collect();
         assert!(
-            body.contains("dispatch_fx_list_at_host_object(fx, tower.id, None)"),
+            normalized.contains(
+                "dispatch_fx_list_at_host_object_with_effects(fx,tower.id,None,presentation_effects,)"
+            ),
             "PulseFX must use doFXObj on the tower, not doFXPos at sea level"
         );
         assert!(

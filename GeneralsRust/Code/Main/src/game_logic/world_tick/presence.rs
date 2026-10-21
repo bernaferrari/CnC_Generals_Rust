@@ -6,6 +6,14 @@ impl GameLogic {
         &mut self,
         parsed_settings: Option<&super::super::script_loader::MapMetadata>,
     ) {
+        self.ensure_non_shell_player_presence_with_effects(parsed_settings, &mut Default::default())
+    }
+
+    pub(in super::super) fn ensure_non_shell_player_presence_with_effects(
+        &mut self,
+        parsed_settings: Option<&super::super::script_loader::MapMetadata>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         if self.game_mode == GameMode::Shell {
             return;
         }
@@ -116,13 +124,33 @@ impl GameLogic {
             };
 
             if self
-                .create_object(primary_template, team, spawn_position)
+                .create_object_with_script_effects(
+                    primary_template,
+                    team,
+                    spawn_position,
+                    None,
+                    effects,
+                )
                 .is_none()
             {
                 // Fallbacks for incomplete catalogs.
                 let _ = self
-                    .create_object("CommandCenter", team, spawn_position)
-                    .or_else(|| self.create_object("GoldenCC", team, spawn_position));
+                    .create_object_with_script_effects(
+                        "CommandCenter",
+                        team,
+                        spawn_position,
+                        None,
+                        effects,
+                    )
+                    .or_else(|| {
+                        self.create_object_with_script_effects(
+                            "GoldenCC",
+                            team,
+                            spawn_position,
+                            None,
+                            effects,
+                        )
+                    });
             }
             // Seed a worker for the first human-capable team so DozerConstruct can start.
             if index == 0 {
@@ -133,7 +161,10 @@ impl GameLogic {
                     Team::GLA => "GLA_Worker",
                     Team::Neutral => "GoldenDozer",
                 };
-                if self.create_object(dozer_name, team, dozer_pos).is_none() {
+                if self
+                    .create_object_with_script_effects(dozer_name, team, dozer_pos, None, effects)
+                    .is_none()
+                {
                     // Install a minimal dozer if faction worker missing.
                     if !self.templates.contains_key("GoldenDozer") {
                         let mut d = ThingTemplate::new("GoldenDozer");
@@ -145,7 +176,13 @@ impl GameLogic {
                         d.add_kind_of(KindOf::Selectable);
                         self.templates.insert("GoldenDozer".into(), d);
                     }
-                    let _ = self.create_object("GoldenDozer", team, dozer_pos);
+                    let _ = self.create_object_with_script_effects(
+                        "GoldenDozer",
+                        team,
+                        dozer_pos,
+                        None,
+                        effects,
+                    );
                 }
             }
             spawned_count += 1;
@@ -184,13 +221,34 @@ impl GameLogic {
     /// evacuate containers, Neutral-transfer KINDOF_TECH_BUILDING, kill army
     /// (including beacons), then wipe money unless single-player computer.
     pub(crate) fn kill_player_for_victory(&mut self, player_id: u32) {
-        self.kill_player_with_interpreter(player_id, None);
+        self.kill_player_for_victory_with_effects(player_id, &mut Default::default())
+    }
+
+    pub(crate) fn kill_player_for_victory_with_effects(
+        &mut self,
+        player_id: u32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
+        self.kill_player_with_interpreter_with_effects(player_id, None, effects);
     }
 
     pub(crate) fn kill_player_with_interpreter(
         &mut self,
         player_id: u32,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+    ) {
+        self.kill_player_with_interpreter_with_effects(
+            player_id,
+            interpreter,
+            &mut Default::default(),
+        )
+    }
+
+    pub(crate) fn kill_player_with_interpreter_with_effects(
+        &mut self,
+        player_id: u32,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         let player_team = self.players.get(&player_id).map(|p| p.team);
         let unique_team = player_team.and_then(|team| {
@@ -218,7 +276,7 @@ impl GameLogic {
             .map(|(id, _)| *id)
             .collect();
         for container_id in container_ids {
-            let _ = self.evacuate_container_now(container_id, false);
+            let _ = self.evacuate_container_now_with_effects(container_id, false, effects);
         }
 
         if let Some(player) = self.players.get_mut(&player_id) {
@@ -259,7 +317,13 @@ impl GameLogic {
             }
             // C++ Team::killTeam keeps beacons in the kill list (effectively-dead
             // exception) and kill()s them. Do not name-sniff skip.
-            self.host_script_damage_with_interpreter(id, 0.0, true, interpreter);
+            self.host_script_damage_with_interpreter_with_effects(
+                id,
+                0.0,
+                true,
+                interpreter,
+                effects,
+            );
         }
 
         self.clear_player_drawable_selection(player_id);

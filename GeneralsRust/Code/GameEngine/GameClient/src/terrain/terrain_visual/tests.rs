@@ -730,29 +730,23 @@ mod tests {
 
     #[test]
     fn add_terrain_scorch_forces_visual_rebuild_and_exscorch01() {
-        use crate::terrain::scorch_mesh::{
-            add_terrain_scorch, bake_terrain_scorch_gpu_mesh, clear_terrain_scorches,
-            terrain_scorch_count, terrain_scorches_in_buffer,
-        };
-
-        clear_terrain_scorches();
-        let visual = TerrainVisualImpl::new();
+        let mut visual = TerrainVisualImpl::new();
         assert!(
             !visual.scorches_need_gpu_rebuild(),
             "empty buffer should not rebuild"
         );
-        assert!(add_terrain_scorch([12.0, 8.0, 0.0], 18.0, 2));
-        assert_eq!(terrain_scorches_in_buffer(), 0);
-        assert!(terrain_scorch_count() > 0);
+        assert!(visual.add_scorch([12.0, 8.0, 0.0], 18.0, 2));
+        assert_eq!(visual.scorches.scorches_in_buffer, 0);
+        assert!(visual.scorches.len() > 0);
         assert!(
             visual.scorches_need_gpu_rebuild(),
             "addScorch zeros m_scorchesInBuffer so drawScorches rebuilds"
         );
 
         let height = HeightMap::new(8, 8, 0.0, 10.0);
-        let mesh = bake_terrain_scorch_gpu_mesh(&height, 0xffff_ffff);
+        let mesh = visual.scorches.update_scorches(&height, 0xffff_ffff);
         assert!(!mesh.vertices.is_empty());
-        assert!(terrain_scorches_in_buffer() > 0);
+        assert!(visual.scorches.scorches_in_buffer > 0);
 
         assert_eq!(
             TerrainVisualImpl::scorch_overlay_texture_name(),
@@ -765,7 +759,35 @@ mod tests {
                 && src.contains("scorches_need_gpu_rebuild"),
             "live draw must bind EXScorch01, not road texture"
         );
-        clear_terrain_scorches();
+        visual.clear_scorches();
+    }
+
+    #[test]
+    fn receiving_height_effect_keeps_logical_scorches_and_invalidates_only_its_gpu_cache() {
+        let mut a = TerrainVisualImpl::new();
+        let mut b = TerrainVisualImpl::new();
+        a.load_heightmap_from_data(HeightMap::new(8, 8, 0.0, 10.0), None, None)
+            .unwrap();
+        b.load_heightmap_from_data(HeightMap::new(8, 8, 0.0, 10.0), None, None)
+            .unwrap();
+        assert!(a.add_scorch([12.0, 8.0, 0.0], 18.0, 2));
+        assert!(b.add_scorch([20.0, 10.0, 0.0], 12.0, 1));
+        let marks = a.scorch_marks().to_vec();
+        let peer_marks = b.scorch_marks().to_vec();
+        a.scorches.scorches_in_buffer = 4;
+        b.scorches.scorches_in_buffer = 8;
+        // The original Int lower-write can narrow -1 to 255. Native delivery
+        // must copy that accepted byte, never clamp or compare it a second time.
+        a.apply_accepted_height(2, 2, 255);
+        assert_eq!(a.height_map.as_ref().unwrap().get_raw_height(2, 2), 255);
+        assert_eq!(b.height_map.as_ref().unwrap().get_raw_height(2, 2), 0);
+        assert_eq!(a.scorch_marks(), marks);
+        assert_eq!(b.scorch_marks(), peer_marks);
+        assert_eq!(a.scorches.scorches_in_buffer, 0);
+        assert_eq!(b.scorches.scorches_in_buffer, 8);
+        a.clear_scorches();
+        assert!(a.scorch_marks().is_empty());
+        assert_eq!(b.scorch_marks(), peer_marks);
     }
 
     fn bib_test_visual() -> TerrainVisualImpl {

@@ -3,6 +3,8 @@
 //! Explicit frame/multiplier inputs make bounded camera phases repeatable.
 //! This is not a playthrough, GPU-frame-rate benchmark or second-Engine proof.
 use super::*;
+#[path = "camera_window_gate/terrain_owner.rs"]
+mod terrain_owner;
 use serde_json::{Value, json};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -33,6 +35,8 @@ struct CameraGateRequest {
     actual_executable: Value,
     map: Value,
     build_receipt: Value,
+    #[serde(default)]
+    terrain_owner: Option<terrain_owner::TerrainOwnerRequest>,
 }
 impl CameraGateRequest {
     fn read(map: &Path) -> Result<(Self, Value), String> {
@@ -115,6 +119,7 @@ impl CnCGameEngine {
             self.game_logic.ai_definitions.baseline(),
             self.game_logic.production_energy_baseline(),
             self.game_logic.physics_rules_baseline(),
+            self.game_logic.effective_terrain_definitions(),
             self.game_logic.session_view.camera.settings,
             self.game_logic.session_view.camera.clip_policy,
             self.game_logic.session_view.camera.shake_policy,
@@ -427,6 +432,11 @@ impl CnCGameEngine {
             "camera gate requires exact file-backed retail map identity",
         )?;
         let (request, request_value) = CameraGateRequest::read(&map)?;
+        let terrain_paths = request
+            .terrain_owner
+            .as_ref()
+            .map(|input| self.terrain_gate_startup_paths(input))
+            .transpose()?;
         let report_path = request.report_path.clone();
         // create_new is an exclusive freshness boundary, including PID reuse.
         let mut report_file = std::fs::OpenOptions::new()
@@ -469,6 +479,19 @@ impl CnCGameEngine {
             let slot = "camera_owner_new";
             let save_path = self.save_file_manager.get_save_path(slot);
             require(!save_path.exists(), "acceptance archive must not preexist")?;
+            let mut terrain_owner = request
+                .terrain_owner
+                .as_ref()
+                .map(|input| {
+                    self.terrain_gate_seed(
+                        input,
+                        &map,
+                        terrain_paths
+                            .clone()
+                            .expect("terrain paths checked before manager swap"),
+                    )
+                })
+                .transpose()?;
             let hag_seed = self.camera_gate_seed_hag()?;
             partial_evidence["hag_seed"] = hag_seed.clone();
             let frame = self.game_logic.frame;
@@ -518,6 +541,9 @@ impl CnCGameEngine {
                 logic_camera(&self.game_logic)? == saved_owner,
                 "actual Engine commit lost saved camera/active impulse",
             )?;
+            if let Some(state) = terrain_owner.as_mut() {
+                self.terrain_gate_restore_and_hydrate(state)?;
+            }
             let before_peer = logic_camera(&self.game_logic)?;
             phase = "stage_peer";
             let mut peer = self.camera_gate_stage_peer(slot)?;
@@ -533,12 +559,18 @@ impl CnCGameEngine {
                 peer.logic.combat_particles().can_clear(),
                 "staged peer reset lacks its required particle owner",
             )?;
+            if terrain_owner.is_some() {
+                self.terrain_gate_mutate_peer(&mut peer)?;
+            }
             peer.logic.reset();
             drop(peer);
             require(
                 logic_camera(&self.game_logic)? == before_peer,
                 "same-thread staged peer mutated receiving camera",
             )?;
+            if let Some(state) = terrain_owner.as_mut() {
+                self.terrain_gate_peer_and_failed_archive(state, slot)?;
+            }
             phase = "interleaved_display_trace";
             let interleaved = self.camera_gate_trace(frame)?;
             require(
@@ -557,9 +589,12 @@ impl CnCGameEngine {
             phase = "scripted_origin_finalizer";
             let scripted_origin = self.camera_gate_scripted_origin(slot)?;
             partial_evidence["scripted_origin_finalizer"] = scripted_origin.clone();
+            let terrain_evidence = terrain_owner
+                .map(|state| self.terrain_gate_finish(state))
+                .transpose()?;
             Ok(
                 json!({"reference":reference,"after_staged_peer":interleaved,"after_second_restore":resumed,
-                "scripted_origin_finalizer":scripted_origin,
+                "scripted_origin_finalizer":scripted_origin,"terrain_owner":terrain_evidence,
                 "replay_metadata_admission":metadata_evidence,
                 "saved_archive":saved_file,"saved_owner":saved_owner,"hag_seed":hag_seed,"map":file_observation(&map)?,
                 "effective_rules":{"settings":self.game_logic.session_view.camera.settings,

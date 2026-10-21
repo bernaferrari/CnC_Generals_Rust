@@ -17,6 +17,21 @@ impl GameLogic {
         mut shot: crate::game_logic::combat::PendingProjectile,
         capture: Option<super::weapon_visual_capture::PendingWeaponVisualDispatchCapture>,
     ) -> bool {
+        self.deliver_owned_weapon_shot_with_effects(
+            slot,
+            shot,
+            capture,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(in crate::game_logic) fn deliver_owned_weapon_shot_with_effects(
+        &mut self,
+        slot: u8,
+        mut shot: crate::game_logic::combat::PendingProjectile,
+        capture: Option<super::weapon_visual_capture::PendingWeaponVisualDispatchCapture>,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
         // Retain the selected immutable template before FireFX/FireOCL callbacks
         // can change content, selection, ownership or the firing object itself.
         let stream_binding = self.objects.get(&shot.shooter_id).and_then(|object| {
@@ -29,13 +44,14 @@ impl GameLogic {
         });
         let source_pose = self.prepare_accepted_self_damage_pose(shot.shooter_id, slot);
         let epoch = source_pose.epoch;
-        let accepted = self.begin_owned_weapon_effects(
+        let accepted = self.begin_owned_weapon_effects_with_effects(
             shot.shooter_id,
             slot,
             shot.target_id,
             shot.target_pos,
             shot.shooter_pos,
             capture,
+            presentation_effects,
         );
         // Accepted effects belong to this callback, never to later flight.
         shot.fire_fx_name.clear();
@@ -46,7 +62,11 @@ impl GameLogic {
             return false;
         }
         self.refresh_accepted_self_damage_pose(&mut shot, source_pose);
-        self.materialize_owned_passive_shot(shot, stream_binding);
+        self.materialize_owned_passive_shot_with_effects(
+            shot,
+            stream_binding,
+            presentation_effects,
+        );
         if let Some(accepted) = accepted {
             self.finish_accepted_weapon_discharge(accepted);
             true
@@ -101,6 +121,27 @@ impl GameLogic {
         origin: Vec3,
         prepared_capture: Option<super::weapon_visual_capture::PendingWeaponVisualDispatchCapture>,
     ) -> Option<AcceptedWeaponDischarge> {
+        self.begin_owned_weapon_effects_with_effects(
+            source,
+            slot,
+            target,
+            target_position,
+            origin,
+            prepared_capture,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(in crate::game_logic) fn begin_owned_weapon_effects_with_effects(
+        &mut self,
+        source: ObjectId,
+        slot: u8,
+        target: Option<ObjectId>,
+        target_position: Option<Vec3>,
+        origin: Vec3,
+        prepared_capture: Option<super::weapon_visual_capture::PendingWeaponVisualDispatchCapture>,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> Option<AcceptedWeaponDischarge> {
         let object = self.objects.get(&source)?;
         let name = object.weapon_name_for_slot(slot).map(str::to_owned);
         let native = object.selected_native_weapon_rule(slot);
@@ -145,7 +186,8 @@ impl GameLogic {
                 capture.weapon_plays_fx_when_stealthed = play;
             }
         }
-        let accepted = self.begin_accepted_weapon_discharge(source, slot)?;
+        let accepted =
+            self.begin_accepted_weapon_discharge_with_effects(source, slot, presentation_effects)?;
         // CPP943 samples the source rank again AFTER FireFX. No object borrow
         // spans this callback, and no queued shot can repeat these effects.
         if let Some(object) = self.objects.get(&source) {
@@ -161,7 +203,7 @@ impl GameLogic {
                 object.get_position(),
             );
             if !ocl.trim().is_empty() && !ocl.eq_ignore_ascii_case("None") {
-                self.execute_parsed_weapon_ocl_at(
+                self.execute_parsed_weapon_ocl_at_with_effects(
                     &ocl,
                     Some(source),
                     team,
@@ -169,6 +211,7 @@ impl GameLogic {
                     orientation,
                     velocity,
                     source_position,
+                    presentation_effects,
                 );
             }
         }

@@ -55,13 +55,23 @@ impl GameLogic {
         object_ids: &[ObjectId],
         dt: f32,
     ) {
+        self.update_support_states_with_effects(object_ids, dt, &mut Default::default())
+    }
+
+    pub(in super::super::super) fn update_support_states_with_effects(
+        &mut self,
+        object_ids: &[ObjectId],
+        dt: f32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
+        let tree_move_frame = self.frame;
         // Object::set_ai_state records DockUpdate's synchronous cancellation
         // callback as an epoch. Reconcile it at this regular mutable world
         // update boundary so a retasked active docker is released even when
         // no later selector or dock claimant touches that module.
         self.sync_host_dock_queue_cancellations();
         self.apply_pending_host_dock_cancellation_effects();
-        self.update_leftover_laser_guided_channels(dt);
+        self.update_leftover_laser_guided_channels_with_effects(dt, effects);
         self.expire_leftover_disable_fx();
         // C++ OpenContain::update zeros m_playerEnteredMask every logic frame
         // after scripts have already sampled last frame's enter pulse.
@@ -117,7 +127,7 @@ impl GameLogic {
                 continue;
             }
             self.expire_temporary_stealth_grant(object_id);
-            self.cancel_replaced_ability_channels(object_id, &ai_state);
+            self.cancel_replaced_ability_channels_with_effects(object_id, &ai_state, effects);
             // The pre-locomotor invocation owns both temporary exit movement
             // and its suspended Guard. Do not observe this frame's movement
             // a second time from the later support pass.
@@ -127,7 +137,7 @@ impl GameLogic {
                     .get(&object_id)
                     .is_some_and(Object::has_guard_quick_exit_overlay)
             {
-                self.tick_host_guard_states(&[object_id]);
+                self.tick_host_guard_states_with_effects(&[object_id], effects);
                 continue;
             }
             let quick_exit_finished = self.finish_quick_exit_if_due(object_id, guard_target);
@@ -141,10 +151,10 @@ impl GameLogic {
             };
             match ai_state {
                 AIState::Exiting => {
-                    self.update_owned_passenger_exit(object_id);
+                    self.update_owned_passenger_exit_with_effects(object_id, effects);
                 }
                 AIState::GuardingArea | AIState::GuardingObject => {
-                    self.tick_host_guard_states(&[object_id]);
+                    self.tick_host_guard_states_with_effects(&[object_id], effects);
                 }
                 AIState::Repairing => {
                     let Some(repair_target_id) = target_id else {
@@ -297,12 +307,13 @@ impl GameLogic {
                     let heal_amount = heal_per_sec * dt;
                     // C++ attemptHealingFromSoleBenefactor(health, dozer, 2) residual.
                     let now = self.frame;
-                    let healed = self.attempt_owned_healing_from_sole_benefactor(
+                    let healed = self.attempt_owned_healing_from_sole_benefactor_with_effects(
                         repair_target_id,
                         heal_amount,
                         object_id,
                         2,
                         now,
+                        effects,
                     );
                     let sole = self.objects.get(&repair_target_id).map(|target| {
                         (
@@ -522,7 +533,11 @@ impl GameLogic {
                                 .get(&object_id)
                                 .is_some_and(|o| o.is_kind_of(KindOf::Aircraft)));
                     if seeking_aircraft {
-                        self.try_aircraft_land_for_repair(object_id, support_target_id);
+                        self.try_aircraft_land_for_repair_with_effects(
+                            object_id,
+                            support_target_id,
+                            effects,
+                        );
                         continue;
                     }
 
@@ -536,7 +551,11 @@ impl GameLogic {
                     }
                     let seeking_repair = matches!(state, AIState::SeekingRepair);
                     let repair_continues = !seeking_repair
-                        || self.repair_dock_action_owned(support_target_id, object_id);
+                        || self.repair_dock_action_owned_with_effects(
+                            support_target_id,
+                            object_id,
+                            effects,
+                        );
                     let mut vehicle_healed = false;
                     let mut heal_pad_healed = false;
                     if let Some(obj) = self.objects.get_mut(&object_id) {
@@ -675,7 +694,11 @@ impl GameLogic {
                                     localization::localize("hud.pilot.recrew", "Vehicle recrewed");
                                 self.queue_radar_message_for_team(pilot_team, msg);
                                 self.mark_destroyed_authority_aware(object_id, None);
-                                self.mark_object_for_destruction(object_id, Some(pilot_team));
+                                self.mark_object_for_destruction_with_effects(
+                                    object_id,
+                                    Some(pilot_team),
+                                    effects,
+                                );
                                 continue;
                             }
                         }
@@ -740,7 +763,11 @@ impl GameLogic {
                             let _ = self.transfer_script_object_name(object_id, container_id);
                             self.unmanned_reclaims = self.unmanned_reclaims.saturating_add(1);
                             self.mark_destroyed_authority_aware(object_id, None);
-                            self.mark_object_for_destruction(object_id, Some(inf_team));
+                            self.mark_object_for_destruction_with_effects(
+                                object_id,
+                                Some(inf_team),
+                                effects,
+                            );
                             continue;
                         }
                     }
@@ -760,7 +787,11 @@ impl GameLogic {
                     // C++ OpenContain::onCollide ejects foreign riders first,
                     // then isValidContainerFor + addToContain.
                     if normal_enter {
-                        self.eject_foreign_occupants_on_enter(container_id, object_id);
+                        self.eject_foreign_occupants_on_enter_with_effects(
+                            container_id,
+                            object_id,
+                            effects,
+                        );
                     }
                     if normal_enter
                         && !self.can_unit_enter_normal_target(object_id, requested_container_id)
@@ -975,7 +1006,11 @@ impl GameLogic {
                                 == crate::game_logic::ContainModuleKind::RiderChange
                         });
                     if is_rider_change_target {
-                        if !self.rider_change_enter_at_arrival(object_id, container_id) {
+                        if !self.rider_change_enter_at_arrival_with_effects(
+                            object_id,
+                            container_id,
+                            effects,
+                        ) {
                             if let Some(obj) = self.objects.get_mut(&object_id) {
                                 obj.clear_target();
                                 obj.stop_moving();
@@ -1005,7 +1040,11 @@ impl GameLogic {
                     };
                     // C++ OpenContain::onCollide: eject other-player riders first.
                     if !container_is_tunnel_network && !container_is_cave {
-                        self.kick_other_controller_occupants_for_enter(container_id, object_id);
+                        self.kick_other_controller_occupants_for_enter_with_effects(
+                            container_id,
+                            object_id,
+                            effects,
+                        );
                     }
                     let space_after_kick = self.objects.get(&container_id).is_some_and(|c| {
                         c.has_capacity_for(1) || c.contained_units().contains(&object_id)
@@ -1045,7 +1084,11 @@ impl GameLogic {
 
                     // C++ OpenContain::addToContain checkAndDetonateBoobyTrap(rider).
                     if !container_has_unit
-                        && self.should_cancel_containment_after_booby_trap(container_id, object_id)
+                        && self.should_cancel_containment_after_booby_trap_with_effects(
+                            container_id,
+                            object_id,
+                            effects,
+                        )
                     {
                         if let Some(obj) = self.objects.get_mut(&object_id) {
                             obj.clear_target();
@@ -1132,7 +1175,7 @@ impl GameLogic {
                         // C++ onContaining snaps enclosing occupants to the building
                         // origin. Fire Base (IsEnclosingContainer=No) stays at stations.
                         if enclosing_garrison || !container_is_structure {
-                            obj.set_position(container_pos);
+                            obj.set_position_with_effects(container_pos, tree_move_frame, effects);
                             {}
                         }
                         let __ai_st = if container_is_heal_contain || container_is_tunnel_network {
@@ -1161,7 +1204,11 @@ impl GameLogic {
                         // C++ HealContain is not a garrison / transport load.
                     } else if container_is_structure {
                         self.record_garrison_residual_enter();
-                        self.apply_garrison_contain_on_enter(container_id, object_id);
+                        self.apply_garrison_contain_on_enter_with_effects(
+                            container_id,
+                            object_id,
+                            effects,
+                        );
                         if let Some(pid) = occupant_owner {
                             if let Some(player) = self.players.get_mut(&pid) {
                                 player.selected_objects.retain(|id| *id != object_id);
@@ -1377,11 +1424,12 @@ impl GameLogic {
 
                                 continue;
                             }
-                            if !self.start_capture_preparation(
+                            if !self.start_capture_preparation_with_effects(
                                 object_id,
                                 capture_target_id,
                                 capture_power,
                                 preparation_time_ms,
+                                effects,
                             ) {
                                 self.abort_capture_channel(object_id);
                                 continue;
@@ -1404,11 +1452,12 @@ impl GameLogic {
                                 }
                                 continue;
                             }
-                            if !self.start_capture_preparation(
+                            if !self.start_capture_preparation_with_effects(
                                 object_id,
                                 capture_target_id,
                                 capture_power,
                                 preparation_time_ms,
+                                effects,
                             ) {
                                 self.abort_capture_channel(object_id);
                                 continue;
@@ -1471,12 +1520,13 @@ impl GameLogic {
                             .map(|target| target.status.booby_trapped)
                             .unwrap_or(false);
                     if !planter_ally && target_is_trapped {
-                        let _ = self.detonate_booby_trap_at(
+                        let _ = self.detonate_booby_trap_at_with_effects(
                             capture_target_id,
                             target_position,
                             Some(object_id),
                             true,
                             false,
+                            effects,
                         );
                     }
 
@@ -1501,7 +1551,10 @@ impl GameLogic {
                                 // C++ `removeAllContained(TRUE); break;`: clearing
                                 // a garrison is a successful ability trigger but
                                 // never defects that structure on the same use.
-                                self.evacuate_garrison_for_capture(capture_target_id);
+                                self.evacuate_garrison_for_capture_with_effects(
+                                    capture_target_id,
+                                    effects,
+                                );
                                 false
                             } else {
                                 // C++ SpecialAbilityUpdate.cpp:1436-1442:
@@ -1519,7 +1572,12 @@ impl GameLogic {
                                     .get(&object_id)
                                     .and_then(|capturer| capturer.team_instance_id);
                                 destination.is_some_and(|team| {
-                                    self.defect_host_object(capture_target_id, team, 1)
+                                    self.defect_host_object_with_effects(
+                                        capture_target_id,
+                                        team,
+                                        1,
+                                        effects,
+                                    )
                                 })
                             }
                         } else {
@@ -1617,7 +1675,9 @@ impl GameLogic {
                         continue;
                     };
                     if matches!(ability, PendingSpecialAbility::HelixNapalmBomb { .. }) {
-                        self.update_helix_napalm_bomb_channel(object_id, ability);
+                        self.update_helix_napalm_bomb_channel_with_effects(
+                            object_id, ability, effects,
+                        );
                         continue;
                     }
 
@@ -1629,10 +1689,11 @@ impl GameLogic {
                     // to apply the disable instantly (and reject an already
                     // disabled target), none of which matches C++.
                     if matches!(ability, PendingSpecialAbility::HackerDisableBuilding { .. }) {
-                        self.update_hacker_disable_building_channel(
+                        self.update_hacker_disable_building_channel_with_effects(
                             object_id,
                             special_target_id,
                             dt,
+                            effects,
                         );
                         continue;
                     }
@@ -1918,11 +1979,12 @@ impl GameLogic {
                     }
 
                     if let Some(kind) = Self::leftover_sa_kind(ability) {
-                        match self.tick_leftover_special_ability(
+                        match self.tick_leftover_special_ability_with_effects(
                             object_id,
                             special_target_id,
                             kind,
                             dt,
+                            effects,
                         ) {
                             LeftoverSaTick::Waiting | LeftoverSaTick::Finished => continue,
                             LeftoverSaTick::Trigger => {
@@ -1953,8 +2015,11 @@ impl GameLogic {
                             }
                             match owner_player_id {
                                 Some(player_id) => {
-                                    let _ = self
-                                        .transfer_object_to_player(special_target_id, player_id);
+                                    let _ = self.transfer_object_to_player_with_effects(
+                                        special_target_id,
+                                        player_id,
+                                        effects,
+                                    );
                                 }
                                 None => {
                                     if let Some(target) = self.objects.get_mut(&special_target_id) {
@@ -2014,7 +2079,11 @@ impl GameLogic {
                                     o.status.effectively_dead = true;
                                     o.status.destroyed = true;
                                 }
-                                self.mark_object_for_destruction(object_id, Some(team));
+                                self.mark_object_for_destruction_with_effects(
+                                    object_id,
+                                    Some(team),
+                                    effects,
+                                );
                                 // mark_object may re-enter SlowDeath and clear destroyed;
                                 // re-assert consume residual for hijack steal.
                                 if let Some(o) = self.objects.get_mut(&object_id) {
@@ -2177,12 +2246,13 @@ impl GameLogic {
                                                 },
                                             );
                                             let destroyed = max_hp.is_some_and(|max_hp| {
-                                                self.apply_residual_damage_owned(special_target_id, max_hp, Some(object_id), crate::game_logic::combat::DamageType::Unresistable, crate::game_logic::host_usa_pilot::HostDeathType::Detonated, None)
+                                                self.apply_residual_damage_owned_with_effects(special_target_id, max_hp, Some(object_id), crate::game_logic::combat::DamageType::Unresistable, crate::game_logic::host_usa_pilot::HostDeathType::Detonated, None, effects)
                                             });
                                             if destroyed {
-                                                self.mark_object_for_destruction(
+                                                self.mark_object_for_destruction_with_effects(
                                                     special_target_id,
                                                     Some(team),
+                                                    effects,
                                                 );
                                                 self.saboteur.record_fake_detonated();
                                             }
@@ -2226,7 +2296,11 @@ impl GameLogic {
                                     self.queue_radar_message_for_team(team, msg);
                                     // C++ CrateCollide: destroy saboteur (mobile crate).
                                     self.mark_destroyed_authority_aware(object_id, None);
-                                    self.mark_object_for_destruction(object_id, Some(team));
+                                    self.mark_object_for_destruction_with_effects(
+                                        object_id,
+                                        Some(team),
+                                        effects,
+                                    );
                                     self.saboteur.record_consumed();
                                 } else if let Some(obj) = self.objects.get_mut(&object_id) {
                                     // Fail-closed: non-matching structure — cancel residual.
@@ -2249,7 +2323,10 @@ impl GameLogic {
                                 .map(|t| t.is_car_bomb())
                                 .unwrap_or(false);
                             if is_bomb {
-                                let _ = self.maybe_detonate_carbomb_on_unmanned(special_target_id);
+                                let _ = self.maybe_detonate_carbomb_on_unmanned_with_effects(
+                                    special_target_id,
+                                    effects,
+                                );
                             } else if let Some(target) = self.objects.get_mut(&special_target_id) {
                                 target.apply_kill_pilot_unmanned(&mut self.health_events);
                                 target.set_team(Team::Neutral, &mut self.ownership_events);
@@ -2287,10 +2364,11 @@ impl GameLogic {
                         }
                         PendingSpecialAbility::PlantTimedDemoCharge { .. } => {
                             // C++ triggerAbilityEffect checkAndDetonateBoobyTrap before plant.
-                            if self.leftover_probe_booby_at_target(
+                            if self.leftover_probe_booby_at_target_with_effects(
                                 object_id,
                                 special_target_id,
                                 team,
+                                effects,
                             ) {
                                 self.hero_abilities.take_leftover_channel(object_id);
                                 self.pending_special_abilities.remove(&object_id);
@@ -2316,12 +2394,13 @@ impl GameLogic {
                                 true
                             };
                             let charge_id = if tnt_ready {
-                                self.place_timed_demo_charge(
+                                self.place_timed_demo_charge_with_effects(
                                     team,
                                     target_position,
                                     Some(object_id),
                                     Some(special_target_id),
                                     None,
+                                    effects,
                                 )
                             } else {
                                 None
@@ -2354,21 +2433,23 @@ impl GameLogic {
                             }
                         }
                         PendingSpecialAbility::PlantRemoteDemoCharge { .. } => {
-                            if self.leftover_probe_booby_at_target(
+                            if self.leftover_probe_booby_at_target_with_effects(
                                 object_id,
                                 special_target_id,
                                 team,
+                                effects,
                             ) {
                                 self.hero_abilities.take_leftover_channel(object_id);
                                 self.pending_special_abilities.remove(&object_id);
                                 continue;
                             }
                             // Burton residual: plant sticky remote charge (no auto-timer).
-                            let charge_id = self.place_remote_demo_charge(
+                            let charge_id = self.place_remote_demo_charge_with_effects(
                                 team,
                                 target_position,
                                 Some(object_id),
                                 Some(special_target_id),
+                                effects,
                             );
                             if charge_id.is_some() {
                                 self.hero_abilities.record_remote_charge_plant();
@@ -2384,7 +2465,7 @@ impl GameLogic {
                             }
                         }
                         PendingSpecialAbility::StealCashHack { .. } => {
-                            self.leftover_kill_special_objects(object_id);
+                            self.leftover_kill_special_objects_with_effects(object_id, effects);
                             // C++ `triggerAbilityEffect` AwardXPForTriggering
                             // (`SpecialAbilityUpdate.cpp:1248-1253`). Retail
                             // `SpecialAbilityBlackLotusStealCashHack` = 20.
@@ -2460,12 +2541,12 @@ impl GameLogic {
                                 if let Some(t) = self.objects.get_mut(&special_target_id) {
                                     let receiving_damage_target_id = t.id;
                                     let receiving_damage_argument_1 = t.health.maximum.max(1.0);
-                                    let _ = self.apply_residual_damage_owned(receiving_damage_target_id, receiving_damage_argument_1, Some(object_id), crate::game_logic::combat::DamageType::Unresistable, crate::game_logic::host_usa_pilot::HostDeathType::from_host_damage_type(crate::game_logic::combat::DamageType::Unresistable), None);
+                                    let _ = self.apply_residual_damage_owned_with_effects(receiving_damage_target_id, receiving_damage_argument_1, Some(object_id), crate::game_logic::combat::DamageType::Unresistable, crate::game_logic::host_usa_pilot::HostDeathType::from_host_damage_type(crate::game_logic::combat::DamageType::Unresistable), None, effects);
                                 }
                                 if let Some(b) = self.objects.get_mut(&object_id) {
                                     let receiving_damage_target_id = b.id;
                                     let receiving_damage_argument_1 = b.health.maximum.max(1.0);
-                                    let _ = self.apply_residual_damage_owned(receiving_damage_target_id, receiving_damage_argument_1, Some(special_target_id), crate::game_logic::combat::DamageType::Unresistable, crate::game_logic::host_usa_pilot::HostDeathType::from_host_damage_type(crate::game_logic::combat::DamageType::Unresistable), None);
+                                    let _ = self.apply_residual_damage_owned_with_effects(receiving_damage_target_id, receiving_damage_argument_1, Some(special_target_id), crate::game_logic::combat::DamageType::Unresistable, crate::game_logic::host_usa_pilot::HostDeathType::from_host_damage_type(crate::game_logic::combat::DamageType::Unresistable), None, effects);
                                 }
                                 let t_dead = self
                                     .objects
@@ -2479,13 +2560,18 @@ impl GameLogic {
                                     .unwrap_or(true);
                                 if t_dead || b_dead {
                                     if t_dead {
-                                        self.mark_object_for_destruction(
+                                        self.mark_object_for_destruction_with_effects(
                                             special_target_id,
                                             Some(team),
+                                            effects,
                                         );
                                     }
                                     if b_dead {
-                                        self.mark_object_for_destruction(object_id, Some(team));
+                                        self.mark_object_for_destruction_with_effects(
+                                            object_id,
+                                            Some(team),
+                                            effects,
+                                        );
                                     }
                                     continue;
                                 }
@@ -2497,8 +2583,11 @@ impl GameLogic {
                             }
                             match owner_player_id {
                                 Some(player_id) => {
-                                    let _ = self
-                                        .transfer_object_to_player(special_target_id, player_id);
+                                    let _ = self.transfer_object_to_player_with_effects(
+                                        special_target_id,
+                                        player_id,
+                                        effects,
+                                    );
                                 }
                                 None => {
                                     if let Some(target) = self.objects.get_mut(&special_target_id) {
@@ -2512,10 +2601,11 @@ impl GameLogic {
                             // C++ FXList::doFXObj(m_fxList, other) → FX_MakeCarBombSuccess
                             // (Sound nugget TerroristCarBomb). Never play the FXList name.
                             let fx = crate::game_logic::host_car_bomb::CAR_BOMB_CONVERT_FX_LIST;
-                            if !self.dispatch_fx_list_at_host_object(
+                            if !self.dispatch_fx_list_at_host_object_with_effects(
                                 fx,
                                 special_target_id,
                                 Some(object_id),
+                                effects,
                             ) {
                                 let sounds = crate::game_logic::sound_names_for_fx_list(fx);
                                 if sounds.is_empty() {
@@ -2544,7 +2634,11 @@ impl GameLogic {
                             );
                             self.queue_radar_message_for_team(team, msg);
                             self.mark_destroyed_authority_aware(object_id, None);
-                            self.mark_object_for_destruction(object_id, Some(team));
+                            self.mark_object_for_destruction_with_effects(
+                                object_id,
+                                Some(team),
+                                effects,
+                            );
                         }
                         PendingSpecialAbility::DisableVehicleHack { .. } => {
                             // C++ SpecialAbilityUpdate BLACKLOTUS_DISABLE_VEHICLE_HACK:
@@ -2574,7 +2668,7 @@ impl GameLogic {
                                 ch.do_disable_fx_particles = new_do_fx;
                                 self.hero_abilities.set_leftover_channel(object_id, ch);
                             }
-                            self.leftover_kill_special_objects(object_id);
+                            self.leftover_kill_special_objects_with_effects(object_id, effects);
                             self.hero_abilities.record_vehicle_disable();
                             let msg = localization::localize(
                                 "hud.vehicle_hack.disabled",
@@ -2652,10 +2746,11 @@ impl GameLogic {
                                 BOOBY_TRAP_INSTALL_AUDIO, has_booby_trap_upgrade,
                                 is_booby_trap_planter_template,
                             };
-                            if self.leftover_probe_booby_at_target(
+                            if self.leftover_probe_booby_at_target_with_effects(
                                 object_id,
                                 special_target_id,
                                 team,
+                                effects,
                             ) {
                                 self.hero_abilities.take_leftover_channel(object_id);
                                 self.pending_special_abilities.remove(&object_id);
@@ -2703,11 +2798,14 @@ impl GameLogic {
                                     geom,
                                     None,
                                 );
-                                if let Some(cid) = self.spawn_booby_trap_special_object(
-                                    object_id,
-                                    team,
-                                    special_target_id,
-                                ) {
+                                if let Some(cid) = self
+                                    .spawn_booby_trap_special_object_with_effects(
+                                        object_id,
+                                        team,
+                                        special_target_id,
+                                        effects,
+                                    )
+                                {
                                     self.booby_trap.set_charge_object(special_target_id, cid);
                                 }
                                 if let Some(target) = self.objects.get_mut(&special_target_id) {
@@ -2747,11 +2845,12 @@ impl GameLogic {
                                 timings.pack_ms,
                                 variation,
                             );
-                            self.leftover_begin_packing(
+                            self.leftover_begin_packing_with_effects(
                                 object_id,
                                 special_target_id,
                                 kind,
                                 pack_ms,
+                                effects,
                             );
                         }
                     } else {
@@ -2866,7 +2965,11 @@ impl GameLogic {
                                         let mut pos = obj.get_position();
                                         pos.x += dx;
                                         pos.z += dz;
-                                        obj.set_position(pos);
+                                        obj.set_position_with_effects(
+                                            pos,
+                                            tree_move_frame,
+                                            effects,
+                                        );
                                     }
                                 }
                                 continue;
@@ -3002,7 +3105,7 @@ impl GameLogic {
                                             &mut self.health_events,
                                         );
                                     }
-                                    self.mark_object_for_destruction(object_id, None);
+                                    self.mark_object_for_destruction_with_effects(object_id, None, effects);
                                 }
                                 crate::game_logic::host_supply_gather::DockCrippleVictimAction::IdleAndForceWanting => {
                                     if let Some(obj) = self.objects.get_mut(&object_id) {
@@ -3068,7 +3171,7 @@ impl GameLogic {
                                 None,
                                 &mut self.health_events,
                             );
-                            self.mark_object_for_destruction(source_id, None);
+                            self.mark_object_for_destruction_with_effects(source_id, None, effects);
                         }
                     }
                     if remaining_after == 0 && collector_metadata.is_some() {
@@ -3458,7 +3561,8 @@ impl GameLogic {
                         })
                         .unwrap_or(false);
                     if wants_sortie {
-                        let _ = self.try_runway_takeoff_from_airfield(object_id);
+                        let _ =
+                            self.try_runway_takeoff_from_airfield_with_effects(object_id, effects);
                         continue;
                     }
                     // Prefer contained_by (authoritative residual link) over target.
@@ -3532,7 +3636,7 @@ impl GameLogic {
                     let pin_pos = station_pin.unwrap_or(container_pos);
                     if let Some(obj) = self.objects.get_mut(&object_id) {
                         obj.set_contained_by_enclosing(Some(container_id), enclosing);
-                        obj.set_position(pin_pos);
+                        obj.set_position_with_effects(pin_pos, tree_move_frame, effects);
                         {}
                         obj.stop_moving();
                         obj.set_status_moving(false);
@@ -3600,12 +3704,12 @@ impl GameLogic {
                     crate::game_logic::host_usa_pilot::HostDeathType::Toppled;
             }
             self.mark_destroyed_authority_aware(object_id, None);
-            self.mark_object_for_destruction(object_id, None);
+            self.mark_object_for_destruction_with_effects(object_id, None, effects);
         }
 
         // C++ HealContain::update + TunnelContain::update → TunnelTracker::healObjects.
-        self.tick_heal_contain_and_tunnel();
+        self.tick_heal_contain_and_tunnel_with_effects(effects);
         // C++ TunnelContain::update nemesis + AITNGuard::lookForInnerTarget.
-        self.tick_tunnel_network_nemesis();
+        self.tick_tunnel_network_nemesis_with_effects(effects);
     }
 }

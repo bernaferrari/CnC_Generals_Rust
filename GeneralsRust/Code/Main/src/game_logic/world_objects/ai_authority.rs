@@ -21,6 +21,30 @@ impl GameLogic {
         frame: u32,
         dt: f32,
     ) -> Option<AICommand> {
+        self.process_ai_behavior_with_effects(
+            object_id,
+            ai_state,
+            target_id,
+            position,
+            team,
+            can_attack,
+            frame,
+            dt,
+            &mut Default::default(),
+        )
+    }
+    pub(in super::super) fn process_ai_behavior_with_effects(
+        &mut self,
+        object_id: ObjectId,
+        ai_state: AIState,
+        target_id: Option<ObjectId>,
+        position: Vec3,
+        team: Team,
+        can_attack: bool,
+        frame: u32,
+        dt: f32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> Option<AICommand> {
         let should_scan =
             |interval: u32| -> bool { interval > 0 && frame.is_multiple_of(interval) };
         let ai_auto_engage_paused = self.skirmish_ai_auto_engage_paused(object_id);
@@ -75,7 +99,7 @@ impl GameLogic {
             return self.tick_attack_move_blocked_progress(object_id, frame);
         }
 
-        if self.tick_persisted_face(object_id, target_id, dt, frame) {
+        if self.tick_persisted_face_with_effects(object_id, target_id, dt, frame, effects) {
             if matches!(ai_state, AIState::FacingObject | AIState::FacingPosition) {
                 // C++ AIFaceState SUCCESS → AI_IDLE. Apply host-immediate so
                 // decision-authority log-only SetAIState cannot leave FACE stuck.
@@ -423,6 +447,22 @@ impl GameLogic {
         dt: f32,
         frame: u32,
     ) -> bool {
+        self.tick_persisted_face_with_effects(
+            object_id,
+            target_id,
+            dt,
+            frame,
+            &mut Default::default(),
+        )
+    }
+    fn tick_persisted_face_with_effects(
+        &mut self,
+        object_id: ObjectId,
+        target_id: Option<ObjectId>,
+        dt: f32,
+        frame: u32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
         let (active, facing_object, face_pos, ai) = match self.objects.get(&object_id) {
             Some(o) => (
                 o.face_active,
@@ -465,7 +505,7 @@ impl GameLogic {
         let Some(u) = self.objects.get_mut(&object_id) else {
             return false;
         };
-        !u.tick_face_towards(target_pos, dt, frame)
+        !u.tick_face_towards_with_effects(target_pos, dt, frame, effects)
     }
 
     /// Apply AI command to the game state
@@ -589,6 +629,27 @@ impl GameLogic {
         weapon: Option<&crate::game_logic::Weapon>,
         slot: u8,
     ) -> (bool, f32) {
+        self.residual_auto_fire_apply_damage_with_effects(
+            attacker_id,
+            target_id,
+            damage,
+            shooter_pos,
+            weapon,
+            slot,
+            &mut Default::default(),
+        )
+    }
+
+    pub(in super::super) fn residual_auto_fire_apply_damage_with_effects(
+        &mut self,
+        attacker_id: ObjectId,
+        target_id: ObjectId,
+        damage: f32,
+        shooter_pos: glam::Vec3,
+        weapon: Option<&crate::game_logic::Weapon>,
+        slot: u8,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> (bool, f32) {
         use crate::game_logic::combat::{self, DamageType, PendingProjectile};
         use crate::game_logic::host_usa_pilot::HostDeathType;
 
@@ -604,7 +665,7 @@ impl GameLogic {
         if let Some(target) = self.objects.get_mut(&target_id) {
             // Source-attributed residual: BodyModule last_damage_source + damage log.
             let receiving_damage_id = target.id;
-            destroyed = self.apply_residual_damage_owned(
+            destroyed = self.apply_residual_damage_owned_with_effects(
                 receiving_damage_id,
                 damage,
                 Some(attacker_id),
@@ -613,6 +674,7 @@ impl GameLogic {
                     crate::game_logic::combat::DamageType::Unresistable,
                 ),
                 None,
+                effects,
             );
             let target = self
                 .objects

@@ -23,14 +23,16 @@ use std::collections::{HashMap, HashSet};
 impl<'a> CommandExecutor<'a> {
     /// Direct camera jump to requested radar location (e.g., from replay/HUD ping).
     pub(super) fn execute_view_radar_at(&mut self, position: Vec3) -> CommandResult {
-        self.game_logic.request_player_camera_look_at(position);
+        self.game_logic
+            .request_player_camera_look_at_with_effects(position, &mut self.ui);
         CommandResult::Success
     }
 
     /// Mirror CommandSystem routing: request camera snap to last radar event.
     pub(super) fn execute_view_last_radar_event(&mut self) -> CommandResult {
         if let Some(position) = self.game_logic.last_the_radar_event_host_position() {
-            self.game_logic.request_player_camera_look_at(position);
+            self.game_logic
+                .request_player_camera_look_at_with_effects(position, &mut self.ui);
             CommandResult::Success
         } else {
             CommandResult::InvalidCommand

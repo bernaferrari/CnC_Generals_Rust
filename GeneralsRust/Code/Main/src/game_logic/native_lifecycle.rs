@@ -175,13 +175,38 @@ impl Object {
 }
 impl GameLogic {
     pub(crate) fn tick_native_lifecycle(&mut self, id: ObjectId) {
-        self.drive_native_lifecycle(id, false);
+        self.tick_native_lifecycle_with_effects(id, &mut Default::default())
+    }
+
+    pub(crate) fn tick_native_lifecycle_with_effects(
+        &mut self,
+        id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
+        self.drive_native_lifecycle_with_effects(id, false, effects);
     }
     /// Field expiry has its existing phase, but must not advance HeightDie twice.
     pub(crate) fn tick_native_lifetime_timers(&mut self, id: ObjectId) {
-        self.drive_native_lifecycle(id, true);
+        self.tick_native_lifetime_timers_with_effects(id, &mut Default::default())
+    }
+
+    pub(crate) fn tick_native_lifetime_timers_with_effects(
+        &mut self,
+        id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
+        self.drive_native_lifecycle_with_effects(id, true, effects);
     }
     fn drive_native_lifecycle(&mut self, id: ObjectId, timers_only: bool) {
+        self.drive_native_lifecycle_with_effects(id, timers_only, &mut Default::default())
+    }
+
+    fn drive_native_lifecycle_with_effects(
+        &mut self,
+        id: ObjectId,
+        timers_only: bool,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let Some(object) = self.objects.get(&id) else {
             return;
         };
@@ -222,18 +247,21 @@ impl GameLogic {
                         continue;
                     };
                     if action == NativeTimerAction::Delete {
-                        self.destroy_object(id);
+                        self.destroy_object_with_effects(id, effects);
                     } else {
-                        self.apply_owned_kill(
+                        self.apply_owned_kill_with_effects(
                             id,
                             super::combat::DamageType::Unresistable,
                             super::host_usa_pilot::HostDeathType::Normal,
+                            effects,
                         );
                     }
                 }
                 NativeLifecycleKind::HeightDie(definition) => {
                     if !timers_only {
-                        self.tick_native_height_die(id, index, &identity, definition);
+                        self.tick_native_height_die_with_effects(
+                            id, index, &identity, definition, effects,
+                        );
                     }
                 }
             }
@@ -302,6 +330,24 @@ impl GameLogic {
         identity: &std::sync::Arc<()>,
         definition: HeightDieDefinition,
     ) {
+        self.tick_native_height_die_with_effects(
+            id,
+            index,
+            identity,
+            definition,
+            &mut Default::default(),
+        )
+    }
+
+    fn tick_native_height_die_with_effects(
+        &mut self,
+        id: ObjectId,
+        index: usize,
+        identity: &std::sync::Arc<()>,
+        definition: HeightDieDefinition,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
+        let pose_frame = self.frame;
         let Some(object) = self.objects.get_mut(&id) else {
             return;
         };
@@ -337,13 +383,18 @@ impl GameLogic {
         if may_die && position.y < target {
             if definition.snap_to_ground_on_death || position.y < terrain {
                 if let Some(object) = self.objects.get_mut(&id) {
-                    object.set_position(Vec3::new(position.x, terrain, position.z));
+                    object.set_position_with_effects(
+                        Vec3::new(position.x, terrain, position.z),
+                        pose_frame,
+                        effects,
+                    );
                 }
             }
-            self.apply_owned_kill(
+            self.apply_owned_kill_with_effects(
                 id,
                 super::combat::DamageType::Unresistable,
                 super::host_usa_pilot::HostDeathType::Normal,
+                effects,
             );
             let Some(object) = self.objects.get_mut(&id) else {
                 return;

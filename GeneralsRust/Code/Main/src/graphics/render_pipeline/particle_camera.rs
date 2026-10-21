@@ -56,7 +56,7 @@ mod tests {
             .split("pub(super) fn update_and_enqueue_terrain_pass(")
             .nth(1)
             .unwrap();
-        assert!(source.contains(".render_native_y_up("));
+        assert!(source.contains(".render_native_y_up_with_motion("));
         assert!(source.contains("snow_min_height"));
         assert!(source.contains("frame.world_env.runtime_heightmap.as_ref()"));
         assert!(!source.contains("snow_terrain_visible_xy"));

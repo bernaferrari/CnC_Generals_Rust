@@ -47,7 +47,7 @@ impl std::fmt::Display for TerrainError {
 impl std::error::Error for TerrainError {}
 
 /// Terrain surface types
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum TerrainSurface {
     Grass,
     Dirt,
@@ -114,7 +114,7 @@ impl TerrainSurface {
 }
 
 /// Terrain movement modifiers for different unit types
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct MovementModifiers {
     pub infantry_speed: f32,
     pub vehicle_speed: f32,
@@ -146,18 +146,25 @@ impl Default for MovementModifiers {
 }
 
 /// Terrain type definition
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TerrainType {
+    #[serde(with = "terrain_ascii_field")]
     pub name: AsciiString,
     pub surface_type: TerrainSurface,
+    #[serde(with = "terrain_ascii_field")]
     pub terrain_class: AsciiString,
     pub movement_modifiers: MovementModifiers,
+    #[serde(with = "terrain_ascii_field")]
     pub texture_name: AsciiString,
     pub blend_edge_texture: bool,
     pub restrict_construction: bool,
+    #[serde(with = "terrain_ascii_field")]
     pub normal_map: AsciiString,
+    #[serde(with = "terrain_ascii_field")]
     pub detail_texture: AsciiString,
+    #[serde(with = "terrain_ascii_field")]
     pub sound_effect: AsciiString,
+    #[serde(with = "terrain_ascii_field")]
     pub particle_effect: AsciiString,
     pub traction: f32,
     pub friction: f32,
@@ -165,6 +172,7 @@ pub struct TerrainType {
     pub hardness: f32,
     pub is_buildable: bool,
     pub is_harvestable: bool,
+    #[serde(with = "terrain_ascii_field")]
     pub resource_type: AsciiString,
     pub resource_amount: u32,
     pub minimap_color: (u8, u8, u8),
@@ -295,8 +303,26 @@ impl TerrainType {
     }
 }
 
+// Only the frozen immutable definition catalogue uses this JSON adapter.
+// Native Snapshot/Xfer serialization and AsciiString's representation are unchanged.
+mod terrain_ascii_field {
+    use super::AsciiString;
+    pub fn serialize<S: serde::Serializer>(
+        value: &AsciiString,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(value.as_str())
+    }
+    pub fn deserialize<'de, D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<AsciiString, D::Error> {
+        let value = <String as serde::Deserialize>::deserialize(deserializer)?;
+        Ok(AsciiString::from(value.as_str()))
+    }
+}
+
 /// Terrain types manager - manages all terrain type definitions
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TerrainTypes {
     terrain_types: HashMap<String, TerrainType>,
     terrain_order: Vec<String>,
@@ -646,8 +672,15 @@ fn parse_terrain_file_into(target: &mut TerrainTypes, path: &Path) -> TerrainRes
             err
         ))
     })?;
-    let reader = BufReader::new(file);
+    parse_terrain_reader_into(target, path, BufReader::new(file))
+}
 
+// One existing line parser for both owned archive bytes and loose files.
+fn parse_terrain_reader_into(
+    target: &mut TerrainTypes,
+    path: &Path,
+    reader: impl BufRead,
+) -> TerrainResult<()> {
     let before_count = target.get_terrain_count();
     let mut current_name: Option<AsciiString> = None;
     let mut properties: HashMap<String, String> = HashMap::new();
@@ -765,18 +798,32 @@ fn parse_terrain_file_into(target: &mut TerrainTypes, path: &Path) -> TerrainRes
     Ok(())
 }
 
+/// Parse ordered archive/text sources into a detached catalogue. No publication.
+pub fn read_terrain_definition_sources(sources: &[(&str, &[u8])]) -> TerrainResult<TerrainTypes> {
+    let mut combined = TerrainTypes::new();
+    for &(name, bytes) in sources {
+        parse_terrain_reader_into(&mut combined, Path::new(name), std::io::Cursor::new(bytes))?;
+    }
+    Ok(combined)
+}
+
+/// Parse ordered loose sources with the same registration/default/list kernel.
+pub fn read_terrain_definition_files(paths: &[PathBuf]) -> TerrainResult<TerrainTypes> {
+    let mut combined = TerrainTypes::new();
+    for path in paths {
+        parse_terrain_file_into(&mut combined, path)?;
+    }
+    Ok(combined)
+}
+
+/// Explicit application compatibility publication. Detached visuals do not use it.
 pub fn load_terrain_definitions(paths: &[PathBuf]) -> TerrainResult<usize> {
     if paths.is_empty() {
         return Ok(get_terrain_types()
             .map(|handle| handle.read().get_terrain_count())
             .unwrap_or(0));
     }
-
-    let mut combined = TerrainTypes::new();
-    for path in paths {
-        parse_terrain_file_into(&mut combined, path)?;
-    }
-
+    let combined = read_terrain_definition_files(paths)?;
     let registry = initialize_terrain_types();
     let mut guard = registry.write();
     *guard = combined;
@@ -1096,3 +1143,7 @@ mod tests {
         let _ = fs::remove_file(&unknown_field_path);
     }
 }
+
+#[cfg(test)]
+#[path = "ini_terrain_owner_tests.rs"]
+mod owned_definition_tests;

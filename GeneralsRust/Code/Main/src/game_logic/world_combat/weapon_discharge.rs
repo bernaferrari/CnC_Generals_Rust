@@ -34,10 +34,55 @@ impl GameLogic {
         Some(self.finish_accepted_weapon_discharge(accepted))
     }
 
+    pub(in super::super) fn record_accepted_weapon_discharge_with_effects(
+        &mut self,
+        source: ObjectId,
+        weapon_slot: u8,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> Option<crate::game_logic::host_weapon_discharge_log::HostWeaponDischargeEvent> {
+        let accepted = self.begin_accepted_weapon_discharge_with_effects(
+            source,
+            weapon_slot,
+            presentation_effects,
+        )?;
+        Some(self.finish_accepted_weapon_discharge(accepted))
+    }
+
     pub(in crate::game_logic) fn begin_accepted_weapon_discharge(
         &mut self,
         source: ObjectId,
         weapon_slot: u8,
+    ) -> Option<AcceptedWeaponDischarge> {
+        self.begin_accepted_weapon_discharge_with_dispatch(
+            source,
+            weapon_slot,
+            Some(leftover_handle_weapon_fire_fx_at_fx_bone),
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(in crate::game_logic) fn begin_accepted_weapon_discharge_with_effects(
+        &mut self,
+        source: ObjectId,
+        weapon_slot: u8,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> Option<AcceptedWeaponDischarge> {
+        self.begin_accepted_weapon_discharge_with_dispatch(
+            source,
+            weapon_slot,
+            None,
+            presentation_effects,
+        )
+    }
+
+    fn begin_accepted_weapon_discharge_with_dispatch(
+        &mut self,
+        source: ObjectId,
+        weapon_slot: u8,
+        compatibility_fx: Option<
+            fn(ObjectId, &super::weapon_visual_capture::PendingWeaponVisualDispatchCapture) -> bool,
+        >,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> Option<AcceptedWeaponDischarge> {
         if weapon_slot >= 3 {
             return None;
@@ -86,7 +131,13 @@ impl GameLogic {
             )
         });
         if let (Some(capture), Some(plan)) = (pending.as_ref(), visual_plan.as_ref()) {
-            self.play_dispatch_fire_fx(source, capture, plan);
+            self.play_dispatch_fire_fx_with_dispatch(
+                source,
+                capture,
+                plan,
+                compatibility_fx,
+                presentation_effects,
+            );
         } else if let Some(capture) = pending.as_ref().filter(|capture| {
             capture.source_gate(locally_controlled).fx_route()
                 == Some(crate::presentation_frame::FrozenWeaponVisualFxRoute::BroadcastWithFireFx)
@@ -94,7 +145,7 @@ impl GameLogic {
             // No frozen Drawable plan (missing modules / probe fail-closed).
             // C++ still calls handleWeaponFireFX, then FXList::doFXPos when
             // FireFX is non-null and leftover did not consume the shot.
-            if leftover_handle_weapon_fire_fx_at_fx_bone(source, capture) {
+            if compatibility_fx.is_some_and(|dispatch| dispatch(source, capture)) {
                 // Leftover W3DModelDraw played FireFX at the FX-bone matrix.
             } else if !capture.selected_fx_name.is_empty() {
                 // C++ Weapon.cpp:923-926 plays at the fired barrel's FX-bone
@@ -131,7 +182,7 @@ impl GameLogic {
                         Some((_, bone_yaw)) => m * glam::Mat4::from_rotation_y(bone_yaw),
                         None => m,
                     });
-                let _ = self.spawn_receiving_weapon_fire_fx(
+                let _ = self.spawn_receiving_weapon_fire_fx_with_effects(
                     pos,
                     target,
                     capture.logic_frame,
@@ -144,6 +195,7 @@ impl GameLogic {
                     speed,
                     radius,
                     matrix,
+                    presentation_effects,
                 );
             }
         }
@@ -224,6 +276,35 @@ impl GameLogic {
         capture: &super::weapon_visual_capture::PendingWeaponVisualDispatchCapture,
         plan: &crate::presentation_frame::FrozenWeaponVisualDispatchPlan,
     ) {
+        self.play_dispatch_fire_fx_with_dispatch(
+            source,
+            capture,
+            plan,
+            Some(leftover_handle_weapon_fire_fx_at_fx_bone),
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    fn play_dispatch_fire_fx_with_effects(
+        &mut self,
+        source: ObjectId,
+        capture: &super::weapon_visual_capture::PendingWeaponVisualDispatchCapture,
+        plan: &crate::presentation_frame::FrozenWeaponVisualDispatchPlan,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
+        self.play_dispatch_fire_fx_with_dispatch(source, capture, plan, None, presentation_effects)
+    }
+
+    fn play_dispatch_fire_fx_with_dispatch(
+        &mut self,
+        source: ObjectId,
+        capture: &super::weapon_visual_capture::PendingWeaponVisualDispatchCapture,
+        plan: &crate::presentation_frame::FrozenWeaponVisualDispatchPlan,
+        compatibility_fx: Option<
+            fn(ObjectId, &super::weapon_visual_capture::PendingWeaponVisualDispatchCapture) -> bool,
+        >,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         use crate::presentation_frame::FrozenWeaponVisualFxRoute;
         if plan.fx_route != FrozenWeaponVisualFxRoute::BroadcastWithFireFx {
             return;
@@ -240,7 +321,7 @@ impl GameLogic {
         // Leftover handle_weapon_fire_fx is RIGHT (W3DModelDraw.cpp:3672-3727).
         // C++ Weapon.cpp:923-939 only falls back to drawable/contact origin
         // when leftover returns false.
-        if leftover_handle_weapon_fire_fx_at_fx_bone(source, capture) {
+        if compatibility_fx.is_some_and(|dispatch| dispatch(source, capture)) {
             return;
         }
         // C++ Weapon.cpp:923-926 plays at the fired barrel's FX-bone world
@@ -269,7 +350,7 @@ impl GameLogic {
                 Some((_, bone_yaw)) => m * glam::Mat4::from_rotation_y(bone_yaw),
                 None => m,
             });
-        let _ = self.spawn_receiving_weapon_fire_fx(
+        let _ = self.spawn_receiving_weapon_fire_fx_with_effects(
             where_pos,
             Some(target_pos),
             capture.logic_frame,
@@ -282,6 +363,7 @@ impl GameLogic {
             speed,
             radius,
             matrix,
+            presentation_effects,
         );
     }
 
@@ -405,14 +487,50 @@ impl GameLogic {
         damage_radius: f32,
         drawable_transform: Option<glam::Mat4>,
     ) -> Vec<u32> {
+        self.spawn_receiving_weapon_fire_fx_with_effects(
+            muzzle_position,
+            impact_position,
+            logic_frame,
+            shooter,
+            target,
+            fire_fx,
+            detonation_fx,
+            fire_ocl,
+            detonation_ocl,
+            weapon_speed,
+            damage_radius,
+            drawable_transform,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn spawn_receiving_weapon_fire_fx_with_effects(
+        &mut self,
+        muzzle_position: Vec3,
+        impact_position: Option<Vec3>,
+        logic_frame: u32,
+        shooter: ObjectId,
+        target: Option<ObjectId>,
+        fire_fx: &str,
+        detonation_fx: &str,
+        fire_ocl: &str,
+        detonation_ocl: &str,
+        weapon_speed: f32,
+        damage_radius: f32,
+        drawable_transform: Option<glam::Mat4>,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> Vec<u32> {
         #[cfg(feature = "game_client")]
         {
             let player = self.local_player_id();
             let particles = &mut self.combat_particles;
-            Self::with_host_fx_view_parts(
+            Self::with_host_fx_view_parts_and_terrain(
                 &mut self.session_view,
                 player,
                 self.world_services.shroud(),
+                presentation_effects.terrain.as_mut().map(|terrain| {
+                    &mut **terrain as &mut dyn crate::game_logic::NativeTerrainEffects
+                }),
                 |view| {
                     particles.spawn_weapon_fire_fx_named_ocl_oriented_with_view(
                         muzzle_position,

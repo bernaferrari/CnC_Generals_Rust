@@ -3,6 +3,13 @@ use super::super::*;
 
 impl GameLogic {
     pub(in super::super) fn expire_owned_disabled_statuses(&mut self) {
+        self.expire_owned_disabled_statuses_with_effects(&mut Default::default())
+    }
+
+    pub(in super::super) fn expire_owned_disabled_statuses_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         // Optional coupled experiments retain their explicit timer phase.
         {}
         // C++ GameLogic.cpp:3783-3792 walks the current live object list after
@@ -28,23 +35,39 @@ impl GameLogic {
 
             // Admit this driving world's Object-local callbacks before the
             // frame ends. Foreign worlds retain their own pending edges.
-            self.admit_disabled_expiry_radar_edges(id);
+            self.admit_disabled_expiry_radar_edges_with_effects(id, effects);
             // C++ Object.cpp:3826-3855 adjusts only positive producers. A
             // disabled consumer keeps its consumption to prevent oscillation.
             if reenabled && restores_generation {
                 if let Some(player_id) = owner {
                     self.refresh_power_after_disabled_expiry(player_id);
-                    self.admit_expiry_power_state(player_id);
+                    self.admit_expiry_power_state_with_effects(player_id, effects);
                 }
             }
         }
     }
 
     fn admit_disabled_expiry_radar_edges(&mut self, id: ObjectId) {
-        self.admit_host_radar_provider(id);
+        self.admit_disabled_expiry_radar_edges_with_effects(id, &mut Default::default())
+    }
+
+    fn admit_disabled_expiry_radar_edges_with_effects(
+        &mut self,
+        id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
+        self.admit_host_radar_provider_with_effects(id, effects);
     }
 
     fn admit_expiry_power_state(&mut self, player_id: u32) {
+        self.admit_expiry_power_state_with_effects(player_id, &mut Default::default())
+    }
+
+    fn admit_expiry_power_state_with_effects(
+        &mut self,
+        player_id: u32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let Some(player) = self.players.get_mut(&player_id) else {
             return;
         };
@@ -91,7 +114,7 @@ impl GameLogic {
             if was_disabled != object.is_disabled() {
                 object.on_disabled_edge(object.is_disabled());
             }
-            self.admit_disabled_expiry_radar_edges(id);
+            self.admit_disabled_expiry_radar_edges_with_effects(id, effects);
         }
     }
 }

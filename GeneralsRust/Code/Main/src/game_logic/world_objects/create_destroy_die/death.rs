@@ -20,11 +20,28 @@ impl GameLogic {
         transfer_dmg: f32,
         source: Option<ObjectId>,
     ) {
+        self.apply_death_transfer_damage_with_effects(
+            id,
+            subdual,
+            transfer_dmg,
+            source,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    fn apply_death_transfer_damage_with_effects(
+        &mut self,
+        id: &ObjectId,
+        subdual: f32,
+        transfer_dmg: f32,
+        source: Option<ObjectId>,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let Some(receiving_damage_id) = self.objects.get(id).map(|object| object.id) else {
             return;
         };
         if subdual > 0.0 {
-            let _ = self.apply_residual_damage_owned(
+            let _ = self.apply_residual_damage_owned_with_effects(
                 receiving_damage_id,
                 subdual,
                 None,
@@ -33,10 +50,11 @@ impl GameLogic {
                     crate::game_logic::combat::DamageType::SubdualUnresistable,
                 ),
                 None,
+                presentation_effects,
             );
         }
         if transfer_dmg > 0.0 {
-            let _ = self.apply_residual_damage_owned(
+            let _ = self.apply_residual_damage_owned_with_effects(
                 receiving_damage_id,
                 transfer_dmg,
                 source,
@@ -45,6 +63,7 @@ impl GameLogic {
                     crate::game_logic::combat::DamageType::Unresistable,
                 ),
                 None,
+                presentation_effects,
             );
         }
     }
@@ -63,6 +82,17 @@ impl GameLogic {
     /// C++ FireWeaponWhenDeadBehavior::onDie leftover — death weapon splash.
     /// Specialized leftovers (bomb truck / toxin / nuke / demo) own exclusive modules.
     pub(in super::super::super) fn apply_fire_weapon_when_dead(&mut self, dying_id: ObjectId) {
+        self.apply_fire_weapon_when_dead_with_effects(
+            dying_id,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(in super::super::super) fn apply_fire_weapon_when_dead_with_effects(
+        &mut self,
+        dying_id: ObjectId,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         use crate::game_logic::host_demo_suicide_bomb::{
             has_demo_suicide_bomb_upgrade, is_demo_suicide_bomb_eligible_template,
         };
@@ -130,7 +160,7 @@ impl GameLogic {
                 continue;
             }
             let receiving_damage_target_id = v.id;
-            let destroyed = self.apply_residual_damage_owned(
+            let destroyed = self.apply_residual_damage_owned_with_effects(
                 receiving_damage_target_id,
                 dmg,
                 Some(dying_id),
@@ -139,6 +169,7 @@ impl GameLogic {
                     crate::game_logic::combat::DamageType::Unresistable,
                 ),
                 None,
+                presentation_effects,
             );
             if destroyed {
                 destroy_ids.push(vid);
@@ -265,6 +296,17 @@ impl GameLogic {
     /// not only final process_destroy remove. SlowDeath defers remove and must
     /// not suppress pilot spawn / honesty residual.
     pub(crate) fn maybe_apply_eject_pilot_die(&mut self, id: ObjectId) {
+        self.maybe_apply_eject_pilot_die_with_effects(
+            id,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn maybe_apply_eject_pilot_die_with_effects(
+        &mut self,
+        id: ObjectId,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         use crate::game_logic::host_usa_pilot::{
             EJECT_PILOT_TEMPLATE, HostDeathType, PILOT_EJECT_AUDIO, PILOT_SOUND_EJECT_AUDIO,
             air_eject_spawn_height, is_significantly_above_terrain,
@@ -416,9 +458,13 @@ impl GameLogic {
         } else {
             death_pos + glam::Vec3::new(2.0, 0.0, 2.0)
         };
-        if let Some(pilot_id) =
-            self.create_object_for_player(EJECT_PILOT_TEMPLATE, pilot_owner_player_id, spawn_pos)
-        {
+        if let Some(pilot_id) = self.create_object_for_player_with_effects(
+            EJECT_PILOT_TEMPLATE,
+            pilot_owner_player_id,
+            spawn_pos,
+            None,
+            presentation_effects,
+        ) {
             self.usa_pilot.record_ejection();
             if parachute_ocl {
                 self.usa_pilot.record_air_ejection();
@@ -476,9 +522,22 @@ impl GameLogic {
     }
 
     pub(crate) fn mark_object_for_destruction(&mut self, id: ObjectId, killer: Option<Team>) {
+        self.mark_object_for_destruction_with_effects(
+            id,
+            killer,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn mark_object_for_destruction_with_effects(
+        &mut self,
+        id: ObjectId,
+        killer: Option<Team>,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         // This existing adapter has no accepted Body input. Do not fabricate
         // one from preferred history; migrating its callers remains explicit.
-        self.begin_object_death(id, killer, None, None);
+        self.begin_object_death_with_effects(id, killer, None, None, presentation_effects);
     }
 
     pub(in crate::game_logic) fn mark_object_for_destruction_with_topple(
@@ -488,14 +547,48 @@ impl GameLogic {
         input: crate::game_logic::object::OnDieInput,
         topple_interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
     ) {
-        self.begin_object_death(id, killer, Some(input), topple_interpreter);
+        self.mark_object_for_destruction_with_topple_with_effects(
+            id,
+            killer,
+            input,
+            topple_interpreter,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(in crate::game_logic) fn mark_object_for_destruction_with_topple_with_effects(
+        &mut self,
+        id: ObjectId,
+        killer: Option<Team>,
+        input: crate::game_logic::object::OnDieInput,
+        topple_interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
+        self.begin_object_death_with_effects(
+            id,
+            killer,
+            Some(input),
+            topple_interpreter,
+            presentation_effects,
+        );
     }
 
     /// C++ GameLogic::destroyObject requests deletion independently of body
     /// death. Already-started death retains its pending completion effects;
     /// a live direct request never manufactures an onDie operation.
     pub fn destroy_object(&mut self, id: ObjectId) {
-        self.request_object_destruction(id, None);
+        self.destroy_object_with_effects(
+            id,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn destroy_object_with_effects(
+        &mut self,
+        id: ObjectId,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
+        self.request_object_destruction_with_effects(id, None, presentation_effects);
     }
 
     /// A synchronous authored Die callback retains its admitted death credit.
@@ -504,6 +597,19 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
         death_credit: Option<Team>,
+    ) {
+        self.request_object_destruction_with_effects(
+            id,
+            death_credit,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(in crate::game_logic) fn request_object_destruction_with_effects(
+        &mut self,
+        id: ObjectId,
+        death_credit: Option<Team>,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         let Some(object) = self.objects.get(&id) else {
             return;
@@ -516,14 +622,27 @@ impl GameLogic {
                 object.set_locomotor_goal_none();
                 object.movement.path.clear();
             }
-            self.enqueue_object_destruction(id, death_credit);
-            self.apply_object_delete_callbacks(id);
+            self.enqueue_object_destruction_with_effects(id, death_credit, presentation_effects);
+            self.apply_object_delete_callbacks_with_effects(id, presentation_effects);
         } else {
-            self.destroy_live_object(id);
+            self.destroy_live_object_with_effects(id, presentation_effects);
         }
     }
 
     fn enqueue_object_destruction(&mut self, id: ObjectId, killer: Option<Team>) {
+        self.enqueue_object_destruction_with_effects(
+            id,
+            killer,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    fn enqueue_object_destruction_with_effects(
+        &mut self,
+        id: ObjectId,
+        killer: Option<Team>,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         // Timed kernels may already stamp destroyed before reporting final
         // completion. Queue identity, not that bit, proves admission here.
         if !self.objects.contains_key(&id)
@@ -531,7 +650,7 @@ impl GameLogic {
         {
             return;
         }
-        self.apply_pending_create_object_die(id);
+        self.apply_pending_create_object_die_with_effects(id, presentation_effects);
         self.objects_to_destroy
             .push_back(DestructionEvent::after_death(id, killer));
         if let Some(object) = self.objects.get_mut(&id) {
@@ -545,6 +664,23 @@ impl GameLogic {
         killer: Option<Team>,
         input: Option<crate::game_logic::object::OnDieInput>,
         topple_interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+    ) {
+        self.begin_object_death_with_effects(
+            id,
+            killer,
+            input,
+            topple_interpreter,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    fn begin_object_death_with_effects(
+        &mut self,
+        id: ObjectId,
+        killer: Option<Team>,
+        input: Option<crate::game_logic::object::OnDieInput>,
+        topple_interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         if self
             .objects
@@ -562,11 +698,12 @@ impl GameLogic {
                 .get(&id)
                 .is_some_and(|object| object.thing().template.native_die_declarations.is_some())
         {
-            self.run_authored_die_modules(
+            self.run_authored_die_modules_with_effects(
                 id,
                 killer,
                 input.expect("checked incoming death"),
                 topple_interpreter,
+                presentation_effects,
             );
             return;
         }
@@ -577,11 +714,11 @@ impl GameLogic {
                 .get(&id)
                 .and_then(|object| object.last_damage_source),
         };
-        self.fire_owned_fx_list_die_from_source(id, fx_source);
+        self.fire_owned_fx_list_die_from_source_with_effects(id, fx_source, presentation_effects);
         if let Some(object) = self.objects.get_mut(&id) {
             object.fire_create_object_die();
         }
-        self.apply_pending_create_object_die(id);
+        self.apply_pending_create_object_die_with_effects(id, presentation_effects);
         self.admit_object_drawable_deselection(id);
         self.assault_transport_give_final_orders(id);
         // C++ AIUpdate dtor / setCurrentVictim(NULL) + turret nuke on death.
@@ -611,7 +748,7 @@ impl GameLogic {
                     obj.convert_bridge_to_rubble_husk(self.frame);
                 }
             }
-            self.apply_owned_bridge_death_links(id);
+            self.apply_owned_bridge_death_links_with_effects(id, presentation_effects);
             return;
         }
 
@@ -625,19 +762,20 @@ impl GameLogic {
             if let Some(outer) = self.objects.get_mut(&id) {
                 outer.overlord_redirection_active = false;
             }
-            self.apply_owned_kill(
+            self.apply_owned_kill_with_effects(
                 redirected,
                 crate::game_logic::combat::DamageType::Unresistable,
                 crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+                presentation_effects,
             );
             // Base TransportContain::onDie now sees the physical payload in
             // the hull's literal roster, not the redirected infantry list.
-            self.remove_direct_contained_child(id, redirected);
+            self.remove_direct_contained_child_with_effects(id, redirected, presentation_effects);
         }
 
         // All contained effects complete on the installed owner before later
         // InstantDeath, SlowDeath or retained-body callbacks can observe it.
-        self.complete_installed_containment_death(id, killer);
+        self.complete_installed_containment_death_with_effects(id, killer, presentation_effects);
 
         // C++ ProductionUpdate cancelAndRefund on death start (before topple/slow-death deferral).
         self.cancel_all_production(id);
@@ -646,20 +784,22 @@ impl GameLogic {
         // C++ DamDie::onDie residual fires with other die modules at death start.
         self.maybe_apply_dam_die(id);
         // Wave 754: C++ EjectPilotDie::onDie at death start (before SlowDeath defer).
-        self.maybe_apply_eject_pilot_die(id);
+        self.maybe_apply_eject_pilot_die_with_effects(id, presentation_effects);
         // C++ SpawnBehavior::onDie SpawnedRequireSpawner — kill remaining slaves.
-        self.apply_spawned_require_spawner_on_die(id);
+        self.apply_spawned_require_spawner_on_die_with_effects(id, presentation_effects);
         // C++ OCL ApplyRandomForceNugget residual (air-death toss before debris).
         let _ = self.apply_ocl_random_force(id);
         self.maybe_apply_upgrade_die(id);
         // C++ RebuildHoleExposeDie::onDie at death start (before topple/slow-death).
         // WorkerRespawnDelay starts here, not after collapse Done.
-        let _ = self.maybe_spawn_rebuild_hole(id);
+        let _ = self.maybe_spawn_rebuild_hole_with_effects(id, presentation_effects);
         // C++ InstantDeathBehavior::onDie — FX/OCL/Weapon then destroyObject.
         let death_type = input
             .map(|input| input.death_type)
             .or_else(|| self.objects.get(&id).map(|object| object.status.death_type));
-        if death_type.is_some_and(|death_type| self.try_apply_instant_death(id, death_type)) {
+        if death_type.is_some_and(|death_type| {
+            self.try_apply_instant_death_with_effects(id, death_type, presentation_effects)
+        }) {
             self.objects_to_destroy
                 .push_back(DestructionEvent::after_death(id, killer));
             if let Some(obj) = self.objects.get_mut(&id) {
@@ -724,7 +864,12 @@ impl GameLogic {
                     .get(&id)
                     .and_then(|object| object.last_damage_source),
             };
-            if self.try_begin_structure_topple_with_override(id, source, topple_interpreter) {
+            if self.try_begin_structure_topple_with_override_with_effects(
+                id,
+                source,
+                topple_interpreter,
+                presentation_effects,
+            ) {
                 return;
             }
             // C++ SlowDeathBehavior residual: infantry/vehicles delay destroy + sink.
@@ -732,11 +877,13 @@ impl GameLogic {
                 return;
             }
             // C++ KeepObjectDie residual: leave rubble, do not DestroyDie-remove.
-            if self.try_begin_keep_object_die_instead_of_destroy(id) {
+            if self
+                .try_begin_keep_object_die_instead_of_destroy_with_effects(id, presentation_effects)
+            {
                 return;
             }
         }
-        self.enqueue_object_destruction(id, killer);
+        self.enqueue_object_destruction_with_effects(id, killer, presentation_effects);
     }
 
     /// C++ InstantDeathBehavior::onDie residual.
@@ -744,6 +891,19 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
         death_type: crate::game_logic::host_usa_pilot::HostDeathType,
+    ) -> bool {
+        self.try_apply_instant_death_with_effects(
+            id,
+            death_type,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(in super::super::super) fn try_apply_instant_death_with_effects(
+        &mut self,
+        id: ObjectId,
+        death_type: crate::game_logic::host_usa_pilot::HostDeathType,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> bool {
         let extra_owned = {
             let Some(obj) = self.objects.get(&id) else {
@@ -770,7 +930,7 @@ impl GameLogic {
         if !fired {
             return false;
         }
-        self.apply_pending_create_object_die(id);
+        self.apply_pending_create_object_die_with_effects(id, presentation_effects);
         if let Some(wpn) = self
             .objects
             .get_mut(&id)
@@ -784,8 +944,15 @@ impl GameLogic {
                 weapon_template_name: wpn.clone(),
                 weapon_slot: crate::game_logic::host_temporary_weapon_behavior::TemporaryWeaponSlot::Primary,
             };
-            if self.create_and_fire_temp_weapon(id, &spec).is_none() {
-                let _ = self.apply_fire_weapon_when_damaged_named(id, &wpn);
+            if self
+                .create_and_fire_temp_weapon_with_effects(id, &spec, presentation_effects)
+                .is_none()
+            {
+                let _ = self.apply_fire_weapon_when_damaged_named_with_effects(
+                    id,
+                    &wpn,
+                    presentation_effects,
+                );
             }
         }
         true
@@ -795,6 +962,17 @@ impl GameLogic {
     pub(in super::super::super) fn try_begin_keep_object_die_instead_of_destroy(
         &mut self,
         id: ObjectId,
+    ) -> bool {
+        self.try_begin_keep_object_die_instead_of_destroy_with_effects(
+            id,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(in super::super::super) fn try_begin_keep_object_die_instead_of_destroy_with_effects(
+        &mut self,
+        id: ObjectId,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> bool {
         let frame = self.frame;
         let Some(obj) = self.objects.get_mut(&id) else {
@@ -832,11 +1010,11 @@ impl GameLogic {
             return false;
         }
         // Death FX / OCL peels without world removal.
-        self.fire_owned_fx_list_die(id);
+        self.fire_owned_fx_list_die_with_effects(id, presentation_effects);
         if let Some(obj) = self.objects.get_mut(&id) {
             obj.fire_create_object_die();
         }
-        self.apply_pending_create_object_die(id);
+        self.apply_pending_create_object_die_with_effects(id, presentation_effects);
         if self.dam_template_at(id) {
             self.apply_dam_die_enable_waveguides();
         }
@@ -978,10 +1156,28 @@ impl GameLogic {
         building_id: ObjectId,
         samples: Vec<crate::game_logic::host_structure_topple::StructureToppleCrushSample>,
     ) -> Result<(), String> {
+        self.apply_structure_topple_crush_samples_with_effects(
+            building_id,
+            samples,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn apply_structure_topple_crush_samples_with_effects(
+        &mut self,
+        building_id: ObjectId,
+        samples: Vec<crate::game_logic::host_structure_topple::StructureToppleCrushSample>,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> Result<(), String> {
         let Some(weapon) = self.preflight_owned_structure_topple_crushing(building_id)? else {
             return Ok(());
         };
-        self.apply_prepared_structure_topple_crush_samples(building_id, samples, &weapon)
+        self.apply_prepared_structure_topple_crush_samples_with_effects(
+            building_id,
+            samples,
+            &weapon,
+            presentation_effects,
+        )
     }
 
     pub(super) fn preflight_owned_structure_topple_crushing(
@@ -1110,6 +1306,21 @@ impl GameLogic {
         samples: Vec<crate::game_logic::host_structure_topple::StructureToppleCrushSample>,
         weapon: &gamelogic::weapon::WeaponTemplate,
     ) -> Result<(), String> {
+        self.apply_prepared_structure_topple_crush_samples_with_effects(
+            building_id,
+            samples,
+            weapon,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(super) fn apply_prepared_structure_topple_crush_samples_with_effects(
+        &mut self,
+        building_id: ObjectId,
+        samples: Vec<crate::game_logic::host_structure_topple::StructureToppleCrushSample>,
+        weapon: &gamelogic::weapon::WeaponTemplate,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> Result<(), String> {
         self.validate_structure_topple_crush_points(building_id, &samples, weapon)?;
         for s in samples {
             // Release the source loan before damage/onDie. Each following
@@ -1132,7 +1343,7 @@ impl GameLogic {
             // CPP Weapon.cpp1293-1470: the shared actual Main weapon route
             // includes structures, authored affects/armor/death, and finishes
             // each victim's onDie before visiting the next candidate.
-            self.apply_instant_hit_splash_at(
+            self.apply_instant_hit_splash_at_with_effects(
                 impact,
                 weapon.primary_damage * damage_bonus,
                 weapon.secondary_damage * damage_bonus,
@@ -1142,6 +1353,7 @@ impl GameLogic {
                 team,
                 ObjectId(0), // positional shot has no primary victim
                 Some(&weapon.name),
+                presentation_effects,
             );
             // CPP doDamageLine407-429: even an empty/no-damage weapon shot is
             // followed by its CrushingFX at this exact terrain point.
@@ -1151,7 +1363,11 @@ impl GameLogic {
                     .get(&building_id)
                     .is_some_and(|source| source.structure_topple_fx_is_allowed())
             {
-                self.dispatch_fx_list_at_host_position(&crushing_fx, impact);
+                self.dispatch_fx_list_at_host_position_with_effects(
+                    &crushing_fx,
+                    impact,
+                    presentation_effects,
+                );
             }
         }
         Ok(())
@@ -1159,6 +1375,17 @@ impl GameLogic {
 
     /// C++ CreateObjectDie::onDie residual — spawn OCL templates at dying object.
     pub fn apply_pending_create_object_die(&mut self, dying_id: ObjectId) {
+        self.apply_pending_create_object_die_with_effects(
+            dying_id,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn apply_pending_create_object_die_with_effects(
+        &mut self,
+        dying_id: ObjectId,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let (spawns, transfer_dmg, transfer, subdual, source, team, owner_player_id, pos) = {
             let Some(o) = self.objects.get_mut(&dying_id) else {
                 return;
@@ -1179,7 +1406,7 @@ impl GameLogic {
                 o.get_position(),
             )
         };
-        self.execute_create_object_die_spawns(
+        self.execute_create_object_die_spawns_with_effects(
             dying_id,
             spawns,
             transfer_dmg,
@@ -1189,6 +1416,7 @@ impl GameLogic {
             team,
             owner_player_id,
             pos,
+            presentation_effects,
         );
     }
 
@@ -1203,6 +1431,33 @@ impl GameLogic {
         team: Team,
         owner_player_id: Option<u32>,
         pos: Vec3,
+    ) {
+        self.execute_create_object_die_spawns_with_effects(
+            dying_id,
+            spawns,
+            transfer_dmg,
+            transfer,
+            subdual,
+            source,
+            team,
+            owner_player_id,
+            pos,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    fn execute_create_object_die_spawns_with_effects(
+        &mut self,
+        dying_id: ObjectId,
+        spawns: Vec<String>,
+        transfer_dmg: f32,
+        transfer: bool,
+        subdual: f32,
+        source: Option<ObjectId>,
+        team: Team,
+        owner_player_id: Option<u32>,
+        pos: Vec3,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         if spawns.is_empty() {
             return;
@@ -1224,10 +1479,23 @@ impl GameLogic {
                     .get(&dying_id)
                     .map(|o| o.movement.velocity)
                     .unwrap_or(Vec3::ZERO);
-                let ids = self.spawn_ocl_create_debris(&plan, team, pos, inherit, owner_player_id);
+                let ids = self.spawn_ocl_create_debris_with_effects(
+                    &plan,
+                    team,
+                    pos,
+                    inherit,
+                    owner_player_id,
+                    presentation_effects,
+                );
                 if transfer {
                     for id in &ids {
-                        self.apply_death_transfer_damage(id, subdual, transfer_dmg, source);
+                        self.apply_death_transfer_damage_with_effects(
+                            id,
+                            subdual,
+                            transfer_dmg,
+                            source,
+                            presentation_effects,
+                        );
                     }
                 }
                 spawned_ids.extend(ids);
@@ -1243,9 +1511,14 @@ impl GameLogic {
                 }
                 self.templates.insert(tmpl.clone(), t);
             }
-            let Some(new_id) =
-                self.create_object_for_owner_or_team(&tmpl, team, owner_player_id, pos)
-            else {
+            let Some(new_id) = self.create_object_for_owner_or_team_with_effects(
+                &tmpl,
+                team,
+                owner_player_id,
+                pos,
+                None,
+                presentation_effects,
+            ) else {
                 continue;
             };
             if let Some(dying) = self.objects.get(&dying_id) {
@@ -1262,7 +1535,13 @@ impl GameLogic {
                 }
             }
             if transfer {
-                self.apply_death_transfer_damage(&new_id, subdual, transfer_dmg, source);
+                self.apply_death_transfer_damage_with_effects(
+                    &new_id,
+                    subdual,
+                    transfer_dmg,
+                    source,
+                    presentation_effects,
+                );
             }
             spawned_ids.push(new_id);
         }
@@ -1278,6 +1557,19 @@ impl GameLogic {
         source_id: ObjectId,
         weapon_name: &str,
     ) -> u32 {
+        self.apply_fire_weapon_when_damaged_named_with_effects(
+            source_id,
+            weapon_name,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(in super::super::super) fn apply_fire_weapon_when_damaged_named_with_effects(
+        &mut self,
+        source_id: ObjectId,
+        weapon_name: &str,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> u32 {
         let (pos, team) = match self.objects.get(&source_id) {
             Some(o) => (o.get_position(), o.team),
             None => return 0,
@@ -1289,7 +1581,7 @@ impl GameLogic {
         // Intended = self so splash doesn't skip others incorrectly... API skips intended_id.
         // Pass a dummy non-existent intended so all in radius can be hit except we should not hit self.
         // apply_instant_hit_splash_at skips intended_id only — use source as intended to skip self.
-        self.apply_instant_hit_splash_at(
+        self.apply_instant_hit_splash_at_with_effects(
             pos,
             pd,
             sd,
@@ -1299,6 +1591,7 @@ impl GameLogic {
             team,
             source_id,
             Some(weapon_name),
+            presentation_effects,
         )
     }
 
@@ -1306,11 +1599,27 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
     ) -> bool {
+        self.try_begin_structure_topple_instead_of_destroy_with_effects(
+            id,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(in super::super::super) fn try_begin_structure_topple_instead_of_destroy_with_effects(
+        &mut self,
+        id: ObjectId,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
         let source = self
             .objects
             .get(&id)
             .and_then(|object| object.last_damage_source);
-        self.try_begin_structure_topple_with_override(id, source, None)
+        self.try_begin_structure_topple_with_override_with_effects(
+            id,
+            source,
+            None,
+            presentation_effects,
+        )
     }
 
     fn try_begin_structure_topple_with_override(
@@ -1319,7 +1628,28 @@ impl GameLogic {
         incoming_source: Option<ObjectId>,
         topple_interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
     ) -> bool {
-        self.try_begin_structure_die_with_override(id, incoming_source, topple_interpreter, None)
+        self.try_begin_structure_topple_with_override_with_effects(
+            id,
+            incoming_source,
+            topple_interpreter,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    fn try_begin_structure_topple_with_override_with_effects(
+        &mut self,
+        id: ObjectId,
+        incoming_source: Option<ObjectId>,
+        topple_interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
+        self.try_begin_structure_die_with_override_with_effects(
+            id,
+            incoming_source,
+            topple_interpreter,
+            None,
+            presentation_effects,
+        )
     }
 
     fn try_begin_structure_die_with_override(
@@ -1328,6 +1658,23 @@ impl GameLogic {
         incoming_source: Option<ObjectId>,
         topple_interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         collapse_only: Option<bool>,
+    ) -> bool {
+        self.try_begin_structure_die_with_override_with_effects(
+            id,
+            incoming_source,
+            topple_interpreter,
+            collapse_only,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    fn try_begin_structure_die_with_override_with_effects(
+        &mut self,
+        id: ObjectId,
+        incoming_source: Option<ObjectId>,
+        topple_interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        collapse_only: Option<bool>,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> bool {
         let attacker_pos = {
             incoming_source.and_then(|sid| {
@@ -1402,10 +1749,14 @@ impl GameLogic {
         }
         // Prefer StructureCollapse for civilian/prop peels; else StructureTopple.
         #[cfg(feature = "game_client")]
-        let collapse_started = Self::with_host_fx_view_parts(
+        let collapse_started = Self::with_host_fx_view_parts_and_terrain(
             &mut self.session_view,
             fx_player,
             self.world_services.shroud(),
+            presentation_effects
+                .terrain
+                .as_mut()
+                .map(|terrain| &mut **terrain as &mut dyn crate::game_logic::NativeTerrainEffects),
             |view| {
                 if collapse_only == Some(false) {
                     return false;
@@ -1487,7 +1838,7 @@ impl GameLogic {
             )
         });
         if prepared {
-            self.dispatch_owned_structure_topple_fx(id);
+            self.dispatch_owned_structure_topple_fx_with_effects(id, presentation_effects);
         }
         prepared
     }

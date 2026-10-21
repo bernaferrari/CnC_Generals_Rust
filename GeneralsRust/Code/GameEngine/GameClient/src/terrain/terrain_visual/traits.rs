@@ -65,7 +65,7 @@ impl SubsystemInterface for TerrainVisualImpl {
         self.bridge_meshes.clear();
         self.scorch_meshes.clear();
         // C++ BaseHeightMap.cpp:618 reset → clearAllScorches.
-        crate::terrain::clear_terrain_scorches();
+        self.scorches.clear();
         self.overlay_gpu_meshes_dirty = true;
 
         self.overlay = OverlayGpuState::default();
@@ -95,6 +95,288 @@ impl SubsystemInterface for TerrainVisualImpl {
     }
 
     fn update(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        self.update_with_motion(None)
+    }
+}
+
+impl TerrainTrackHeightProvider for TerrainVisualImpl {
+    fn ground_height_and_normal(&self, x: f32, y: f32) -> (f32, Vec3) {
+        if let Some(heightmap) = self.height_map.as_ref() {
+            (heightmap.get_height_at(x, y), heightmap.get_normal_at(x, y))
+        } else {
+            (0.0, Vec3::Z)
+        }
+    }
+}
+
+impl TerrainVisualImpl {
+    /// Native Main submits Y-up matrices explicitly, including steep FX pitch.
+    pub fn render_native_y_up(
+        &mut self,
+        view: &Mat4,
+        projection: &Mat4,
+        min_height: f32,
+        snow: &crate::snow::SnowRenderState,
+    ) -> Result<(), TerrainError> {
+        let camera = snow_camera::SnowCamera::native_y_up(*view, *projection, min_height);
+        self.render_with_snow_camera(view, projection, camera, Some(snow), None)
+    }
+
+    /// Actual Main frame supplies its receiving script and physics observations.
+    pub fn render_native_y_up_with_motion(
+        &mut self,
+        view: &Mat4,
+        projection: &Mat4,
+        min_height: f32,
+        snow: &crate::snow::SnowRenderState,
+        motion: TerrainVisualMotion,
+    ) -> Result<(), TerrainError> {
+        let camera = snow_camera::SnowCamera::native_y_up(*view, *projection, min_height);
+        self.render_with_snow_camera(view, projection, camera, Some(snow), Some(motion))
+    }
+
+    /// Receiving standalone Client keeps its historical source-axis inference.
+    pub fn render_client_view(
+        &mut self,
+        view: &Mat4,
+        projection: &Mat4,
+        snow: &crate::snow::SnowRenderState,
+    ) -> Result<(), TerrainError> {
+        let camera =
+            snow_camera::SnowCamera::from_client_view(*view, *projection, self.snow_min_height());
+        self.render_with_snow_camera(view, projection, camera, Some(snow), None)
+    }
+
+    fn snow_min_height(&self) -> f32 {
+        self.height_map
+            .as_ref()
+            .map(|map| map.min_height)
+            .unwrap_or(0.)
+    }
+
+    fn render_with_snow_camera(
+        &mut self,
+        view_matrix: &Mat4,
+        projection_matrix: &Mat4,
+        snow_camera: Option<snow_camera::SnowCamera>,
+        snow: Option<&crate::snow::SnowRenderState>,
+        motion: Option<TerrainVisualMotion>,
+    ) -> Result<(), TerrainError> {
+        if !self.enabled {
+            return Ok(());
+        }
+
+        if let Some(device) = self.device.as_ref().cloned() {
+            self.sync_global_water_plane(device.as_ref())?;
+            if self.water_texture_bind_group.is_none() || self.water_texture_is_fallback {
+                self.ensure_water_texture_bind_group(device.as_ref());
+            }
+        }
+
+        match motion {
+            Some(motion) => self.update_tree_meshes_for_motion(motion),
+            None => self.update_tree_meshes(),
+        }
+        self.time += 1.0 / 30.0;
+
+        let view_proj = *projection_matrix * *view_matrix;
+        let camera_inverse = view_matrix.inverse();
+        let camera_position = camera_inverse.transform_point3(Vec3::ZERO);
+        if let Some(device) = self.device.clone() {
+            if let Some(snow) = snow {
+                self.ensure_snow_texture_bind_group_owned(
+                    device.as_ref(),
+                    &snow.definition.snow_texture,
+                );
+            }
+            self.apply_water_transparency_map_overrides(device.as_ref());
+        }
+        self.upload_snow_mesh(snow_camera.as_ref(), snow);
+        if self.overlay.overlays_dirty {
+            self.rebuild_all_overlays();
+        }
+        self.recenter_draw_area_for_view(*view_matrix, *projection_matrix);
+        self.chunk_manager.set_camera(camera_position);
+        self.chunk_manager.set_view_frustum(ViewFrustum {
+            planes: [Vec3::ZERO; 6],
+            view_matrix: *view_matrix,
+            projection_matrix: *projection_matrix,
+        });
+        // Visibility must see this frame's view/proj. Subsystem update() ran
+        // earlier with a stale/identity frustum and left visible_chunks=0.
+        let _ = self.chunk_manager.update();
+
+        // Update uniforms
+        if let (Some(queue), Some(uniform_buffer)) = (self.queue.as_ref(), &self.uniform_buffer) {
+            let uniforms = TerrainUniforms {
+                view_proj: matrix4_to_array(&view_proj),
+                view_matrix: matrix4_to_array(view_matrix),
+                projection_matrix: matrix4_to_array(projection_matrix),
+                camera_position: {
+                    let global = game_engine::common::global_data::read();
+                    let do_cloud = global.use_cloud_map
+                        && global.time_of_day != game_engine::common::global_data::TimeOfDay::Night;
+                    let do_noise = global.use_light_map;
+                    let mode =
+                        (if do_cloud { 1.0 } else { 0.0 }) + (if do_noise { 2.0 } else { 0.0 });
+                    [
+                        camera_position.x,
+                        camera_position.y,
+                        camera_position.z,
+                        mode,
+                    ]
+                },
+                time: self.time,
+                _time_padding: [0.0; 3],
+                fog_color: self.terrain_fog_uniforms().0,
+                fog_range: self.terrain_fog_uniforms().1,
+            };
+
+            queue.write_buffer(uniform_buffer, 0, cast_slice(&[uniforms]));
+        }
+
+        // Render water
+        self.water_system.render(view_matrix, projection_matrix)?;
+
+        // Render roads
+        self.road_system.render(view_matrix, projection_matrix)?;
+
+        Ok(())
+    }
+}
+
+impl TerrainVisual for TerrainVisualImpl {
+    fn render(&mut self, view_matrix: &Mat4, projection_matrix: &Mat4) -> Result<(), TerrainError> {
+        let camera = snow_camera::SnowCamera::from_client_view(
+            *view_matrix,
+            *projection_matrix,
+            self.snow_min_height(),
+        );
+        let snow = crate::snow::SnowRenderState::from_standalone();
+        self.render_with_snow_camera(view_matrix, projection_matrix, camera, snow.as_ref(), None)
+    }
+
+    fn get_height_at(&self, x: f32, y: f32) -> Result<f32, TerrainError> {
+        if let Some(ref heightmap) = self.height_map {
+            Ok(heightmap.get_height_at(x, y))
+        } else {
+            Ok(0.0)
+        }
+    }
+
+    fn get_normal_at(&self, x: f32, y: f32) -> Result<Vec3, TerrainError> {
+        if let Some(ref heightmap) = self.height_map {
+            Ok(heightmap.get_normal_at(x, y))
+        } else {
+            Ok(Vec3::new(0.0, 0.0, 1.0))
+        }
+    }
+
+    fn is_valid_position(&self, x: f32, y: f32) -> bool {
+        x >= 0.0 && y >= 0.0 && x < self.config.world_size.0 && y < self.config.world_size.1
+    }
+
+    fn chunk_manager(&self) -> &ChunkManager {
+        &self.chunk_manager
+    }
+
+    fn chunk_draw_count(&self) -> usize {
+        self.chunk_draw_count()
+    }
+
+    fn oversize_terrain(&mut self, amount: i32) {
+        TerrainVisualImpl::oversize_terrain(self, amount);
+    }
+
+    fn set_terrain_tracks_detail(&mut self) {
+        TerrainVisualImpl::set_terrain_tracks_detail(self);
+    }
+}
+
+/// Terrain uniform data for shaders
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+struct TerrainUniforms {
+    view_proj: [[f32; 4]; 4],
+    view_matrix: [[f32; 4]; 4],
+    projection_matrix: [[f32; 4]; 4],
+    camera_position: [f32; 4],
+    time: f32,
+    _time_padding: [f32; 3],
+    fog_color: [f32; 4],
+    fog_range: [f32; 4],
+}
+
+impl TerrainVisualImpl {
+    /// Immutable receiving inputs for the actual GPU Camera block.
+    /// Other lighting is already baked into terrain vertex diffuse.
+    fn terrain_fog_uniforms(&self) -> ([f32; 4], [f32; 4]) {
+        (
+            [self.fog_color[0], self.fog_color[1], self.fog_color[2], 1.0],
+            [self.fog_start, self.fog_end, 0.0, 0.0],
+        )
+    }
+}
+
+#[cfg(test)]
+#[path = "terrain_fog_uniform_tests.rs"]
+mod terrain_fog_uniform_tests;
+
+/// Shipped wgpu water overlay vertex. `packed_c` is C++ `SEA_PATCH_VERTEX.c`.
+pub type WaterVertex = WaterGpuVertex;
+
+/// Shipped wgpu overlay vertex (roads/bridges/scorch). Packed `diffuse` is C++ BGRA.
+pub type RoadVertex = OverlayGpuVertex;
+
+impl TreeGpuVertex {
+    pub fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
+        wgpu::VertexBufferLayout {
+            array_stride: std::mem::size_of::<TreeGpuVertex>() as wgpu::BufferAddress,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &[
+                wgpu::VertexAttribute {
+                    offset: 0,
+                    shader_location: 0,
+                    format: wgpu::VertexFormat::Float32x3,
+                },
+                wgpu::VertexAttribute {
+                    offset: std::mem::size_of::<[f32; 3]>() as wgpu::BufferAddress,
+                    shader_location: 1,
+                    format: wgpu::VertexFormat::Float32x3,
+                },
+                wgpu::VertexAttribute {
+                    offset: std::mem::size_of::<[f32; 6]>() as wgpu::BufferAddress,
+                    shader_location: 2,
+                    format: wgpu::VertexFormat::Float32x2,
+                },
+                wgpu::VertexAttribute {
+                    offset: std::mem::size_of::<[f32; 8]>() as wgpu::BufferAddress,
+                    shader_location: 3,
+                    format: wgpu::VertexFormat::Uint32,
+                },
+            ],
+        }
+    }
+}
+
+/// Immutable observations from the session driving this native frame.
+#[derive(Debug, Clone, Copy)]
+pub struct TerrainVisualMotion {
+    pub paused: bool,
+    pub breeze: crate::terrain::BreezeInfo,
+    pub gravity: f32,
+}
+impl TerrainVisualImpl {
+    pub fn update_native(
+        &mut self,
+        motion: TerrainVisualMotion,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        self.update_with_motion(Some(motion))
+    }
+    fn update_with_motion(
+        &mut self,
+        motion: Option<TerrainVisualMotion>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         if !self.enabled {
             return Ok(());
         }
@@ -111,7 +393,10 @@ impl SubsystemInterface for TerrainVisualImpl {
 
         let water_started = std::time::Instant::now();
         self.water_system.update()?;
-        self.simulate_water_grid(1.0 / 30.0);
+        match motion {
+            Some(motion) => self.simulate_water_grid_with_gravity(motion.gravity),
+            None => self.simulate_water_grid(1.0 / 30.0),
+        }
         // C++ WaterRenderObjClass::update (W3DWater.cpp:1201) accumulates
         // m_riverVOrigin without wrapping; the wave phases (sin(25v + x),
         // cos(11v)) would visibly pop on every wrap.
@@ -171,7 +456,10 @@ impl SubsystemInterface for TerrainVisualImpl {
                 self.update_scorch_meshes(&device);
             }
         }
-        self.update_tree_meshes();
+        match motion {
+            Some(motion) => self.update_tree_meshes_for_motion(motion),
+            None => self.update_tree_meshes(),
+        }
         let road_meshes_elapsed = road_meshes_started.elapsed();
 
         let chunk_manager_started = std::time::Instant::now();
@@ -207,238 +495,35 @@ impl SubsystemInterface for TerrainVisualImpl {
     }
 }
 
-impl TerrainTrackHeightProvider for TerrainVisualImpl {
-    fn ground_height_and_normal(&self, x: f32, y: f32) -> (f32, Vec3) {
-        if let Some(heightmap) = self.height_map.as_ref() {
-            (heightmap.get_height_at(x, y), heightmap.get_normal_at(x, y))
-        } else {
-            (0.0, Vec3::Z)
-        }
+#[cfg(test)]
+mod native_motion_owner_tests {
+    use super::*;
+    fn water_owner() -> TerrainVisualImpl {
+        let mut visual = TerrainVisualImpl::new();
+        visual.set_water_grid_resolution(2.0, 2.0, 1.0);
+        visual.set_water_transform(0.0, 0.0, 0.0, 0.0);
+        visual.set_water_attenuation_factors(1.0, 0.0, 0.0, 10.0);
+        visual.enable_water_grid(true);
+        visual.add_water_velocity(0.0, 0.0, 4.0, 0.0);
+        visual
     }
-}
-
-impl TerrainVisualImpl {
-    /// Native Main submits Y-up matrices explicitly, including steep FX pitch.
-    pub fn render_native_y_up(
-        &mut self,
-        view: &Mat4,
-        projection: &Mat4,
-        min_height: f32,
-        snow: &crate::snow::SnowRenderState,
-    ) -> Result<(), TerrainError> {
-        let camera = snow_camera::SnowCamera::native_y_up(*view, *projection, min_height);
-        self.render_with_snow_camera(view, projection, camera, Some(snow))
-    }
-
-    /// Receiving standalone Client keeps its historical source-axis inference.
-    pub fn render_client_view(
-        &mut self,
-        view: &Mat4,
-        projection: &Mat4,
-        snow: &crate::snow::SnowRenderState,
-    ) -> Result<(), TerrainError> {
-        let camera =
-            snow_camera::SnowCamera::from_client_view(*view, *projection, self.snow_min_height());
-        self.render_with_snow_camera(view, projection, camera, Some(snow))
-    }
-
-    fn snow_min_height(&self) -> f32 {
-        self.height_map
-            .as_ref()
-            .map(|map| map.min_height)
-            .unwrap_or(0.)
-    }
-
-    fn render_with_snow_camera(
-        &mut self,
-        view_matrix: &Mat4,
-        projection_matrix: &Mat4,
-        snow_camera: Option<snow_camera::SnowCamera>,
-        snow: Option<&crate::snow::SnowRenderState>,
-    ) -> Result<(), TerrainError> {
-        if !self.enabled {
-            return Ok(());
-        }
-
-        if let Some(device) = self.device.as_ref().cloned() {
-            self.sync_global_water_plane(device.as_ref())?;
-            if self.water_texture_bind_group.is_none() || self.water_texture_is_fallback {
-                self.ensure_water_texture_bind_group(device.as_ref());
-            }
-        }
-
-        self.update_tree_meshes();
-        self.time += 1.0 / 30.0;
-
-        let view_proj = *projection_matrix * *view_matrix;
-        let camera_inverse = view_matrix.inverse();
-        let camera_position = camera_inverse.transform_point3(Vec3::ZERO);
-        if let Some(device) = self.device.clone() {
-            if let Some(snow) = snow {
-                self.ensure_snow_texture_bind_group_owned(
-                    device.as_ref(),
-                    &snow.definition.snow_texture,
-                );
-            }
-            self.apply_water_transparency_map_overrides(device.as_ref());
-        }
-        self.upload_snow_mesh(snow_camera.as_ref(), snow);
-        if self.overlay.overlays_dirty {
-            self.rebuild_all_overlays();
-        }
-        self.recenter_draw_area_for_view(*view_matrix, *projection_matrix);
-        self.chunk_manager.set_camera(camera_position);
-        self.chunk_manager.set_view_frustum(ViewFrustum {
-            planes: [Vec3::ZERO; 6],
-            view_matrix: *view_matrix,
-            projection_matrix: *projection_matrix,
-        });
-        // Visibility must see this frame's view/proj. Subsystem update() ran
-        // earlier with a stale/identity frustum and left visible_chunks=0.
-        let _ = self.chunk_manager.update();
-
-        // Update uniforms
-        if let (Some(queue), Some(uniform_buffer)) = (self.queue.as_ref(), &self.uniform_buffer) {
-            let uniforms = TerrainUniforms {
-                view_proj: matrix4_to_array(&view_proj),
-                view_matrix: matrix4_to_array(view_matrix),
-                projection_matrix: matrix4_to_array(projection_matrix),
-                camera_position: {
-                    let global = game_engine::common::global_data::read();
-                    let do_cloud = global.use_cloud_map
-                        && global.time_of_day != game_engine::common::global_data::TimeOfDay::Night;
-                    let do_noise = global.use_light_map;
-                    let mode =
-                        (if do_cloud { 1.0 } else { 0.0 }) + (if do_noise { 2.0 } else { 0.0 });
-                    [
-                        camera_position.x,
-                        camera_position.y,
-                        camera_position.z,
-                        mode,
-                    ]
-                },
-                time: self.time,
-                sun_direction: self.sun_direction.to_array(),
-                sun_color: self.sun_color,
-                ambient_color: self.ambient_color,
-                fog_color: self.fog_color,
-                fog_start: self.fog_start,
-                fog_end: self.fog_end,
-                _padding: [0.0; 2],
-            };
-
-            queue.write_buffer(uniform_buffer, 0, cast_slice(&[uniforms]));
-        }
-
-        // Render water
-        self.water_system.render(view_matrix, projection_matrix)?;
-
-        // Render roads
-        self.road_system.render(view_matrix, projection_matrix)?;
-
-        Ok(())
-    }
-}
-
-impl TerrainVisual for TerrainVisualImpl {
-    fn render(&mut self, view_matrix: &Mat4, projection_matrix: &Mat4) -> Result<(), TerrainError> {
-        let camera = snow_camera::SnowCamera::from_client_view(
-            *view_matrix,
-            *projection_matrix,
-            self.snow_min_height(),
-        );
-        let snow = crate::snow::SnowRenderState::from_standalone();
-        self.render_with_snow_camera(view_matrix, projection_matrix, camera, snow.as_ref())
-    }
-
-    fn get_height_at(&self, x: f32, y: f32) -> Result<f32, TerrainError> {
-        if let Some(ref heightmap) = self.height_map {
-            Ok(heightmap.get_height_at(x, y))
-        } else {
-            Ok(0.0)
-        }
-    }
-
-    fn get_normal_at(&self, x: f32, y: f32) -> Result<Vec3, TerrainError> {
-        if let Some(ref heightmap) = self.height_map {
-            Ok(heightmap.get_normal_at(x, y))
-        } else {
-            Ok(Vec3::new(0.0, 0.0, 1.0))
-        }
-    }
-
-    fn is_valid_position(&self, x: f32, y: f32) -> bool {
-        x >= 0.0 && y >= 0.0 && x < self.config.world_size.0 && y < self.config.world_size.1
-    }
-
-    fn chunk_manager(&self) -> &ChunkManager {
-        &self.chunk_manager
-    }
-
-    fn chunk_draw_count(&self) -> usize {
-        self.chunk_draw_count()
-    }
-
-    fn oversize_terrain(&mut self, amount: i32) {
-        TerrainVisualImpl::oversize_terrain(self, amount);
-    }
-
-    fn set_terrain_tracks_detail(&mut self) {
-        TerrainVisualImpl::set_terrain_tracks_detail(self);
-    }
-}
-
-/// Terrain uniform data for shaders
-#[repr(C)]
-#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-struct TerrainUniforms {
-    view_proj: [[f32; 4]; 4],
-    view_matrix: [[f32; 4]; 4],
-    projection_matrix: [[f32; 4]; 4],
-    camera_position: [f32; 4],
-    time: f32,
-    sun_direction: [f32; 3],
-    sun_color: [f32; 3],
-    ambient_color: [f32; 3],
-    fog_color: [f32; 3],
-    fog_start: f32,
-    fog_end: f32,
-    _padding: [f32; 2],
-}
-
-/// Shipped wgpu water overlay vertex. `packed_c` is C++ `SEA_PATCH_VERTEX.c`.
-pub type WaterVertex = WaterGpuVertex;
-
-/// Shipped wgpu overlay vertex (roads/bridges/scorch). Packed `diffuse` is C++ BGRA.
-pub type RoadVertex = OverlayGpuVertex;
-
-impl TreeGpuVertex {
-    pub fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
-        wgpu::VertexBufferLayout {
-            array_stride: std::mem::size_of::<TreeGpuVertex>() as wgpu::BufferAddress,
-            step_mode: wgpu::VertexStepMode::Vertex,
-            attributes: &[
-                wgpu::VertexAttribute {
-                    offset: 0,
-                    shader_location: 0,
-                    format: wgpu::VertexFormat::Float32x3,
-                },
-                wgpu::VertexAttribute {
-                    offset: std::mem::size_of::<[f32; 3]>() as wgpu::BufferAddress,
-                    shader_location: 1,
-                    format: wgpu::VertexFormat::Float32x3,
-                },
-                wgpu::VertexAttribute {
-                    offset: std::mem::size_of::<[f32; 6]>() as wgpu::BufferAddress,
-                    shader_location: 2,
-                    format: wgpu::VertexFormat::Float32x2,
-                },
-                wgpu::VertexAttribute {
-                    offset: std::mem::size_of::<[f32; 8]>() as wgpu::BufferAddress,
-                    shader_location: 3,
-                    format: wgpu::VertexFormat::Uint32,
-                },
-            ],
-        }
+    #[test]
+    fn actual_native_updates_keep_receiving_water_gravity_independent() {
+        let mut first = water_owner();
+        let mut second = water_owner();
+        let motion = |gravity| TerrainVisualMotion {
+            paused: false,
+            gravity,
+            breeze: Default::default(),
+        };
+        first.update_native(motion(-0.25)).unwrap();
+        second.update_native(motion(-2.0)).unwrap();
+        let a = first.get_water_grid_height(0.0, 0.0).unwrap();
+        let b = second.get_water_grid_height(0.0, 0.0).unwrap();
+        assert!((a - 2.97).abs() < 0.00001, "receiving gravity: {a}");
+        assert!((b + 2.28).abs() < 0.00001, "foreign gravity: {b}");
+        second.clear_scorches();
+        drop(second);
+        assert_eq!(first.get_water_grid_height(0.0, 0.0), Some(a));
     }
 }

@@ -61,6 +61,14 @@ impl GameLogic {
     /// The combined player/object upgrade mask is observed once per module.
     /// Executed remains true when triggers subsequently disappear (UpgradeMux).
     fn attempt_authored_radar_upgrades(&mut self, id: ObjectId) {
+        self.attempt_authored_radar_upgrades_with_effects(id, &mut Default::default())
+    }
+
+    fn attempt_authored_radar_upgrades_with_effects(
+        &mut self,
+        id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let Some(object) = self.objects.get(&id) else {
             return;
         };
@@ -109,7 +117,7 @@ impl GameLogic {
                 continue;
             }
             if let Some(fx) = &rule.fx_list {
-                self.dispatch_fx_list_at_host_object(fx, id, None);
+                self.dispatch_fx_list_at_host_object_with_effects(fx, id, None, effects);
             }
             let object = self.objects.get_mut(&id).unwrap();
             for upgrade in &rule.removes_upgrades {
@@ -127,12 +135,20 @@ impl GameLogic {
     }
 
     pub(crate) fn capture_authored_radar_provider(&mut self, id: ObjectId) {
+        self.capture_authored_radar_provider_with_effects(id, &mut Default::default())
+    }
+
+    pub(crate) fn capture_authored_radar_provider_with_effects(
+        &mut self,
+        id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         self.admit_host_radar_disabled_edges(id);
         let Some(object) = self.objects.get(&id) else {
             return;
         };
         let Some(rules) = object.thing().template.radar_upgrade_rules.clone() else {
-            self.admit_host_radar_provider(id);
+            self.admit_host_radar_provider_with_effects(id, effects);
             return;
         };
         if object.is_disabled() {
@@ -165,7 +181,7 @@ impl GameLogic {
         self.host_radar
             .providers
             .insert(id, self.host_radar_providers(id));
-        self.admit_host_radar_provider(id);
+        self.admit_host_radar_provider_with_effects(id, effects);
     }
 
     /// Restored Player counts remain canonical; rebuild only derived identities.
@@ -178,8 +194,16 @@ impl GameLogic {
     }
 
     pub(crate) fn admit_host_radar_provider(&mut self, id: ObjectId) {
+        self.admit_host_radar_provider_with_effects(id, &mut Default::default())
+    }
+
+    pub(crate) fn admit_host_radar_provider_with_effects(
+        &mut self,
+        id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         self.admit_host_radar_disabled_edges(id);
-        self.attempt_authored_radar_upgrades(id);
+        self.attempt_authored_radar_upgrades_with_effects(id, effects);
         let next = self.host_radar_providers(id);
         let previous = self
             .host_radar

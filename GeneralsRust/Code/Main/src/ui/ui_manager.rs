@@ -346,6 +346,16 @@ impl UIManager {
 
     /// Handle mouse clicks
     pub fn handle_mouse_click(&mut self, x: i32, y: i32, button: MouseButton) -> bool {
+        self.handle_mouse_click_with_terrain_lod(x, y, button, None)
+    }
+
+    pub(crate) fn handle_mouse_click_with_terrain_lod(
+        &mut self,
+        x: i32,
+        y: i32,
+        button: MouseButton,
+        terrain_lod: Option<&mut dyn FnMut(i32)>,
+    ) -> bool {
         let ui_sound_events_before = self.queued_ui_sound_event_count();
         let handled = match self.current_screen {
             Some(Screen::Title) => {
@@ -410,7 +420,10 @@ impl UIManager {
                 }
             }
             Some(Screen::Options) => {
-                if let Some(event) = self.options_menu.handle_mouse_click(x, y, button) {
+                if let Some(event) =
+                    self.options_menu
+                        .handle_mouse_click_with_terrain_lod(x, y, button, terrain_lod)
+                {
                     self.queue_event(event);
                     true
                 } else {
@@ -446,6 +459,15 @@ impl UIManager {
     /// Handle host key routing while allowing the caller to suppress gameplay-HUD
     /// hotkeys when a WND text editor or other input owner has the key.
     pub fn handle_key_press_with_hud_input(&mut self, key: KeyCode, allow_hud_input: bool) -> bool {
+        self.handle_key_press_with_hud_input_and_terrain_lod(key, allow_hud_input, None)
+    }
+
+    pub(crate) fn handle_key_press_with_hud_input_and_terrain_lod(
+        &mut self,
+        key: KeyCode,
+        allow_hud_input: bool,
+        terrain_lod: Option<&mut dyn FnMut(i32)>,
+    ) -> bool {
         self.keys_pressed.insert(key, true);
 
         // Global key handlers
@@ -517,7 +539,9 @@ impl UIManager {
             Some(Screen::LoadGame) | Some(Screen::SaveGame) => {
                 self.save_load_menu.handle_key_press(key)
             }
-            Some(Screen::Options) => self.options_menu.handle_key_press(key),
+            Some(Screen::Options) => self
+                .options_menu
+                .handle_key_press_with_terrain_lod(key, terrain_lod),
             _ => false,
         };
 

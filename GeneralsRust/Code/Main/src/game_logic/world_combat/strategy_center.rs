@@ -44,6 +44,17 @@ impl GameLogic {
         &mut self,
         center_id: ObjectId,
     ) -> AttackFireResult {
+        self.try_strategy_center_bombardment_turret_fire_with_effects(
+            center_id,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(in super::super) fn try_strategy_center_bombardment_turret_fire_with_effects(
+        &mut self,
+        center_id: ObjectId,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> AttackFireResult {
         use crate::game_logic::host_strategy_center::{
             STRATEGY_CENTER_GUN_FIRE_AUDIO, STRATEGY_CENTER_GUN_PRIMARY_RADIUS,
             is_legal_strategy_center_gun_target, strategy_center_gun_damage_at,
@@ -229,13 +240,14 @@ impl GameLogic {
                 self.usa_pilot.record_invulnerable_block();
                 continue;
             }
-            let (destroyed, _) = self.residual_auto_fire_apply_damage(
+            let (destroyed, _) = self.residual_auto_fire_apply_damage_with_effects(
                 center_id,
                 id,
                 dmg,
                 fire_pos,
                 weapon_snap.as_ref(),
                 0,
+                presentation_effects,
             );
             hits = hits.saturating_add(1);
             if destroyed {
@@ -286,10 +298,11 @@ impl GameLogic {
         // One turret discharge may splash several victims. Normalize its
         // concrete PRIMARY cursor once here, never inside the per-victim
         // residual damage helper.
-        let _ = self.record_accepted_weapon_discharge(center_id, 0);
+        let _ =
+            self.record_accepted_weapon_discharge_with_effects(center_id, 0, presentation_effects);
 
         for (id, killer) in destroy_ids {
-            self.mark_object_for_destruction(id, killer);
+            self.mark_object_for_destruction_with_effects(id, killer, presentation_effects);
         }
 
         self.battle_plans.record_turret_fire(hits);
@@ -326,6 +339,17 @@ impl GameLogic {
     ///
     /// Fail-closed: not full AutoAcquire LOS / turret pitch / CONTINUOUS_FIRE anim.
     pub(in super::super) fn try_base_defense_residual_fire(&mut self, defense_id: ObjectId) {
+        self.try_base_defense_residual_fire_with_effects(
+            defense_id,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(in super::super) fn try_base_defense_residual_fire_with_effects(
+        &mut self,
+        defense_id: ObjectId,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         use crate::game_logic::host_base_defense::{
             GATTLING_BUILDING_FIRE_AUDIO, PATRIOT_FIRE_AUDIO, STINGER_FIRE_AUDIO,
             is_dual_slot_base_defense, is_gattling_cannon_structure, is_patriot_battery_structure,
@@ -519,13 +543,24 @@ impl GameLogic {
                 .map(|d| d.get_position())
                 .unwrap_or(fire_pos);
             let spawned = self
-                .spawn_fire_base_shell_projectile(defense_id, from, impact, Some(target_id))
+                .spawn_fire_base_shell_projectile_with_effects(
+                    defense_id,
+                    from,
+                    impact,
+                    Some(target_id),
+                    presentation_effects,
+                )
                 .is_some();
             let (hits, any_destroyed) = if spawned {
                 self.fire_base_residual_fires = self.fire_base_residual_fires.saturating_add(1);
                 (1, false)
             } else {
-                self.apply_fire_base_residual_at(impact, Some(defense_id), Some(target_id))
+                self.apply_fire_base_residual_at_with_effects(
+                    impact,
+                    Some(defense_id),
+                    Some(target_id),
+                    presentation_effects,
+                )
             };
             destroyed = any_destroyed;
             let _ = hits;
@@ -586,13 +621,14 @@ impl GameLogic {
                 }
             }
             if !skip_damage {
-                let (d, xp) = self.residual_auto_fire_apply_damage(
+                let (d, xp) = self.residual_auto_fire_apply_damage_with_effects(
                     defense_id,
                     target_id,
                     damage,
                     fire_pos,
                     weapon_snap.as_ref(),
                     slot,
+                    presentation_effects,
                 );
                 destroyed = d;
                 let _ = xp;
@@ -634,13 +670,21 @@ impl GameLogic {
         }
         // This accepted base-defense shot can miss or splash; it is still one
         // physical slot discharge and must advance/freeze exactly once.
-        let _ = self.record_accepted_weapon_discharge(defense_id, slot);
+        let _ = self.record_accepted_weapon_discharge_with_effects(
+            defense_id,
+            slot,
+            presentation_effects,
+        );
 
         if destroyed {
             self.award_score_the_kill_experience(defense_id, target_id);
             if !is_fire_base {
                 // Fire Base residual already mark_object_for_destruction inside apply.
-                self.mark_object_for_destruction(target_id, Some(team));
+                self.mark_object_for_destruction_with_effects(
+                    target_id,
+                    Some(team),
+                    presentation_effects,
+                );
             }
         }
 
@@ -732,11 +776,12 @@ impl GameLogic {
             }
             // Superweapon General EMP Patriot: EMPPatriotEffectSpheroid + EMPSparks.
             if crate::game_logic::host_base_defense::is_supw_patriot_template(&template_name) {
-                self.apply_supw_patriot_emp_residual_at(
+                self.apply_supw_patriot_emp_residual_at_with_effects(
                     impact_pos.unwrap_or(fire_pos),
                     defense_id,
                     team,
                     Some(target_id),
+                    presentation_effects,
                 );
             }
             // AssistedTargetingUpdate residual: RequestAssistRange → neighboring
@@ -968,6 +1013,15 @@ impl GameLogic {
     /// AssistingClipSize (**4**) is exhausted or victim dies / leaves range.
 
     pub(in super::super) fn update_pending_patriot_assists(&mut self) {
+        self.update_pending_patriot_assists_with_effects(
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(in super::super) fn update_pending_patriot_assists_with_effects(
+        &mut self,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         use crate::game_logic::host_base_defense::{
             LAZR_PATRIOT_FIRE_AUDIO, PATRIOT_ASSIST_DELAY_FRAMES, PATRIOT_FIRE_AUDIO,
             is_within_patriot_assist_weapon_range,
@@ -1035,16 +1089,21 @@ impl GameLogic {
                 .objects
                 .get(&clip.assistant_id)
                 .and_then(|a| a.weapon.clone());
-            let (destroyed, _) = self.residual_auto_fire_apply_damage(
+            let (destroyed, _) = self.residual_auto_fire_apply_damage_with_effects(
                 clip.assistant_id,
                 clip.victim_id,
                 damage,
                 asst_pos,
                 weapon_snap.as_ref(),
                 0,
+                presentation_effects,
             );
             if destroyed {
-                self.mark_object_for_destruction(clip.victim_id, Some(assistant_team));
+                self.mark_object_for_destruction_with_effects(
+                    clip.victim_id,
+                    Some(assistant_team),
+                    presentation_effects,
+                );
             }
             if let Some(asst) = self.objects.get_mut(&clip.assistant_id) {
                 let _ = asst.capture_pending_weapon_visual_dispatch(
@@ -1073,7 +1132,11 @@ impl GameLogic {
             }
             // An assisted-targeting clip is a real primary WeaponSet shot,
             // not one visual event per auto-fire victim.
-            let _ = self.record_accepted_weapon_discharge(clip.assistant_id, 0);
+            let _ = self.record_accepted_weapon_discharge_with_effects(
+                clip.assistant_id,
+                0,
+                presentation_effects,
+            );
             if destroyed {
                 self.award_score_the_kill_experience(clip.assistant_id, clip.victim_id);
                 // Clear engagement via decision authority (log-only when GW applies).
@@ -1101,11 +1164,12 @@ impl GameLogic {
 
             // SupW assist shells also seed EMPPatriotEffectSpheroid residual.
             if is_supw {
-                self.apply_supw_patriot_emp_residual_at(
+                self.apply_supw_patriot_emp_residual_at_with_effects(
                     victim_pos,
                     clip.assistant_id,
                     assistant_team,
                     Some(clip.victim_id),
+                    presentation_effects,
                 );
             }
 
@@ -1136,6 +1200,23 @@ impl GameLogic {
         source_id: ObjectId,
         source_team: Team,
         intended_target: Option<ObjectId>,
+    ) {
+        self.apply_supw_patriot_emp_residual_at_with_effects(
+            impact,
+            source_id,
+            source_team,
+            intended_target,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(in super::super) fn apply_supw_patriot_emp_residual_at_with_effects(
+        &mut self,
+        impact: glam::Vec3,
+        source_id: ObjectId,
+        source_team: Team,
+        intended_target: Option<ObjectId>,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         use crate::game_logic::host_base_defense::{
             SUPW_PATRIOT_EMP_AUDIO, SUPW_PATRIOT_EMP_DURATION_FRAMES, SUPW_PATRIOT_EMP_RADIUS,
@@ -1189,7 +1270,8 @@ impl GameLogic {
         }
 
         // C++ ProjectileDetonationOCL CreateObject EMPPatriotEffectSpheroid at impact.
-        let _ = self.spawn_emp_patriot_spheroid(impact, source_id);
+        let _ =
+            self.spawn_emp_patriot_spheroid_with_effects(impact, source_id, presentation_effects);
 
         let source_owner = self.objects.get(&source_id).and_then(|o| o.owner_player_id);
         let until = supw_patriot_emp_until_frame(self.frame);
@@ -1304,7 +1386,11 @@ impl GameLogic {
             }
         }
         for id in destroy_ids {
-            self.mark_object_for_destruction(id, Some(source_team));
+            self.mark_object_for_destruction_with_effects(
+                id,
+                Some(source_team),
+                presentation_effects,
+            );
         }
         // C++ doDisableAttack EMPSparks on disabled victims (not airborne kills).
         for vid in spark_ids {
@@ -1348,6 +1434,25 @@ impl GameLogic {
         from: glam::Vec3,
         to: glam::Vec3,
     ) -> Option<ObjectId> {
+        self.spawn_weapon_laser_beam_object_with_effects(
+            laser_name,
+            from_id,
+            to_id,
+            from,
+            to,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn spawn_weapon_laser_beam_object_with_effects(
+        &mut self,
+        laser_name: &str,
+        from_id: ObjectId,
+        to_id: Option<ObjectId>,
+        from: glam::Vec3,
+        to: glam::Vec3,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> Option<ObjectId> {
         use crate::game_logic::host_weapon_laser::{
             WEAPON_LASER_BEAM_MAX_HEALTH, laser_beam_lifetime_frames,
         };
@@ -1373,7 +1478,13 @@ impl GameLogic {
             (from.y + to.y) * 0.5 + 5.0,
             (from.z + to.z) * 0.5,
         );
-        let bid = self.create_object(laser_name, team, mid)?;
+        let bid = self.create_object_with_script_effects(
+            laser_name,
+            team,
+            mid,
+            None,
+            presentation_effects,
+        )?;
         let life = laser_beam_lifetime_frames(laser_name).max(1);
         let expires = self.frame.saturating_add(life);
         if let Some(o) = self.objects.get_mut(&bid) {
@@ -1393,6 +1504,15 @@ impl GameLogic {
     }
 
     pub fn update_weapon_laser_beam_objects(&mut self) {
+        self.update_weapon_laser_beam_objects_with_effects(
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn update_weapon_laser_beam_objects_with_effects(
+        &mut self,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let frame = self.frame;
         let due: Vec<ObjectId> = self
             .objects
@@ -1419,7 +1539,7 @@ impl GameLogic {
                 o.status.effectively_dead = true;
                 o.weapon_laser_beam = false;
             }
-            self.mark_object_for_destruction(id, None);
+            self.mark_object_for_destruction_with_effects(id, None, presentation_effects);
         }
     }
 
@@ -1434,6 +1554,25 @@ impl GameLogic {
         from: glam::Vec3,
         to: glam::Vec3,
         to_id: Option<ObjectId>,
+    ) -> Option<ObjectId> {
+        self.spawn_point_defense_laser_beam_with_effects(
+            carrier_id,
+            carrier_template,
+            from,
+            to,
+            to_id,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn spawn_point_defense_laser_beam_with_effects(
+        &mut self,
+        carrier_id: ObjectId,
+        carrier_template: &str,
+        from: glam::Vec3,
+        to: glam::Vec3,
+        to_id: Option<ObjectId>,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> Option<ObjectId> {
         use crate::game_logic::host_point_defense::{
             PDL_LASER_BEAM_LIFETIME_FRAMES, PDL_LASER_BEAM_MAX_HEALTH, pdl_laser_beam_name,
@@ -1459,7 +1598,13 @@ impl GameLogic {
             (from.y + to.y) * 0.5 + 5.0,
             (from.z + to.z) * 0.5,
         );
-        let bid = self.create_object(beam_name, team, mid)?;
+        let bid = self.create_object_with_script_effects(
+            beam_name,
+            team,
+            mid,
+            None,
+            presentation_effects,
+        )?;
         let expires = self
             .frame
             .saturating_add(PDL_LASER_BEAM_LIFETIME_FRAMES.max(1));
@@ -1488,6 +1633,15 @@ impl GameLogic {
     }
 
     pub fn update_point_defense_laser_beam_objects(&mut self) {
+        self.update_point_defense_laser_beam_objects_with_effects(
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn update_point_defense_laser_beam_objects_with_effects(
+        &mut self,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let frame = self.frame;
         let due: Vec<ObjectId> = self
             .objects
@@ -1514,7 +1668,7 @@ impl GameLogic {
                 o.status.effectively_dead = true;
                 o.point_defense_laser_beam = false;
             }
-            self.mark_object_for_destruction(id, None);
+            self.mark_object_for_destruction_with_effects(id, None, presentation_effects);
         }
     }
 
@@ -1523,6 +1677,15 @@ impl GameLogic {
     }
 
     pub fn update_point_defense_intercept(&mut self) {
+        self.update_point_defense_intercept_with_effects(
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn update_point_defense_intercept_with_effects(
+        &mut self,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         use crate::game_logic::host_point_defense::{
             PDL_INTERCEPT_AUDIO, intercept_priority, is_point_defense_carrier,
             is_primary_intercept_target, is_secondary_intercept_target, pdl_damage,
@@ -1670,7 +1833,7 @@ impl GameLogic {
                 } else if let Some(target) = self.objects.get_mut(&target_id) {
                     impact_pos = target.get_position();
                     let receiving_damage_target_id = target.id;
-                    destroyed = self.apply_residual_damage_owned(
+                    destroyed = self.apply_residual_damage_owned_with_effects(
                         receiving_damage_target_id,
                         damage,
                         Some(carrier_id),
@@ -1681,6 +1844,7 @@ impl GameLogic {
                             crate::game_logic::host_usa_tanks::PALADIN_PDL_DEATH_TYPE,
                         ),
                         None,
+                        presentation_effects,
                     );
                     // Under damage authority take_damage does not zero host HP; project kill for
                     // mark_object_for_destruction when lethal residual is logged.
@@ -1698,19 +1862,24 @@ impl GameLogic {
                 self.point_defense_residual_intercepts =
                     self.point_defense_residual_intercepts.saturating_add(1);
                 // C++ Weapon::createLaser / PointDefenseLaserBeam Lifetime residual.
-                let _ = self.spawn_point_defense_laser_beam(
+                let _ = self.spawn_point_defense_laser_beam_with_effects(
                     carrier_id,
                     &template_name,
                     carrier_pos,
                     impact_pos,
                     Some(target_id),
+                    presentation_effects,
                 );
                 // AI attack authority: PDL discharge records fire-intent for GameWorld last-writer.
                 {}
                 {}
 
                 if destroyed {
-                    self.mark_object_for_destruction(target_id, Some(team));
+                    self.mark_object_for_destruction_with_effects(
+                        target_id,
+                        Some(team),
+                        presentation_effects,
+                    );
                 }
 
                 let _ = self.combat_particles.spawn_weapon_fire_fx(

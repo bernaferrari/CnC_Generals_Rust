@@ -1413,13 +1413,19 @@ pub fn apply_particle_beam_scorch_and_ground_hit_fx_with_view(
     scorch_radius: f32,
     view: &mut game_client::fx_list::FxViewServices<'_>,
 ) {
-    apply_particle_beam_scorch_and_ground_hit_fx_with_dispatch(
-        position,
+    let scorch_id = gamelogic::helpers::game_client_random_value(0, 3);
+    (view.add_scorch)(
+        [position.x, position.z, position.y],
         scorch_radius,
-        &mut |name, pos, secondary, speed, radius, matrix| {
-            crate::game_logic::GameLogic::dispatch_fx_list_at_position_with_view(
-                name, pos, secondary, speed, radius, matrix, view,
-            )
-        },
+        scorch_id,
+    );
+    let _ = crate::game_logic::GameLogic::dispatch_fx_list_at_position_with_view(
+        PARTICLE_GROUND_HIT_FX,
+        position,
+        None,
+        0.0,
+        0.0,
+        None,
+        view,
     );
 }

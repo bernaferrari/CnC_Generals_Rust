@@ -1757,7 +1757,7 @@ impl CnCGameEngine {
 
     /// Radius-cursor / guard rings only. Structure placement is the C++ 3D model ghost.
     pub(super) fn collect_ground_marker_circles(
-        &self,
+        &mut self,
     ) -> Vec<crate::graphics::selection_renderer::SelectedUnit> {
         use crate::graphics::selection_renderer::SelectedUnit;
         let mut out = Vec::new();
@@ -1808,7 +1808,7 @@ impl CnCGameEngine {
     /// C++ `InGameUI::placeBuildAvailable` + `handleBuildPlacements`:
     /// spawn the building model at `placementOpacity` 0.45, red-tint when
     /// `isLegalBuildLocation` fails, and add/remove faction bibs.
-    fn submit_structure_placement_model_ghost(&self) {
+    fn submit_structure_placement_model_ghost(&mut self) {
         let placement = self.game_hud().construction_panel.placement_preview();
         if !placement.is_active() {
             self.sync_structure_placement_faction_bibs(None);
@@ -1861,15 +1861,12 @@ impl CnCGameEngine {
     /// C++ `TheTerrainVisual->addFactionBibDrawable` when LBC != OK,
     /// `removeFactionBibDrawable` when legal.
     fn sync_structure_placement_faction_bibs(
-        &self,
+        &mut self,
         active: Option<(f32, f32, f32, (f32, f32), bool)>,
     ) {
         #[cfg(feature = "game_client")]
         {
-            let Ok(mut guard) = game_client::terrain::terrain_visual::get_terrain_visual() else {
-                return;
-            };
-            let Some(visual) = guard.as_mut() else {
+            let Some(visual) = self.render_pipeline.native_terrain_mut() else {
                 return;
             };
             let Some((world_x, world_z, facing, half, illegal)) = active else {

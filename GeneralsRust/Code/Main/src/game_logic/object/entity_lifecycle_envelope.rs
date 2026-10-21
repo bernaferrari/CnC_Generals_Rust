@@ -291,11 +291,12 @@ mod tests {
 
     #[test]
     fn inventory_tag_table_is_declaration_order() {
-        assert_eq!(INVENTORY_TAGS[0], "UpgradeDie");
-        assert_eq!(INVENTORY_TAGS[3], "CaptureChannel");
-        assert_eq!(INVENTORY_TAGS[19], "SlowDeath");
-        assert_eq!(INVENTORY_TAGS[49], "FiringTracker");
-        assert_eq!(INVENTORY_TAGS[53], "CommandButtonHuntUpdate");
+        assert_eq!(
+            INVENTORY_TAGS,
+            super::super::entity_lifecycle_audit::EXPECTED_INVENTORY_TAGS
+        );
+        assert_eq!(INVENTORY_TAGS[0], "WeaponSlots");
+        assert_eq!(INVENTORY_TAGS[1], "TurretRuntime");
         assert_eq!(*INVENTORY_TAGS.last().expect("tags"), "OverlordAddon");
     }
 

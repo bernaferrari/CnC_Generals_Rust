@@ -7,6 +7,15 @@ impl GameLogic {
         input: CombatAttackInput,
         target_id: ObjectId,
     ) -> CombatShotResult {
+        self.update_object_target_combat_with_effects(input, target_id, &mut Default::default())
+    }
+
+    pub(super) fn update_object_target_combat_with_effects(
+        &mut self,
+        input: CombatAttackInput,
+        target_id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> CombatShotResult {
         let CombatAttackInput {
             attacker_id,
             attacker_team,
@@ -404,7 +413,7 @@ impl GameLogic {
                 .map(|a| a.status.is_carbomb)
                 .unwrap_or(false);
             if is_carbomb {
-                let _ = self.detonate_car_bomb(attacker_id);
+                let _ = self.detonate_car_bomb_with_effects(attacker_id, effects);
                 return CombatShotResult::NoShot;
             }
 
@@ -428,17 +437,18 @@ impl GameLogic {
                 .objects
                 .get(&attacker_id)
                 .map_or(Vec3::ZERO, Object::get_position);
-            let visual = self.begin_owned_weapon_effects(
+            let visual = self.begin_owned_weapon_effects_with_effects(
                 attacker_id,
                 slot,
                 Some(target_id),
                 Some(target_position),
                 origin,
                 None,
+                effects,
             );
             shot = CombatShotResult::Fired(slot, visual);
 
-            self.apply_combat_object_hit(
+            self.apply_combat_object_hit_with_effects(
                 attacker_id,
                 attacker_team,
                 target_id,
@@ -446,6 +456,7 @@ impl GameLogic {
                 slot,
                 enemy_or_forced,
                 weapon_damage,
+                effects,
             );
         } else if enemy_or_forced {
             // Ready weapons but out of range / cannot hit.

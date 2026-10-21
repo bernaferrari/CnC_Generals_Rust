@@ -655,6 +655,9 @@ pub struct TerrainDynamicWaterSnapshotEntry {
 pub struct TerrainHeightChange {
     pub playable_x: i32,
     pub playable_y: i32,
+    /// Accepted canonical sample after original flattened-index bounds checking.
+    pub sample_x: i32,
+    pub sample_y: i32,
     pub raw_height: u8,
     /// Original Int argument before WorldHeightMap byte narrowing.
     pub requested_height: i32,

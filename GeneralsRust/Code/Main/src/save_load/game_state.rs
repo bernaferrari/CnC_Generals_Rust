@@ -33,10 +33,20 @@ pub struct GameStateManager {
 
 impl GameStateManager {
     pub fn new() -> Self {
+        Self::with_user_data_root(None)
+    }
+
+    fn with_user_data_root(root: Option<&std::path::Path>) -> Self {
         Self {
-            save_file_manager: SaveFileManager::new(),
-            replay_manager: ReplayManager::new(),
-            campaign_manager: CampaignManager::new(),
+            save_file_manager: root
+                .map(|root| SaveFileManager::with_save_directory(root.join("Save")))
+                .unwrap_or_else(SaveFileManager::new),
+            replay_manager: root
+                .map(|root| ReplayManager::with_replay_directory(root.join("Save/Replays")))
+                .unwrap_or_else(ReplayManager::new),
+            campaign_manager: root
+                .map(|root| CampaignManager::with_campaign_directory(root.join("Save/Campaign")))
+                .unwrap_or_else(CampaignManager::new),
 
             game_logic: None,
             command_system: None,
@@ -481,6 +491,15 @@ pub fn with_global_campaign_manager<R>(
 /// Initialize the global game state system
 pub fn init_game_state_system() -> SaveLoadResult<()> {
     let mut manager = GAME_STATE_MANAGER.lock().unwrap_or_else(|e| e.into_inner());
+    manager.init()
+}
+
+/// Application startup admission, before any campaign/progress IO. Rebuild only
+/// this legacy application manager against the accepted root; session state is
+/// subsequently registered through the existing production API.
+pub(crate) fn init_game_state_system_for_user_data(root: &std::path::Path) -> SaveLoadResult<()> {
+    let mut manager = GAME_STATE_MANAGER.lock().unwrap_or_else(|e| e.into_inner());
+    *manager = GameStateManager::with_user_data_root(Some(root));
     manager.init()
 }
 

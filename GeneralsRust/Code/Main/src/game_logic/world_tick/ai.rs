@@ -3,11 +3,24 @@
 use super::super::*;
 impl GameLogic {
     pub(in super::super) fn update_ai(&mut self, object_ids: &[ObjectId], dt: f32) {
+        self.update_ai_with_effects(
+            object_ids,
+            dt,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(in super::super) fn update_ai_with_effects(
+        &mut self,
+        object_ids: &[ObjectId],
+        dt: f32,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         use crate::ai_decisions::*;
-        self.flush_countermeasure_flare_spawns();
+        self.flush_countermeasure_flare_spawns_with_effects(presentation_effects);
         // Wave 806: under coupled shadow, lifetime owned by GW expire + logs.
         {
-            self.update_countermeasure_flare_objects();
+            self.update_countermeasure_flare_objects_with_effects(presentation_effects);
         }
 
         self.propagate_hacked_to_spawn_slaves();
@@ -111,13 +124,14 @@ impl GameLogic {
                 let poison_damage = obj.tick_poisoned_behavior(self.frame);
                 let _ = obj;
                 if let Some((dot, death_ty)) = poison_damage {
-                    poison_kill = self.apply_residual_damage_owned(
+                    poison_kill = self.apply_residual_damage_owned_with_effects(
                         object_id,
                         dot,
                         None,
                         crate::game_logic::combat::DamageType::Unresistable,
                         death_ty,
                         Some(crate::game_logic::host_poisoned_behavior::poison_dot_fx_override()),
+                        presentation_effects,
                     );
                 }
                 let Some(obj) = self.objects.get_mut(&object_id) else {
@@ -138,13 +152,14 @@ impl GameLogic {
                 // receiving Body dispatch; its immediate callbacks can reenter.
                 let lifetime_due = obj.tick_lifetime_update(self.frame);
                 let _ = obj;
-                self.tick_native_lifecycle(object_id);
+                self.tick_native_lifecycle_with_effects(object_id, presentation_effects);
                 if lifetime_due {
                     lifetime_kill = self
-                        .apply_owned_kill(
+                        .apply_owned_kill_with_effects(
                             object_id,
                             crate::game_logic::combat::DamageType::Unresistable,
                             crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+                            presentation_effects,
                         )
                         .is_some_and(|result| result.destroyed());
                 }
@@ -154,10 +169,13 @@ impl GameLogic {
                 // C++ MissileLauncherBuildingUpdate::update (ready-frame door SM).
                 let ml_pos = obj.get_position();
                 #[cfg(feature = "game_client")]
-                let (play, stop) = Self::with_host_fx_view_parts(
+                let (play, stop) = Self::with_host_fx_view_parts_and_terrain(
                     &mut self.session_view,
                     fx_player,
                     self.world_services.shroud(),
+                    presentation_effects.terrain.as_mut().map(|terrain| {
+                        &mut **terrain as &mut dyn crate::game_logic::NativeTerrainEffects
+                    }),
                     |view| {
                         let shroud = self.world_services.shroud();
                         let mut dispatch = |name: &str, object: &Object, at_object: bool| {
@@ -216,10 +234,13 @@ impl GameLogic {
                 {
                     #[cfg(feature = "game_client")]
                     {
-                        topple_kill = Self::with_host_fx_view_parts(
+                        topple_kill = Self::with_host_fx_view_parts_and_terrain(
                             &mut self.session_view,
                             fx_player,
                             self.world_services.shroud(),
+                            presentation_effects.terrain.as_mut().map(|terrain| {
+                                &mut **terrain as &mut dyn crate::game_logic::NativeTerrainEffects
+                            }),
                             |view| {
                                 let shroud = self.world_services.shroud();
                                 let mut dispatch =
@@ -263,7 +284,11 @@ impl GameLogic {
                             .map(|j| j.is_active())
                             .unwrap_or(false)
                     {
-                        topple_kill = obj.tick_jet_slow_death(self.frame, 0.0);
+                        topple_kill = obj.tick_jet_slow_death_with_effects(
+                            self.frame,
+                            0.0,
+                            presentation_effects,
+                        );
                         final_death_destroy = topple_kill;
                     }
                 }
@@ -278,7 +303,11 @@ impl GameLogic {
                             .map(|h| h.is_active())
                             .unwrap_or(false)
                     {
-                        topple_kill = obj.tick_helicopter_slow_death(self.frame, 0.0);
+                        topple_kill = obj.tick_helicopter_slow_death_with_effects(
+                            self.frame,
+                            0.0,
+                            presentation_effects,
+                        );
                         final_death_destroy = topple_kill;
                     }
                 }
@@ -301,10 +330,13 @@ impl GameLogic {
                 {
                     if !topple_kill && obj.structure_collapse_data.is_some() {
                         #[cfg(feature = "game_client")]
-                        let _completed = Self::with_host_fx_view_parts(
+                        let _completed = Self::with_host_fx_view_parts_and_terrain(
                             &mut self.session_view,
                             fx_player,
                             self.world_services.shroud(),
+                            presentation_effects.terrain.as_mut().map(|terrain| {
+                                &mut **terrain as &mut dyn crate::game_logic::NativeTerrainEffects
+                            }),
                             |view| {
                                 let shroud = self.world_services.shroud();
                                 let mut dispatch =
@@ -324,15 +356,18 @@ impl GameLogic {
                 // its original FX/crushing callbacks run on the owner below.
             }
             if let Some((name, pos, ori, burned)) = pending_stump {
-                self.spawn_topple_stump(&name, pos, ori, burned);
+                self.spawn_topple_stump_with_effects(&name, pos, ori, burned, presentation_effects);
             }
             if let Some(obj) = self.objects.get_mut(&object_id) {
                 obj.poll_slow_death_phase_fx(self.frame);
                 #[cfg(feature = "game_client")]
-                let _ = Self::with_host_fx_view_parts(
+                let _ = Self::with_host_fx_view_parts_and_terrain(
                     &mut self.session_view,
                     fx_player,
                     self.world_services.shroud(),
+                    presentation_effects.terrain.as_mut().map(|terrain| {
+                        &mut **terrain as &mut dyn crate::game_logic::NativeTerrainEffects
+                    }),
                     |view| {
                         let shroud = self.world_services.shroud();
                         let mut dispatch = |name: &str, object: &Object, at_object: bool| {
@@ -348,7 +383,9 @@ impl GameLogic {
             }
             self.sync_helicopter_attach_particle(object_id);
             if !topple_kill {
-                if let Err(error) = self.update_owned_structure_topple(object_id) {
+                if let Err(error) =
+                    self.update_owned_structure_topple_with_effects(object_id, presentation_effects)
+                {
                     log::error!("Owned StructureTopple update rejected: {error}");
                 }
             } else {
@@ -370,19 +407,27 @@ impl GameLogic {
                     .filter(|event| event.target == object_id)
                     .collect();
                 for event in damage_events {
-                    let _ = self.execute_temporary_weapon_on_damage(
+                    let _ = self.execute_temporary_weapon_on_damage_with_effects(
                         object_id,
                         event.amount,
                         event.damage_type_ordinal,
+                        presentation_effects,
                     );
                 }
-                let _ = self.execute_temporary_weapon_continuous(object_id);
+                let _ = self.execute_temporary_weapon_continuous_with_effects(
+                    object_id,
+                    presentation_effects,
+                );
             } else if let Some(wname) = self
                 .objects
                 .get_mut(&object_id)
                 .and_then(|o| o.take_pending_fire_when_damaged_weapon())
             {
-                let _ = self.apply_fire_weapon_when_damaged_named(object_id, &wname);
+                let _ = self.apply_fire_weapon_when_damaged_named_with_effects(
+                    object_id,
+                    &wname,
+                    presentation_effects,
+                );
             }
             // C++ TransitionDamageFX + FXListDie → FXList::doFXObj / doFXPos.
             {
@@ -420,7 +465,12 @@ impl GameLogic {
                         );
                     }
                     if let Some(fx) = ev.fx_name {
-                        if !self.dispatch_fx_list_at_host_object(&fx, object_id, None) {
+                        if !self.dispatch_fx_list_at_host_object_with_effects(
+                            &fx,
+                            object_id,
+                            None,
+                            presentation_effects,
+                        ) {
                             for sound in crate::game_logic::sound_names_for_fx_list(&fx) {
                                 self.queue_audio_event(
                                     AudioEventRequest::new(&sound)
@@ -432,7 +482,12 @@ impl GameLogic {
                         }
                     }
                     for fx in ev.extra_fx_names {
-                        let _ = self.dispatch_fx_list_at_host_object(&fx, object_id, None);
+                        let _ = self.dispatch_fx_list_at_host_object_with_effects(
+                            &fx,
+                            object_id,
+                            None,
+                            presentation_effects,
+                        );
                     }
                     for ocl in ev.ocl_names {
                         crate::game_logic::host_transition_damage_fx::play_authored_transition_ocl(
@@ -485,7 +540,12 @@ impl GameLogic {
                     self.queue_audio_event(req);
                 }
                 if let Some(fx) = death_fx {
-                    if !self.dispatch_fx_list_at_host_object(&fx, object_id, death_killer) {
+                    if !self.dispatch_fx_list_at_host_object_with_effects(
+                        &fx,
+                        object_id,
+                        death_killer,
+                        presentation_effects,
+                    ) {
                         let mut sounds = crate::game_logic::sound_names_for_fx_list(&fx);
                         if sounds.is_empty() {
                             sounds = heli_fx_fallback_sounds(&fx);
@@ -554,7 +614,7 @@ impl GameLogic {
                 }
             }
             // C++ CreateObjectDie residual (spawn after death FX).
-            self.apply_pending_create_object_die(object_id);
+            self.apply_pending_create_object_die_with_effects(object_id, presentation_effects);
             if lifetime_kill {
                 // The receiving kill driver already delivered onDie/retention.
                 // Never turn a retained corpse into a second forced destroy.
@@ -616,7 +676,11 @@ impl GameLogic {
                         .with_position(pos)
                         .with_priority(160),
                 );
-                if !self.dispatch_fx_list_at_host_position(fx, pos) {
+                if !self.dispatch_fx_list_at_host_position_with_effects(
+                    fx,
+                    pos,
+                    presentation_effects,
+                ) {
                     let _ = self.combat_particles.spawn_named(
                         crate::game_logic::combat_particles::CombatParticleKind::WeaponImpact,
                         fx,
@@ -628,27 +692,35 @@ impl GameLogic {
                 }
             }
             if poison_kill {
-                self.mark_object_for_destruction(object_id, None);
+                self.mark_object_for_destruction_with_effects(
+                    object_id,
+                    None,
+                    presentation_effects,
+                );
                 continue;
             }
             if topple_kill {
                 if final_death_destroy {
                     // CPP SlowDeath/JetSlowDeath/HelicopterSlowDeath finish with
                     // destroyObject; they must not re-enter the onDie latch.
-                    self.destroy_object(object_id);
+                    self.destroy_object_with_effects(object_id, presentation_effects);
                 } else {
                     // Topple and HeightDie trigger damage/kill. Preserve the
                     // existing structure completion policy separately.
-                    self.mark_object_for_destruction(object_id, None);
+                    self.mark_object_for_destruction_with_effects(
+                        object_id,
+                        None,
+                        presentation_effects,
+                    );
                 }
                 continue;
             }
             // OCL_EjectPilotViaParachute residual sink (elevated pilot → ground).
-            self.tick_eject_parachute_residual(object_id);
+            self.tick_eject_parachute_residual_with_effects(object_id, presentation_effects);
             // AmericaCrateParachute residual sink (cargo crate freefall → OpenDist → land).
-            self.tick_crate_parachute_residual(object_id);
+            self.tick_crate_parachute_residual_with_effects(object_id, presentation_effects);
             // C++ AIRappelState: combat-drop rappel dest Z / kill-2 / addToContain.
-            self.tick_rappel_into(object_id);
+            self.tick_rappel_into_with_effects(object_id, presentation_effects);
             // PilotFindVehicleUpdate residual: AI idle pilot auto-scan for
             // recrewable unmanned vehicles (ScanRate 1000ms / range 300 / MinHealth 0.5).
             // C++ human players sleep forever — host residual: is_local → skip.
@@ -676,7 +748,7 @@ impl GameLogic {
                 }
             }
             // C++ AIIdleState::onEnter → resetNextMoodCheckTime, before the scan.
-            self.apply_pending_idle_mood_reset(object_id);
+            self.apply_pending_idle_mood_reset_with_effects(object_id, presentation_effects);
             // C++ AIIdleState::update: mood scan / attack only — never AI_HUNT wander.
             if let Some(obj) = self.objects.get(&object_id) {
                 if obj.temporary_move_frames > 0 {
@@ -699,7 +771,7 @@ impl GameLogic {
                 let team = obj.team;
                 let ai_state = obj.ai_state.clone();
                 let current_target = obj.target;
-                if let Some(command) = self.process_ai_behavior(
+                if let Some(command) = self.process_ai_behavior_with_effects(
                     object_id,
                     ai_state,
                     current_target,
@@ -708,6 +780,7 @@ impl GameLogic {
                     can_attack,
                     self.frame,
                     dt,
+                    presentation_effects,
                 ) {
                     ai_commands.push(command);
                 }
@@ -769,18 +842,18 @@ impl GameLogic {
         // GuardRetaliate victim-death / return residual.
         self.tick_guard_retaliate_states();
         // HijackerUpdate ride residual.
-        self.tick_hijacker_updates();
+        self.tick_hijacker_updates_with_effects(presentation_effects);
         // C++ UndeadBody + BattleBusSlowDeathBehavior residual.
-        self.tick_battle_bus_slow_deaths();
+        self.tick_battle_bus_slow_deaths_with_effects(presentation_effects);
         // C++ ChinookAIUpdate idle auto-land / evac / combat-drop residual.
-        self.tick_chinook_ai(1.0 / 30.0);
+        self.tick_chinook_ai_with_effects(1.0 / 30.0, presentation_effects);
 
         // C++ AssaultTransportAIUpdate wounded-retrieve residual.
-        self.tick_assault_transport_updates();
+        self.tick_assault_transport_updates_with_effects(presentation_effects);
         // C++ DeployStyleAIUpdate pack/unpack residual.
         self.tick_deploy_style_updates();
         // C++ CommandButtonHuntUpdate residual.
-        self.tick_command_button_hunt_updates();
+        self.tick_command_button_hunt_updates_with_effects(presentation_effects);
 
         // Apply all AI commands (or log-only when GameWorld owns decision apply).
 
@@ -792,22 +865,42 @@ impl GameLogic {
 
         // Resolve command-driven support states (guard/repair/docking/garrison) after AI decisions.
         // C++ SlavedUpdate.cpp:91-261 follow / guard / 2x GuardMaxRange recall.
-        self.update_slaved_drone_follow(object_ids);
+        self.update_slaved_drone_follow_with_effects(object_ids, presentation_effects);
         self.sync_all_spawn_behavior_veterancy();
         // C++ DemoTrapUpdate.cpp:124-130 isEffectivelyDead + DetonateWhenKilled.
-        self.update_demo_trap_detonate_when_killed();
-        self.update_support_states(object_ids, dt);
+        self.update_demo_trap_detonate_when_killed_with_effects(presentation_effects);
+        self.update_support_states_with_effects(object_ids, dt, presentation_effects);
     }
 
     /// C++ SlavedUpdate::update — drones follow/guard/recall their producer master.
     pub(in super::super) fn update_slaved_drone_follow(&mut self, object_ids: &[ObjectId]) {
+        self.update_slaved_drone_follow_with_effects(
+            object_ids,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(in super::super) fn update_slaved_drone_follow_with_effects(
+        &mut self,
+        object_ids: &[ObjectId],
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         for &object in object_ids {
-            self.update_owned_slaved_object(object);
+            self.update_owned_slaved_object_with_effects(object, presentation_effects);
         }
     }
 
     /// C++ DemoTrapUpdate.cpp:124-130 isEffectivelyDead + DetonateWhenKilled.
     pub(in super::super) fn update_demo_trap_detonate_when_killed(&mut self) {
+        self.update_demo_trap_detonate_when_killed_with_effects(
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(in super::super) fn update_demo_trap_detonate_when_killed_with_effects(
+        &mut self,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         use crate::game_logic::host_mines::{
             DEMO_TRAP_DETONATE_WHEN_KILLED, HostMineDetonateReason, should_detonate_when_killed,
         };
@@ -830,7 +923,12 @@ impl GameLogic {
             })
             .collect();
         for id in due {
-            let _ = self.detonate_mine_internal(id, HostMineDetonateReason::Killed, None);
+            let _ = self.detonate_mine_internal_with_effects(
+                id,
+                HostMineDetonateReason::Killed,
+                None,
+                presentation_effects,
+            );
         }
     }
 

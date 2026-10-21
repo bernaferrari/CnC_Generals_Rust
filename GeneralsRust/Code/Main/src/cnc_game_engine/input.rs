@@ -72,6 +72,16 @@ fn route_host_ui_key(
     chat_open: bool,
     input_enabled: bool,
 ) -> bool {
+    route_host_ui_key_with_terrain_lod(ui, key, chat_open, input_enabled, None)
+}
+
+fn route_host_ui_key_with_terrain_lod(
+    ui: &mut UIManager,
+    key: crate::ui::KeyCode,
+    chat_open: bool,
+    input_enabled: bool,
+    terrain_lod: Option<&mut dyn FnMut(i32)>,
+) -> bool {
     // The host ChatPanel is not a focused WND. Let the existing mapped-key
     // handler close it before UIManager's global Escape opens the pause menu.
     // Keep disabled-input OPTIONS/Escape behavior when chat is closed.
@@ -94,7 +104,11 @@ fn route_host_ui_key(
         // would consume Escape without pausing or resuming the simulation.
         return false;
     }
-    ui.handle_key_press_with_hud_input(key, !chat_open && input_enabled)
+    ui.handle_key_press_with_hud_input_and_terrain_lod(
+        key,
+        !chat_open && input_enabled,
+        terrain_lod,
+    )
 }
 
 impl CnCGameEngine {
@@ -237,11 +251,19 @@ impl CnCGameEngine {
                                     // The UI manager owns the sole gameplay HUD. Keep the
                                     // legacy global/screen key route, but let WindowXlat's
                                     // chat editor or disabled input suppress HUD hotkeys.
-                                    construction_consumed = route_host_ui_key(
+                                    let pipeline = &mut self.render_pipeline;
+                                    let mut terrain_lod = |reduction| {
+                                        #[cfg(feature = "game_client")]
+                                        if let Some(terrain) = pipeline.native_terrain_mut() {
+                                            terrain.apply_texture_lod_reduction(reduction);
+                                        }
+                                    };
+                                    construction_consumed = route_host_ui_key_with_terrain_lod(
                                         &mut self.ui_manager,
                                         ui_key,
                                         chat_open,
                                         input_enabled,
+                                        Some(&mut terrain_lod),
                                     );
                                 }
                             }
@@ -568,17 +590,34 @@ impl CnCGameEngine {
         #[cfg(not(feature = "game_client"))]
         let shell_active = self.shell_menu_active;
         let mut hud_cameo_consumed = false;
+        let pipeline = &mut self.render_pipeline;
+        let mut terrain_lod = |reduction| {
+            #[cfg(feature = "game_client")]
+            if let Some(terrain) = pipeline.native_terrain_mut() {
+                terrain.apply_texture_lod_reduction(reduction);
+            }
+        };
         if let Some(ui_button) = Self::to_ui_mouse_button(button) {
             if shell_active {
                 // Exclusive WND while shell is up.
             } else if in_world && !wnd_used {
                 if pressed {
-                    hud_cameo_consumed = self.ui_manager.handle_mouse_click(x, y, ui_button);
+                    hud_cameo_consumed = self.ui_manager.handle_mouse_click_with_terrain_lod(
+                        x,
+                        y,
+                        ui_button,
+                        Some(&mut terrain_lod),
+                    );
                 }
                 self.ui_manager.handle_mouse_move(x, y);
             } else if !in_world && !wnd_used {
                 if pressed {
-                    let _ = self.ui_manager.handle_mouse_click(x, y, ui_button);
+                    let _ = self.ui_manager.handle_mouse_click_with_terrain_lod(
+                        x,
+                        y,
+                        ui_button,
+                        Some(&mut terrain_lod),
+                    );
                 }
                 self.ui_manager.handle_mouse_move(x, y);
             }

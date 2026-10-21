@@ -1147,6 +1147,19 @@ impl GameLogic {
         trap_id: ObjectId,
         mode: crate::game_logic::host_mines::DemoTrapMode,
     ) -> bool {
+        self.set_demo_trap_mode_with_effects(
+            trap_id,
+            mode,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn set_demo_trap_mode_with_effects(
+        &mut self,
+        trap_id: ObjectId,
+        mode: crate::game_logic::host_mines::DemoTrapMode,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
         use crate::game_logic::host_mines::HostMineKind;
         let is_detonate = mode.is_detonate_command();
         {
@@ -1164,7 +1177,7 @@ impl GameLogic {
             }
         }
         if is_detonate {
-            return self.manual_detonate_mine(trap_id);
+            return self.manual_detonate_mine_with_effects(trap_id, presentation_effects);
         }
         true
     }
@@ -1204,6 +1217,23 @@ impl GameLogic {
         from: glam::Vec3,
         aim: glam::Vec3,
         intended: Option<ObjectId>,
+    ) -> Option<ObjectId> {
+        self.spawn_rocket_buggy_missile_projectile_with_effects(
+            source_id,
+            from,
+            aim,
+            intended,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn spawn_rocket_buggy_missile_projectile_with_effects(
+        &mut self,
+        source_id: ObjectId,
+        from: glam::Vec3,
+        aim: glam::Vec3,
+        intended: Option<ObjectId>,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> Option<ObjectId> {
         use crate::game_logic::host_rocket_buggy::{
             BUGGY_MISSILE_FUEL_FRAMES, BUGGY_MISSILE_INITIAL_VELOCITY, BUGGY_MISSILE_MAX_HEALTH,
@@ -1274,7 +1304,13 @@ impl GameLogic {
 
         let mut start = from;
         start.y = start.y.max(aim.y) + 8.0;
-        let pid = self.create_object(BUGGY_MISSILE_PROJECTILE, team, start)?;
+        let pid = self.create_object_with_script_effects(
+            BUGGY_MISSILE_PROJECTILE,
+            team,
+            start,
+            None,
+            presentation_effects,
+        )?;
         let launch = BUGGY_MISSILE_INITIAL_VELOCITY / 30.0;
         let _cruise = BUGGY_PROJECTILE_SPEED / 30.0;
         let to_aim = aim - start;
@@ -1303,6 +1339,15 @@ impl GameLogic {
     }
 
     pub fn update_rocket_buggy_missile_projectiles(&mut self) {
+        self.update_rocket_buggy_missile_projectiles_with_effects(
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn update_rocket_buggy_missile_projectiles_with_effects(
+        &mut self,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         use crate::game_logic::host_rocket_buggy::{
             BUGGY_MISSILE_INITIAL_VELOCITY, BUGGY_MISSILE_TURN_DISTANCE, BUGGY_PROJECTILE_SPEED,
         };
@@ -1368,7 +1413,7 @@ impl GameLogic {
             let step = vel.length().max(speed);
             if let Some(o) = self.objects.get_mut(&id) {
                 o.movement.velocity = vel;
-                o.set_position(pos + vel);
+                o.set_position_with_effects(pos + vel, self.frame, presentation_effects);
                 o.rocket_buggy_missile_travelled += step;
                 o.rocket_buggy_missile_aim = Some([aim.x, aim.y, aim.z]);
                 o.set_orientation(vel.z.atan2(vel.x));
@@ -1391,10 +1436,15 @@ impl GameLogic {
                 o.status.destroyed = true;
                 o.status.effectively_dead = true;
                 o.rocket_buggy_missile_projectile = false;
-                o.set_position(pos);
+                o.set_position_with_effects(pos, self.frame, presentation_effects);
             }
-            let _ = self.apply_rocket_buggy_residual_at(pos, source, intended);
-            self.mark_object_for_destruction(id, team);
+            let _ = self.apply_rocket_buggy_residual_at_with_effects(
+                pos,
+                source,
+                intended,
+                presentation_effects,
+            );
+            self.mark_object_for_destruction_with_effects(id, team, presentation_effects);
         }
     }
 
@@ -1407,6 +1457,21 @@ impl GameLogic {
         impact: Vec3,
         source: Option<ObjectId>,
         intended_target: Option<ObjectId>,
+    ) -> (u32, bool) {
+        self.apply_rocket_buggy_residual_at_with_effects(
+            impact,
+            source,
+            intended_target,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn apply_rocket_buggy_residual_at_with_effects(
+        &mut self,
+        impact: Vec3,
+        source: Option<ObjectId>,
+        intended_target: Option<ObjectId>,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> (u32, bool) {
         use crate::game_logic::host_rocket_buggy::{
             BUGGY_DAMAGE_TYPE, BUGGY_DEATH_TYPE, BUGGY_FIRE_AUDIO, BUGGY_SECONDARY_RADIUS,
@@ -1516,7 +1581,7 @@ impl GameLogic {
             }
             if let Some(obj) = self.objects.get_mut(&id) {
                 let receiving_damage_target_id = obj.id;
-                let destroyed = self.apply_residual_damage_owned(
+                let destroyed = self.apply_residual_damage_owned_with_effects(
                     receiving_damage_target_id,
                     dmg,
                     source,
@@ -1527,6 +1592,7 @@ impl GameLogic {
                         BUGGY_DEATH_TYPE,
                     ),
                     None,
+                    presentation_effects,
                 );
                 hits = hits.saturating_add(1);
                 if destroyed {
@@ -1537,7 +1603,7 @@ impl GameLogic {
         }
 
         for (id, killer) in destroy_ids {
-            self.mark_object_for_destruction(id, killer);
+            self.mark_object_for_destruction_with_effects(id, killer, presentation_effects);
         }
 
         self.rocket_buggy_residual_fires = self.rocket_buggy_residual_fires.saturating_add(1);
@@ -1578,6 +1644,25 @@ impl GameLogic {
         aim: glam::Vec3,
         intended: Option<ObjectId>,
         toxin_warhead: bool,
+    ) -> Option<ObjectId> {
+        self.spawn_scud_launcher_missile_projectile_with_effects(
+            source_id,
+            from,
+            aim,
+            intended,
+            toxin_warhead,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn spawn_scud_launcher_missile_projectile_with_effects(
+        &mut self,
+        source_id: ObjectId,
+        from: glam::Vec3,
+        aim: glam::Vec3,
+        intended: Option<ObjectId>,
+        toxin_warhead: bool,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> Option<ObjectId> {
         use crate::game_logic::host_height_die::HostHeightDieData;
         use crate::game_logic::host_scud_launcher::{
@@ -1655,7 +1740,13 @@ impl GameLogic {
 
         let mut start = from;
         start.y = start.y.max(aim.y) + SCUD_MISSILE_LOFT_HEIGHT * 0.25;
-        let pid = self.create_object(SCUD_PROJECTILE, team, start)?;
+        let pid = self.create_object_with_script_effects(
+            SCUD_PROJECTILE,
+            team,
+            start,
+            None,
+            presentation_effects,
+        )?;
         let speed = SCUD_MISSILE_INITIAL_VELOCITY / 30.0;
         let to_aim = aim - start;
         let dist = to_aim.length().max(0.001);
@@ -1695,6 +1786,15 @@ impl GameLogic {
     }
 
     pub fn update_scud_launcher_missile_projectiles(&mut self) {
+        self.update_scud_launcher_missile_projectiles_with_effects(
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn update_scud_launcher_missile_projectiles_with_effects(
+        &mut self,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         use crate::game_logic::host_scud_launcher::{
             SCUD_MISSILE_DIVE_DISTANCE, SCUD_MISSILE_INITIAL_VELOCITY, SCUD_MISSILE_LOFT_HEIGHT,
             SCUD_MISSILE_TURN_DISTANCE,
@@ -1770,7 +1870,7 @@ impl GameLogic {
             if let Some(o) = self.objects.get_mut(&id) {
                 o.movement.velocity = vel;
                 let p = o.get_position();
-                o.set_position(p + vel);
+                o.set_position_with_effects(p + vel, self.frame, presentation_effects);
                 o.scud_launcher_missile_travelled += step;
                 o.set_orientation(vel.z.atan2(vel.x));
             }
@@ -1792,8 +1892,14 @@ impl GameLogic {
                 o.status.effectively_dead = true;
                 o.scud_launcher_missile_projectile = false;
             }
-            let _ = self.apply_scud_area_at(pos, source, team, toxin);
-            self.mark_object_for_destruction(id, Some(team));
+            let _ = self.apply_scud_area_at_with_effects(
+                pos,
+                source,
+                team,
+                toxin,
+                presentation_effects,
+            );
+            self.mark_object_for_destruction_with_effects(id, Some(team), presentation_effects);
         }
 
         // HeightDie residual: if freefall/low altitude kills missile, detonate warhead.
@@ -1833,8 +1939,14 @@ impl GameLogic {
                 if let Some(o) = self.objects.get_mut(&id) {
                     o.scud_launcher_missile_projectile = false;
                 }
-                let _ = self.apply_scud_area_at(pos, source, team, toxin);
-                self.mark_object_for_destruction(id, Some(team));
+                let _ = self.apply_scud_area_at_with_effects(
+                    pos,
+                    source,
+                    team,
+                    toxin,
+                    presentation_effects,
+                );
+                self.mark_object_for_destruction_with_effects(id, Some(team), presentation_effects);
             }
         }
     }

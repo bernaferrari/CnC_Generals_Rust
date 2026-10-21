@@ -6,18 +6,42 @@ use crate::game_logic::host_structure_topple::HostStructureToppleState;
 
 impl GameLogic {
     pub(crate) fn dispatch_owned_structure_topple_fx(&mut self, id: ObjectId) {
+        self.dispatch_owned_structure_topple_fx_with_effects(
+            id,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn dispatch_owned_structure_topple_fx_with_effects(
+        &mut self,
+        id: ObjectId,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let effects = self
             .objects
             .get_mut(&id)
             .and_then(|object| object.structure_topple_data.as_mut())
             .map(|data| data.take_pending_fx())
             .unwrap_or_default();
-        self.execute_owned_structure_topple_fx(id, effects);
+        self.execute_owned_structure_topple_fx_with_effects(id, effects, presentation_effects);
     }
     fn execute_owned_structure_topple_fx(
         &mut self,
         id: ObjectId,
         effects: Vec<crate::game_logic::host_structure_topple::StructureToppleFxEvent>,
+    ) {
+        self.execute_owned_structure_topple_fx_with_effects(
+            id,
+            effects,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    fn execute_owned_structure_topple_fx_with_effects(
+        &mut self,
+        id: ObjectId,
+        effects: Vec<crate::game_logic::host_structure_topple::StructureToppleFxEvent>,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         for effect in effects {
             if !self
@@ -28,16 +52,33 @@ impl GameLogic {
                 continue;
             }
             if effect.at_object {
-                self.dispatch_fx_list_at_host_object(&effect.name, id, None);
+                self.dispatch_fx_list_at_host_object_with_effects(
+                    &effect.name,
+                    id,
+                    None,
+                    presentation_effects,
+                );
             } else {
-                self.dispatch_fx_list_at_host_position(
+                self.dispatch_fx_list_at_host_position_with_effects(
                     &effect.name,
                     glam::Vec3::new(effect.x, effect.y, effect.z),
+                    presentation_effects,
                 );
             }
         }
     }
     pub(crate) fn update_owned_structure_topple(&mut self, id: ObjectId) -> Result<bool, String> {
+        self.update_owned_structure_topple_with_effects(
+            id,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(crate) fn update_owned_structure_topple_with_effects(
+        &mut self,
+        id: ObjectId,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> Result<bool, String> {
         if self
             .objects
             .get(&id)
@@ -60,7 +101,7 @@ impl GameLogic {
             .get_mut(&id)
             .and_then(|object| object.structure_topple_data.as_mut())
             .is_some_and(|data| data.prepare_owned_waiting_fx(self.frame));
-        self.dispatch_owned_structure_topple_fx(id);
+        self.dispatch_owned_structure_topple_fx_with_effects(id, presentation_effects);
         if let Some(data) = self
             .objects
             .get_mut(&id)
@@ -76,14 +117,14 @@ impl GameLogic {
         else {
             return Ok(false);
         };
-        self.execute_owned_structure_topple_fx(id, effects);
+        self.execute_owned_structure_topple_fx_with_effects(id, effects, presentation_effects);
         if toppling {
             if let Some(object) = self.objects.get_mut(&id) {
                 if let Some(data) = object.structure_topple_data.as_mut() {
                     data.advance_owned_angle();
                 }
             }
-            self.apply_owned_structure_topple_crushing(id)?;
+            self.apply_owned_structure_topple_crushing_with_effects(id, presentation_effects)?;
             // Every subsequent observation resolves this owner's current
             // object after the actual damage/death callbacks.
             let reached_ground = self
@@ -93,15 +134,15 @@ impl GameLogic {
                 .filter(|data| data.state == HostStructureToppleState::Toppling)
                 .is_some_and(|data| data.finish_owned_angle(self.frame));
             if reached_ground {
-                self.apply_owned_structure_topple_crushing(id)?;
+                self.apply_owned_structure_topple_crushing_with_effects(id, presentation_effects)?;
             }
-            self.dispatch_owned_structure_topple_fx(id);
+            self.dispatch_owned_structure_topple_fx_with_effects(id, presentation_effects);
             let burst_due = self
                 .objects
                 .get_mut(&id)
                 .and_then(|object| object.structure_topple_data.as_mut())
                 .is_some_and(|data| data.queue_owned_burst_fx(self.frame));
-            self.dispatch_owned_structure_topple_fx(id);
+            self.dispatch_owned_structure_topple_fx_with_effects(id, presentation_effects);
             if burst_due {
                 if let Some(data) = self
                     .objects
@@ -135,6 +176,17 @@ impl GameLogic {
         Ok(completed)
     }
     fn apply_owned_structure_topple_crushing(&mut self, id: ObjectId) -> Result<(), String> {
+        self.apply_owned_structure_topple_crushing_with_effects(
+            id,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    fn apply_owned_structure_topple_crushing_with_effects(
+        &mut self,
+        id: ObjectId,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> Result<(), String> {
         let Some(weapon) = self.preflight_owned_structure_topple_crushing(id)? else {
             return Ok(());
         };
@@ -151,7 +203,12 @@ impl GameLogic {
         let samples = plan.take_crush_sweep_samples(position.x, position.z);
         self.validate_structure_topple_crush_points(id, &samples, &weapon)?;
         if !samples.is_empty() {
-            self.apply_prepared_structure_topple_crush_samples(id, samples, &weapon)?;
+            self.apply_prepared_structure_topple_crush_samples_with_effects(
+                id,
+                samples,
+                &weapon,
+                presentation_effects,
+            )?;
             if let Some(data) = self
                 .objects
                 .get_mut(&id)

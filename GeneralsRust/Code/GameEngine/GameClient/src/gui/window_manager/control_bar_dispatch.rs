@@ -20,6 +20,7 @@ pub struct CameraOptionsInputContext<'a> {
     preferences: &'a mut game_engine::common::user_preferences::UserPreferences,
     rules: game_engine::common::ini::ini_game_data::CameraInputRules,
     pending: Option<PendingCameraOptions>,
+    terrain_lod: Option<&'a mut dyn FnMut(i32)>,
 }
 impl<'a> CameraOptionsInputContext<'a> {
     pub fn new(
@@ -30,7 +31,13 @@ impl<'a> CameraOptionsInputContext<'a> {
             preferences,
             rules,
             pending: None,
+            terrain_lod: None,
         }
+    }
+    /// Actual native input lends its installed renderer owner for this operation.
+    pub fn with_terrain_lod(mut self, receiver: &'a mut dyn FnMut(i32)) -> Self {
+        self.terrain_lod = Some(receiver);
+        self
     }
     fn complete(&mut self) {
         match self.pending.take() {
@@ -51,6 +58,9 @@ impl<'a> CameraOptionsInputContext<'a> {
                 crate::gui::callbacks::menu_callbacks::complete_options_accept_with_preferences(
                     self.preferences,
                     scroll,
+                    self.terrain_lod
+                        .as_mut()
+                        .map(|receiver| &mut **receiver as &mut dyn FnMut(i32)),
                 )
             }
             Some(PendingCameraOptions::Defaults(slider)) => {

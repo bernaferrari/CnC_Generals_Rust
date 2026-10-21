@@ -366,6 +366,14 @@ impl GameLogic {
     /// kills the chute mid-air (C++ ParachuteContain::update).
     /// Fail-closed: not full bone PARA_COG / DeliverPayload matrix.
     pub(crate) fn tick_eject_parachute_residual(&mut self, pilot_id: ObjectId) {
+        self.tick_eject_parachute_residual_with_effects(pilot_id, &mut Default::default())
+    }
+
+    pub(crate) fn tick_eject_parachute_residual_with_effects(
+        &mut self,
+        pilot_id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         use crate::game_logic::host_car_bomb::HIJACKER_PARACHUTE_NAME;
         use crate::game_logic::host_usa_pilot::{
             PILOT_PARACHUTE_LAND_AUDIO, PILOT_PARACHUTE_OPEN_AUDIO, is_pilot_template,
@@ -422,7 +430,7 @@ impl GameLogic {
                     let cp = chute.get_position();
                     let open = chute.is_parachute_open();
                     if let Some(r) = self.objects.get_mut(&pilot_id) {
-                        r.set_position(cp);
+                        r.set_position_with_effects(cp, self.frame, effects);
                         {}
                         if open && !r.is_parachute_open() {
                             r.open_eject_parachute();
@@ -524,7 +532,7 @@ impl GameLogic {
             if landed {
                 p.y = ground;
             }
-            obj.set_position(p);
+            obj.set_position_with_effects(p, self.frame, effects);
             {}
             if let Some((np, nr, npr, nrr)) = sway {
                 obj.status.parachute_pitch = np;
@@ -538,8 +546,8 @@ impl GameLogic {
         }
         if landed && !is_chute {
             // C++ ParachuteContain::onRemoving water/cliff/impassable/off-map.
-            self.apply_parachute_landing_legality_kill(pilot_id, land_pos);
-            self.apply_parachute_land_ai(pilot_id);
+            self.apply_parachute_landing_legality_kill_with_effects(pilot_id, land_pos, effects);
+            self.apply_parachute_land_ai(pilot_id, effects);
         }
 
         // Sync contained riders to chute while descending.
@@ -551,7 +559,7 @@ impl GameLogic {
                 .unwrap_or_default();
             for rid in ids {
                 if let Some(r) = self.objects.get_mut(&rid) {
-                    r.set_position(land_pos);
+                    r.set_position_with_effects(land_pos, self.frame, effects);
                     {}
                     if open && !r.is_parachute_open() {
                         r.open_eject_parachute();
@@ -570,7 +578,7 @@ impl GameLogic {
                     r.set_contained_by(None);
                     r.set_ai_state(AIState::Idle);
                     {}
-                    r.set_position(land_pos);
+                    r.set_position_with_effects(land_pos, self.frame, effects);
                     {}
                     r.clear_eject_parachuting();
                     // Partition restore residual after chute dump.
@@ -583,10 +591,10 @@ impl GameLogic {
             }
             for rid in &riders_to_release {
                 // C++ ParachuteContain::onRemoving after removeAllContained.
-                self.apply_parachute_landing_legality_kill(*rid, land_pos);
+                self.apply_parachute_landing_legality_kill_with_effects(*rid, land_pos, effects);
             }
             for rid in &riders_to_release {
-                self.apply_parachute_land_ai(*rid);
+                self.apply_parachute_land_ai(*rid, effects);
             }
             // Hijacker airborne PutInContainer land honesty.
             self.car_bomb.record_airborne_parachute_land();
@@ -638,7 +646,7 @@ impl GameLogic {
                     }
                     chute.status.destroyed = true;
                 }
-                self.mark_object_for_destruction(pilot_id, None);
+                self.mark_object_for_destruction_with_effects(pilot_id, None, effects);
             }
         }
 
@@ -670,6 +678,19 @@ impl GameLogic {
     /// Water (within KillWhenLandingInWaterSlop) → DAMAGE_WATER / DEATH_FLOODED.
     /// Off-map / CELL_CLIFF / CELL_WATER / CELL_IMPASSABLE → kill().
     fn apply_parachute_landing_legality_kill(&mut self, rider_id: ObjectId, land_pos: Vec3) {
+        self.apply_parachute_landing_legality_kill_with_effects(
+            rider_id,
+            land_pos,
+            &mut Default::default(),
+        )
+    }
+
+    fn apply_parachute_landing_legality_kill_with_effects(
+        &mut self,
+        rider_id: ObjectId,
+        land_pos: Vec3,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         use crate::game_logic::host_partition_collision_physics_residual::PHYSICS_HUGE_DAMAGE_AMOUNT_RESIDUAL;
         use crate::game_logic::host_usa_pilot::HostDeathType;
         use gamelogic::ai::pathfind_astar::PathfindCellType;
@@ -692,13 +713,14 @@ impl GameLogic {
                 let _ = {
                     let owned_victim_id = r.id;
                     let owned_damage_type = crate::game_logic::combat::DamageType::Water;
-                    self.apply_residual_damage_owned(
+                    self.apply_residual_damage_owned_with_effects(
                         owned_victim_id,
                         PHYSICS_HUGE_DAMAGE_AMOUNT_RESIDUAL,
                         None,
                         owned_damage_type,
                         HostDeathType::Flooded,
                         None,
+                        effects,
                     )
                 };
             }
@@ -709,7 +731,7 @@ impl GameLogic {
             .get(&rider_id)
             .is_some_and(|r| r.is_alive() && !r.status.destroyed && r.health.current > 0.0);
         if !still_alive {
-            self.mark_object_for_destruction(rider_id, None);
+            self.mark_object_for_destruction_with_effects(rider_id, None, effects);
             return;
         }
 
@@ -739,7 +761,7 @@ impl GameLogic {
             }
             r.status.destroyed = true;
         }
-        self.mark_object_for_destruction(rider_id, None);
+        self.mark_object_for_destruction_with_effects(rider_id, None, effects);
     }
 
     /// C++ PartitionManager::findPositionAround clear-cell residual for chute open.
@@ -773,7 +795,11 @@ impl GameLogic {
     /// C++ ParachuteContain::onRemoving: skirmish AI → aiHunt; else
     /// rider.producer (chute) → chute.producer (building) UseSpawnRallyPoint
     /// → DefaultProductionExitUpdate::exitObjectViaDoor; else aiIdle.
-    fn apply_parachute_land_ai(&mut self, rider_id: ObjectId) {
+    fn apply_parachute_land_ai(
+        &mut self,
+        rider_id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let Some(rider) = self.objects.get(&rider_id) else {
             return;
         };
@@ -802,7 +828,7 @@ impl GameLogic {
             })
         });
         if let Some(building_id) = building_id.filter(|_| use_spawn) {
-            self.exit_parachute_rider_via_spawn_rally(rider_id, building_id);
+            self.exit_parachute_rider_via_spawn_rally(rider_id, building_id, effects);
             return;
         }
 
@@ -818,7 +844,12 @@ impl GameLogic {
 
     /// C++ DefaultProductionExitUpdate::exitObjectViaDoor(rider, DOOR_1).
     /// UnitCreatePoint + 2-cell natural rally + custom rally; ignore the producer.
-    fn exit_parachute_rider_via_spawn_rally(&mut self, rider_id: ObjectId, building_id: ObjectId) {
+    fn exit_parachute_rider_via_spawn_rally(
+        &mut self,
+        rider_id: ObjectId,
+        building_id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let Some(building) = self.objects.get(&building_id) else {
             return;
         };
@@ -853,7 +884,7 @@ impl GameLogic {
         let natural = glam::Vec3::new(natural.x, 0.0, natural.z);
 
         if let Some(unit) = self.objects.get_mut(&rider_id) {
-            unit.set_position(create);
+            unit.set_position_with_effects(create, self.frame, effects);
             unit.set_orientation(orientation);
             {}
         }
@@ -1016,10 +1047,20 @@ impl GameLogic {
     /// Default residual class is HitStructure (non-hive path). Use
     /// [`Self::apply_host_hive_damage`] for Stinger HiveStructureBody matrix.
     pub fn apply_host_damage(&mut self, id: ObjectId, damage: f32) -> (bool, bool) {
-        self.apply_host_hive_damage(
+        self.apply_host_damage_with_effects(id, damage, &mut Default::default())
+    }
+
+    pub(crate) fn apply_host_damage_with_effects(
+        &mut self,
+        id: ObjectId,
+        damage: f32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> (bool, bool) {
+        self.apply_host_hive_damage_with_effects(
             id,
             damage,
             crate::game_logic::host_base_defense::HostHiveDamageClass::HitStructure,
+            effects,
         )
     }
 
@@ -1035,7 +1076,17 @@ impl GameLogic {
         damage: f32,
         class: crate::game_logic::host_base_defense::HostHiveDamageClass,
     ) -> (bool, bool) {
-        self.apply_host_hive_damage_from(id, damage, class, None, None)
+        self.apply_host_hive_damage_with_effects(id, damage, class, &mut Default::default())
+    }
+
+    pub(crate) fn apply_host_hive_damage_with_effects(
+        &mut self,
+        id: ObjectId,
+        damage: f32,
+        class: crate::game_logic::host_base_defense::HostHiveDamageClass,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> (bool, bool) {
+        self.apply_host_hive_damage_from_with_effects(id, damage, class, None, None, effects)
     }
 
     /// HiveStructureBody residual with optional shooter for getClosestSlave.
@@ -1053,6 +1104,25 @@ impl GameLogic {
         class: crate::game_logic::host_base_defense::HostHiveDamageClass,
         shooter_xz: Option<(f32, f32)>,
         source_id: Option<ObjectId>,
+    ) -> (bool, bool) {
+        self.apply_host_hive_damage_from_with_effects(
+            id,
+            damage,
+            class,
+            shooter_xz,
+            source_id,
+            &mut Default::default(),
+        )
+    }
+
+    pub(crate) fn apply_host_hive_damage_from_with_effects(
+        &mut self,
+        id: ObjectId,
+        damage: f32,
+        class: crate::game_logic::host_base_defense::HostHiveDamageClass,
+        shooter_xz: Option<(f32, f32)>,
+        source_id: Option<ObjectId>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> (bool, bool) {
         use crate::game_logic::host_base_defense::{
             STINGER_SOLDIER_DIE_AUDIO, is_stinger_site_structure, next_stinger_slave_respawn_frame,
@@ -1206,7 +1276,7 @@ impl GameLogic {
             let destroyed = {
                 let owned_victim_id = obj.id;
                 let owned_damage_type = crate::game_logic::combat::DamageType::Unresistable;
-                self.apply_residual_damage_owned(
+                self.apply_residual_damage_owned_with_effects(
                     owned_victim_id,
                     damage,
                     source_id,
@@ -1215,6 +1285,7 @@ impl GameLogic {
                         owned_damage_type,
                     ),
                     None,
+                    effects,
                 )
             };
             let Some(obj) = self.objects.get(&id) else {
@@ -1223,7 +1294,7 @@ impl GameLogic {
             let revealed = before && (!obj.status.stealthed || obj.stealth_delay_pending);
             (destroyed, revealed)
         };
-        self.flush_pending_garrison_really_damaged_ejects();
+        self.flush_pending_garrison_really_damaged_ejects_with_effects(effects);
         if camo_reveal {
             self.camo_netting_structure_residual_reveals = self
                 .camo_netting_structure_residual_reveals
@@ -1234,6 +1305,13 @@ impl GameLogic {
 
     /// Advance Stinger SpawnBehavior residual slave respawns (SpawnReplaceDelay).
     pub fn update_stinger_hive_respawns(&mut self) {
+        self.update_stinger_hive_respawns_with_effects(&mut Default::default())
+    }
+
+    pub(crate) fn update_stinger_hive_respawns_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         use crate::game_logic::host_base_defense::{
             STINGER_SOLDIER_MAX_HEALTH, STINGER_SPAWN_NUMBER, count_alive_hive_slaves,
             is_stinger_site_structure, next_stinger_slave_respawn_frame, respawn_one_hive_slave,
@@ -1298,7 +1376,7 @@ impl GameLogic {
         self.stinger_hive_residual_respawns = self
             .stinger_hive_residual_respawns
             .saturating_add(respawned);
-        self.update_stinger_hive_world_soldiers();
+        self.update_stinger_hive_world_soldiers_with_effects(effects);
     }
 
     /// Host GLA Worker residual registry.
@@ -1422,6 +1500,23 @@ impl GameLogic {
         truck_pos: Vec3,
         profile: crate::game_logic::host_bomb_truck_detonate::BombTruckDetonationProfile,
     ) -> bool {
+        self.apply_bomb_truck_death_detonation_at_with_effects(
+            truck_id,
+            truck_team,
+            truck_pos,
+            profile,
+            &mut Default::default(),
+        )
+    }
+
+    pub(crate) fn apply_bomb_truck_death_detonation_at_with_effects(
+        &mut self,
+        truck_id: ObjectId,
+        truck_team: Team,
+        truck_pos: Vec3,
+        profile: crate::game_logic::host_bomb_truck_detonate::BombTruckDetonationProfile,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
         use crate::game_logic::host_bomb_truck_detonate::{
             BOMB_TRUCK_DAMAGE_TYPE, BOMB_TRUCK_DEATH_TYPE, BOMB_TRUCK_POISON_AUDIO,
             bomb_truck_blast_damage_at,
@@ -1465,7 +1560,7 @@ impl GameLogic {
                         crate::game_logic::host_armor_residual::host_damage_type_from_residual_name(
                             BOMB_TRUCK_DAMAGE_TYPE,
                         );
-                    self.apply_residual_damage_owned(
+                    self.apply_residual_damage_owned_with_effects(
                         owned_victim_id,
                         dmg,
                         Some(truck_id),
@@ -1474,6 +1569,7 @@ impl GameLogic {
                             BOMB_TRUCK_DEATH_TYPE,
                         ),
                         None,
+                        effects,
                     )
                 } {
                     destroy_ids.push((vid, truck_team));
@@ -1515,7 +1611,7 @@ impl GameLogic {
         );
 
         for (vid, killer) in destroy_ids {
-            self.mark_object_for_destruction(vid, Some(killer));
+            self.mark_object_for_destruction_with_effects(vid, Some(killer), effects);
         }
         true
     }
@@ -1695,6 +1791,13 @@ impl GameLogic {
     }
 
     pub(in super::super) fn update_bomb_truck_poison_zones(&mut self) {
+        self.update_bomb_truck_poison_zones_with_effects(&mut Default::default())
+    }
+
+    pub(in super::super) fn update_bomb_truck_poison_zones_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let object_positions: Vec<(ObjectId, Vec3, Team, bool, bool)> = self
             .objects
             .iter()
@@ -1729,13 +1832,14 @@ impl GameLogic {
                         let owned_victim_id = target.id;
                         let owned_damage_type =
                             crate::game_logic::host_poisoned_behavior::poison_weapon_damage_type();
-                        self.apply_residual_damage_owned(
+                        self.apply_residual_damage_owned_with_effects(
                             owned_victim_id,
                             hit.damage,
                             Some(plan.source_object),
                             owned_damage_type,
                             plan.death_type,
                             None,
+                            effects,
                         )
                     };
                     total_damage += hit.damage;
@@ -1748,7 +1852,7 @@ impl GameLogic {
             }
 
             for (id, killer_team) in destroy_ids {
-                self.mark_object_for_destruction(id, Some(killer_team));
+                self.mark_object_for_destruction_with_effects(id, Some(killer_team), effects);
             }
 
             self.bomb_truck_detonate.record_tick_complete(

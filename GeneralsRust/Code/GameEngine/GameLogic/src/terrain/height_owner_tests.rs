@@ -28,6 +28,8 @@ fn receiving_height_revision_tracks_accepted_changes_and_owner_lifecycle() {
         [TerrainHeightChange {
             playable_x: 1,
             playable_y: 1,
+            sample_x: 2,
+            sample_y: 2,
             raw_height: 12,
             requested_height: 12
         }]

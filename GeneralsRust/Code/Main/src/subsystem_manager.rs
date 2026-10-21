@@ -276,6 +276,7 @@ impl SubsystemInterface for FileSystemSubsystem {
 /// Global Data subsystem - manages game configuration and data
 pub struct GlobalDataSubsystem {
     ini_crc: u32,
+    user_data_root: Option<PathBuf>,
 }
 
 impl Default for GlobalDataSubsystem {
@@ -286,7 +287,19 @@ impl Default for GlobalDataSubsystem {
 
 impl GlobalDataSubsystem {
     pub fn new() -> Self {
-        Self { ini_crc: 0 }
+        Self {
+            ini_crc: 0,
+            user_data_root: None,
+        }
+    }
+}
+
+impl GlobalDataSubsystem {
+    fn with_user_data_root(root: Option<&std::path::Path>) -> Self {
+        Self {
+            ini_crc: 0,
+            user_data_root: root.map(std::path::Path::to_owned),
+        }
     }
 }
 
@@ -322,6 +335,14 @@ impl SubsystemInterface for GlobalDataSubsystem {
         let xfer_crc = self.calculate_xfer_crc();
         self.ini_crc = xfer_crc.unwrap_or_else(|| global_data.calculate_crc());
         global_data.ini_crc = self.ini_crc;
+        if let Some(root) = self.user_data_root.as_deref() {
+            global_data.admit_user_data_root(root);
+            // Existing application compatibility namespace, before any Options IO.
+            let authored = game_engine::common::ini::ini_game_data::ensure_global_data();
+            authored
+                .write()
+                .set_path_user_data(root.to_string_lossy().into_owned());
+        }
         global_data.sync_runtime_view();
 
         info!(
@@ -1985,9 +2006,18 @@ where
 /// Initialize the global subsystem manager.
 /// Also available as `initialize_subsystem_manager` for C++ naming compatibility.
 pub fn init_subsystem_manager() -> Result<()> {
-    fn register_default_subsystems(manager: &mut SubsystemManager) {
+    init_subsystem_manager_for_user_data(None)
+}
+
+pub(crate) fn init_subsystem_manager_for_user_data(
+    user_data_root: Option<&std::path::Path>,
+) -> Result<()> {
+    fn register_default_subsystems(
+        manager: &mut SubsystemManager,
+        user_data_root: Option<&std::path::Path>,
+    ) {
         let _ = manager.add_subsystem(FileSystemSubsystem::new());
-        let _ = manager.add_subsystem(GlobalDataSubsystem::new());
+        let _ = manager.add_subsystem(GlobalDataSubsystem::with_user_data_root(user_data_root));
         let _ = manager.add_subsystem(ScienceStoreSubsystem::new());
         let _ = manager.add_subsystem(TerrainTypesSubsystem::new());
         let _ = manager.add_subsystem(TerrainRoadsSubsystem::new());
@@ -2017,7 +2047,7 @@ pub fn init_subsystem_manager() -> Result<()> {
         let mut manager = SubsystemManager::new();
 
         // Add subsystems in a C++-aligned startup order.
-        register_default_subsystems(&mut manager);
+        register_default_subsystems(&mut manager, user_data_root);
 
         if let Err(err) = manager.initialize_all() {
             warn!(
@@ -2048,14 +2078,31 @@ pub fn init_subsystem_manager() -> Result<()> {
 
     if manager.subsystems.is_empty() {
         // Add subsystems in a C++-aligned startup order.
-        register_default_subsystems(&mut manager);
+        register_default_subsystems(&mut manager, user_data_root);
     }
 
+    // Reused slots retain their prior registration data after an initialization
+    // failure. Rebind the actual typed owner before any retry callback can read
+    // preferences; do not replace slots, ordering or their other runtime state.
+    admit_global_data_user_data_root(&mut manager, user_data_root);
     if !manager.is_initialized() {
         manager.initialize_all()?;
     }
 
     Ok(())
+}
+
+fn admit_global_data_user_data_root(
+    manager: &mut SubsystemManager,
+    root: Option<&std::path::Path>,
+) {
+    if let Some(root) = root {
+        if let Some(handle) = manager.handle_for::<GlobalDataSubsystem>() {
+            if let Some(data) = handle.get_mut(manager) {
+                data.user_data_root = Some(root.to_owned());
+            }
+        }
+    }
 }
 
 /// Alias for `init_subsystem_manager` - C++ naming compatibility.
@@ -2088,6 +2135,77 @@ mod tests {
     use game_engine::common::audio::GameplayAudioDispatch;
     use game_engine::common::ini::ini_control_bar_scheme::get_control_bar_scheme_manager;
     use std::time::{Duration, Instant};
+
+    #[test]
+    fn retry_rebinds_existing_global_data_before_actual_preference_callbacks() {
+        crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+            module_path!(),
+            "retry_rebinds_existing_global_data_before_actual_preference_callbacks",
+            || {
+                struct PreferenceCallback {
+                    seen: Vec<(PathBuf, i32)>,
+                }
+                impl SubsystemInterface for PreferenceCallback {
+                    fn init(&mut self) -> Result<()> {
+                        let mut preferences =
+                            game_engine::common::user_preferences::UserPreferences::new();
+                        assert!(preferences.load("Options.ini"));
+                        self.seen.push((
+                            preferences.configured_path().unwrap().to_owned(),
+                            preferences.get_int_or("ScrollFactor", 0),
+                        ));
+                        if self.seen.len() == 1 {
+                            return Err(anyhow!(
+                                "first initialization intentionally fails after preference observation"
+                            ));
+                        }
+                        Ok(())
+                    }
+                    fn reset(&mut self) -> Result<()> {
+                        Ok(())
+                    }
+                    fn update(&mut self, _: f32) -> Result<()> {
+                        Ok(())
+                    }
+                    fn shutdown(&mut self) -> Result<()> {
+                        Ok(())
+                    }
+                    fn name(&self) -> &'static str {
+                        "PreferenceCallback"
+                    }
+                }
+                let a = tempfile::tempdir().unwrap();
+                let b = tempfile::tempdir().unwrap();
+                std::fs::write(a.path().join("Options.ini"), "ScrollFactor = 21\n").unwrap();
+                std::fs::write(b.path().join("Options.ini"), "ScrollFactor = 77\n").unwrap();
+                let mut manager = SubsystemManager::new();
+                manager.initialization_order = vec!["GlobalData", "PreferenceCallback"];
+                manager.add_subsystem(GlobalDataSubsystem::with_user_data_root(Some(a.path())));
+                let callback = manager.add_subsystem(PreferenceCallback { seen: Vec::new() });
+                assert!(manager.initialize_all().is_err());
+                assert!(!manager.is_initialized());
+                let count = manager.subsystems.len();
+                let original_order = manager.initialization_order.clone();
+                admit_global_data_user_data_root(&mut manager, Some(b.path()));
+                manager.initialize_all().unwrap();
+                assert!(manager.is_initialized());
+                assert_eq!(manager.subsystems.len(), count);
+                assert_eq!(manager.initialization_order, original_order);
+                let observed = &callback.get(&manager).unwrap().seen;
+                assert_eq!(
+                    observed,
+                    &vec![
+                        (a.path().join("Options.ini"), 21),
+                        (b.path().join("Options.ini"), 77)
+                    ]
+                );
+                assert_eq!(
+                    game_engine::common::global_data::read().get_user_data_dir(),
+                    b.path().to_str().unwrap()
+                );
+            },
+        );
+    }
 
     #[test]
     fn audio_timing_update_drains_gameplay_and_presentation_event_queues() {

@@ -546,6 +546,12 @@ mod tests {
 
     #[test]
     fn test_no_draw_skip_condition_matches_cpp_guard() {
+        if crate::core::game_client::global_boundary_fixture::run_in_private_child(
+            module_path!(),
+            "test_no_draw_skip_condition_matches_cpp_guard",
+        ) {
+            return;
+        }
         let global_data = game_engine::common::ini::ini_game_data::ensure_global_data();
         let saved_no_draw = global_data.read().no_draw;
         let saved_logic_frame = gamelogic::system::game_logic::get_game_logic()
@@ -1757,6 +1763,12 @@ mod tests {
 
     #[test]
     fn test_snapshot_serialization_is_deterministic_for_same_state() {
+        if crate::core::game_client::global_boundary_fixture::run_in_private_child(
+            module_path!(),
+            "test_snapshot_serialization_is_deterministic_for_same_state",
+        ) {
+            return;
+        }
         let mut client = GameClient::new().unwrap();
 
         let mut first = BasicDrawable::new(DrawableId::INVALID);
@@ -1783,6 +1795,12 @@ mod tests {
 
     #[test]
     fn test_snapshot_serialization_is_stable_across_drawable_hashmap_insertion_order() {
+        if crate::core::game_client::global_boundary_fixture::run_in_private_child(
+            module_path!(),
+            "test_snapshot_serialization_is_stable_across_drawable_hashmap_insertion_order",
+        ) {
+            return;
+        }
         let mut client_a = GameClient::new().unwrap();
         insert_basic_drawable_for_test(&mut client_a, 100, "Tank", Vector3::new(10.0, 20.0, 0.0));
         insert_basic_drawable_for_test(&mut client_a, 10, "Jeep", Vector3::new(-2.0, 3.0, 0.0));
@@ -1800,6 +1818,12 @@ mod tests {
 
     #[test]
     fn test_snapshot_round_trip_serialization_is_stable() {
+        if crate::core::game_client::global_boundary_fixture::run_in_private_child(
+            module_path!(),
+            "test_snapshot_round_trip_serialization_is_stable",
+        ) {
+            return;
+        }
         ensure_templates_registered(&["RoundTripAlpha", "RoundTripBeta", "RoundTripGamma"]);
 
         let mut original = GameClient::new().unwrap();
@@ -1831,6 +1855,12 @@ mod tests {
 
     #[test]
     fn test_snapshot_serialization_is_stable_across_many_insertion_permutations() {
+        if crate::core::game_client::global_boundary_fixture::run_in_private_child(
+            module_path!(),
+            "test_snapshot_serialization_is_stable_across_many_insertion_permutations",
+        ) {
+            return;
+        }
         let fixtures: Vec<(u32, &str, Vector3)> = vec![
             (41, "Alpha", Vector3::new(1.0, 2.0, 0.0)),
             (7, "Beta", Vector3::new(3.0, -2.0, 0.0)),
@@ -1900,6 +1930,12 @@ mod tests {
 
     #[test]
     fn test_save_uses_object_template_when_drawable_template_missing() {
+        if crate::core::game_client::global_boundary_fixture::run_in_private_child(
+            module_path!(),
+            "test_save_uses_object_template_when_drawable_template_missing",
+        ) {
+            return;
+        }
         let mut client = GameClient::new().unwrap();
         let object_id: ObjectID = 990_001;
 
@@ -1938,6 +1974,12 @@ mod tests {
 
     #[test]
     fn test_snapshot_round_trip_mixed_no_save_drawables_matches_cpp_rules() {
+        if crate::core::game_client::global_boundary_fixture::run_in_private_child(
+            module_path!(),
+            "test_snapshot_round_trip_mixed_no_save_drawables_matches_cpp_rules",
+        ) {
+            return;
+        }
         ensure_templates_registered(&[
             "FallbackPersistTemplate",
             "SkippedTemplate",
@@ -2007,6 +2049,12 @@ mod tests {
 
     #[test]
     fn load_bound_drawable_can_resolve_ambient_template_without_factory_deadlock() {
+        if crate::core::game_client::global_boundary_fixture::run_in_private_child(
+            module_path!(),
+            "load_bound_drawable_can_resolve_ambient_template_without_factory_deadlock",
+        ) {
+            return;
+        }
         ensure_templates_registered(&["AmbientBoundTemplate"]);
         let object_id: ObjectID = 990_011;
         let logic_template: Arc<dyn gamelogic::thing_template::ThingTemplate> = Arc::new(
@@ -2034,6 +2082,12 @@ mod tests {
 
     #[test]
     fn test_register_drawable_preserves_explicit_template_name_over_object_fallback() {
+        if crate::core::game_client::global_boundary_fixture::run_in_private_child(
+            module_path!(),
+            "test_register_drawable_preserves_explicit_template_name_over_object_fallback",
+        ) {
+            return;
+        }
         let mut client = GameClient::new().unwrap();
         let object_id: ObjectID = 990_002;
 
@@ -2291,6 +2345,12 @@ mod tests {
 
     #[test]
     fn test_playback_file_clears_stale_pending_commands_when_sink_absent() {
+        if crate::core::game_client::global_boundary_fixture::run_in_private_child(
+            module_path!(),
+            "test_playback_file_clears_stale_pending_commands_when_sink_absent",
+        ) {
+            return;
+        }
         let temp = tempfile::tempdir().expect("temp dir should be created");
         if let Some(global) = get_global_data() {
             let mut data = global.write();
@@ -2546,6 +2606,12 @@ mod tests {
 
     #[test]
     fn local_drawable_flash_consumes_on_client_frame_multiple() {
+        if crate::core::game_client::global_boundary_fixture::run_in_private_child(
+            module_path!(),
+            "local_drawable_flash_consumes_on_client_frame_multiple",
+        ) {
+            return;
+        }
         // C++ Drawable.cpp:1219 — `m_flashCount > 0 && (TheGameClient->getFrame()
         // % DRAWABLE_FRAMES_PER_FLASH) == 0`. Live host ticks
         // `GameClient::update_drawables_local`; without stamping `self.frame`
@@ -2609,6 +2675,12 @@ mod tests {
 
     #[test]
     fn local_drawable_tick_destroys_expired_drawable_that_frame() {
+        if crate::core::game_client::global_boundary_fixture::run_in_private_child(
+            module_path!(),
+            "local_drawable_tick_destroys_expired_drawable_that_frame",
+        ) {
+            return;
+        }
         let mut client = GameClient::new().expect("GameClient::new should succeed");
         insert_basic_drawable_for_test(
             &mut client,

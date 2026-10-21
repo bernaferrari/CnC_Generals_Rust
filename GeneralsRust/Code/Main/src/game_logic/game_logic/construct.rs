@@ -61,6 +61,7 @@ impl GameLogic {
             weapon_definitions: None,
             projectile_definitions: Default::default(),
             physics_definitions: Default::default(),
+            terrain_definitions: Default::default(),
             weapon_effect_definitions: Default::default(),
             production_energy: Default::default(),
             ai_definitions,
@@ -740,6 +741,15 @@ impl GameLogic {
 
     /// Override world dimensions when terrain provides authoritative size.
     pub fn override_world_size(&mut self, width: f32, height: f32) {
+        self.override_world_size_with_effects(width, height, &mut Default::default())
+    }
+
+    pub(crate) fn override_world_size_with_effects(
+        &mut self,
+        width: f32,
+        height: f32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         self.world_width = width;
         self.world_height = height;
         self.world_min = Vec3::new(-width * 0.5, 0.0, -height * 0.5);
@@ -751,7 +761,7 @@ impl GameLogic {
         self.pathfinding_system = replacement;
         self.refresh_pathfinding_ai_definitions();
         // Terrain-provided extent must seed TheRadar samples (C++ newMap).
-        self.host_radar_on_map_loaded();
+        self.host_radar_on_map_loaded_with_effects(effects);
     }
 
     /// Reset method - matching C++ GameLogic interface

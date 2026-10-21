@@ -542,6 +542,15 @@ impl Object {
         goal: glam::Vec3,
         dt: f32,
     ) -> (PhysicsTurningType, f32) {
+        self.rotate_towards_position_with_effects(goal, dt, 0, &mut Default::default())
+    }
+    pub(crate) fn rotate_towards_position_with_effects(
+        &mut self,
+        goal: glam::Vec3,
+        dt: f32,
+        frame: u32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> (PhysicsTurningType, f32) {
         let mut max_turn = self.effective_turn_rate() * dt;
         if matches!(
             self.loco_appearance,
@@ -549,7 +558,7 @@ impl Object {
         ) {
             max_turn *= self.wheeled_turn_factor();
         }
-        self.rotate_obj_around_loco_pivot(goal, max_turn)
+        self.rotate_obj_around_loco_pivot_with_effects(goal, max_turn, frame, effects)
     }
 
     /// C++ `Locomotor::setUltraAccurate` + `setPhysicsOptions`.
@@ -603,6 +612,20 @@ impl Object {
         &mut self,
         goal: glam::Vec3,
         max_turn_rate: f32,
+    ) -> (PhysicsTurningType, f32) {
+        self.rotate_obj_around_loco_pivot_with_effects(
+            goal,
+            max_turn_rate,
+            0,
+            &mut Default::default(),
+        )
+    }
+    pub(crate) fn rotate_obj_around_loco_pivot_with_effects(
+        &mut self,
+        goal: glam::Vec3,
+        max_turn_rate: f32,
+        frame: u32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> (PhysicsTurningType, f32) {
         let angle = self.get_orientation();
         let mut offset = self.turn_pivot_offset;
@@ -663,7 +686,7 @@ impl Object {
             let rz = us.z - tp.z;
             let nx = tp.x + rx * cos_a + rz * sin_a;
             let nz = tp.z - rx * sin_a + rz * cos_a;
-            self.set_position(glam::Vec3::new(nx, us.y, nz));
+            self.set_position_with_effects(glam::Vec3::new(nx, us.y, nz), frame, effects);
         }
         self.set_orientation(angle + amount);
         self.physics_turning = turning;
@@ -676,6 +699,15 @@ impl Object {
     /// (`Locomotor.cpp:884-895`); live FACE caller applies that leftover-terrain
     /// Z once. Never treat pose-Y as surface (hq-jg55x).
     pub fn loco_update_move_towards_angle(&mut self, goal_angle: f32, dt: f32) {
+        self.loco_update_move_towards_angle_with_effects(goal_angle, dt, 0, &mut Default::default())
+    }
+    pub(crate) fn loco_update_move_towards_angle_with_effects(
+        &mut self,
+        goal_angle: f32,
+        dt: f32,
+        frame: u32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         self.maintain_pos_valid = false;
         if self.shock_stun_frames > 0 {
             return;
@@ -690,10 +722,10 @@ impl Object {
             );
             let prev = self.movement.target_position;
             self.movement.target_position = Some(desired);
-            let _ = self.rotate_towards_position(desired, dt);
+            let _ = self.rotate_towards_position_with_effects(desired, dt, frame, effects);
             self.apply_forward_speed_force(min_speed, dt);
             let p = self.get_position() + self.movement.velocity * dt;
-            self.set_position(p);
+            self.set_position_with_effects(p, frame, effects);
             self.movement.target_position = prev;
         } else {
             let us = self.get_position();
@@ -702,7 +734,7 @@ impl Object {
                 us.y,
                 us.z + (-goal_angle.sin()) * 1000.0,
             );
-            let _ = self.rotate_towards_position(desired, dt);
+            let _ = self.rotate_towards_position_with_effects(desired, dt, frame, effects);
         }
     }
 
@@ -837,6 +869,14 @@ impl Object {
     /// Appearance half of C++ maintainCurrentPosition. The driving locomotor
     /// applies altitude once, after this operation, using its current goal.
     pub(crate) fn loco_maintain_appearance(&mut self, dt: f32) -> bool {
+        self.loco_maintain_appearance_with_effects(dt, 0, &mut Default::default())
+    }
+    pub(crate) fn loco_maintain_appearance_with_effects(
+        &mut self,
+        dt: f32,
+        frame: u32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
         if !self.maintain_pos_valid {
             self.maintain_pos = Some(self.get_position());
 
@@ -853,13 +893,20 @@ impl Object {
                 self.motive_frames_remaining = MOTIVE_FRAMES_RESIDUAL.max(1);
                 // 2D circle only. C++ handleBehaviorZ runs after with
                 // getSurfaceHtAtPt (hq-xlays) — not own altitude.
-                self.maintain_position_wings(dt.max(1.0 / 30.0));
+                self.maintain_position_wings_with_effects(dt.max(1.0 / 30.0), frame, effects);
                 return true;
             }
             LocomotorAppearance::Thrust => {
                 if let Some(m) = self.maintain_pos {
                     let spd = self.min_speed.max(1.0);
-                    self.move_towards_thrust(m, 0.0, spd, dt.max(1.0 / 30.0));
+                    self.move_towards_thrust_with_effects(
+                        m,
+                        0.0,
+                        spd,
+                        dt.max(1.0 / 30.0),
+                        frame,
+                        effects,
+                    );
                 }
                 return true;
             }
@@ -1622,6 +1669,14 @@ impl Object {
 
     /// C++ maintainCurrentPositionWings residual — circle around maintain pos.
     pub fn maintain_position_wings(&mut self, dt: f32) {
+        self.maintain_position_wings_with_effects(dt, 0, &mut Default::default())
+    }
+    pub(crate) fn maintain_position_wings_with_effects(
+        &mut self,
+        dt: f32,
+        frame: u32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         self.physics_turning = PhysicsTurningType::TurnNone;
         // C++ maintainCurrentPositionWings: isMotive() && isAboveTerrain().
         if !self.is_motive() || !self.is_above_terrain() {
@@ -1657,12 +1712,12 @@ impl Object {
         // C++ moveTowardsPositionWings(..., m_template->m_minSpeed).
         let spd = self.min_speed.max(0.0);
         self.movement.target_position = Some(desired);
-        let (_t, _rel) = self.rotate_towards_position(desired, dt);
+        let (_t, _rel) = self.rotate_towards_position_with_effects(desired, dt, frame, effects);
         self.apply_forward_speed_force(spd, dt);
         let mut p = self.get_position();
         p.x += self.movement.velocity.x * dt;
         p.z += self.movement.velocity.z * dt;
-        self.set_position(p);
+        self.set_position_with_effects(p, frame, effects);
         self.movement.target_position = None;
         // C++ maintainCurrentPositionWings is 2D circling only
         // (Locomotor.cpp:2488-2524). handleBehaviorZ uses terrain.
@@ -1677,8 +1732,26 @@ impl Object {
         &mut self,
         goal: glam::Vec3,
         on_path_dist: f32,
+        desired_speed: f32,
+        dt: f32,
+    ) {
+        self.move_towards_thrust_with_effects(
+            goal,
+            on_path_dist,
+            desired_speed,
+            dt,
+            0,
+            &mut Default::default(),
+        )
+    }
+    pub(crate) fn move_towards_thrust_with_effects(
+        &mut self,
+        goal: glam::Vec3,
+        on_path_dist: f32,
         mut desired_speed: f32,
         dt: f32,
+        frame: u32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         let mut max_speed = self.effective_max_speed();
         desired_speed = desired_speed.clamp(self.min_speed, max_speed.max(self.min_speed));
@@ -1741,7 +1814,12 @@ impl Object {
             if adjust {
                 let desired_yaw = (-vel.z).atan2(vel.x);
                 let aim = us + glam::Vec3::new(desired_yaw.cos(), 0.0, -desired_yaw.sin());
-                let _ = self.rotate_obj_around_loco_pivot(aim, max_turn_rate * dt);
+                let _ = self.rotate_obj_around_loco_pivot_with_effects(
+                    aim,
+                    max_turn_rate * dt,
+                    frame,
+                    effects,
+                );
             }
         }
 
@@ -1756,7 +1834,7 @@ impl Object {
             self.integrate_physics_accel();
         }
         let p = us + self.movement.velocity * dt;
-        self.set_position(p);
+        self.set_position_with_effects(p, frame, effects);
     }
 
     /// C++ `Locomotor::maintainCurrentPositionHover` (Locomotor.cpp:2527-2576).

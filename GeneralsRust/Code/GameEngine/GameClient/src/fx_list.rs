@@ -1390,6 +1390,53 @@ impl FXNugget for TerrainScorchFXNugget {
         // C++ TerrainScorchFXNugget::doFXPos calls only TheGameClient->addScorch.
         let _ = add_terrain_scorch([primary.x, primary.y, primary.z], self.radius, scorch_idx);
     }
+    fn do_fx_pos_with_view(
+        &self,
+        primary: Option<&Coord3D>,
+        _matrix: Option<&Matrix3D>,
+        _speed: f32,
+        _secondary: Option<&Coord3D>,
+        _radius: f32,
+        view: &mut FxViewServices<'_>,
+    ) {
+        let Some(primary) = primary else {
+            return;
+        };
+        let kind = resolve_scorch_type(self.scorch);
+        (view.add_scorch)([primary.x, primary.y, primary.z], self.radius, kind);
+    }
+
+    fn do_fx_obj_with_view(
+        &self,
+        primary: Option<&Object>,
+        secondary: Option<&Object>,
+        view: &mut FxViewServices<'_>,
+    ) {
+        self.do_fx_pos_with_view(
+            primary.map(Object::get_position),
+            None,
+            0.0,
+            secondary.map(Object::get_position),
+            0.0,
+            view,
+        );
+    }
+
+    fn do_fx_obj_host_with_view(
+        &self,
+        primary: &gamelogic::helpers::HostFxObjectPose,
+        secondary: Option<&gamelogic::helpers::HostFxObjectPose>,
+        view: &mut FxViewServices<'_>,
+    ) {
+        self.do_fx_pos_with_view(
+            Some(&primary.position),
+            Some(&primary.transform),
+            0.0,
+            secondary.map(|pose| &pose.position),
+            0.0,
+            view,
+        );
+    }
 }
 
 /// FXList.cpp:42 Rotate_Vector uses the supplied basis directly. glam already

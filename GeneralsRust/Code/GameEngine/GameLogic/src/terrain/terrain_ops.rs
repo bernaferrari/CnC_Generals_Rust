@@ -673,6 +673,8 @@ impl TerrainLogic {
             effect(TerrainHeightChange {
                 playable_x: x,
                 playable_y: y,
+                sample_x: grid_x,
+                sample_y: grid_y,
                 raw_height: accepted,
                 requested_height: height,
             });

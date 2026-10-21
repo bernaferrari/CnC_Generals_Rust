@@ -225,10 +225,10 @@ impl CommandLineArgs {
                     "quickstart" => parsed.quick_start = true,
                     "autoreplay" => parsed.auto_replay = true,
                     "benchmark" => parsed.benchmark_mode = true,
-                    "seed" | "netminplayers" | "playstats" | "forcebenchmark"
-                    | "nosizzle" | "noshaders" | "particleedit" | "scriptdebug"
-                    | "wincursors" | "constantdebug" | "showteamdot" | "nomovecamera"
-                    | "nodraw" | "jumptoframe" | "nomusic" | "noshellanim" | "noshellmap" => {}
+                    "seed" | "netminplayers" | "playstats" | "forcebenchmark" | "nosizzle"
+                    | "noshaders" | "particleedit" | "scriptdebug" | "wincursors"
+                    | "constantdebug" | "showteamdot" | "nomovecamera" | "nodraw"
+                    | "jumptoframe" | "nomusic" | "noshellanim" | "noshellmap" => {}
                     "server" => parsed.server_mode = true,
                     "client" => parsed.client_mode = true,
                     "port" => {
@@ -307,6 +307,7 @@ impl CommandLineArgs {
                             &value,
                         );
                     }
+                    "userdata" => {}
                     "runtime_host" | "runtime-host" | "gpui_control" | "gpui-control"
                     | "gpui_status" | "gpui-status" | "gpui_frame" | "gpui-frame" => {}
                     _ => {
@@ -348,6 +349,13 @@ impl CommandLineArgs {
             Ok((name, Some(value)))
         } else {
             let name = option_name.to_ascii_lowercase();
+            if name == "userdata"
+                && (args
+                    .get(*index + 1)
+                    .is_none_or(|value| value.starts_with('-') || value.trim().is_empty()))
+            {
+                return Err(anyhow::anyhow!("-userdata requires a nonempty path"));
+            }
 
             // Value-taking C++ options consume the next token even if it looks like
             // another flag; non-value flags stop here.
@@ -392,6 +400,7 @@ impl CommandLineArgs {
                 | "language"
                 | "replay"
                 | "config"
+                | "userdata"
                 | "loglevel"
                 | "port"
                 | "host"

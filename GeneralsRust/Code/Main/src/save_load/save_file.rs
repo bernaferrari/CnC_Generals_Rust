@@ -825,6 +825,7 @@ impl SaveFileManager {
             save_info,
             crate::save_load::snapshot::ClientSaveState::default(),
             None,
+            None,
         )
     }
 
@@ -844,6 +845,7 @@ impl SaveFileManager {
             Some(client),
             save_info,
             crate::save_load::snapshot::ClientSaveState::default(),
+            None,
             None,
         )
     }
@@ -870,6 +872,7 @@ impl SaveFileManager {
                 control_groups: None,
             },
             None,
+            None,
         )
     }
 
@@ -890,6 +893,7 @@ impl SaveFileManager {
             Some(client),
             save_info,
             state,
+            None,
             None,
         )
     }
@@ -913,6 +917,31 @@ impl SaveFileManager {
             save_info,
             state,
             scorches,
+            None,
+        )
+    }
+
+    /// Native source owner: water-render state and scorch marks are observed
+    /// together from the receiving pipeline, never from ambient selection.
+    pub fn save_game_with_client_save_state_and_native_terrain(
+        &mut self,
+        filename: &str,
+        game_logic: &GameLogic,
+        client_drawables: ClientDrawableWorldSnapshot,
+        client: &mut game_client::core::game_client::GameClient,
+        save_info: &SaveGameInfo,
+        state: crate::save_load::snapshot::ClientSaveState,
+        visual: Option<&game_client::terrain::terrain_visual::TerrainVisualImpl>,
+    ) -> SaveLoadResult<()> {
+        self.save_game_with_client_state_impl(
+            filename,
+            game_logic,
+            client_drawables,
+            Some(client),
+            save_info,
+            state,
+            visual.map(|v| v.scorch_marks()),
+            visual,
         )
     }
 
@@ -925,6 +954,7 @@ impl SaveFileManager {
         save_info: &SaveGameInfo,
         state: crate::save_load::snapshot::ClientSaveState,
         terrain_scorches: Option<&[game_client::terrain::scorch_mesh::ScorchMark]>,
+        native_terrain: Option<&game_client::terrain::terrain_visual::TerrainVisualImpl>,
     ) -> SaveLoadResult<()> {
         if let Some(camera) = state.camera {
             camera.validate()?;
@@ -996,8 +1026,13 @@ impl SaveFileManager {
         if effective_info.pristine_map_name.is_none() {
             effective_info.pristine_map_name = game_logic.map_definition_source.clone();
         }
+        let native_water = native_terrain.map(|visual| visual.capture_water_state());
         let terrain_visual_bytes =
-            capture_receiving_terrain_visual_xfer_bytes(game_logic, terrain_scorches)?;
+            crate::save_load::snapshot::capture_receiving_terrain_visual_with_water(
+                game_logic,
+                native_water.as_ref(),
+                terrain_scorches,
+            )?;
         let write_result = self.save_to_file(
             &temp_path,
             &world_snapshot,

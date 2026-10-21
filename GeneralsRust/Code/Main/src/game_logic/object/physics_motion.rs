@@ -357,6 +357,20 @@ impl Object {
         other_center: glam::Vec3,
         us_radius: f32,
     ) {
+        self.apply_parachute_building_bounce_out_with_effects(
+            other_center,
+            us_radius,
+            0,
+            &mut Default::default(),
+        );
+    }
+    pub(crate) fn apply_parachute_building_bounce_out_with_effects(
+        &mut self,
+        other_center: glam::Vec3,
+        us_radius: f32,
+        frame: u32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         use crate::game_logic::host_partition_collision_physics_residual::parachute_bounce_out_distance;
         let us = self.get_position();
         let mut dx = other_center.x - us.x;
@@ -371,7 +385,7 @@ impl Object {
         let mut pos = us;
         pos.x -= bounce * dx / dist;
         pos.z -= bounce * dz / dist;
-        self.set_position(pos);
+        self.set_position_with_effects(pos, frame, effects);
         self.scrub_velocity_2d(0.0);
     }
 
@@ -489,9 +503,17 @@ impl Object {
 
     /// Keep translation; preserve accumulated pitch/roll (C++ setPosition).
     pub(super) fn set_position_keep_rotation(&mut self, pos: glam::Vec3) {
+        self.set_position_keep_rotation_with_effects(pos, 0, &mut Default::default());
+    }
+    pub(super) fn set_position_keep_rotation_with_effects(
+        &mut self,
+        pos: glam::Vec3,
+        frame: u32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let mut mtx = self.get_transform_matrix();
         mtx.w_axis = pos.extend(1.0);
-        self.set_transform_matrix(mtx);
+        self.set_transform_matrix_with_effects(mtx, frame, effects);
         self.sync_shock_up_from_transform();
     }
 

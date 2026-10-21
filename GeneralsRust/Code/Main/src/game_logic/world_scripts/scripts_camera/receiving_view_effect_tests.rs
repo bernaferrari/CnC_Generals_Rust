@@ -71,6 +71,7 @@ fn authored_enable_slave_then_home_samples_current_receiving_owner_before_walk_r
                 &mut owner,
                 &interpreter,
                 ScriptPresentationEffects {
+                    terrain: None,
                     ui: None,
                     view: Some(&mut backend),
                 },
@@ -117,4 +118,60 @@ fn missing_native_effects_is_an_error_before_mutating_the_receiving_view() {
             .is_err()
     );
     assert_eq!(owner.capture_camera_continuation().unwrap(), before);
+}
+
+#[test]
+fn actual_radar_command_borrows_receiving_slave_view_without_peer_delivery() {
+    let (mut owner, _, _) = world(120.);
+    let (mut peer, _, _) = world(320.);
+    install_subject(&mut owner, true);
+    install_subject(&mut peer, false);
+    owner.queue_pending_camera_slave_enable("ReceivingCamera", "Eye");
+    let peer_before = peer.capture_camera_continuation().unwrap();
+    let expected = owner.current_native_slave_source(ObjectId(42), 0).unwrap();
+    let mut receiving = ReceivingView {
+        calls: Vec::new(),
+        translation: Vec3::new(190., 290., 390.),
+    };
+    let foreign = ReceivingView {
+        calls: Vec::new(),
+        translation: Vec3::new(790., 890., 990.),
+    };
+    let command = crate::command_system::GameCommand {
+        command_type: crate::command_system::CommandType::ViewRadarAt {
+            position: Vec3::new(10., 0., 20.),
+        },
+        player_id: 0,
+        command_id: 0,
+        timestamp: std::time::SystemTime::now(),
+        selected_units: Vec::new(),
+        modifier_keys: Default::default(),
+    };
+    let result = crate::command_executor::CommandExecutor::new_with_effects(
+        &mut owner,
+        0,
+        ScriptPresentationEffects {
+            terrain: None,
+            ui: None,
+            view: Some(&mut receiving),
+        },
+    )
+    .execute_command(command)
+    .unwrap();
+    assert_eq!(result, crate::command_system::CommandResult::Success);
+    assert!(
+        !receiving.calls.is_empty(),
+        "actual radar LookAt must sample its native receiver synchronously"
+    );
+    assert!(
+        receiving
+            .calls
+            .iter()
+            .all(|(identity, bits, bone)| identity == &expected.identity
+                && *bits == expected.condition_bits
+                && bone == "Eye")
+    );
+    assert_eq!(owner.session_view.target, receiving.translation);
+    assert!(foreign.calls.is_empty());
+    assert_eq!(peer.capture_camera_continuation().unwrap(), peer_before);
 }

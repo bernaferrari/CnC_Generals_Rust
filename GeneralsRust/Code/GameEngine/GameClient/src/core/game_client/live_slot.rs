@@ -330,6 +330,21 @@ pub fn recoil_glam_for_object(object_id: u32) -> Option<glam::Mat4> {
 /// - `W3DGameClient.cpp` `W3DGameClient::adjustLOD` (clamp [0,4], `WW3D::Set_Texture_Reduction`,
 ///   `TheTerrainRenderObject->setTextureLOD`)
 pub fn apply_lod_texture_reduction(target_factor: i32) -> Option<i32> {
+    apply_lod_texture_reduction_to(target_factor, &mut |clamped| {
+        if let Ok(mut terrain_guard) = crate::terrain::terrain_visual::get_terrain_visual() {
+            if let Some(terrain) = terrain_guard.as_mut() {
+                terrain.apply_texture_lod_reduction(clamped);
+            }
+        }
+    })
+}
+
+/// Synchronous native operation: the caller lends its actual installed terrain.
+/// Definition and renderer changes precede terrain invalidation, then shadows.
+pub fn apply_lod_texture_reduction_to(
+    target_factor: i32,
+    terrain: &mut dyn FnMut(i32),
+) -> Option<i32> {
     let global_data = get_global_data()?;
 
     let clamped = target_factor.clamp(TEXTURE_REDUCTION_MIN, TEXTURE_REDUCTION_MAX);
@@ -355,11 +370,7 @@ pub fn apply_lod_texture_reduction(target_factor: i32) -> Option<i32> {
     }
 
     if previous != clamped || renderer_previous != clamped as u32 {
-        if let Ok(mut terrain_guard) = crate::terrain::terrain_visual::get_terrain_visual() {
-            if let Some(terrain) = terrain_guard.as_mut() {
-                terrain.apply_texture_lod_reduction(clamped);
-            }
-        }
+        terrain(clamped);
     }
     crate::display::shadow_pass::rebuild_shadows();
 
@@ -677,5 +688,78 @@ impl GameClient {
             .update_ini_settings_with_definition(definition, &mut |low, high| {
                 crate::GameClientRandomValue!(low, high)
             });
+    }
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod receiving_lod_tests {
+    #[test]
+    fn receiving_lod_callbacks_keep_peers_separate_and_follow_definition_renderer_updates() {
+        const NAME: &str =
+            "receiving_lod_callbacks_keep_peers_separate_and_follow_definition_renderer_updates";
+        const MARKER: &str = "GENERALS_RECEIVING_LOD_CHILD";
+        if std::env::var(MARKER).as_deref() != Ok(NAME) {
+            let module = module_path!().split_once("::").unwrap().1;
+            let exact = format!("{module}::{NAME}");
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", &exact, "--test-threads=1", "--nocapture"])
+                .env(MARKER, NAME)
+                .output()
+                .unwrap();
+            assert!(String::from_utf8_lossy(&output.stdout).contains("running 1 test"));
+            assert!(
+                output.status.success(),
+                "{}\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            return;
+        }
+        let definitions = game_engine::common::ini::ini_game_data::ensure_global_data();
+        definitions.write().texture_reduction_factor = 0;
+        ww3d_renderer_3d::rendering::texture_quality::set_texture_reduction(0, 32);
+        // A real foreign native holder remains unavailable throughout. The
+        // receiving operation must not rediscover or try to borrow that slot.
+        let _foreign = crate::terrain::terrain_visual::get_terrain_visual().unwrap();
+        let mut a = Vec::new();
+        let mut b = Vec::new();
+        let observe = |value| {
+            assert_eq!(definitions.read().texture_reduction_factor, value);
+            assert_eq!(
+                super::runtime_global_data::read().texture_reduction_factor,
+                value
+            );
+            assert_eq!(
+                ww3d_renderer_3d::rendering::texture_quality::texture_reduction(),
+                value as u32
+            );
+        };
+        assert_eq!(
+            super::apply_lod_texture_reduction_to(2, &mut |value| {
+                observe(value);
+                a.push(value);
+            }),
+            Some(2)
+        );
+        assert_eq!(a, vec![2]);
+        assert!(b.is_empty());
+        assert_eq!(
+            super::apply_lod_texture_reduction_to(4, &mut |value| {
+                observe(value);
+                b.push(value);
+            }),
+            Some(4)
+        );
+        assert_eq!(a, vec![2]);
+        assert_eq!(b, vec![4]);
+        assert_eq!(
+            super::apply_lod_texture_reduction_to(4, &mut |value| a.push(value)),
+            Some(4)
+        );
+        assert_eq!(
+            a,
+            vec![2],
+            "unchanged target preserves existing no-invalidation branch"
+        );
     }
 }

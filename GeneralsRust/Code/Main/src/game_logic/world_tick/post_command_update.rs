@@ -28,13 +28,13 @@ impl GameLogic {
                     self.update_construction_with_effects(&object_ids, dt, &mut ui);
                 }
                 super::super::HostSleepyKind::SellList => {
-                    self.update_sell_list();
+                    self.update_sell_list_with_effects(&mut ui);
                 }
                 super::super::HostSleepyKind::DozerBoredRepair => {
                     self.update_dozer_bored_repair();
                 }
                 super::super::HostSleepyKind::RebuildHoles => {
-                    self.update_rebuild_holes();
+                    self.update_rebuild_holes_with_effects(&mut ui);
                 }
                 super::super::HostSleepyKind::Movement => {
                     // C++ AIUpdate updates the active state before
@@ -42,8 +42,8 @@ impl GameLogic {
                     // inspect the path completed by the preceding locomotor
                     // pass, then install the next waypoint before this pass.
                     self.tick_host_panic_states(&object_ids);
-                    self.tick_host_guard_states(&object_ids);
-                    self.update_movement(&object_ids, dt);
+                    self.tick_host_guard_states_with_effects(&object_ids, &mut ui);
+                    self.update_movement_with_effects(&object_ids, dt, &mut ui);
                 }
                 super::super::HostSleepyKind::SpecialPowers => {
                     update_special_powers();
@@ -60,7 +60,7 @@ impl GameLogic {
         // / PoisonField stack / B52 DeliverPayload / door loft path.
         // Wave 827: host-sole unless movement authority live: host system residuals sole-tick after GW writeback.
         {
-            self.update_special_power_strikes();
+            self.update_special_power_strikes_with_effects(&mut ui);
         }
         // Gate: no radiation field spawned this frame -> the residual is a
         // pure no-op (its own pending build early-returns empty). Skip the
@@ -70,7 +70,7 @@ impl GameLogic {
             .radiation_spawned_this_frame()
             .is_empty()
         {
-            self.spawn_nuke_radiation_field_objects_for_new_fields();
+            self.spawn_nuke_radiation_field_objects_for_new_fields_with_effects(&mut ui);
         } else {
             #[cfg(test)]
             residual_gate_seam::note(&residual_gate_seam::NUKE_RADIATION_FIELDS);
@@ -78,7 +78,7 @@ impl GameLogic {
         // Wave 802: host-sole unless movement authority live: field-object lifetime is owned by
         // GW tick_status_timer_expirations + expire logs.
         {
-            self.update_nuke_radiation_field_objects();
+            self.update_nuke_radiation_field_objects_with_effects(&mut ui);
         }
         // Gate: mirror of the radiation gate above, for toxin fields.
         if !self
@@ -86,7 +86,7 @@ impl GameLogic {
             .toxin_spawned_this_frame()
             .is_empty()
         {
-            self.spawn_anthrax_toxin_field_objects_for_new_fields();
+            self.spawn_anthrax_toxin_field_objects_for_new_fields_with_effects(&mut ui);
         } else {
             #[cfg(test)]
             residual_gate_seam::note(&residual_gate_seam::ANTHRAX_TOXIN_FIELDS);
@@ -94,7 +94,7 @@ impl GameLogic {
         // Wave 802: host-sole unless movement authority live: field-object lifetime is owned by
         // GW tick_status_timer_expirations + expire logs.
         {
-            self.update_anthrax_toxin_field_objects();
+            self.update_anthrax_toxin_field_objects_with_effects(&mut ui);
         }
 
         // Host America Paradrop residual: spawn infantry after approach delay.
@@ -102,13 +102,13 @@ impl GameLogic {
         // Wave 796: host-sole unless movement authority live: Paradrop cargo flight is owned by
         // GW tick_status_timer_expirations + drop/ground logs.
         {
-            self.update_paradrop_cargo_planes();
+            self.update_paradrop_cargo_planes_with_effects(&mut ui);
         }
         // Gate: zero paradrop missions -> clear_frame_events/plan_due_drops
         // are provable no-ops (events are pushed only alongside a mission
         // insert; the missions map is insert-only). Skip the pass.
         if self.host_paradrops.mission_count() > 0 {
-            self.update_paradrops();
+            self.update_paradrops_with_effects(&mut ui);
         } else {
             #[cfg(test)]
             residual_gate_seam::note(&residual_gate_seam::PARADROPS);
@@ -120,7 +120,7 @@ impl GameLogic {
         // cargo-flight tick, and the spawn plan are provable no-ops (all
         // side queues are populated only alongside a mission insert).
         if self.host_deliver_payloads.mission_count() > 0 {
-            self.update_deliver_payloads();
+            self.update_deliver_payloads_with_effects(&mut ui);
         } else {
             #[cfg(test)]
             residual_gate_seam::note(&residual_gate_seam::DELIVER_PAYLOADS);
@@ -129,11 +129,11 @@ impl GameLogic {
         // Host MoneyCrateCollide residual: unit + BuildingPickup cash collect.
         // Wave 826: host-sole unless movement authority live: combat/field residuals sole-tick after GW writeback.
         {
-            self.update_money_crate_collides();
+            self.update_money_crate_collides_with_effects(&mut ui);
         }
         // Wave 817: host-sole unless movement authority live: crate lifetime owned by GW expire + logs.
         {
-            self.update_crate_deletion_updates();
+            self.update_crate_deletion_updates_with_effects(&mut ui);
         }
 
         // Host GLA Rebel Ambush residual: leftover OCLSpecialPower CreateObject
@@ -142,7 +142,7 @@ impl GameLogic {
         // provable no-ops (pending_fade_clears is pushed only after a live
         // ambush spawn, which requires a mission).
         if self.host_ambushes.mission_count() > 0 {
-            self.update_ambushes();
+            self.update_ambushes_with_effects(&mut ui);
         } else {
             #[cfg(test)]
             residual_gate_seam::note(&residual_gate_seam::AMBUSHES);
@@ -153,7 +153,7 @@ impl GameLogic {
         // Wave 795: host-sole unless movement authority live: Leaflet B52 flight is owned by
         // GW tick_status_timer_expirations + drop/ground logs.
         {
-            self.update_leaflet_b52_flights();
+            self.update_leaflet_b52_flights_with_effects(&mut ui);
         }
         // Gate: zero leaflet missions -> the per-plan world radius scan never
         // runs (plan_due_impacts includes Completed missions for walk-in
@@ -171,7 +171,7 @@ impl GameLogic {
         // are provable no-ops (pending_shockwaves is pushed only alongside a
         // mission insert).
         if self.host_sneak_attacks.mission_count() > 0 {
-            self.update_sneak_attacks();
+            self.update_sneak_attacks_with_effects(&mut ui);
         } else {
             #[cfg(test)]
             residual_gate_seam::note(&residual_gate_seam::SNEAK_ATTACKS);
@@ -181,20 +181,20 @@ impl GameLogic {
         // Fail-closed vs full MinefieldBehavior / DemoTrapUpdate modules.
         // Wave 826: host-sole unless movement authority live: combat/field residuals sole-tick after GW writeback.
         {
-            self.update_mines_and_demo_traps();
+            self.update_mines_and_demo_traps_with_effects(&mut ui);
         }
 
         // Host USA Ambulance AutoHeal residual: heal ally infantry in radius.
         // Fail-closed vs full AutoHealBehavior particle / world-anim pulse FX.
-        self.update_ambulance_auto_heal(dt);
-        self.update_default_auto_heal();
+        self.update_ambulance_auto_heal_with_effects(dt, &mut ui);
+        self.update_default_auto_heal_with_effects(&mut ui);
         // C++ TransportContain::update HealthRegen%PerSec on embarked riders.
         self.update_transport_health_regen(dt);
 
         // Host China Propaganda / Speaker Tower residual: heal + ENTHUSIASTIC buff.
         // Fail-closed vs full PropagandaTowerBehavior sole-benefactor / PulseFX matrix.
-        self.update_propaganda_tower_pulse(dt);
-        self.update_overcharge_drain(dt);
+        self.update_propaganda_tower_pulse_with_effects(dt, &mut ui);
+        self.update_overcharge_drain_with_effects(dt, &mut ui);
         // Wave 810: host-sole unless movement authority live: rods completion owned by GW expire + logs.
         {
             self.update_power_plant_rods();
@@ -216,150 +216,150 @@ impl GameLogic {
 
         // Host China ECM Tank / jammer residual: jam enemy weapons in radius.
         // Fail-closed vs full subdual damage accumulate / laser stream / missile scatter.
-        self.update_ecm_jam_field();
+        self.update_ecm_jam_field_with_effects(&mut ui);
         self.update_ecm_missile_jam();
 
         // Host America Microwave Tank residual: DISABLE_SUBDUED on cooked structures.
         // Fail-closed vs full subdual accumulate/heal / laser stream / emitter field.
         // Wave 825: host-sole unless movement authority live: zone/field damage sole-ticks after GW writeback.
         {
-            self.update_microwave_disable();
+            self.update_microwave_disable_with_effects(&mut ui);
         }
         // Wave 825: host-sole unless movement authority live: zone/field damage sole-ticks after GW writeback.
         {
-            self.update_microwave_emitter_field();
+            self.update_microwave_emitter_field_with_effects(&mut ui);
         }
 
         // Host PointDefenseLaser residual: Paladin / Avenger / King Raptor intercept missiles.
         // Fail-closed vs full PointDefenseLaserUpdate velocity prediction / laser FX.
         // Wave 826: host-sole unless movement authority live: combat/field residuals sole-tick after GW writeback.
         {
-            self.update_point_defense_intercept();
+            self.update_point_defense_intercept_with_effects(&mut ui);
         }
         // Wave 806: host-sole unless movement authority live: lifetime owned by GW expire + logs.
         {
-            self.update_point_defense_laser_beam_objects();
+            self.update_point_defense_laser_beam_objects_with_effects(&mut ui);
         }
         // Wave 806: host-sole unless movement authority live: lifetime owned by GW expire + logs.
         {
-            self.update_weapon_laser_beam_objects();
+            self.update_weapon_laser_beam_objects_with_effects(&mut ui);
         }
         // Wave 804: host-sole unless movement authority live: residual owned by GW expire + logs.
         {
-            self.update_comanche_rocket_pod_projectiles();
+            self.update_comanche_rocket_pod_projectiles_with_effects(&mut ui);
         }
-        self.update_stealth_jet_missile_projectiles();
+        self.update_stealth_jet_missile_projectiles_with_effects(&mut ui);
         // Wave 800: host-sole unless movement authority live: cannon shell flight is owned by
         // GW tick_status_timer_expirations + impact logs.
         {
-            self.update_scud_launcher_missile_projectiles();
+            self.update_scud_launcher_missile_projectiles_with_effects(&mut ui);
         }
-        self.update_tomahawk_missile_projectiles();
-        self.update_rocket_buggy_missile_projectiles();
+        self.update_tomahawk_missile_projectiles_with_effects(&mut ui);
+        self.update_rocket_buggy_missile_projectiles_with_effects(&mut ui);
         // Wave 800: host-sole unless movement authority live: cannon shell flight is owned by
         // GW tick_status_timer_expirations + impact logs.
         {
-            self.update_neutron_cannon_shell_projectiles();
+            self.update_neutron_cannon_shell_projectiles_with_effects(&mut ui);
         }
         // Gate (latched counter): see the technical_rpg gate below.
         if self.rpg_trooper_missiles_spawned > 0 {
-            self.update_rpg_trooper_missile_projectiles();
+            self.update_rpg_trooper_missile_projectiles_with_effects(&mut ui);
         } else {
             #[cfg(test)]
             residual_gate_seam::note(&residual_gate_seam::RPG_TROOPER_MISSILES);
         }
         // Gate (latched counter): see the technical_rpg gate below.
         if self.tank_hunter_missiles_spawned > 0 {
-            self.update_tank_hunter_missile_projectiles();
+            self.update_tank_hunter_missile_projectiles_with_effects(&mut ui);
         } else {
             #[cfg(test)]
             residual_gate_seam::note(&residual_gate_seam::TANK_HUNTER_MISSILES);
         }
         // Gate (latched counter): see the technical_rpg gate below.
         if self.missile_defender_missiles_spawned > 0 {
-            self.update_missile_defender_missile_projectiles();
+            self.update_missile_defender_missile_projectiles_with_effects(&mut ui);
         } else {
             #[cfg(test)]
             residual_gate_seam::note(&residual_gate_seam::MISSILE_DEFENDER_MISSILES);
         }
         // Gate (latched counter): see the technical_rpg gate below.
         if self.scorpion_shells_spawned > 0 {
-            self.update_scorpion_shell_projectiles();
+            self.update_scorpion_shell_projectiles_with_effects(&mut ui);
         } else {
             #[cfg(test)]
             residual_gate_seam::note(&residual_gate_seam::SCORPION_SHELLS);
         }
         // Wave 805: host-sole unless movement authority live: residual owned by GW expire + logs.
         {
-            self.update_scorpion_missile_projectiles();
+            self.update_scorpion_missile_projectiles_with_effects(&mut ui);
         }
         // Wave 800: host-sole unless movement authority live: cannon shell flight is owned by
         // GW tick_status_timer_expirations + impact logs.
         {
-            self.update_nuke_cannon_shell_projectiles();
+            self.update_nuke_cannon_shell_projectiles_with_effects(&mut ui);
         }
-        self.update_usa_tank_shell_projectiles();
+        self.update_usa_tank_shell_projectiles_with_effects(&mut ui);
         // Gate (latched counter): see the technical_rpg gate below.
         if self.battlemaster_shells_spawned > 0 {
-            self.update_battlemaster_shell_projectiles();
+            self.update_battlemaster_shell_projectiles_with_effects(&mut ui);
         } else {
             #[cfg(test)]
             residual_gate_seam::note(&residual_gate_seam::BATTLEMASTER_SHELLS);
         }
         // Gate (latched counter): see the technical_rpg gate below.
         if self.overlord_shells_spawned > 0 {
-            self.update_overlord_shell_projectiles();
+            self.update_overlord_shell_projectiles_with_effects(&mut ui);
         } else {
             #[cfg(test)]
             residual_gate_seam::note(&residual_gate_seam::OVERLORD_SHELLS);
         }
         // Wave 803: host-sole unless movement authority live: residual owned by GW expire + logs.
         {
-            self.update_inferno_shell_projectiles();
+            self.update_inferno_shell_projectiles_with_effects(&mut ui);
         }
         // Gate (latched counter): see the technical_rpg gate below.
         if self.marauder_shells_spawned > 0 {
-            self.update_marauder_shell_projectiles();
+            self.update_marauder_shell_projectiles_with_effects(&mut ui);
         } else {
             #[cfg(test)]
             residual_gate_seam::note(&residual_gate_seam::MARAUDER_SHELLS);
         }
         // Gate (latched counter): see the technical_rpg gate below.
         if self.fire_base_shells_spawned > 0 {
-            self.update_fire_base_shell_projectiles();
+            self.update_fire_base_shell_projectiles_with_effects(&mut ui);
         } else {
             #[cfg(test)]
             residual_gate_seam::note(&residual_gate_seam::FIRE_BASE_SHELLS);
         }
         // Gate (latched counter): see the technical_rpg gate below.
         if self.raptor_missiles_spawned > 0 {
-            self.update_raptor_missile_projectiles();
+            self.update_raptor_missile_projectiles_with_effects(&mut ui);
         } else {
             #[cfg(test)]
             residual_gate_seam::note(&residual_gate_seam::RAPTOR_MISSILES);
         }
         // Gate (latched counter): see the technical_rpg gate below.
         if self.mig_missiles_spawned > 0 {
-            self.update_mig_missile_projectiles();
+            self.update_mig_missile_projectiles_with_effects(&mut ui);
         } else {
             #[cfg(test)]
             residual_gate_seam::note(&residual_gate_seam::MIG_MISSILES);
         }
         // Wave 804: host-sole unless movement authority live: residual owned by GW expire + logs.
         {
-            self.update_flashbang_grenade_projectiles();
+            self.update_flashbang_grenade_projectiles_with_effects(&mut ui);
         }
         // Gate (latched counter): see the technical_rpg gate below —
         // counter==0 proves the flag never got set, scan matches nothing.
         if self.humvee_tow_missiles_spawned > 0 {
-            self.update_humvee_tow_missile_projectiles();
+            self.update_humvee_tow_missile_projectiles_with_effects(&mut ui);
         } else {
             #[cfg(test)]
             residual_gate_seam::note(&residual_gate_seam::HUMVEE_TOW_MISSILES);
         }
         // Gate (latched counter): see the technical_rpg gate below.
         if self.dragon_flame_missiles_spawned > 0 {
-            self.update_dragon_flame_projectiles();
+            self.update_dragon_flame_projectiles_with_effects(&mut ui);
         } else {
             #[cfg(test)]
             residual_gate_seam::note(&residual_gate_seam::DRAGON_FLAME_MISSILES);
@@ -367,21 +367,21 @@ impl GameLogic {
         // Wave 798: host-sole unless movement authority live: ToxinStream projectile flight is owned by
         // GW tick_status_timer_expirations + impact/stream logs.
         {
-            self.update_toxin_stream_projectiles();
+            self.update_toxin_stream_projectiles_with_effects(&mut ui);
         }
         // Gate (latched counter): this projectile type exists only after its
         // first spawn — the spawn fn sets the object flag and bumps the
         // counter together, and the flag is never persisted, so counter==0
         // proves the whole-world scan below matches nothing.
         if self.technical_rpg_missiles_spawned > 0 {
-            self.update_technical_rpg_missile_projectiles();
+            self.update_technical_rpg_missile_projectiles_with_effects(&mut ui);
         } else {
             #[cfg(test)]
             residual_gate_seam::note(&residual_gate_seam::TECHNICAL_RPG_MISSILES);
         }
         // Gate (latched counter): see the technical_rpg gate above.
         if self.technical_cannon_shells_spawned > 0 {
-            self.update_technical_cannon_shell_projectiles();
+            self.update_technical_cannon_shell_projectiles_with_effects(&mut ui);
         } else {
             #[cfg(test)]
             residual_gate_seam::note(&residual_gate_seam::TECHNICAL_CANNON_SHELLS);
@@ -389,19 +389,19 @@ impl GameLogic {
         // Gate: no queued cleanup order -> take_orders/restore_orders are
         // provable no-ops and the per-order hazard scan never runs.
         if !self.cleanup_areas.orders().is_empty() {
-            self.update_cleanup_area_orders();
+            self.update_cleanup_area_orders_with_effects(&mut ui);
         } else {
             #[cfg(test)]
             residual_gate_seam::note(&residual_gate_seam::CLEANUP_AREA_ORDERS);
         }
         // Gate (latched counter): see the technical_rpg gate above.
         if self.cleanup_stream_missiles_spawned > 0 {
-            self.update_cleanup_stream_projectiles();
+            self.update_cleanup_stream_projectiles_with_effects(&mut ui);
         } else {
             #[cfg(test)]
             residual_gate_seam::note(&residual_gate_seam::CLEANUP_STREAM_MISSILES);
         }
-        self.update_missile_defender_laser_beam_objects();
+        self.update_missile_defender_laser_beam_objects_with_effects(&mut ui);
 
         // Host China EMP Pulse residual: DISABLED_EMP timers tick on objects in AI pass.
         // Activation is event-driven via DoSpecialPower (no continuous field).
@@ -413,7 +413,7 @@ impl GameLogic {
         // RadarVanPing DeletionUpdate residual + FOW undo.
         // Wave 809: host-sole unless movement authority live: lifetime owned by GW expire + logs.
         {
-            self.update_radar_van_pings();
+            self.update_radar_van_pings_with_effects(&mut ui);
         }
         self.update_radar_scans();
 
@@ -421,7 +421,7 @@ impl GameLogic {
         // Fail-closed vs full OCL SpySatellitePing / DynamicShroudClearingRangeUpdate.
         // Wave 803: host-sole unless movement authority live: residual owned by GW expire + logs.
         {
-            self.update_spy_satellite_pings();
+            self.update_spy_satellite_pings_with_effects(&mut ui);
         }
         self.update_spy_satellites();
         crate::command_executor::tick_live_beacon_client_updates(self);
@@ -435,23 +435,23 @@ impl GameLogic {
         // FireWallSegment object DeletionUpdate residual + zone damage ticks.
         // Wave 826: host-sole unless movement authority live: combat/field residuals sole-tick after GW writeback.
         {
-            self.update_firewall_segment_objects();
+            self.update_firewall_segment_objects_with_effects(&mut ui);
         }
         // Wave 825: host-sole unless movement authority live: zone/field damage sole-ticks after GW writeback.
         {
-            self.update_firewalls();
+            self.update_firewalls_with_effects(&mut ui);
         }
 
         // Host China Inferno Cannon residual: tick FireFieldSmall DoT at impact zones.
         // Fail-closed vs full InfernoTankShell projectile / OCL_FireFieldSmall spawn.
         // Wave 825: host-sole unless movement authority live: zone/field damage sole-ticks after GW writeback.
         {
-            self.update_inferno_fire_zones();
+            self.update_inferno_fire_zones_with_effects(&mut ui);
         }
         // Wave 802: host-sole unless movement authority live: field-object lifetime is owned by
         // GW tick_status_timer_expirations + expire logs.
         {
-            self.update_inferno_fire_field_objects();
+            self.update_inferno_fire_field_objects_with_effects(&mut ui);
         }
 
         // Host China Helix NapalmBomb residual: tick FirestormSmall DoT at drop zones.
@@ -459,14 +459,14 @@ impl GameLogic {
         // Gate: no active firestorm zone -> advance_geometry, the whole-world
         // position snapshot, and plan_due_ticks are provable no-ops.
         if !self.helix_napalm.active_zones().is_empty() {
-            self.update_helix_napalm_firestorms();
+            self.update_helix_napalm_firestorms_with_effects(&mut ui);
         } else {
             #[cfg(test)]
             residual_gate_seam::note(&residual_gate_seam::HELIX_NAPALM_FIRESTORMS);
         }
         // Wave 804: host-sole unless movement authority live: residual owned by GW expire + logs.
         {
-            self.update_helix_napalm_bomb_projectiles();
+            self.update_helix_napalm_bomb_projectiles_with_effects(&mut ui);
         }
 
         // Host GLA Bomb Truck BioBomb residual: tick MediumPoisonField DoT.
@@ -474,7 +474,7 @@ impl GameLogic {
         // Gate: no active poison zone -> the object-position snapshot and
         // plan_due_ticks are provable no-ops (registry iterates only zones).
         if !self.bomb_truck_detonate.active_poison_zones().is_empty() {
-            self.update_bomb_truck_poison_zones();
+            self.update_bomb_truck_poison_zones_with_effects(&mut ui);
         } else {
             #[cfg(test)]
             residual_gate_seam::note(&residual_gate_seam::BOMB_TRUCK_POISON_ZONES);
@@ -482,25 +482,25 @@ impl GameLogic {
         // Nuclear Tanks SmallRadiationField residual ticks.
         // Wave 825: host-sole unless movement authority live: zone/field damage sole-ticks after GW writeback.
         {
-            self.update_nuclear_tanks_radiation_zones();
+            self.update_nuclear_tanks_radiation_zones_with_effects(&mut ui);
         }
 
         // Host GLA SCUD toxin residual: tick MediumPoisonField DoT at impact zones.
         // Fail-closed vs full OCL_PoisonFieldMedium object spawn / particle bones.
         // Wave 825: host-sole unless movement authority live: zone/field damage sole-ticks after GW writeback.
         {
-            self.update_scud_poison_zones();
+            self.update_scud_poison_zones_with_effects(&mut ui);
         }
-        self.update_tensile_formations();
+        self.update_tensile_formations_with_effects(&mut ui);
         // Wave 820: host-sole unless movement authority live: fire-spread owned by GW expire + logs.
         {
-            self.update_fire_spread();
+            self.update_fire_spread_with_effects(&mut ui);
         }
         // Wave 780: BaseRegenerateUpdate is host-sole (C++ has one store; the
         // GW dual-peel heal tick is retired with wave780). Host skips only
         // while damage authority is live and the shadow session last-writes HP.
         {
-            self.update_base_regenerate();
+            self.update_base_regenerate_with_effects(&mut ui);
         }
         self.update_supply_warehouse_crippling();
 
@@ -517,7 +517,7 @@ impl GameLogic {
         // Wave 783: host-sole unless movement authority live: FloatUpdate is owned by
         // GW tick_status_timer_expirations + transform writeback.
         {
-            self.update_float_update();
+            self.update_float_update_with_effects(&mut ui);
         }
         // Wave 782: host-sole unless movement authority live: ProneUpdate is owned by
         // GW tick_status_timer_expirations + writeback.
@@ -537,59 +537,59 @@ impl GameLogic {
         // Wave 787: host-sole unless movement authority live: SmartBombTargetHomingUpdate is owned by
         // GW tick_status_timer_expirations + transform writeback.
         {
-            self.update_smart_bomb_target_homing();
+            self.update_smart_bomb_target_homing_with_effects(&mut ui);
         }
-        self.update_spectre_gunship_flights();
-        self.update_fuel_air_gas_slow_death();
-        self.update_neutron_missile_flights();
-        self.update_scud_storm_missile_flights();
+        self.update_spectre_gunship_flights_with_effects(&mut ui);
+        self.update_fuel_air_gas_slow_death_with_effects(&mut ui);
+        self.update_neutron_missile_flights_with_effects(&mut ui);
+        self.update_scud_storm_missile_flights_with_effects(&mut ui);
         // Wave 794: host-sole unless movement authority live: CarpetBomb flight is owned by
         // GW tick_status_timer_expirations + drop/detonate logs.
         {
-            self.update_carpet_bomb_flights();
+            self.update_carpet_bomb_flights_with_effects(&mut ui);
         }
         // Wave 793: host-sole unless movement authority live: ArtilleryBarrage flight is owned by
         // GW tick_status_timer_expirations + drop/detonate logs.
         {
-            self.update_artillery_barrage_flights();
+            self.update_artillery_barrage_flights_with_effects(&mut ui);
         }
         // Wave 792: host-sole unless movement authority live: A10 strike flight is owned by
         // GW tick_status_timer_expirations + drop/detonate logs.
         {
-            self.update_a10_strike_flights();
+            self.update_a10_strike_flights_with_effects(&mut ui);
         }
         // Wave 788: host-sole unless movement authority live: DaisyCutter/MOAB flight is owned by
         // GW tick_status_timer_expirations + drop/detonate logs.
         {
-            self.update_daisy_cutter_flights();
+            self.update_daisy_cutter_flights_with_effects(&mut ui);
         }
         // Wave 789: host-sole unless movement authority live: AnthraxBomb flight is owned by
         // GW tick_status_timer_expirations + drop/detonate logs.
         {
-            self.update_anthrax_bomb_flights();
+            self.update_anthrax_bomb_flights_with_effects(&mut ui);
         }
         // Wave 790: host-sole unless movement authority live: ClusterMines flight is owned by
         // GW tick_status_timer_expirations + drop/detonate logs.
         {
-            self.update_cluster_mines_flights();
+            self.update_cluster_mines_flights_with_effects(&mut ui);
         }
         // Wave 791: host-sole unless movement authority live: EMP Pulse flight + spheroid is owned by
         // GW tick_status_timer_expirations + drop/detonate/expire logs.
         {
-            self.update_emp_pulse_spheroids();
-            self.update_emp_pulse_flights();
+            self.update_emp_pulse_spheroids_with_effects(&mut ui);
+            self.update_emp_pulse_flights_with_effects(&mut ui);
         }
         // Gate: no frenzy marker spawns or due deletes -> the take-drain is a
         // state-identical no-op (both-empty mem::takes leave both empty).
         if !(self.frenzies.pending_marker_deletes.is_empty()
             && self.frenzies.markers_this_frame.is_empty())
         {
-            self.update_frenzy_invisible_markers();
+            self.update_frenzy_invisible_markers_with_effects(&mut ui);
         } else {
             #[cfg(test)]
             residual_gate_seam::note(&residual_gate_seam::FRENZY_MARKERS);
         }
-        self.update_gps_scrambler_grow();
+        self.update_gps_scrambler_grow_with_effects(&mut ui);
         // Gate: no growing spy-drone activation -> the fn early-returns
         // before any world work; skip the activation scan entirely.
         if self.spy_drones.activations_mut().iter().any(|a| a.growing) {
@@ -602,7 +602,7 @@ impl GameLogic {
         // whole-world object-position snapshot, plan_due_ticks, and
         // prune_expired are provable no-ops on the empty registry.
         if self.nuke_cannon_residual.active_count() > 0 {
-            self.update_nuke_cannon_radiation_zones();
+            self.update_nuke_cannon_radiation_zones_with_effects(&mut ui);
         } else {
             #[cfg(test)]
             residual_gate_seam::note(&residual_gate_seam::NUKE_CANNON_ZONES);
@@ -610,35 +610,35 @@ impl GameLogic {
         self.tick_fire_ocl_after_weapon_cooldown();
         // Wave 825: host-sole unless movement authority live: zone/field damage sole-ticks after GW writeback.
         {
-            self.update_toxin_tractor_poison_zones();
+            self.update_toxin_tractor_poison_zones_with_effects(&mut ui);
         }
 
         // Host America Aurora dive bomb residual: delayed area damage at target.
         // AuroraBombLocomotor flight residual + FuelAir gas OCL path.
         // Wave 826: host-sole unless movement authority live: combat/field residuals sole-tick after GW writeback.
         {
-            self.update_aurora_bombs();
+            self.update_aurora_bombs_with_effects(&mut ui);
         }
         // Wave 797: host-sole unless movement authority live: AuroraBomb projectile dive is owned by
         // GW tick_status_timer_expirations + destroy logs.
         {
-            self.update_aurora_bomb_projectiles();
+            self.update_aurora_bomb_projectiles_with_effects(&mut ui);
         }
 
         // Host GLA Angry Mob residual: aggregate fire on nearby enemies + expand.
         // Fail-closed vs full SpawnBehavior member objects / MobMemberSlavedUpdate.
-        self.update_angry_mobs();
+        self.update_angry_mobs_with_effects(&mut ui);
         // Wave 799: host-sole unless movement authority live: AngryMob projectile flight is owned by
         // GW tick_status_timer_expirations + impact logs.
         {
-            self.update_angry_mob_projectiles();
+            self.update_angry_mob_projectiles_with_effects(&mut ui);
         }
 
         // Host RailroadBehavior residual: locomotives follow track waypoints,
         // wait at stations, hitch carriages. Crate RailroadGuideAIUpdate is
         // gated empty (OBJECT_REGISTRY) so this is the live path.
         // C++ RailroadBehavior::update (RailroadGuideAIUpdate.cpp:652-832).
-        self.update_railroads();
+        self.update_railroads_with_effects(&mut ui);
         // C++ RailedTransportAIUpdate::update — park at nearest End, open dock
         // when the current End is reached. Crate leftover is dual-world gated.
         self.update_railed_transports();
@@ -646,37 +646,37 @@ impl GameLogic {
         // Host stealth residual: detector scans + DETECTED expiry.
         // Fail-closed vs full StealthUpdate/StealthDetectorUpdate modules
         // (no IR FX, kindof filters, or disguise).
-        self.update_stealth_and_detection();
+        self.update_stealth_and_detection_with_effects(&mut ui);
 
         // Stinger HiveStructureBody SpawnReplaceDelay residual slave respawns.
         // Wave 814: host-sole unless movement authority live: hive respawn owned by GW expire + logs.
         {
-            self.update_stinger_hive_respawns();
+            self.update_stinger_hive_respawns_with_effects(&mut ui);
         }
 
         // -----------------------------------------------------------------------
         // Phase 7: Combat Resolution (within object updates)
         // -----------------------------------------------------------------------
         // Weapon fire and damage application as part of the object update pass.
-        self.update_combat(&object_ids, dt);
-        self.mirror_overlord_addon_damage_after_combat();
-        self.flush_pending_garrison_really_damaged_ejects();
+        self.update_combat_with_effects(&object_ids, dt, &mut ui);
+        self.mirror_overlord_addon_damage_after_combat_with_effects(&mut ui);
+        self.flush_pending_garrison_really_damaged_ejects_with_effects(&mut ui);
         self.flush_subdual_passenger_orders();
         // Nested AttackStateMachine residual (privateAttackObject enter path).
         let frame = self.frame;
         let t = frame as f32 * LOGIC_FRAME_TIMESTEP;
-        self.tick_nested_attack_machines(&object_ids, t, frame);
-        self.tick_all_turret_state_machines(&object_ids, t, frame);
+        self.tick_nested_attack_machines_with_effects(&object_ids, t, frame, &mut ui);
+        self.tick_all_turret_state_machines_with_effects(&object_ids, t, frame, &mut ui);
         self.sync_attack_priority_from_script_engine();
         self.tick_mood_auto_acquire(&object_ids);
         self.tick_attack_team_persist(&object_ids);
         self.tick_attack_area_persist(&object_ids);
-        self.tick_out_of_ammo_jet_damage();
-        self.tick_airfield_parking_heal();
+        self.tick_out_of_ammo_jet_damage_with_effects(&mut ui);
+        self.tick_airfield_parking_heal_with_effects(&mut ui);
         self.tick_airfield_runway_clear();
-        self.tick_shock_stun_all();
+        self.tick_shock_stun_all_with_effects(&mut ui);
         // C++ PartitionManager collide residual (broadphase fail-closed O(n²)).
-        self.tick_physics_collisions_all();
+        self.tick_physics_collisions_all_with_effects(&mut ui);
 
         // Admit accepted shots from this session's CombatSystem before flight.
         // The same owner applies ordered impact damage and body callbacks.
@@ -696,14 +696,14 @@ impl GameLogic {
                 Some(&projectile_terrain),
             );
         }
-        self.apply_owned_projectileless_delayed_damage();
+        self.apply_owned_projectileless_delayed_damage_with_effects(&mut ui);
 
         // C++ Weapon::fireWeaponTemplate runs FireOCL at shot acceptance,
         // independently of whether the projectile later finds a target.
-        self.execute_pending_weapon_fire_ocls();
+        self.execute_pending_weapon_fire_ocls_with_effects(&mut ui);
         // Apply countermeasure diversion within the receiving projectile
         // operation, before committing damage; never repair health afterward.
-        let projectile_hits = self.update_owned_projectile_impacts(dt);
+        let projectile_hits = self.update_owned_projectile_impacts_with_effects(dt, &mut ui);
         for victim in self.combat_system.take_pending_under_attack() {
             let _ = self.try_under_attack_from_damage(victim);
         }
@@ -712,14 +712,14 @@ impl GameLogic {
                 o.last_damage_source
                     .and_then(|src| self.objects.get(&src).map(|s| s.team))
             });
-            self.mark_object_for_destruction(victim, killer);
+            self.mark_object_for_destruction_with_effects(victim, killer, &mut ui);
         }
         // Wave 470: countermeasure flare spawn/object residual stays host-owned
         // even when GameWorld sole-integrates projectile flight.
-        self.flush_countermeasure_flare_spawns();
+        self.flush_countermeasure_flare_spawns_with_effects(&mut ui);
         // Wave 806: host-sole unless movement authority live: lifetime owned by GW expire + logs.
         {
-            self.update_countermeasure_flare_objects();
+            self.update_countermeasure_flare_objects_with_effects(&mut ui);
         }
         self.drain_historic_bonus_firestorms();
 
@@ -730,7 +730,7 @@ impl GameLogic {
         }
         // C++ Weapon.ini ProjectileDetonationFX/OCL residual at real impact
         // (not fire-time), for either host or GameWorld flight ownership.
-        self.flush_projectile_impact_fx();
+        self.flush_projectile_impact_fx_with_effects(&mut ui);
         // C++ Weapon.ini ProjectileExhaust: MissileAI attaches at IGNITION
         // (`createAttachedParticleSystemID`). Publish leftover host poses so
         // attached systems follow; world-space sync is the fallback when
@@ -846,12 +846,12 @@ impl GameLogic {
         // C++ parity (GarrisonContain::onBodyDamageStateChange): when a garrisoned
         // building drops to ReallyDamaged health (<= 30%), all occupants are
         // force-ejected. This runs after combat so the health state is current.
-        self.check_building_damage_states(&object_ids);
+        self.check_building_damage_states_with_effects(&object_ids, &mut ui);
 
         // Object AI is part of the object/module pass, before the system AI
         // queue drain (C++ GameLogic.cpp:3699-3743). The existing owned host
         // executes these module families directly.
-        self.update_ai(&object_ids, dt);
+        self.update_ai_with_effects(&object_ids, dt, &mut ui);
 
         // Phase 8: C++ AI::update — pathfinding, then this match's players.
         self.update_match_ai_with_effects(&mut ui);
@@ -876,7 +876,7 @@ impl GameLogic {
         self.update_production_with_effects(dt, &mut ui);
         // Wave 827: host-sole unless movement authority live: host system residuals sole-tick after GW writeback.
         {
-            self.update_player_upgrades();
+            self.update_player_upgrades_with_effects(&mut ui);
         }
         // Skip crate BuildAssistant::update on the live tick. Its update() only
         // walks an in-memory mock sell-list and never resolves host objects
@@ -920,7 +920,7 @@ impl GameLogic {
         // Fail-closed: not full RadarUpgrade grant / power-brownout disable-proof path.
         // Radar belongs to each controlling Player. Recompute at the ordinary
         // host phase; a presentation/comparison shadow cannot grant radar.
-        self.update_player_radar();
+        self.update_player_radar_with_effects(&mut ui);
         self.drain_masked_object_selection();
         self.update_power_disabled_state();
 
@@ -945,18 +945,18 @@ impl GameLogic {
         // C++: processDestroyList();
         // Same-frame cascades: iterator re-evaluates end() so objects queued
         // during deletion are processed this logic frame (GameLogic.cpp:2449-2510).
-        self.fire_temporary_weapons_for_pending_deaths();
-        self.process_destroy_list();
+        self.fire_temporary_weapons_for_pending_deaths_with_effects(&mut ui);
+        self.process_destroy_list_with_effects(&mut ui);
         // C++ BridgeBehavior/Tower onDamage/onHealing/onDie + scaffold rise tick.
         // Residual drain is same-frame after object combat/AI/repair and destroy.
-        self.sync_host_bridge_rubble_and_scaffolds();
+        self.sync_host_bridge_rubble_and_scaffolds_with_effects(&mut ui);
 
         // -----------------------------------------------------------------------
         // Phase 14: Weapon Store Update (C++ line 3767)
         // -----------------------------------------------------------------------
         // C++: TheWeaponStore->UPDATE();
         // Process delayed weapon damage that is now ready.
-        self.apply_owned_projectileless_delayed_damage();
+        self.apply_owned_projectileless_delayed_damage_with_effects(&mut ui);
         match with_weapon_store_mut(|store| store.take_due_delayed_damage()) {
             Ok(due) => {
                 for info in due {
@@ -986,14 +986,14 @@ impl GameLogic {
         // -----------------------------------------------------------------------
         // C++: TheVictoryConditions->UPDATE();
         // This logic phase owns evaluation; presentation and probes only observe.
-        let _ = self.evaluate_victory_condition();
+        let _ = self.evaluate_victory_condition_with_effects(&mut ui);
 
         // -----------------------------------------------------------------------
         // Phase 16: Disabled Status Check (C++ lines 3783-3792)
         // -----------------------------------------------------------------------
         // C++: for( Object *obj = m_objList; obj; obj = obj->getNextObject() )
         // C++:   if( obj->isDisabled() ) obj->checkDisabledStatus();
-        self.expire_owned_disabled_statuses();
+        self.expire_owned_disabled_statuses_with_effects(&mut ui);
         self.check_bridge_disabled_statuses();
 
         // -----------------------------------------------------------------------
@@ -1022,7 +1022,7 @@ impl GameLogic {
         // real membership (fow_rendering::shroud_runtime_active).
 
         // C++ Radar.cpp overlay queries live Object pose/stealth each update.
-        self.host_radar_sync_live_objects();
+        self.host_radar_sync_live_objects_with_effects(&mut ui);
 
         // -----------------------------------------------------------------------
         // Phase 18: Team Events Flush

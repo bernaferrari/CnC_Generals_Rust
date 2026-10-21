@@ -115,12 +115,15 @@ impl<'a> CommandExecutor<'a> {
 
             // C++ BuildAssistant CLEAR_PATH residual before charging resources.
             if placement == BuildPlacement::Single
-                && !self.game_logic.is_location_legal_to_build_for_builder(
-                    team,
-                    location,
-                    template_name,
-                    Some(unit_id),
-                )
+                && !self
+                    .game_logic
+                    .is_location_legal_to_build_for_builder_with_effects(
+                        team,
+                        location,
+                        template_name,
+                        Some(unit_id),
+                        &mut self.ui,
+                    )
             {
                 return CommandResult::InvalidLocation;
             }
@@ -140,12 +143,13 @@ impl<'a> CommandExecutor<'a> {
             );
             if !self
                 .game_logic
-                .move_objects_for_construction_with_candidates(
+                .move_objects_for_construction_with_candidates_with_effects(
                     template_name,
                     location,
                     orientation,
                     Some(unit_id),
                     collision_candidates,
+                    &mut self.ui,
                 )
                 && self.game_logic.player_is_human(self.current_player_id)
             {
@@ -155,8 +159,11 @@ impl<'a> CommandExecutor<'a> {
             // BuildAssistant clears/scoots first. A human obstacle failure
             // returns above without cancelling the constructor's existing task.
             if matches!(placement, BuildPlacement::PreparedLine(_)) {
-                self.game_logic
-                    .unit_command_stop_with_source(unit_id, crate::game_logic::HUNT_CMD_FROM_AI);
+                self.game_logic.unit_command_stop_with_source_with_effects(
+                    unit_id,
+                    crate::game_logic::HUNT_CMD_FROM_AI,
+                    &mut self.ui,
+                );
             }
 
             {
@@ -310,7 +317,8 @@ impl<'a> CommandExecutor<'a> {
         }
         // C++ killing the building causes dozer cancelTask residual.
         self.game_logic.cancel_dozers_building(object_id);
-        self.game_logic.destroy_object(object_id);
+        self.game_logic
+            .destroy_object_with_effects(object_id, &mut self.ui);
         debug!("Canceled construction of object {}", object_id.0);
         CommandResult::Success
     }
@@ -411,21 +419,17 @@ impl<'a> CommandExecutor<'a> {
             }
         }
         for id in to_destroy {
-            self.game_logic.destroy_object(id);
+            self.game_logic
+                .destroy_object_with_effects(id, &mut self.ui);
         }
-        #[cfg(feature = "game_client")]
-        {
-            if let Ok(mut guard) = game_client::terrain::terrain_visual::get_terrain_visual() {
-                if let Some(visual) = guard.as_mut() {
-                    visual.remove_trees_and_props_for_construction(
-                        [location.x, location.z, location.y],
-                        major,
-                        minor,
-                        is_box,
-                        angle,
-                    );
-                }
-            }
+        if let Some(visual) = self.ui.terrain.as_mut() {
+            visual.remove_for_construction(
+                [location.x, location.z, location.y],
+                major,
+                minor,
+                is_box,
+                angle,
+            );
         }
     }
 }

@@ -33,6 +33,21 @@ impl GameLogic {
         source_object: ObjectId,
         target_position: Vec3,
     ) -> Option<u32> {
+        self.queue_special_power_strike_with_effects(
+            power,
+            source_object,
+            target_position,
+            &mut Default::default(),
+        )
+    }
+
+    pub(crate) fn queue_special_power_strike_with_effects(
+        &mut self,
+        power: &crate::command_system::SpecialPowerType,
+        source_object: ObjectId,
+        target_position: Vec3,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> Option<u32> {
         use crate::game_logic::special_power_strikes::{
             A10StrikeScienceTier, ArtilleryBarrageScienceTier, HostSuperweaponKind,
             ScudStormAnthraxTier, SpectreGunshipScienceTier,
@@ -144,10 +159,11 @@ impl GameLogic {
         // OrbitTime (AirF_AmericaJetSpectreGunship1/2/3 per science tier;
         // vanilla Solo 15000 ms).
         if kind == HostSuperweaponKind::SpectreGunship {
-            let _ = self.initiate_spectre_gunship_deployment_with_tier(
+            let _ = self.initiate_spectre_gunship_deployment_with_tier_with_effects(
                 source_object,
                 target_position,
                 spectre_tier,
+                effects,
             );
         }
         // C++ OCLSpecialPower::doSpecialPowerAtLocation → ObjectCreationList::create.
@@ -164,7 +180,12 @@ impl GameLogic {
                     kind.label(),
                 )
             {
-                let _ = self.execute_ocl_special_power(tmpl, source_object, target_position);
+                let _ = self.execute_ocl_special_power_with_effects(
+                    tmpl,
+                    source_object,
+                    target_position,
+                    effects,
+                );
             }
         }
         // C++ CarpetBomb DeliverPayload residual (B52/AirF/China + staggered drops).
@@ -192,7 +213,12 @@ impl GameLogic {
         if let Some(tier) = carpet_flight_tier {
             // C++ one CarpetBombWeapon per drop. Flight leftover owns the blast.
             if self
-                .spawn_carpet_bomb_flight(source_object, target_position, tier)
+                .spawn_carpet_bomb_flight_with_effects(
+                    source_object,
+                    target_position,
+                    tier,
+                    effects,
+                )
                 .is_some()
             {
                 if let Some(s) = self.special_power_strikes.get_mut(id) {
@@ -202,13 +228,22 @@ impl GameLogic {
         }
         // C++ ArtilleryBarrage DeliverPayload residual (cannon + staggered shells).
         if kind == HostSuperweaponKind::ArtilleryBarrage {
-            let _ =
-                self.spawn_artillery_barrage_flight(source_object, target_position, artillery_tier);
+            let _ = self.spawn_artillery_barrage_flight_with_effects(
+                source_object,
+                target_position,
+                artillery_tier,
+                effects,
+            );
         }
         // C++ A10Thunderbolt DeliverPayload residual (jet + staggered missiles).
         if kind == HostSuperweaponKind::A10Strike {
             if self
-                .spawn_a10_strike_flight(source_object, target_position, a10_tier)
+                .spawn_a10_strike_flight_with_effects(
+                    source_object,
+                    target_position,
+                    a10_tier,
+                    effects,
+                )
                 .is_some()
             {
                 if let Some(s) = self.special_power_strikes.get_mut(id) {
@@ -233,13 +268,18 @@ impl GameLogic {
                 .as_ref()
                 .map(|p| DaisyFlightPayloadTier::from_ocl_name(&p.ocl_name))
                 .unwrap_or(DaisyFlightPayloadTier::DaisyCutter);
-            let _ = self.spawn_daisy_cutter_flight(source_object, target_position, tier);
+            let _ = self.spawn_daisy_cutter_flight_with_effects(
+                source_object,
+                target_position,
+                tier,
+                effects,
+            );
         }
         // C++ AnthraxBomb DeliverPayload residual (GLAJetCargoPlane + bomb).
         // C++ one FireWeaponWhenDead — flight leftover owns the blast + toxin.
         if kind == HostSuperweaponKind::AnthraxBomb {
             if self
-                .spawn_anthrax_bomb_flight(source_object, target_position)
+                .spawn_anthrax_bomb_flight_with_effects(source_object, target_position, effects)
                 .is_some()
             {
                 if let Some(s) = self.special_power_strikes.get_mut(id) {
@@ -259,8 +299,13 @@ impl GameLogic {
                         .get(&source_object)
                         .map(|o| o.get_position())
                         .unwrap_or(target_position);
-                    let spawned =
-                        self.execute_ocl_fire_weapon(ocl, source_object, primary, target_position);
+                    let spawned = self.execute_ocl_fire_weapon_with_effects(
+                        ocl,
+                        source_object,
+                        primary,
+                        target_position,
+                        effects,
+                    );
                     // C++ one NeutronMissileSlowDeath on the flying missile.
                     // Registry delayed blast is only a fallback when spawn fails.
                     if kind == HostSuperweaponKind::NuclearMissile {
@@ -322,7 +367,12 @@ impl GameLogic {
         // C++ SpecialPowerModule.cpp:513 aboutToDoSpecialPower.
         self.notify_script_engine_special_power_event(source_object, power, true, false);
         // C++ SpecialPowerModule.cpp:454/462 createViewObject (range 250 / 30-40s).
-        self.create_special_power_view_object(source_object, target_position, kind);
+        self.create_special_power_view_object_with_effects(
+            source_object,
+            target_position,
+            kind,
+            effects,
+        );
 
         // C++ SpecialPowerModule.cpp:622-628 getInitiateAtTargetSound at click.
         // Distinct from source InitiateSound (CommandXlat / hq-yip5e).
@@ -417,11 +467,27 @@ impl GameLogic {
         target_position: Vec3,
         kind: crate::game_logic::special_power_strikes::HostSuperweaponKind,
     ) -> bool {
-        self.create_special_power_view_object_at(
+        self.create_special_power_view_object_with_effects(
+            source_object,
+            target_position,
+            kind,
+            &mut Default::default(),
+        )
+    }
+
+    pub(crate) fn create_special_power_view_object_with_effects(
+        &mut self,
+        source_object: ObjectId,
+        target_position: Vec3,
+        kind: crate::game_logic::special_power_strikes::HostSuperweaponKind,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
+        self.create_special_power_view_object_at_with_effects(
             source_object,
             target_position,
             kind.view_object_range(),
             kind.view_object_duration_frames(),
+            effects,
         )
     }
 
@@ -433,6 +499,23 @@ impl GameLogic {
         target_position: Vec3,
         range: f32,
         duration: u32,
+    ) -> bool {
+        self.create_special_power_view_object_at_with_effects(
+            source_object,
+            target_position,
+            range,
+            duration,
+            &mut Default::default(),
+        )
+    }
+
+    pub(crate) fn create_special_power_view_object_at_with_effects(
+        &mut self,
+        source_object: ObjectId,
+        target_position: Vec3,
+        range: f32,
+        duration: u32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> bool {
         use crate::game_logic::special_power_strikes::HostViewObjectReveal;
         use crate::game_logic::{KindOf, ThingTemplate};
@@ -459,7 +542,13 @@ impl GameLogic {
             self.templates.insert(VIEW_OBJECT_TEMPLATE.to_string(), t);
         }
 
-        let object_id = self.create_object(VIEW_OBJECT_TEMPLATE, team, target_position);
+        let object_id = self.create_object_with_script_effects(
+            VIEW_OBJECT_TEMPLATE,
+            team,
+            target_position,
+            None,
+            effects,
+        );
         if let Some(oid) = object_id {
             if let Some(o) = self.objects.get_mut(&oid) {
                 o.shroud_clearing_range = range;
@@ -538,6 +627,13 @@ impl GameLogic {
     /// ArtilleryBarrage residual applies multi-shell scatter damage after delay.
     /// CruiseMissile residual applies MOAB area damage after loft delay.
     pub fn update_special_power_strikes(&mut self) {
+        self.update_special_power_strikes_with_effects(&mut Default::default());
+    }
+
+    pub(crate) fn update_special_power_strikes_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         use crate::game_logic::special_power_strikes::{
             ANTHRAX_TOXIN_AUDIO, HostSuperweaponKind, NUKE_RADIATION_AUDIO, SPECTRE_ORBIT_AUDIO,
         };
@@ -570,13 +666,14 @@ impl GameLogic {
                     let destroyed = {
                         let owned_victim_id = target.id;
                         let owned_damage_type = plan.kind.authored_damage_type();
-                        self.apply_residual_damage_owned(
+                        self.apply_residual_damage_owned_with_effects(
                             owned_victim_id,
                             hit.damage,
                             Some(plan.source_object),
                             owned_damage_type,
                             plan.kind.authored_death_type(),
                             None,
+                            effects,
                         )
                     };
 
@@ -590,7 +687,7 @@ impl GameLogic {
             }
 
             for (id, killer_team) in destroy_ids {
-                self.mark_object_for_destruction(id, Some(killer_team));
+                self.mark_object_for_destruction_with_effects(id, Some(killer_team), effects);
             }
 
             // C++ one SlowDeath on the flying missile — no registry instant blast.
@@ -639,10 +736,13 @@ impl GameLogic {
                 {
                     let player = self.local_player_id();
                     let receiver = &mut self.special_power_strikes;
-                    Self::with_host_fx_view_parts(
+                    Self::with_host_fx_view_parts_and_terrain(
                         &mut self.session_view,
                         player,
                         self.world_services.shroud(),
+                        effects.terrain.as_mut().map(|terrain| {
+                            &mut **terrain as &mut dyn crate::game_logic::NativeTerrainEffects
+                        }),
                         |view| {
                             receiver.record_impact_wave_with_view(
                                 fx_arg_0, fx_arg_1, fx_arg_2, fx_arg_3, fx_arg_4, fx_arg_5,
@@ -756,47 +856,47 @@ impl GameLogic {
         // NuclearMissile residual radiation field ticks (after impact blasts).
         // Wave 825: under coupled shadow, zone/field damage sole-ticks after GW writeback.
         {
-            self.update_nuclear_radiation_fields();
+            self.update_nuclear_radiation_fields_with_effects(effects);
         }
         // Wave 825: under coupled shadow, zone/field damage sole-ticks after GW writeback.
         {
-            self.update_neutron_slow_death_fields();
+            self.update_neutron_slow_death_fields_with_effects(effects);
         }
-        self.update_wave_guides();
+        self.update_wave_guides_with_effects(effects);
         // AnthraxBomb residual toxin field ticks (after impact blasts).
         // Wave 825: under coupled shadow, zone/field damage sole-ticks after GW writeback.
         {
-            self.update_anthrax_toxin_fields();
+            self.update_anthrax_toxin_fields_with_effects(effects);
         }
         // SpectreGunship residual orbit damage ticks (after insertion).
         // Wave 825: under coupled shadow, zone/field damage sole-ticks after GW writeback.
         {
-            self.update_spectre_orbit_fields();
+            self.update_spectre_orbit_fields_with_effects(effects);
         }
-        self.spawn_spectre_howitzer_shell_objects_for_new_spawns();
+        self.spawn_spectre_howitzer_shell_objects_for_new_spawns_with_effects(effects);
         // Wave 806: under coupled shadow, lifetime owned by GW expire + logs.
         {
-            self.update_spectre_howitzer_shell_objects();
+            self.update_spectre_howitzer_shell_objects_with_effects(effects);
         }
         // ParticleCannon residual continuous beam pulses (after charge residual).
-        self.update_particle_beam_fields();
-        self.spawn_particle_orbital_laser_objects_for_new_beams();
-        self.spawn_particle_connector_laser_objects_for_new_beams();
+        self.update_particle_beam_fields_with_effects(effects);
+        self.spawn_particle_orbital_laser_objects_for_new_beams_with_effects(effects);
+        self.spawn_particle_connector_laser_objects_for_new_beams_with_effects(effects);
         // Wave 808: under coupled shadow, lifetime owned by GW expire + logs.
         {
-            self.update_particle_orbital_laser_objects();
+            self.update_particle_orbital_laser_objects_with_effects(effects);
         }
         // Wave 808: under coupled shadow, lifetime owned by GW expire + logs.
         {
-            self.update_particle_connector_laser_objects();
+            self.update_particle_connector_laser_objects_with_effects(effects);
         }
         // Particle Uplink DamagePulseRemnant trail residual ticks.
-        self.spawn_particle_trail_remnant_objects_for_new_fields();
+        self.spawn_particle_trail_remnant_objects_for_new_fields_with_effects(effects);
         // Wave 808: under coupled shadow, lifetime owned by GW expire + logs.
         {
-            self.update_particle_trail_remnant_objects();
+            self.update_particle_trail_remnant_objects_with_effects(effects);
         }
-        self.update_particle_remnant_fields();
+        self.update_particle_remnant_fields_with_effects(effects);
     }
 
     /// Tick residual radiation fields spawned by NuclearMissile impacts.
@@ -804,6 +904,13 @@ impl GameLogic {
 
     /// C++ NeutronMissileSlowDeathBehavior multi-blast residual.
     pub(in super::super) fn update_neutron_slow_death_fields(&mut self) {
+        self.update_neutron_slow_death_fields_with_effects(&mut Default::default());
+    }
+
+    pub(in super::super) fn update_neutron_slow_death_fields_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         use crate::game_logic::host_neutron_missile_slow_death::{
             MC_BIT_BURNED, neutron_blast_can_topple, plan_neutron_frame,
         };
@@ -899,10 +1006,13 @@ impl GameLogic {
                         .unwrap_or(false);
                     if neutron_blast_can_topple(has, able) {
                         #[cfg(feature = "game_client")]
-                        Self::with_host_fx_view_parts(
+                        Self::with_host_fx_view_parts_and_terrain(
                             &mut self.session_view,
                             fx_player,
                             self.world_services.shroud(),
+                            effects.terrain.as_mut().map(|terrain| {
+                                &mut **terrain as &mut dyn crate::game_logic::NativeTerrainEffects
+                            }),
                             |view| {
                                 obj.apply_topple_with_fx(
                                     hit.topple_dx,
@@ -938,13 +1048,14 @@ impl GameLogic {
                     let destroyed = {
                         let owned_victim_id = obj.id;
                         let owned_damage_type = crate::game_logic::combat::DamageType::Explosive;
-                        self.apply_residual_damage_owned(
+                        self.apply_residual_damage_owned_with_effects(
                             owned_victim_id,
                             hit.damage,
                             Some(meta.source_object),
                             owned_damage_type,
                             crate::game_logic::host_usa_pilot::HostDeathType::Exploded,
                             None,
+                            effects,
                         )
                     };
 
@@ -964,12 +1075,20 @@ impl GameLogic {
             .restore_neutron_slow_death_fields(keep_fields, keep_metas);
 
         for (id, team) in destroy_ids {
-            self.mark_object_for_destruction(id, Some(team));
+            self.mark_object_for_destruction_with_effects(id, Some(team), effects);
         }
     }
 
     /// C++ WaveGuideUpdate residual — flood wave motion + damage after DamDie.
     pub(in super::super) fn update_wave_guides(&mut self) {
+        self.update_wave_guides_with_effects(&mut Default::default());
+    }
+
+    pub(in super::super) fn update_wave_guides_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
+        let tree_move_frame = self.frame;
         use crate::game_logic::host_bridge_behavior::is_bridge_span_template;
         use crate::game_logic::host_topple::{
             HostToppleData, TOPPLE_OPTIONS_NO_BOUNCE, TOPPLE_OPTIONS_NO_FX,
@@ -1131,7 +1250,7 @@ impl GameLogic {
                     obj.set_orientation(angle);
                 }
                 if let Some(p) = apply_pos {
-                    obj.set_position(p);
+                    obj.set_position_with_effects(p, tree_move_frame, effects);
                 }
                 let p = obj.get_position();
                 let team = obj.team;
@@ -1161,7 +1280,7 @@ impl GameLogic {
                 .unwrap_or(crate::game_logic::host_wave_guide::WAVE_PREFERRED_HEIGHT);
 
             // C++ WaveGuideUpdate.cpp:411-415 `doWaterMotion` → addWaterVelocity.
-            if let Some(tv) = gamelogic::helpers::TheTerrainVisual::get() {
+            if let Some(tv) = effects.terrain.as_mut() {
                 let facing = self
                     .objects
                     .get(&gid)
@@ -1272,13 +1391,14 @@ impl GameLogic {
                         let destroyed = {
                             let owned_victim_id = obj.id;
                             let owned_damage_type = crate::game_logic::combat::DamageType::Water;
-                            self.apply_residual_damage_owned(
+                            self.apply_residual_damage_owned_with_effects(
                                 owned_victim_id,
                                 dmg,
                                 Some(gid),
                                 owned_damage_type,
                                 HostDeathType::Flooded,
                                 None,
+                                effects,
                             )
                         };
                         if destroyed {
@@ -1287,19 +1407,32 @@ impl GameLogic {
                     }
                     if is_bridge {
                         self.ensure_named_bridge_template("WaterWaveBridge", 1.0);
-                        let _ = self.create_object("WaterWaveBridge", Team::Neutral, p);
-                        self.delete_owned_bridge_at(p);
+                        let _ = self.create_object_with_script_effects(
+                            "WaterWaveBridge",
+                            Team::Neutral,
+                            p,
+                            None,
+                            effects,
+                        );
+                        self.delete_owned_bridge_at_with_effects(p, effects);
                     }
                 }
             }
         }
 
         for (id, team) in destroy_ids {
-            self.mark_object_for_destruction(id, Some(team));
+            self.mark_object_for_destruction_with_effects(id, Some(team), effects);
         }
     }
 
     pub(in super::super) fn update_nuclear_radiation_fields(&mut self) {
+        self.update_nuclear_radiation_fields_with_effects(&mut Default::default())
+    }
+
+    pub(in super::super) fn update_nuclear_radiation_fields_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let object_positions: Vec<(ObjectId, Vec3, Team, bool)> = self
             .objects
             .iter()
@@ -1338,7 +1471,7 @@ impl GameLogic {
             }
 
             for (id, killer_team) in destroy_ids {
-                self.mark_object_for_destruction(id, Some(killer_team));
+                self.mark_object_for_destruction_with_effects(id, Some(killer_team), effects);
             }
 
             self.special_power_strikes.record_radiation_tick_complete(
@@ -1351,10 +1484,10 @@ impl GameLogic {
         }
 
         // NukeRadiationFieldWeapon Object residual (spawn + DeletionUpdate lifetime).
-        self.spawn_nuke_radiation_field_objects_for_new_fields();
+        self.spawn_nuke_radiation_field_objects_for_new_fields_with_effects(effects);
         // Wave 820: under coupled shadow, field-object lifetime owned by GW expire.
         {
-            self.update_nuke_radiation_field_objects();
+            self.update_nuke_radiation_field_objects_with_effects(effects);
         }
         self.special_power_strikes.prune_expired_radiation(frame);
     }
@@ -1362,6 +1495,13 @@ impl GameLogic {
     /// Tick residual toxin fields spawned by AnthraxBomb impacts.
     /// Fail-closed vs full HazardousMaterialArmor / cleanup-hazard / gamma objects.
     pub(in super::super) fn update_anthrax_toxin_fields(&mut self) {
+        self.update_anthrax_toxin_fields_with_effects(&mut Default::default())
+    }
+
+    pub(in super::super) fn update_anthrax_toxin_fields_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let object_positions: Vec<(ObjectId, Vec3, Team, bool, bool)> = self
             .objects
             .iter()
@@ -1396,13 +1536,14 @@ impl GameLogic {
                         let owned_victim_id = target.id;
                         let owned_damage_type =
                             crate::game_logic::host_poisoned_behavior::poison_weapon_damage_type();
-                        self.apply_residual_damage_owned(
+                        self.apply_residual_damage_owned_with_effects(
                             owned_victim_id,
                             hit.damage,
                             Some(plan.source_object),
                             owned_damage_type,
                             plan.death_type,
                             None,
+                            effects,
                         )
                     };
                     total_damage += hit.damage;
@@ -1415,7 +1556,7 @@ impl GameLogic {
             }
 
             for (id, killer_team) in destroy_ids {
-                self.mark_object_for_destruction(id, Some(killer_team));
+                self.mark_object_for_destruction_with_effects(id, Some(killer_team), effects);
             }
 
             self.special_power_strikes.record_toxin_tick_complete(
@@ -1427,10 +1568,10 @@ impl GameLogic {
             );
         }
 
-        self.spawn_anthrax_toxin_field_objects_for_new_fields();
+        self.spawn_anthrax_toxin_field_objects_for_new_fields_with_effects(effects);
         // Wave 820: under coupled shadow, field-object lifetime owned by GW expire.
         {
-            self.update_anthrax_toxin_field_objects();
+            self.update_anthrax_toxin_field_objects_with_effects(effects);
         }
         self.special_power_strikes.prune_expired_toxin(frame);
     }
@@ -1811,6 +1952,13 @@ impl GameLogic {
     /// Tick residual Spectre orbit fields spawned at orbit insertion.
     /// Fail-closed vs full SpectreGunshipUpdate gattling-strafe / howitzer projectile.
     pub(in super::super) fn update_spectre_orbit_fields(&mut self) {
+        self.update_spectre_orbit_fields_with_effects(&mut Default::default())
+    }
+
+    pub(in super::super) fn update_spectre_orbit_fields_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         use crate::game_logic::special_power_strikes::{
             HostSpectreOrbitDamageStream, SPECTRE_VOICE_RAPID_FIRE_SLOT,
             spectre_voice_rapid_fire_crossings,
@@ -1903,20 +2051,21 @@ impl GameLogic {
                             let owned_victim_id = target.id;
                             let owned_damage_type =
                                 crate::game_logic::combat::DamageType::Explosive;
-                            self.apply_residual_damage_owned(
+                            self.apply_residual_damage_owned_with_effects(
                                 owned_victim_id,
                                 hit.damage,
                                 Some(plan.source_object),
                                 owned_damage_type,
                                 crate::game_logic::host_usa_pilot::HostDeathType::Exploded,
                                 None,
+                                effects,
                             )
                         }
                         HostSpectreOrbitDamageStream::Gattling => {
                             let owned_victim_id = target.id;
                             let owned_damage_type =
                                 crate::game_logic::combat::DamageType::Unresistable;
-                            self.apply_residual_damage_owned(owned_victim_id, hit.damage, Some(plan.source_object), owned_damage_type, crate::game_logic::host_usa_pilot::HostDeathType::from_host_damage_type(owned_damage_type), None)
+                            self.apply_residual_damage_owned_with_effects(owned_victim_id, hit.damage, Some(plan.source_object), owned_damage_type, crate::game_logic::host_usa_pilot::HostDeathType::from_host_damage_type(owned_damage_type), None, effects)
                         }
                     };
                     total_damage += hit.damage;
@@ -1929,7 +2078,7 @@ impl GameLogic {
             }
 
             for (id, killer_team) in destroy_ids {
-                self.mark_object_for_destruction(id, Some(killer_team));
+                self.mark_object_for_destruction_with_effects(id, Some(killer_team), effects);
             }
 
             // C++ AI wide-acquire steer (:530-556): m_positionToShootAt snaps
@@ -2050,6 +2199,13 @@ impl GameLogic {
     /// Fail-closed vs full bone-extract lasers / GPU OuterBeamWidth matrix.
     /// Swath + DamagePulseRemnant residual closed.
     pub(in super::super) fn update_particle_beam_fields(&mut self) {
+        self.update_particle_beam_fields_with_effects(&mut Default::default());
+    }
+
+    pub(in super::super) fn update_particle_beam_fields_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let frame = self.frame;
         self.apply_pending_special_power_overrides();
         let aborting: std::collections::HashSet<ObjectId> = self
@@ -2068,10 +2224,13 @@ impl GameLogic {
             {
                 let player = self.local_player_id();
                 let receiver = &mut self.special_power_strikes;
-                Self::with_host_fx_view_parts(
+                Self::with_host_fx_view_parts_and_terrain(
                     &mut self.session_view,
                     player,
                     self.world_services.shroud(),
+                    effects.terrain.as_mut().map(|terrain| {
+                        &mut **terrain as &mut dyn crate::game_logic::NativeTerrainEffects
+                    }),
                     |view| receiver.advance_particle_intensity_schedule_with_view(fx_arg_0, view),
                 )
             }
@@ -2106,10 +2265,13 @@ impl GameLogic {
             {
                 let player = self.local_player_id();
                 let receiver = &mut self.special_power_strikes;
-                Self::with_host_fx_view_parts(
+                Self::with_host_fx_view_parts_and_terrain(
                     &mut self.session_view,
                     player,
                     self.world_services.shroud(),
+                    effects.terrain.as_mut().map(|terrain| {
+                        &mut **terrain as &mut dyn crate::game_logic::NativeTerrainEffects
+                    }),
                     |view| receiver.bind_beam_source_axes_with_view(fx_arg_0, view),
                 )
             }
@@ -2146,13 +2308,14 @@ impl GameLogic {
                     let killed = {
                         let owned_victim_id = target.id;
                         let owned_damage_type = damage_type;
-                        self.apply_residual_damage_owned(
+                        self.apply_residual_damage_owned_with_effects(
                             owned_victim_id,
                             hit.damage,
                             Some(plan.source_object),
                             owned_damage_type,
                             death_type,
                             None,
+                            effects,
                         )
                     };
 
@@ -2166,7 +2329,7 @@ impl GameLogic {
             }
 
             for (id, killer_team) in destroy_ids {
-                self.mark_object_for_destruction(id, Some(killer_team));
+                self.mark_object_for_destruction_with_effects(id, Some(killer_team), effects);
             }
 
             self.special_power_strikes.record_beam_tick_complete(
@@ -2190,7 +2353,7 @@ impl GameLogic {
             .apply_due_beam_scorch_reveals(frame);
         for event in &scorch_events {
             #[cfg(feature = "game_client")]
-            self.with_host_fx_view(|view| {
+            self.with_host_fx_view_and_terrain(effects.terrain.as_mut().map(|terrain| &mut **terrain as &mut dyn crate::game_logic::NativeTerrainEffects), |view| {
                 crate::game_logic::special_power_strikes::apply_particle_beam_scorch_and_ground_hit_fx_with_view(
                     event.position,
                     event.scorch_radius,
@@ -2247,6 +2410,15 @@ impl GameLogic {
 
     /// C++ SpectreHowitzerShell ThingFactory Object residual (orbit howitzer ticks).
     pub fn spawn_spectre_howitzer_shell_objects_for_new_spawns(&mut self) {
+        self.spawn_spectre_howitzer_shell_objects_for_new_spawns_with_effects(
+            &mut Default::default(),
+        )
+    }
+
+    pub(crate) fn spawn_spectre_howitzer_shell_objects_for_new_spawns_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         use crate::game_logic::combat_particles::CombatParticleKind;
         use crate::game_logic::special_power_strikes::{
             SPECTRE_HOWITZER_FIRE_FX, SPECTRE_HOWITZER_HEIGHT_DIE_INITIAL_DELAY_FRAMES,
@@ -2302,7 +2474,13 @@ impl GameLogic {
                 Some(gunship_id),
                 None,
             );
-            if let Some(oid) = self.create_object(SPECTRE_HOWITZER_SHELL_OBJECT, team, pos) {
+            if let Some(oid) = self.create_object_with_script_effects(
+                SPECTRE_HOWITZER_SHELL_OBJECT,
+                team,
+                pos,
+                None,
+                effects,
+            ) {
                 if let Some(o) = self.objects.get_mut(&oid) {
                     o.spectre_howitzer_shell = true;
                     o.note_producer(source);
@@ -2324,6 +2502,13 @@ impl GameLogic {
 
     /// Natural shell end (HeightDie impact or MaxLifespan detonate-at-end).
     pub fn update_spectre_howitzer_shell_objects(&mut self) {
+        self.update_spectre_howitzer_shell_objects_with_effects(&mut Default::default())
+    }
+
+    pub(crate) fn update_spectre_howitzer_shell_objects_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         use crate::game_logic::special_power_strikes::{
             SPECTRE_HOWITZER_DETONATION_FX, SPECTRE_HOWITZER_HEIGHT_DIE_INITIAL_DELAY_FRAMES,
             SPECTRE_HOWITZER_HEIGHT_DIE_TARGET_HEIGHT, SPECTRE_HOWITZER_SHELL_MAX_LIFESPAN_FRAMES,
@@ -2369,7 +2554,11 @@ impl GameLogic {
             // for a natural detonation; it stays reserved for damage kills.
             let detonation_pos = self.objects.get(&id).map(|o| o.get_position());
             if let Some(pos) = detonation_pos {
-                let _ = self.dispatch_fx_list_at_host_position(SPECTRE_HOWITZER_DETONATION_FX, pos);
+                let _ = self.dispatch_fx_list_at_host_position_with_effects(
+                    SPECTRE_HOWITZER_DETONATION_FX,
+                    pos,
+                    effects,
+                );
                 // C++ Weapon.cpp:897-941 handleProjectileDetonation — the FX
                 // also registers in the host particle registry (visual parity).
                 let _ = self.combat_particles.spawn_named(
@@ -2392,12 +2581,19 @@ impl GameLogic {
                 o.status.effectively_dead = true;
                 o.spectre_howitzer_shell = false;
             }
-            self.mark_object_for_destruction(id, None);
+            self.mark_object_for_destruction_with_effects(id, None, effects);
         }
     }
 
     /// C++ PoisonFieldAnthraxBomb / PoisonFieldLarge ThingFactory Object residual.
     pub fn spawn_anthrax_toxin_field_objects_for_new_fields(&mut self) {
+        self.spawn_anthrax_toxin_field_objects_for_new_fields_with_effects(&mut Default::default())
+    }
+
+    pub(crate) fn spawn_anthrax_toxin_field_objects_for_new_fields_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         use crate::game_logic::special_power_strikes::{
             ANTHRAX_TOXIN_FIELD_MAX_HEALTH, ANTHRAX_TOXIN_OBJECT_NAME,
             SCUD_POISON_FIELD_MAX_HEALTH, SCUD_POISON_OBJECT_NAME,
@@ -2468,7 +2664,9 @@ impl GameLogic {
                 self.templates.insert(tmpl.clone(), t);
             }
             let expires = self.frame.saturating_add(lifetime.max(1));
-            if let Some(oid) = self.create_object(&tmpl, team, pos) {
+            if let Some(oid) =
+                self.create_object_with_script_effects(&tmpl, team, pos, None, effects)
+            {
                 if let Some(o) = self.objects.get_mut(&oid) {
                     o.anthrax_toxin_field = true;
                     o.note_producer(source);
@@ -2506,6 +2704,13 @@ impl GameLogic {
 
     /// C++ NukeRadiationFieldWeapon ThingFactory Object residual.
     pub fn spawn_nuke_radiation_field_objects_for_new_fields(&mut self) {
+        self.spawn_nuke_radiation_field_objects_for_new_fields_with_effects(&mut Default::default())
+    }
+
+    pub(crate) fn spawn_nuke_radiation_field_objects_for_new_fields_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         use crate::game_logic::special_power_strikes::{
             NUKE_RADIATION_DURATION_FRAMES, NUKE_RADIATION_FIELD_MAX_HEALTH,
             NUKE_RADIATION_OBJECT_NAME,
@@ -2553,7 +2758,13 @@ impl GameLogic {
         }
         let expires = self.frame.saturating_add(NUKE_RADIATION_DURATION_FRAMES);
         for (rid, source, team, pos) in pending {
-            if let Some(oid) = self.create_object(NUKE_RADIATION_OBJECT_NAME, team, pos) {
+            if let Some(oid) = self.create_object_with_script_effects(
+                NUKE_RADIATION_OBJECT_NAME,
+                team,
+                pos,
+                None,
+                effects,
+            ) {
                 if let Some(o) = self.objects.get_mut(&oid) {
                     o.nuke_radiation_field = true;
                     o.note_producer(source);
@@ -2591,6 +2802,15 @@ impl GameLogic {
 
     /// C++ Medium/Intense ConnectorLaser ThingFactory Objects (STATUS_FIRING residual).
     pub fn spawn_particle_connector_laser_objects_for_new_beams(&mut self) {
+        self.spawn_particle_connector_laser_objects_for_new_beams_with_effects(
+            &mut Default::default(),
+        )
+    }
+
+    pub(crate) fn spawn_particle_connector_laser_objects_for_new_beams_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         use crate::game_logic::special_power_strikes::{
             PARTICLE_CONNECTOR_INTENSE_LASER, PARTICLE_CONNECTOR_LASER_MAX_HEALTH,
             PARTICLE_CONNECTOR_MEDIUM_LASER,
@@ -2651,7 +2871,9 @@ impl GameLogic {
             ];
             let mut ids = Vec::new();
             for (name, cpos) in placements {
-                if let Some(oid) = self.create_object(name, team, cpos) {
+                if let Some(oid) =
+                    self.create_object_with_script_effects(name, team, cpos, None, effects)
+                {
                     if let Some(o) = self.objects.get_mut(&oid) {
                         o.particle_connector_laser = true;
                         o.note_producer(source);
@@ -2673,6 +2895,13 @@ impl GameLogic {
     }
 
     pub fn update_particle_connector_laser_objects(&mut self) {
+        self.update_particle_connector_laser_objects_with_effects(&mut Default::default())
+    }
+
+    pub(crate) fn update_particle_connector_laser_objects_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let frame = self.frame;
         let due: Vec<ObjectId> = self
             .objects
@@ -2699,12 +2928,19 @@ impl GameLogic {
                 o.status.effectively_dead = true;
                 o.particle_connector_laser = false;
             }
-            self.mark_object_for_destruction(id, None);
+            self.mark_object_for_destruction_with_effects(id, None, effects);
         }
     }
 
     /// C++ ParticleUplinkCannon_OrbitalLaser ThingFactory Object residual.
     pub fn spawn_particle_orbital_laser_objects_for_new_beams(&mut self) {
+        self.spawn_particle_orbital_laser_objects_for_new_beams_with_effects(&mut Default::default())
+    }
+
+    pub(crate) fn spawn_particle_orbital_laser_objects_for_new_beams_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         use crate::game_logic::special_power_strikes::{
             PARTICLE_ORBITAL_LASER_MAX_HEALTH, PARTICLE_ORBITAL_LASER_NAME,
         };
@@ -2745,7 +2981,13 @@ impl GameLogic {
             let expires = self.frame.saturating_add(lifetime.max(1));
             // Place orbital laser residual above target (retail laser origin altitude).
             let laser_pos = Vec3::new(pos.x, pos.y + 500.0, pos.z);
-            if let Some(oid) = self.create_object(PARTICLE_ORBITAL_LASER_NAME, team, laser_pos) {
+            if let Some(oid) = self.create_object_with_script_effects(
+                PARTICLE_ORBITAL_LASER_NAME,
+                team,
+                laser_pos,
+                None,
+                effects,
+            ) {
                 if let Some(o) = self.objects.get_mut(&oid) {
                     o.particle_orbital_laser = true;
                     o.note_producer(source);
@@ -2763,6 +3005,13 @@ impl GameLogic {
     }
 
     pub fn update_particle_orbital_laser_objects(&mut self) {
+        self.update_particle_orbital_laser_objects_with_effects(&mut Default::default())
+    }
+
+    pub(crate) fn update_particle_orbital_laser_objects_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let frame = self.frame;
         let due: Vec<ObjectId> = self
             .objects
@@ -2789,12 +3038,21 @@ impl GameLogic {
                 o.status.effectively_dead = true;
                 o.particle_orbital_laser = false;
             }
-            self.mark_object_for_destruction(id, None);
+            self.mark_object_for_destruction_with_effects(id, None, effects);
         }
     }
 
     /// C++ ParticleUplinkCannonTrailRemnant ThingFactory Object residual.
     pub fn spawn_particle_trail_remnant_objects_for_new_fields(&mut self) {
+        self.spawn_particle_trail_remnant_objects_for_new_fields_with_effects(
+            &mut Default::default(),
+        )
+    }
+
+    pub(crate) fn spawn_particle_trail_remnant_objects_for_new_fields_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         use crate::game_logic::special_power_strikes::{
             PARTICLE_REMNANT_DURATION_FRAMES, PARTICLE_REMNANT_MAX_HEALTH,
             PARTICLE_REMNANT_OBJECT_NAME,
@@ -2826,7 +3084,13 @@ impl GameLogic {
         }
         let expires = self.frame.saturating_add(PARTICLE_REMNANT_DURATION_FRAMES);
         for (rid, source, team, pos) in pending {
-            if let Some(oid) = self.create_object(PARTICLE_REMNANT_OBJECT_NAME, team, pos) {
+            if let Some(oid) = self.create_object_with_script_effects(
+                PARTICLE_REMNANT_OBJECT_NAME,
+                team,
+                pos,
+                None,
+                effects,
+            ) {
                 if let Some(o) = self.objects.get_mut(&oid) {
                     o.particle_trail_remnant = true;
                     o.note_producer(source);
@@ -2844,6 +3108,13 @@ impl GameLogic {
     }
 
     pub fn update_particle_trail_remnant_objects(&mut self) {
+        self.update_particle_trail_remnant_objects_with_effects(&mut Default::default())
+    }
+
+    pub(crate) fn update_particle_trail_remnant_objects_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let frame = self.frame;
         let due: Vec<ObjectId> = self
             .objects
@@ -2870,13 +3141,20 @@ impl GameLogic {
                 o.status.effectively_dead = true;
                 o.particle_trail_remnant = false;
             }
-            self.mark_object_for_destruction(id, None);
+            self.mark_object_for_destruction_with_effects(id, None, effects);
         }
     }
 
     /// Tick residual DamagePulseRemnant trail fields spawned by Particle Uplink
     /// beam pulses. ParticleUplinkCannonTrailRemnant Object residual closed.
     pub(in super::super) fn update_particle_remnant_fields(&mut self) {
+        self.update_particle_remnant_fields_with_effects(&mut Default::default())
+    }
+
+    pub(in super::super) fn update_particle_remnant_fields_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let object_positions: Vec<(ObjectId, Vec3, Team, bool)> = self
             .objects
             .iter()
@@ -2904,13 +3182,14 @@ impl GameLogic {
                     let killed = {
                         let owned_victim_id = target.id;
                         let owned_damage_type = damage_type;
-                        self.apply_residual_damage_owned(
+                        self.apply_residual_damage_owned_with_effects(
                             owned_victim_id,
                             hit.damage,
                             Some(plan.source_object),
                             owned_damage_type,
                             death_type,
                             None,
+                            effects,
                         )
                     };
 
@@ -2924,7 +3203,7 @@ impl GameLogic {
             }
 
             for (id, killer_team) in destroy_ids {
-                self.mark_object_for_destruction(id, Some(killer_team));
+                self.mark_object_for_destruction_with_effects(id, Some(killer_team), effects);
             }
 
             self.special_power_strikes.record_remnant_tick_complete(

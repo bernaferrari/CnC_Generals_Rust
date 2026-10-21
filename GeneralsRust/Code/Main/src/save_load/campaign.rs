@@ -348,8 +348,10 @@ pub struct CarryoverUnit {
 
 impl CampaignManager {
     pub fn new() -> Self {
-        let campaign_dir = SaveLoadManager::default_save_directory().join("Campaign");
+        Self::with_campaign_directory(SaveLoadManager::default_save_directory().join("Campaign"))
+    }
 
+    pub(crate) fn with_campaign_directory(campaign_dir: std::path::PathBuf) -> Self {
         Self {
             campaign_directory: campaign_dir,
             mission_definitions: HashMap::new(),
@@ -357,6 +359,10 @@ impl CampaignManager {
             player_progress: CampaignProgress::new(),
             mission_save_state: None,
         }
+    }
+
+    pub(crate) fn campaign_directory(&self) -> &std::path::Path {
+        &self.campaign_directory
     }
 
     pub fn init(&mut self) -> SaveLoadResult<()> {
@@ -1108,6 +1114,31 @@ pub fn init_campaign_system() -> SaveLoadResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn receiving_application_campaign_constructors_write_only_their_explicit_roots() {
+        let a = tempfile::tempdir().unwrap();
+        let b = tempfile::tempdir().unwrap();
+        let mut a_owner = CampaignManager::with_campaign_directory(a.path().join("Save/Campaign"));
+        let mut b_owner = CampaignManager::with_campaign_directory(b.path().join("Save/Campaign"));
+        assert!(!a_owner.campaign_directory.exists());
+        assert!(!b_owner.campaign_directory.exists());
+        a_owner.init().unwrap();
+        b_owner.init().unwrap();
+        a_owner.player_progress.total_honor_points = 11;
+        b_owner.player_progress.total_honor_points = 29;
+        a_owner.save_player_progress().unwrap();
+        let a_bytes = std::fs::read(a_owner.campaign_directory.join("progress.dat")).unwrap();
+        b_owner.save_player_progress().unwrap();
+        assert_eq!(
+            std::fs::read(a_owner.campaign_directory.join("progress.dat")).unwrap(),
+            a_bytes
+        );
+        a_owner.load_player_progress().unwrap();
+        b_owner.load_player_progress().unwrap();
+        assert_eq!(a_owner.player_progress.total_honor_points, 11);
+        assert_eq!(b_owner.player_progress.total_honor_points, 29);
+    }
 
     #[test]
     fn current_campaign_metadata_tracks_started_campaign() {

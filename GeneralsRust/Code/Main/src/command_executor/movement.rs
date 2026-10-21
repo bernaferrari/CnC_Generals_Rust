@@ -249,18 +249,21 @@ impl<'a> CommandExecutor<'a> {
             {
                 let moved: Vec<ObjectId> = goals.iter().map(|(id, _)| *id).collect();
                 let inf_columned = {
-                    let n = goals.iter().filter(|(id, _)| {
-                        self.game_logic.host_object(*id).is_some_and(|o| {
-                            o.is_kind_of(crate::game_logic::KindOf::Infantry)
-                                && !o.is_kind_of(crate::game_logic::KindOf::MobNexus)
-                                && !o.status.disabled_held
-                                && (o.is_mobile() || o.can_attack())
+                    let n = goals
+                        .iter()
+                        .filter(|(id, _)| {
+                            self.game_logic.host_object(*id).is_some_and(|o| {
+                                o.is_kind_of(crate::game_logic::KindOf::Infantry)
+                                    && !o.is_kind_of(crate::game_logic::KindOf::MobNexus)
+                                    && !o.status.disabled_held
+                                    && (o.is_mobile() || o.can_attack())
+                            })
                         })
-                    }).count() as i32;
+                        .count() as i32;
                     let mob = goals.iter().any(|(id, _)| {
-                        self.game_logic.host_object(*id).is_some_and(|o| {
-                            o.is_kind_of(crate::game_logic::KindOf::MobNexus)
-                        })
+                        self.game_logic
+                            .host_object(*id)
+                            .is_some_and(|o| o.is_kind_of(crate::game_logic::KindOf::MobNexus))
                     });
                     !mob && n >= crate::game_logic::host_ai_path_combat_residual_wave105::MIN_INFANTRY_FOR_GROUP_RESIDUAL
                 };
@@ -296,7 +299,9 @@ impl<'a> CommandExecutor<'a> {
                     if skip {
                         continue;
                     }
-                    let _ = self.game_logic.unit_command_move_free(*unit_id, *goal, destination);
+                    let _ = self
+                        .game_logic
+                        .unit_command_move_free(*unit_id, *goal, destination);
                 }
                 self.apply_player_stealth_mood_delay(&moved);
                 self.play_context_move_voice(units);
@@ -306,9 +311,11 @@ impl<'a> CommandExecutor<'a> {
         let mut moved: Vec<ObjectId> = Vec::new();
         let mut missing = false;
         for &(unit_id, goal) in &goals {
-            if self.game_logic.host_object(unit_id).is_some_and(|o| {
-                !Self::group_ai_member_receives_move(o)
-            }) {
+            if self
+                .game_logic
+                .host_object(unit_id)
+                .is_some_and(|o| !Self::group_ai_member_receives_move(o))
+            {
                 continue;
             }
             if !self
@@ -496,9 +503,10 @@ impl<'a> CommandExecutor<'a> {
             return Vec::new();
         }
         if movers.len() == 1 {
-            let immobile = self.game_logic.host_object(movers[0].0).is_some_and(|o| {
-                o.is_kind_of(crate::game_logic::KindOf::Immobile)
-            });
+            let immobile = self
+                .game_logic
+                .host_object(movers[0].0)
+                .is_some_and(|o| o.is_kind_of(crate::game_logic::KindOf::Immobile));
             if immobile {
                 return Vec::new();
             }
@@ -521,9 +529,9 @@ impl<'a> CommandExecutor<'a> {
                 .collect();
         }
         movers.retain(|m| {
-            self.game_logic.host_object(m.0).is_some_and(|o| {
-                !o.is_kind_of(crate::game_logic::KindOf::Immobile)
-            })
+            self.game_logic
+                .host_object(m.0)
+                .is_some_and(|o| !o.is_kind_of(crate::game_logic::KindOf::Immobile))
         });
         if movers.is_empty() {
             return Vec::new();
@@ -1171,11 +1179,7 @@ impl<'a> CommandExecutor<'a> {
                 let (des_narrow, des_wide) = desired[ui];
                 // Narrow pick: 3 lanes (infantry) / outer lanes 0 and 2 only
                 // for the 2-column vehicle pass (C++ :854-871 / :1327-1344).
-                let narrow_lanes: &[usize] = if infantry {
-                    &[0, 1, 2]
-                } else {
-                    &[0, 2]
-                };
+                let narrow_lanes: &[usize] = if infantry { &[0, 1, 2] } else { &[0, 2] };
                 if let Some(best) =
                     Self::pick_min_count_lane(&narrow_counts, narrow_lanes, des_narrow + 1)
                 {
@@ -1298,10 +1302,12 @@ impl<'a> CommandExecutor<'a> {
                 continue;
             }
             if can_attack {
-                if self
-                    .game_logic
-                    .unit_command_attack_move_to_ex(unit_id, destination, max_shots)
-                {
+                if self.game_logic.unit_command_attack_move_to_ex_with_effects(
+                    unit_id,
+                    destination,
+                    max_shots,
+                    &mut self.ui,
+                ) {
                     any = true;
                 }
             } else if self
@@ -1429,9 +1435,11 @@ impl<'a> CommandExecutor<'a> {
         let goals = self.group_move_destinations(units, destination);
         let mut any = false;
         for (unit_id, goal) in goals {
-            if self.game_logic.host_object(unit_id).is_some_and(|o| {
-                o.status.disabled_held || !(o.is_mobile() || o.can_attack())
-            }) {
+            if self
+                .game_logic
+                .host_object(unit_id)
+                .is_some_and(|o| o.status.disabled_held || !(o.is_mobile() || o.can_attack()))
+            {
                 continue;
             }
             // C++ aiMoveToPosition to the unit's own position succeeds as a
@@ -1571,7 +1579,15 @@ mod column_pack_tests {
     type Mover = (ObjectId, Vec3, f32, u32, glam::Vec2, bool, bool);
 
     fn mover(id: u32, x: f32, z: f32) -> Mover {
-        (ObjectId(id), Vec3::new(x, 0.0, z), 10.0, 0, glam::Vec2::ZERO, true, true)
+        (
+            ObjectId(id),
+            Vec3::new(x, 0.0, z),
+            10.0,
+            0,
+            glam::Vec2::ZERO,
+            true,
+            true,
+        )
     }
 
     /// center=(0,0), destination=(0,500) → dir=(0,1), n=(-1,0), so the lane
@@ -1589,15 +1605,9 @@ mod column_pack_tests {
         let movers: Vec<Mover> = (0..16_u32)
             .map(|i| mover(i + 1, (i as f32 - 7.5) * 12.0, 0.0))
             .collect();
-        let packed = CommandExecutor::pack_column_kind(
-            &movers,
-            destination,
-            3,
-            3,
-            100.0,
-            &HashMap::new(),
-        )
-        .expect("16 infantry must column-pack");
+        let packed =
+            CommandExecutor::pack_column_kind(&movers, destination, 3, 3, 100.0, &HashMap::new())
+                .expect("16 infantry must column-pack");
         assert_eq!(packed.len(), 16);
         let lanes: HashSet<i32> = packed
             .iter()
@@ -1638,15 +1648,9 @@ mod column_pack_tests {
         for id in 7..=9_u32 {
             priority_of.insert(ObjectId(id), 0); // LOCO_MOVES_BACK
         }
-        let packed = CommandExecutor::pack_column_kind(
-            &movers,
-            destination,
-            3,
-            3,
-            100.0,
-            &priority_of,
-        )
-        .expect("9 infantry must column-pack");
+        let packed =
+            CommandExecutor::pack_column_kind(&movers, destination, 3, 3, 100.0, &priority_of)
+                .expect("9 infantry must column-pack");
 
         // Depth along the march direction (dir = +Z): rank stacks back from
         // the destination, priority adds one cell per band behind FRONT.

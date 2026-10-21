@@ -1041,13 +1041,23 @@ fn path_to_goal_with_state_used_by_guard_scatter_gather() {
 /// C++ BuildAssistant.cpp:333-334 clearRemovableForConstruction before create.
 #[test]
 fn execute_build_source_clears_trees_and_props() {
-    let src = crate::command_executor::COMMAND_EXECUTOR_SRC;
-    let i = src.find("fn execute_build").expect("execute_build");
-    let w = &src[i..src.len().min(i + 6000)];
+    let src = include_str!("../construct.rs");
+    let admission =
+        command_source_method(src, "fn execute_build(", "fn execute_prepared_dozer_build(");
+    let build = command_source_method(
+        src,
+        "fn execute_build_with_placement(",
+        "fn clear_removable_for_construction(",
+    );
+    let clear = &src[src
+        .find("fn clear_removable_for_construction_with_candidates(")
+        .expect("construction clearing")..];
     assert!(
-        w.contains("clear_removable_for_construction")
-            && src.contains("remove_trees_and_props_for_construction"),
-        "hq-wtzcx: execute_build must clear removable objects and map trees/props"
+        admission.contains("self.execute_build_with_placement(")
+            && build.contains("clear_removable_for_construction_with_candidates(")
+            && clear.contains("self.ui.terrain.as_mut()")
+            && clear.contains("visual.remove_for_construction("),
+        "hq-wtzcx: execute_build must clear removable objects and receiving map trees/props"
     );
 }
 
@@ -1231,14 +1241,14 @@ fn execute_stop_clears_guard_residual() {
     let commands = include_str!("../../game_logic/world_scripts/unit_commands.rs");
     let body = command_source_method(attack, "fn execute_stop(", "fn execute_guard(");
     assert!(
-        body.contains(".unit_command_stop(")
+        body.contains(".unit_command_stop_with_effects(")
             && body.contains("self.apply_player_stealth_mood_delay("),
         "Stop must call unit_command_stop and apply stealth mood delay"
     );
     let gbody = command_source_method(
         commands,
-        "fn unit_command_stop(",
-        "fn unit_command_stop_self(",
+        "fn unit_command_stop_self_with_effects(",
+        "fn unit_command_guard_position(",
     );
     assert!(
         gbody.contains("set_guard_position(None)")

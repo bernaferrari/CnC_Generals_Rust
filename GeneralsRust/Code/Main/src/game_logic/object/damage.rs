@@ -1471,6 +1471,10 @@ mod tests {
     }
 
     fn register_coeff_armor(name: &str, dt: gamelogic::damage::DamageType, coeff: f32) {
+        // Complete the real one-time retail admission before adding this fixture's
+        // custom row. The initial load replaces the store, so publishing first
+        // lets a concurrent first damage lookup erase the custom definition.
+        gamelogic::object::armor::ensure_default_templates_loaded();
         let mut t = gamelogic::object::armor::ArmorTemplate::new();
         t.set_default(1.0);
         t.set_coefficient(dt, coeff);
@@ -1478,6 +1482,11 @@ mod tests {
             &gamelogic::common::AsciiString::from(name),
             t,
         );
+        let admitted = gamelogic::object::armor::TheArmorStore::find_template(
+            &gamelogic::common::AsciiString::from(name),
+        )
+        .expect("custom fixture armor admitted after retail initialization");
+        assert_eq!(admitted.adjust_damage(dt, 1.0), coeff);
     }
 
     #[test]

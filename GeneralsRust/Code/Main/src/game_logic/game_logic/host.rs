@@ -29,6 +29,8 @@ pub struct GameLogic {
     pub(crate) weapon_definitions: Option<HashMap<String, Arc<gamelogic::weapon::WeaponTemplate>>>,
     pub(crate) projectile_definitions:
         crate::game_logic::projectile_definitions::ProjectileDefinitions,
+    pub(crate) terrain_definitions:
+        std::sync::Arc<crate::game_logic::terrain_definitions::TerrainTypes>,
     pub(crate) physics_definitions: crate::game_logic::physics_rules::PhysicsDefinitions,
     pub(super) weapon_effect_definitions:
         super::world_combat::weapon_effect_definitions::WeaponEffectDefinitions,

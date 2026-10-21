@@ -2072,59 +2072,17 @@ impl RenderPipeline {
         self.current_pass = Some(RenderPass::WaterPass);
         #[cfg(feature = "game_client")]
         {
-            if let Ok(mut guard) = game_client::terrain::terrain_visual::get_terrain_visual() {
-                if let Some(terrain_visual) = guard.as_mut() {
-                    terrain_visual
-                        .ensure_global_water_plane(graphics_system.device())
-                        .map_err(|e| anyhow::anyhow!("water plane sync failed: {e}"))?;
-                }
+            if let Some(terrain_visual) = self.native_terrain.as_mut() {
+                terrain_visual
+                    .ensure_global_water_plane(graphics_system.device())
+                    .map_err(|e| anyhow::anyhow!("water plane sync failed: {e}"))?;
             }
             let (vp_x, vp_y, vp_w, vp_h) = self.tactical_viewport.pixel_rect();
-            self.forward_pass.enqueue_post_frame_callback(move |frame| {
-                let Some(depth_view) = frame.depth_view_arc() else {
-                    return Ok(());
-                };
-                let color_view = frame.color_view_arc();
-                let encoder = frame.encoder();
-                let terrain_visual_guard =
-                    game_client::terrain::terrain_visual::get_terrain_visual().ok();
-                // get_terrain_visual yields a guard over Option<TerrainVisualImpl>.
-                let Some(terrain_visual) = terrain_visual_guard
-                    .as_deref()
-                    .and_then(|visual| visual.as_ref())
-                else {
-                    return Ok(());
-                };
-                let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("main water pass"),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: color_view.as_ref(),
-                        depth_slice: None,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Load,
-                            store: wgpu::StoreOp::Store,
-                        },
-                    })],
-                    // Depth presence was early-returned above.
-                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                        view: depth_view.as_ref(),
-                        depth_ops: Some(wgpu::Operations {
-                            load: wgpu::LoadOp::Load,
-                            store: wgpu::StoreOp::Store,
-                        }),
-                        stencil_ops: None,
-                    }),
-                    timestamp_writes: None,
-                    occlusion_query_set: None,
-                    multiview_mask: None,
-                });
-                render_pass.set_viewport(vp_x, vp_y, vp_w, vp_h, 0.0, 1.0);
-                render_pass.set_scissor_rect(vp_x as u32, vp_y as u32, vp_w as u32, vp_h as u32);
-                terrain_visual.record_water_scene_draws(&mut render_pass);
-                drop(render_pass);
-                Ok(())
-            });
+            if self.native_terrain.is_some() {
+                self.forward_pass.renderer.enqueue_scoped_post_frame_pass(
+                    ww3d_renderer_3d::rendering::wgpu_main_renderer::ScopedNativePass::TerrainWater,
+                );
+            }
         }
         let _ = graphics_system;
         Ok(())

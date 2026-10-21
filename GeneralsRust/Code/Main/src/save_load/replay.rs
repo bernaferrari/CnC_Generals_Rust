@@ -272,8 +272,10 @@ pub struct ReplayManager {
 
 impl ReplayManager {
     pub fn new() -> Self {
-        let replay_dir = SaveLoadManager::default_save_directory().join("Replays");
+        Self::with_replay_directory(SaveLoadManager::default_save_directory().join("Replays"))
+    }
 
+    pub(crate) fn with_replay_directory(replay_dir: std::path::PathBuf) -> Self {
         Self {
             mode: RecorderMode::None,
             current_frame: 0,

@@ -432,10 +432,35 @@ pub(crate) fn parse_map_settings_from_chunky_with_camera_and_clip_rules(
     camera_clip_rules: Option<game_engine::common::ini::ini_game_data::CameraClipRules>,
     camera_shake_rules: Option<game_engine::common::ini::ini_game_data::CameraShakeRules>,
 ) -> LoaderResult<MapMetadata> {
+    parse_map_settings_from_chunky_with_owned_terrain_definitions(
+        chunky,
+        draft,
+        definition_source,
+        production_energy,
+        physics_rules,
+        camera_rules,
+        camera_clip_rules,
+        camera_shake_rules,
+        std::sync::Arc::new(game_engine::common::ini::ini_terrain::TerrainTypes::new()),
+    )
+}
+
+pub(crate) fn parse_map_settings_from_chunky_with_owned_terrain_definitions(
+    chunky: &ChunkyMap,
+    draft: std::sync::Arc<std::sync::RwLock<game_engine::common::ini::ini_ai_data::AIDataStore>>,
+    definition_source: &str,
+    production_energy: Option<game_engine::common::ini::ini_game_data::ProductionEnergyRules>,
+    physics_rules: Option<game_engine::common::ini::ini_game_data::PhysicsContentRules>,
+    camera_rules: Option<game_engine::common::ini::ini_game_data::CameraContentRules>,
+    camera_clip_rules: Option<game_engine::common::ini::ini_game_data::CameraClipRules>,
+    camera_shake_rules: Option<game_engine::common::ini::ini_game_data::CameraShakeRules>,
+    terrain_definitions: std::sync::Arc<game_engine::common::ini::ini_terrain::TerrainTypes>,
+) -> LoaderResult<MapMetadata> {
     parse_map_settings_from_loaded_chunky(
         definition_source,
         chunky,
         MapMetadata {
+            terrain_definitions: Some(terrain_definitions),
             camera_clip_rules,
             camera_shake_rules,
             camera_rules,
@@ -455,6 +480,11 @@ fn parse_map_settings_from_loaded_chunky(
         std::sync::Arc<std::sync::RwLock<game_engine::common::ini::ini_ai_data::AIDataStore>>,
     >,
 ) -> LoaderResult<MapMetadata> {
+    let mut terrain_definitions = meta
+        .terrain_definitions
+        .as_deref()
+        .cloned()
+        .unwrap_or_else(game_engine::common::ini::ini_terrain::TerrainTypes::new);
     // Capture pristine immutable content before any other map's overrides.
     if meta.weather_definition.is_none() {
         meta.weather_definition = game_engine::common::ini::ini_weather::get_base_weather_setting();
@@ -471,6 +501,10 @@ fn parse_map_settings_from_loaded_chunky(
 
     match parse_object_placements_from_chunky(chunky) {
         Ok(objects) => {
+            meta.authored_scorches = objects
+                .iter()
+                .filter_map(PlacedObject::terrain_scorch)
+                .collect();
             meta.objects = objects;
         }
         Err(err) => {
@@ -561,15 +595,14 @@ fn parse_map_settings_from_loaded_chunky(
                     parse_map_default_starting_cash(&contents)?.or(meta.default_starting_cash);
                 // C++ GameLogic.cpp:2404-2408 loadMapINI — full block table
                 // via INI_LOAD_CREATE_OVERRIDES (CommandSet/CommandButton/Upgrade).
-                if let Some(target) = ai_data_target.as_ref() {
-                    gamelogic::system::load_map_ini_ui_overrides_with_ai_data(
+                let (_, updated) =
+                    gamelogic::system::load_map_ini_ui_overrides_with_definition_targets(
                         &contents,
-                        std::sync::Arc::clone(target),
+                        ai_data_target.as_ref().map(std::sync::Arc::clone),
+                        terrain_definitions,
                     )
                     .map_err(GameLogicError::Configuration)?;
-                } else {
-                    let _ = overlay_map_ini_create_overrides(&contents);
-                }
+                terrain_definitions = updated;
                 // ParticleSystem still needs the live GameClient manager hook.
                 let _ = overlay_map_ini_particle_systems(&contents);
                 // Weather CREATE_OVERRIDES + SnowManager flake spacing.
@@ -654,15 +687,14 @@ fn parse_map_settings_from_loaded_chunky(
                 }
                 meta.default_starting_cash =
                     parse_map_default_starting_cash(&contents)?.or(meta.default_starting_cash);
-                if let Some(target) = ai_data_target.as_ref() {
-                    gamelogic::system::load_map_ini_ui_overrides_with_ai_data(
+                let (_, updated) =
+                    gamelogic::system::load_map_ini_ui_overrides_with_definition_targets(
                         &contents,
-                        std::sync::Arc::clone(target),
+                        ai_data_target.as_ref().map(std::sync::Arc::clone),
+                        terrain_definitions,
                     )
                     .map_err(GameLogicError::Configuration)?;
-                } else {
-                    let _ = overlay_map_ini_create_overrides(&contents);
-                }
+                terrain_definitions = updated;
                 overlay_owned_map_weather(
                     &contents,
                     &mut meta.weather_definition,
@@ -718,6 +750,7 @@ fn parse_map_settings_from_loaded_chunky(
         }
     }
 
+    meta.terrain_definitions = Some(std::sync::Arc::new(terrain_definitions));
     Ok(meta)
 }
 

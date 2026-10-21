@@ -265,6 +265,13 @@ impl GameLogic {
     /// CPP AIExitState::update. The goal and passenger are resolved from this
     /// instance each time, so deletion/replacement cannot select another world.
     pub(crate) fn update_owned_passenger_exit(&mut self, passenger: ObjectId) {
+        self.update_owned_passenger_exit_with_effects(passenger, &mut Default::default());
+    }
+    pub(crate) fn update_owned_passenger_exit_with_effects(
+        &mut self,
+        passenger: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let Some(object) = self.host_object(passenger) else {
             return;
         };
@@ -302,9 +309,9 @@ impl GameLogic {
                     .unwrap();
                 object.remove_occupant(passenger, ownership_events)
             };
-            self.garrison_exit_occupant_via_door(passenger, container_id);
+            self.garrison_exit_occupant_via_door_with_effects(passenger, container_id, effects);
         } else {
-            self.unit_command_exit_via_open_contain(passenger, container_id);
+            self.unit_command_exit_via_open_contain_with_effects(passenger, container_id, effects);
         }
         if self
             .host_object(passenger)

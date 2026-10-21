@@ -10,6 +10,16 @@ impl GameLogic {
         slot: u8,
         visual: Option<super::super::super::world_combat::AcceptedWeaponDischarge>,
     ) {
+        self.commit_combat_shot_with_effects(input, slot, visual, &mut Default::default())
+    }
+
+    pub(super) fn commit_combat_shot_with_effects(
+        &mut self,
+        input: CombatAttackInput,
+        slot: u8,
+        visual: Option<super::super::super::world_combat::AcceptedWeaponDischarge>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let CombatAttackInput {
             attacker_id,
             current_time,
@@ -222,12 +232,13 @@ impl GameLogic {
                         fire_frame,
                     ),
                 );
-                let _ = self.spawn_weapon_laser_beam_object(
+                let _ = self.spawn_weapon_laser_beam_object_with_effects(
                     &laser_name_owned,
                     attacker_id,
                     fire_target,
                     muzzle_pos,
                     to,
+                    effects,
                 );
             }
         }

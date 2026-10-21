@@ -283,18 +283,26 @@ impl GameLogic {
     /// Wave 930: single direct-order authority boundary.
     #[inline]
     pub fn apply_direct_player_order(&mut self, order: DirectPlayerOrder) {
+        self.apply_direct_player_order_with_effects(order, &mut Default::default())
+    }
+
+    pub(crate) fn apply_direct_player_order_with_effects(
+        &mut self,
+        order: DirectPlayerOrder,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         match order {
             DirectPlayerOrder::Attack { player_id, target } => {
-                self.command_attack(player_id, target);
+                self.command_attack_with_effects(player_id, target, effects);
             }
             DirectPlayerOrder::Stop { player_id } => {
-                self.command_stop(player_id);
+                self.command_stop_with_effects(player_id, effects);
             }
             DirectPlayerOrder::Move { player_id, dest } => {
                 self.command_move(player_id, dest);
             }
             DirectPlayerOrder::AttackMove { player_id, dest } => {
-                self.command_attack_move(player_id, dest);
+                self.command_attack_move_with_effects(player_id, dest, effects);
             }
         }
     }
@@ -302,14 +310,24 @@ impl GameLogic {
     /// Wave 931: single object-lifecycle authority boundary.
     #[inline]
     pub fn apply_object_lifecycle_op(&mut self, op: ObjectLifecycleOp) -> ObjectLifecycleResult {
+        self.apply_object_lifecycle_op_with_effects(op, &mut Default::default())
+    }
+
+    pub(crate) fn apply_object_lifecycle_op_with_effects(
+        &mut self,
+        op: ObjectLifecycleOp,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> ObjectLifecycleResult {
         match op {
             ObjectLifecycleOp::Create {
                 name,
                 team,
                 spawn_at,
-            } => ObjectLifecycleResult::Created(self.create_object(&name, team, spawn_at)),
+            } => ObjectLifecycleResult::Created(
+                self.create_object_with_script_effects(&name, team, spawn_at, None, effects),
+            ),
             ObjectLifecycleOp::Destroy { id } => {
-                self.destroy_object(id);
+                self.destroy_object_with_effects(id, effects);
                 ObjectLifecycleResult::Destroyed
             }
             ObjectLifecycleOp::ForceCompleteConstruction { id } => {
@@ -360,6 +378,14 @@ impl GameLogic {
     /// Wave 933: single session-control authority boundary.
     #[inline]
     pub fn apply_session_control_op(&mut self, op: SessionControlOp) {
+        self.apply_session_control_op_with_effects(op, &mut Default::default())
+    }
+
+    pub(crate) fn apply_session_control_op_with_effects(
+        &mut self,
+        op: SessionControlOp,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         match op {
             SessionControlOp::SelectObjects { player_id, ids } => {
                 self.select_objects(player_id, ids);
@@ -389,7 +415,7 @@ impl GameLogic {
                 self.reset();
             }
             SessionControlOp::OverrideWorldSize { width, height } => {
-                self.override_world_size(width, height);
+                self.override_world_size_with_effects(width, height, effects);
             }
         }
     }
@@ -397,6 +423,14 @@ impl GameLogic {
     /// Wave 934: single host-support residual authority boundary.
     #[inline]
     pub fn apply_host_support_op(&mut self, op: HostSupportOp) -> HostSupportResult {
+        self.apply_host_support_op_with_effects(op, &mut Default::default())
+    }
+
+    pub(crate) fn apply_host_support_op_with_effects(
+        &mut self,
+        op: HostSupportOp,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> HostSupportResult {
         match op {
             HostSupportOp::EnsureBarracksBuildingData { id } => {
                 HostSupportResult::Bool(self.ensure_barracks_building_data(id))
@@ -412,7 +446,7 @@ impl GameLogic {
                 HostSupportResult::Snapshot(self.update_shell_with_budget(dt, budget))
             }
             HostSupportOp::ProcessDestroyListIfNeeded => {
-                self.process_destroy_list_if_needed();
+                self.process_destroy_list_if_needed_with_effects(effects);
                 HostSupportResult::Unit
             }
             HostSupportOp::InsertThingTemplate { name, template } => {
@@ -468,22 +502,41 @@ impl GameLogic {
     /// Wave 940: host ObjectId create/mark-destroy authority boundary.
     #[inline]
     pub fn apply_host_object_id_op(&mut self, op: HostObjectIdOp) -> HostObjectIdResult {
+        self.apply_host_object_id_op_with_effects(op, &mut Default::default())
+    }
+
+    pub(crate) fn apply_host_object_id_op_with_effects(
+        &mut self,
+        op: HostObjectIdOp,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> HostObjectIdResult {
         match op {
             HostObjectIdOp::MarkForDestruction { id, team } => {
-                self.mark_object_for_destruction(id, team);
+                self.mark_object_for_destruction_with_effects(id, team, effects);
                 HostObjectIdResult::Unit
             }
             HostObjectIdOp::Create {
                 template,
                 team,
                 spawn_at,
-            } => HostObjectIdResult::Created(self.create_object(&template, team, spawn_at)),
+            } => HostObjectIdResult::Created(
+                self.create_object_with_script_effects(&template, team, spawn_at, None, effects),
+            ),
         }
     }
 
     /// Wave 941/942: host residual mutation authority boundary.
     #[inline]
     pub fn apply_host_residual_mutation_op(&mut self, op: HostResidualMutationOp) {
+        self.apply_host_residual_mutation_op_with_effects(op, &mut Default::default())
+    }
+
+    pub(crate) fn apply_host_residual_mutation_op_with_effects(
+        &mut self,
+        op: HostResidualMutationOp,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
+        let frame = self.frame;
         match op {
             HostResidualMutationOp::SetPendingFireWhenDamaged {
                 id,
@@ -505,7 +558,7 @@ impl GameLogic {
             } => {
                 if let Some(obj) = self.objects.get_mut(&id) {
                     if let Some(pos) = position {
-                        obj.set_position(pos);
+                        obj.set_position_with_effects(pos, frame, effects);
                     }
                     {
                         obj.internal_change_health(-obj.health.current);
@@ -604,7 +657,10 @@ impl GameLogic {
                     }
                 }
                 if let Some(team) = mark_destroy_team {
-                    self.apply_host_object_id_op(HostObjectIdOp::MarkForDestruction { id, team });
+                    self.apply_host_object_id_op_with_effects(
+                        HostObjectIdOp::MarkForDestruction { id, team },
+                        effects,
+                    );
                 }
             }
             HostResidualMutationOp::DestroyBomb { id, mark_destroy } => {
@@ -613,7 +669,7 @@ impl GameLogic {
                     obj.status.destroyed = true;
                 }
                 if mark_destroy {
-                    self.mark_object_for_destruction(id, None);
+                    self.mark_object_for_destruction_with_effects(id, None, effects);
                 }
             }
             HostResidualMutationOp::SetModelConditionBits {
@@ -727,7 +783,7 @@ impl GameLogic {
                 sticky_follow_tick,
             } => {
                 if let Some(obj) = self.host_objects_mut().get_mut(&id) {
-                    obj.set_position(position);
+                    obj.set_position_with_effects(position, frame, effects);
                 }
                 if sticky_follow_tick {
                     self.sticky_bomb_follow_ticks = self.sticky_bomb_follow_ticks.saturating_add(1);
@@ -1093,6 +1149,16 @@ impl GameLogic {
 
     /// Issue attack command to selected objects
     pub fn command_attack(&mut self, player_id: u32, target_id: ObjectId) {
+        self.command_attack_with_effects(player_id, target_id, &mut Default::default())
+    }
+
+    pub(crate) fn command_attack_with_effects(
+        &mut self,
+        player_id: u32,
+        target_id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
+        let frame = self.frame;
         if let Some(player) = self.players.get(&player_id) {
             if self.objects.get(&target_id).is_none() {
                 return;
@@ -1111,11 +1177,12 @@ impl GameLogic {
             let voice = self.attack_voice_slot(&selected, Some(target_id), false, false, None);
             let mut accepted_attackers = Vec::new();
             for &object_id in &selected {
-                if self.flight_deck_ai_do_command(
+                if self.flight_deck_ai_do_command_with_effects(
                     object_id,
                     crate::game_logic::host_flight_deck::HostFlightDeckCommand::AttackObject,
                     Some(target_id),
                     None,
+                    effects,
                 ) {
                     accepted_attackers.push(object_id);
                     continue;
@@ -1183,7 +1250,7 @@ impl GameLogic {
                                     let stand = tpos - dir * (range * 0.55);
                                     let stand = glam::Vec3::new(stand.x, from.y, stand.z);
                                     if let Some(a) = self.objects.get_mut(&object_id) {
-                                        a.set_position(stand);
+                                        a.set_position_with_effects(stand, frame, effects);
                                         a.attack_target(target_id, &mut self.attack_events);
                                         // Host-immediate engagement residual (host-only
                                         // path when movement auth is off).

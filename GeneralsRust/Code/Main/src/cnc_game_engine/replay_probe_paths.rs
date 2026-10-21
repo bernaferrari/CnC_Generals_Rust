@@ -37,7 +37,17 @@ fn private_destination(root: &Path, candidate: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn admitted_options(root: &Path, texts: &[String]) -> anyhow::Result<std::path::PathBuf> {
+fn admitted_options(
+    root: &Path,
+    texts: &[String],
+    explicit: Option<&Path>,
+) -> anyhow::Result<std::path::PathBuf> {
+    if let Some(explicit) = explicit {
+        let (directory, _) =
+            crate::config::GlobalData::startup_options_from_texts(texts, Some(explicit))?;
+        private_destination(root, &directory.join("Options.ini"))?;
+        return Ok(directory);
+    }
     for count in 1..=texts.len() {
         let (directory, _) =
             crate::config::GlobalData::camera_startup_options_from_texts(&texts[..count])?;
@@ -57,17 +67,6 @@ pub fn prepare_replay_probe_private_paths(root: &Path, source: &Path) -> anyhow:
         std::env::current_dir()? == root.join("cwd"),
         "probe requires private cwd before startup"
     );
-    for (variable, directory) in [
-        ("HOME", "home"),
-        ("USERPROFILE", "home"),
-        ("APPDATA", "appdata"),
-        ("LOCALAPPDATA", "appdata"),
-    ] {
-        ensure!(
-            std::env::var_os(variable).as_deref() == Some(root.join(directory).as_os_str()),
-            "probe requires private {variable} before startup"
-        );
-    }
     let user_data = root.join("userdata");
     private_destination(root, &user_data)?;
     let mut archive = crate::assets::archive::ArchiveFileSystem::new();
@@ -99,13 +98,13 @@ pub fn prepare_replay_probe_private_paths(root: &Path, source: &Path) -> anyhow:
             sources.push((path, text));
         }
     }
-    // Evaluate each prefix: the subsystem overlays one file at a time before
-    // the camera overlays the complete set. An unsafe earlier override is rejected too.
+    // The actual CLI root is admitted after ordered INI overlays, before all
+    // preference IO. Intermediate authored roots never select a file.
     let texts = sources
         .iter()
         .map(|(_, text)| text.clone())
         .collect::<Vec<_>>();
-    let options = admitted_options(root, &texts)?;
+    let options = admitted_options(root, &texts, Some(&user_data))?;
     // Freeze the exact inspected bytes ahead of the Engine's disk-first reads.
     // No path/config rewriting changes the native camera scenario.
     for (path, text) in sources {
@@ -168,14 +167,14 @@ mod tests {
             root.join("userdata").display()
         );
         assert_eq!(
-            admitted_options(&root, &[safe.clone()]).unwrap(),
+            admitted_options(&root, &[safe.clone()], None).unwrap(),
             root.join("userdata")
         );
         let external = format!(
             "[Paths]\nUserDataPath = {}\n",
             root.parent().unwrap().join("foreign").display()
         );
-        assert!(admitted_options(&root, &[external, safe]).is_err());
+        assert!(admitted_options(&root, &[external, safe], None).is_err());
     }
     #[test]
     fn authored_relative_options_resolves_in_current_private_directory() {
@@ -184,11 +183,11 @@ mod tests {
         let cwd = std::env::current_dir().unwrap();
         let source = "[Paths]\nUserDataPath = UserData\n".to_owned();
         assert_eq!(
-            admitted_options(&cwd, &[source]).unwrap(),
+            admitted_options(&cwd, &[source], None).unwrap(),
             cwd.join("UserData")
         );
         let traversal = "[Paths]\nUserDataPath = ../Foreign\n".to_owned();
-        assert!(admitted_options(&cwd, &[traversal]).is_err());
+        assert!(admitted_options(&cwd, &[traversal], None).is_err());
     }
     #[cfg(unix)]
     #[test]

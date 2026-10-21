@@ -6,6 +6,17 @@ impl GameLogic {
     /// bone (C++ `calcBestGarrisonPosition`). Non-enclosing Fire Base fires
     /// from the occupant's pre-assigned STATION bone, not the building center.
     pub(in crate::game_logic) fn try_garrison_residual_fire(&mut self, garrisoned_id: ObjectId) {
+        self.try_garrison_residual_fire_with_effects(
+            garrisoned_id,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    pub(in crate::game_logic) fn try_garrison_residual_fire_with_effects(
+        &mut self,
+        garrisoned_id: ObjectId,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let current_time = self.frame as f32 * LOGIC_FRAME_TIMESTEP;
 
         let Some(attacker) = self.objects.get(&garrisoned_id) else {
@@ -179,11 +190,17 @@ impl GameLogic {
                 .is_some_and(|c| !c.is_enclosing_garrison_container());
             if pin_station {
                 if let Some(occ) = self.objects.get_mut(&garrisoned_id) {
-                    occ.set_position(fire_pos);
+                    occ.set_position_with_effects(fire_pos, self.frame, presentation_effects);
                 }
             }
         }
-        if !self.fire_owned_passive_weapon(garrisoned_id, target_id, slot, fire_pos) {
+        if !self.fire_owned_passive_weapon_with_effects(
+            garrisoned_id,
+            target_id,
+            slot,
+            fire_pos,
+            presentation_effects,
+        ) {
             return;
         }
         self.garrison_residual_fires = self.garrison_residual_fires.saturating_add(1);
@@ -192,7 +209,14 @@ impl GameLogic {
             .get(&garrisoned_id)
             .is_some_and(|a| !occupant_weapon_is_poison(a, slot));
         let aim_at = self.objects.get(&target_id).map(|t| t.get_position());
-        self.ensure_garrison_gun_effect(container_id, point_index, fire_pos, flash_muzzle, aim_at);
+        self.ensure_garrison_gun_effect_with_effects(
+            container_id,
+            point_index,
+            fire_pos,
+            flash_muzzle,
+            aim_at,
+            presentation_effects,
+        );
     }
 
     /// C++ GarrisonContain::onContaining setTeam + academy + CAN_ATTACK + stations.
@@ -274,13 +298,13 @@ impl GameLogic {
                 .stamp_contained_by_frame(occupant_id, self.frame);
             if let Some(occupant) = self.objects.get_mut(&occupant_id) {
                 occupant.set_contained_by(Some(container_id));
-                occupant.set_position(position);
+                occupant.set_position_with_effects(position, self.frame, ui);
                 occupant.stop_moving();
                 occupant.set_status_moving(false);
                 occupant.set_ai_state(AIState::Garrisoned);
             }
             self.admit_object_drawable_deselection(occupant_id);
-            self.apply_garrison_contain_on_enter(container_id, occupant_id);
+            self.apply_garrison_contain_on_enter_with_effects(container_id, occupant_id, ui);
             self.stamp_player_who_entered(container_id, occupant_id);
             // C++ OpenContain::addToContain doLoadSound (once per frame).
             self.play_container_enter_sound(container_id);
@@ -345,6 +369,19 @@ impl GameLogic {
         container_id: ObjectId,
         occupant_id: ObjectId,
     ) {
+        self.apply_garrison_contain_on_enter_with_effects(
+            container_id,
+            occupant_id,
+            &mut Default::default(),
+        );
+    }
+
+    pub(in crate::game_logic) fn apply_garrison_contain_on_enter_with_effects(
+        &mut self,
+        container_id: ObjectId,
+        occupant_id: ObjectId,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let Some(container) = self.objects.get(&container_id) else {
             return;
         };
@@ -355,7 +392,7 @@ impl GameLogic {
         if let Some(container) = self.objects.get_mut(&container_id) {
             container.set_garrison_can_attack(true);
         }
-        self.place_occupant_at_garrison_station(container_id, occupant_id);
+        self.place_occupant_at_garrison_station(container_id, occupant_id, presentation_effects);
         self.stamp_player_who_entered(container_id, occupant_id);
         self.recalc_garrison_apparent_controller(container_id);
         let occupant_owner = self
@@ -452,6 +489,7 @@ impl GameLogic {
         &mut self,
         container_id: ObjectId,
         occupant_id: ObjectId,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         let enclosing = self
             .objects
@@ -487,7 +525,7 @@ impl GameLogic {
         };
         if let Some(pos) = station {
             if let Some(occ) = self.objects.get_mut(&occupant_id) {
-                occ.set_position(pos);
+                occ.set_position_with_effects(pos, self.frame, presentation_effects);
             }
         }
     }
@@ -581,6 +619,19 @@ impl GameLogic {
         container_id: ObjectId,
         arriver_id: ObjectId,
     ) {
+        self.kick_other_controller_occupants_for_enter_with_effects(
+            container_id,
+            arriver_id,
+            &mut Default::default(),
+        );
+    }
+
+    pub(in crate::game_logic) fn kick_other_controller_occupants_for_enter_with_effects(
+        &mut self,
+        container_id: ObjectId,
+        arriver_id: ObjectId,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let arriver_owner = self
             .objects
             .get(&arriver_id)
@@ -630,7 +681,11 @@ impl GameLogic {
             if let Some(c) = self.objects.get_mut(&container_id) {
                 let _ = c.remove_occupant(pid, &mut self.ownership_events);
             }
-            self.walk_unit_via_open_contain_exit(pid, container_id);
+            self.walk_unit_via_open_contain_exit_with_effects(
+                pid,
+                container_id,
+                presentation_effects,
+            );
         }
         if self
             .objects
@@ -649,6 +704,19 @@ impl GameLogic {
         &mut self,
         unit_id: ObjectId,
         container_id: ObjectId,
+    ) {
+        self.walk_unit_via_open_contain_exit_with_effects(
+            unit_id,
+            container_id,
+            &mut Default::default(),
+        );
+    }
+
+    pub(in crate::game_logic) fn walk_unit_via_open_contain_exit_with_effects(
+        &mut self,
+        unit_id: ObjectId,
+        container_id: ObjectId,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         let container_id = self.redirected_containment_owner(container_id);
         let unit_pos = self.objects.get(&unit_id).map(|u| u.get_position());
@@ -751,7 +819,7 @@ impl GameLogic {
             if let Some(unit) = self.objects.get_mut(&unit_id) {
                 unit.set_contained_by(None);
                 unit.target = None;
-                unit.set_position(start);
+                unit.set_position_with_effects(start, self.frame, presentation_effects);
                 unit.set_orientation(yaw);
                 if !is_garrison {
                     unit.pathfind_layer = container_layer;
@@ -767,7 +835,7 @@ impl GameLogic {
             unit.set_contained_by(None);
             unit.target = None;
             if !skip_follow {
-                unit.set_position(start);
+                unit.set_position_with_effects(start, self.frame, presentation_effects);
                 unit.set_orientation(yaw);
                 if !is_garrison {
                     unit.pathfind_layer = container_layer;
@@ -881,6 +949,25 @@ impl GameLogic {
         flash_muzzle: bool,
         aim_at: Option<glam::Vec3>,
     ) {
+        self.ensure_garrison_gun_effect_with_effects(
+            container_id,
+            point_index,
+            pos,
+            flash_muzzle,
+            aim_at,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+    }
+
+    fn ensure_garrison_gun_effect_with_effects(
+        &mut self,
+        container_id: Option<ObjectId>,
+        point_index: usize,
+        pos: glam::Vec3,
+        flash_muzzle: bool,
+        aim_at: Option<glam::Vec3>,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         const MUZZLE_FLASH_LIFETIME: u32 = 30 / 7;
         let Some(cid) = container_id else {
             return;
@@ -910,11 +997,17 @@ impl GameLogic {
                 .get(&cid)
                 .map(|c| c.team)
                 .unwrap_or(Team::Neutral);
-            self.create_object("GarrisonGun", team, pos)
+            self.create_object_with_script_effects(
+                "GarrisonGun",
+                team,
+                pos,
+                None,
+                presentation_effects,
+            )
         });
         if let Some(gid) = gun_id {
             if let Some(gun) = self.objects.get_mut(&gid) {
-                gun.set_position(pos);
+                gun.set_position_with_effects(pos, self.frame, presentation_effects);
                 if let Some(target) = aim_at {
                     // C++ GarrisonContain::trackTargets Coord2D::toAngle();
                     // leftover dy.atan2(dx). Host Y-up ground plane is XZ.

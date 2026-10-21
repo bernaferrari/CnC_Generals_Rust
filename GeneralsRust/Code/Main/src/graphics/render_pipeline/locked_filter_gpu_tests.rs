@@ -208,6 +208,10 @@ fn locked_drawable_is_excluded_from_capture_redrawn_with_post_filter_camera_befo
                 Some(&mut post),
                 Some(binding),
                 Some(&mut paint_overlay),
+                // This isolated filter fixture installs no native terrain owner.
+                None,
+                (0.0, 0.0, 32.0, 32.0),
+                wgpu::Color::BLACK,
             )
             .unwrap();
         let scene = pixels(&device, &scene);
