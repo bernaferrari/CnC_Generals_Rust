@@ -164,6 +164,10 @@ impl AdmittedReceivingTemplate {
     pub fn template_id(&self) -> u16 {
         self.template.get_template_id()
     }
+    /// Original immutable ThingTemplate::getThreatValue, including authored zero.
+    pub fn threat_value(&self) -> u16 {
+        self.template.get_threat_value()
+    }
     pub fn draw_modules(&self) -> &ModuleInfo {
         self.template.get_draw_module_info()
     }

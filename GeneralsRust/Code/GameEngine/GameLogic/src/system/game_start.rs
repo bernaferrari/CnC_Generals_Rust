@@ -15,8 +15,8 @@
 use super::map_loader::{Coord3D, MapLoader};
 use super::player_init::{PlayerIndex, PlayerList};
 use crate::scripting::engine::get_script_engine;
+use glam::Vec3;
 use std::collections::HashMap;
-use glam::{Vec3};
 
 /// Camera position and orientation
 #[derive(Debug, Clone, Copy)]
@@ -673,6 +673,15 @@ mod tests {
 
     #[test]
     fn test_run_startup_scripts_reactivates_subroutine_by_name() {
+        // The production wrapper still selects the process-wide compatibility
+        // engine. Keep its real startup path isolated from other global fixtures.
+        #[cfg(not(target_arch = "wasm32"))]
+        if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
+            "system::game_start::tests::test_run_startup_scripts_reactivates_subroutine_by_name",
+            "GENERALS_STARTUP_SUBROUTINE_CHILD",
+        ) {
+            return;
+        }
         initialize_script_engine().unwrap();
         let mut sequence = GameStartSequence::new(64, 64);
 
@@ -713,6 +722,15 @@ mod tests {
 
     #[test]
     fn test_run_startup_scripts_reactivates_named_script() {
+        // The production wrapper still selects the process-wide compatibility
+        // engine. Keep its real startup path isolated from other global fixtures.
+        #[cfg(not(target_arch = "wasm32"))]
+        if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
+            "system::game_start::tests::test_run_startup_scripts_reactivates_named_script",
+            "GENERALS_STARTUP_RULE_CHILD",
+        ) {
+            return;
+        }
         initialize_script_engine().unwrap();
         let mut sequence = GameStartSequence::new(64, 64);
 

@@ -1,6 +1,5 @@
 //! Minimal logging system for game engine diagnostics.
 
-use std::cell::RefCell;
 use std::fs::File;
 use std::io::Write;
 
@@ -31,15 +30,4 @@ impl MiniLog {
             let _ = file.flush();
         }
     }
-}
-
-// Global logger instance
-// THREAD: C++ plain static; driven only by the single game/client thread.
-thread_local! {
-    static THE_MINI_LOG: RefCell<MiniLog> = RefCell::new(MiniLog { log_file: None });
-}
-
-/// Log a message globally
-pub fn log_message(message: &str) {
-    THE_MINI_LOG.with_borrow_mut(|mini_log| mini_log.log(message));
 }

@@ -100,6 +100,10 @@ impl ReceivingClientTemplate {
         Self(template)
     }
 
+    fn threat_value(&self) -> u16 {
+        self.0.threat_value()
+    }
+
     #[cfg(feature = "game_client")]
     pub(crate) fn client_admission(
         &self,
@@ -1536,8 +1540,12 @@ impl ThingTemplate {
         self
     }
 
-    /// C++ `ThingTemplate::getThreatValue`. Leftover factory wins when loaded.
+    /// C++ `ThingTemplate::getThreatValue` reads this exact template version.
+    /// Only explicit programmatic compatibility can consult the legacy factory.
     pub fn get_threat_value(&self) -> u16 {
+        if let Some(receiving) = &self.receiving_client_template {
+            return receiving.threat_value();
+        }
         leftover_template_threat_value(&self.name).unwrap_or(self.threat_value)
     }
 

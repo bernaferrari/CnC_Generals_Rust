@@ -849,3 +849,6 @@ mod draw_condition_parser_tests;
 
 #[path = "veterancy_science_owner_tests.rs"]
 mod veterancy_science_owner_tests;
+
+#[path = "draw_condition_grammar_tests.rs"]
+mod draw_condition_grammar_tests;

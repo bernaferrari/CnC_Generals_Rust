@@ -1676,9 +1676,24 @@ fn wave_guide_moves_and_damages_after_dam_die() {
 #[test]
 fn wave_guide_pushes_add_water_velocity_onto_grid_queue() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
-    if let Some(tv) = gamelogic::helpers::TheTerrainVisual::get() {
-        let _ = tv.take_water_velocity_impulses();
+    // Observe the same synchronous receiving capability used by the native
+    // update route; a standalone update intentionally has no terrain receiver.
+    #[derive(Default)]
+    struct WaterReceiver(Vec<(f32, f32, f32, f32)>);
+    impl crate::game_logic::script_presentation::NativeTerrainEffects for WaterReceiver {
+        fn oversize_terrain(&mut self, _: i32) {}
+        fn remove_for_construction(&mut self, _: [f32; 3], _: f32, _: f32, _: bool, _: f32) {}
+        fn placement_bib(&mut self, _: u32, _: glam::Mat4, _: f32, _: f32, _: bool) {}
+        fn retain_placement_bibs(&mut self, _: &[u32]) {}
+        fn clear_placement_bibs(&mut self) {}
+        fn add_water_velocity(&mut self, x: f32, y: f32, velocity: f32, height: f32) {
+            self.0.push((x, y, velocity, height));
+        }
+        fn add_scorch(&mut self, _: [f32; 3], _: f32, _: i32) {}
+        fn accepted_height(&mut self, _: gamelogic::terrain::TerrainHeightChange) {}
+        fn water_state(&mut self, _: &gamelogic::terrain_water::WaterGridState) {}
     }
+    let mut terrain = WaterReceiver::default();
     let mut logic = GameLogic::new();
     let mut dam = ThingTemplate::new("Dam");
     dam.set_health(1000.0);
@@ -1704,11 +1719,12 @@ fn wave_guide_pushes_add_water_velocity_onto_grid_queue() {
     logic.mark_object_for_destruction(dam_id, None);
     for _ in 0..30 {
         logic.frame = logic.frame.saturating_add(1);
-        logic.update_wave_guides();
+        logic.update_wave_guides_with_effects(&mut crate::game_logic::ScriptPresentationEffects {
+            terrain: Some(&mut terrain),
+            ..Default::default()
+        });
     }
-    let impulses = gamelogic::helpers::TheTerrainVisual::get()
-        .map(|tv| tv.take_water_velocity_impulses())
-        .unwrap_or_default();
+    let impulses = terrain.0;
     assert!(
         !impulses.is_empty(),
         "Dam flood WaveGuide must push leftover addWaterVelocity"
@@ -1873,28 +1889,31 @@ fn wave_guide_plays_dambreak_loop_and_random_splash() {
     // C++ WaveGuideUpdate.cpp:138-140 startMoving TheAudio LoopingSound;
     // :790-795 splash roll GameLogicRandomValue(1,100) > frequency.
     use crate::game_logic::host_wave_guide::{WAVE_LOOPING_SOUND, WAVE_RANDOM_SPLASH_SOUND};
-    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    use crate::game_logic::{KindOf, Team};
     let mut logic = GameLogic::new();
-    let mut dam = ThingTemplate::new("Dam");
-    dam.set_health(1000.0);
-    dam.add_kind_of(KindOf::Structure);
-    logic.templates.insert("Dam".into(), dam);
-    let mut parser = crate::assets::IniParser::new();
-    parser
-        .parse_ini_content(
-            r#"
+    let source = r#"
+Object Dam
+  KindOf = STRUCTURE
+  Body = ActiveBody DamBody
+    MaxHealth = 1000
+    InitialHealth = 1000
+  End
+End
 Object WaveGuide
   KindOf = WAVEGUIDE
+  Body = ActiveBody WaveBody
+    MaxHealth = 1
+    InitialHealth = 1
+  End
   Behavior = WaveGuideUpdate ModuleTag_Wave
     LoopingSound = DamBreakWaveLoop
     RandomSplashSound = WaveRandomSplash
     RandomSplashSoundFrequency = 0
   End
 End
-"#,
-            "wave-audio.ini",
-        )
-        .unwrap();
+"#;
+    let mut parser = crate::assets::IniParser::new();
+    parser.parse_ini_content(source, "wave-audio.ini").unwrap();
     let mut wg = GameLogic::build_template_from_object_definition(
         "WaveGuide",
         parser.get_definition("WaveGuide").unwrap(),
@@ -1909,7 +1928,22 @@ End
             .random_splash_sound_frequency,
         0
     );
-    logic.templates.insert("WaveGuide".into(), wg);
+    let expected_audio = wg.wave_guide_audio.clone();
+    logic
+        .admit_receiving_module_content(
+            crate::assets::ReceivingObjectContent::from_sources([(
+                "wave-audio.ini".to_owned(),
+                source.to_owned(),
+            )])
+            .unwrap(),
+        )
+        .unwrap();
+    assert_eq!(
+        logic.templates["WaveGuide"].wave_guide_audio,
+        expected_audio
+    );
+    assert_eq!(logic.templates["WaveGuide"].max_health, 1.0);
+    assert_eq!(logic.templates["Dam"].max_health, 1000.0);
     let dam_id = logic
         .create_object("Dam", Team::Neutral, glam::Vec3::new(0.0, 0.0, 0.0))
         .unwrap();

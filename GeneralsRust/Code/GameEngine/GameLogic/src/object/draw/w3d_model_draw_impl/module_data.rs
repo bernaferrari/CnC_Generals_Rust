@@ -174,7 +174,7 @@ impl W3DModelDrawModuleData {
                 Ok(true)
             }
             "IGNORECONDITIONSTATES" => {
-                self.ignore_condition_states = parse_model_condition_flags_tokens(tokens);
+                parse_model_condition_flags_tokens(tokens, &mut self.ignore_condition_states)?;
                 Ok(true)
             }
             "RECEIVESDYNAMICLIGHTS" => {
@@ -196,7 +196,8 @@ impl W3DModelDrawModuleData {
                 if self.condition_states.is_empty() {
                     return Err(INIError::InvalidData);
                 }
-                let conditions_yes = parse_model_condition_flags_tokens(tokens);
+                let mut conditions_yes = ModelConditionFlags::empty();
+                parse_model_condition_flags_tokens(tokens, &mut conditions_yes)?;
                 if conditions_yes.intersects(self.ignore_condition_states) {
                     return Err(INIError::InvalidData);
                 }
@@ -267,7 +268,8 @@ impl W3DModelDrawModuleData {
                                 info.conditions_yes.clear();
                             }
                         }
-                        let conditions_yes = parse_model_condition_flags_tokens(tokens);
+                        let mut conditions_yes = ModelConditionFlags::empty();
+                        parse_model_condition_flags_tokens(tokens, &mut conditions_yes)?;
                         if conditions_yes.intersects(self.ignore_condition_states) {
                             return Err(INIError::InvalidData);
                         }

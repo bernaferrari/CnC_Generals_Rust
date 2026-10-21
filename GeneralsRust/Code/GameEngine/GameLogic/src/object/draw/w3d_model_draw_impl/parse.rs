@@ -10,7 +10,7 @@ fn parse_model_draw_module_data_block(
 
         let tokens = ini
             .get_buffer()
-            .split(|character: char| character.is_ascii_whitespace() || character == '=')
+            .split([' ', '\n', '\r', '\t', '='])
             .filter(|token| !token.is_empty())
             .map(|token| token.to_string())
             .collect::<Vec<_>>();
@@ -46,7 +46,7 @@ fn parse_model_condition_info_block(
 
         let owned_tokens = ini
             .get_buffer()
-            .split(|character: char| character.is_ascii_whitespace() || character == '=')
+            .split([' ', '\n', '\r', '\t', '='])
             .filter(|token| !token.is_empty())
             .map(str::to_owned)
             .collect::<Vec<_>>();
@@ -322,43 +322,50 @@ fn parse_weapon_slot_index(token: &str) -> Option<usize> {
     }
 }
 
-fn parse_model_condition_flags_tokens(tokens: &[&str]) -> ModelConditionFlags {
-    let mut flags = ModelConditionFlags::empty();
-    for raw in tokens {
-        for part in raw.split(|ch| ch == ',' || ch == '|') {
-            let part = part.trim();
-            if part.is_empty() {
-                continue;
+/// C++ BitFlagsIO.h:40-108: ordinary names replace the mask; signed names
+/// edit it. NONE is legal only before either mode and stops the token walk.
+fn parse_model_condition_flags_tokens(
+    tokens: &[&str],
+    flags: &mut ModelConditionFlags,
+) -> Result<(), INIError> {
+    let mut found_normal = false;
+    let mut found_add_or_sub = false;
+    for token in tokens {
+        if token.eq_ignore_ascii_case("NONE") {
+            if found_normal || found_add_or_sub {
+                return Err(INIError::InvalidNameList);
             }
-            let (clear, value) = if let Some(stripped) = part.strip_prefix('-') {
-                (true, stripped)
-            } else if let Some(stripped) = part.strip_prefix('+') {
-                (false, stripped)
-            } else {
-                (false, part)
-            };
+            flags.clear();
+            break;
+        }
 
-            let normalized = value
-                .trim()
-                .to_ascii_uppercase()
-                .trim_start_matches("MODELCONDITION_")
-                .to_string();
-            if normalized == "NONE" || normalized == "INVALID" {
-                if clear {
-                    continue;
-                }
-                flags = ModelConditionFlags::empty();
-                continue;
+        if let Some(value) = token.strip_prefix('+') {
+            if found_normal {
+                return Err(INIError::InvalidNameList);
             }
-
-            match parse_model_condition_flag(value) {
-                Some(flag) if clear => flags.remove(flag),
-                Some(flag) => flags.insert(flag),
-                None => warn!("Unknown model condition token '{}'", value),
+            let flag = ModelConditionFlags::from_ini_name(value).ok_or(INIError::InvalidData)?;
+            flags.insert(flag);
+            found_add_or_sub = true;
+        } else if let Some(value) = token.strip_prefix('-') {
+            if found_normal {
+                return Err(INIError::InvalidNameList);
             }
+            let flag = ModelConditionFlags::from_ini_name(value).ok_or(INIError::InvalidData)?;
+            flags.remove(flag);
+            found_add_or_sub = true;
+        } else {
+            if found_add_or_sub {
+                return Err(INIError::InvalidNameList);
+            }
+            if !found_normal {
+                flags.clear();
+            }
+            let flag = ModelConditionFlags::from_ini_name(token).ok_or(INIError::InvalidData)?;
+            flags.insert(flag);
+            found_normal = true;
         }
     }
-    flags
+    Ok(())
 }
 
 fn does_state_exist(states: &[ModelConditionInfo], flags: ModelConditionFlags) -> bool {

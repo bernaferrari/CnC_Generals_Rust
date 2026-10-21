@@ -7,6 +7,7 @@
 
 use game_engine::common::ascii_string::AsciiString;
 use game_engine::common::audio::GameplayAudioDispatch;
+#[cfg(test)]
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -189,6 +190,7 @@ impl UnitVoiceSlot {
     }
 }
 
+#[cfg(test)]
 thread_local! {
     static TEMPLATE_VOICE_OVERRIDE: RefCell<HashMap<(String, UnitVoiceSlot), String>> =
         RefCell::new(HashMap::new());
@@ -207,6 +209,7 @@ fn nonempty_event_name(event: &game_engine::common::audio::AudioEventRts) -> Opt
 }
 
 /// Test hook: bind a ThingTemplate INI event without loading Object.ini.
+#[cfg(test)]
 pub fn set_test_template_voice(
     template_name: &str,
     slot: UnitVoiceSlot,
@@ -218,6 +221,7 @@ pub fn set_test_template_voice(
     });
 }
 
+#[cfg(test)]
 pub fn clear_test_template_voices() {
     TEMPLATE_VOICE_OVERRIDE.with(|m| m.borrow_mut().clear());
     PER_UNIT_SOUND_OVERRIDE.with(|m| m.borrow_mut().clear());
@@ -225,6 +229,7 @@ pub fn clear_test_template_voices() {
 }
 
 /// Test hook: ThingTemplate `UnitSpecificSounds` key without loading Object.ini.
+#[cfg(test)]
 pub fn set_test_per_unit_sound(template_name: &str, key: &str, event_name: impl Into<String>) {
     PER_UNIT_SOUND_OVERRIDE.with(|m| {
         m.borrow_mut().insert(
@@ -236,6 +241,7 @@ pub fn set_test_per_unit_sound(template_name: &str, key: &str, event_name: impl 
 
 /// C++ `ThingTemplate::getPerUnitSound(key)` — building UnderConstruction, etc.
 pub fn resolve_per_unit_sound(template_name: &str, key: &str) -> Option<String> {
+    #[cfg(test)]
     if let Some(over) = PER_UNIT_SOUND_OVERRIDE.with(|m| {
         m.borrow()
             .get(&(template_name.to_string(), key.to_string()))
@@ -260,6 +266,7 @@ pub fn resolve_per_unit_sound(template_name: &str, key: &str) -> Option<String> 
 }
 
 /// Test hook: SpecialPower / SpecialAbility `InitiateSound`.
+#[cfg(test)]
 pub fn set_test_initiate_sound(power_key: &str, event_name: impl Into<String>) {
     INITIATE_SOUND_OVERRIDE.with(|m| {
         m.borrow_mut()
@@ -273,6 +280,7 @@ pub fn resolve_special_power_initiate_sound(
     module_template: Option<&str>,
     retail_fallback: Option<&str>,
 ) -> Option<String> {
+    #[cfg(test)]
     if let Some(over) = INITIATE_SOUND_OVERRIDE.with(|m| m.borrow().get(power_key).cloned()) {
         if over.is_empty() {
             return None;
@@ -317,6 +325,7 @@ fn named_template_voice(
 /// C++ `ThingTemplate::getVoice*` / `getPerUnitSound` — never `{template}Voice*`
 /// and never invented `UnitVoiceSelect|Move|Attack`.
 pub fn resolve_unit_voice_event(template_name: &str, slot: UnitVoiceSlot) -> Option<String> {
+    #[cfg(test)]
     if let Some(over) = TEMPLATE_VOICE_OVERRIDE
         .with(|m| m.borrow().get(&(template_name.to_string(), slot)).cloned())
     {

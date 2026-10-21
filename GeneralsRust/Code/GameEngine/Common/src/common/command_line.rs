@@ -8,7 +8,6 @@
 // The command-line interface
 // Author: Matthew D. Campbell, September 2001
 
-use std::cell::RefCell;
 use std::env;
 use std::path::Path;
 
@@ -659,27 +658,6 @@ pub fn parse_command_line() -> CommandLineParser {
     let mut parser = CommandLineParser::from_runtime_global_data();
     parser.parse_command_line(args);
     parser
-}
-
-// Global static parser instance (equivalent to the C++ global variables)
-// THREAD: C++ plain static; driven only by the single game/client thread.
-thread_local! {
-    static GLOBAL_PARSER: RefCell<Option<CommandLineParser>> = const { RefCell::new(None) };
-}
-
-/// Initialize the global command line parser
-pub fn initialize_command_line_parser() {
-    GLOBAL_PARSER.with_borrow_mut(|slot| {
-        *slot = Some(parse_command_line());
-    });
-}
-
-/// Run `f` with the global parser (initializing it first if needed).
-pub fn with_global_parser<R>(f: impl FnOnce(&mut CommandLineParser) -> R) -> R {
-    GLOBAL_PARSER.with_borrow_mut(|slot| {
-        let parser = slot.get_or_insert_with(parse_command_line);
-        f(parser)
-    })
 }
 
 #[cfg(test)]

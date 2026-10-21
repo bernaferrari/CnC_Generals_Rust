@@ -249,12 +249,22 @@ impl SnapshotBuilder {
                 snapshot.id
             )));
         }
+        // Native partition state is reconstructed from the same receiving
+        // template as ordinary factory creation, not from a foreign catalog or
+        // a serialized stale template observation.
+        let receiving_partition_threat = game_logic
+            .receiving_module_content
+            .as_ref()
+            .map(|_| u32::from(template.get_threat_value()));
         let mut object = Object::new_with_logic_frame(
             template,
             snapshot.id,
             snapshot.team,
             game_logic.get_current_frame() as u32,
         );
+        if let Some(threat) = receiving_partition_threat {
+            object.partition_threat_value = threat;
+        }
         object.native_lifecycle = native_lifecycle.cloned();
         object.bind_physics_rules(
             game_logic.physics_definitions.effective,

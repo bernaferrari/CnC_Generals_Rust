@@ -54,7 +54,7 @@ impl W3DScienceModelDrawModuleData {
             }
             let tokens = ini
                 .get_buffer()
-                .split(|character: char| character.is_ascii_whitespace() || character == '=')
+                .split([' ', '\n', '\r', '\t', '='])
                 .filter(|token| !token.is_empty())
                 .map(str::to_owned)
                 .collect::<Vec<_>>();

@@ -36,7 +36,6 @@ use crate::object::draw::client_visual::{
     TerrainDecalDesc, leftover_default_shadow_texture, object_should_animate, preload_draw_asset,
     terrain_decal_client, terrain_decal_texture_name, terrain_track_client,
 };
-use crate::upgrade::modules::model_condition::parse_model_condition_flag;
 use game_engine::common::ini::{INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
