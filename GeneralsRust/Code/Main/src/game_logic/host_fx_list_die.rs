@@ -5,7 +5,9 @@
 //! mask matches, then `FXList::doFXObj` (`OrientToObject` default TRUE) or
 //! `doFXPos` with authored `DeathFX`.
 use serde::{Deserialize, Serialize};
+#[cfg(test)]
 use std::cell::RefCell;
+#[cfg(test)]
 use std::collections::HashMap;
 
 use crate::game_logic::host_usa_pilot::HostDeathType;
@@ -400,18 +402,21 @@ fn authored_fx_list_die(name: &str) -> Option<HostFxListDieData> {
     Some(first)
 }
 
+#[cfg(test)]
 thread_local! {
     static TEST_FX_LIST_DIE: RefCell<HashMap<String, HostFxListDieData>> =
         RefCell::new(HashMap::new());
 }
 
 /// Test-only authored FXListDie inject (INI module, not name heuristics).
+#[cfg(test)]
 pub fn set_test_fx_list_die(name: &str, data: HostFxListDieData) {
     TEST_FX_LIST_DIE.with(|m| {
         m.borrow_mut().insert(name.to_string(), data);
     });
 }
 
+#[cfg(test)]
 pub fn clear_test_fx_list_die() {
     TEST_FX_LIST_DIE.with(|m| m.borrow_mut().clear());
 }
@@ -421,7 +426,14 @@ pub fn fx_list_die_config_for_template(name: &str) -> Option<HostFxListDieData> 
     if let Some(authored) = authored_fx_list_die(name) {
         return Some(authored);
     }
-    TEST_FX_LIST_DIE.with(|m| m.borrow().get(name).cloned())
+    #[cfg(test)]
+    {
+        return TEST_FX_LIST_DIE.with(|m| m.borrow().get(name).cloned());
+    }
+    #[cfg(not(test))]
+    {
+        None
+    }
 }
 
 #[cfg(test)]

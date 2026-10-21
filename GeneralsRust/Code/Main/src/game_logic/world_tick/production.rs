@@ -632,29 +632,6 @@ impl GameLogic {
         }
     }
 
-    /// Wave 715: after GW construction writeback records ready structures, host
-    /// applies completion side effects in the same coupled tick (not next frame).
-
-    /// Wave 717: after GW special-power writeback records ready flips, host
-    /// applies EVA superweapon-ready residual in the same coupled tick.
-
-    fn publish_production_power_factors(&self) {
-        let player_power_factor = self.compute_player_power_factors();
-        for (&id, obj) in self.objects.iter() {
-            if !obj.is_constructed() || !obj.is_alive() || obj.status.sold {
-                continue;
-            }
-            if obj.building_data.is_none() {
-                continue;
-            }
-            let pf = self
-                .player_owner_for_host_object(obj)
-                .and_then(|player_id| player_power_factor.get(&player_id).copied())
-                .unwrap_or(1.0);
-            crate::game_logic::host_production_progress_log::record_power_factor_only(id, pf);
-        }
-    }
-
     /// C++ ProductionUpdate::update (ProductionUpdate.cpp:671-682):
     /// scripts can disallow unit types mid-queue; cancel the unit head unless
     /// it is a dozer. Called every live production tick.
@@ -713,6 +690,7 @@ impl GameLogic {
                 if let Some(item) = building.cancel_production(0) {
                     if building.production_queue.is_empty() && building.exit_delay_remaining > 0.0 {
                         building.exit_delay_remaining = 0.0;
+                        #[cfg(test)]
                         crate::game_logic::host_production_progress_log::record_exit_delay_only(
                             producer_id,
                             0.0,
@@ -903,11 +881,12 @@ impl GameLogic {
                         )
                     }
                 };
-                // GameWorld production residual: snapshot queue progress each tick
-                // unless sole-tick owns progress (Wave 477) — then enqueue/complete logs
-                // + writeback carry structure; GW advances progress/exit delay.
+                // Tests may inspect the committed queue. Production readers
+                // observe BuildingData directly; this is not event transport.
+                #[cfg(test)]
                 let completed_this_tick = completed_prod.is_some();
-                if (!building.production_queue.is_empty() || completed_this_tick) {
+                #[cfg(test)]
+                if !building.production_queue.is_empty() || completed_this_tick {
                     let items: Vec<crate::game_logic::host_production_progress_log::HostProductionQueueItem> =
                         building
                             .production_queue
@@ -933,7 +912,6 @@ impl GameLogic {
                         building.production_exit_runtime_state(),
                         pf,
                     );
-                } else {
                 }
                 // End the `BuildingData` field read before using producer
                 // geometry below; the object owns both fields.

@@ -96,6 +96,7 @@ impl GameLogic {
                 if let Some(building) = producer.building_data.as_mut() {
                     if building.production_queue.is_empty() && building.exit_delay_remaining > 0.0 {
                         building.exit_delay_remaining = 0.0;
+                        #[cfg(test)]
                         crate::game_logic::host_production_progress_log::record_exit_delay_only(
                             producer_id,
                             0.0,
@@ -161,6 +162,7 @@ impl GameLogic {
             if let Some(building) = producer.building_data.as_mut() {
                 if building.production_queue.is_empty() && building.exit_delay_remaining > 0.0 {
                     building.exit_delay_remaining = 0.0;
+                    #[cfg(test)]
                     crate::game_logic::host_production_progress_log::record_exit_delay_only(
                         producer_id,
                         0.0,
@@ -218,8 +220,9 @@ impl GameLogic {
             for item in &cancelled_items {
                 self.refund_cancelled_production_item(owner_player_id, team, item);
             }
-            // Wave 485: publish exit-delay clear so GW sole-tick does not hold a ghost timer.
+            // Tests may inspect the exit delay already cleared on BuildingData.
             if cleared_exit_delay {
+                #[cfg(test)]
                 crate::game_logic::host_production_progress_log::record_exit_delay_only(
                     producer_id,
                     0.0,

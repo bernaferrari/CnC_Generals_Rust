@@ -1,4 +1,5 @@
-//! Frame-local host production queue progress for GameWorld SetProductionQueue parity.
+//! Test diagnostics for production queue state already committed to BuildingData.
+//! This module is excluded from production; completion delivery uses ProductionEvents.
 
 // This file is mounted below `host_mods_logs_c`, not directly below
 // `game_logic`; use the public root paths so the Queue exit runtime state is

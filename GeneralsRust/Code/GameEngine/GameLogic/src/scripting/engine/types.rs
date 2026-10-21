@@ -1970,6 +1970,9 @@ pub struct ScriptEngine {
     /// raw pointer this is never dereferenced; it only prevents a nested,
     /// different `ScriptEngine` from borrowing the outer engine's lists.
     instance_id: u64,
+    /// Synchronous re-entry budget for this engine, independent of its peers.
+    /// The guard holds only this scalar, never an inner-state borrow across dispatch.
+    subroutine_call_depth: Cell<u32>,
     inner: std::cell::RefCell<ScriptEngineInner>,
 }
 
@@ -2379,40 +2382,32 @@ impl Drop for ActiveScriptListsRestore<'_> {
 static NEXT_SCRIPT_ENGINE_INSTANCE_ID: std::sync::atomic::AtomicU64 =
     std::sync::atomic::AtomicU64::new(1);
 
-thread_local! {
-    /// Depth of nested CALL_SUBROUTINE / execute_subroutine_by_name on this thread.
-    /// Campaign random-number scripts can re-enter; unbounded nesting hangs the host.
-    static SUBROUTINE_CALL_DEPTH: Cell<u32> = const { Cell::new(0) };
-}
-
 /// Hard cap on nested CALL_SUBROUTINE depth (C++ is stack-bound; we fail closed).
 const MAX_SUBROUTINE_CALL_DEPTH: u32 = 32;
 
-struct SubroutineDepthGuard;
+struct SubroutineDepthGuard<'a> {
+    depth: &'a Cell<u32>,
+}
 
-impl SubroutineDepthGuard {
-    fn enter() -> Option<Self> {
-        SUBROUTINE_CALL_DEPTH.with(|depth| {
-            let current = depth.get();
-            if current >= MAX_SUBROUTINE_CALL_DEPTH {
-                log::warn!(
-                    "CALL_SUBROUTINE depth limit ({}) exceeded; aborting nested call",
-                    MAX_SUBROUTINE_CALL_DEPTH
-                );
-                None
-            } else {
-                depth.set(current + 1);
-                Some(SubroutineDepthGuard)
-            }
-        })
+impl<'a> SubroutineDepthGuard<'a> {
+    fn enter(depth: &'a Cell<u32>) -> Option<Self> {
+        let current = depth.get();
+        if current >= MAX_SUBROUTINE_CALL_DEPTH {
+            log::warn!(
+                "CALL_SUBROUTINE depth limit ({}) exceeded; aborting nested call",
+                MAX_SUBROUTINE_CALL_DEPTH
+            );
+            None
+        } else {
+            depth.set(current + 1);
+            Some(Self { depth })
+        }
     }
 }
 
-impl Drop for SubroutineDepthGuard {
+impl Drop for SubroutineDepthGuard<'_> {
     fn drop(&mut self) {
-        SUBROUTINE_CALL_DEPTH.with(|depth| {
-            depth.set(depth.get().saturating_sub(1));
-        });
+        self.depth.set(self.depth.get().saturating_sub(1));
     }
 }
 

@@ -62,6 +62,7 @@ fn freeze_host_observations(logic: &mut GameLogic) {
     logic.ownership_events.complete_boundary();
 
     logic.production_events.complete_boundary();
+    #[cfg(test)]
     let _ = crate::game_logic::host_production_progress_log::drain();
 
     let _ = crate::game_logic::host_spawn_log::drain();

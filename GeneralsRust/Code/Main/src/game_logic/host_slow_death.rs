@@ -20,6 +20,7 @@
 //! - Variance uses 0 (no GameLogicRandomValue)
 
 use serde::{Deserialize, Serialize};
+#[cfg(test)]
 use std::cell::RefCell;
 
 /// Logic FPS residual.
@@ -39,6 +40,7 @@ pub const VEHICLE_DESTRUCTION_DELAY_MS: u32 = 1_000;
 /// Retail AmericaInfantry SlowDeathBehavior INITIAL/FINAL peel.
 pub const INFANTRY_SLOW_DEATH_FX: &str = "FX_DieByGunGeneric";
 
+#[cfg(test)]
 thread_local! {
     static SLOW_DEATH_INI_OVERRIDE: RefCell<Option<(String, HostSlowDeathIni)>> =
         const { RefCell::new(None) };
@@ -522,12 +524,14 @@ fn authored_slow_death_ini(name: &str) -> Option<HostSlowDeathIni> {
 }
 
 /// Test helper: treat `template_name` as authoring SlowDeathBehavior.
+#[cfg(test)]
 pub fn override_slow_death_ini_for_tests(template_name: &str, ini: HostSlowDeathIni) {
     SLOW_DEATH_INI_OVERRIDE.with(|slot| {
         *slot.borrow_mut() = Some((template_name.to_string(), ini));
     });
 }
 
+#[cfg(test)]
 pub fn clear_slow_death_ini_override_for_tests() {
     SLOW_DEATH_INI_OVERRIDE.with(|slot| {
         *slot.borrow_mut() = None;
@@ -536,13 +540,16 @@ pub fn clear_slow_death_ini_override_for_tests() {
 
 /// Live lookup: override (tests) then authored Object INI `SlowDeathBehavior`.
 pub fn slow_death_ini_for_template(name: &str) -> Option<HostSlowDeathIni> {
-    let hit = SLOW_DEATH_INI_OVERRIDE.with(|slot| {
-        slot.borrow()
-            .as_ref()
-            .and_then(|(n, ini)| n.eq_ignore_ascii_case(name).then(|| ini.clone()))
-    });
-    if hit.is_some() {
-        return hit;
+    #[cfg(test)]
+    {
+        let hit = SLOW_DEATH_INI_OVERRIDE.with(|slot| {
+            slot.borrow()
+                .as_ref()
+                .and_then(|(n, ini)| n.eq_ignore_ascii_case(name).then(|| ini.clone()))
+        });
+        if hit.is_some() {
+            return hit;
+        }
     }
     authored_slow_death_ini(name)
 }

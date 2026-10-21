@@ -19,6 +19,7 @@
 //! - Not full DieMux death-type filters
 
 use serde::{Deserialize, Serialize};
+#[cfg(test)]
 use std::cell::RefCell;
 
 /// C++ COLLAPSE_ACCELERATION uses GlobalData gravity residual.
@@ -37,6 +38,7 @@ pub const STRUCTURE_COLLAPSE_MIN_BURST_DELAY_DEFAULT: u32 = 9999;
 /// Fail-closed burst-timer residual when leftover min/max are unusable.
 pub const STRUCTURE_COLLAPSE_BURST_DELAY_FALLBACK: u32 = 15;
 
+#[cfg(test)]
 thread_local! {
     static COLLAPSE_INI_OVERRIDE: RefCell<Option<(String, HostStructureCollapseIni)>> =
         const { RefCell::new(None) };
@@ -584,12 +586,14 @@ fn authored_collapse_ini(name: &str) -> Option<HostStructureCollapseIni> {
 }
 
 /// Test helper: treat `template_name` as authoring StructureCollapseUpdate FX.
+#[cfg(test)]
 pub fn override_collapse_ini_for_tests(template_name: &str, ini: HostStructureCollapseIni) {
     COLLAPSE_INI_OVERRIDE.with(|slot| {
         *slot.borrow_mut() = Some((template_name.to_string(), ini));
     });
 }
 
+#[cfg(test)]
 pub fn clear_collapse_ini_override_for_tests() {
     COLLAPSE_INI_OVERRIDE.with(|slot| {
         *slot.borrow_mut() = None;
@@ -598,13 +602,16 @@ pub fn clear_collapse_ini_override_for_tests() {
 
 /// Live lookup: override (tests) then leftover ThingFactory then Object INI.
 pub fn collapse_ini_for_template(name: &str) -> Option<HostStructureCollapseIni> {
-    let hit = COLLAPSE_INI_OVERRIDE.with(|slot| {
-        slot.borrow()
-            .as_ref()
-            .and_then(|(n, ini)| n.eq_ignore_ascii_case(name).then(|| ini.clone()))
-    });
-    if hit.is_some() {
-        return hit;
+    #[cfg(test)]
+    {
+        let hit = COLLAPSE_INI_OVERRIDE.with(|slot| {
+            slot.borrow()
+                .as_ref()
+                .and_then(|(n, ini)| n.eq_ignore_ascii_case(name).then(|| ini.clone()))
+        });
+        if hit.is_some() {
+            return hit;
+        }
     }
     authored_collapse_ini(name)
 }

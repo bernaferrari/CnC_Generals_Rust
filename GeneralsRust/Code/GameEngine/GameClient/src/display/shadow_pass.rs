@@ -8,18 +8,18 @@ mod frustum;
 pub use frustum::clipped_visible_box_z_up;
 
 use crate::display::view::with_tactical_view_ref;
-use crate::drawable::drawable_manager::with_drawable_manager;
 use crate::drawable::StealthLook;
+use crate::drawable::drawable_manager::with_drawable_manager;
 use crate::effects::decals::DecalRenderItem;
 use crate::radius_decal::get_projected_shadow_manager;
-use crate::terrain::terrain_visual::THE_TERRAIN_VISUAL;
 use crate::terrain::TerrainVisual;
+use crate::terrain::terrain_visual::THE_TERRAIN_VISUAL;
 use game_engine::common::ini::ini_game_data::get_global_data;
-use gamelogic::common::types::KindOf;
 use gamelogic::common::SHADOW_VOLUME;
+use gamelogic::common::types::KindOf;
 use gamelogic::helpers::TheGameLogic;
 use gamelogic::object::registry::OBJECT_REGISTRY;
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 use std::collections::BTreeMap;
 use wgpu::util::DeviceExt;
 
@@ -39,17 +39,11 @@ pub struct UnitShadowCaster {
 // consumed by the shadow passes of the same frame on the same thread.
 thread_local! {
     static UNIT_CASTERS: RefCell<Vec<UnitShadowCaster>> = RefCell::new(Vec::new());
-    static SHADOW_REBUILD_SERIAL: Cell<u32> = Cell::new(0);
 }
 
 /// C++ `W3DShadowManager::invalidateCachedLightPositions` / GameLOD hook.
 pub fn rebuild_shadows() {
-    SHADOW_REBUILD_SERIAL.with(|serial| serial.set(serial.get().wrapping_add(1)));
     UNIT_CASTERS.with_borrow_mut(Vec::clear);
-}
-
-pub fn shadow_rebuild_serial() -> u32 {
-    SHADOW_REBUILD_SERIAL.get()
 }
 
 pub fn register_unit_shadow(caster: UnitShadowCaster) {
@@ -199,11 +193,7 @@ fn rgb_to_hsv(r: f32, g: f32, b: f32) -> (f32, f32, f32) {
             4.0 + (r - g) / delta
         };
         let hue = hue * 60.0;
-        if hue < 0.0 {
-            hue + 360.0
-        } else {
-            hue
-        }
+        if hue < 0.0 { hue + 360.0 } else { hue }
     };
     (h, s, v)
 }
@@ -1193,10 +1183,21 @@ mod tests {
     }
 
     #[test]
-    fn rebuild_increments_serial() {
-        let before = shadow_rebuild_serial();
+    fn rebuild_discards_queued_unit_casters() {
+        clear_unit_shadows();
+        register_unit_shadow(UnitShadowCaster {
+            position: [10.0, 20.0, 0.0],
+            size_x: 12.0,
+            size_y: 12.0,
+            angle: 0.0,
+            player_color: 0,
+            occluded: false,
+            heat_vision: false,
+            volume: true,
+        });
+        UNIT_CASTERS.with_borrow(|casters| assert_eq!(casters.len(), 1));
         rebuild_shadows();
-        assert!(shadow_rebuild_serial() > before);
+        UNIT_CASTERS.with_borrow(|casters| assert!(casters.is_empty()));
     }
 
     #[test]

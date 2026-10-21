@@ -51,6 +51,7 @@ impl ScriptEngine {
         let mut engine = Self {
             instance_id: NEXT_SCRIPT_ENGINE_INSTANCE_ID
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+            subroutine_call_depth: Cell::new(0),
             inner: std::cell::RefCell::new(ScriptEngineInner {
                 action_templates: Vec::with_capacity(ScriptActionType::NumItems as usize),
                 condition_templates: Vec::with_capacity(ConditionType::NumItems as usize),
@@ -1006,7 +1007,7 @@ impl ScriptEngine {
         name: &str,
         execution: &mut ScriptExecution<'_>,
     ) -> GameLogicResult<bool> {
-        let Some(_depth_guard) = SubroutineDepthGuard::enter() else {
+        let Some(_depth_guard) = SubroutineDepthGuard::enter(&self.subroutine_call_depth) else {
             return Ok(false);
         };
         let mut action_dispatcher =
@@ -1200,7 +1201,10 @@ impl ScriptEngine {
     /// CPP SetPriorityThing uses the driving session's effective content definitions.
     /// Named lists preserve their prefix writes when a later template is absent.
     pub(crate) fn set_priority_thing_with_lookup(
-        &self, set_name: &str, type_or_list: &str, priority: i32,
+        &self,
+        set_name: &str,
+        type_or_list: &str,
+        priority: i32,
         mut template_name: impl FnMut(&str) -> Option<String>,
     ) -> bool {
         if let Some(list) = self.get_object_types(type_or_list) {

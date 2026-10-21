@@ -1611,3 +1611,5 @@ mod authored_template_tests;
 mod authored_metadata_tests;
 
 mod timed_audio_parity_tests;
+
+mod depth_owner_tests;
