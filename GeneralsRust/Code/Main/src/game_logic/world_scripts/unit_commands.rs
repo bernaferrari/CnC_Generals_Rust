@@ -2222,7 +2222,7 @@ impl GameLogic {
         unit.set_status_attacking(false);
         drop(unit);
         if let Some(cid) = container_id {
-            self.play_container_removing_template_sounds(cid, id);
+            self.play_container_removing_template_sounds(cid, id, effects);
         }
         true
     }

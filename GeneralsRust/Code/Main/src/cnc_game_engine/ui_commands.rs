@@ -1427,6 +1427,7 @@ impl CnCGameEngine {
             &mut self.control_bar_callbacks,
         )
         .with_cinematic_input(cinematic_input);
+        let mut audio = super::native_audio_effects::NativeAudioService::live();
         #[cfg(feature = "game_client")]
         let (poses, terrain) = self
             .render_pipeline
@@ -1441,13 +1442,17 @@ impl CnCGameEngine {
         );
         #[cfg(feature = "game_client")]
         let mut effects = crate::game_logic::ScriptPresentationEffects {
+            audio: audio.as_mut().map(|service| service.receiver()),
             terrain: terrain
                 .map(|terrain| terrain as &mut dyn crate::game_logic::NativeTerrainEffects),
             ui: Some(&mut ui),
             view: Some(&mut view),
         };
         #[cfg(not(feature = "game_client"))]
-        let mut effects = crate::game_logic::ScriptPresentationEffects::default();
+        let mut effects = crate::game_logic::ScriptPresentationEffects {
+            audio: audio.as_mut().map(|service| service.receiver()),
+            ..Default::default()
+        };
         self.game_logic
             .apply_command_pipeline_op_with_effects(op, &mut effects)
     }

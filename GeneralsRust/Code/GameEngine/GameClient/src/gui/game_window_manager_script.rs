@@ -28,9 +28,7 @@ use crate::gui::game_window::{
 };
 use crate::gui::shell::main_menu::get_main_menu;
 use crate::gui::window_manager::WindowLayout;
-use crate::gui::window_script::{
-    WindowDefinition, WindowLayoutDefinition, WindowScriptError, parse_window_script,
-};
+use crate::gui::window_script::{WindowLayoutDefinition, WindowScriptError, parse_window_script};
 use crate::gui::{get_disconnect_menu, get_establish_connections_menu};
 use std::any::Any;
 use std::collections::HashMap;
@@ -1768,14 +1766,7 @@ fn options_menu_system(
     data1: WindowMsgData,
     data2: WindowMsgData,
 ) -> WindowMsgHandled {
-    menu_system(
-        options_menu,
-        "OptionsMenuSystem",
-        window,
-        msg,
-        data1,
-        data2,
-    )
+    menu_system(options_menu, "OptionsMenuSystem", window, msg, data1, data2)
 }
 
 fn map_select_menu_system(
@@ -1800,14 +1791,7 @@ fn credits_menu_system(
     data1: WindowMsgData,
     data2: WindowMsgData,
 ) -> WindowMsgHandled {
-    menu_system(
-        credits_menu,
-        "CreditsMenuSystem",
-        window,
-        msg,
-        data1,
-        data2,
-    )
+    menu_system(credits_menu, "CreditsMenuSystem", window, msg, data1, data2)
 }
 
 fn lan_lobby_menu_system(
@@ -1848,14 +1832,7 @@ fn options_menu_input(
     data1: WindowMsgData,
     data2: WindowMsgData,
 ) -> WindowMsgHandled {
-    menu_input(
-        options_menu,
-        "OptionsMenuInput",
-        window,
-        msg,
-        data1,
-        data2,
-    )
+    menu_input(options_menu, "OptionsMenuInput", window, msg, data1, data2)
 }
 
 fn map_select_menu_input(
@@ -1880,14 +1857,7 @@ fn credits_menu_input(
     data1: WindowMsgData,
     data2: WindowMsgData,
 ) -> WindowMsgHandled {
-    menu_input(
-        credits_menu,
-        "CreditsMenuInput",
-        window,
-        msg,
-        data1,
-        data2,
-    )
+    menu_input(credits_menu, "CreditsMenuInput", window, msg, data1, data2)
 }
 
 fn lan_lobby_menu_input(
@@ -2442,32 +2412,6 @@ impl WindowScriptEngine {
 
     // -- Default application --
 
-    /// Apply per-file defaults to a window definition that lacks explicit values.
-    ///
-    /// PARITY_NOTE: In C++, defaults are applied via global variables during
-    /// `parseWindow()` — `instData.m_enabledText.color = defTextColor` etc.
-    /// This method replicates that behavior for the parsed definition layer.
-    pub fn apply_defaults_to_definition(&self, window_def: &mut WindowDefinition) {
-        let default = self.defaults.text_color;
-        if window_def.enabled_text.color == super::game_window::WIN_COLOR_UNDEFINED {
-            window_def.enabled_text.color = default;
-            window_def.enabled_text.border_color = default;
-        }
-        if window_def.disabled_text.color == 0 {
-            window_def.disabled_text.color = default;
-            window_def.disabled_text.border_color = default;
-        }
-        if window_def.hilite_text.color == 0 {
-            window_def.hilite_text.color = default;
-            window_def.hilite_text.border_color = default;
-        }
-
-        // Apply default font when none specified.
-        if window_def.font.is_none() && self.defaults.font.is_some() {
-            window_def.font = self.defaults.font.clone();
-        }
-    }
-
     /// Apply per-file color default for a named color field.
     /// PARITY_NOTE: mirrors C++ parseDefaultColor called during
     /// the top-level parsing loop of `winCreateFromScript()`.
@@ -3009,37 +2953,102 @@ mod tests {
 
     #[test]
     fn test_script_engine_apply_defaults() {
-        let mut engine = WindowScriptEngine::new();
-        engine.defaults.text_color = 0xAABBCCDD;
-        engine.defaults.font = Some(super::super::game_window::GameFont {
-            name: "Arial".to_string(),
-            size: 12,
-            bold: false,
-        });
-
-        let mut def = WindowDefinition::default();
-        engine.apply_defaults_to_definition(&mut def);
-
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("DefaultText.wnd");
+        std::fs::write(
+            &path,
+            concat!(
+                "TEXTCOLOR=187 204 221 170;\n",
+                "FONT=NAME:\"Arial\", SIZE:12, BOLD:0;\n",
+                "WINDOW\nWINDOWTYPE=USER;\nNAME=\"DefaultText\";\n",
+                "SCREENRECT=0 0 100 100;\nEND\n",
+            ),
+        )
+        .unwrap();
+        let engine = WindowScriptEngine::new();
+        let parsed = engine.load_window_layout(&path).unwrap();
+        assert_eq!(parsed.windows.len(), 1);
+        let def = &parsed.windows[0];
         assert_eq!(def.enabled_text.color, 0xAABBCCDD);
         assert_eq!(def.disabled_text.color, 0xAABBCCDD);
         assert_eq!(def.hilite_text.color, 0xAABBCCDD);
-        assert!(def.font.is_some());
-        assert_eq!(def.font.as_ref().unwrap().name, "Arial");
+        assert_eq!(def.enabled_text.border_color, 0xAABBCCDD);
+        assert_eq!(def.disabled_text.border_color, 0xAABBCCDD);
+        assert_eq!(def.hilite_text.border_color, 0xAABBCCDD);
+
+        let mut manager = super::super::window_manager::WindowManager::new();
+        let info = manager
+            .create_windows_from_script(path.to_str().unwrap())
+            .unwrap();
+        let window = info.windows[0].borrow();
+        let data = window.instance_data();
+        assert_eq!(data.enabled_text.color, 0xAABBCCDD);
+        assert_eq!(data.disabled_text.color, 0xAABBCCDD);
+        assert_eq!(data.hilite_text.color, 0xAABBCCDD);
+        assert!(data.font.is_some());
+        let font = data.font.as_ref().unwrap();
+        assert_eq!(font.name, "Arial");
+        assert_eq!(font.size, 12);
+        assert!(!font.bold);
     }
 
     #[test]
     fn test_script_engine_apply_defaults_respects_explicit() {
-        let mut engine = WindowScriptEngine::new();
-        engine.defaults.text_color = 0x11111111;
-
-        let mut def = WindowDefinition::default();
-        def.enabled_text.color = 0xFF000000; // explicit
-        engine.apply_defaults_to_definition(&mut def);
-
-        // Should not overwrite explicit color
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("ExplicitText.wnd");
+        std::fs::write(
+            &path,
+            concat!(
+                "TEXTCOLOR=17 17 17 17;\n",
+                "FONT=NAME:\"Arial\", SIZE:12, BOLD:0;\n",
+                "WINDOW\nWINDOWTYPE=USER;\nNAME=\"ExplicitText\";\n",
+                "SCREENRECT=0 0 100 100;\n",
+                "TEXTCOLOR=ENABLED:0 0 0 255, ENABLEDBORDER:255 255 255 0, ",
+                "DISABLED:17 17 17 17, DISABLEDBORDER:0 0 0 0, ",
+                "HILITE:0 0 0 0, HILITEBORDER:255 255 255 0;\n",
+                "FONT=NAME:\"Courier\", SIZE:18, BOLD:1;\nEND\n",
+            ),
+        )
+        .unwrap();
+        let engine = WindowScriptEngine::new();
+        let parsed = engine.load_window_layout(&path).unwrap();
+        let def = &parsed.windows[0];
+        // Explicit packed zero and transparent white are real authored colors.
         assert_eq!(def.enabled_text.color, 0xFF000000);
-        // But disabled/hilite were 0 so they get defaults
         assert_eq!(def.disabled_text.color, 0x11111111);
+        assert_eq!(def.hilite_text.color, 0);
+        assert_eq!(
+            def.enabled_text.border_color,
+            super::super::game_window::WIN_COLOR_UNDEFINED
+        );
+        assert_eq!(def.disabled_text.border_color, 0);
+        assert_eq!(
+            def.hilite_text.border_color,
+            super::super::game_window::WIN_COLOR_UNDEFINED
+        );
+
+        let mut manager = super::super::window_manager::WindowManager::new();
+        let info = manager
+            .create_windows_from_script(path.to_str().unwrap())
+            .unwrap();
+        let window = info.windows[0].borrow();
+        let data = window.instance_data();
+        assert_eq!(data.enabled_text.color, 0xFF000000);
+        assert_eq!(data.disabled_text.color, 0x11111111);
+        assert_eq!(data.hilite_text.color, 0);
+        assert_eq!(
+            data.enabled_text.border_color,
+            super::super::game_window::WIN_COLOR_UNDEFINED
+        );
+        assert_eq!(data.disabled_text.border_color, 0);
+        assert_eq!(
+            data.hilite_text.border_color,
+            super::super::game_window::WIN_COLOR_UNDEFINED
+        );
+        let font = data.font.as_ref().unwrap();
+        assert_eq!(font.name, "Courier");
+        assert_eq!(font.size, 18);
+        assert!(font.bold);
     }
 
     #[test]

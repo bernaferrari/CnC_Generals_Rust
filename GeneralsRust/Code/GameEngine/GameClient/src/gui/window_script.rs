@@ -271,7 +271,21 @@ pub fn parse_window_script_uncached(
                 continue;
             }
             "WINDOW" => {
-                window_stack.push(WindowDefinition::default());
+                // C++ parseWindow installs the current file defaults before
+                // parsing this window's explicit fields (including children).
+                // Do not infer absence from a packed color after parsing: an
+                // authored transparent white equals WIN_COLOR_UNDEFINED.
+                let mut window = WindowDefinition::default();
+                let text_color = layout.default_text_color.unwrap_or(0);
+                for text in [
+                    &mut window.enabled_text,
+                    &mut window.disabled_text,
+                    &mut window.hilite_text,
+                ] {
+                    text.color = text_color;
+                    text.border_color = text_color;
+                }
+                window_stack.push(window);
                 continue;
             }
             "CHILD" => {
@@ -697,6 +711,9 @@ fn parse_font(value: &str) -> Option<GameFont> {
 fn parse_default_color(value: &str) -> Option<u32> {
     let cleaned = strip_wrapped_value(value);
     let cleaned = cleaned.trim_end_matches(';').trim();
+    if cleaned == "TRANSPARENT" {
+        return Some(super::game_window::WIN_COLOR_UNDEFINED);
+    }
     if cleaned.is_empty() {
         return None;
     }

@@ -382,10 +382,6 @@ fn combat_drop_rappel_add_to_contain_on_roof() {
 #[test]
 fn combat_drop_rappel_kills_two_and_dies() {
     let mut logic = GameLogic::new();
-    let mut t = ThingTemplate::new("CD_T5");
-    t.add_kind_of(KindOf::Aircraft);
-    t.set_health(200.0);
-    logic.templates.insert("CD_T5".to_string(), t);
     // C++ findEnemyInContainer asks the rappeller's directional player
     // relationship, not whether two faction enum labels happen to differ.
     let mut usa = crate::game_logic::Player::new(1, Team::USA, "Rappeller", true);
@@ -394,23 +390,52 @@ fn combat_drop_rappel_kills_two_and_dies() {
     china.alliance_team = 2;
     logic.add_player(usa);
     logic.add_player(china);
-    let mut parser = crate::assets::IniParser::new();
+    // Paired content is admitted before any live Object. Preserve the old
+    // programmatic carrier/bunker values as explicit authored fixture data;
+    // the passenger/enemy Body and SlowDeath use the same receiving source.
+    let mut source = String::from(
+        r#"Object CD_T5
+  KindOf = AIRCRAFT
+  Body = ActiveBody BodyTag
+    MaxHealth = 200
+    InitialHealth = 200
+  End
+End
+Object CD_B5
+  KindOf = STRUCTURE SELECTABLE
+  Geometry = BOX
+  GeometryHeight = 16
+  GeometryMajorRadius = 15
+  GeometryMinorRadius = 15
+  GeometryIsSmall = No
+  Body = ActiveBody BodyTag
+    MaxHealth = 1000
+    InitialHealth = 1000
+  End
+  Behavior = GarrisonContain ContainTag
+    ContainMax = 5
+    AllowInsideKindOf = INFANTRY
+    AllowAlliesInside = Yes
+    AllowEnemiesInside = Yes
+    AllowNeutralInside = Yes
+  End
+End
+"#,
+    );
     for name in ["CD_P5", "CD_E5"] {
-        parser.parse_ini_content(&format!(
-            "Object {name}\nKindOf = INFANTRY\nBody = ActiveBody BodyTag\nMaxHealth = 100\nInitialHealth = 100\nEnd\nBehavior = SlowDeathBehavior DeathTag\nDestructionDelay = 5000\nEnd\nEnd"
-        ), "combat-drop-owned-body.ini").unwrap();
-        logic.templates.insert(
-            name.into(),
-            GameLogic::build_template_from_object_definition(
-                name,
-                parser.get_definition(name).unwrap(),
-                None,
-            ),
-        );
+        source.push_str(&format!(
+            "Object {name}\nKindOf = INFANTRY\nBody = ActiveBody BodyTag\nMaxHealth = 100\nInitialHealth = 100\nEnd\nBehavior = SlowDeathBehavior DeathTag\nDestructionDelay = 5000\nEnd\nEnd\n"
+        ));
     }
     logic
-        .templates
-        .insert("CD_B5".to_string(), bunker_template("CD_B5", 16.0, 5));
+        .admit_receiving_module_content(
+            crate::assets::ReceivingObjectContent::from_sources([(
+                "combat-drop-owned-body.ini".to_owned(),
+                source,
+            )])
+            .unwrap(),
+        )
+        .unwrap();
     let transport = logic
         .create_object_for_player("CD_T5", 1, Vec3::new(10.0, 60.0, 10.0))
         .unwrap();

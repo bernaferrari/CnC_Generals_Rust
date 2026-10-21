@@ -3,12 +3,11 @@
 use super::*;
 
 fn fixture() -> (GameLogic, ObjectId, ObjectId, Vec<ObjectId>) {
-    let mut parser = crate::assets::IniParser::new();
-    parser
-        .parse_ini_content(
-            r#"
+    let content = crate::assets::ReceivingObjectContent::from_sources([(
+        "OwnedRappel.ini".to_owned(),
+        r#"
 Object OwnedRappelBuilding
-  KindOf = STRUCTURE GARRISONABLE
+  KindOf = STRUCTURE
   Body = ActiveBody BodyTag
     MaxHealth = 200
     InitialHealth = 200
@@ -40,11 +39,12 @@ Object OwnedRappelEnemy
     DestructionDelay = 5000
   End
 End
-"#,
-            "OwnedRappel.ini",
-        )
-        .unwrap();
+"#
+        .to_owned(),
+    )])
+    .unwrap();
     let mut world = GameLogic::new();
+    world.admit_receiving_module_content(content).unwrap();
     world.frame = 42;
     let mut rappeller_player = Player::new(1, Team::USA, "Rappeller", true);
     rappeller_player.alliance_team = 1;
@@ -52,14 +52,6 @@ End
     garrison_player.alliance_team = 2;
     world.add_player(rappeller_player);
     world.add_player(garrison_player);
-    for name in ["OwnedRappelBuilding", "OwnedRappeller", "OwnedRappelEnemy"] {
-        let template = GameLogic::build_template_from_object_definition(
-            name,
-            parser.get_definition(name).unwrap(),
-            None,
-        );
-        world.templates.insert(name.into(), template);
-    }
     let building = world
         .create_object_for_player("OwnedRappelBuilding", 2, glam::Vec3::ZERO)
         .unwrap();

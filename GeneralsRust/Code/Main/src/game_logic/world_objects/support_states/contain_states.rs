@@ -1,139 +1,192 @@
-//! C++ OpenContain/TransportContain sound and containment state helpers.
+//! C++ OpenContain sound admissions borrow this operation's real audio recipient.
 use super::super::super::*;
+use game_engine::common::audio::{
+    AudioEventRts, AudioLocalityRelationship, AudioLocalityResolver, AudioSubmissionLocality,
+};
+use game_engine::common::thing::thing_template::ThingTemplateAudioType;
+
+/// Only the two players queried by shouldPlayLocally; no borrowed World is
+/// hidden behind the service's Send + Sync resolver trait.
+struct ContainAudioPlayers {
+    source: i32,
+    source_exists: bool,
+    source_active: bool,
+    local: Option<i32>,
+    local_active: bool,
+    relationship: AudioLocalityRelationship,
+}
+impl AudioLocalityResolver for ContainAudioPlayers {
+    fn get_local_player_index(&self) -> Option<i32> {
+        self.local
+    }
+    fn is_player_active(&self, id: i32) -> bool {
+        if Some(id) == self.local {
+            self.local_active
+        } else {
+            id == self.source && self.source_active
+        }
+    }
+    fn player_exists(&self, id: i32) -> bool {
+        self.local == Some(id) || (id == self.source && self.source_exists)
+    }
+    fn has_default_team(&self, id: i32) -> bool {
+        self.player_exists(id)
+    }
+    fn get_relationship_to_local_team(&self, source: i32, local: i32) -> AudioLocalityRelationship {
+        if source == local {
+            AudioLocalityRelationship::Allies
+        } else {
+            self.relationship
+        }
+    }
+}
 
 impl GameLogic {
-    fn contain_module_sound_event_name(container: &Object, enter: bool) -> Option<String> {
-        let leftover = if enter {
-            gamelogic::object::contain::leftover_contain_module_enter_sound(
-                &container.template_name,
-            )
-        } else {
-            gamelogic::object::contain::leftover_contain_module_exit_sound(&container.template_name)
+    fn admit_containment_audio(
+        &self,
+        object_id: ObjectId,
+        mut event: AudioEventRts,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
+        let Some(audio) = effects.audio.as_mut() else {
+            return;
         };
-        if leftover
-            .as_deref()
-            .is_some_and(|name| !name.is_empty() && !name.eq_ignore_ascii_case("NONE"))
+        let Some(object) = self.objects.get(&object_id) else {
+            return;
+        };
+        event.set_object_id(object_id.0);
+        let source = object.owner_player_id.map(|id| id as i32).unwrap_or(-1);
+        let local = self.local_player_id();
+        let players = ContainAudioPlayers {
+            source,
+            source_exists: source >= 0 && self.players.contains_key(&(source as u32)),
+            source_active: self
+                .players
+                .get(&(source as u32))
+                .is_some_and(|p| p.is_alive),
+            local: local.map(|id| id as i32),
+            local_active: local
+                .and_then(|id| self.players.get(&id))
+                .is_some_and(|p| p.is_alive),
+            relationship: local
+                .map(
+                    |local| match self.player_relationship(source as u32, local) {
+                        gamelogic::common::Relationship::Allies => {
+                            AudioLocalityRelationship::Allies
+                        }
+                        gamelogic::common::Relationship::Enemies => {
+                            AudioLocalityRelationship::Enemies
+                        }
+                        _ => AudioLocalityRelationship::Neutral,
+                    },
+                )
+                .unwrap_or(AudioLocalityRelationship::Neutral),
+        };
+        let locality = AudioSubmissionLocality::from_resolver(source, &players);
+        audio.add_audio_event(&event, &locality);
+    }
+
+    fn contain_template_audio(
+        &self,
+        object_id: ObjectId,
+        slot: ThingTemplateAudioType,
+    ) -> Option<AudioEventRts> {
+        self.objects
+            .get(&object_id)?
+            .thing()
+            .template
+            .receiving_client_template
+            .as_ref()?
+            .audio_event(slot)
+            .cloned()
+    }
+
+    /// OpenContain::onContaining before doLoadSound. Initial payload producers
+    /// that disable loading sounds require an explicit silent admission route;
+    /// ordinary native entry preserves the existing enabled operation.
+    pub(crate) fn play_container_enter_sound(
+        &mut self,
+        container_id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
+        if let Some(event) =
+            self.contain_template_audio(container_id, ThingTemplateAudioType::SoundEnter)
         {
-            return leftover;
+            self.admit_containment_audio(container_id, event, effects);
         }
-        let authored = if enter {
-            container
-                .thing()
-                .template
-                .contain_module
-                .enter_sound
-                .as_str()
-        } else {
-            container
-                .thing()
-                .template
-                .contain_module
-                .exit_sound
-                .as_str()
-        };
-        let authored = authored.trim();
-        if !authored.is_empty() && !authored.eq_ignore_ascii_case("NONE") {
-            return Some(authored.to_string());
-        }
-        // Module EnterSound/ExitSound only. Humvee comments those out so
-        // doLoad/doUnload stay silent; C++ still plays Object SoundEnter /
-        // SoundExit + rider SoundFallingFromPlane from onContaining/onRemoving.
-        container.is_garrison_contain().then(|| {
-            if enter {
-                "GarrisonEnter".to_string()
-            } else {
-                "GarrisonExit".to_string()
-            }
-        })
-    }
-
-    /// C++ `OpenContain::doLoadSound` — leftover TheAudio, once per frame per container.
-    pub(crate) fn play_container_enter_sound(&mut self, container_id: ObjectId) {
-        let Some(container) = self.objects.get(&container_id) else {
-            return;
-        };
-        let name = Self::contain_module_sound_event_name(container, true);
-        let now = self.frame;
+        let event = self
+            .objects
+            .get(&container_id)
+            .and_then(|container| {
+                container
+                    .thing()
+                    .template
+                    .receiving_client_template
+                    .as_ref()
+            })
+            .and_then(|template| template.containment_module_audio(true));
         let Some(container) = self.objects.get_mut(&container_id) else {
             return;
         };
-        gamelogic::object::contain::leftover_play_container_enter_sound(
-            name.as_deref(),
-            container_id.0,
-            now,
-            &mut container.last_load_sound_frame,
-        );
-        // C++ OpenContain::onContaining template SoundEnter (load-sounds-enabled).
-        self.play_container_containing_template_sounds(container_id);
+        if container.last_load_sound_frame == self.frame {
+            return;
+        }
+        // CPP stamps every eligible frame, including absent/NoSound module cues.
+        container.last_load_sound_frame = self.frame;
+        if let Some(event) = event {
+            self.admit_containment_audio(container_id, event, effects);
+        }
     }
 
-    /// C++ `OpenContain::doUnloadSound` — leftover TheAudio, once per frame per container.
-    pub(crate) fn play_container_exit_sound(&mut self, container_id: ObjectId) {
-        let Some(container) = self.objects.get(&container_id) else {
-            return;
-        };
-        let name = Self::contain_module_sound_event_name(container, false);
-        let now = self.frame;
+    /// OpenContain::doUnloadSound before onRemoving; exactly once per frame.
+    fn play_container_exit_sound(
+        &mut self,
+        container_id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
+        let event = self
+            .objects
+            .get(&container_id)
+            .and_then(|container| {
+                container
+                    .thing()
+                    .template
+                    .receiving_client_template
+                    .as_ref()
+            })
+            .and_then(|template| template.containment_module_audio(false));
         let Some(container) = self.objects.get_mut(&container_id) else {
             return;
         };
-        gamelogic::object::contain::leftover_play_container_exit_sound(
-            name.as_deref(),
-            container_id.0,
-            now,
-            &mut container.last_unload_sound_frame,
-        );
-    }
-
-    /// C++ `OpenContain::onContaining` Object `SoundEnter` via leftover TheAudio.
-    pub(crate) fn play_container_containing_template_sounds(&self, container_id: ObjectId) {
-        let Some(container) = self.objects.get(&container_id) else {
+        if container.last_unload_sound_frame == self.frame {
             return;
-        };
-        let _ =
-            gamelogic::object::contain::open_contain::leftover_play_on_containing_template_sounds(
-                &container.template_name,
-                container_id.0,
-                true,
-                None,
-            );
+        }
+        container.last_unload_sound_frame = self.frame;
+        if let Some(event) = event {
+            self.admit_containment_audio(container_id, event, effects);
+        }
     }
 
-    /// C++ `OpenContain::onRemoving` Object `SoundExit` + rider `SoundFallingFromPlane`.
+    /// CPP OpenContain::onRemoving always admits the container exit, followed
+    /// by the rider falling cue when that object still exists. Roster removal
+    /// does not remove either object's immutable receiving template.
     pub(crate) fn play_container_removing_template_sounds(
-        &self,
+        &mut self,
         container_id: ObjectId,
         rider_id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
-        let Some(container) = self.objects.get(&container_id) else {
-            return;
-        };
-        let Some(rider) = self.objects.get(&rider_id) else {
-            return;
-        };
-        self.play_container_removing_template_sounds_named(
-            &container.template_name,
-            container_id,
-            &rider.template_name,
-            rider_id,
-        );
-    }
-
-    pub(crate) fn play_container_removing_template_sounds_named(
-        &self,
-        container_template: &str,
-        container_id: ObjectId,
-        rider_template: &str,
-        rider_id: ObjectId,
-    ) {
-        let _ = gamelogic::object::contain::open_contain::leftover_play_on_removing_template_sounds(
-            container_template,
-            container_id.0,
-            rider_template,
-            rider_id.0,
-            None,
-            None,
-        );
+        self.play_container_exit_sound(container_id, effects);
+        if let Some(event) =
+            self.contain_template_audio(container_id, ThingTemplateAudioType::SoundExit)
+        {
+            self.admit_containment_audio(container_id, event, effects);
+        }
+        if let Some(event) =
+            self.contain_template_audio(rider_id, ThingTemplateAudioType::SoundFalling)
+        {
+            self.admit_containment_audio(rider_id, event, effects);
+        }
     }
 
     /// C++ TransportContain `ResetMoodCheckTimeOnExit` → `wakeUpAndAttemptToTarget`.

@@ -2656,6 +2656,14 @@ impl AudioManager {
         self.replay_playing_event(event, visible)
     }
 
+    /// Actual pending AR_Play outputs in admission order, without copying or draining.
+    pub fn pending_play_events(&self) -> impl Iterator<Item = &AudioEventRts> {
+        self.audio_requests
+            .iter()
+            .filter(|request| request.request == RequestType::Play)
+            .filter_map(AudioRequest::get_pending_event)
+    }
+
     pub fn pending_play_request_count(&self) -> usize {
         self.audio_requests
             .iter()

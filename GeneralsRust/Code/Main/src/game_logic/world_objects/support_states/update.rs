@@ -1149,7 +1149,7 @@ impl GameLogic {
                     }
                     self.stamp_player_who_entered(container_id, object_id);
                     // C++ OpenContain::addToContain doLoadSound — leftover TheAudio.
-                    self.play_container_enter_sound(container_id);
+                    self.play_container_enter_sound(container_id, effects);
 
                     let container_is_heal_contain = self
                         .objects

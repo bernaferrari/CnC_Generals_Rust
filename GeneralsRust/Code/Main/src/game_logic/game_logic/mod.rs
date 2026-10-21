@@ -273,3 +273,7 @@ mod victory_owner_tests;
 
 #[path = "../radar_owner.rs"]
 mod radar_owner;
+
+#[cfg(test)]
+#[path = "../containment_audio_owner_tests.rs"]
+pub(crate) mod containment_audio_owner_tests;

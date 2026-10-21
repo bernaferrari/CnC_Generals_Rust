@@ -979,9 +979,17 @@ impl GameLogic {
                 );
             } else if !is_garrison && !is_tunnel && !is_cave {
                 self.reset_rider_mood_check_on_exit(container_id, *pid);
-                self.play_container_removing_template_sounds(container_id, *pid);
+                self.play_container_removing_template_sounds(
+                    container_id,
+                    *pid,
+                    presentation_effects,
+                );
             } else {
-                self.play_container_removing_template_sounds(container_id, *pid);
+                self.play_container_removing_template_sounds(
+                    container_id,
+                    *pid,
+                    presentation_effects,
+                );
             }
             if is_cave {
                 // Leftover CaveContain::onRemoving: record_exit + LastEmpty team revert.
@@ -1019,10 +1027,6 @@ impl GameLogic {
             // ArmedRidersUpgradeMyWeaponSet, so the hull drops its
             // PLAYER_UPGRADE weapon set when the last armed rider exits.
             self.refresh_battle_bus_armed_riders_weapon_set(container_id);
-        }
-        if any {
-            // C++ OpenContain::doUnloadSound once per frame per container.
-            self.play_container_exit_sound(container_id);
         }
         for hid in packing_hackers {
             self.hacker_income.stop_hacking(hid);
@@ -1444,7 +1448,7 @@ impl GameLogic {
         self.record_garrison_residual_enter();
         self.apply_garrison_contain_on_enter_with_effects(bldg_id, pid, presentation_effects);
         // C++ OpenContain::addToContain doLoadSound.
-        self.play_container_enter_sound(bldg_id);
+        self.play_container_enter_sound(bldg_id, presentation_effects);
     }
 
     /// C++ full-building scatter + `aiFollowPath` (AIStates.cpp:581-613).

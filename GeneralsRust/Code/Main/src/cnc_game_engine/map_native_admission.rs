@@ -3,6 +3,7 @@ use super::*;
 
 #[derive(Default)]
 pub(crate) struct NativeMapCandidate {
+    audio: super::native_audio_effects::PendingNativeAudio,
     #[cfg(feature = "game_client")]
     visual: Option<game_client::terrain::terrain_visual::TerrainVisualImpl>,
 }
@@ -23,15 +24,29 @@ impl NativeMapCandidate {
             .as_ref()
             .map(|visual| visual.get_raw_map_height(x, y))
     }
-    pub(super) fn install(self, pipeline: &mut RenderPipeline) {
+    pub(super) fn admit_audio_to(&mut self, audio: &mut dyn crate::game_logic::NativeAudioEffects) {
+        self.audio.deliver_to(audio);
+    }
+    pub(super) fn install_visuals(
+        mut self,
+        pipeline: &mut RenderPipeline,
+    ) -> super::native_audio_effects::PendingNativeAudio {
         #[cfg(feature = "game_client")]
-        pipeline.install_native_terrain_cpu(self.visual);
+        pipeline.install_native_terrain_cpu(self.visual.take());
         #[cfg(not(feature = "game_client"))]
         let _ = pipeline;
+        self.audio
+    }
+    pub(super) fn install(self, pipeline: &mut RenderPipeline) {
+        self.install_visuals(pipeline).admit_to_live();
     }
 }
 #[cfg(feature = "game_client")]
 impl crate::game_logic::NativeMapAdmission for NativeMapCandidate {
+    fn discard_attempt(&mut self) {
+        self.visual = None;
+        self.audio.clear();
+    }
     fn prepare(
         &mut self,
         world: &crate::game_logic::GameLogic,
@@ -114,6 +129,7 @@ impl crate::game_logic::NativeMapAdmission for NativeMapCandidate {
     }
     fn effects(&mut self) -> crate::game_logic::ScriptPresentationEffects<'_> {
         crate::game_logic::ScriptPresentationEffects {
+            audio: Some(&mut self.audio),
             ui: None,
             view: None,
             terrain: self
@@ -218,6 +234,52 @@ mod tests {
                     "restored heights keep the same owner's prior factory effects"
                 );
                 assert_eq!(peer.visual.as_ref().unwrap().get_raw_map_height(1, 1), 40);
+            },
+        );
+    }
+}
+
+#[cfg(all(test, feature = "game_client"))]
+mod audio_owner_tests {
+    use super::*;
+    use crate::game_logic::NativeMapAdmission;
+    use crate::game_logic::containment_audio_owner_tests as fixture;
+    use crate::game_logic::containment_audio_test_support as audio;
+    #[test]
+    fn rejected_native_map_discards_audio_and_accepted_install_delivers_once() {
+        crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+            module_path!(),
+            "rejected_native_map_discards_audio_and_accepted_install_delivers_once",
+            || {
+                let (mut world, container, _) = fixture::world("Map");
+                world.frame = 7;
+                let mut output = audio::manager(&["MapEnter", "MapLoad"]);
+                let mut candidate = NativeMapCandidate::default();
+                world.play_container_enter_sound(container, &mut candidate.effects());
+                // Actual failed map kernel, including early rejection before prepare.
+                assert!(!world.load_map_with_progress_and_native(
+                    "/__generals_missing_containment_audio_map__/absent.map",
+                    |_, _| {},
+                    candidate.receiver()
+                ));
+                candidate.admit_audio_to(&mut output);
+                audio::assert_events(&output, &[]);
+                // A reused receiver (fallback) begins with none of the failed attempt's cues.
+                let (mut accepted, container, _) = fixture::world("Map");
+                accepted.frame = 8;
+                accepted.play_container_enter_sound(container, &mut candidate.effects());
+                audio::assert_events(&output, &[]);
+                candidate.admit_audio_to(&mut output);
+                audio::assert_events(&output, &[("MapEnter", container), ("MapLoad", container)]);
+                candidate.admit_audio_to(&mut output);
+                audio::assert_events(&output, &[("MapEnter", container), ("MapLoad", container)]);
+                // Dropping an uncommitted candidate discards its owned payload.
+                // The staged-restore regression separately exercises a real late error.
+                let mut late_rejected = NativeMapCandidate::default();
+                accepted.frame = 9;
+                accepted.play_container_enter_sound(container, &mut late_rejected.effects());
+                drop(late_rejected);
+                audio::assert_events(&output, &[("MapEnter", container), ("MapLoad", container)]);
             },
         );
     }

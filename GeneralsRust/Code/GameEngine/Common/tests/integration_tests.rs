@@ -14,10 +14,10 @@ use ge::common::*;
 fn test_global_data_comprehensive() {
     let mut global = global_data::GlobalData::default();
 
-    // Test basic fields
-    assert!(global.use_trees);
-    assert_eq!(global.max_shell_screens, 8);
-    assert_eq!(global.camera_height, 150.0);
+    // C++ GlobalData.cpp:578,589,801: constructor values precede GameData.ini.
+    assert!(!global.use_trees);
+    assert_eq!(global.max_shell_screens, 0);
+    assert_eq!(global.camera_height, 0.0);
 
     // Test time of day
     assert!(global.set_time_of_day(global_data::TimeOfDay::Night));
@@ -30,8 +30,14 @@ fn test_global_data_comprehensive() {
         Some(&global_data::GlobalValue::Int(42))
     );
 
-    // Test init and reset
+    // C++ GlobalData.cpp:1129-1133: init does not replace loaded state.
     global.init();
+    assert_eq!(
+        global.get_override("test_key"),
+        Some(&global_data::GlobalValue::Int(42))
+    );
+    assert_eq!(global.time_of_day, global_data::TimeOfDay::Night);
+    global.clear_override("test_key");
     assert!(global.get_override("test_key").is_none());
 }
 
@@ -154,9 +160,22 @@ fn test_threading_thread_pool() {
     assert_eq!(counter.load(Ordering::SeqCst), 20);
 }
 
+// Synthetic observations exercise owned system probes without creating a
+// native event loop on a libtest worker. Real window extraction has a separate
+// main-thread acceptance requirement; these are not detected monitor values.
+fn system_info_display_fixture() -> system_info::DisplayInfo {
+    system_info::DisplayInfo {
+        width: 1600,
+        height: 900,
+        refresh_rate: 120,
+        bits_per_pixel: 24,
+        display_count: 2,
+    }
+}
+
 #[test]
 fn test_system_info_detection() {
-    let info = system_info::SystemInfo::detect();
+    let info = system_info::SystemInfo::detect(system_info_display_fixture());
 
     // Basic sanity checks
     assert!(info.cpu.logical_cores > 0);
@@ -179,8 +198,16 @@ fn test_system_info_detection() {
 
 #[test]
 fn test_system_info_global() {
-    let info1 = system_info::get_system_info();
-    let info2 = system_info::get_system_info();
+    // Historical test name retained; there is no ambient registry.
+    let info1 = system_info::SystemInfo::detect(system_info_display_fixture());
+    let mut peer_display = system_info_display_fixture();
+    peer_display.width = 1280;
+    peer_display.refresh_rate = 144;
+    let info2 = system_info::SystemInfo::detect(peer_display);
+    assert_eq!(info1.display.width, 1600);
+    assert_eq!(info1.display.refresh_rate, 120);
+    assert_eq!(info2.display.width, 1280);
+    assert_eq!(info2.display.refresh_rate, 144);
 
     // Should return consistent information
     assert_eq!(info1.cpu.logical_cores, info2.cpu.logical_cores);
@@ -354,8 +381,13 @@ fn test_all_components_integration() {
     // Test that all major components work together
 
     // 1. System Info
-    let sys_info = system_info::get_system_info();
+    let sys_info = system_info::SystemInfo::detect(system_info_display_fixture());
     assert!(sys_info.cpu.logical_cores > 0);
+    assert_eq!(sys_info.display.width, 1600);
+    assert_eq!(sys_info.display.height, 900);
+    assert_eq!(sys_info.display.refresh_rate, 120);
+    assert_eq!(sys_info.display.bits_per_pixel, 24);
+    assert_eq!(sys_info.display.display_count, 2);
 
     // 2. Display Manager
     let display = os_display::DisplayManager::new();

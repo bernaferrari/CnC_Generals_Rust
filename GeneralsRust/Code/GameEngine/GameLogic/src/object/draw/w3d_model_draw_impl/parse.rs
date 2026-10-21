@@ -1,3 +1,14 @@
+/// The original INI lexer treats equality as a separator, including when it
+/// touches the field name or another value. Own the tokens because parsing a
+/// nested condition state advances the same INI buffer.
+pub(crate) fn model_draw_line_tokens(ini: &INI) -> Vec<String> {
+    ini.get_buffer()
+        .split([' ', '\n', '\r', '\t', '='])
+        .filter(|token| !token.is_empty())
+        .map(str::to_owned)
+        .collect()
+}
+
 fn parse_model_draw_module_data_block(
     ini: &mut INI,
     data: &mut W3DModelDrawModuleData,
@@ -8,12 +19,7 @@ fn parse_model_draw_module_data_block(
             return Err(INIError::EndOfFile);
         }
 
-        let tokens = ini
-            .get_buffer()
-            .split([' ', '\n', '\r', '\t', '='])
-            .filter(|token| !token.is_empty())
-            .map(|token| token.to_string())
-            .collect::<Vec<_>>();
+        let tokens = model_draw_line_tokens(ini);
         let Some(key) = tokens.first().cloned() else {
             continue;
         };
@@ -44,12 +50,7 @@ fn parse_model_condition_info_block(
             return Err(INIError::EndOfFile);
         }
 
-        let owned_tokens = ini
-            .get_buffer()
-            .split([' ', '\n', '\r', '\t', '='])
-            .filter(|token| !token.is_empty())
-            .map(str::to_owned)
-            .collect::<Vec<_>>();
+        let owned_tokens = model_draw_line_tokens(ini);
         let tokens = owned_tokens.iter().map(String::as_str).collect::<Vec<_>>();
         let Some(key) = tokens.first().copied() else {
             continue;

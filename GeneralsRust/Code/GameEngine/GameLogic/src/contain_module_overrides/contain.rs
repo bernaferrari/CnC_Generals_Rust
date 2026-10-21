@@ -76,6 +76,25 @@ pub enum ContainModuleDataKind<'a> {
 }
 
 impl<'a> ContainModuleDataKind<'a> {
+    /// The original inherited OpenContain data, borrowed from one admitted module.
+    pub fn open_data(&self) -> &'a OpenContainModuleData {
+        match self {
+            Self::Open(data) => data,
+            Self::Transport(data) => &data.base,
+            Self::Garrison(data) => &data.base,
+            Self::Tunnel(data) => &data.base,
+            Self::Overlord(data) => &data.base.base,
+            Self::Helix(data) => &data.base.base,
+            Self::RailedTransport(data) => &data.base.base,
+            Self::RiderChange(data) => &data.base.base,
+            Self::InternetHack(data) => &data.base.base,
+            Self::Heal(data) => &data.base,
+            Self::Cave(data) => &data.base,
+            Self::Parachute(data) => &data.base,
+            Self::MobNexus(data) => &data.base,
+        }
+    }
+
     pub fn from_module_data(module_data: &'a dyn ModuleData) -> Option<Self> {
         macro_rules! try_kind {
             ($data_ty:ty, $variant:ident) => {{

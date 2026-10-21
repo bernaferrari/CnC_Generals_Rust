@@ -8,7 +8,6 @@ use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
 use crate::game_logic::{ObjectId, ThingTemplate};
 use glam::Vec3;
 use std::cell::RefCell;
-use std::collections::HashMap;
 
 /// INI / leftover `ThingTemplateAudioType` keys for move and ambient events.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -46,8 +45,6 @@ pub struct MoveAmbientStopEvent {
 }
 
 thread_local! {
-    static TEMPLATE_OVERRIDE: RefCell<HashMap<(String, TemplateMoveAmbientSlot), String>> =
-        RefCell::new(HashMap::new());
     static STOP_LOG: RefCell<Vec<MoveAmbientStopEvent>> = RefCell::new(Vec::new());
 }
 
@@ -58,21 +55,6 @@ pub fn nonempty_audio_event_name(name: &str) -> Option<String> {
     } else {
         Some(trimmed.to_string())
     }
-}
-
-pub fn set_test_template_move_ambient(
-    template_name: &str,
-    slot: TemplateMoveAmbientSlot,
-    event_name: impl Into<String>,
-) {
-    TEMPLATE_OVERRIDE.with(|m| {
-        m.borrow_mut()
-            .insert((template_name.to_string(), slot), event_name.into());
-    });
-}
-
-pub fn clear_test_template_move_ambient() {
-    TEMPLATE_OVERRIDE.with(|m| m.borrow_mut().clear());
 }
 
 pub fn record_move_loop_stop(object: ObjectId, event_name: String, position: Vec3) {
@@ -153,11 +135,6 @@ pub fn resolve_template_move_ambient(
     template_name: &str,
     slot: TemplateMoveAmbientSlot,
 ) -> Option<String> {
-    if let Some(over) =
-        TEMPLATE_OVERRIDE.with(|m| m.borrow().get(&(template_name.to_string(), slot)).cloned())
-    {
-        return nonempty_audio_event_name(&over);
-    }
     leftover_factory_move_ambient(template_name, slot)
         .or_else(|| asset_definition_move_ambient(template_name, slot))
 }
@@ -166,10 +143,23 @@ pub fn resolve_for_object(
     template: &ThingTemplate,
     slot: TemplateMoveAmbientSlot,
 ) -> Option<String> {
-    if let Some(over) =
-        TEMPLATE_OVERRIDE.with(|m| m.borrow().get(&(template.name.clone(), slot)).cloned())
-    {
-        return nonempty_audio_event_name(&over);
+    if let Some(receiving) = template.receiving_client_template.as_ref() {
+        use game_engine::common::thing::thing_template::ThingTemplateAudioType as Audio;
+        let audio = match slot {
+            TemplateMoveAmbientSlot::SoundMoveStart => Audio::SoundMoveStart,
+            TemplateMoveAmbientSlot::SoundMoveStartDamaged => Audio::SoundMoveStartDamaged,
+            TemplateMoveAmbientSlot::SoundMoveLoop => Audio::SoundMoveLoop,
+            TemplateMoveAmbientSlot::SoundMoveLoopDamaged => Audio::SoundMoveLoopDamaged,
+            TemplateMoveAmbientSlot::SoundAmbient => Audio::SoundAmbient,
+            TemplateMoveAmbientSlot::SoundAmbientDamaged => Audio::SoundAmbientDamaged,
+            TemplateMoveAmbientSlot::SoundAmbientReallyDamaged => Audio::SoundAmbientReallyDamaged,
+            TemplateMoveAmbientSlot::SoundAmbientRubble => Audio::SoundAmbientRubble,
+        };
+        // C++ reads this object's effective template. An absent/cleared slot
+        // cannot acquire a same-name event from another content owner.
+        return receiving
+            .audio_event(audio)
+            .and_then(|event| nonempty_audio_event_name(event.get_event_name()));
     }
     host_template_move_ambient(template, slot)
         .or_else(|| leftover_factory_move_ambient(&template.name, slot))

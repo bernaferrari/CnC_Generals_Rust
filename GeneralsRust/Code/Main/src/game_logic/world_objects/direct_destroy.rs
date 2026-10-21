@@ -191,7 +191,7 @@ impl GameLogic {
                 container.overlord_portable_occupant = None;
             }
         }
-        self.play_container_removing_template_sounds(container_id, child_id);
+        self.play_container_removing_template_sounds(container_id, child_id, effects);
         if let Some(child) = self.host_object_mut(child_id) {
             child.set_contained_by(None);
             if transport {

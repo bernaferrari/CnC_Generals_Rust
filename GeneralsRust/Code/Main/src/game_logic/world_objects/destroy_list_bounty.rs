@@ -1106,7 +1106,31 @@ mod tests {
         hull: glam::Vec3,
     ) -> (GameLogic, ObjectId, ObjectId) {
         let mut logic = GameLogic::new();
-        let mut t = ThingTemplate::new("TestAmphibTransport");
+        crate::game_logic::containment_audio_test_support::admit(
+            &mut logic,
+            r#"
+Object TestAmphibTransport
+ KindOf = VEHICLE
+ SoundExit = ScatterExit
+ Behavior = TransportContain ContainTag
+  Slots = 5
+ End
+ Body = ActiveBody BodyTag
+  MaxHealth = 200
+  InitialHealth = 200
+ End
+End
+Object TestInfantry
+ KindOf = INFANTRY
+ SoundFallingFromPlane = ScatterFalling
+ Body = ActiveBody BodyTag
+  MaxHealth = 100
+  InitialHealth = 100
+ End
+End
+"#,
+        );
+        let mut t = logic.templates.remove("TestAmphibTransport").unwrap();
         t.add_kind_of(KindOf::Vehicle).set_health(200.0);
         t.contain_module = crate::game_logic::ContainModuleMetadata {
             kind: crate::game_logic::ContainModuleKind::Transport,
@@ -1114,7 +1138,7 @@ mod tests {
             ..Default::default()
         };
         logic.templates.insert("TestAmphibTransport".into(), t);
-        let mut p = ThingTemplate::new("TestInfantry");
+        let mut p = logic.templates.remove("TestInfantry").unwrap();
         p.add_kind_of(KindOf::Infantry).set_health(100.0);
         p.set_authored_ai_update_interface(Some(true));
         p.authored_locomotor_sets =
@@ -1189,6 +1213,8 @@ mod tests {
         // survivors use leftover scatterToNearbyPosition, not the Idle 8-unit ring.
         let hull = glam::Vec3::new(10_000.0, 40.0, 10_000.0);
         let (mut logic, transport, rider) = setup_zero_damage_transport(true, hull);
+        use crate::game_logic::containment_audio_test_support as audio;
+        let mut output = audio::manager(&["ScatterExit", "ScatterFalling"]);
         logic.frame = 42;
         if let Some(c) = logic.host_object_mut(transport) {
             c.is_technical_transport = true;
@@ -1208,7 +1234,12 @@ mod tests {
             r.randomly_offset_mood_check = false;
         }
         logic.mark_object_for_destruction(transport, None);
-        logic.process_destroy_list();
+        logic.process_destroy_list_with_effects(
+            &mut crate::game_logic::ScriptPresentationEffects {
+                audio: Some(&mut output),
+                ..Default::default()
+            },
+        );
         let r = logic.host_object(rider).expect("survivor stays in world");
         assert!(
             r.is_alive(),
@@ -1252,13 +1283,10 @@ mod tests {
             "death scatter starts movement before the idle-only mood wake"
         );
         assert!(!r.randomly_offset_mood_check);
-        let audio =
-            gamelogic::object::contain::open_contain::leftover_last_on_removing_template_call()
-                .expect("onRemoving template audio");
-        assert_eq!(audio.container_template, "TestAmphibTransport");
-        assert_eq!(audio.container_id, transport.0);
-        assert_eq!(audio.rider_template, "TestInfantry");
-        assert_eq!(audio.rider_id, rider.0);
+        audio::assert_events(
+            &output,
+            &[("ScatterExit", transport), ("ScatterFalling", rider)],
+        );
     }
 
     #[test]

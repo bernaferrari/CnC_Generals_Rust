@@ -33,8 +33,8 @@ pub(crate) use game_logic::PathfindingHeightSamples;
 pub(crate) use script_ui::ScriptUiEffects;
 mod script_presentation;
 pub(crate) use script_presentation::{
-    NativeMapAdmission, NativeSlaveSource, NativeTerrainEffects, NativeViewEffects,
-    ScriptPresentationEffects,
+    NativeAudioEffects, NativeMapAdmission, NativeSlaveSource, NativeTerrainEffects,
+    NativeViewEffects, ScriptPresentationEffects,
 };
 
 #[cfg(test)]
@@ -189,3 +189,9 @@ pub use host_reexports_residuals_f::*;
 
 #[cfg(test)]
 mod production_construction_rules_tests;
+
+#[cfg(test)]
+pub(crate) mod containment_audio_test_support;
+
+#[cfg(test)]
+pub(crate) use game_logic::containment_audio_owner_tests;

@@ -1506,23 +1506,6 @@ impl MessageBoxSystem {
     pub fn get_quit(&self) -> Arc<RwLock<QuitMessageBoxCallbacks>> {
         self.quit.clone()
     }
-
-    /// Show standard message box through the system
-    pub fn show_message_box(
-        &self,
-        title: &str,
-        message: &str,
-        message_type: MessageBoxType,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        let mut standard = self.standard.write().unwrap_or_else(|e| e.into_inner());
-        standard.show_message_box(title, message, message_type)
-    }
-
-    /// Show quit dialog through the system
-    pub fn show_quit_dialog(&self, force_quit: bool) -> Result<(), Box<dyn std::error::Error>> {
-        let mut quit = self.quit.write().unwrap_or_else(|e| e.into_inner());
-        quit.show_quit_dialog(force_quit)
-    }
 }
 
 impl Default for MessageBoxSystem {
@@ -1540,23 +1523,6 @@ lazy_static::lazy_static! {
 /// Helper function to get the global message box system
 pub fn get_message_box_system() -> Arc<RwLock<MessageBoxSystem>> {
     THE_MESSAGE_BOX_SYSTEM.clone()
-}
-
-/// Convenience functions for global message box operations
-pub fn show_message_box(
-    title: &str,
-    message: &str,
-    message_type: MessageBoxType,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let system = get_message_box_system();
-    let system = system.read().unwrap_or_else(|e| e.into_inner());
-    system.show_message_box(title, message, message_type)
-}
-
-pub fn show_quit_dialog(force_quit: bool) -> Result<(), Box<dyn std::error::Error>> {
-    let system = get_message_box_system();
-    let system = system.read().unwrap_or_else(|e| e.into_inner());
-    system.show_quit_dialog(force_quit)
 }
 
 #[cfg(test)]
@@ -1631,35 +1597,94 @@ mod tests {
         assert_eq!(result, Some(true));
     }
 
+    // Exercise the original construction algorithm with its receiving manager.
+    // The removed System/global show wrappers held the callback writer while
+    // WWM_CREATE synchronously called that same writer through the .wnd file.
+    fn assert_constructed_message_box(title: &str, body: &str, button_flags: u16, use_logo: bool) {
+        let mut manager = crate::gui::window_manager::WindowManager::new();
+        let window = gogo_message_box_in(
+            &mut manager,
+            -1,
+            -1,
+            -1,
+            -1,
+            button_flags,
+            title,
+            body,
+            None,
+            None,
+            None,
+            None,
+            use_logo,
+        )
+        .expect("real message-box layout and synchronous system callbacks");
+        assert!(
+            window
+                .borrow()
+                .get_user_data::<WindowMessageBoxData>()
+                .is_some()
+        );
+        let menu = if use_logo {
+            "QuitMessageBox.wnd:"
+        } else {
+            "MessageBox.wnd:"
+        };
+        for (suffix, expected) in [("StaticTextTitle", title), ("StaticTextMessage", body)] {
+            let id = NameKeyGenerator::name_to_key(&format!("{menu}{suffix}")) as WindowId;
+            let text = manager
+                .get_window_by_id(id)
+                .expect("actual message-box text control");
+            assert_eq!(text.borrow().get_text(), expected);
+        }
+        manager.destroy_window(window).unwrap();
+        manager.flush_destroy_queue();
+    }
+
     #[test]
     fn test_message_box_system() {
+        #[cfg(not(target_arch = "wasm32"))]
+        if let crate::test_process::TestProcess::ParentVerified =
+            crate::test_process::run_bounded(module_path!(), "test_message_box_system")
+        {
+            return;
+        }
         let system = MessageBoxSystem::new();
 
-        // Test that all components are accessible
+        // Actual callback components remain accessible; no writer spans create.
         assert!(system.get_standard().read().is_ok());
         assert!(system.get_extended().read().is_ok());
         assert!(system.get_quit().read().is_ok());
-
-        // Test system-level operations
-        assert!(
-            system
-                .show_message_box("System Test", "Testing", MessageBoxType::Ok)
-                .is_ok()
+        assert_constructed_message_box("System Test", "Testing", MSG_BOX_OK, false);
+        assert_constructed_message_box(
+            "Quit Game",
+            "Are you sure you want to quit? Any unsaved progress will be lost.",
+            MSG_BOX_YES | MSG_BOX_NO,
+            true,
         );
-        assert!(system.show_quit_dialog(false).is_ok());
     }
 
     #[test]
     fn test_global_functions() {
-        assert!(
-            show_message_box(
-                "Global Test",
-                "Testing global functions",
-                MessageBoxType::Ok
-            )
-            .is_ok()
+        #[cfg(not(target_arch = "wasm32"))]
+        if let crate::test_process::TestProcess::ParentVerified =
+            crate::test_process::run_bounded(module_path!(), "test_global_functions")
+        {
+            return;
+        }
+        // Historical test name retained. The C++ construction entrypoint is
+        // exercised directly, rather than an unused competing global wrapper.
+        assert_constructed_message_box(
+            "Global Test",
+            "Testing global functions",
+            MSG_BOX_OK,
+            false,
         );
-        assert!(show_quit_dialog(true).is_ok());
+        assert_constructed_message_box(
+            "Quit Game",
+            "Are you sure you want to quit immediately?",
+            MSG_BOX_YES | MSG_BOX_NO,
+            true,
+        );
     }
 
     #[test]

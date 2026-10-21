@@ -100,6 +100,37 @@ impl ReceivingClientTemplate {
         Self(template)
     }
 
+    pub(crate) fn audio_event(
+        &self,
+        slot: game_engine::common::thing::thing_template::ThingTemplateAudioType,
+    ) -> Option<&game_engine::common::audio::AudioEventRts> {
+        self.0.audio_event(slot)
+    }
+
+    pub(crate) fn containment_module_audio(
+        &self,
+        enter: bool,
+    ) -> Option<game_engine::common::audio::AudioEventRts> {
+        let base = self
+            .0
+            .behavior_modules()
+            .iter()
+            .find_map(|entry| {
+                gamelogic::contain_module_overrides::ContainModuleDataKind::from_module_data(
+                    entry.data.as_ref(),
+                )
+            })?
+            .open_data();
+        let event = if enter {
+            base.enter_sound.as_ref()
+        } else {
+            base.exit_sound.as_ref()
+        }?;
+        Some(game_engine::common::audio::AudioEventRts::with_event_name(
+            event.get_event_name(),
+        ))
+    }
+
     fn threat_value(&self) -> u16 {
         self.0.threat_value()
     }

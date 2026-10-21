@@ -330,6 +330,7 @@ impl GameLogic {
         after_step: impl FnMut(&mut Self),
     ) -> SimTimingSnapshot {
         let effects = crate::game_logic::ScriptPresentationEffects {
+            audio: None,
             terrain: None,
             ui: ui,
             view: None,

@@ -1761,3 +1761,211 @@ fn main_services_start_and_stage_leave_foreign_core_ai_installed() {
         },
     );
 }
+
+/// The real map factory emits an enabled Garrison InitialRoster cue. A valid
+/// GameClient envelope may still fail its real Drawable decoder after staging;
+/// the candidate's owned audio must stay unadmitted until acceptance.
+#[cfg(feature = "game_client")]
+#[test]
+fn native_initial_roster_audio_survives_staging_and_discards_late_client_failure() {
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "native_initial_roster_audio_survives_staging_and_discards_late_client_failure",
+        || {
+            use crate::game_logic::containment_audio_test_support as audio;
+            let temp = tempfile::tempdir().unwrap();
+            let map_path = temp.path().join("ContainmentAudioStage.map");
+            let mut map = game_engine::common::system::DataChunkOutput::new();
+            map.open_data_chunk("HeightMapData", 3);
+            for value in [8, 8, 0, 64] {
+                map.write_int(value);
+            }
+            for _ in 0..64 {
+                map.write_byte(40);
+            }
+            map.close_data_chunk();
+            map.open_data_chunk("ObjectsList", 3);
+            map.open_data_chunk("Object", 3);
+            for value in [20.0, 20.0, 0.0, 0.0] {
+                map.write_real(value);
+            }
+            map.write_int(0);
+            map.write_ascii_string("ContainmentStageContainer");
+            let properties = game_engine::common::dict::Dict::new();
+            map.write_dict(&properties);
+            map.close_data_chunk();
+            map.close_data_chunk();
+            std::fs::write(&map_path, map.into_ckmp_bytes()).unwrap();
+            let map_name = map_path.to_str().unwrap().to_owned();
+            let mut source = GameLogic::new();
+            audio::admit(
+                &mut source,
+                r#"
+Object ContainmentStageContainer
+ KindOf = STRUCTURE
+ SoundEnter = ContainmentStageAuthoredEnter
+ Body = ActiveBody BodyTag
+  MaxHealth = 200
+  InitialHealth = 200
+ End
+ Behavior = GarrisonContain ContainTag
+  ContainMax = 1
+  AllowInsideKindOf = INFANTRY
+  InitialRoster = ContainmentStagePassenger 1
+ End
+End
+Object ContainmentStagePassenger
+ KindOf = INFANTRY
+ TransportSlotCount = 1
+ Body = ActiveBody BodyTag
+  MaxHealth = 100
+  InitialHealth = 100
+ End
+End
+"#,
+            );
+            admit_skirmish_fixture(&mut source, &map_name, "Audio stage", false);
+            assert!(source.load_map(&map_name));
+            let container_id = source
+                .get_objects()
+                .iter()
+                .find(|(_, object)| object.template_name == "ContainmentStageContainer")
+                .map(|(id, _)| *id)
+                .expect("actual placed container");
+            assert_eq!(
+                source
+                    .host_object(container_id)
+                    .unwrap()
+                    .contained_units()
+                    .len(),
+                1,
+                "actual GarrisonInitialRoster factory callback must execute"
+            );
+            let builder = crate::save_load::SnapshotBuilder::new();
+            let snapshot = builder.create_world_snapshot(&source).unwrap();
+            let service = game_engine::common::audio::game_audio::initialize_global_audio_manager();
+            let definitions = audio::manager(&["ContainmentStageAuthoredEnter"]);
+            {
+                let definition = definitions
+                    .find_audio_event_info("ContainmentStageAuthoredEnter")
+                    .unwrap();
+                service
+                    .lock()
+                    .unwrap()
+                    .register_audio_event_info((*definition).clone());
+            }
+            let assert_service_empty = || {
+                assert_eq!(
+                    service
+                        .lock()
+                        .unwrap()
+                        .pending_play_request_count_for("ContainmentStageAuthoredEnter"),
+                    0,
+                    "detached initial roster cannot publish actual Common AR_Play requests"
+                );
+            };
+            assert_service_empty();
+            // The envelope is genuinely valid. The length-delimited Drawable
+            // contains only its ObjectID; its real snapshot decoder must fail.
+            const DRAWABLE: &str = "ContainmentStageLateClient";
+            assert_eq!(
+                game_engine::common::thing::thing_factory::load_templates_from_ini_text(
+                    &format!("Object {DRAWABLE}\nEnd\n"),
+                    "containment-stage-client.ini"
+                ),
+                1
+            );
+            let mut invalid_drawable = vec![3];
+            invalid_drawable.extend_from_slice(&888_u32.to_le_bytes());
+            invalid_drawable.push(1);
+            invalid_drawable.extend_from_slice(&1_u32.to_le_bytes());
+            invalid_drawable.push(DRAWABLE.len() as u8);
+            invalid_drawable.extend_from_slice(DRAWABLE.as_bytes());
+            invalid_drawable.extend_from_slice(&1_u16.to_le_bytes());
+            invalid_drawable.extend_from_slice(&1_u16.to_le_bytes());
+            invalid_drawable.extend_from_slice(&1_u16.to_le_bytes());
+            invalid_drawable.extend_from_slice(&4_i32.to_le_bytes());
+            invalid_drawable.extend_from_slice(&0_u32.to_le_bytes());
+            invalid_drawable.extend_from_slice(&0_i32.to_le_bytes());
+            crate::save_load::snapshot::validate_game_client_xfer_bytes(&invalid_drawable).unwrap();
+            let stage = |native: &mut super::super::map_native_admission::NativeMapCandidate,
+                         client_bytes: Option<Vec<u8>>| {
+                CnCGameEngine::stage_decoded_saved_world_for_restore_with_native(
+                    &snapshot,
+                    save_info("containment-audio-stage", map_name.clone()),
+                    None,
+                    client_bytes,
+                    None,
+                    "containment-audio-stage",
+                    GameMode::Skirmish,
+                    RestoreTemplateCatalog::from_world(&source),
+                    &source.weapon_definition_base,
+                    &source.projectile_definitions,
+                    &source.ocl_application_definitions(),
+                    source.ai_definitions.baseline(),
+                    source.production_energy_baseline(),
+                    source.physics_rules_baseline(),
+                    source.effective_terrain_definitions(),
+                    source.current_armor_definitions(),
+                    source.session_view.camera.settings,
+                    source.session_view.camera.clip_policy,
+                    source.session_view.camera.shake_policy,
+                    source.session_view.camera.movement_policy,
+                    source.session_view.camera.input_policy,
+                    &source.world_services,
+                    |snapshot, candidate| {
+                        let placed = candidate
+                            .get_objects()
+                            .values()
+                            .find(|object| object.template_name == "ContainmentStageContainer")
+                            .expect("map factory ran before snapshot restore");
+                        assert_eq!(placed.contained_units().len(), 1);
+                        assert_service_empty();
+                        builder
+                            .restore_from_snapshot(snapshot, candidate)
+                            .map_err(|error| error.to_string())
+                    },
+                    native.receiver(),
+                )
+            };
+            let mut rejected_native =
+                super::super::map_native_admission::NativeMapCandidate::default();
+            let mut rejected =
+                stage(&mut rejected_native, Some(invalid_drawable)).unwrap_or_else(|error| {
+                    panic!(
+                        "envelope/map staging must succeed before the real late decoder: {error}"
+                    )
+                });
+            rejected.native_map = rejected_native;
+            assert_service_empty();
+            let mut failed_client = game_client::core::game_client::GameClient::new().unwrap();
+            let error = crate::save_load::snapshot::restore_game_client_from_xfer_bytes(
+                &mut failed_client,
+                rejected.game_client_xfer_bytes.as_deref().unwrap(),
+            )
+            .expect_err("real GameClient Drawable payload rejects after successful staging");
+            assert!(!error.to_string().is_empty());
+            drop(rejected);
+            assert_service_empty();
+            let mut accepted_native =
+                super::super::map_native_admission::NativeMapCandidate::default();
+            let mut accepted = stage(&mut accepted_native, None)
+                .unwrap_or_else(|error| panic!("accepted stage: {error}"));
+            accepted.native_map = accepted_native;
+            assert_service_empty();
+            {
+                let mut recipient = service.lock().unwrap();
+                accepted.native_map.admit_audio_to(&mut *recipient);
+                audio::assert_events(
+                    &recipient,
+                    &[("ContainmentStageAuthoredEnter", container_id)],
+                );
+                accepted.native_map.admit_audio_to(&mut *recipient);
+                audio::assert_events(
+                    &recipient,
+                    &[("ContainmentStageAuthoredEnter", container_id)],
+                );
+            }
+        },
+    );
+}

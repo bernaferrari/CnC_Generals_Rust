@@ -1331,10 +1331,36 @@ fn walk_unit_via_open_contain_exit_cycles_humvee_paths() {
 #[test]
 fn walk_unit_via_open_contain_exit_resets_mood_and_plays_template_audio() {
     // hq-j0ggx / hq-c77h2: execute_exit walk resets next_mood_check_time
-    // and drains leftover onRemoving SoundExit + SoundFallingFromPlane.
+    // and admits receiving onRemoving SoundExit + SoundFallingFromPlane.
+    use crate::game_logic::containment_audio_test_support as audio;
     let mut logic = GameLogic::new();
+    audio::admit(
+        &mut logic,
+        r#"
+Object MOOD_HV
+ KindOf = VEHICLE
+ SoundExit = MoodExit
+ Behavior = TransportContain ContainTag
+  Slots = 5
+ End
+ Body = ActiveBody BodyTag
+  MaxHealth = 200
+  InitialHealth = 200
+ End
+End
+Object MOOD_HV_P
+ KindOf = INFANTRY
+ SoundFallingFromPlane = MoodFalling
+ Body = ActiveBody BodyTag
+  MaxHealth = 100
+  InitialHealth = 100
+ End
+End
+"#,
+    );
+    let mut output = audio::manager(&["MoodExit", "MoodFalling"]);
     logic.frame = 77;
-    let mut t = ThingTemplate::new("MOOD_HV");
+    let mut t = logic.templates.remove("MOOD_HV").unwrap();
     t.add_kind_of(KindOf::Vehicle);
     t.set_health(200.0);
     t.contain_module = crate::game_logic::ContainModuleMetadata {
@@ -1343,7 +1369,7 @@ fn walk_unit_via_open_contain_exit_resets_mood_and_plays_template_audio() {
         ..Default::default()
     };
     logic.templates.insert("MOOD_HV".into(), t);
-    let mut p = ThingTemplate::new("MOOD_HV_P");
+    let mut p = logic.templates.remove("MOOD_HV_P").unwrap();
     p.add_kind_of(KindOf::Infantry);
     p.set_health(100.0);
     logic.templates.insert("MOOD_HV_P".into(), p);
@@ -1357,18 +1383,19 @@ fn walk_unit_via_open_contain_exit_resets_mood_and_plays_template_audio() {
         u.next_mood_check_time = 9999;
         u.set_contained_by(Some(transport));
     }
-    logic.walk_unit_via_open_contain_exit(rider, transport);
+    logic.walk_unit_via_open_contain_exit_with_effects(
+        rider,
+        transport,
+        &mut crate::game_logic::ScriptPresentationEffects {
+            audio: Some(&mut output),
+            ..Default::default()
+        },
+    );
     let u = logic.host_object(rider).unwrap();
     assert_eq!(u.next_mood_check_time, 77);
     assert_eq!(u.ai_state, AIState::Moving);
-    let audio = gamelogic::object::contain::open_contain::leftover_last_on_removing_template_call()
-        .expect("onRemoving template audio");
-    assert_eq!(audio.container_template, "MOOD_HV");
-    assert_eq!(audio.container_id, transport.0);
-    assert_eq!(audio.rider_template, "MOOD_HV_P");
-    assert_eq!(audio.rider_id, rider.0);
+    audio::assert_events(&output, &[("MoodExit", transport), ("MoodFalling", rider)]);
 }
-
 #[test]
 fn walk_unit_via_open_contain_exit_airborne_falls_without_invented_hull_kick() {
     // hq-qhzox: C++ onRemoving setAllowToFall when above terrain.
@@ -1608,9 +1635,15 @@ fn walk_unit_via_open_contain_exit_copies_layer_and_gates_allow_to_fall() {
 
 #[test]
 fn play_container_enter_sound_drains_leftover_template_sound_enter() {
-    // hq-c77h2: live enter path must call leftover onContaining SoundEnter.
+    // The live entry operation admits the receiving template SoundEnter exactly once.
+    use crate::game_logic::containment_audio_test_support as audio;
     let mut logic = GameLogic::new();
-    let mut t = ThingTemplate::new("ENTER_AUD");
+    audio::admit(
+        &mut logic,
+        "Object ENTER_AUD\nKindOf = VEHICLE\nSoundEnter = EnterAuthored\nBody = ActiveBody BodyTag\nMaxHealth = 100\nInitialHealth = 100\nEnd\nBehavior = TransportContain ContainTag\nSlots = 1\nEnd\nEnd\n",
+    );
+    let mut output = audio::manager(&["EnterAuthored"]);
+    let mut t = logic.templates.remove("ENTER_AUD").unwrap();
     t.add_kind_of(KindOf::Vehicle);
     t.contain_module = crate::game_logic::ContainModuleMetadata {
         kind: crate::game_logic::ContainModuleKind::Transport,
@@ -1621,13 +1654,14 @@ fn play_container_enter_sound_drains_leftover_template_sound_enter() {
     let transport = logic
         .create_object("ENTER_AUD", Team::USA, Vec3::ZERO)
         .unwrap();
-    logic.play_container_enter_sound(transport);
-    let audio =
-        gamelogic::object::contain::open_contain::leftover_last_on_containing_template_call()
-            .expect("onContaining template audio");
-    assert_eq!(audio.template_name, "ENTER_AUD");
-    assert_eq!(audio.object_id, transport.0);
-    assert!(audio.load_sounds_enabled);
+    logic.play_container_enter_sound(
+        transport,
+        &mut crate::game_logic::ScriptPresentationEffects {
+            audio: Some(&mut output),
+            ..Default::default()
+        },
+    );
+    audio::assert_events(&output, &[("EnterAuthored", transport)]);
 }
 
 /// C++ ActionManager.cpp:1696-1710 + Object.cpp:6111-6132.

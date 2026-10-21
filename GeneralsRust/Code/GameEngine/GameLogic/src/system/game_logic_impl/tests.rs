@@ -1186,9 +1186,42 @@ mod tests {
 
     #[test]
     fn xfer_v10_writes_toc_and_object_blocks() {
+        // Full Core Object restore still resolves its compatibility TeamFactory.
+        // Run this complete fixture in its own native process so replacing that
+        // owner cannot race suites using a different fixture serialization token.
+        #[cfg(not(target_arch = "wasm32"))]
+        if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
+            "system::game_logic::tests::xfer_v10_writes_toc_and_object_blocks",
+            "GENERALS_CORE_XFER_V10_TEAM_CHILD",
+        ) {
+            return;
+        }
         let _fixture = test_state_lock();
         use game_engine::{Xfer, XferLoad, XferSave};
 
+        // CPP Object.cpp4104-4113 requires the saved team to have been
+        // admitted before Object restore. Preserve the real compatibility
+        // owner for this complete GameLogic wire fixture, restoring its peer
+        // after all local objects have retired.
+        struct ReceivingTeams(Option<crate::team::TeamFactory>);
+        impl Drop for ReceivingTeams {
+            fn drop(&mut self) {
+                *crate::team::get_team_factory().lock().unwrap() = self.0.take().unwrap();
+            }
+        }
+        let _receiving_teams = ReceivingTeams(Some(std::mem::replace(
+            &mut *crate::team::get_team_factory().lock().unwrap(),
+            crate::team::TeamFactory::new(),
+        )));
+        let receiving_team = {
+            let mut teams = crate::team::get_team_factory().lock().unwrap();
+            let prototype = teams
+                .init_team_owned("CppObjectTocTeam".into(), "".into(), false, None, None)
+                .unwrap();
+            teams
+                .create_team_on_prototype_with_id(&prototype, 91_311)
+                .unwrap()
+        };
         let mut save_logic = GameLogic::new();
         save_logic.frame = 42;
         use game_engine::common::thing::thing_factory::{get_thing_factory, init_thing_factory};
@@ -1202,7 +1235,13 @@ mod tests {
             .new_template("CppObjectTocFixture");
         let template =
             crate::helpers::TheThingFactory::find_template("CppObjectTocFixture").unwrap();
-        let obj = Object::new_with_id(template, 11, ObjectStatusMaskType::none(), None).unwrap();
+        let obj = Object::new_with_id(
+            template,
+            11,
+            ObjectStatusMaskType::none(),
+            Some(receiving_team.clone()),
+        )
+        .unwrap();
         obj.write()
             .unwrap()
             .set_position(&Coord3D::new(1.0, 2.0, 3.0))
@@ -1223,6 +1262,10 @@ mod tests {
             .register_object(Arc::new(RwLock::new(missing)))
             .unwrap();
 
+        // CPP GameLogic.cpp4681 excludes the allocator counter from this
+        // block. Distinct counters above every saved ID distinguish stream
+        // serialization from registration observing the restored object ID.
+        save_logic.set_object_id_counter(99);
         let path = std::env::temp_dir().join(format!(
             "generals_xfer_v10_{}_{}.bin",
             std::process::id(),
@@ -1236,6 +1279,7 @@ mod tests {
             xfer.close().expect("close save");
         }
         let mut load_logic = GameLogic::new();
+        load_logic.set_object_id_counter(77);
         {
             let mut xfer = XferLoad::new();
             xfer.open(path.to_string_lossy().into_owned())
@@ -1260,14 +1304,19 @@ mod tests {
             .find_object_by_id(11)
             .expect("object from TOC block");
         let guard = loaded.read().unwrap();
+        assert_eq!(guard.get_team_id(), Some(91_311));
+        assert!(Arc::ptr_eq(&guard.get_team().unwrap(), &receiving_team));
         assert_eq!(guard.get_position().x, 1.0);
         assert_eq!(guard.get_position().y, 2.0);
         assert_eq!(guard.get_position().z, 3.0);
         assert_eq!(
             load_logic.get_object_id_counter(),
-            1,
-            "C++ GameLogic::xfer must not xfer m_nextObjectID"
+            77,
+            "Object registration must not replace the receiving allocator with the saved counter"
         );
+        drop(guard);
+        load_logic.clear_all_objects();
+        save_logic.clear_all_objects();
     }
 
     #[test]

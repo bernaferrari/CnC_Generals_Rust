@@ -227,3 +227,159 @@ fn draw_condition_field_retains_original_prefix_when_later_token_rejects() {
         assert_eq!(data.ignore_condition_states, expected_prefix, "{field}");
     }
 }
+
+fn model_base(
+    data: &dyn game_engine::common::thing::module::ModuleData,
+) -> &W3DModelDrawModuleData {
+    use crate::object::draw::*;
+    if let Some(data) = data.as_any().downcast_ref::<W3DModelDrawModuleData>() {
+        return data;
+    }
+    if let Some(data) = data
+        .as_any()
+        .downcast_ref::<W3DDependencyModelDrawModuleData>()
+    {
+        return &data.base;
+    }
+    if let Some(data) = data.as_any().downcast_ref::<W3DTankDrawModuleData>() {
+        return &data.base;
+    }
+    if let Some(data) = data
+        .as_any()
+        .downcast_ref::<W3DOverlordTankDrawModuleData>()
+    {
+        return &data.base.base;
+    }
+    if let Some(data) = data.as_any().downcast_ref::<W3DPoliceCarDrawModuleData>() {
+        return &data.base.base;
+    }
+    &data
+        .as_any()
+        .downcast_ref::<W3DScienceModelDrawModuleData>()
+        .unwrap()
+        .base
+}
+
+#[test]
+fn registered_draw_inheritance_uses_original_equals_separators_for_fields_and_states() {
+    use crate::object::draw::*;
+    let mut factory = catalog();
+    for &class in MODEL_DRAW_CLASSES {
+        for separator in ["=", " =", "= ", " = ", "\t=\t"] {
+            let leaf = match class {
+                "W3DDependencyModelDraw" => {
+                    format!("AttachToBoneInContainer{separator}ContainerBone\n")
+                }
+                "W3DTankDraw" | "W3DOverlordTankDraw" => {
+                    format!("TreadPivotSpeedFraction{separator}0.25\n")
+                }
+                "W3DPoliceCarDraw" => format!("Dust{separator}OriginalDust\n"),
+                _ => String::new(),
+            };
+            let body = format!(
+                "{leaf}OkToChangeModelColor{separator}Yes\nIgnoreConditionStates{separator}NIGHT=SNOW\nDefaultConditionState\nModel{separator}EqualsModel\nParticleSysBone{separator}Fire01=SmolderingFire\nEnd\nConditionState{separator}MOVING=FIRING_A\nEnd\nAliasConditionState{separator}MOVING=FIRING_B\nEnd\n"
+            );
+            let data = parse(&mut factory, ModuleType::Draw, class, &body)
+                .unwrap_or_else(|error| panic!("{class} {separator:?}: {error}"));
+            let base = model_base(data.as_ref());
+            assert!(base.ok_to_change_model_color, "{class}");
+            assert_eq!(
+                base.ignore_condition_states,
+                ModelConditionFlags::NIGHT | ModelConditionFlags::SNOW
+            );
+            assert_eq!(base.default_state, 0);
+            assert_eq!(base.condition_states.len(), 2);
+            assert_eq!(base.condition_states[0].model_name.as_str(), "equalsmodel");
+            assert_eq!(
+                base.condition_states[0].particle_sys_bones[0]
+                    .bone_name
+                    .as_str(),
+                "fire01"
+            );
+            assert_eq!(
+                base.condition_states[0].particle_sys_bones[0]
+                    .particle_system
+                    .as_str(),
+                "SmolderingFire"
+            );
+            assert_eq!(
+                base.condition_states[1].conditions_yes,
+                [
+                    ModelConditionFlags::MOVING | ModelConditionFlags::FIRING_A,
+                    ModelConditionFlags::MOVING | ModelConditionFlags::FIRING_B
+                ]
+            );
+            match class {
+                "W3DDependencyModelDraw" => assert_eq!(
+                    data.as_any()
+                        .downcast_ref::<W3DDependencyModelDrawModuleData>()
+                        .unwrap()
+                        .attach_to_drawable_bone_in_container
+                        .as_str(),
+                    "ContainerBone"
+                ),
+                "W3DTankDraw" => assert_eq!(
+                    data.as_any()
+                        .downcast_ref::<W3DTankDrawModuleData>()
+                        .unwrap()
+                        .tread_pivot_speed_fraction,
+                    0.25
+                ),
+                "W3DOverlordTankDraw" => assert_eq!(
+                    data.as_any()
+                        .downcast_ref::<W3DOverlordTankDrawModuleData>()
+                        .unwrap()
+                        .base
+                        .tread_pivot_speed_fraction,
+                    0.25
+                ),
+                "W3DPoliceCarDraw" => assert_eq!(
+                    data.as_any()
+                        .downcast_ref::<W3DPoliceCarDrawModuleData>()
+                        .unwrap()
+                        .base
+                        .dust_effect_name
+                        .as_str(),
+                    "OriginalDust"
+                ),
+                _ => {}
+            }
+        }
+    }
+}
+
+#[test]
+fn registered_draw_equals_separators_preserve_unknown_and_mixed_mode_errors() {
+    let mut factory = catalog();
+    for &class in MODEL_DRAW_CLASSES {
+        for separator in ["=", " =", "= ", " = ", "\t=\t"] {
+            for field in [
+                "IgnoreConditionStates",
+                "ConditionState",
+                "AliasConditionState",
+            ] {
+                for (value, expected) in [
+                    ("UNKNOWN_ORIGINAL_CONDITION", "Invalid data"),
+                    ("NIGHT=+SNOW", "Invalid name list"),
+                ] {
+                    let body = condition_field_body(field, value)
+                        .replace(&format!("{field} = "), &format!("{field}{separator}"));
+                    let error = parse(&mut factory, ModuleType::Draw, class, &body)
+                        .expect_err("equality is lexical, not an escape from condition validation");
+                    assert!(
+                        error.ends_with(expected),
+                        "{class} {field} {separator:?} {value}: {error}"
+                    );
+                }
+            }
+            let error = parse(
+                &mut factory,
+                ModuleType::Draw,
+                class,
+                &format!("UnknownDrawField{separator}3\nEnd\n"),
+            )
+            .expect_err("unknown module fields remain rejected");
+            assert!(error.ends_with("Unknown token"), "{class}: {error}");
+        }
+    }
+}

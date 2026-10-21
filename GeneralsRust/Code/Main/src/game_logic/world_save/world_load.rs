@@ -168,7 +168,7 @@ impl GameLogic {
         })
     }
 
-    fn load_map_with_definition_source_and_progress<F>(
+    pub(super) fn load_map_contents_with_definition_source_and_progress<F>(
         &mut self,
         map_name: &str,
         definition_source: Option<&str>,

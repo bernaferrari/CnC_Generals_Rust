@@ -73,7 +73,13 @@ fn local_manager(free_windows: usize, deferred: bool) -> WindowManager {
     manager.register_tab_list(vec![existing.clone()]);
     manager.set_focus(Some(&existing)).unwrap();
     while manager.window_count < MAX_WINDOWS - free_windows {
-        manager.create_window(None, 0, 0, 10, 10).unwrap();
+        // Capacity fillers are unrelated unnamed windows. Keep their IDs
+        // disjoint from the thread's low sequential authored NameKeys; using
+        // the process-wide auto counter makes this depend on test ordering.
+        let filler_id = i32::MAX - manager.window_count as WindowId;
+        manager
+            .create_window_with_id(None, 0, 0, 10, 10, filler_id)
+            .unwrap();
     }
     if deferred {
         manager.destroy_window(existing).unwrap();
@@ -132,17 +138,18 @@ fn public_layout_loaders_remove_root_and_first_child_when_later_child_hits_capac
         )
         .unwrap();
         let mut manager = local_manager(2, false);
+        let child_id = NameKeyGenerator::name_to_key("CreatedChild") as WindowId;
+        assert!(
+            !manager.window_by_id.contains_key(&child_id),
+            "candidate child must not already identify a capacity filler"
+        );
         let before = Baseline::capture(&manager);
         assert!(matches!(
             load(&mut manager, &path, with_layout),
             Err(WindowError::OutOfWindows)
         ));
         before.assert_restored(&manager);
-        assert!(
-            !manager
-                .window_by_id
-                .contains_key(&(NameKeyGenerator::name_to_key("CreatedChild") as WindowId))
-        );
+        assert!(!manager.window_by_id.contains_key(&child_id));
     }
 }
 #[test]
@@ -418,5 +425,81 @@ fn public_layout_loaders_reparse_same_path_and_keep_prior_live_windows() {
         peer.reset();
         assert_eq!(peer.window_count, 0);
         first_before.assert_restored(&first_owner);
+    }
+}
+
+#[test]
+fn public_layout_loaders_apply_text_defaults_before_authored_colors() {
+    fn assert_text(window: &Rc<RefCell<GameWindow>>, expected: [u32; 6]) {
+        let window = window.borrow();
+        let data = window.instance_data();
+        assert_eq!(
+            [
+                data.enabled_text.color,
+                data.enabled_text.border_color,
+                data.disabled_text.color,
+                data.disabled_text.border_color,
+                data.hilite_text.color,
+                data.hilite_text.border_color,
+            ],
+            expected,
+        );
+    }
+    fn authored(name: &str, colors: &str) -> String {
+        root(name).replace("END\n", &format!("TEXTCOLOR={colors};\nEND\n"))
+    }
+
+    for with_layout in [false, true] {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("TextDefaults.wnd");
+        let first_default = 0xFF112233;
+        let second_default = 0xFF445566;
+        let undefined = WIN_COLOR_UNDEFINED;
+        let mixed = concat!(
+            "ENABLED:0 0 0 0, ENABLEDBORDER:255 255 255 0, ",
+            "DISABLED:255 255 255 0, DISABLEDBORDER:0 0 0 0, ",
+            "HILITE:7 8 9 255, HILITEBORDER:10 11 12 255",
+        );
+        let all_undefined = concat!(
+            "ENABLED:255 255 255 0, ENABLEDBORDER:255 255 255 0, ",
+            "DISABLED:255 255 255 0, DISABLEDBORDER:255 255 255 0, ",
+            "HILITE:255 255 255 0, HILITEBORDER:255 255 255 0",
+        );
+        let source = "TEXTCOLOR=17 34 51 255;\n".to_string()
+            + root("FirstDefault").as_str()
+            + authored("ExplicitMixed", mixed).as_str()
+            + authored("ExplicitUndefined", all_undefined).as_str()
+            + "TEXTCOLOR=68 85 102 255;\n"
+            + root("SecondDefault").as_str()
+            + "TEXTCOLOR=TRANSPARENT;\n"
+            + root("TransparentDefault").as_str();
+        std::fs::write(&path, source).unwrap();
+        let mut manager = WindowManager::new();
+        let info = load(&mut manager, &path, with_layout).unwrap();
+        assert_eq!(info.windows.len(), 5);
+        assert_text(&info.windows[0], [first_default; 6]);
+        assert_text(
+            &info.windows[1],
+            [0, undefined, undefined, 0, 0xFF070809, 0xFF0A0B0C],
+        );
+        assert_text(&info.windows[2], [undefined; 6]);
+        assert_text(&info.windows[3], [second_default; 6]);
+        assert_text(&info.windows[4], [undefined; 6]);
+
+        // Each invocation resets file defaults, including on a reused manager.
+        // Equal IDs in another manager do not publish a replacement default.
+        let peer_path = directory.path().join("PeerTextDefaults.wnd");
+        std::fs::write(&peer_path, root("FirstDefault")).unwrap();
+        let mut peer = WindowManager::new();
+        let peer_info = load(&mut peer, &peer_path, with_layout).unwrap();
+        assert_eq!(
+            peer_info.windows[0].borrow().get_id(),
+            info.windows[0].borrow().get_id()
+        );
+        assert_text(&peer_info.windows[0], [0; 6]);
+        let same_owner = load(&mut manager, &peer_path, with_layout).unwrap();
+        assert_text(&same_owner.windows[0], [0; 6]);
+        assert_text(&info.windows[0], [first_default; 6]);
+        assert_text(&info.windows[2], [undefined; 6]);
     }
 }

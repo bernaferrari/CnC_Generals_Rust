@@ -305,8 +305,6 @@ pub use callbacks::{
     show_control_bar,
 
     show_in_game_chat,
-    show_message_box,
-    show_quit_dialog,
 
     simulate_skirmish_start_button_gadget_selected,
     toggle_control_bar,

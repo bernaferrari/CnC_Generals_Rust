@@ -101,6 +101,7 @@ impl CnCGameEngine {
             super::mouse::CameraInputLoan<'_>,
         ) -> R,
     ) -> R {
+        let mut audio = super::native_audio_effects::NativeAudioService::live();
         #[cfg(feature = "game_client")]
         {
             let (frame, _, presence) = self.game_client.split_frame_snow_and_drawable_presence();
@@ -123,6 +124,7 @@ impl CnCGameEngine {
             body(
                 &mut self.game_logic,
                 &mut crate::game_logic::ScriptPresentationEffects {
+                    audio: audio.as_mut().map(|service| service.receiver()),
                     terrain: terrain
                         .map(|terrain| terrain as &mut dyn crate::game_logic::NativeTerrainEffects),
                     ui: None,
@@ -134,7 +136,10 @@ impl CnCGameEngine {
         #[cfg(not(feature = "game_client"))]
         body(
             &mut self.game_logic,
-            &mut crate::game_logic::ScriptPresentationEffects::default(),
+            &mut crate::game_logic::ScriptPresentationEffects {
+                audio: audio.as_mut().map(|service| service.receiver()),
+                ..Default::default()
+            },
             super::mouse::CameraInputLoan::new(
                 &mut self.look_at_modes,
                 &mut self.is_mmb_rotating,

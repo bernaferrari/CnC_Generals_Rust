@@ -877,6 +877,7 @@ impl CnCGameEngine {
                 template,
                 builder,
                 &mut crate::game_logic::ScriptPresentationEffects {
+                    audio: None,
                     ui: None,
                     view: None,
                     terrain,
@@ -1414,7 +1415,7 @@ impl CnCGameEngine {
             .as_ref()
             .and_then(|initial| initial.local_slot);
         let old_logic = std::mem::replace(&mut self.game_logic, logic);
-        native_map.install(&mut self.render_pipeline);
+        let pending_map_audio = native_map.install_visuals(&mut self.render_pipeline);
         if let Some(local) = saved_local {
             self.current_player_id = local;
             self.host_match_local_player_id = Some(local);
@@ -1623,6 +1624,9 @@ impl CnCGameEngine {
         // The receiving Recorder policy may have been replaced by this commit.
         // Application definitions remain owned by the existing admitted snapshot.
         self.configure_receiving_replay_menu();
+        // No Common AR_Play output from this candidate can escape a rejected
+        // client/camera/presentation admission. Emit once at the successful tail.
+        pending_map_audio.admit_to_live();
         Ok(())
     }
 

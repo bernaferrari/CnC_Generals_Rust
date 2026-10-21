@@ -1818,24 +1818,23 @@ fn return_to_base_prefers_exact_owner_producer_and_only_allows_explicitly_allied
 #[test]
 fn railed_transport_command_fails_closed_without_pathprefix_runtime() {
     use super::CommandExecutor;
-    use crate::assets::IniParser;
+    use crate::assets::ReceivingObjectContent;
     use crate::command_system::CommandResult;
-    use crate::game_logic::{
-        AIState, ContainModuleKind, DockKind, GameLogic, KindOf, Team, ThingTemplate,
-    };
+    use crate::game_logic::{AIState, ContainModuleKind, DockKind, GameLogic, Player, Team};
     use glam::Vec3;
 
     // This is deliberately an arbitrary identity rather than a train/ferry
     // name.  Its only authority comes from the same retail behavior modules
     // as AutoFerry: contain, railed AI with PathPrefixName, and railed dock.
-    let mut parser = IniParser::new();
-    parser
-        .parse_ini_content(
-            r#"
+    let content = ReceivingObjectContent::from_sources([(
+        "retail_railed_transport_executor_probe.ini".to_owned(),
+        r#"
 Object ArbitraryWaterCarrier
-  Type = Vehicle
-  Model = ArbitraryWaterCarrierModel
-  KindOf = SELECTABLE TRANSPORT
+  KindOf = VEHICLE SELECTABLE TRANSPORT
+  Body = ActiveBody CarrierBody
+    MaxHealth = 100
+    InitialHealth = 100
+  End
   Behavior = RailedTransportContain ModuleTag_03
     Slots = 2
     AllowInsideKindOf = INFANTRY VEHICLE BOAT
@@ -1850,12 +1849,20 @@ Object ArbitraryWaterCarrier
     ToleranceDistance = 400.0
   End
 End
-"#,
-            "retail_railed_transport_executor_probe.ini",
-        )
-        .expect("parse retail-shaped railed transport");
-    let definition = parser
-        .get_definition("ArbitraryWaterCarrier")
+Object RetailRailedPassenger
+  KindOf = INFANTRY SELECTABLE
+  Body = ActiveBody PassengerBody
+    MaxHealth = 100
+    InitialHealth = 100
+  End
+End
+"#
+        .to_owned(),
+    )])
+    .expect("admit retail-shaped railed transport and passenger");
+    let definition = content
+        .projections()
+        .get("ArbitraryWaterCarrier")
         .expect("railed transport definition");
     assert!(definition.behavior_modules.iter().any(|module| {
         module
@@ -1864,8 +1871,12 @@ End
             && module.attribute("PathPrefixName") == Some("Ferry")
     }));
 
-    let carrier_template =
-        GameLogic::build_template_from_object_definition("ArbitraryWaterCarrier", definition, None);
+    let mut logic = GameLogic::new();
+    // The authored host projection and typed module definitions must come
+    // from the same receiving source; a bare projection cannot spawn.
+    logic.admit_receiving_module_content(content).unwrap();
+    logic.add_player(Player::new(0, Team::USA, "Railed fixture", true));
+    let carrier_template = logic.templates.get("ArbitraryWaterCarrier").unwrap();
     assert_eq!(carrier_template.dock_kind, DockKind::RailedTransport);
     assert_eq!(carrier_template.railed_path_prefix_name, "Ferry");
     assert_eq!(
@@ -1873,20 +1884,6 @@ End
         ContainModuleKind::RailedTransport
     );
     assert_eq!(carrier_template.contain_module.slots, Some(2));
-
-    let mut logic = GameLogic::new();
-
-    logic
-        .templates
-        .insert(carrier_template.name.clone(), carrier_template);
-    let mut rider_template = ThingTemplate::new("RetailRailedPassenger");
-    rider_template
-        .add_kind_of(KindOf::Infantry)
-        .add_kind_of(KindOf::Selectable)
-        .set_health(100.0);
-    logic
-        .templates
-        .insert(rider_template.name.clone(), rider_template);
 
     let carrier = logic
         .create_object("ArbitraryWaterCarrier", Team::USA, Vec3::ZERO)

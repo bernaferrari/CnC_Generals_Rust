@@ -69,7 +69,7 @@ fn isolated(_: &str, run: impl FnOnce()) {
     run();
 }
 
-fn parse_rules() -> ThingTemplate {
+fn parse_rules() -> String {
     // Actual engine parser publishes actual immutable event info. No manual
     // AudioEventInfo insertion, playback hook, or pretend loaded flag.
     let mut ini = game_engine::common::ini::INI::new();
@@ -103,11 +103,7 @@ End
             "these controls preserve the current configured 30-frame retry policy"
         );
     }
-    let mut parser = crate::assets::IniParser::new();
-    assert_eq!(
-        parser
-            .parse_ini_content(
-                r#"
+    let object_rules = r#"
 Object OwnedAmbientRetryAuthoredBuilding
   KindOf = STRUCTURE SELECTABLE
   SoundAmbient = OwnedAmbientRetryPermanentLoop
@@ -116,9 +112,11 @@ Object OwnedAmbientRetryAuthoredBuilding
     InitialHealth = 100
   End
 End
-"#,
-                "owned_ambient_retry.ini",
-            )
+"#;
+    let mut parser = crate::assets::IniParser::new();
+    assert_eq!(
+        parser
+            .parse_ini_content(object_rules, "owned_ambient_retry.ini")
             .expect("actual Main Object authoring"),
         1
     );
@@ -129,13 +127,27 @@ End
     assert_eq!(template.sound_ambient.as_deref(), Some(EVENT));
     assert!(template.kind_of.contains(&KindOf::Structure));
     assert_eq!(template.max_health, 100.0);
-    template
+    object_rules.to_owned()
 }
 
-fn create(world: &mut GameLogic, template: &ThingTemplate, position: Vec3) -> ObjectId {
-    world
-        .templates
-        .insert(TEMPLATE.to_owned(), template.clone());
+fn create(world: &mut GameLogic, object_rules: &str, position: Vec3) -> ObjectId {
+    if world.receiving_module_content.is_none() {
+        // Authored Object admission requires the paired projections from the
+        // same ordered source, not a manually inserted host-only template.
+        let content = crate::assets::ReceivingObjectContent::from_sources([(
+            "owned_ambient_retry.ini".to_owned(),
+            object_rules.to_owned(),
+        )])
+        .expect("actual paired authored ambient content");
+        world
+            .admit_receiving_module_content(content)
+            .expect("admit ambient definition to its driving world");
+    }
+    assert!(
+        world.templates[TEMPLATE]
+            .receiving_client_template
+            .is_some()
+    );
     let id = world
         .create_object(TEMPLATE, Team::USA, position)
         .expect("actual authored ambient admission");

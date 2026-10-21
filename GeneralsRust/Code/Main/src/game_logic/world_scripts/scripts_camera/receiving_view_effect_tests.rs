@@ -71,6 +71,7 @@ fn authored_enable_slave_then_home_samples_current_receiving_owner_before_walk_r
                 &mut owner,
                 &interpreter,
                 ScriptPresentationEffects {
+                    audio: None,
                     terrain: None,
                     ui: None,
                     view: Some(&mut backend),
@@ -151,6 +152,7 @@ fn actual_radar_command_borrows_receiving_slave_view_without_peer_delivery() {
         &mut owner,
         0,
         ScriptPresentationEffects {
+            audio: None,
             terrain: None,
             ui: None,
             view: Some(&mut receiving),

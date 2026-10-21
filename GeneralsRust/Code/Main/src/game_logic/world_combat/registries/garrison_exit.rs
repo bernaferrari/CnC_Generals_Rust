@@ -156,8 +156,7 @@ impl GameLogic {
 
         // set_destination → move_to already records the goal.
         // C++ OpenContain::removeFromContain doUnloadSound — leftover TheAudio.
-        self.play_container_exit_sound(container_id);
-        self.play_container_removing_template_sounds(container_id, unit_id);
+        self.play_container_removing_template_sounds(container_id, unit_id, presentation_effects);
         // C++ GarrisonContain::exitObjectViaDoor ends in recalcApparentControllingPlayer.
         self.recalc_garrison_apparent_controller(container_id);
         true

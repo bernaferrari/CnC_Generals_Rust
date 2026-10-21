@@ -275,19 +275,6 @@ impl WindowManager {
                 x: window_def.image_offset.0,
                 y: window_def.image_offset.1,
             };
-            if data.enabled_text.color == WIN_COLOR_UNDEFINED
-                && data.disabled_text.color == WIN_COLOR_UNDEFINED
-                && data.hilite_text.color == WIN_COLOR_UNDEFINED
-            {
-                if let Some(default_color) = layout.borrow().default_text_color {
-                    data.enabled_text.color = default_color;
-                    data.enabled_text.border_color = default_color;
-                    data.disabled_text.color = default_color;
-                    data.disabled_text.border_color = default_color;
-                    data.hilite_text.color = default_color;
-                    data.hilite_text.border_color = default_color;
-                }
-            }
             if let Some(font) = window_def.font.clone() {
                 data.font = Some(font);
             } else if let Some(default_font) = layout.borrow().default_font.clone() {

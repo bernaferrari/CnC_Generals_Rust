@@ -52,12 +52,7 @@ impl W3DScienceModelDrawModuleData {
             if ini.is_eof() {
                 return Err(INIError::EndOfFile);
             }
-            let tokens = ini
-                .get_buffer()
-                .split([' ', '\n', '\r', '\t', '='])
-                .filter(|token| !token.is_empty())
-                .map(str::to_owned)
-                .collect::<Vec<_>>();
+            let tokens = model_draw_line_tokens(ini);
             let Some(key) = tokens.first().cloned() else {
                 continue;
             };

@@ -319,7 +319,6 @@ impl GameLogic {
 #[cfg(test)]
 mod tests {
     use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
-    use crate::game_logic::host_move_ambient_audio::clear_test_template_move_ambient;
     use crate::game_logic::{GameLogic, KindOf, ObjectId, Team, ThingTemplate};
     use glam::Vec3;
 
@@ -367,7 +366,6 @@ mod tests {
 
     #[test]
     fn move_loop_starts_when_start_is_empty_and_stops_on_idle() {
-        clear_test_template_move_ambient();
         let mut logic = GameLogic::new();
         let mut tmpl = ThingTemplate::new("GLAVehicleTechnical");
         tmpl.add_kind_of(KindOf::Vehicle);
@@ -845,3 +843,6 @@ mod tests {
 
 #[cfg(test)]
 mod ambient_retry_owner_tests;
+
+#[cfg(test)]
+mod receiving_audio_owner_tests;

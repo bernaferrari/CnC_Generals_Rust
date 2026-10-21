@@ -15,6 +15,26 @@ pub(crate) struct NativeSlaveSource {
 }
 
 use crate::presentation_frame::camera::build::SlaveCameraSample;
+
+/// One immediate receiving audio admission, borrowed for a synchronous operation.
+/// The service owns its actual pending AR_Play requests; gameplay keeps no receipt log.
+pub(crate) trait NativeAudioEffects {
+    fn add_audio_event(
+        &mut self,
+        event: &game_engine::common::audio::AudioEventRts,
+        locality: &game_engine::common::audio::AudioSubmissionLocality,
+    );
+}
+impl NativeAudioEffects for game_engine::common::audio::AudioManager {
+    fn add_audio_event(
+        &mut self,
+        event: &game_engine::common::audio::AudioEventRts,
+        locality: &game_engine::common::audio::AudioSubmissionLocality,
+    ) {
+        self.add_audio_event_with_locality(event, locality);
+    }
+}
+
 pub(crate) trait NativeViewEffects {
     fn local_player_id(&self) -> u32;
     fn sample_slave(&mut self, source: &NativeSlaveSource, bone: &str) -> SlaveCameraSample;
@@ -22,6 +42,8 @@ pub(crate) trait NativeViewEffects {
 /// Detached native map admission, borrowed by the one production map loader.
 /// The owner is returned to its application only after that load succeeds.
 pub(crate) trait NativeMapAdmission {
+    /// Rejection or a new attempt discards only this candidate's native outputs.
+    fn discard_attempt(&mut self);
     fn prepare(
         &mut self,
         world: &super::GameLogic,
@@ -166,10 +188,15 @@ pub(crate) struct ScriptPresentationEffects<'a> {
     pub(crate) ui: Option<&'a mut dyn super::ScriptUiEffects>,
     pub(crate) view: Option<&'a mut dyn NativeViewEffects>,
     pub(crate) terrain: Option<&'a mut dyn NativeTerrainEffects>,
+    pub(crate) audio: Option<&'a mut dyn NativeAudioEffects>,
 }
 impl ScriptPresentationEffects<'_> {
     pub(crate) fn reborrow(&mut self) -> ScriptPresentationEffects<'_> {
         ScriptPresentationEffects {
+            audio: self
+                .audio
+                .as_mut()
+                .map(|audio| &mut **audio as &mut dyn NativeAudioEffects),
             terrain: self
                 .terrain
                 .as_mut()

@@ -83,11 +83,7 @@ impl W3DTruckDrawModuleData {
             if ini.is_eof() {
                 return Err(INIError::EndOfFile);
             }
-            let tokens = ini
-                .get_line_tokens()
-                .into_iter()
-                .map(|t| t.to_string())
-                .collect::<Vec<_>>();
+            let tokens = model_draw_line_tokens(ini);
             let Some(key) = tokens.first().cloned() else {
                 continue;
             };

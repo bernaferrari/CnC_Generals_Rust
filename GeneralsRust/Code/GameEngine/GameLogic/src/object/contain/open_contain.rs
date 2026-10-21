@@ -4,7 +4,6 @@
 //! objects. This provides the fundamental containment functionality that is common to
 //! all container modules.
 
-use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
@@ -87,13 +86,6 @@ fn restore_allow_to_fall(physics: &crate::object::PhysicsInterfaceHandle, allow:
 /// Constant for unlimited contain capacity
 pub const CONTAIN_MAX_UNKNOWN: i32 = -1;
 const MAX_FIRE_POINTS: usize = 32;
-
-thread_local! {
-    static LAST_ON_CONTAINING_TEMPLATE: RefCell<Option<LeftoverOnContainingTemplateCall>> =
-        RefCell::new(None);
-    static LAST_ON_REMOVING_TEMPLATE: RefCell<Option<LeftoverOnRemovingTemplateCall>> =
-        RefCell::new(None);
-}
 
 const LEFTOVER_CONTAIN_MODULE_NAMES: &[&str] = &[
     "OpenContain",
@@ -234,26 +226,6 @@ pub fn leftover_contain_module_exit_sound(template_name: &str) -> Option<String>
     leftover_contain_module_sound_name(template_name, false)
 }
 
-/// C++ `OpenContain::onContaining` / `onRemoving` leftover call record (live tests).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LeftoverOnContainingTemplateCall {
-    pub template_name: String,
-    pub object_id: ObjectID,
-    pub load_sounds_enabled: bool,
-    pub played: Option<String>,
-}
-
-/// C++ `OpenContain::onRemoving` leftover template SoundExit + rider SoundFalling.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LeftoverOnRemovingTemplateCall {
-    pub container_template: String,
-    pub container_id: ObjectID,
-    pub rider_template: String,
-    pub rider_id: ObjectID,
-    pub played_exit: Option<String>,
-    pub played_falling: Option<String>,
-}
-
 /// C++ `OpenContain::scatterToNearbyPosition` dest in leftover Z-up coords.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct LeftoverScatterNearby {
@@ -352,14 +324,6 @@ pub fn leftover_play_on_containing_template_sounds(
     } else {
         None
     };
-    LAST_ON_CONTAINING_TEMPLATE.with(|slot| {
-        *slot.borrow_mut() = Some(LeftoverOnContainingTemplateCall {
-            template_name: container_template.to_string(),
-            object_id: container_id,
-            load_sounds_enabled,
-            played: played.clone(),
-        });
-    });
     played
 }
 
@@ -388,25 +352,7 @@ pub fn leftover_play_on_removing_template_sounds(
         .as_deref(),
         rider_id,
     );
-    LAST_ON_REMOVING_TEMPLATE.with(|slot| {
-        *slot.borrow_mut() = Some(LeftoverOnRemovingTemplateCall {
-            container_template: container_template.to_string(),
-            container_id,
-            rider_template: rider_template.to_string(),
-            rider_id,
-            played_exit: played_exit.clone(),
-            played_falling: played_falling.clone(),
-        });
-    });
     (played_exit, played_falling)
-}
-
-pub fn leftover_last_on_containing_template_call() -> Option<LeftoverOnContainingTemplateCall> {
-    LAST_ON_CONTAINING_TEMPLATE.with(|slot| slot.borrow().clone())
-}
-
-pub fn leftover_last_on_removing_template_call() -> Option<LeftoverOnRemovingTemplateCall> {
-    LAST_ON_REMOVING_TEMPLATE.with(|slot| slot.borrow().clone())
 }
 
 /// C++ `OpenContain::scatterToNearbyPosition` ring dest (leftover Z-up).
@@ -671,9 +617,9 @@ fn parse_enter_sound(
     tokens: &[&str],
 ) -> Result<(), INIError> {
     let token = tokens.first().ok_or(INIError::InvalidData)?;
-    if token.eq_ignore_ascii_case("NONE") {
-        data.enter_sound = None;
-    } else {
+    // Static INI::parseAudioEventRTS (INI.cpp:1146): NoSound leaves the
+    // current event unchanged; NONE is an ordinary event name.
+    if !token.eq_ignore_ascii_case("NoSound") {
         data.enter_sound = Some(AudioEventRts::new(*token));
     }
     Ok(())
@@ -685,9 +631,9 @@ fn parse_exit_sound(
     tokens: &[&str],
 ) -> Result<(), INIError> {
     let token = tokens.first().ok_or(INIError::InvalidData)?;
-    if token.eq_ignore_ascii_case("NONE") {
-        data.exit_sound = None;
-    } else {
+    // Static INI::parseAudioEventRTS (INI.cpp:1146): NoSound leaves the
+    // current event unchanged; NONE is an ordinary event name.
+    if !token.eq_ignore_ascii_case("NoSound") {
         data.exit_sound = Some(AudioEventRts::new(*token));
     }
     Ok(())

@@ -8,7 +8,6 @@
 //! - Display information
 
 use serde::{Deserialize, Serialize};
-use std::cell::RefCell;
 
 /// CPU vendor type
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -196,6 +195,32 @@ impl Default for DisplayInfo {
     }
 }
 
+impl DisplayInfo {
+    /// Observe the existing application's display capability.
+    ///
+    /// This does not construct a second event loop or a hidden window. A
+    /// missing display is an error, not a fabricated monitor. Winit does not
+    /// expose the current pixel depth; zero records that it is unknown.
+    #[cfg(feature = "graphics")]
+    pub fn from_window(window: &winit::window::Window) -> Result<Self, &'static str> {
+        let monitor = window
+            .primary_monitor()
+            .or_else(|| window.available_monitors().next())
+            .ok_or("application window has no available monitor")?;
+        let size = monitor.size();
+        Ok(Self {
+            width: size.width,
+            height: size.height,
+            refresh_rate: monitor
+                .refresh_rate_millihertz()
+                .map(|millihertz| millihertz / 1000)
+                .unwrap_or(0),
+            bits_per_pixel: 0,
+            display_count: window.available_monitors().count(),
+        })
+    }
+}
+
 /// Comprehensive system information
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SystemInfo {
@@ -224,8 +249,12 @@ impl Default for SystemInfo {
 }
 
 impl SystemInfo {
-    /// Detect and gather system information
-    pub fn detect() -> Self {
+    /// Gather system information using an observation owned by the caller.
+    ///
+    /// Native callers obtain display data from their existing application
+    /// window with `DisplayInfo::from_window`. This probe never creates an
+    /// event loop, window, or process/thread cache.
+    pub fn detect(display: DisplayInfo) -> Self {
         let mut info = SystemInfo::default();
 
         // Detect CPU information
@@ -240,8 +269,8 @@ impl SystemInfo {
         // Detect OS information
         info.os = Self::detect_os();
 
-        // Detect display information
-        info.display = Self::detect_display();
+        // Display capability belongs to the application, not this probe.
+        info.display = display;
 
         info
     }
@@ -335,7 +364,8 @@ impl SystemInfo {
                 }
             }
 
-            let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+            let instance =
+                wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
             let mut selected_info: Option<wgpu::AdapterInfo> = None;
 
             for adapter in pollster::block_on(instance.enumerate_adapters(wgpu::Backends::all())) {
@@ -402,52 +432,6 @@ impl SystemInfo {
         os
     }
 
-    /// Detect display information
-    fn detect_display() -> DisplayInfo {
-        let mut display = DisplayInfo::default();
-
-        #[cfg(feature = "graphics")]
-        {
-            use winit::event_loop::EventLoopBuilder;
-            use winit::window::Window;
-
-            if let Ok(event_loop) = EventLoopBuilder::new().build() {
-                // Winit 0.30 exposes monitor enumeration on an active event
-                // loop or Window, not on EventLoop itself.  A hidden window
-                // gives this startup probe the same monitor data without
-                // changing the visible game startup path.
-                let window = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    event_loop.create_window(Window::default_attributes().with_visible(false))
-                }))
-                .ok()
-                .and_then(Result::ok);
-
-                if let Some(window) = window {
-                    let primary = window
-                        .primary_monitor()
-                        .or_else(|| window.available_monitors().next());
-
-                    if let Some(primary) = primary {
-                        let size = primary.size();
-                        display.width = size.width.max(1);
-                        display.height = size.height.max(1);
-                        display.refresh_rate = primary
-                            .refresh_rate_millihertz()
-                            .map(|mhz| (mhz / 1000).max(1))
-                            .unwrap_or(60);
-                    }
-
-                    let monitor_count = window.available_monitors().count();
-                    if monitor_count > 0 {
-                        display.display_count = monitor_count;
-                    }
-                }
-            }
-        }
-
-        display
-    }
-
     /// Generate a formatted system information report
     pub fn generate_report(&self) -> String {
         format!(
@@ -509,35 +493,26 @@ impl SystemInfo {
     }
 }
 
-// Global system information instance
-// THREAD: C++ plain static; driven only by the single game/client thread.
-thread_local! {
-    static SYSTEM_INFO: RefCell<Option<SystemInfo>> = const { RefCell::new(None) };
-}
-
-/// Get the global system information instance
-pub fn get_system_info() -> SystemInfo {
-    SYSTEM_INFO.with_borrow_mut(|slot| {
-        slot.get_or_insert_with(SystemInfo::detect).clone()
-    })
-}
-
-/// Refresh the global system information
-pub fn refresh_system_info() {
-    SYSTEM_INFO.with_borrow_mut(|slot| {
-        if slot.is_some() {
-            *slot = Some(SystemInfo::detect());
-        }
-    });
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn test_system_info_detection() {
-        let info = SystemInfo::detect();
+        // Explicit synthetic display observation; no native monitor claim.
+        let display = DisplayInfo {
+            width: 1600,
+            height: 900,
+            refresh_rate: 120,
+            bits_per_pixel: 24,
+            display_count: 2,
+        };
+        let info = SystemInfo::detect(display);
+        assert_eq!(info.display.width, 1600);
+        assert_eq!(info.display.height, 900);
+        assert_eq!(info.display.refresh_rate, 120);
+        assert_eq!(info.display.bits_per_pixel, 24);
+        assert_eq!(info.display.display_count, 2);
         assert!(info.cpu.logical_cores > 0);
         assert!(info.cpu.physical_cores > 0);
     }
@@ -572,10 +547,32 @@ mod tests {
 
     #[test]
     fn test_global_system_info() {
-        let info1 = get_system_info();
-        let info2 = get_system_info();
-
-        // Should return consistent information
+        // Historical test name retained; observations are owned, not global.
+        let first_display = DisplayInfo {
+            width: 1600,
+            height: 900,
+            refresh_rate: 120,
+            bits_per_pixel: 24,
+            display_count: 2,
+        };
+        let peer_display = DisplayInfo {
+            width: 1280,
+            height: 720,
+            refresh_rate: 144,
+            bits_per_pixel: 32,
+            display_count: 1,
+        };
+        let info1 = SystemInfo::detect(first_display);
+        let info2 = SystemInfo::detect(peer_display);
         assert_eq!(info1.cpu.logical_cores, info2.cpu.logical_cores);
+        assert_eq!(info1.display.width, 1600);
+        assert_eq!(info2.display.width, 1280);
+        let peer_snapshot = info2.clone();
+        drop(info2);
+        assert_eq!(info1.display.refresh_rate, 120);
+        assert_eq!(peer_snapshot.display.refresh_rate, 144);
+        let inert = SystemInfo::default();
+        assert_eq!(inert.cpu.logical_cores, CpuInfo::default().logical_cores);
+        assert_eq!(info1.display.display_count, 2);
     }
 }

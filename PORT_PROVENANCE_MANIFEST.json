@@ -160562,7 +160562,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "51fd77bbe230ffb75f6fe53b9c5beffa5b67506953b96ed9bcb34e12c05e95ca",
+  "input_digest": "e780176871f51989928d6cefbff83e7abc4c58bb7eca186c5b9ef19dd7b82ddf",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -160843,11 +160843,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 3666,
+        "end_line": 3674,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/Common/src/common/audio/game_audio.rs",
-      "sha256": "ee00d554962b66ee3a9c3e343155bda26e08adf55eca5b5b0c1cc94c36d2ab12",
+      "sha256": "17a76a0c736cb6f1ff5538a5a20e888f56613aade1775009e1b24640f4070255",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -161857,442 +161857,447 @@
         },
         {
           "kind": "fn",
-          "line": 2658,
+          "line": 2660,
+          "name": "pending_play_events"
+        },
+        {
+          "kind": "fn",
+          "line": 2666,
           "name": "pending_play_request_count"
         },
         {
           "kind": "fn",
-          "line": 2668,
+          "line": 2676,
           "name": "pending_play_request_count_for"
         },
         {
           "kind": "fn",
-          "line": 2679,
+          "line": 2687,
           "name": "fading_audio_count"
         },
         {
           "kind": "fn",
-          "line": 2683,
+          "line": 2691,
           "name": "volume_has_changed_flag"
         },
         {
           "kind": "fn",
-          "line": 2687,
+          "line": 2695,
           "name": "fading_frames"
         },
         {
           "kind": "fn",
-          "line": 2694,
+          "line": 2702,
           "name": "force_notify_completion_for_test"
         },
         {
           "kind": "fn",
-          "line": 2705,
+          "line": 2713,
           "name": "active_event_mut_for_test"
         },
         {
           "kind": "fn",
-          "line": 2709,
+          "line": 2717,
           "name": "insert_playing_event_for_test"
         },
         {
           "kind": "fn",
-          "line": 2713,
+          "line": 2721,
           "name": "active_event_count"
         },
         {
           "kind": "fn",
-          "line": 2717,
+          "line": 2725,
           "name": "active_event_loop_count"
         },
         {
           "kind": "fn",
-          "line": 2723,
+          "line": 2731,
           "name": "active_event_portion"
         },
         {
           "kind": "fn",
-          "line": 2729,
+          "line": 2737,
           "name": "track_active_event"
         },
         {
           "kind": "fn",
-          "line": 2736,
+          "line": 2744,
           "name": "purge_inactive_events"
         },
         {
           "kind": "fn",
-          "line": 2746,
+          "line": 2754,
           "name": "default"
         },
         {
           "kind": "fn",
-          "line": 2752,
+          "line": 2760,
           "name": "get_rodio_stream_handle"
         },
         {
           "kind": "static",
-          "line": 2754,
+          "line": 2762,
           "name": "STATE"
         },
         {
           "kind": "static",
-          "line": 2768,
+          "line": 2776,
           "name": "LIVE_AUDIO_FILE_CACHE"
         },
         {
           "kind": "fn",
-          "line": 2770,
+          "line": 2778,
           "name": "live_audio_file_cache"
         },
         {
           "kind": "fn",
-          "line": 2776,
+          "line": 2784,
           "name": "wav_channel_count"
         },
         {
           "kind": "struct",
-          "line": 2782,
+          "line": 2790,
           "name": "CachedAudioBytes"
         },
         {
           "kind": "fn",
-          "line": 2786,
+          "line": 2794,
           "name": "as_ref"
         },
         {
           "kind": "enum",
-          "line": 2792,
+          "line": 2800,
           "name": "RodioVoice"
         },
         {
           "kind": "fn",
-          "line": 2799,
+          "line": 2807,
           "name": "set_volume"
         },
         {
           "kind": "fn",
-          "line": 2805,
+          "line": 2813,
           "name": "stop"
         },
         {
           "kind": "fn",
-          "line": 2812,
+          "line": 2820,
           "name": "pause"
         },
         {
           "kind": "fn",
-          "line": 2819,
+          "line": 2827,
           "name": "play"
         },
         {
           "kind": "fn",
-          "line": 2826,
+          "line": 2834,
           "name": "empty"
         },
         {
           "kind": "fn",
-          "line": 2833,
+          "line": 2841,
           "name": "is_paused"
         },
         {
           "kind": "fn",
-          "line": 2840,
+          "line": 2848,
           "name": "set_stereo_pan"
         },
         {
           "kind": "struct",
-          "line": 2851,
+          "line": 2859,
           "name": "RodioPlaybackHook"
         },
         {
           "kind": "struct",
-          "line": 2860,
+          "line": 2868,
           "name": "RodioSinkState"
         },
         {
           "kind": "fn",
-          "line": 2874,
+          "line": 2882,
           "name": "new"
         },
         {
           "kind": "fn",
-          "line": 2898,
+          "line": 2906,
           "name": "new"
         },
         {
           "kind": "fn",
-          "line": 2910,
+          "line": 2918,
           "name": "build_path_candidates"
         },
         {
           "kind": "fn",
-          "line": 2936,
+          "line": 2944,
           "name": "portion_filename"
         },
         {
           "kind": "fn",
-          "line": 2948,
+          "line": 2956,
           "name": "resolve_audio_data"
         },
         {
           "kind": "fn",
-          "line": 2977,
+          "line": 2985,
           "name": "calculate_3d_volume_falloff"
         },
         {
           "kind": "fn",
-          "line": 2996,
+          "line": 3004,
           "name": "effective_volume"
         },
         {
           "kind": "fn",
-          "line": 3005,
+          "line": 3013,
           "name": "refresh_sink_volume"
         },
         {
           "kind": "fn",
-          "line": 3009,
+          "line": 3017,
           "name": "listener_pose"
         },
         {
           "kind": "fn",
-          "line": 3029,
+          "line": 3037,
           "name": "refresh_positional_pan"
         },
         {
           "kind": "fn",
-          "line": 3042,
+          "line": 3050,
           "name": "play_with_observation"
         },
         {
           "kind": "fn",
-          "line": 3156,
+          "line": 3164,
           "name": "play"
-        },
-        {
-          "kind": "fn",
-          "line": 3159,
-          "name": "play_with_visibility"
-        },
-        {
-          "kind": "fn",
-          "line": 3162,
-          "name": "stop"
         },
         {
           "kind": "fn",
           "line": 3167,
-          "name": "pause"
+          "name": "play_with_visibility"
         },
         {
           "kind": "fn",
-          "line": 3173,
-          "name": "set_listener_position"
-        },
-        {
-          "kind": "fn",
-          "line": 3186,
-          "name": "set_listener_orientation"
-        },
-        {
-          "kind": "fn",
-          "line": 3199,
-          "name": "resume"
-        },
-        {
-          "kind": "fn",
-          "line": 3205,
-          "name": "is_playing"
-        },
-        {
-          "kind": "fn",
-          "line": 3220,
-          "name": "set_event_volume"
-        },
-        {
-          "kind": "fn",
-          "line": 3238,
-          "name": "set_sink_volume"
-        },
-        {
-          "kind": "fn",
-          "line": 3247,
-          "name": "music_loop_count"
-        },
-        {
-          "kind": "fn",
-          "line": 3262,
-          "name": "is_sink_paused"
-        },
-        {
-          "kind": "fn",
-          "line": 3273,
-          "name": "register_rodio_playback_hook"
-        },
-        {
-          "kind": "struct",
-          "line": 3280,
-          "name": "WasmPlaybackHook"
-        },
-        {
-          "kind": "fn",
-          "line": 3284,
-          "name": "play"
-        },
-        {
-          "kind": "fn",
-          "line": 3287,
+          "line": 3170,
           "name": "stop"
         },
         {
           "kind": "fn",
-          "line": 3288,
+          "line": 3175,
           "name": "pause"
         },
         {
           "kind": "fn",
-          "line": 3289,
+          "line": 3181,
+          "name": "set_listener_position"
+        },
+        {
+          "kind": "fn",
+          "line": 3194,
+          "name": "set_listener_orientation"
+        },
+        {
+          "kind": "fn",
+          "line": 3207,
           "name": "resume"
         },
         {
           "kind": "fn",
-          "line": 3290,
+          "line": 3213,
           "name": "is_playing"
         },
         {
           "kind": "fn",
+          "line": 3228,
+          "name": "set_event_volume"
+        },
+        {
+          "kind": "fn",
+          "line": 3246,
+          "name": "set_sink_volume"
+        },
+        {
+          "kind": "fn",
+          "line": 3255,
+          "name": "music_loop_count"
+        },
+        {
+          "kind": "fn",
+          "line": 3270,
+          "name": "is_sink_paused"
+        },
+        {
+          "kind": "fn",
+          "line": 3281,
+          "name": "register_rodio_playback_hook"
+        },
+        {
+          "kind": "struct",
+          "line": 3288,
+          "name": "WasmPlaybackHook"
+        },
+        {
+          "kind": "fn",
+          "line": 3292,
+          "name": "play"
+        },
+        {
+          "kind": "fn",
+          "line": 3295,
+          "name": "stop"
+        },
+        {
+          "kind": "fn",
           "line": 3296,
+          "name": "pause"
+        },
+        {
+          "kind": "fn",
+          "line": 3297,
+          "name": "resume"
+        },
+        {
+          "kind": "fn",
+          "line": 3298,
+          "name": "is_playing"
+        },
+        {
+          "kind": "fn",
+          "line": 3304,
           "name": "register_wasm_playback_hook"
         },
         {
           "kind": "const",
-          "line": 3299,
+          "line": 3307,
           "name": "AHSV_NO_SOUND"
         },
         {
           "kind": "const",
-          "line": 3301,
+          "line": 3309,
           "name": "AHSV_ERROR"
         },
         {
           "kind": "const",
-          "line": 3302,
+          "line": 3310,
           "name": "AHSV_NOT_FOR_LOCAL"
         },
         {
           "kind": "const",
-          "line": 3303,
+          "line": 3311,
           "name": "AHSV_MUTED"
         },
         {
           "kind": "const",
-          "line": 3304,
+          "line": 3312,
           "name": "AHSV_STOP_THE_MUSIC"
         },
         {
           "kind": "const",
-          "line": 3305,
+          "line": 3313,
           "name": "AHSV_STOP_THE_MUSIC_FADE"
         },
         {
           "kind": "const",
-          "line": 3306,
+          "line": 3314,
           "name": "AHSV_FIRST_HANDLE"
         },
         {
           "kind": "static",
-          "line": 3311,
+          "line": 3319,
           "name": "THE_AUDIO"
         },
         {
           "kind": "struct",
-          "line": 3312,
+          "line": 3320,
           "name": "AnimatedSoundBridge"
         },
         {
           "kind": "fn",
-          "line": 3320,
+          "line": 3328,
           "name": "new"
         },
         {
           "kind": "fn",
-          "line": 3326,
+          "line": 3334,
           "name": "normalized_key"
         },
         {
           "kind": "fn",
-          "line": 3335,
+          "line": 3343,
           "name": "record_handle"
         },
         {
           "kind": "fn",
-          "line": 3354,
+          "line": 3362,
           "name": "take_handles"
         },
         {
           "kind": "fn",
-          "line": 3363,
+          "line": 3371,
           "name": "play_internal"
         },
         {
           "kind": "fn",
-          "line": 3400,
+          "line": 3408,
           "name": "play_3d_audio"
         },
         {
           "kind": "fn",
-          "line": 3409,
+          "line": 3417,
           "name": "play_2d_audio"
         },
         {
           "kind": "fn",
-          "line": 3413,
+          "line": 3421,
           "name": "stop_audio"
         },
         {
           "kind": "fn",
-          "line": 3427,
+          "line": 3435,
           "name": "register_animation_sound_library"
         },
         {
           "kind": "fn",
-          "line": 3437,
+          "line": 3445,
           "name": "initialize_global_audio_manager"
         },
         {
           "kind": "fn",
-          "line": 3462,
+          "line": 3470,
           "name": "get_global_audio_manager"
         },
         {
           "kind": "fn",
-          "line": 3470,
+          "line": 3478,
           "name": "load_audio_event_inis"
         },
         {
           "kind": "const",
-          "line": 3471,
+          "line": 3479,
           "name": "AUDIO_INI_FILES"
         },
         {
           "kind": "fn",
-          "line": 3517,
+          "line": 3525,
           "name": "read_audio_settings_from_game_fs"
         },
         {
           "kind": "fn",
-          "line": 3529,
+          "line": 3537,
           "name": "apply_loaded_audio_settings_to_manager"
         },
         {
           "kind": "fn",
-          "line": 3622,
+          "line": 3630,
           "name": "assets_root"
         },
         {
           "kind": "fn",
-          "line": 3632,
+          "line": 3640,
           "name": "archived_audio_settings_apply_retail_mix_values"
         }
       ]
@@ -166075,11 +166080,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 582,
+        "end_line": 579,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/Common/src/common/system_info.rs",
-      "sha256": "f80f7c77a7845c9d7ef74fd56d3dcd607d4e40583f6aaae52fdfe3bdde96d1d4",
+      "sha256": "d63854316bde921aa2482050b363b7b7ac799318d13032ec920c213f8d9f3bce",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -166363,11 +166368,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 292,
+        "end_line": 295,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/thing_template/receiving_candidate.rs",
-      "sha256": "a0de1a6e72cfc79800425f120f2615b91ff370e6f80de73870ced16a1d450704",
+      "sha256": "6e9a1d7664d2643a6fd5231d6cc019f18d0e3d4a5076364469d9a930a2d8a8e2",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -171817,11 +171822,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 2038,
+        "end_line": 2063,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/callbacks/message_box.rs",
-      "sha256": "e9caea850e523378d5f83302be784665163018a2b64c5f40db0cc5266134c0a5",
+      "sha256": "05b4888b52436631d28da9be2bbeaa9b4e0a8a06139b109561e18f52cec6245e",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -173041,11 +173046,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 3080,
+        "end_line": 3089,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/game_window_manager_script.rs",
-      "sha256": "97d05aeed3b9393c452f206d830c64dd42ccafaf966cd567e74b6490a7f5cb03",
+      "sha256": "13c78ea941814e4e883c0a50a84c3caffcce60c4bce641835a84610242663720",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -204941,11 +204946,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 3774,
+        "end_line": 3720,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/open_contain.rs",
-      "sha256": "8cb35f71c25becf13c45e34ae0ec8b75c96a796bc19aa4c5ca8498e0338cce40",
+      "sha256": "4c0dc86d5fe288da589dd35bae184e90a7e0330a6244562ec74181a227c73a13",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -205673,11 +205678,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 545,
+        "end_line": 541,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/draw/w3d_dependency_model_draw.rs",
-      "sha256": "a6217c2d8b25e259665bc448479b4505f58f851e37320a40f36b298e7ef2a34a",
+      "sha256": "67c82b7ecdfca8a1da2751314d74efeccb60dcdd897e0955257f538138303e67",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -205829,11 +205834,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 603,
+        "end_line": 604,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/draw/w3d_model_draw_impl/parse.rs",
-      "sha256": "9394fae7e27b2c029ddb0a1b9dd2c78993f39944c1dde901728b57afb1acdad8",
+      "sha256": "aa74038b922efa04679c6f055a6fe2039c1e9edb19068972703383657d844b0e",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -206105,11 +206110,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 445,
+        "end_line": 440,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/draw/w3d_science_model_draw.rs",
-      "sha256": "acdea1ef64b359aac45f60b5ec46e9dab38b5abbd3d0875d3a6f704bef2db1ea",
+      "sha256": "9d1412a8806120603853bf651b6ce935822777c0981e5db196b746c93daec79e",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -206141,11 +206146,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1091,
+        "end_line": 1087,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/draw/w3d_tank_draw.rs",
-      "sha256": "070ce7eee18b194143e90bc58bc1d1e4ea2a9ae72bc2844875eb55850d7aa2fb",
+      "sha256": "d6f23f5260f2e4805dc61d09c3e697dfaf72904eade4bd154edc14410396ffa8",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -206201,11 +206206,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1159,
+        "end_line": 1155,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/draw/w3d_truck_draw.rs",
-      "sha256": "0b3c0d112dbcecc93cf19a81bea90ad3dde3bee9b08825cc6ec897d4223b388e",
+      "sha256": "52dbe77c1115905f2f7ce052118cd7da38a25ea06ae4bcd2545f961396eb8071",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },

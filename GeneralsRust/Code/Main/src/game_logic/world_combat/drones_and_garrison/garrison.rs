@@ -307,7 +307,7 @@ impl GameLogic {
             self.apply_garrison_contain_on_enter_with_effects(container_id, occupant_id, ui);
             self.stamp_player_who_entered(container_id, occupant_id);
             // C++ OpenContain::addToContain doLoadSound (once per frame).
-            self.play_container_enter_sound(container_id);
+            self.play_container_enter_sound(container_id, ui);
         }
     }
 
@@ -922,7 +922,7 @@ impl GameLogic {
         if transport_mood {
             self.refresh_battle_bus_armed_riders_weapon_set(container_id);
         }
-        self.play_container_removing_template_sounds(container_id, unit_id);
+        self.play_container_removing_template_sounds(container_id, unit_id, presentation_effects);
         // C++ OpenContain::exitObjectViaDoor door countdown + DOOR_1_OPENING.
         // GarrisonContain overrides and never diddles the door.
         if !is_garrison {

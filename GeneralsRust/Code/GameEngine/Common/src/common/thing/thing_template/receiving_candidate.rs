@@ -168,6 +168,9 @@ impl AdmittedReceivingTemplate {
     pub fn threat_value(&self) -> u16 {
         self.template.get_threat_value()
     }
+    pub fn behavior_modules(&self) -> &ModuleInfo {
+        self.template.get_behavior_module_info()
+    }
     pub fn draw_modules(&self) -> &ModuleInfo {
         self.template.get_draw_module_info()
     }
