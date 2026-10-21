@@ -910,6 +910,7 @@ impl GameClient {
                 content.as_deref_mut(),
                 policy,
                 semantic_lifetime,
+                NativeConstructorAmbientPolicy::PresentationStartup,
                 inherited_material_opacity,
                 &mut observe,
             )?;

@@ -3,7 +3,6 @@
 //! Provides pre-configured pools for common game engine types.
 
 use super::{ObjectPool, PoolConfig};
-use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -12,29 +11,26 @@ use std::sync::Arc;
 /// This maintains pre-configured pools for different object types
 /// (Units, Structures, Projectiles, etc.) with optimized settings.
 ///
-/// Single-owner like the pools it holds; the process-wide instances are
-/// thread-locals (see below). THREAD: no cross-thread boundary, no lock.
+/// Single-owner like the pools it holds; callers own each registry explicitly.
 pub struct ObjectPoolRegistry {
-    pools: RefCell<HashMap<String, Arc<dyn std::any::Any>>>,
+    pools: HashMap<String, Box<dyn std::any::Any>>,
 }
 
 impl ObjectPoolRegistry {
     /// Create a new object pool registry.
     pub fn new() -> Self {
         Self {
-            pools: RefCell::new(HashMap::new()),
+            pools: HashMap::new(),
         }
     }
 
     /// Get or create a pool for a specific type.
     pub fn get_or_create<T: 'static + Send>(
-        &self,
+        &mut self,
         name: &str,
         config_fn: impl FnOnce() -> PoolConfig,
     ) -> Result<Arc<ObjectPool<T>>, String> {
-        let mut pools = self.pools.borrow_mut();
-
-        if let Some(pool) = pools.get(name) {
+        if let Some(pool) = self.pools.get(name) {
             return pool
                 .downcast_ref::<Arc<ObjectPool<T>>>()
                 .map(Arc::clone)
@@ -43,10 +39,8 @@ impl ObjectPoolRegistry {
 
         let config = config_fn();
         let pool = ObjectPool::<T>::new(config)?;
-        pools.insert(
-            name.to_string(),
-            Arc::new(pool.clone()) as Arc<dyn std::any::Any>,
-        );
+        self.pools
+            .insert(name.to_string(), Box::new(Arc::clone(&pool)));
 
         Ok(pool)
     }
@@ -54,17 +48,13 @@ impl ObjectPoolRegistry {
     /// Get an existing pool.
     pub fn get<T: 'static>(&self, name: &str) -> Option<Arc<ObjectPool<T>>> {
         self.pools
-            .borrow()
             .get(name)
             .and_then(|p| p.downcast_ref::<Arc<ObjectPool<T>>>().map(Arc::clone))
     }
 
     /// Register a pre-created pool.
-    pub fn register<T: 'static + Send>(&self, name: &str, pool: Arc<ObjectPool<T>>) {
-        self.pools.borrow_mut().insert(
-            name.to_string(),
-            Arc::new(pool) as Arc<dyn std::any::Any>,
-        );
+    pub fn register<T: 'static + Send>(&mut self, name: &str, pool: Arc<ObjectPool<T>>) {
+        self.pools.insert(name.to_string(), Box::new(pool));
     }
 }
 
@@ -79,25 +69,23 @@ impl Default for ObjectPoolRegistry {
 /// Modules are components attached to game objects. This registry
 /// manages pools for all module types.
 pub struct ModulePoolRegistry {
-    pools: RefCell<HashMap<String, Arc<dyn std::any::Any>>>,
+    pools: HashMap<String, Box<dyn std::any::Any>>,
 }
 
 impl ModulePoolRegistry {
     /// Create a new module pool registry.
     pub fn new() -> Self {
         Self {
-            pools: RefCell::new(HashMap::new()),
+            pools: HashMap::new(),
         }
     }
 
     /// Get or create a module pool.
     pub fn get_or_create<T: 'static + Send>(
-        &self,
+        &mut self,
         module_name: &str,
     ) -> Result<Arc<ObjectPool<T>>, String> {
-        let mut pools = self.pools.borrow_mut();
-
-        if let Some(pool) = pools.get(module_name) {
+        if let Some(pool) = self.pools.get(module_name) {
             return pool
                 .downcast_ref::<Arc<ObjectPool<T>>>()
                 .map(Arc::clone)
@@ -107,10 +95,8 @@ impl ModulePoolRegistry {
         // Use module preset configuration
         let config = PoolConfig::for_modules(format!("Module_{}", module_name));
         let pool = ObjectPool::<T>::new(config)?;
-        pools.insert(
-            module_name.to_string(),
-            Arc::new(pool.clone()) as Arc<dyn std::any::Any>,
-        );
+        self.pools
+            .insert(module_name.to_string(), Box::new(Arc::clone(&pool)));
 
         Ok(pool)
     }
@@ -118,7 +104,6 @@ impl ModulePoolRegistry {
     /// Get an existing module pool.
     pub fn get<T: 'static>(&self, module_name: &str) -> Option<Arc<ObjectPool<T>>> {
         self.pools
-            .borrow()
             .get(module_name)
             .and_then(|p| p.downcast_ref::<Arc<ObjectPool<T>>>().map(Arc::clone))
     }
@@ -130,19 +115,6 @@ impl Default for ModulePoolRegistry {
     }
 }
 
-/// Global object pool registry.
-///
-/// Thread-local to match the C++ thread model: plain statics driven by one
-/// thread, not a shared lock.
-thread_local! {
-    pub static OBJECT_POOLS: ObjectPoolRegistry = ObjectPoolRegistry::new();
-}
-
-/// Global module pool registry.
-thread_local! {
-    pub static MODULE_POOLS: ModulePoolRegistry = ModulePoolRegistry::new();
-}
-
 /// Helper function to create game object pool with appropriate settings.
 pub fn create_game_object_pool<T: 'static + Send>(
     name: &str,
@@ -152,9 +124,7 @@ pub fn create_game_object_pool<T: 'static + Send>(
 }
 
 /// Helper function to create projectile pool with appropriate settings.
-pub fn create_projectile_pool<T: 'static + Send>(
-    name: &str,
-) -> Result<Arc<ObjectPool<T>>, String> {
+pub fn create_projectile_pool<T: 'static + Send>(name: &str) -> Result<Arc<ObjectPool<T>>, String> {
     let config = PoolConfig::for_projectiles(name);
     ObjectPool::new(config)
 }
@@ -165,30 +135,6 @@ pub fn create_small_object_pool<T: 'static + Send>(
 ) -> Result<Arc<ObjectPool<T>>, String> {
     let config = PoolConfig::for_small_objects(name);
     ObjectPool::new(config)
-}
-
-/// Macros for convenient pool access.
-
-/// Get or create a game object pool.
-#[macro_export]
-macro_rules! game_object_pool {
-    ($ty:ty, $name:expr) => {{
-        use $crate::memory::specialized::OBJECT_POOLS;
-        OBJECT_POOLS.with(|pools| {
-            pools.get_or_create::<$ty>($name, || {
-                $crate::memory::PoolConfig::for_game_objects($name)
-            })
-        })
-    }};
-}
-
-/// Get or create a module pool.
-#[macro_export]
-macro_rules! module_pool {
-    ($ty:ty, $name:expr) => {{
-        use $crate::memory::specialized::MODULE_POOLS;
-        MODULE_POOLS.with(|pools| pools.get_or_create::<$ty>($name))
-    }};
 }
 
 #[cfg(test)]
@@ -203,7 +149,7 @@ mod tests {
 
     #[test]
     fn test_object_pool_registry() {
-        let registry = ObjectPoolRegistry::new();
+        let mut registry = ObjectPoolRegistry::new();
 
         let pool = registry
             .get_or_create::<TestObject>("TestObj", || PoolConfig::for_game_objects("TestObj"))
@@ -216,15 +162,65 @@ mod tests {
         let handle = pool.alloc(obj).unwrap();
 
         assert!(handle.is_valid());
+        let existing = registry
+            .get_or_create::<TestObject>("TestObj", || panic!("existing config must not rerun"))
+            .unwrap();
+        assert!(Arc::ptr_eq(&pool, &existing));
+        assert!(Arc::ptr_eq(
+            &pool,
+            &registry.get::<TestObject>("TestObj").unwrap()
+        ));
+        assert!(registry.get::<u64>("TestObj").is_none());
+        assert_eq!(
+            registry
+                .get_or_create::<u64>("TestObj", || panic!("type mismatch must not run config"))
+                .err()
+                .expect("type mismatch"),
+            "Type mismatch for pool 'TestObj'"
+        );
+        let mut other = ObjectPoolRegistry::new();
+        assert!(other.get::<TestObject>("TestObj").is_none());
+        let independent = other
+            .get_or_create::<TestObject>("TestObj", || PoolConfig::for_game_objects("Other"))
+            .unwrap();
+        assert!(!Arc::ptr_eq(&pool, &independent));
+        registry.register("TestObj", Arc::clone(&independent));
+        assert!(Arc::ptr_eq(
+            &independent,
+            &registry.get::<TestObject>("TestObj").unwrap()
+        ));
+        drop(registry);
+        assert!(handle.is_valid(), "pool handles outlive the registry");
     }
 
     #[test]
     fn test_module_pool_registry() {
-        let registry = ModulePoolRegistry::new();
+        let mut registry = ModulePoolRegistry::new();
 
         let pool = registry.get_or_create::<u64>("TestModule").unwrap();
         let handle = pool.alloc(42).unwrap();
 
+        assert_eq!(handle.with(|v| *v).unwrap(), 42);
+        let existing = registry.get_or_create::<u64>("TestModule").unwrap();
+        assert!(Arc::ptr_eq(&pool, &existing));
+        assert!(Arc::ptr_eq(
+            &pool,
+            &registry.get::<u64>("TestModule").unwrap()
+        ));
+        assert!(registry.get::<u32>("TestModule").is_none());
+        assert_eq!(
+            registry
+                .get_or_create::<u32>("TestModule")
+                .err()
+                .expect("type mismatch"),
+            "Type mismatch for module pool 'TestModule'"
+        );
+        let mut other = ModulePoolRegistry::new();
+        assert!(other.get::<u64>("TestModule").is_none());
+        let independent = other.get_or_create::<u64>("TestModule").unwrap();
+        assert!(!Arc::ptr_eq(&pool, &independent));
+        assert_eq!(independent.config().name, "Module_TestModule");
+        drop(registry);
         assert_eq!(handle.with(|v| *v).unwrap(), 42);
     }
 

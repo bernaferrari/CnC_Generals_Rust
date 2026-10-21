@@ -682,6 +682,22 @@ impl BasicDrawable {
             std::sync::Arc<game_engine::common::thing::thing_template::AdmittedReceivingTemplate>,
         >,
     ) {
+        let changed = self.initialize_native_constructor_template(name, template);
+        if changed && self.template_name.is_some() {
+            self.start_ambient_sound(false);
+        }
+    }
+
+    /// Inert definition admission for the actual native constructor. Retained
+    /// template updates use set_template_name_with_receiving and keep their
+    /// original restart semantics; a constructor cannot emit before modules.
+    pub(crate) fn initialize_native_constructor_template(
+        &mut self,
+        name: Option<String>,
+        template: Option<
+            std::sync::Arc<game_engine::common::thing::thing_template::AdmittedReceivingTemplate>,
+        >,
+    ) -> bool {
         let same_definition = match (&self.receiving_template, &template) {
             (None, None) => true,
             (Some(old), Some(new)) => std::sync::Arc::ptr_eq(old, new),
@@ -690,7 +706,17 @@ impl BasicDrawable {
         let changed = self.template_name != name || !same_definition;
         self.receiving_template = template;
         self.template_name = name;
-        if changed && self.template_name.is_some() {
+        changed
+    }
+
+    /// Drawable.cpp483-502: after module callbacks, before Object binding.
+    /// These are observations of the driving owners, never ambient lookups.
+    pub(crate) fn finish_native_constructor_ambient(
+        &mut self,
+        loading_map: bool,
+        in_load_game: bool,
+    ) {
+        if !loading_map && !in_load_game {
             self.start_ambient_sound(false);
         }
     }
@@ -1178,8 +1204,7 @@ impl BasicDrawable {
         for dm in &mut self.draw_modules {
             dm.on_drawable_bound_to_object();
         }
-        // C++ Drawable ctor / onLevelStart: startAmbientSound after object exists.
-        self.start_ambient_sound(false);
+        // C++ friend_bindToObject does not start/restart ambient audio.
     }
 
     pub fn changed_team(&mut self) {

@@ -1,3 +1,12 @@
+/// Original constructor suppression observed from this birth's driving
+/// GameLogic and GameState. Deliberately no Default: semantic birth supplies
+/// both observations rather than inferring them from residency or globals.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NativeDrawableBirthContext {
+    pub loading_map: bool,
+    pub in_load_game: bool,
+}
+
 // Drawable IDs, presentation sync residual, and host flash queue.
 // Split from `core/game_client.rs` dump. Included by `game_client/mod.rs`
 // so this stays one logical `game_client` module (public API identical).

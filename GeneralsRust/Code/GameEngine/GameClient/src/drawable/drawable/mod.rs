@@ -41,6 +41,8 @@ mod logic_clock_tests;
 #[cfg(test)]
 mod material_phase_tests;
 #[cfg(test)]
+mod native_constructor_tests;
+#[cfg(test)]
 mod terrain_decal_tests;
 #[cfg(test)]
 mod tests;

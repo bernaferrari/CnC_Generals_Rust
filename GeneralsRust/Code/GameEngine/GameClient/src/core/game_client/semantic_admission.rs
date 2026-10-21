@@ -1,5 +1,12 @@
 // One real CPU Drawable constructor shared by factory admission and presentation.
 // Included in game_client so the existing owners and module kernels stay private.
+/// Observed semantic constructor guards and the existing late presentation
+/// startup are distinct policies until Main supplies every factory birth.
+enum NativeConstructorAmbientPolicy {
+    Observed(NativeDrawableBirthContext),
+    PresentationStartup,
+}
+
 pub struct NativeDrawableOwner<'a> {
     drawables: &'a mut drawable_world::DrawableWorld,
 }
@@ -23,6 +30,7 @@ impl NativeDrawableOwner<'_> {
     pub fn admit_semantic_drawable_with_content(
         &mut self,
         entry: PresentationDrawableSync,
+        birth: NativeDrawableBirthContext,
         sync_ms: u32,
         content: &mut game_engine::common::thing::module_factory::ModuleFactory,
         policy: ReceivingDrawablePolicy,
@@ -39,6 +47,7 @@ impl NativeDrawableOwner<'_> {
             Some(content),
             Some(policy),
             true,
+            NativeConstructorAmbientPolicy::Observed(birth),
             None,
             &mut observe,
         )
@@ -51,6 +60,7 @@ impl NativeDrawableOwner<'_> {
         mut content: Option<&mut game_engine::common::thing::module_factory::ModuleFactory>,
         policy: Option<ReceivingDrawablePolicy>,
         semantic_lifetime: bool,
+        ambient: NativeConstructorAmbientPolicy,
         inherited_material_opacity: Option<f32>,
         observe: &mut impl FnMut(PresentationDrawableMutation<'_>),
     ) -> GameClientResult<PresentationDirectDrawableBindingKey> {
@@ -77,9 +87,12 @@ impl NativeDrawableOwner<'_> {
             drawable.set_second_material_pass_opacity(opacity);
         }
         if !visual_template_name.is_empty() {
-            drawable.set_template_name_with_receiving(
+            drawable.initialize_native_constructor_template(
                 Some(visual_template_name.clone()),
-                e.module_admission.authored_template().cloned(),
+                match &e.module_admission {
+                    PresentationModuleAdmission::Authored(template) => Some(Arc::clone(template)),
+                    PresentationModuleAdmission::Compatibility => None,
+                },
             );
         }
         // Drawable.cpp338-344: registration precedes all module constructors.
@@ -134,6 +147,17 @@ impl NativeDrawableOwner<'_> {
                 }
             } else {
                 GameClient::attach_presentation_specialized_draw_modules(drawable, e);
+            }
+            match ambient {
+                NativeConstructorAmbientPolicy::Observed(birth) => {
+                    drawable
+                        .finish_native_constructor_ambient(birth.loading_map, birth.in_load_game);
+                }
+                NativeConstructorAmbientPolicy::PresentationStartup => {
+                    // Keep the existing late presentation startup behavior.
+                    // This is not a claim about an unobserved factory phase.
+                    drawable.start_ambient_sound(false);
+                }
             }
             // GameLogic::sendObjectCreated binds only after newDrawable returns.
             drawable.set_object_id(Some(e.object_id));
@@ -301,6 +325,10 @@ mod semantic_admission_tests {
             .2
             .admit_semantic_drawable_with_content(
                 entry(77, Arc::clone(&plan)),
+                NativeDrawableBirthContext {
+                    loading_map: false,
+                    in_load_game: false,
+                },
                 0,
                 &mut catalog,
                 policy(),
@@ -312,6 +340,10 @@ mod semantic_admission_tests {
             .2
             .admit_semantic_drawable_with_content(
                 entry(42, Arc::clone(&plan)),
+                NativeDrawableBirthContext {
+                    loading_map: false,
+                    in_load_game: false,
+                },
                 0,
                 &mut catalog,
                 policy(),
@@ -323,6 +355,10 @@ mod semantic_admission_tests {
             .2
             .admit_semantic_drawable_with_content(
                 entry(42, peer_plan),
+                NativeDrawableBirthContext {
+                    loading_map: false,
+                    in_load_game: false,
+                },
                 0,
                 &mut peer_catalog,
                 policy(),
@@ -375,6 +411,10 @@ mod semantic_admission_tests {
             .borrow_native()
             .admit_semantic_drawable_with_content(
                 entry(42, Arc::clone(&plan)),
+                NativeDrawableBirthContext {
+                    loading_map: false,
+                    in_load_game: false,
+                },
                 0,
                 &mut catalog,
                 policy(),
@@ -387,6 +427,10 @@ mod semantic_admission_tests {
                 .borrow_native()
                 .admit_semantic_drawable_with_content(
                     entry(42, plan),
+                    NativeDrawableBirthContext {
+                        loading_map: false,
+                        in_load_game: false
+                    },
                     0,
                     &mut catalog,
                     policy(),
@@ -405,6 +449,10 @@ mod semantic_admission_tests {
             .borrow_native()
             .admit_semantic_drawable_with_content(
                 entry(77, Arc::clone(&plan)),
+                NativeDrawableBirthContext {
+                    loading_map: false,
+                    in_load_game: false,
+                },
                 0,
                 &mut catalog,
                 policy(),
@@ -418,6 +466,10 @@ mod semantic_admission_tests {
                 .borrow_native()
                 .admit_semantic_drawable_with_content(
                     entry(42, plan),
+                    NativeDrawableBirthContext {
+                        loading_map: false,
+                        in_load_game: false
+                    },
                     0,
                     &mut wrong_content,
                     policy(),
