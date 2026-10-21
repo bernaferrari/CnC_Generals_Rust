@@ -257,3 +257,6 @@ mod tests_core;
 mod tests_honesty;
 #[cfg(test)]
 mod tests_residuals;
+
+#[cfg(test)]
+mod particle_target_position_tests;

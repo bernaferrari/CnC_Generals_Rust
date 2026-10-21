@@ -1656,8 +1656,7 @@ impl HostSpecialPowerStrikeRegistry {
             // CPP ParticleUplinkCannonUpdate.cpp:598 admits one mark per
             // update. Skipping frames must not replay omitted scorch effects.
             if field.is_due_scorch(current_frame) {
-                let pulse_idx = particle_scorch_pulse_index(field.scorch_marks_made);
-                let epicenter = field.residual_epicenter(pulse_idx);
+                let epicenter = field.residual_epicenter();
                 let scorch_r = particle_scorch_radius(field.spawn_frame, current_frame);
                 field.scorch_marks_made = field.scorch_marks_made.saturating_add(1);
                 field.ground_hit_fx_applications =

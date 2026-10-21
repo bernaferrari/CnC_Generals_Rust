@@ -2241,18 +2241,6 @@ impl GameLogic {
             }
         };
         self.drain_puc_loop_audio();
-        // Manual beam driving residual: advance current target toward override
-        // before damage / scorch planning (retail update order).
-        {
-            let owner = self.world_services.terrain();
-            let terrain = owner.read().unwrap_or_else(|error| error.into_inner());
-            self.special_power_strikes.advance_manual_beam_drive(
-                frame,
-                &terrain,
-                &self.logic_random,
-            );
-        }
-
         let object_positions: Vec<(ObjectId, Vec3, Team, bool)> = self
             .objects
             .iter()
@@ -2281,64 +2269,16 @@ impl GameLogic {
             }
         };
 
-        let plans = self
-            .special_power_strikes
-            .plan_due_beam_ticks(frame, &object_positions);
-
-        for plan in plans {
-            let mut total_damage = 0.0_f32;
-            let mut applications = 0_u32;
-            let mut destroyed = 0_u32;
-            let mut destroy_ids: Vec<(ObjectId, Team)> = Vec::new();
-            let source_template = self
-                .objects
-                .get(&plan.source_object)
-                .map(|o| o.template_name.clone());
-            let (damage_type, death_type) =
-                crate::game_logic::special_power_strikes::particle_beam_authored_types(
-                    source_template.as_deref(),
-                );
-
-            for hit in &plan.hits {
-                if let Some(target) = self.objects.get_mut(&hit.target_id) {
-                    if !target.is_alive() {
-                        continue;
-                    }
-                    // C++ ParticleUplinkCannonUpdate.cpp:633-634 module DamageType/DeathType.
-                    let killed = {
-                        let owned_victim_id = target.id;
-                        let owned_damage_type = damage_type;
-                        self.apply_residual_damage_owned_with_effects(
-                            owned_victim_id,
-                            hit.damage,
-                            Some(plan.source_object),
-                            owned_damage_type,
-                            death_type,
-                            None,
-                            effects,
-                        )
-                    };
-
-                    total_damage += hit.damage;
-                    applications += 1;
-                    if killed {
-                        destroyed += 1;
-                        destroy_ids.push((hit.target_id, plan.source_team));
-                    }
-                }
-            }
-
-            for (id, killer_team) in destroy_ids {
-                self.mark_object_for_destruction_with_effects(id, Some(killer_team), effects);
-            }
-
-            self.special_power_strikes.record_beam_tick_complete(
-                plan.field_id,
-                total_damage,
-                applications,
-                destroyed,
-                frame,
-            );
+        // Original common positioning point: the receiving cannon axis is now
+        // admitted; ground once before any laser/scorch/reveal/damage callbacks.
+        {
+            let terrain = self
+                .world_services
+                .terrain()
+                .read()
+                .unwrap_or_else(|error| error.into_inner());
+            self.special_power_strikes
+                .advance_beam_targets(frame, &terrain, &self.logic_random);
         }
 
         // WidthGrow grow/hold/decay honesty sample (even when no damage pulse due).
@@ -2403,6 +2343,73 @@ impl GameLogic {
                     shroud_mgr.queue_undo_shroud_reveal(&center, range, player_mask, 0, frame);
                 }
             }
+        }
+
+        // Original range admission occurs after scorch/FX/reveal callbacks.
+        let object_positions: Vec<(ObjectId, Vec3, Team, bool)> = self
+            .objects
+            .iter()
+            .map(|(id, obj)| (*id, obj.get_position(), obj.team, obj.is_alive()))
+            .collect();
+
+        let plans = self
+            .special_power_strikes
+            .plan_due_beam_ticks(frame, &object_positions);
+
+        for plan in plans {
+            let mut total_damage = 0.0_f32;
+            let mut applications = 0_u32;
+            let mut destroyed = 0_u32;
+            let mut destroy_ids: Vec<(ObjectId, Team)> = Vec::new();
+            let source_template = self
+                .objects
+                .get(&plan.source_object)
+                .map(|o| o.template_name.clone());
+            let (damage_type, death_type) =
+                crate::game_logic::special_power_strikes::particle_beam_authored_types(
+                    source_template.as_deref(),
+                );
+
+            for hit in &plan.hits {
+                if let Some(target) = self.objects.get_mut(&hit.target_id) {
+                    if !target.is_alive() {
+                        continue;
+                    }
+                    // C++ ParticleUplinkCannonUpdate.cpp:633-634 module DamageType/DeathType.
+                    let killed = {
+                        let owned_victim_id = target.id;
+                        let owned_damage_type = damage_type;
+                        self.apply_residual_damage_owned_with_effects(
+                            owned_victim_id,
+                            hit.damage,
+                            Some(plan.source_object),
+                            owned_damage_type,
+                            death_type,
+                            None,
+                            effects,
+                        )
+                    };
+
+                    total_damage += hit.damage;
+                    applications += 1;
+                    if killed {
+                        destroyed += 1;
+                        destroy_ids.push((hit.target_id, plan.source_team));
+                    }
+                }
+            }
+
+            for (id, killer_team) in destroy_ids {
+                self.mark_object_for_destruction_with_effects(id, Some(killer_team), effects);
+            }
+
+            self.special_power_strikes.record_beam_tick_complete(
+                plan.field_id,
+                total_damage,
+                applications,
+                destroyed,
+                frame,
+            );
         }
 
         self.special_power_strikes.prune_expired_beam(frame);

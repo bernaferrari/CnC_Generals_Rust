@@ -25,8 +25,8 @@ pub const PARTICLE_BEAM_TICK_INTERVAL_FRAMES: u32 = 3;
 pub const PARTICLE_BEAM_RADIUS: f32 = 44.2;
 /// Retail `ParticleUplinkCannonUpdate` DamageRadiusScalar = 3.4.
 pub const PARTICLE_DAMAGE_RADIUS_SCALAR: f32 = 3.4;
-/// Retail SwathOfDeathDistance — beam epicenter walks this total distance over
-/// TotalFiringTime (S-curve residual).
+/// Retail SwathOfDeathDistance — total swath distance over the orbital lifetime
+/// (firing plus WidthGrow decay), as used by the original positioning factor.
 pub const PARTICLE_SWATH_OF_DEATH_DISTANCE: f32 = 200.0;
 /// Retail SwathOfDeathAmplitude — lateral sine amplitude of swath residual.
 pub const PARTICLE_SWATH_OF_DEATH_AMPLITUDE: f32 = 50.0;
@@ -556,76 +556,63 @@ pub fn particle_next_pulse_frame(spawn_frame: u32, pulses_made: u32) -> u32 {
     next.max(spawn_frame.saturating_add(1))
 }
 
-/// Residual SwathOfDeath epicenter offset for a damage pulse.
-///
-/// C++ ParticleUplinkCannonUpdate (non-manual mode):
-/// `factor = (now - orbitalBirth) / orbitalLifetime`,
-/// `radians = factor * TWO_PI - PI`,
-/// `cxDistance = factor * SwathOfDeathDistance - SwathOfDeathDistance/2`,
-/// `cxHeight = sin(radians) * SwathOfDeathAmplitude`,
-/// then rotate onto building→target axis.
-///
-/// Host residual uses pulse index as time factor. Local cartesian lives in the
-/// host x/z plane (`C++ x → host x`, `C++ y → host z`). Callers that know the
-/// cannon position must rotate via [`particle_swath_offset_along`] /
-/// [`particle_swath_epicenter_along`] (leftover already matches C++).
-pub fn particle_swath_offset(pulses_made_before_this_pulse: u32) -> Vec3 {
-    let factor = if PARTICLE_BEAM_TOTAL_PULSES == 0 {
-        0.0
-    } else {
-        (pulses_made_before_this_pulse as f32) / (PARTICLE_BEAM_TOTAL_PULSES as f32)
-    };
-    let factor = factor.clamp(0.0, 1.0);
+/// ParticleUplinkCannonUpdate.cpp:483-526, before the common terrain snap.
+/// Preserve the full initial 3D distance, source normalization, clamped acos
+/// and Scale→Rotate_Z arithmetic; the source height maps to host Y.
+pub fn particle_swath_position(
+    building: Vec3,
+    initial_target: Vec3,
+    now: u32,
+    orbital_birth: u32,
+    orbital_death: u32,
+    swath_distance: f32,
+    swath_amplitude: f32,
+) -> Vec3 {
+    let factor =
+        now.wrapping_sub(orbital_birth) as f32 / orbital_death.wrapping_sub(orbital_birth) as f32;
     let radians = (factor * std::f32::consts::TAU) - std::f32::consts::PI;
-    let cx_distance =
-        (factor * PARTICLE_SWATH_OF_DEATH_DISTANCE) - (PARTICLE_SWATH_OF_DEATH_DISTANCE * 0.5);
-    let cx_height = radians.sin() * PARTICLE_SWATH_OF_DEATH_AMPLITUDE;
-    // Host gameplay plane: C++ x → host x, C++ y → host z.
-    Vec3::new(cx_distance, 0.0, cx_height)
-}
-
-/// Rotate local SwathOfDeath offset onto the building→target ground axis.
-///
-/// Leftover `ParticleUplinkCannonUpdate` already matches C++: S-curve is
-/// authored with the click on +X from the cannon, then rotated onto
-/// `building → initialTarget` (`x' = x nx − y ny`, `y' = x ny + y nx`).
-/// Degenerate axis (cannon on the click) keeps world +X.
-pub fn particle_swath_offset_along(
-    pulses_made_before_this_pulse: u32,
-    building: Vec3,
-    target: Vec3,
-) -> Vec3 {
-    let local = particle_swath_offset(pulses_made_before_this_pulse);
-    let dx = target.x - building.x;
-    let dz = target.z - building.z;
-    let len_sq = dx * dx + dz * dz;
-    if len_sq <= 1.0e-4 {
-        return local;
+    let cx_distance = factor * swath_distance - swath_distance * 0.5;
+    // C++ calls double sin, then assigns its result to Real before scaling.
+    let height = (radians as f64).sin() as f32;
+    let cx_height = height * swath_amplitude;
+    let dx = initial_target.x - building.x;
+    let dz = initial_target.z - building.z;
+    let dy = initial_target.y - building.y;
+    let target_distance = ((dx * dx + dz * dz) + dy * dy).sqrt();
+    let local_x = cx_distance + target_distance;
+    let local_y = cx_height;
+    let target_distance = ((local_x * local_x + local_y * local_y) + 0.0).sqrt();
+    let mut axis = glam::Vec2::new(dx, dz);
+    let axis_length_squared = axis.x * axis.x + axis.y * axis.y;
+    if axis_length_squared != 0.0 {
+        let inverse = 1.0 / axis_length_squared.sqrt();
+        axis.x *= inverse;
+        axis.y *= inverse;
     }
-    let inv = 1.0 / len_sq.sqrt();
-    let nx = dx * inv;
-    let nz = dz * inv;
+    let mut cartesian = glam::Vec2::new(local_x, local_y);
+    let cartesian_length_squared = cartesian.x * cartesian.x + cartesian.y * cartesian.y;
+    if cartesian_length_squared != 0.0 {
+        let inverse = 1.0 / cartesian_length_squared.sqrt();
+        cartesian.x *= inverse;
+        cartesian.y *= inverse;
+    }
+    let dot = (axis.x * cartesian.x + axis.y * cartesian.y).clamp(-0.99999, 0.99999);
+    let mut angle = dot.acos();
+    if axis.y >= 0.0 {
+        angle = -angle;
+    }
+    let c = (-angle).cos();
+    let sine = (-angle).sin();
+    // Matrix3D::Scale multiplies all four basis entries before Rotate_Z.
+    let row00 = 1.0 * target_distance;
+    let row01 = 0.0 * target_distance;
+    let row10 = 0.0 * target_distance;
+    let row11 = 1.0 * target_distance;
     Vec3::new(
-        local.x * nx - local.z * nz,
+        building.x + (c * row00 + sine * row01),
         0.0,
-        local.x * nz + local.z * nx,
+        building.z + (c * row10 + sine * row11),
     )
-}
-
-/// Absolute residual damage epicenter for a pulse at field spawn position.
-/// World-axis offset; prefer [`particle_swath_epicenter_along`] when the cannon
-/// position is known.
-pub fn particle_swath_epicenter(base: Vec3, pulses_made_before_this_pulse: u32) -> Vec3 {
-    base + particle_swath_offset(pulses_made_before_this_pulse)
-}
-
-/// Absolute SwathOfDeath epicenter rotated onto cannon→click (C++ / leftover).
-pub fn particle_swath_epicenter_along(
-    building: Vec3,
-    target: Vec3,
-    pulses_made_before_this_pulse: u32,
-) -> Vec3 {
-    target + particle_swath_offset_along(pulses_made_before_this_pulse, building, target)
 }
 
 /// Absolute frame when WidthGrow decay starts (`LaserUpdate::setDecayFrames`).

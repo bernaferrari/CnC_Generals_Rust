@@ -1,3 +1,4 @@
+use super::tests_core::fixture_beam_scorches;
 use super::types::*;
 use super::*;
 use crate::command_system::SpecialPowerType;
@@ -878,7 +879,7 @@ fn particle_uplink_scorch_pack_residual_honesty() {
         assert_eq!(f.scorch_scalar_pack_armed, 1);
     }
     let spawn = reg.beam_fields()[0].spawn_frame;
-    let events = reg.apply_due_beam_scorch_reveals(spawn);
+    let events = fixture_beam_scorches(&mut reg, spawn);
     assert_eq!(events.len(), 1);
     // Scorch radius = (50 / 3.4) * 2.4 * width_scalar(0) ≈ 0 at spawn grow.
     // Peak scorch at full width: (50/3.4)*2.4 ≈ 35.29.

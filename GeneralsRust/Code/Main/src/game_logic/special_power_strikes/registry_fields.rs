@@ -1056,7 +1056,7 @@ impl HostSpecialPowerStrikeRegistry {
             current_target_position: position,
             last_driving_click_frame: 0,
             second_last_driving_click_frame: 0,
-            last_drive_update_frame: spawn_frame,
+            last_drive_update_frame: spawn_frame.wrapping_sub(1),
             manual_drive_distance_total: 0.0,
             manual_drive_applications: 0,
             fast_drive_applications: 0,
@@ -1189,9 +1189,9 @@ impl HostSpecialPowerStrikeRegistry {
     /// Apply `setSpecialPowerOverridableDestination` residual to a live beam.
     ///
     /// C++: sets `m_overrideTargetDestination`, arms `m_manualTargetMode`, and
-    /// records double-click frames for ManualFastDrivingSpeed. Host residual
-    /// seeds `current_target_position` from the last swath/click epicenter when
-    /// first entering manual mode.
+    /// records double-click frames for ManualFastDrivingSpeed. Preserve the
+    /// latest positioned target when changing mode; damage-pulse bookkeeping
+    /// must never rewind the beam.
     pub fn set_beam_override_destination(
         &mut self,
         field_id: u32,
@@ -1205,15 +1205,8 @@ impl HostSpecialPowerStrikeRegistry {
             field.second_last_driving_click_frame = field.last_driving_click_frame;
             field.last_driving_click_frame = current_frame;
             field.override_destination = destination;
-            if !field.manual_target_mode {
-                // Entering manual: seed from last residual epicenter (swath or click).
-                field.current_target_position = if field.swath_applications > 0 {
-                    field.last_swath_position
-                } else {
-                    field.position
-                };
-                field.last_drive_update_frame = current_frame;
-            }
+            // C++ only changes the destination/mode. The already positioned
+            // current target belongs to this beam, including between pulses.
             field.manual_target_mode = true;
             true
         } else {
@@ -1311,61 +1304,67 @@ impl HostSpecialPowerStrikeRegistry {
         applied
     }
 
-    /// Advance manual beam positions for all fields in manual-target mode.
-    ///
-    /// C++ update each frame: move `m_currentTargetPosition` toward override at
-    /// ManualDrivingSpeed (or Fast) / LOGICFRAMES_PER_SECOND, clamping so the
-    /// step never overshoots. Call once per logic frame before damage planning.
-    pub fn advance_manual_beam_drive(
+    /// C++ ParticleUplinkCannonUpdate.cpp:483-584: position one live beam
+    /// frame, then ground the shared current target before laser/scorch/damage.
+    /// No consumer repositions the target or rereads terrain after callbacks.
+    pub fn advance_beam_targets(
         &mut self,
         current_frame: u32,
         terrain: &gamelogic::terrain::TerrainLogic,
         random: &game_engine::common::random_value::SessionRandom,
     ) {
         for field in &mut self.beam_fields {
-            if !(field.manual_target_mode || field.scripted_waypoint_mode)
+            if current_frame < field.spawn_frame
                 || field.is_expired(current_frame)
+                || field.last_drive_update_frame == current_frame
             {
                 continue;
             }
-            let last = field.last_drive_update_frame;
-            if current_frame <= last {
-                continue;
-            }
-            let frames = current_frame - last;
-            // C++ scriptedWaypointMode always uses ManualFastDrivingSpeed.
-            let fast = field.scripted_waypoint_mode
-                || particle_is_fast_drive(
-                    field.last_driving_click_frame,
-                    field.second_last_driving_click_frame,
+            if field.manual_target_mode || field.scripted_waypoint_mode {
+                let fast = field.scripted_waypoint_mode
+                    || particle_is_fast_drive(
+                        field.last_driving_click_frame,
+                        field.second_last_driving_click_frame,
+                    );
+                let mut step = particle_manual_speed_per_frame(fast);
+                let dx = field.override_destination.x - field.current_target_position.x;
+                let dz = field.override_destination.z - field.current_target_position.z;
+                let dy = field.override_destination.y - field.current_target_position.y;
+                // Original Coord3D x/y/height accumulation in host Y-up.
+                let distance = ((dx * dx + dz * dz) + dy * dy).sqrt();
+                if distance < step {
+                    step = distance;
+                    if field.scripted_waypoint_mode {
+                        if let Some((next_id, next_pos)) =
+                            particle_waypoint_next(terrain, random, field.next_dest_waypoint_id)
+                        {
+                            field.next_dest_waypoint_id = next_id;
+                            field.override_destination = next_pos;
+                        }
+                    }
+                }
+                // Keep the old vector for this step after admitting the next link.
+                if distance != 0.0 {
+                    field.current_target_position.x += (dx / distance) * step;
+                    field.current_target_position.z += (dz / distance) * step;
+                    field.manual_drive_distance_total += step;
+                    field.manual_drive_applications =
+                        field.manual_drive_applications.saturating_add(1);
+                    if fast {
+                        field.fast_drive_applications =
+                            field.fast_drive_applications.saturating_add(1);
+                    }
+                }
+            } else {
+                field.current_target_position = particle_swath_position(
+                    field.source_position,
+                    field.position,
+                    current_frame,
+                    field.spawn_frame,
+                    field.expires_frame,
+                    PARTICLE_SWATH_OF_DEATH_DISTANCE,
+                    PARTICLE_SWATH_OF_DEATH_AMPLITUDE,
                 );
-            let max_step = particle_manual_speed_per_frame(fast) * frames as f32;
-            let dx = field.override_destination.x - field.current_target_position.x;
-            let dz = field.override_destination.z - field.current_target_position.z;
-            let dy = field.override_destination.y - field.current_target_position.y;
-            // C++ Coord3D is x/y/height: keep that accumulation order in Y-up.
-            let dist = ((dx * dx + dz * dz) + dy * dy).sqrt();
-            // C++: when dist < speed, clamp then pick leftover next link.
-            // Movement this frame still uses the old dest vector.
-            if field.scripted_waypoint_mode && dist < max_step {
-                if let Some((next_id, next_pos)) =
-                    particle_waypoint_next(terrain, random, field.next_dest_waypoint_id)
-                {
-                    field.next_dest_waypoint_id = next_id;
-                    field.override_destination = next_pos;
-                }
-            }
-            if dist != 0.0 {
-                let step = max_step.min(dist);
-                // Source normalizes each component, then scales. Only source
-                // x/y (host x/z) move; source z is snapped to terrain below.
-                field.current_target_position.x += (dx / dist) * step;
-                field.current_target_position.z += (dz / dist) * step;
-                field.manual_drive_distance_total += step;
-                field.manual_drive_applications = field.manual_drive_applications.saturating_add(1);
-                if fast {
-                    field.fast_drive_applications = field.fast_drive_applications.saturating_add(1);
-                }
             }
             field.current_target_position.y = terrain.get_ground_height(
                 field.current_target_position.x,
@@ -1461,7 +1460,7 @@ impl HostSpecialPowerStrikeRegistry {
                 continue;
             }
             // SwathOfDeath or manual-drive residual epicenter.
-            let epicenter = field.residual_epicenter(field.pulses_made);
+            let epicenter = field.residual_epicenter();
             // WidthGrow residual: damage radius ramps with laser width scalar.
             let width_scalar = particle_width_scalar(field.spawn_frame, current_frame);
             let damage_radius = particle_beam_damage_radius(field.spawn_frame, current_frame);
@@ -1508,13 +1507,13 @@ impl HostSpecialPowerStrikeRegistry {
         let mut spawn_remnant: Option<(ObjectId, crate::game_logic::Team, Vec3, u32, u32)> = None;
         if let Some(field) = self.beam_fields.iter_mut().find(|f| f.id == field_id) {
             // Epicenter residual honesty for the pulse that just applied.
-            let epicenter = field.residual_epicenter(field.pulses_made);
+            let epicenter = field.residual_epicenter();
             if field.manual_target_mode || field.scripted_waypoint_mode {
                 // Manual mode: still record last epicenter; swath offset honesty
                 // remains 0 (no S-curve while player is driving).
                 field.last_swath_position = epicenter;
             } else {
-                let offset = particle_swath_offset(field.pulses_made);
+                let offset = epicenter - field.position;
                 let offset_len = (offset.x * offset.x + offset.z * offset.z).sqrt();
                 field.last_swath_position = epicenter;
                 if offset_len > field.max_swath_offset {

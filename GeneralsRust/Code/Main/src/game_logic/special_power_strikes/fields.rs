@@ -622,7 +622,7 @@ pub struct HostParticleBeamField {
     /// Player-requested beam destination residual.
     #[serde(default)]
     pub override_destination: Vec3,
-    /// Live beam target residual (moves toward override at ManualDrivingSpeed).
+    /// Canonical live beam target for swath, manual and scripted modes.
     #[serde(default)]
     pub current_target_position: Vec3,
     /// Last override click frame (double-click fast-drive residual).
@@ -631,10 +631,11 @@ pub struct HostParticleBeamField {
     /// Second-last override click frame.
     #[serde(default)]
     pub second_last_driving_click_frame: u32,
-    /// Last frame manual drive advance ran (multi-frame step residual).
+    /// Last frame the common steering/grounding phase ran. Serialized so restore
+    /// cannot replay a completed frame or take a second scripted waypoint link.
     #[serde(default)]
     pub last_drive_update_frame: u32,
-    /// Honesty: total horizontal distance driven under manual residual.
+    /// Honesty: sum of configured path steps before the terrain snap.
     #[serde(default)]
     pub manual_drive_distance_total: f32,
     /// Honesty: number of advance steps that moved the beam.
@@ -1015,19 +1016,10 @@ impl HostParticleBeamField {
         }
     }
 
-    /// Residual damage / scorch epicenter for the current beam mode.
-    ///
-    /// Manual mode uses live `current_target_position`. Swath mode walks the
-    /// S-curve; when the cannon position is bound, leftover/C++ rotates that
-    /// offset onto building→target instead of world +X.
-    pub fn residual_epicenter(&self, pulse_index: u32) -> Vec3 {
-        if self.manual_target_mode || self.scripted_waypoint_mode {
-            self.current_target_position
-        } else if self.source_axis_set {
-            particle_swath_epicenter_along(self.source_position, self.position, pulse_index)
-        } else {
-            particle_swath_epicenter(self.position, pulse_index)
-        }
+    /// The positioned/grounded target owned by this beam for the current frame.
+    /// C++ positions once before laser, scorch, reveal, damage and remnant work.
+    pub fn residual_epicenter(&self) -> Vec3 {
+        self.current_target_position
     }
 
     /// Stamp the live cannon position so SwathOfDeath rotates onto cannon→click.

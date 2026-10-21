@@ -1,3 +1,7 @@
+use super::tests_core::{
+    fixture_beam_complete, fixture_beam_scorches, fixture_beam_ticks, hold_particle_fixture,
+    position_particle_fixture,
+};
 use super::types::*;
 use super::*;
 use crate::command_system::SpecialPowerType;
@@ -36,8 +40,9 @@ fn particle_uplink_damage_pulse_remnant_residual_honesty() {
     assert!(reg.remnant_fields().is_empty());
 
     // Completing a beam pulse spawns one remnant at the pulse swath epicenter.
-    let first_epicenter = particle_swath_epicenter(click, 0);
-    reg.record_beam_tick_complete(field_id, 0.0, 0, 0, spawn);
+    position_particle_fixture(&mut reg, spawn);
+    let first_epicenter = reg.beam_fields()[0].current_target_position;
+    fixture_beam_complete(&mut reg, field_id, 0.0, 0, 0, spawn);
     assert_eq!(reg.remnant_fields().len(), 1);
     assert_eq!(reg.remnant_fields_spawned_total(), 1);
     assert!(reg.honesty_beam_remnant_ok());
@@ -79,7 +84,7 @@ fn particle_uplink_damage_pulse_remnant_residual_honesty() {
 
     // Second beam pulse → second remnant (trail residual accumulates).
     let next = reg.beam_fields()[0].next_tick_frame;
-    reg.record_beam_tick_complete(field_id, 0.0, 0, 0, next);
+    fixture_beam_complete(&mut reg, field_id, 0.0, 0, 0, next);
     assert_eq!(reg.remnant_fields_spawned_total(), 2);
     assert_eq!(reg.remnant_fields().len(), 2);
 
@@ -112,9 +117,12 @@ fn particle_uplink_width_grow_damage_radius_residual_honesty() {
     reg.record_impact_complete(id, 0.0, 0, 0);
     let field_id = reg.beam_fields()[0].id;
     let spawn = reg.beam_fields()[0].spawn_frame;
+    // Radius/relationship test: use the actual manual hold admission rather
+    // than freezing the now-independent damage pulse counter to stop a swath.
+    hold_particle_fixture(&mut reg, spawn);
 
     // First-pulse swath epicenter at x=-100. Park unit 30 units from it.
-    let epic0 = particle_swath_epicenter(click, 0);
+    let epic0 = reg.beam_fields()[0].current_target_position;
     let near = epic0 + Vec3::new(30.0, 0.0, 0.0);
     let objects = vec![
         (ObjectId(1), Vec3::new(500.0, 0.0, 0.0), Team::China, true),
@@ -122,24 +130,24 @@ fn particle_uplink_width_grow_damage_radius_residual_honesty() {
     ];
 
     // Spawn frame: first grow step → tiny radius, still miss unit at dist 30.
-    let early = reg.plan_due_beam_ticks(spawn, &objects);
+    let early = fixture_beam_ticks(&mut reg, spawn, &objects);
     assert_eq!(early.len(), 1);
     assert!(early[0].hits.is_empty());
     let spawn_step = 1.0 / (PARTICLE_WIDTH_GROW_FRAMES as f32);
     let spawn_radius = PARTICLE_BEAM_RADIUS * spawn_step;
     assert!((early[0].width_scalar - spawn_step).abs() < 0.01);
     assert!((early[0].damage_radius - spawn_radius).abs() < 0.05);
-    reg.record_beam_tick_complete(field_id, 0.0, 0, 0, spawn);
+    fixture_beam_complete(&mut reg, field_id, 0.0, 0, 0, spawn);
 
     // Advance to half grow (scalar 0.5 → radius 22.1) — still miss unit at 30.
     let half = spawn + PARTICLE_WIDTH_GROW_FRAMES / 2;
     // Force next tick due at half-grow frame.
     if let Some(f) = reg.beam_fields.iter_mut().find(|f| f.id == field_id) {
         f.next_tick_frame = half;
-        // Keep pulses_made so swath stays at first epicenter for radius test.
+        // Pulse accounting is independent of the explicitly held target.
         f.pulses_made = 0;
     }
-    let mid = reg.plan_due_beam_ticks(half, &objects);
+    let mid = fixture_beam_ticks(&mut reg, half, &objects);
     assert_eq!(mid.len(), 1);
     assert!((mid[0].width_scalar - 0.5).abs() < 0.01);
     assert!((mid[0].damage_radius - 22.1).abs() < 0.1);
@@ -147,22 +155,29 @@ fn particle_uplink_width_grow_damage_radius_residual_honesty() {
         mid[0].hits.is_empty(),
         "half-grow radius 22.1 must miss unit at dist 30"
     );
-    reg.record_beam_tick_complete(field_id, 0.0, 0, 0, half);
+    fixture_beam_complete(&mut reg, field_id, 0.0, 0, 0, half);
     assert!((reg.beam_fields()[0].peak_width_scalar - 0.5).abs() < 0.01);
 
     // Full grow: radius 44.2 → hit unit at dist 30.
     let full = spawn + PARTICLE_WIDTH_GROW_FRAMES;
     if let Some(f) = reg.beam_fields.iter_mut().find(|f| f.id == field_id) {
         f.next_tick_frame = full;
-        f.pulses_made = 0; // keep first swath epicenter
+        f.pulses_made = 0; // independent damage-pulse accounting
     }
-    let late = reg.plan_due_beam_ticks(full, &objects);
+    let late = fixture_beam_ticks(&mut reg, full, &objects);
     assert_eq!(late.len(), 1);
     assert!((late[0].width_scalar - 1.0).abs() < 0.01);
     assert!((late[0].damage_radius - PARTICLE_BEAM_RADIUS).abs() < 0.1);
     assert_eq!(late[0].hits.len(), 1);
     assert_eq!(late[0].hits[0].target_id, ObjectId(2));
-    reg.record_beam_tick_complete(field_id, PARTICLE_BEAM_DAMAGE_PER_PULSE, 1, 0, full);
+    fixture_beam_complete(
+        &mut reg,
+        field_id,
+        PARTICLE_BEAM_DAMAGE_PER_PULSE,
+        1,
+        0,
+        full,
+    );
     assert!(reg.honesty_beam_width_grow_ok());
     assert!((reg.beam_fields()[0].peak_width_scalar - 1.0).abs() < 0.01);
     assert!((reg.beam_fields()[0].last_damage_radius - PARTICLE_BEAM_RADIUS).abs() < 0.1);
@@ -190,6 +205,10 @@ fn particle_uplink_width_grow_decay_shrink_residual_honesty() {
     reg.record_impact_complete(id, 0.0, 0, 0);
     let field_id = reg.beam_fields()[0].id;
     let spawn = reg.beam_fields()[0].spawn_frame;
+    // Radius/relationship test: use the actual manual hold admission rather
+    // than freezing the now-independent damage pulse counter to stop a swath.
+    hold_particle_fixture(&mut reg, spawn);
+
     assert_eq!(
         reg.beam_fields()[0].expires_frame,
         particle_death_frame(spawn),
@@ -197,7 +216,7 @@ fn particle_uplink_width_grow_decay_shrink_residual_honesty() {
     );
 
     // First-pulse swath epicenter; park unit 30 from it for radius tests.
-    let epic0 = particle_swath_epicenter(click, 0);
+    let epic0 = reg.beam_fields()[0].current_target_position;
     let near = epic0 + Vec3::new(30.0, 0.0, 0.0);
     let objects = vec![
         (ObjectId(1), Vec3::new(500.0, 0.0, 0.0), Team::China, true),
@@ -211,20 +230,27 @@ fn particle_uplink_width_grow_decay_shrink_residual_honesty() {
         f.pulses_made = 0;
         f.peak_width_scalar = 1.0; // prior grow residual reached full
     }
-    let hold = reg.plan_due_beam_ticks(decay_start, &objects);
+    let hold = fixture_beam_ticks(&mut reg, decay_start, &objects);
     assert_eq!(hold.len(), 1);
     assert!((hold[0].width_scalar - 1.0).abs() < 0.01);
     assert!((hold[0].damage_radius - PARTICLE_BEAM_RADIUS).abs() < 0.1);
     assert_eq!(hold[0].hits.len(), 1);
-    reg.record_beam_tick_complete(field_id, PARTICLE_BEAM_DAMAGE_PER_PULSE, 1, 0, decay_start);
+    fixture_beam_complete(
+        &mut reg,
+        field_id,
+        PARTICLE_BEAM_DAMAGE_PER_PULSE,
+        1,
+        0,
+        decay_start,
+    );
 
     // Half-decay: scalar 0.5 → radius 22.1 → miss unit at dist 30.
     let half_decay = decay_start + PARTICLE_WIDTH_GROW_FRAMES / 2;
     if let Some(f) = reg.beam_fields.iter_mut().find(|f| f.id == field_id) {
         f.next_tick_frame = half_decay;
-        f.pulses_made = 0; // keep first swath epicenter for radius test
+        f.pulses_made = 0; // independent damage-pulse accounting
     }
-    let mid = reg.plan_due_beam_ticks(half_decay, &objects);
+    let mid = fixture_beam_ticks(&mut reg, half_decay, &objects);
     assert_eq!(mid.len(), 1);
     assert!((mid[0].width_scalar - 0.5).abs() < 0.01);
     assert!((mid[0].damage_radius - 22.1).abs() < 0.1);
@@ -232,7 +258,7 @@ fn particle_uplink_width_grow_decay_shrink_residual_honesty() {
         mid[0].hits.is_empty(),
         "half-decay radius 22.1 must miss unit at dist 30"
     );
-    reg.record_beam_tick_complete(field_id, 0.0, 0, 0, half_decay);
+    fixture_beam_complete(&mut reg, field_id, 0.0, 0, 0, half_decay);
     assert!(reg.beam_fields()[0].decay_samples > 0);
     assert!(reg.beam_fields()[0].trough_width_scalar < 0.51);
     assert!(reg.honesty_beam_width_decay_ok());
@@ -278,12 +304,12 @@ fn particle_uplink_scorch_reveal_residual_honesty() {
     assert_eq!(reg.beam_fields()[0].next_scorch_frame, spawn);
 
     // First scorch/reveal on spawn frame (retail m_nextScorchMarkFrame = now).
-    let events = reg.apply_due_beam_scorch_reveals(spawn);
+    let events = fixture_beam_scorches(&mut reg, spawn);
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].scorch_mark_index, 1);
     assert!((events[0].reveal_range - PARTICLE_REVEAL_RANGE).abs() < 0.01);
-    // First scorch uses pulse index 0 → first swath epicenter.
-    let expected_pos = particle_swath_epicenter(click, 0);
+    // Scorch consumes the already admitted canonical frame target.
+    let expected_pos = reg.beam_fields()[0].current_target_position;
     assert!((events[0].position.x - expected_pos.x).abs() < 0.1);
     assert!((events[0].position.z - expected_pos.z).abs() < 0.1);
     {
@@ -298,23 +324,17 @@ fn particle_uplink_scorch_reveal_residual_honesty() {
 
     // Not due again until scheduled scorch frame.
     let next = reg.beam_fields()[0].next_scorch_frame;
-    assert!(
-        reg.apply_due_beam_scorch_reveals(next.saturating_sub(1))
-            .is_empty()
-    );
+    assert!(fixture_beam_scorches(&mut reg, next.saturating_sub(1)).is_empty());
 
     // CPP ParticleUplinkCannonUpdate.cpp:598: one due mark per update,
     // even when several scheduled frames have passed.
     let late = spawn + PARTICLE_BEAM_DURATION_FRAMES;
-    let caught = reg.apply_due_beam_scorch_reveals(late);
+    let caught = fixture_beam_scorches(&mut reg, late);
     assert_eq!(caught.len(), 1);
     assert_eq!(reg.beam_fields()[0].scorch_marks_made, 2);
     assert_eq!(reg.beam_fields()[0].reveal_applications, 2);
     assert_eq!(reg.beam_fields()[0].ground_hit_fx_applications, 2);
-    assert!(
-        reg.apply_due_beam_scorch_reveals(particle_death_frame(spawn))
-            .is_empty()
-    );
+    assert!(fixture_beam_scorches(&mut reg, particle_death_frame(spawn)).is_empty());
     assert_eq!(reg.beam_fields()[0].scorch_marks_made, 2);
 
     // A fresh beam receiving ordinary frame updates reaches all twenty marks
@@ -332,7 +352,7 @@ fn particle_uplink_scorch_reveal_residual_honesty() {
     let death = particle_death_frame(birth);
     let mut total = 0;
     for frame in birth..death {
-        let due = regular.apply_due_beam_scorch_reveals(frame);
+        let due = fixture_beam_scorches(&mut regular, frame);
         assert!(due.len() <= 1);
         total += due.len();
     }
@@ -340,12 +360,8 @@ fn particle_uplink_scorch_reveal_residual_honesty() {
     assert_eq!(regular.beam_fields()[0].scorch_marks_made, 20);
     assert_eq!(regular.beam_fields()[0].reveal_applications, 20);
     assert_eq!(regular.beam_fields()[0].ground_hit_fx_applications, 20);
-    assert!(regular.apply_due_beam_scorch_reveals(death).is_empty());
-    assert!(
-        regular
-            .apply_due_beam_scorch_reveals(death + 1000)
-            .is_empty()
-    );
+    assert!(fixture_beam_scorches(&mut regular, death).is_empty());
+    assert!(fixture_beam_scorches(&mut regular, death + 1000).is_empty());
 }
 
 #[test]
@@ -596,15 +612,16 @@ fn particle_uplink_manual_drive_and_outer_nodes_residual_honesty() {
     assert!(reg.honesty_beam_outer_nodes_ok());
 
     // First pulse uses swath (not manual).
-    let swath0 = particle_swath_epicenter(click, 0);
+    position_particle_fixture(&mut reg, spawn);
+    let swath0 = reg.beam_fields()[0].current_target_position;
     let objects = vec![
         (ObjectId(1), Vec3::new(500.0, 0.0, 0.0), Team::USA, true),
         (ObjectId(2), swath0, Team::GLA, true),
     ];
-    let first = reg.plan_due_beam_ticks(spawn, &objects);
+    let first = fixture_beam_ticks(&mut reg, spawn, &objects);
     assert_eq!(first.len(), 1);
     assert!((first[0].position.x - swath0.x).abs() < 0.1);
-    reg.record_beam_tick_complete(field_id, 0.0, 0, 0, spawn);
+    fixture_beam_complete(&mut reg, field_id, 0.0, 0, 0, spawn);
     assert!(reg.honesty_beam_swath_ok());
 
     // Arm manual override far from current swath epicenter.
@@ -614,7 +631,7 @@ fn particle_uplink_manual_drive_and_outer_nodes_residual_honesty() {
         let f = &reg.beam_fields()[0];
         assert!(f.manual_target_mode);
         assert_eq!(f.last_driving_click_frame, spawn + 1);
-        // Seeded from last swath epicenter when entering manual.
+        // Manual admission preserves the existing current target.
         assert!((f.current_target_position.x - swath0.x).abs() < 0.1);
     }
 
@@ -622,7 +639,9 @@ fn particle_uplink_manual_drive_and_outer_nodes_residual_honesty() {
     let terrain = gamelogic::terrain::TerrainLogic::new();
     let random = game_engine::common::random_value::SessionRandom::default();
     let after_normal = spawn + 1 + 30;
-    reg.advance_manual_beam_drive(after_normal, &terrain, &random);
+    for frame in spawn + 2..=after_normal {
+        reg.advance_beam_targets(frame, &terrain, &random);
+    }
     {
         let f = &reg.beam_fields()[0];
         assert!(
@@ -646,11 +665,15 @@ fn particle_uplink_manual_drive_and_outer_nodes_residual_honesty() {
     assert!(reg.set_beam_override_destination(field_id, override_dest, click3));
     assert!(particle_is_fast_drive(click3, click2));
     // Sync drive update to click3 so the next advance measures exactly 30 frames.
-    reg.advance_manual_beam_drive(click3, &terrain, &random);
+    for frame in after_normal + 1..=click3 {
+        reg.advance_beam_targets(frame, &terrain, &random);
+    }
     let before_fast_dist = reg.beam_fields()[0].manual_drive_distance_total;
     let before_fast_pos_x = reg.beam_fields()[0].current_target_position.x;
     let after_fast = click3 + 30;
-    reg.advance_manual_beam_drive(after_fast, &terrain, &random);
+    for frame in click3 + 1..=after_fast {
+        reg.advance_beam_targets(frame, &terrain, &random);
+    }
     {
         let f = &reg.beam_fields()[0];
         let moved = f.manual_drive_distance_total - before_fast_dist;
@@ -676,7 +699,7 @@ fn particle_uplink_manual_drive_and_outer_nodes_residual_honesty() {
         (ObjectId(4), swath0, Team::GLA, true), // old swath — should miss
     ];
     // Full width after grow (spawn + 60 already passed).
-    let plans = reg.plan_due_beam_ticks(after_fast, &objects_manual);
+    let plans = fixture_beam_ticks(&mut reg, after_fast, &objects_manual);
     assert_eq!(plans.len(), 1);
     assert!((plans[0].position.x - manual_pos.x).abs() < 0.1);
     assert!(plans[0].hits.iter().any(|h| h.target_id == ObjectId(3)));
@@ -925,19 +948,23 @@ fn particle_uplink_beam_pulses_hit_same_team() {
     reg.record_impact_complete(id, 0.0, 0, 0);
     let field_id = reg.beam_fields()[0].id;
     let spawn = reg.beam_fields()[0].spawn_frame;
+    // Radius/relationship test: use the actual manual hold admission rather
+    // than freezing the now-independent damage pulse counter to stop a swath.
+    hold_particle_fixture(&mut reg, spawn);
+
     let hold = spawn + PARTICLE_WIDTH_GROW_FRAMES;
     if let Some(f) = reg.beam_fields.iter_mut().find(|f| f.id == field_id) {
         f.next_tick_frame = hold;
         f.pulses_made = 0;
     }
-    let epic0 = particle_swath_epicenter(click, 0);
+    let epic0 = reg.beam_fields()[0].current_target_position;
     let objects = vec![
         (ObjectId(1), Vec3::new(500.0, 0.0, 0.0), Team::China, true),
         (ObjectId(2), epic0, Team::China, true),
         (ObjectId(3), epic0, Team::GLA, true),
         (ObjectId(4), epic0, Team::Neutral, true),
     ];
-    let plans = reg.plan_due_beam_ticks(hold, &objects);
+    let plans = fixture_beam_ticks(&mut reg, hold, &objects);
     assert_eq!(plans.len(), 1);
     assert!((plans[0].damage_radius - 44.2).abs() < 0.1);
     let mut hits: Vec<_> = plans[0].hits.iter().map(|h| h.target_id).collect();

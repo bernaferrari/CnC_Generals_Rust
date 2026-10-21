@@ -295,3 +295,174 @@ fn encoded_particle_drive_continues_full_vector_and_receiving_ground_after_resto
         },
     );
 }
+
+fn swath_world(raw: u8) -> GameLogic {
+    let mut owner = GameLogic::new();
+    let mut map = gamelogic::system::map_loader::MapData::new();
+    map.width = 32;
+    map.height = 32;
+    map.heightmap = vec![raw; 32 * 32];
+    assert!(
+        owner
+            .world_services
+            .terrain()
+            .write()
+            .unwrap()
+            .load_map_geometry(map)
+            .is_empty()
+    );
+    owner.add_player(Player::new(0, Team::USA, "USA", true));
+    let mut template = ThingTemplate::new("SwathSource");
+    template.add_kind_of(KindOf::Structure).set_health(5000.);
+    owner.templates.insert("SwathSource".into(), template);
+    let ground = raw as f32 * 0.625;
+    let source = owner
+        .create_object_for_player("SwathSource", 0, Vec3::new(20., ground, 30.))
+        .unwrap();
+    owner
+        .special_power_strikes
+        .note_script_fired_special_power(source);
+    let strike = owner
+        .queue_special_power_strike(
+            &crate::command_system::SpecialPowerType::ParticleCannon,
+            source,
+            Vec3::new(130., ground, 120.),
+        )
+        .unwrap();
+    owner
+        .special_power_strikes
+        .record_impact_complete(strike, 0., 0, 0);
+    owner.frame = owner.special_power_strikes.beam_fields()[0].spawn_frame;
+    assert!(!owner.special_power_strikes.beam_fields()[0].manual_target_mode);
+    assert!(!owner.special_power_strikes.beam_fields()[0].scripted_waypoint_mode);
+    owner
+}
+
+#[test]
+fn actual_nonmanual_particle_target_uses_receiving_deformation_and_peer_reset() {
+    isolated(
+        "actual_nonmanual_particle_target_uses_receiving_deformation_and_peer_reset",
+        || {
+            let mut first = swath_world(40);
+            let mut peer = swath_world(90);
+            first.update_particle_beam_fields();
+            peer.update_particle_beam_fields();
+            let first_target = first.special_power_strikes.beam_fields()[0].current_target_position;
+            let peer_target = peer.special_power_strikes.beam_fields()[0].current_target_position;
+            assert_eq!(first_target.y, 25.);
+            assert_eq!(peer_target.y, 56.25);
+            assert_eq!(
+                first.special_power_strikes.beam_fields()[0].last_swath_position,
+                first_target
+            );
+            assert_eq!(
+                first.special_power_strikes.beam_fields()[0].last_scorch_position,
+                first_target
+            );
+            assert_eq!(
+                first.special_power_strikes.remnant_fields()[0].position,
+                first_target
+            );
+            assert_eq!(
+                peer.special_power_strikes.beam_fields()[0].last_scorch_position,
+                peer_target
+            );
+            {
+                let mut terrain = first.world_services.terrain().write().unwrap();
+                for y in 0..32 {
+                    for x in 0..32 {
+                        terrain.set_raw_map_height_with_effects(x, y, 0, &mut |_| {});
+                    }
+                }
+            }
+            // Same-frame effects keep the earlier canonical target even after a
+            // terrain callback. The next live frame admits the changed ground.
+            first.update_particle_beam_fields();
+            assert_eq!(
+                first.special_power_strikes.beam_fields()[0].current_target_position,
+                first_target
+            );
+            next(&mut first);
+            assert_eq!(
+                first.special_power_strikes.beam_fields()[0]
+                    .current_target_position
+                    .y,
+                0.
+            );
+            assert_eq!(
+                peer.special_power_strikes.beam_fields()[0].current_target_position,
+                peer_target
+            );
+            peer.reset();
+            next(&mut first);
+            assert_eq!(
+                first.special_power_strikes.beam_fields()[0]
+                    .current_target_position
+                    .y,
+                0.
+            );
+        },
+    );
+}
+
+#[test]
+fn encoded_nonmanual_particle_target_continues_canonical_frame_and_ground() {
+    isolated(
+        "encoded_nonmanual_particle_target_continues_canonical_frame_and_ground",
+        || {
+            let mut source = swath_world(60);
+            source.update_particle_beam_fields();
+            next(&mut source);
+            source.process_destroy_list();
+            assert!(!source.has_pending_object_removals());
+            let builder = SnapshotBuilder::new();
+            let snapshot = builder.create_world_snapshot(&source).unwrap();
+            let encoded = bincode_legacy::serialize(&snapshot).unwrap();
+            let decoded = decode_bincode_world_snapshot(&encoded).unwrap();
+            let mut restored = swath_world(60);
+            builder
+                .restore_from_snapshot(&decoded, &mut restored)
+                .unwrap();
+            assert_eq!(
+                restored.special_power_strikes.beam_fields()[0].current_target_position,
+                source.special_power_strikes.beam_fields()[0].current_target_position
+            );
+            assert_eq!(
+                restored.special_power_strikes.beam_fields()[0].last_drive_update_frame,
+                source.special_power_strikes.beam_fields()[0].last_drive_update_frame
+            );
+            restored.update_particle_beam_fields();
+            assert_eq!(
+                restored.special_power_strikes.beam_fields()[0].current_target_position,
+                source.special_power_strikes.beam_fields()[0].current_target_position
+            );
+            for _ in 0..12 {
+                next(&mut source);
+                next(&mut restored);
+                let a = &source.special_power_strikes.beam_fields()[0];
+                let b = &restored.special_power_strikes.beam_fields()[0];
+                assert_eq!(a.current_target_position, b.current_target_position);
+                assert_eq!(a.last_drive_update_frame, b.last_drive_update_frame);
+                assert_eq!(a.last_swath_position, b.last_swath_position);
+                assert_eq!(a.last_scorch_position, b.last_scorch_position);
+                assert_eq!(a.next_tick_frame, b.next_tick_frame);
+                assert_eq!(a.next_scorch_frame, b.next_scorch_frame);
+                assert_eq!(a.current_target_position.y, 37.5);
+                assert_eq!(
+                    source
+                        .special_power_strikes
+                        .remnant_fields()
+                        .iter()
+                        .map(|field| field.position)
+                        .collect::<Vec<_>>(),
+                    restored
+                        .special_power_strikes
+                        .remnant_fields()
+                        .iter()
+                        .map(|field| field.position)
+                        .collect::<Vec<_>>()
+                );
+            }
+        },
+    );
+}

@@ -4,6 +4,58 @@ use crate::command_system::SpecialPowerType;
 use crate::game_logic::{ObjectId, Team};
 use glam::Vec3;
 
+// Registry fixtures admit a real common positioning phase with a local terrain
+// and a cannon exactly100 units west of the authored click. At birth the
+// original local X is zero, so radius/cadence fixtures begin at that cannon.
+// Native GameLogic regressions separately cover real source-object positions.
+pub(super) fn position_particle_fixture(reg: &mut HostSpecialPowerStrikeRegistry, frame: u32) {
+    for field in &mut reg.beam_fields {
+        if !field.source_axis_set {
+            field.bind_source_axis(field.position - Vec3::X * 100.0);
+        }
+    }
+    let terrain = gamelogic::terrain::TerrainLogic::new();
+    let random = game_engine::common::random_value::SessionRandom::default();
+    reg.advance_beam_targets(frame, &terrain, &random);
+}
+pub(super) fn hold_particle_fixture(reg: &mut HostSpecialPowerStrikeRegistry, frame: u32) {
+    position_particle_fixture(reg, frame);
+    let targets: Vec<_> = reg
+        .beam_fields
+        .iter()
+        .map(|f| (f.id, f.current_target_position))
+        .collect();
+    for (id, position) in targets {
+        assert!(reg.set_beam_override_destination(id, position, frame));
+    }
+}
+pub(super) fn fixture_beam_ticks(
+    reg: &mut HostSpecialPowerStrikeRegistry,
+    frame: u32,
+    objects: &[(ObjectId, Vec3, Team, bool)],
+) -> Vec<HostParticleBeamTickPlan> {
+    position_particle_fixture(reg, frame);
+    reg.plan_due_beam_ticks(frame, objects)
+}
+pub(super) fn fixture_beam_complete(
+    reg: &mut HostSpecialPowerStrikeRegistry,
+    id: u32,
+    damage: f32,
+    applications: u32,
+    destroyed: u32,
+    frame: u32,
+) {
+    position_particle_fixture(reg, frame);
+    reg.record_beam_tick_complete(id, damage, applications, destroyed, frame);
+}
+pub(super) fn fixture_beam_scorches(
+    reg: &mut HostSpecialPowerStrikeRegistry,
+    frame: u32,
+) -> Vec<HostParticleScorchRevealEvent> {
+    position_particle_fixture(reg, frame);
+    reg.apply_due_beam_scorch_reveals(frame)
+}
+
 #[test]
 fn daisy_cutter_maps_from_command_powers() {
     assert_eq!(
@@ -221,18 +273,23 @@ fn particle_cannon_params_match_retail_continuous_beam() {
     assert!((particle_width_scalar(100, death) - 0.0).abs() < 0.01);
     assert_eq!(particle_next_scorch_frame(100, 0), 101);
     assert_eq!(particle_next_scorch_frame(100, 10), 182);
-    // First pulse (factor 0): cx = -distance/2.
-    let o0 = particle_swath_offset(0);
-    assert!((o0.x + PARTICLE_SWATH_OF_DEATH_DISTANCE * 0.5).abs() < 0.1);
-    assert!(o0.z.abs() < 0.01);
-    // Mid pulse (factor 0.5): at click epicenter offset.
-    let mid_idx = PARTICLE_BEAM_TOTAL_PULSES / 2;
-    let o_mid = particle_swath_offset(mid_idx);
-    assert!(
-        o_mid.x.abs() < 1.0,
-        "mid swath along-axis near 0, got {}",
-        o_mid.x
+    // Original C++ component witnesses, not a pulse-index approximation.
+    let building = Vec3::new(10., 30., 20.);
+    let target = Vec3::new(110., 70., 80.);
+    let first = particle_swath_position(
+        building,
+        target,
+        100,
+        100,
+        265,
+        PARTICLE_SWATH_OF_DEATH_DISTANCE,
+        PARTICLE_SWATH_OF_DEATH_AMPLITUDE,
     );
+    assert!((first.x - 29.9695358).abs() < 0.0002);
+    assert!((first.z - 31.9817162).abs() < 0.0002);
+    let midpoint = particle_swath_position(building, target, 150, 100, 200, 250., 150.);
+    assert!((midpoint.x - 115.718819).abs() < 0.0002);
+    assert!((midpoint.z - 83.4313049).abs() < 0.0002);
     // Fractional nextFactor schedule residual.
     assert_eq!(particle_next_pulse_frame(100, 0), 101); // strict forward when 0
     assert_eq!(particle_next_pulse_frame(100, 20), 182);
@@ -256,8 +313,9 @@ fn particle_cannon_impact_spawns_beam_and_ticks_damage() {
     );
     assert!(reg.beam_fields().is_empty());
 
-    // First pulse swath epicenter = target + (-100, 0, 0) = (0, 0, 0).
-    let swath0 = particle_swath_epicenter(target, 0);
+    // Park the fixture victim at the cannon footprint. The actual receiving
+    // position stage admits the cannon100 units west of this click.
+    let swath0 = target - Vec3::X * 100.;
     assert!((swath0.x - 0.0).abs() < 0.1);
     let objects = vec![
         (ObjectId(1), Vec3::new(-500.0, 0.0, 0.0), Team::China, true),
@@ -284,7 +342,7 @@ fn particle_cannon_impact_spawns_beam_and_ticks_damage() {
     // First beam pulse on spawn frame — uses SwathOfDeath epicenter.
     // WidthGrow residual: first grow step at spawn so pulse has non-zero radius
     // but still below dist-to-ObjectId(3) (~30).
-    let beam_plans = reg.plan_due_beam_ticks(76, &objects);
+    let beam_plans = fixture_beam_ticks(&mut reg, 76, &objects);
     assert_eq!(beam_plans.len(), 1);
     assert!(
         (beam_plans[0].position.x - swath0.x).abs() < 0.1,
@@ -315,7 +373,8 @@ fn particle_cannon_impact_spawns_beam_and_ticks_damage() {
             .any(|h| h.target_id == ObjectId(5))
     );
 
-    reg.record_beam_tick_complete(
+    fixture_beam_complete(
+        &mut reg,
         beam_plans[0].field_id,
         PARTICLE_BEAM_DAMAGE_PER_PULSE * 2.0,
         2,
@@ -339,28 +398,36 @@ fn particle_cannon_impact_spawns_beam_and_ticks_damage() {
     assert_eq!(reg.beam_fields()[0].pulses_made, 1);
 
     // Not due again until scheduled frame.
-    assert!(
-        reg.plan_due_beam_ticks(expected_next.saturating_sub(1), &objects)
-            .is_empty()
-    );
-    let later = reg.plan_due_beam_ticks(expected_next, &objects);
+    assert!(fixture_beam_ticks(&mut reg, expected_next.saturating_sub(1), &objects).is_empty());
+    let later = fixture_beam_ticks(&mut reg, expected_next, &objects);
     assert_eq!(later.len(), 1);
 }
 
 #[test]
 fn particle_uplink_swath_of_death_residual_honesty() {
-    // Swath walks from -distance/2 to +distance/2 with sine lateral amplitude.
-    let o_start = particle_swath_offset(0);
-    let o_end = particle_swath_offset(PARTICLE_BEAM_TOTAL_PULSES);
-    assert!((o_start.x + 100.0).abs() < 0.1);
-    assert!((o_end.x - 100.0).abs() < 0.1);
-    // Lateral amplitude peaks near quarter / three-quarter factor.
-    let o_q = particle_swath_offset(PARTICLE_BEAM_TOTAL_PULSES / 4);
-    assert!(
-        o_q.z.abs() > 40.0,
-        "quarter-swath lateral amplitude expected near 50, got {}",
-        o_q.z
-    );
+    // Independently executed original C++ body at actual retail lifetime/config.
+    // Its acos rotation and full3D range are not a rotated cartesian shortcut.
+    let building = Vec3::new(10., 30., 20.);
+    let target = Vec3::new(110., 70., 80.);
+    let position = |frame| {
+        particle_swath_position(
+            building,
+            target,
+            frame,
+            100,
+            265,
+            PARTICLE_SWATH_OF_DEATH_DISTANCE,
+            PARTICLE_SWATH_OF_DEATH_AMPLITUDE,
+        )
+    };
+    let first = position(100);
+    let last_live = position(264);
+    let intermediate = position(125);
+    assert!((first.x - 29.9695358).abs() < 0.0002);
+    assert!((first.z - 31.9817162).abs() < 0.0002);
+    assert!((last_live.x - 201.408096).abs() < 0.0002);
+    assert!((last_live.z - 132.624954).abs() < 0.0002);
+    assert!((intermediate.z - 82.4971619).abs() < 0.0002);
 
     let mut reg = HostSpecialPowerStrikeRegistry::new();
     let click = Vec3::new(0.0, 0.0, 0.0);
@@ -381,25 +448,25 @@ fn particle_uplink_swath_of_death_residual_honesty() {
         (ObjectId(1), Vec3::new(500.0, 0.0, 0.0), Team::China, true),
         (ObjectId(2), Vec3::ZERO, Team::GLA, true),
     ];
-    let first = reg.plan_due_beam_ticks(spawn, &objects);
+    let first = fixture_beam_ticks(&mut reg, spawn, &objects);
     assert_eq!(first.len(), 1);
     assert!(
         first[0].hits.is_empty(),
         "click-epicenter unit must miss first swath pulse at x=-100"
     );
-    reg.record_beam_tick_complete(field_id, 0.0, 0, 0, spawn);
+    fixture_beam_complete(&mut reg, field_id, 0.0, 0, 0, spawn);
 
     // Advance pulses to mid (factor ≈ 0.5).
     let mut frame = reg.beam_fields()[0].next_tick_frame;
     while reg.beam_fields()[0].pulses_made < PARTICLE_BEAM_TOTAL_PULSES / 2 {
-        let plans = reg.plan_due_beam_ticks(frame, &objects);
+        let plans = fixture_beam_ticks(&mut reg, frame, &objects);
         if plans.is_empty() {
             frame = frame.saturating_add(1);
             continue;
         }
         let hits = plans[0].hits.len() as u32;
         let dmg = PARTICLE_BEAM_DAMAGE_PER_PULSE * hits as f32;
-        reg.record_beam_tick_complete(field_id, dmg, hits, 0, frame);
+        fixture_beam_complete(&mut reg, field_id, dmg, hits, 0, frame);
         frame = reg.beam_fields()[0].next_tick_frame;
     }
     // Mid swath should have hit click-epicenter unit at least once.
@@ -428,17 +495,19 @@ fn particle_cannon_owner_disable_starts_decay_and_stops_pulses() {
     let field_id = reg.spawn_beam_field(ObjectId(1), Team::USA, target, spawn, 1);
     let objects = vec![
         (ObjectId(1), Vec3::new(-400.0, 0.0, 0.0), Team::USA, true),
-        (
-            ObjectId(2),
-            particle_swath_epicenter(target, 0),
-            Team::GLA,
-            true,
-        ),
+        (ObjectId(2), target - Vec3::X * 100., Team::GLA, true),
     ];
-    let first = reg.plan_due_beam_ticks(spawn, &objects);
+    let first = fixture_beam_ticks(&mut reg, spawn, &objects);
     assert_eq!(first.len(), 1);
     assert!(!first[0].hits.is_empty());
-    reg.record_beam_tick_complete(field_id, PARTICLE_BEAM_DAMAGE_PER_PULSE, 1, 0, spawn);
+    fixture_beam_complete(
+        &mut reg,
+        field_id,
+        PARTICLE_BEAM_DAMAGE_PER_PULSE,
+        1,
+        0,
+        spawn,
+    );
 
     let abort_frame = spawn + 3;
     reg.abort_beam_fields_on_owner_disable(abort_frame, |id| id == ObjectId(1));
@@ -448,11 +517,8 @@ fn particle_cannon_owner_disable_starts_decay_and_stops_pulses() {
         field.expires_frame,
         abort_frame.saturating_add(PARTICLE_WIDTH_GROW_FRAMES)
     );
-    assert!(reg.plan_due_beam_ticks(abort_frame, &objects).is_empty());
-    assert!(
-        reg.plan_due_beam_ticks(abort_frame + 1, &objects)
-            .is_empty()
-    );
+    assert!(fixture_beam_ticks(&mut reg, abort_frame, &objects).is_empty());
+    assert!(fixture_beam_ticks(&mut reg, abort_frame + 1, &objects).is_empty());
     assert_eq!(reg.beam_fields()[0].pulses_made, 1);
 }
 
