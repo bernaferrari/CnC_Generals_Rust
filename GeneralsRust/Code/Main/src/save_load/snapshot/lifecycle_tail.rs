@@ -174,11 +174,45 @@ pub fn apply_lifecycle_tail_to_host(
         }
     }
     validate_overlord_containment_candidates(tail, game_logic, &candidates)?;
-    for (id, object) in candidates {
-        game_logic.objects.insert(id, object);
-    }
+    commit_lifecycle_candidates(game_logic, candidates)?;
     game_logic.railroad = railroad;
     apply_host_contain_producer_fixup(tail, game_logic);
+    Ok(())
+}
+
+/// Restore continuation values without admitting a new Object lifetime or
+/// changing C++ registration order. This restore-only clone path runs before
+/// paired native resource adoption; it is not a live callback replacement API.
+fn commit_lifecycle_candidates(
+    game_logic: &mut GameLogic,
+    candidates: Vec<(ObjectId, crate::game_logic::Object)>,
+) -> SaveLoadResult<()> {
+    // Validate the complete batch before any write. Duplicate saved envelopes
+    // retain their existing ordered last-value-wins policy.
+    for (id, candidate) in &candidates {
+        let existing = game_logic.objects.get(id).ok_or_else(|| {
+            SaveLoadError::Corrupted(format!("lifecycle continuation missing object {}", id.0))
+        })?;
+        if candidate.id != *id
+            || existing.id != *id
+            || candidate.visual_object_generation != existing.visual_object_generation
+            || !std::sync::Arc::ptr_eq(
+                &candidate.visual_draw_identity_token,
+                &existing.visual_draw_identity_token,
+            )
+        {
+            return Err(SaveLoadError::Corrupted(format!(
+                "lifecycle continuation changed object lifetime {}",
+                id.0
+            )));
+        }
+    }
+    for (id, candidate) in candidates {
+        *game_logic
+            .objects
+            .get_mut(&id)
+            .expect("validated continuation slot") = candidate;
+    }
     Ok(())
 }
 
@@ -541,5 +575,141 @@ mod tests {
         assert_eq!(tail.producer_links.len(), 1);
         assert_eq!(tail.producer_links[0].entity_generation, 1);
         assert_eq!(tail.producer_links[0].producer_generation, 1);
+    }
+    fn continuation_owner() -> GameLogic {
+        use crate::game_logic::{Object, Team, ThingTemplate};
+        let mut owner = GameLogic::new();
+        for id in [7, 8] {
+            owner.add_object(Object::new(
+                ThingTemplate::new("Continuation"),
+                ObjectId(id),
+                Team::USA,
+            ));
+        }
+        owner
+    }
+
+    #[test]
+    fn continuation_commit_preserves_lifetime_registration_and_peer() {
+        let mut owner = continuation_owner();
+        let peer = continuation_owner();
+        let order = owner.objects.ordered_ids().to_vec();
+        {
+            let installed = owner.objects.get_mut(&ObjectId(7)).unwrap();
+            installed.kill_experience_awarded = true;
+            installed.kill_score_phase = crate::game_logic::kill_credit::KillScorePhase::Complete;
+            installed.experience.current = 173.25;
+            installed.experience_sink = Some(ObjectId(8));
+            installed.experience_scalar = 1.75;
+            installed.native_die_runtime.completed.extend([2, 9]);
+            installed.native_die_runtime.ai_dead = true;
+            installed.native_die_runtime.pending_create = Some(13);
+            installed
+                .unit_ai_runtime
+                .enter_guard_return(glam::Vec3::new(1.0, 2.0, 3.0), 87);
+            installed.unit_ai_runtime.set_guard_updated_frame(Some(44));
+            installed
+                .unit_ai_runtime
+                .set_guard_anchor(Some(glam::Vec3::splat(5.0)));
+            installed.unit_ai_runtime.set_hunt_scan_deadline(Some(91));
+            installed.unit_ai_runtime.set_quick_exit_deadline(Some(93));
+        }
+        let original = owner.objects[&ObjectId(7)].clone();
+        let mut first = original.clone();
+        first.producer_id = Some(ObjectId(81));
+        let mut last = original.clone();
+        last.producer_id = Some(ObjectId(82));
+        commit_lifecycle_candidates(&mut owner, vec![(ObjectId(7), first), (ObjectId(7), last)])
+            .unwrap();
+        let restored = &owner.objects[&ObjectId(7)];
+        assert_eq!(restored.producer_id, Some(ObjectId(82)));
+        assert!(restored.kill_experience_awarded);
+        assert_eq!(
+            restored.kill_score_phase,
+            crate::game_logic::kill_credit::KillScorePhase::Complete
+        );
+        assert_eq!(restored.experience.current, 173.25);
+        assert_eq!(restored.experience_sink, Some(ObjectId(8)));
+        assert_eq!(restored.experience_scalar, 1.75);
+        assert_eq!(
+            restored
+                .native_die_runtime
+                .completed
+                .iter()
+                .copied()
+                .collect::<Vec<_>>(),
+            vec![2, 9]
+        );
+        assert!(restored.native_die_runtime.ai_dead);
+        assert_eq!(restored.native_die_runtime.pending_create, Some(13));
+        assert_eq!(
+            restored.unit_ai_runtime.guard_phase(),
+            Some(
+                crate::game_logic::object::unit_ai_runtime::GuardPhase::Return {
+                    goal: glam::Vec3::new(1.0, 2.0, 3.0)
+                }
+            )
+        );
+        assert_eq!(restored.unit_ai_runtime.guard_scan_deadline(), Some(87));
+        assert_eq!(restored.unit_ai_runtime.guard_updated_frame(), Some(44));
+        assert_eq!(
+            restored.unit_ai_runtime.guard_anchor(),
+            Some(glam::Vec3::splat(5.0))
+        );
+        assert_eq!(restored.unit_ai_runtime.hunt_scan_deadline(), Some(91));
+        assert_eq!(restored.unit_ai_runtime.quick_exit_deadline(), Some(93));
+        assert_eq!(
+            restored.visual_object_generation,
+            original.visual_object_generation
+        );
+        assert!(std::sync::Arc::ptr_eq(
+            &restored.visual_draw_identity_token,
+            &original.visual_draw_identity_token
+        ));
+        assert_eq!(owner.objects.ordered_ids(), order);
+        assert_eq!(peer.objects[&ObjectId(7)].producer_id, None);
+        assert!(!std::sync::Arc::ptr_eq(
+            &restored.visual_draw_identity_token,
+            &peer.objects[&ObjectId(7)].visual_draw_identity_token
+        ));
+    }
+
+    #[test]
+    fn malformed_continuation_batch_never_partially_commits() {
+        for defect in 0..4 {
+            let mut owner = continuation_owner();
+            let peer = continuation_owner();
+            let order = owner.objects.ordered_ids().to_vec();
+            let mut first = owner.objects[&ObjectId(7)].clone();
+            first.producer_id = Some(ObjectId(81));
+            let mut invalid = owner.objects[&ObjectId(8)].clone();
+            let key = if defect == 0 {
+                ObjectId(99)
+            } else {
+                ObjectId(8)
+            };
+            match defect {
+                1 => invalid.id = ObjectId(99),
+                2 => {
+                    invalid.visual_object_generation =
+                        invalid.visual_object_generation.wrapping_add(1)
+                }
+                3 => {
+                    invalid.visual_draw_identity_token = peer.objects[&ObjectId(8)]
+                        .visual_draw_identity_token
+                        .clone()
+                }
+                _ => {}
+            }
+            assert!(matches!(
+                commit_lifecycle_candidates(&mut owner, vec![(ObjectId(7), first), (key, invalid)]),
+                Err(SaveLoadError::Corrupted(_))
+            ));
+            assert_eq!(owner.objects[&ObjectId(7)].producer_id, None);
+            assert_eq!(owner.objects[&ObjectId(8)].producer_id, None);
+            assert_eq!(owner.objects.ordered_ids(), order);
+            assert!(!owner.objects.contains_key(&ObjectId(99)));
+            assert_eq!(peer.objects[&ObjectId(8)].producer_id, None);
+        }
     }
 }

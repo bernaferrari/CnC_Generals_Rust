@@ -46,8 +46,9 @@ impl HostObjectStore {
         self.map.insert(id, object)
     }
 
-    /// Replace an existing value without changing its registered position.
-    /// A previously absent ID is a new admission and is prepended.
+    /// Fixture-only permissive insertion; production births use checked admission.
+    /// Restoration commits only validated, already registered lifetimes in place.
+    #[cfg(test)]
     pub fn insert(&mut self, id: ObjectId, object: Object) -> Option<Object> {
         if !self.map.contains_key(&id) {
             self.registration_order.insert(0, id);
