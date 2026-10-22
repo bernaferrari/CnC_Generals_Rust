@@ -846,6 +846,7 @@ impl GameLogic {
         self.drawable_tint_envelopes.clear();
         self.finish_all_building_sounds();
         self.objects.clear();
+        self.partition_manager = Default::default();
         self.beacon_client.clear();
         self.named_unit_history.clear();
         self.objects_receive_difficulty_bonus = true;

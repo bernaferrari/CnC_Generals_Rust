@@ -15,6 +15,8 @@ mod shroud_map_owner_tests;
 mod bridge_owner_tests;
 #[path = "world_save/native_map_attempt.rs"]
 mod native_map_attempt;
+#[path = "world_save/partition_grid.rs"]
+mod partition_grid;
 #[path = "world_save/world_bridges.rs"]
 mod world_bridges;
 #[path = "world_save/world_load.rs"]
@@ -73,3 +75,7 @@ mod non_skirmish_cash_tests;
 
 #[path = "world_save/attack_path_requests.rs"]
 mod attack_path_requests;
+
+#[cfg(test)]
+#[path = "world_save/partition_grid_owner_tests.rs"]
+mod partition_grid_owner_tests;

@@ -31,6 +31,9 @@ const VISION_RECALC_INTERVAL: u32 = 10;
 
 /// Grid-based shroud cell size in world units (C++ PartitionCellSize = 40).
 const SHROUD_GRID_CELL_SIZE: f32 = 40.0;
+/// Supported Rust allocation bound, not an original C++ map-size limit.
+/// Includes a 2048-by-2048 cell map at the minimum one-world-unit size.
+const MAX_SHROUD_GRID_CELLS: usize = 4 * 1024 * 1024;
 
 /// Persistent C++ `PartitionCell::ShroudLevel` payload.
 ///
@@ -381,20 +384,58 @@ struct ShroudGrid {
 }
 
 impl ShroudGrid {
-    fn new(world_origin_xy: [f32; 2], map_width: f32, map_height: f32, cell_size: f32) -> Self {
-        let width = ((map_width / cell_size).ceil() as usize).max(1);
-        let height = ((map_height / cell_size).ceil() as usize).max(1);
-        let total_cells = width * height;
-
-        let cells = vec![PartitionCell::default(); total_cells];
-
-        Self {
+    fn new(
+        world_origin_xy: [f32; 2],
+        map_width: f32,
+        map_height: f32,
+        cell_size: f32,
+    ) -> Result<Self, String> {
+        if world_origin_xy.iter().any(|value| !value.is_finite())
+            || !map_width.is_finite()
+            || !map_height.is_finite()
+            || !cell_size.is_finite()
+        {
+            return Err("shroud grid geometry must be finite".into());
+        }
+        // Original PartitionManager::init clamps finite cell size and extents.
+        let cell_size = cell_size.max(1.0);
+        let map_width = map_width.max(1.0);
+        let map_height = map_height.max(1.0);
+        if !(world_origin_xy[0] + map_width).is_finite()
+            || !(world_origin_xy[1] + map_height).is_finite()
+        {
+            return Err("shroud grid extent overflows".into());
+        }
+        let inverse = (1.0_f64 / f64::from(cell_size)) as f32;
+        let width_f = (map_width * inverse).ceil();
+        let height_f = (map_height * inverse).ceil();
+        if !width_f.is_finite()
+            || !height_f.is_finite()
+            || width_f < 1.0
+            || height_f < 1.0
+            || width_f >= i32::MAX as f32
+            || height_f >= i32::MAX as f32
+        {
+            return Err("shroud grid dimensions are not representable".into());
+        }
+        let width = width_f as usize;
+        let height = height_f as usize;
+        let total_cells = width
+            .checked_mul(height)
+            .filter(|count| *count <= MAX_SHROUD_GRID_CELLS)
+            .ok_or_else(|| "shroud grid exceeds supported cell allocation".to_string())?;
+        let mut cells = Vec::new();
+        cells
+            .try_reserve_exact(total_cells)
+            .map_err(|_| "cannot allocate shroud grid cells".to_string())?;
+        cells.resize(total_cells, PartitionCell::default());
+        Ok(Self {
             world_origin_xy,
             width,
             height,
             cell_size,
             cells,
-        }
+        })
     }
 
     /// Convert world position to grid coordinates
@@ -412,14 +453,16 @@ impl ShroudGrid {
     /// Keep signed off-map centers so circle spans can clip at the boundary.
     fn world_to_signed_cell(&self, pos: &Coord3D) -> (i32, i32) {
         (
-            ((pos.x - self.world_origin_xy[0]) / self.cell_size).floor() as i32,
-            ((pos.y - self.world_origin_xy[1]) / self.cell_size).floor() as i32,
+            ((pos.x - self.world_origin_xy[0]) * (1.0_f64 / f64::from(self.cell_size)) as f32)
+                .floor() as i32,
+            ((pos.y - self.world_origin_xy[1]) * (1.0_f64 / f64::from(self.cell_size)) as f32)
+                .floor() as i32,
         )
     }
 
     /// Convert world distance to cell distance
     fn world_to_cell_dist(&self, world_dist: f32) -> i32 {
-        ((world_dist / self.cell_size).ceil() as i32).max(1)
+        ((world_dist * (1.0_f64 / f64::from(self.cell_size)) as f32).ceil() as i32).max(1)
     }
 
     /// Get cell at grid coordinates
@@ -1341,13 +1384,10 @@ impl ShroudManager {
         Ok(())
     }
 
-    /// Restore the supplied owner only; callers paint their radar explicitly.
-    pub fn replace_state_owned(
-        &mut self,
-        snapshot: &ShroudSnapshot,
-        frame: u32,
-    ) -> Result<(), String> {
-        let restored_grid = if let Some(grid) = &snapshot.grid {
+    /// Validate saved grid shape against this receiving map before any world
+    /// mutation. The wire omits origin; an admitted map supplies that origin.
+    pub fn validate_snapshot_geometry(&self, snapshot: &ShroudSnapshot) -> Result<(), String> {
+        if let Some(grid) = &snapshot.grid {
             let width = usize::try_from(grid.width)
                 .map_err(|_| "shroud snapshot width is not representable".to_string())?;
             let height = usize::try_from(grid.height)
@@ -1361,13 +1401,37 @@ impl ShroudManager {
             let expected_cells = width
                 .checked_mul(height)
                 .ok_or_else(|| "shroud snapshot grid dimensions overflow".to_string())?;
+            if expected_cells > MAX_SHROUD_GRID_CELLS {
+                return Err("shroud snapshot exceeds supported cell allocation".into());
+            }
+            if let Some(receiving) = self.shroud_grid.as_ref() {
+                if width != receiving.width
+                    || height != receiving.height
+                    || grid.cell_size != receiving.cell_size
+                {
+                    return Err("shroud snapshot geometry differs from receiving map grid".into());
+                }
+            }
             if grid.cells.len() != expected_cells {
                 return Err(format!(
                     "shroud snapshot has {} cells, expected {expected_cells}",
                     grid.cells.len()
                 ));
             }
+        }
+        Ok(())
+    }
 
+    /// Restore the supplied owner only; callers paint their radar explicitly.
+    pub fn replace_state_owned(
+        &mut self,
+        snapshot: &ShroudSnapshot,
+        frame: u32,
+    ) -> Result<(), String> {
+        self.validate_snapshot_geometry(snapshot)?;
+        let restored_grid = if let Some(grid) = &snapshot.grid {
+            let width = grid.width as usize;
+            let height = grid.height as usize;
             let cells = grid
                 .cells
                 .iter()
@@ -1494,12 +1558,26 @@ impl ShroudManager {
         map_width: f32,
         map_height: f32,
     ) {
-        self.shroud_grid = Some(ShroudGrid::new(
+        self.init_shroud_grid_at_origin_with_cell_size(
             world_origin_xy,
             map_width,
             map_height,
             SHROUD_GRID_CELL_SIZE,
-        ));
+        )
+        .expect("valid compatibility shroud grid geometry");
+    }
+
+    /// Admit one map's actual geometry without publishing another grid owner.
+    /// Validation/allocation finish before replacing cells or draining reveals.
+    pub fn init_shroud_grid_at_origin_with_cell_size(
+        &mut self,
+        world_origin_xy: [f32; 2],
+        map_width: f32,
+        map_height: f32,
+        cell_size: f32,
+    ) -> Result<(), String> {
+        let replacement = ShroudGrid::new(world_origin_xy, map_width, map_height, cell_size)?;
+        self.shroud_grid = Some(replacement);
 
         if let Some(grid) = self.shroud_grid.as_mut() {
             for player_id in self.pending_full_reveal_players.drain() {
@@ -1514,13 +1592,13 @@ impl ShroudManager {
             }
         }
 
-        debug!(
-            "Initialized shroud grid: {}x{} cells for map {}x{} units",
-            (map_width / SHROUD_GRID_CELL_SIZE).ceil(),
-            (map_height / SHROUD_GRID_CELL_SIZE).ceil(),
-            map_width,
-            map_height
-        );
+        if let Some(grid) = &self.shroud_grid {
+            debug!(
+                "Initialized shroud grid: {}x{} cells, origin {:?}, cell {}",
+                grid.width, grid.height, grid.world_origin_xy, grid.cell_size
+            );
+        }
+        Ok(())
     }
 
     /// Update visibility information for all players
@@ -2149,8 +2227,8 @@ impl ShroudManager {
                                     x as i32,
                                     y as i32,
                                     status,
-                                    SHROUD_GRID_CELL_SIZE,
-                                    SHROUD_GRID_CELL_SIZE,
+                                    grid.cell_size,
+                                    grid.cell_size,
                                     grid.world_origin_xy,
                                 );
                             }
@@ -2201,8 +2279,8 @@ impl ShroudManager {
                             x as i32,
                             y as i32,
                             status,
-                            SHROUD_GRID_CELL_SIZE,
-                            SHROUD_GRID_CELL_SIZE,
+                            grid.cell_size,
+                            grid.cell_size,
                             grid.world_origin_xy,
                         );
                     }
@@ -2713,3 +2791,7 @@ mod map_origin_tests;
 #[cfg(test)]
 #[path = "shroud_manager_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "shroud_explicit_geometry_tests.rs"]
+mod explicit_geometry_tests;

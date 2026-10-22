@@ -716,7 +716,6 @@ fn actual_damage_is_copied_into_projection() {
 
 #[test]
 fn owned_construction_events_map_completed_structure_without_consuming_output() {
-    crate::game_logic::host_spawn_log::clear();
     let mut logic = GameLogic::new();
     let mut t = ThingTemplate::new("USA_Barracks");
     t.set_health(1000.0);

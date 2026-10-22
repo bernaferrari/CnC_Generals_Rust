@@ -35,6 +35,13 @@ fn map_bytes(origin: [f32; 2]) -> Vec<u8> {
 
 fn load(path: &Path) -> GameLogic {
     let mut world = GameLogic::new();
+    // This fixture exercises retail GameData's 40-unit grid. Production now
+    // receives the app rule explicitly rather than inventing it during load.
+    world.admit_camera_application_movement(
+        game_engine::common::ini::ini_game_data::CameraMovementRules::default()
+            .overlay_ini_text("GameData\n PartitionCellSize = 40\nEnd\n")
+            .unwrap(),
+    );
     assert!(world.load_map(path.to_str().unwrap()));
     world.add_player(Player::new(1, Team::USA, "Viewer", true));
     world.add_player(Player::new(2, Team::China, "Enemy", false));

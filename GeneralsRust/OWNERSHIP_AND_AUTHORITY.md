@@ -753,7 +753,7 @@ older gates and may lag the code; the code (and this table) is the truth.
 6. `PresentationFrame::build_from_logic` + shadow overlay
 7. Client/HUD consumers of snapshot
 
-Production enqueue records `host_production_log (enqueue + complete)`; completions spawn via `host_spawn_log`.
+Production enqueue and completion are recorded by the receiving session’s production events. Completion creates the actual host Object; observation copies that receiving host roster directly.
 
 ## Presentation residual (unit mesh)
 
@@ -1031,7 +1031,7 @@ see same-frame AI orders without a second engine drain.
 parity (`queue_damage_for_host` / `apply_pending`). Production default ON
 (`GENERALS_GAMEWORLD_SHADOW=0` opts out) holds a session on `CnCGameEngine`.
 `Object::take_damage_from` records `host_damage_log / host_heal_log / host_owner_log` events drained each tick.
-Spawn: `host_spawn_log` applies via `WorldMutation::Spawn` (sole shadow create) then host→entity map. Destroy: the driving GameLogic performs physical removal and the shadow observes the resulting roster. `host_destroy_log` is test-only diagnostics; its discarded observation-boundary drain does not deliver Destroy mutations or presentation events.
+Spawn: the driving GameLogic creates the actual Object synchronously; the shadow copies the resulting host roster and maintains its host→entity map. There is no spawn TLS transport or reverse gameplay mutation. Destroy: the driving GameLogic performs physical removal and the shadow observes the resulting roster. `host_destroy_log` is test-only diagnostics; its discarded observation-boundary drain does not deliver Destroy mutations or presentation events.
 
 Production log: `drain` retains `last_drain_snapshot` for PresentationEvent::ProductionComplete after shadow session.
 

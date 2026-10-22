@@ -1303,10 +1303,6 @@ impl GameLogic {
         };
         use gamelogic::common::Coord3D;
 
-        // Ensure shroud grid exists (tests / pre-map residual).
-        let world_w = self.world_width.max(1.0);
-        let world_h = self.world_height.max(1.0);
-
         // C++ Object::look: Allies via Player relationship, not faction Team.
         let player_mask = looker_mask_for_controller(&self.players, player_id);
 
@@ -1324,15 +1320,6 @@ impl GameLogic {
                 Ok(mgr) => mgr,
                 Err(_) => return false,
             };
-
-            // Init grid if not yet (unit tests without load_map).
-            if !shroud_mgr.has_shroud_grid() {
-                shroud_mgr.init_shroud_grid_at_origin(
-                    [self.world_min.x, self.world_min.z],
-                    world_w,
-                    world_h,
-                );
-            }
 
             // C++ RadarVanPing: instant full VisionRange, then shrink after delay.
             // Do not queue_undo at the full radius — apply_radar_scan_dynamic_shroud
@@ -1730,10 +1717,6 @@ impl GameLogic {
             HostSpySatellite, SPY_SATELLITE_ACTIVATE_AUDIO, SPY_SATELLITE_DURATION_FRAMES,
         };
 
-        // Ensure shroud grid exists (tests / pre-map residual).
-        let world_w = self.world_width.max(1.0);
-        let world_h = self.world_height.max(1.0);
-
         // C++ Object::look: Allies via Player relationship, not faction Team.
         let player_mask = looker_mask_for_controller(&self.players, player_id);
 
@@ -1742,23 +1725,6 @@ impl GameLogic {
         // shroud so temporary reveals land on FOW / PresentationFowGrid cells.
         let duration = SPY_SATELLITE_DURATION_FRAMES;
         let frame = self.frame;
-
-        {
-            let shroud = std::sync::Arc::clone(self.world_services.shroud());
-            let mut shroud_mgr = match shroud.lock() {
-                Ok(mgr) => mgr,
-                Err(_) => return false,
-            };
-
-            // Init grid if not yet (unit tests without load_map).
-            if !shroud_mgr.has_shroud_grid() {
-                shroud_mgr.init_shroud_grid_at_origin(
-                    [self.world_min.x, self.world_min.z],
-                    world_w,
-                    world_h,
-                );
-            }
-        }
 
         // C++ DynamicShroudClearingRangeUpdate starts m_currentClearingRange = 0.
         // Grow/shrink is applied each tick in update_spy_satellites.

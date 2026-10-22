@@ -107,9 +107,6 @@ impl GameLogic {
         };
         use gamelogic::common::Coord3D;
 
-        let world_w = self.world_width.max(1.0);
-        let world_h = self.world_height.max(1.0);
-
         // C++ setUnitsVisionSpied byWhom is only playerToSetFor->getPlayerIndex().
         // Do not paint an extra shroud disk for every same-faction slot.
         let player_mask = 1u32 << player_id.min(31);
@@ -141,20 +138,6 @@ impl GameLogic {
                 (obj.id, obj.get_position(), radius, obj.status.stealthed)
             })
             .collect();
-
-        // Ensure shroud grid exists (tests / pre-map residual).
-        {
-            let shroud = std::sync::Arc::clone(self.world_services.shroud());
-            if let Ok(mut shroud_mgr) = shroud.lock() {
-                if !shroud_mgr.has_shroud_grid() {
-                    shroud_mgr.init_shroud_grid_at_origin(
-                        [self.world_min.x, self.world_min.z],
-                        world_w,
-                        world_h,
-                    );
-                }
-            }
-        }
 
         let mut spied_units = Vec::with_capacity(enemy_snapshots.len());
         let mut any_vision_spied = false;
@@ -359,8 +342,6 @@ impl GameLogic {
         // C++ setUnitsVisionSpied byWhom is only the caster player index.
         let player_mask = 1u32 << player_id.min(31);
 
-        let world_w = self.world_width.max(1.0);
-        let world_h = self.world_height.max(1.0);
         let command_centers_only = spec.command_centers_only;
         let enemy_snapshots: Vec<(ObjectId, Vec3, f32)> = self
             .objects
@@ -380,19 +361,6 @@ impl GameLogic {
                 (obj.id, obj.get_position(), radius)
             })
             .collect();
-
-        {
-            let shroud = std::sync::Arc::clone(self.world_services.shroud());
-            if let Ok(mut shroud_mgr) = shroud.lock() {
-                if !shroud_mgr.has_shroud_grid() {
-                    shroud_mgr.init_shroud_grid_at_origin(
-                        [self.world_min.x, self.world_min.z],
-                        world_w,
-                        world_h,
-                    );
-                }
-            }
-        }
 
         let mut spied_units = Vec::with_capacity(enemy_snapshots.len());
         let mut any_vision_spied = false;

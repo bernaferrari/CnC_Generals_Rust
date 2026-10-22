@@ -589,18 +589,20 @@ fn mark_for_destruction_logs_on_remove() {
 }
 
 #[test]
-fn spawn_uses_world_mutation_channel() {
-    crate::game_logic::host_spawn_log::clear();
+fn spawn_is_committed_to_receiving_host_before_shadow_observation() {
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("SpawnMut");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     ensure_template(&mut logic, "SpMut", 80.0);
-    crate::game_logic::host_spawn_log::clear();
     let id = logic
         .create_object("SpMut", Team::USA, glam::Vec3::new(3.0, 0.0, 4.0))
         .expect("id");
-    let events = crate::game_logic::host_spawn_log::drain();
-    assert_eq!(events.len(), 1);
+    let object = logic
+        .host_object(id)
+        .expect("created object belongs to receiving host");
+    assert_eq!(object.template_name, "SpMut");
+    assert_eq!(object.team, Team::USA);
+    assert_eq!(object.get_position(), glam::Vec3::new(3.0, 0.0, 4.0));
     let mut shadow = GameWorldShadow::new(4096);
     shadow.sync_from_host(&logic); // may already map
     assert!(shadow.entity_for_host(id).is_some());
@@ -613,7 +615,6 @@ fn spawn_uses_world_mutation_channel() {
 
 #[test]
 fn spawn_and_destroy_channel_maps_ids() {
-    crate::game_logic::host_spawn_log::clear();
     crate::game_logic::host_destroy_log::clear();
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("SpawnDestroy");
@@ -622,9 +623,12 @@ fn spawn_and_destroy_channel_maps_ids() {
     let id = logic
         .create_object("SpawnUnit", Team::USA, glam::Vec3::new(3.0, 0.0, 0.0))
         .expect("spawn");
-    let spawns = crate::game_logic::host_spawn_log::drain();
-    assert_eq!(spawns.len(), 1);
-    assert_eq!(spawns[0].id, id);
+    let object = logic
+        .host_object(id)
+        .expect("successful factory creation is immediately observable");
+    assert_eq!(object.template_name, "SpawnUnit");
+    assert_eq!(object.team, Team::USA);
+    assert_eq!(object.get_position(), glam::Vec3::new(3.0, 0.0, 0.0));
 
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
@@ -636,14 +640,9 @@ fn spawn_and_destroy_channel_maps_ids() {
     for _ in 0..3 {
         logic.update();
     }
-    let mut destroys = crate::game_logic::host_destroy_log::drain();
-    if destroys.is_empty() {
-        crate::game_logic::host_destroy_log::record(id);
-        destroys = crate::game_logic::host_destroy_log::drain();
-    }
     assert!(
-        !destroys.is_empty(),
-        "expected destroy log after destroy_object/update"
+        logic.host_object(id).is_none(),
+        "physical retirement removes the actual Object"
     );
     let eid_before = shadow.entity_for_host(id);
     assert!(eid_before.is_some());
@@ -944,7 +943,6 @@ fn move_target_writeback_updates_host() {
 #[test]
 fn production_complete_applies_spawn_map_when_missing() {
     use crate::game_logic::host_production_log::HostProductionEvent;
-    crate::game_logic::host_spawn_log::clear();
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("ProdMap");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -965,65 +963,85 @@ fn production_complete_applies_spawn_map_when_missing() {
 }
 
 #[test]
-fn production_complete_logs_when_queue_finishes() {
-    crate::game_logic::host_spawn_log::clear();
+fn production_complete_identifies_the_actual_created_object() {
+    use crate::game_logic::{BuildingData, BuildingType, Player, ProductionExitMetadata};
     let mut logic = GameLogic::new();
-    let cfg = golden_skirmish_config("ProdDone");
-    apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    let barracks = logic
-        .host_objects()
-        .iter()
-        .find(|(_, o)| o.team == Team::USA && o.building_data.is_some() && o.is_constructed())
-        .map(|(id, _)| *id);
-    let Some(bid) = barracks else {
-        return; // minimal config without producer
-    };
-    // Pick a cheap infantry template the barracks can build if present.
-    let unit_name = [
-        "AmericaInfantryRanger",
-        "USA_Ranger",
-        "GoldenRanger",
-        "Ranger",
-    ]
-    .into_iter()
-    .find(|n| logic.templates.contains_key(*n));
-    let Some(name) = unit_name else {
-        return;
-    };
-    if let Some(t) = logic.templates.get_mut(name) {
-        t.build_time = 0.05;
-        t.build_cost.supplies = 0;
-        t.build_cost.power = 0;
-    }
-    assert!(logic.enqueue_production(bid, name.to_string()));
-    crate::game_logic::host_spawn_log::clear();
-    let before = logic.host_objects().len();
+    let mut player = Player::new(0, Team::USA, "CompletionOwner", true);
+    player.resources.supplies = 10_000;
+    player.power_produced = 1;
+    logic.add_player(player);
+    let mut factory = ThingTemplate::new("CompletionFactory");
+    factory
+        .add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::FSBarracks)
+        .add_kind_of(KindOf::MpCountForVictory)
+        .set_health(500.0);
+    factory.production_exit_metadata = Some(ProductionExitMetadata {
+        style: crate::game_logic::thing::ProductionExitStyle::Default,
+        unit_create_point: [0.0; 3],
+        natural_rally_point: [0.0; 3],
+        exit_delay_frames: 0,
+        allow_airborne_creation: false,
+        initial_burst: 0,
+        use_spawn_rally_point: false,
+        grant_temporary_stealth_frames: 0,
+    });
+    logic.templates.insert(factory.name.clone(), factory);
+    let mut unit = ThingTemplate::new("CompletionInfantry");
+    unit.add_kind_of(KindOf::Infantry).set_health(100.0);
+    unit.build_time = 0.05;
+    unit.build_cost.supplies = 0;
+    unit.build_cost.power = 0;
+    logic.templates.insert(unit.name.clone(), unit);
+    let producer = logic
+        .create_object_for_player("CompletionFactory", 0, Vec3::ZERO)
+        .unwrap();
+    logic.host_object_mut(producer).unwrap().building_data =
+        Some(BuildingData::new(BuildingType::Barracks));
+    let before: std::collections::HashSet<_> = logic.host_objects().keys().copied().collect();
+    assert!(logic.enqueue_production(producer, "CompletionInfantry".into()));
+    let mut completed = None;
     for _ in 0..300 {
         logic.update_with_dt(1.0 / 30.0);
-        if logic.host_objects().len() > before {
+        logic.production_events.complete_boundary();
+        for event in logic.production_events.take_completed() {
+            if let crate::game_logic::host_production_log::HostProductionEvent::Complete {
+                producer: actual_producer,
+                template_name,
+                spawned,
+            } = event
+            {
+                if template_name == "CompletionInfantry" {
+                    assert_eq!(actual_producer, producer);
+                    assert!(
+                        completed.replace(spawned).is_none(),
+                        "one queue entry completes once"
+                    );
+                }
+            }
+        }
+        if completed.is_some() {
             break;
         }
     }
-    logic.production_events.complete_boundary();
-    let prods = logic.production_events.take_completed();
-    let spawns = crate::game_logic::host_spawn_log::drain();
-    let completed = prods.iter().any(|e| {
-        matches!(
-            e,
-            crate::game_logic::host_production_log::HostProductionEvent::Complete {
-                template_name,
-                ..
-            } if template_name == name
-        )
-    });
-    let spawned = spawns.iter().any(|e| e.template == name);
-    assert!(
-        completed || spawned,
-        "expected Complete and/or spawn log for {name}: prods={prods:?} spawns={spawns:?}"
+    let spawned =
+        completed.expect("accepted production must complete within its bounded build time");
+    assert!(!before.contains(&spawned));
+    let object = logic
+        .host_object(spawned)
+        .expect("Complete names an actual live Object");
+    assert_eq!(object.template_name, "CompletionInfantry");
+    assert_eq!(object.owner_player_id, Some(0));
+    assert_eq!(object.team, Team::USA);
+    let mut shadow = GameWorldShadow::new(64);
+    shadow.sync_from_host(&logic);
+    let entity = shadow
+        .entity_for_host(spawned)
+        .expect("observer maps actual completed Object");
+    assert_eq!(
+        shadow.world().entity(entity).unwrap().transform.position,
+        object.get_position().into()
     );
-    if spawned {
-        assert!(completed, "spawn without Complete event: prods={prods:?}");
-    }
 }
 
 #[test]
@@ -2195,4 +2213,71 @@ fn canonical_attack_receipts_keep_owner_fifo_across_same_id_peer_lifecycle() {
         event,
         generals_presentation::events::PresentationEvent::AttackTargeted { .. }
     )));
+}
+
+#[test]
+fn interleaved_creation_and_peer_drop_stay_with_the_receiving_host() {
+    let mut a = GameLogic::new();
+    let mut b = GameLogic::new();
+    ensure_template(&mut a, "OwnedSpawnA", 80.0);
+    ensure_template(&mut b, "OwnedSpawnB", 90.0);
+    let a_id = a
+        .create_object("OwnedSpawnA", Team::USA, Vec3::new(11.0, 0.0, 12.0))
+        .unwrap();
+    let b_id = b
+        .create_object("OwnedSpawnB", Team::China, Vec3::new(21.0, 0.0, 22.0))
+        .unwrap();
+    assert_eq!(
+        a_id, b_id,
+        "fixture deliberately overlaps session-local identities"
+    );
+    let mut a_shadow = GameWorldShadow::new(64);
+    let mut b_shadow = GameWorldShadow::new(64);
+    a_shadow.sync_from_host(&a);
+    b_shadow.sync_from_host(&b);
+    let a_entity = a_shadow.entity_for_host(a_id).unwrap();
+    let b_entity = b_shadow.entity_for_host(b_id).unwrap();
+    assert_eq!(
+        a_shadow
+            .world()
+            .entity(a_entity)
+            .unwrap()
+            .transform
+            .position,
+        a.host_object(a_id).unwrap().get_position().into()
+    );
+    assert_eq!(
+        b_shadow
+            .world()
+            .entity(b_entity)
+            .unwrap()
+            .transform
+            .position,
+        b.host_object(b_id).unwrap().get_position().into()
+    );
+    assert_eq!(a.host_object(a_id).unwrap().template_name, "OwnedSpawnA");
+    assert_eq!(b.host_object(b_id).unwrap().template_name, "OwnedSpawnB");
+    b.host_object_mut(b_id)
+        .unwrap()
+        .set_position(Vec3::new(31.0, 0.0, 32.0));
+    b_shadow.sync_from_host(&b);
+    a_shadow.sync_from_host(&a);
+    assert_eq!(
+        a.host_object(a_id).unwrap().get_position(),
+        Vec3::new(11.0, 0.0, 12.0)
+    );
+    assert_eq!(
+        a_shadow
+            .world()
+            .entity(a_entity)
+            .unwrap()
+            .transform
+            .position,
+        a.host_object(a_id).unwrap().get_position().into()
+    );
+    drop(b_shadow);
+    drop(b);
+    a_shadow.sync_from_host(&a);
+    assert!(a.host_object(a_id).is_some());
+    assert_eq!(a_shadow.entity_for_host(a_id), Some(a_entity));
 }

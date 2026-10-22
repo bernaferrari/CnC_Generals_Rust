@@ -1,4 +1,7 @@
-use super::partition_coi::{HostPartitionFootprint, cells_touched_for_footprint, do_circle_fill};
+use super::partition_coi::{HostPartitionFootprint, cells_touched_for_footprint};
+
+#[path = "partition_radius_query.rs"]
+mod radius_query;
 
 use std::collections::{HashMap, HashSet};
 
@@ -53,6 +56,9 @@ pub struct HostPartitionLookStamp {
 /// Minimal partition manager mirroring WW3D map reveal + collide broadphase residual.
 #[derive(Debug, Default)]
 pub struct PartitionManager {
+    /// Immutable receiving map geometry; mapless programmatic values retain the
+    /// retail fixture grid until a real map is admitted.
+    grid: Option<PartitionGrid>,
     revealed_players: HashSet<u32>,
     /// Cell key (cx, cz) → object ids currently registered for collide residual.
     cells: HashMap<(i32, i32), Vec<u32>>,
@@ -60,12 +66,58 @@ pub struct PartitionManager {
     object_cells: HashMap<u32, Vec<(i32, i32)>>,
 }
 
+#[derive(Clone, Copy, Debug)]
+struct PartitionGrid {
+    origin: [f32; 2],
+    dimensions: [usize; 2],
+    cell_size: f32,
+}
+
 impl PartitionManager {
     pub fn new() -> Self {
         Self {
+            grid: None,
             revealed_players: HashSet::new(),
             cells: HashMap::new(),
             object_cells: HashMap::new(),
+        }
+    }
+
+    /// Both collision and shroud sample the grid admitted by this map. There
+    /// is no config poll or independent cell-size selection in a query.
+    pub(crate) fn configure_grid_from_shroud(
+        &mut self,
+        shroud: &gamelogic::system::shroud_manager::ShroudManager,
+    ) {
+        self.clear_registered_objects();
+        self.revealed_players.clear();
+        self.grid = shroud
+            .grid_dimensions()
+            .zip(shroud.grid_world_origin())
+            .map(|((width, height, cell_size), origin)| PartitionGrid {
+                origin,
+                dimensions: [width, height],
+                cell_size,
+            });
+    }
+
+    fn receiving_cell_coords(&self, x: f32, z: f32) -> (i32, i32) {
+        match self.grid {
+            Some(grid) => (
+                ((x - grid.origin[0]) * ((1.0_f64 / f64::from(grid.cell_size)) as f32)).floor()
+                    as i32,
+                ((z - grid.origin[1]) * ((1.0_f64 / f64::from(grid.cell_size)) as f32)).floor()
+                    as i32,
+            ),
+            None => Self::cell_coords(x, z),
+        }
+    }
+
+    fn footprint_cells(&self, x: f32, z: f32, fp: HostPartitionFootprint) -> Vec<(i32, i32)> {
+        match self.grid {
+            Some(grid) => super::partition_coi::cells_touched_for_footprint_on_grid(grid.origin,grid.dimensions,grid.cell_size,x,z,fp)
+                .expect("receiving Object partition footprint must be valid and within the admitted sample budget"),
+            None => cells_touched_for_footprint(x,z,fp),
         }
     }
 
@@ -110,7 +162,12 @@ impl PartitionManager {
     /// Small radii use `doSmallFill`; larger ones use `doCircleFill`.
     pub fn register_object_footprint(&mut self, id: u32, x: f32, z: f32, radius: f32) {
         let r = radius.max(0.0);
-        let fp = if r <= PARTITION_CELL_SIZE_RESIDUAL * 0.5 {
+        let fp = if r
+            <= self
+                .grid
+                .map_or(PARTITION_CELL_SIZE_RESIDUAL, |grid| grid.cell_size)
+                * 0.5
+        {
             HostPartitionFootprint::small_circle(r)
         } else {
             HostPartitionFootprint {
@@ -133,7 +190,7 @@ impl PartitionManager {
         fp: HostPartitionFootprint,
     ) {
         self.unregister_object(id);
-        let keys = cells_touched_for_footprint(x, z, fp);
+        let keys = self.footprint_cells(x, z, fp);
         for key in &keys {
             self.cells.entry(*key).or_default().push(id);
         }
@@ -157,7 +214,7 @@ impl PartitionManager {
     /// Candidate neighbor object ids for collide (center cell + 8 neighbors).
     /// Point queries stay 9-cell; object collide must use [`Self::neighbor_object_ids_of`].
     pub fn neighbor_object_ids(&self, x: f32, z: f32) -> Vec<u32> {
-        let (cx, cz) = Self::cell_coords(x, z);
+        let (cx, cz) = self.receiving_cell_coords(x, z);
         let mut out = Vec::new();
         for dz in -1..=1 {
             for dx in -1..=1 {
@@ -188,19 +245,26 @@ impl PartitionManager {
         out
     }
 
-    /// Object ids registered in cells overlapping a world-space XZ radius.
-    ///
-    /// Query cells are C++ `doCircleFill` (`worldToCell` + `worldToCellDist`),
-    /// then COI occupancy of those cells (FASTER_GCO over the same stamp).
+    /// Broadphase IDs from C++ FASTER_GCO radius buckets over stored COIs.
+    /// Current callers retain the explicit sorted-ID set policy and must apply
+    /// their actual Object distance/geometry/relation filters themselves.
+    /// This does not implement source COI visitation or SimpleObjectIterator order.
     pub fn ids_in_radius(&self, x: f32, z: f32, radius: f32) -> Vec<u32> {
         if self.object_cells.is_empty() {
             return Vec::new();
         }
-        let keys = do_circle_fill(x, z, radius.max(0.0));
+        let (cx, cz) = self.receiving_cell_coords(x, z);
+        let query = radius_query::RadiusCellQuery::new(
+            [cx, cz],
+            self.grid
+                .map_or(PARTITION_CELL_SIZE_RESIDUAL, |grid| grid.cell_size),
+            self.grid.map(|grid| grid.dimensions),
+            radius.max(0.0),
+        );
         let mut out = Vec::new();
-        for key in keys {
-            if let Some(list) = self.cells.get(&key) {
-                out.extend(list.iter().copied());
+        for (&(cell_x, cell_z), objects) in &self.cells {
+            if query.accepts([cell_x, cell_z]) {
+                out.extend(objects.iter().copied());
             }
         }
         out.sort_unstable();

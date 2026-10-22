@@ -55,7 +55,5 @@ fn freeze_host_observations(logic: &mut GameLogic) {
     #[cfg(test)]
     let _ = crate::game_logic::host_production_progress_log::drain();
 
-    let _ = crate::game_logic::host_spawn_log::drain();
-
     logic.economy_events.complete_boundary();
 }

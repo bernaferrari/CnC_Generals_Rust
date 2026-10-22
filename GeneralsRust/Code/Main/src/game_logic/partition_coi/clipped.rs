@@ -9,6 +9,16 @@ use crate::game_logic::partition_manager::PARTITION_CELL_SIZE_RESIDUAL;
 const MAX_FOOTPRINT_SAMPLES: u64 = 1 << 20;
 
 pub(crate) fn footprint_sample_cost(fp: HostPartitionFootprint) -> Result<u64, &'static str> {
+    footprint_sample_cost_at_size(fp, PARTITION_CELL_SIZE_RESIDUAL)
+}
+
+fn footprint_sample_cost_at_size(
+    fp: HostPartitionFootprint,
+    cell_size: f32,
+) -> Result<u64, &'static str> {
+    if !cell_size.is_finite() || cell_size < 1.0 {
+        return Err("Invalid receiving partition cell size");
+    }
     if ![fp.major_radius, fp.minor_radius, fp.angle]
         .iter()
         .all(|value| value.is_finite())
@@ -20,14 +30,14 @@ pub(crate) fn footprint_sample_cost(fp: HostPartitionFootprint) -> Result<u64, &
     let samples = if fp.is_small {
         4
     } else if fp.is_box {
-        let step = PARTITION_CELL_SIZE_RESIDUAL * 0.5;
+        let step = cell_size * 0.5;
         // Keep the source f32 step-count observation before widening.
         let x = (fp.major_radius * (2.0 / step)).ceil() as u64;
         let z = (fp.minor_radius * (2.0 / step)).ceil() as u64;
         x.checked_mul(z)
             .ok_or("Partition footprint sample count overflow")?
     } else {
-        (fp.major_radius / PARTITION_CELL_SIZE_RESIDUAL)
+        (fp.major_radius * ((1.0_f64 / f64::from(cell_size)) as f32))
             .ceil()
             .max(1.0) as u64
     };
@@ -68,7 +78,19 @@ pub(crate) fn cells_touched_for_footprint_clipped(
     z: f32,
     fp: HostPartitionFootprint,
 ) -> Result<Vec<(i32, i32)>, &'static str> {
-    footprint_sample_cost(fp)?;
+    cells_touched_for_footprint_on_grid(origin, dimensions, PARTITION_CELL_SIZE_RESIDUAL, x, z, fp)
+}
+
+/// Original sampler using this receiving map's admitted grid, including bounds.
+pub(crate) fn cells_touched_for_footprint_on_grid(
+    origin: [f32; 2],
+    dimensions: [usize; 2],
+    cell_size: f32,
+    x: f32,
+    z: f32,
+    fp: HostPartitionFootprint,
+) -> Result<Vec<(i32, i32)>, &'static str> {
+    footprint_sample_cost_at_size(fp, cell_size)?;
     if ![origin[0], origin[1], x, z]
         .iter()
         .all(|value| value.is_finite())
@@ -81,6 +103,6 @@ pub(crate) fn cells_touched_for_footprint_clipped(
         dimensions: [i64::from(width), i64::from(height)],
         collected: FootprintCells::default(),
     };
-    stamp_footprint(origin, x, z, fp, &mut cells);
+    stamp_footprint(origin, cell_size, x, z, fp, &mut cells);
     Ok(cells.collected.cells)
 }

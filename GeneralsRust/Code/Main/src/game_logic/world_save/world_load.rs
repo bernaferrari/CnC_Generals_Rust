@@ -265,6 +265,13 @@ impl GameLogic {
         self.map_loaded = false;
         self.finish_all_building_sounds();
         self.objects.clear();
+        self.partition_manager = Default::default();
+        self.world_services
+            .shroud()
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .reset_for_new_game();
+        self.session_view.camera.movement_policy.clear_map_rules();
         self.beacon_client.clear();
         if self.receiving_module_content.is_some() {
             if let Some(baseline) = &self.receiving_template_baseline {
@@ -515,6 +522,27 @@ impl GameLogic {
                     blend_tile_data.is_some()
                 );
 
+                let bounds_override = super::script_loader::resolved_map_height_bounds(
+                    parsed_settings.as_ref(),
+                    heightmap_data
+                        .as_ref()
+                        .map(|map| (map.width, map.height, map.border_size)),
+                );
+                if let Some((min, max)) = bounds_override {
+                    self.world_min = min;
+                    self.world_max = max;
+                    self.world_width = (max.x - min.x).max(1.0);
+                    self.world_height = (max.z - min.z).max(1.0);
+                } else {
+                    self.world_min =
+                        Vec3::new(-self.world_width * 0.5, 0.0, -self.world_height * 0.5);
+                    self.world_max =
+                        Vec3::new(self.world_width * 0.5, 0.0, self.world_height * 0.5);
+                }
+                if let Err(error) = self.initialize_receiving_partition_grid() {
+                    log::error!("Cannot initialize receiving partition grid: {error}");
+                    return false;
+                }
                 if let Some(meta) = parsed_settings.as_ref() {
                     self.last_map_settings = Some(meta.clone());
                     log::info!(
@@ -797,32 +825,6 @@ impl GameLogic {
                 }
                 let bounds_started = Instant::now();
                 report_progress(0.84, "Building world bounds");
-                let mut bounds_override = super::script_loader::resolved_map_height_bounds(
-                    parsed_settings.as_ref(),
-                    heightmap_data
-                        .as_ref()
-                        .map(|map| (map.width, map.height, map.border_size)),
-                );
-                if bounds_override.is_none() && !self.objects.is_empty() {
-                    // Derive bounds from placed objects when map metadata is missing.
-                    let mut min = Vec3::splat(f32::MAX);
-                    let mut max = Vec3::splat(f32::MIN);
-                    for obj in self.objects.values() {
-                        let pos = obj.get_position();
-                        min.x = min.x.min(pos.x);
-                        min.y = min.y.min(pos.y);
-                        min.z = min.z.min(pos.z);
-                        max.x = max.x.max(pos.x);
-                        max.y = max.y.max(pos.y);
-                        max.z = max.z.max(pos.z);
-                    }
-                    // Add a small margin to keep camera from clipping edges.
-                    let margin = 50.0;
-                    min -= Vec3::splat(margin);
-                    max += Vec3::splat(margin);
-                    bounds_override = Some((min, max));
-                }
-
                 if let Some((min, max)) = bounds_override {
                     self.world_min = min;
                     self.world_max = max;
@@ -988,13 +990,6 @@ impl GameLogic {
                     self.refresh_pathfinding_ai_definitions();
                 }
 
-                if let Ok(mut shroud_mgr) = self.world_services.shroud().lock() {
-                    shroud_mgr.init_shroud_grid_at_origin(
-                        [self.world_min.x, self.world_min.z],
-                        self.world_width,
-                        self.world_height,
-                    );
-                }
                 report_progress(0.88, "Initializing shroud and pathfinding");
                 log::info!(
                     "Map '{}' bounds/terrain/shroud hookup finished in {:.2}s",

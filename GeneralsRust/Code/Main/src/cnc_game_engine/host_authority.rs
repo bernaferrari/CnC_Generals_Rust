@@ -1478,7 +1478,6 @@ impl CnCGameEngine {
         self.reset_replay_pacing_for_new_game();
         #[cfg(feature = "game_client")]
         self.host_invalidate_active_popup_for_world_boundary();
-        crate::game_logic::staged_world_effects::discard_live_for_world_replace();
 
         // Destroy the previous client's Drawables while its own world and the
         // C++-style ambient module callbacks still refer to that old world.
@@ -2116,7 +2115,6 @@ impl CnCGameEngine {
         let definitions = live
             .team_factory
             .detached_definition_catalog(definition_names.as_deref())?;
-        let effects = crate::game_logic::staged_world_effects::StagedWorldEffects::enter();
         let transaction = gamelogic::runtime_world_transaction::HostRuntimeWorldStage::begin(
             &live.world_services,
         );
@@ -2189,7 +2187,6 @@ impl CnCGameEngine {
             crate::save_load::snapshot::read_owned_session_camera(&decoded.snapshot.lifecycle_tail)
                 .map_err(|error| error.to_string())?;
         let staged = transaction.finish_and_restore_live(&candidate.world_services);
-        effects.finish_and_restore_live();
         let checked = staged.preflight_native()?;
         let committed = checked.install_globals();
         admit_staged_session_view(
@@ -2371,7 +2368,6 @@ impl CnCGameEngine {
         // failure cannot poison the still-playable host match.  Main's TLS
         // logs/shadow bind path need the matching take/restore scope around
         // the same work.
-        let staged_effects = crate::game_logic::staged_world_effects::StagedWorldEffects::enter();
         let runtime_stage =
             gamelogic::runtime_world_transaction::HostRuntimeWorldStage::begin(live_services);
         let mut staged = crate::game_logic::GameLogic::new();
@@ -2470,7 +2466,6 @@ impl CnCGameEngine {
         // to the caller.  The returned opaque bundle is installed only by the
         // no-fail combined commit below.
         let runtime_world = runtime_stage.finish_and_restore_live(&staged.world_services);
-        staged_effects.finish_and_restore_live();
         Ok(StagedRestoreWorld {
             native_map: Default::default(),
             logic: staged,

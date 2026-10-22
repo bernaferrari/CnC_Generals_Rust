@@ -558,8 +558,6 @@ impl GameLogic {
             }
         }
 
-        let world_w = self.world_width.max(1.0);
-        let world_h = self.world_height.max(1.0);
         let player_mask = 1u32 << player_id.min(31);
         let center = Coord3D::new(target_position.x, target_position.z, target_position.y);
         let frame = self.frame;
@@ -582,13 +580,6 @@ impl GameLogic {
                     return object_id.is_some();
                 }
             };
-            if !shroud_mgr.has_shroud_grid() {
-                shroud_mgr.init_shroud_grid_at_origin(
-                    [self.world_min.x, self.world_min.z],
-                    world_w,
-                    world_h,
-                );
-            }
             shroud_mgr.do_shroud_reveal(&center, range, player_mask);
             shroud_mgr.queue_undo_shroud_reveal(&center, range, player_mask, duration, frame);
             let mut visible = shroud_mgr.is_position_visible(player_id.min(31), &center);
@@ -2309,16 +2300,7 @@ impl GameLogic {
         if !scorch_events.is_empty() {
             use crate::game_logic::special_power_strikes::PARTICLE_REVEAL_RANGE;
             use gamelogic::common::Coord3D;
-            let world_w = self.world_width.max(1.0);
-            let world_h = self.world_height.max(1.0);
             if let Ok(mut shroud_mgr) = std::sync::Arc::clone(self.world_services.shroud()).lock() {
-                if !shroud_mgr.has_shroud_grid() {
-                    shroud_mgr.init_shroud_grid_at_origin(
-                        [self.world_min.x, self.world_min.z],
-                        world_w,
-                        world_h,
-                    );
-                }
                 for event in &scorch_events {
                     let mut player_mask = 0u32;
                     for (&pid, player) in &self.players {

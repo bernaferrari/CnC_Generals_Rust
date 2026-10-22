@@ -4,41 +4,6 @@ use crate::game_logic::{GameLogic, GameMode, Player, Team};
 use crate::save_load::{GameDifficulty, SaveFileManager, SaveFileType};
 use std::time::SystemTime;
 
-/// Keeps this test's thread-local presentation queues independent from
-/// whatever a neighboring test had recorded before it began.
-struct WorldStageLogRestore {
-    state: Option<crate::game_logic::staged_world_effects::WorldStageEffectsState>,
-}
-
-impl WorldStageLogRestore {
-    fn take() -> Self {
-        Self {
-            state: Some(
-                crate::game_logic::staged_world_effects::WorldStageEffectsState::take_all_for_test(
-                ),
-            ),
-        }
-    }
-}
-
-impl Drop for WorldStageLogRestore {
-    fn drop(&mut self) {
-        if let Some(state) = self.state.take() {
-            drop(
-                crate::game_logic::staged_world_effects::WorldStageEffectsState::replace_all_for_test(state),
-            );
-        }
-    }
-}
-
-/// Seed the full load-map/snapshot-restore queue closure.  The staged
-/// candidate uses a distinct object/label, so equality after its forced
-/// failure proves both pending queues and presentation last-drain state
-/// stayed attached to the live world.
-fn record_all_stage_queue_events(object: crate::game_logic::ObjectId, label: &str) {
-    crate::game_logic::host_spawn_log::record(object, label.to_string(), 7, [1.0, 2.0, 3.0]);
-}
-
 fn retail_map_path_for_test() -> String {
     crate::game_logic::script_loader::find_map_file("Lone Eagle")
         .expect("licensed Lone Eagle map required for staged restore acceptance");
@@ -49,6 +14,15 @@ fn retail_map_path_for_test() -> String {
 // Admit a real native configuration once instead of guessing a source roster
 // after map creation (which fabricates unmatched default team prototypes).
 fn admit_skirmish_fixture(source: &mut GameLogic, map_name: &str, human: &str, china_ai: bool) {
+    // Real staged-map fixtures include the app's admitted retail grid policy.
+    let rules = source
+        .session_view
+        .camera
+        .movement_policy
+        .current()
+        .overlay_ini_text("GameData\n PartitionCellSize = 40\nEnd\n")
+        .unwrap();
+    source.admit_camera_application_movement(rules);
     let mut config = crate::skirmish_config::golden_skirmish_config(map_name);
     config.slots[0].player_name = human.into();
     if china_ai {
@@ -586,17 +560,29 @@ fn forced_post_restore_failure_restores_globals_and_tls_effect_queues() {
             };
             let before = global_probe(&source);
 
-            let _log_restore = WorldStageLogRestore::take();
             let sentinel = crate::game_logic::ObjectId(0x00ff_ee11);
-            record_all_stage_queue_events(sentinel, "stage-rollback-sentinel");
-            let expected =
-                crate::game_logic::staged_world_effects::WorldStageEffectsState::take_all_for_test(
-                );
-            drop(
-            crate::game_logic::staged_world_effects::WorldStageEffectsState::replace_all_for_test(
-                expected.clone(),
-            ),
-        );
+            let live_objects = |world: &GameLogic| {
+                let mut values: Vec<_> = world
+                    .host_objects()
+                    .iter()
+                    .map(|(id, object)| {
+                        (
+                            id.0,
+                            object.template_name.clone(),
+                            object.get_position().to_array(),
+                            object.health.current.to_bits(),
+                            object.owner_player_id,
+                        )
+                    })
+                    .collect();
+                values.sort_by_key(|value| value.0);
+                values
+            };
+            let retained_objects = live_objects(&source);
+            assert!(
+                !retained_objects.is_empty(),
+                "rollback fixture has actual live map Objects"
+            );
 
             #[cfg(feature = "game_client")]
             let mut live_client = {
@@ -659,14 +645,16 @@ fn forced_post_restore_failure_restores_globals_and_tls_effect_queues() {
                     assert_eq!(staged.ai_definitions.baseline().resources_poor, 7654);
                     assert_eq!(staged.production_energy_rules().min_speed, 0.5);
                     assert!(gamelogic::runtime_world_transaction::world_runtime_staging_active());
-                    assert!(crate::game_logic::staged_world_effects::world_stage_effects_active());
-                    // The map candidate has already emitted its normal object
-                    // creation events.  Emit every conditional residual family as
-                    // well, so rollback proves the raw boundary discards both.
-                    record_all_stage_queue_events(
-                        crate::game_logic::ObjectId(0x00ff_ee12),
-                        "staged-candidate-only",
-                    );
+                    let candidate = staged
+                        .host_objects()
+                        .keys()
+                        .next()
+                        .copied()
+                        .expect("candidate map created actual Objects before forced rollback");
+                    staged
+                        .host_object_mut(candidate)
+                        .unwrap()
+                        .set_position(glam::Vec3::new(91.0, 92.0, 93.0));
                     // Deliberately collide with the live world's numeric ID.
                     assert_ne!(staged.movement_events.session(), &retained_move_session);
                     staged
@@ -731,12 +719,10 @@ fn forced_post_restore_failure_restores_globals_and_tls_effect_queues() {
                 Some(live_integration_ai_player_count),
                 "rollback must preserve the live AI integration manager"
             );
-            let actual =
-                crate::game_logic::staged_world_effects::WorldStageEffectsState::take_all_for_test(
-                );
             assert_eq!(
-                actual, expected,
-                "all map/snapshot-reachable TLS queues and last-drain state must survive rollback"
+                live_objects(&source),
+                retained_objects,
+                "candidate Object mutation and destruction cannot alter the live receiving owner"
             );
         },
     );
@@ -780,7 +766,6 @@ fn embedded_saved_map_restores_original_ai_companions_without_replacing_geometry
                 }
             }
             for bare_lookup in [false, true] {
-                let _logs = WorldStageLogRestore::take();
                 let temp = tempfile::tempdir().unwrap();
                 let retail_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
                     .join("../../../windows_game/extracted_big_files/MapsZH/Maps");
@@ -1106,10 +1091,7 @@ fn staged_native_commit_finishes_after_logic_and_camera_install() {
     let epoch = body
         .find("self.commit_native_world_epoch(epoch)")
         .expect("commit the reserved native candidate identity");
-    let discard_live = body
-        .find("discard_live_for_world_replace()")
-        .expect("live output invalidation");
-    assert!(preflight < discard_live && preflight < teardown && teardown < globals);
+    assert!(preflight < teardown && teardown < globals);
     assert!(
         globals < logic && logic < epoch && epoch < camera && camera < effects && effects < shadow
     );
@@ -1396,7 +1378,6 @@ fn main_services_start_and_stage_leave_foreign_core_ai_installed() {
                 env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
                     .is_test(true)
                     .try_init();
-            let _logs = WorldStageLogRestore::take();
             #[cfg(feature = "game_client")]
             let (_gpu, mut native_graphics, mut native_pipeline) = staged_native_fixture_gpu();
             let temp = tempfile::tempdir().unwrap();

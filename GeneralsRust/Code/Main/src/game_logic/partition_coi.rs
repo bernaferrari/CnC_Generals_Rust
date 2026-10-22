@@ -1,6 +1,7 @@
 //! Host-side C++ `PartitionData` COI stamping (XZ world, Y-up).
 //!
-//! Partition cells are 40 world units (`PARTITION_CELL_SIZE_RESIDUAL`).
+//! Real maps supply their admitted origin, dimensions and cell size.
+//! Forty-unit wrappers serve the existing standalone component fixtures.
 
 use super::partition_manager::PARTITION_CELL_SIZE_RESIDUAL;
 
@@ -29,15 +30,14 @@ impl HostPartitionFootprint {
 /// C++ `worldToCell` on the host XZ plane.
 #[inline]
 pub fn world_to_cell(x: f32, z: f32) -> (i32, i32) {
-    world_to_cell_at_origin([0.0, 0.0], x, z)
+    world_to_cell_at_size([0.0, 0.0], PARTITION_CELL_SIZE_RESIDUAL, x, z)
 }
 
 #[inline]
-fn world_to_cell_at_origin(origin: [f32; 2], x: f32, z: f32) -> (i32, i32) {
-    let s = PARTITION_CELL_SIZE_RESIDUAL;
+fn world_to_cell_at_size(origin: [f32; 2], s: f32, x: f32, z: f32) -> (i32, i32) {
     (
-        ((x - origin[0]) / s).floor() as i32,
-        ((z - origin[1]) / s).floor() as i32,
+        ((x - origin[0]) * (1.0_f64 / f64::from(s)) as f32).floor() as i32,
+        ((z - origin[1]) * (1.0_f64 / f64::from(s)) as f32).floor() as i32,
     )
 }
 
@@ -188,7 +188,7 @@ fn collect_footprint(
     fp: HostPartitionFootprint,
 ) -> Vec<(i32, i32)> {
     let mut cells = FootprintCells::default();
-    stamp_footprint(origin, x, z, fp, &mut cells);
+    stamp_footprint(origin, PARTITION_CELL_SIZE_RESIDUAL, x, z, fp, &mut cells);
     cells.cells
 }
 
@@ -196,15 +196,16 @@ fn collect_footprint(
 /// scanlines can therefore be clipped before enumerating off-map coordinates.
 fn stamp_footprint(
     origin: [f32; 2],
+    cell_size: f32,
     x: f32,
     z: f32,
     fp: HostPartitionFootprint,
     cells: &mut impl FootprintSink,
 ) {
     if fp.is_small {
-        let radius = fp.major_radius.min(PARTITION_CELL_SIZE_RESIDUAL * 0.5);
-        let (x1, z1) = world_to_cell_at_origin(origin, x - radius, z - radius);
-        let (x2, z2) = world_to_cell_at_origin(origin, x + radius, z + radius);
+        let radius = fp.major_radius.min(cell_size * 0.5);
+        let (x1, z1) = world_to_cell_at_size(origin, cell_size, x - radius, z - radius);
+        let (x2, z2) = world_to_cell_at_size(origin, cell_size, x + radius, z + radius);
         for ix in x1 as i64..=x2 as i64 {
             for iz in z1 as i64..=z2 as i64 {
                 cells.cell(ix, iz);
@@ -213,7 +214,7 @@ fn stamp_footprint(
     } else if fp.is_box {
         let c = fp.angle.cos();
         let s = fp.angle.sin();
-        let step_size = PARTITION_CELL_SIZE_RESIDUAL * 0.5;
+        let step_size = cell_size * 0.5;
         let ydx = s * step_size;
         let ydy = -c * step_size;
         let xdx = c * step_size;
@@ -231,7 +232,7 @@ fn stamp_footprint(
             let mut sx = tl_x;
             let mut sz = tl_z;
             for _ix in 0..nx {
-                let (ix, iz) = world_to_cell_at_origin(origin, sx, sz);
+                let (ix, iz) = world_to_cell_at_size(origin, cell_size, sx, sz);
                 cells.cell(ix as i64, iz as i64);
                 sx += xdx;
                 sz += xdy;
@@ -240,9 +241,11 @@ fn stamp_footprint(
             tl_z += ydy;
         }
     } else {
-        let (cx, cz) = world_to_cell_at_origin(origin, x, z);
+        let (cx, cz) = world_to_cell_at_size(origin, cell_size, x, z);
         let (cx, cz) = (cx as i64, cz as i64);
-        let radius = i64::from(world_to_cell_dist(fp.major_radius).max(1));
+        let radius = i64::from(
+            ((fp.major_radius * ((1.0_f64 / f64::from(cell_size)) as f32)).ceil() as i32).max(1),
+        );
         let mut y = radius - 1;
         let mut dec = 3 - 2 * radius;
         for x in 0..radius {
@@ -260,7 +263,9 @@ fn stamp_footprint(
 }
 
 mod clipped;
-pub(crate) use clipped::{cells_touched_for_footprint_clipped, footprint_sample_cost};
+pub(crate) use clipped::{
+    cells_touched_for_footprint_clipped, cells_touched_for_footprint_on_grid, footprint_sample_cost,
+};
 
 #[cfg(test)]
 mod footprint_tests;

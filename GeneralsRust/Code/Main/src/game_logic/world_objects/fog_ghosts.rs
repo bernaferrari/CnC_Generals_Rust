@@ -233,7 +233,7 @@ impl GameLogic {
         let Some(origin) = shroud.grid_world_origin() else {
             return Ok(());
         };
-        let Some((width, height, _)) = shroud.grid_dimensions() else {
+        let Some((width, height, cell_size)) = shroud.grid_dimensions() else {
             return Ok(());
         };
         let dimensions = [width, height];
@@ -254,9 +254,10 @@ impl GameLogic {
                     };
                     let position = object.get_position();
                     let cells =
-                        crate::game_logic::partition_coi::cells_touched_for_footprint_clipped(
+                        crate::game_logic::partition_coi::cells_touched_for_footprint_on_grid(
                             origin,
                             dimensions,
+                            cell_size,
                             position.x,
                             position.z,
                             crate::game_logic::game_logic::host_object_footprint(object),
@@ -290,9 +291,10 @@ impl GameLogic {
             let Some(info) = ghost.parent_geometry() else {
                 continue;
             };
-            let cells = crate::game_logic::partition_coi::cells_touched_for_footprint_clipped(
+            let cells = crate::game_logic::partition_coi::cells_touched_for_footprint_on_grid(
                 origin,
                 dimensions,
+                cell_size,
                 info.position[0],
                 info.position[1],
                 crate::game_logic::partition_coi::HostPartitionFootprint {

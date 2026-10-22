@@ -315,6 +315,13 @@ impl SnapshotBuilder {
         game_logic: &mut GameLogic,
     ) -> SaveLoadResult<()> {
         validate_direct_world_snapshot_version(snapshot.version)?;
+        game_logic
+            .world_services
+            .shroud()
+            .lock()
+            .map_err(|_| SaveLoadError::Corrupted("receiving shroud owner is poisoned".into()))?
+            .validate_snapshot_geometry(&snapshot.shroud)
+            .map_err(SaveLoadError::Corrupted)?;
         self.validate_receiving_object_templates(&snapshot.objects, game_logic)?;
         let initial_skirmish = super::super::initial_skirmish::read_for_restore(snapshot)?;
         if let Some(initial) = &initial_skirmish {
@@ -529,15 +536,7 @@ impl SnapshotBuilder {
             || !snapshot.shroud.pending_permanent_reveal_players.is_empty()
         {
             game_logic
-                .world_services
-                .shroud()
-                .lock()
-                .map_err(|_| {
-                    SaveLoadError::Corrupted(
-                        "ShroudManager lock poisoned while restoring".to_string(),
-                    )
-                })?
-                .replace_state_owned(&snapshot.shroud, snapshot.frame_number as u32)
+                .restore_receiving_partition_grid(&snapshot.shroud, snapshot.frame_number as u32)
                 .map_err(SaveLoadError::Corrupted)?;
             let local_id = game_logic
                 .get_players()

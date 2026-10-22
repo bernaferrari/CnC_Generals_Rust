@@ -16,6 +16,12 @@ fn configured(map: &str, display: &str) -> GameLogic {
     config.slots[0].player_name = display.into();
     config.slots[1].slot_index = 3;
     let mut world = GameLogic::new();
+    // Admit the retail app rule explicitly before this real map load.
+    world.admit_camera_application_movement(
+        game_engine::common::ini::ini_game_data::CameraMovementRules::default()
+            .overlay_ini_text("GameData\n PartitionCellSize = 40\nEnd\n")
+            .unwrap(),
+    );
     crate::skirmish_config::apply_skirmish_config(&mut world, &config).unwrap();
     world
 }

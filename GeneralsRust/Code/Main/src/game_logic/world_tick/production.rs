@@ -1162,7 +1162,7 @@ impl GameLogic {
     /// Wave 615: host production unit spawn residual.
     ///
     /// Still host ObjectId authority (`create_object` + spawn log). GameWorld
-    /// receives the unit via host_spawn_log / production Complete channel after
+    /// observes the created unit through the receiving host and production Complete channel after
     /// sole-tick readiness (Waves 614/608). Wave 679: successful IDs enter
     /// `host_production_spawn_ready_log` before door/notify/exit residual.
     /// Not full GW spawn-ID authority.

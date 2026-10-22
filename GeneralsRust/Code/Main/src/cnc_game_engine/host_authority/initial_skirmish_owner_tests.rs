@@ -45,8 +45,19 @@ fn map() -> String {
         .to_string_lossy()
         .into_owned()
 }
+fn retail_world() -> GameLogic {
+    let mut world = GameLogic::new();
+    // Stand in for the real app's private retail GameData admission, not a
+    // loader fallback or a process-global rule read.
+    world.admit_camera_application_movement(
+        game_engine::common::ini::ini_game_data::CameraMovementRules::default()
+            .overlay_ini_text("GameData\n PartitionCellSize = 40\nEnd\n")
+            .unwrap(),
+    );
+    world
+}
 fn world() -> GameLogic {
-    let mut w = GameLogic::new();
+    let mut w = retail_world();
     let map = map();
     apply_skirmish_config(&mut w, &golden_skirmish_config(&map)).unwrap();
     assert!(w.load_map(&map));
@@ -379,7 +390,7 @@ fn actual_client_game_info_capture_survives_foreign_setup_and_original_archive_r
             assert!(overridden_initial.local_slot_from_client);
             assert_eq!(overridden_initial.local_slot, Some(0));
             drop(overridden_world);
-            let mut source = GameLogic::new();
+            let mut source = retail_world();
             apply_skirmish_config(&mut source, &config).unwrap();
             assert!(source.load_map(&map));
             let initial = source.initial_skirmish_admission.as_ref().unwrap().clone();
@@ -605,7 +616,7 @@ fn actual_random_color_client_input_keeps_native_archive_and_nonfirst_local_auth
             assert_eq!(config.source_game_info.as_ref().unwrap().1, 1);
             assert_eq!(raw.slots[0].color, -1);
             assert_eq!(raw.slots[1].color, -1);
-            let mut source = GameLogic::new();
+            let mut source = retail_world();
             apply_skirmish_config(&mut source, &config).unwrap();
             // Random is an authored selection request, not the converter's
             // provisional RGB. Save continuation must retain the value actually

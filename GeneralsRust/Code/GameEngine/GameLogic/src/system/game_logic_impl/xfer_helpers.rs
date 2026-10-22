@@ -538,98 +538,122 @@ fn xfer_sighting_info(
 }
 
 fn xfer_partition_state(logic: &mut GameLogic, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
-    // C++ PartitionManager::xfer (PartitionManager.cpp:4558-4657) currentVersion = 2.
-    let current_version: XferVersion = 2;
-    let mut version = current_version;
-    xfer.xfer_version(&mut version, current_version)?;
-
     let shroud_manager = get_shroud_manager();
     let mut shroud = shroud_manager.lock().map_err(|_| XferStatus::InvalidData)?;
-    // C++ xfers into the already-allocated live cell array.
-    let mut snapshot = shroud.snapshot_state();
+    let frame = logic.get_frame();
+    xfer_partition_state_with_owner(
+        &mut shroud,
+        &mut logic.partition_manager.cell_size,
+        frame,
+        xfer,
+    )?;
+    if xfer.get_xfer_mode() == XferMode::Load {
+        // Presentation is admitted only after the complete selected payload.
+        shroud.refresh_shroud_for_local_player_at_frame(frame);
+    }
+    Ok(())
+}
 
-    let mut cell_size = snapshot
+/// Exact v1/v2 wire traversal using the supplied receiving owner. Decode and
+/// validate cells/queue before committing either owner; no fabricated geometry.
+fn xfer_partition_state_with_owner(
+    shroud: &mut crate::system::shroud_manager::ShroudManager,
+    partition_cell_size: &mut f32,
+    frame: u32,
+    xfer: &mut dyn Xfer,
+) -> Result<(), XferStatus> {
+    if xfer.get_xfer_mode() == XferMode::Invalid {
+        return Err(XferStatus::ModeUnknown);
+    }
+    let mut version: XferVersion = 2;
+    xfer.xfer_version(&mut version, 2)?;
+    if !matches!(version, 1 | 2) {
+        return Err(XferStatus::InvalidVersion);
+    }
+    let mut snapshot = shroud.snapshot_state();
+    let expected_size = snapshot
         .grid
         .as_ref()
         .map(|grid| grid.cell_size)
-        .unwrap_or(logic.partition_manager.cell_size);
-    xfer.xfer_real(&mut cell_size)?;
-
-    if let Some(grid) = snapshot.grid.as_ref() {
-        if (cell_size - grid.cell_size).abs() > f32::EPSILON {
-            return Err(XferStatus::InvalidData);
-        }
-    }
-
-    let mut total_cell_count = snapshot
-        .grid
-        .as_ref()
-        .map(|grid| grid.cells.len() as i32)
-        .unwrap_or(0);
-    xfer.xfer_int(&mut total_cell_count)?;
-    if total_cell_count < 0 {
+        .unwrap_or(*partition_cell_size);
+    if !expected_size.is_finite()
+        || expected_size < 0.0
+        || (snapshot.grid.is_some() && expected_size == 0.0)
+    {
         return Err(XferStatus::InvalidData);
     }
-    if let Some(grid) = snapshot.grid.as_ref() {
-        if grid.cells.len() as i32 != total_cell_count {
+    let mut cell_size = expected_size;
+    xfer.xfer_real(&mut cell_size)?;
+    // Original PartitionManager.cpp4575 uses exact equality, not epsilon.
+    if !cell_size.is_finite() || cell_size != expected_size {
+        return Err(XferStatus::InvalidData);
+    }
+    let expected_count = if let Some(grid) = snapshot.grid.as_ref() {
+        let count = (grid.width as usize)
+            .checked_mul(grid.height as usize)
+            .ok_or(XferStatus::InvalidData)?;
+        if grid.width == 0 || grid.height == 0 || count != grid.cells.len() {
             return Err(XferStatus::InvalidData);
         }
+        i32::try_from(count).map_err(|_| XferStatus::InvalidData)?
+    } else {
+        0
+    };
+    let mut total_cell_count = expected_count;
+    xfer.xfer_int(&mut total_cell_count)?;
+    if total_cell_count != expected_count {
+        return Err(XferStatus::InvalidData);
     }
-
-    if xfer.get_xfer_mode() == XferMode::Load {
-        let mut cells = vec![
-            crate::system::shroud_manager::ShroudCellSnapshot::default();
-            total_cell_count as usize
-        ];
-        for cell in &mut cells {
-            xfer_partition_cell_shroud(xfer, cell)?;
-        }
-        if let Some(grid) = snapshot.grid.as_mut() {
-            grid.cell_size = cell_size;
-            grid.cells = cells;
-        } else if total_cell_count > 0 {
-            snapshot.grid = Some(crate::system::shroud_manager::ShroudGridSnapshot {
-                width: total_cell_count as u32,
-                height: 1,
-                cell_size,
-                cells,
-            });
-        }
-    } else if let Some(grid) = snapshot.grid.as_mut() {
+    // Use the existing detached clone's receiving cells. An uninitialized
+    // owner accepts only zero cells, never width=count/height=1 inference.
+    if let Some(grid) = snapshot.grid.as_mut() {
         for cell in &mut grid.cells {
             xfer_partition_cell_shroud(xfer, cell)?;
         }
     }
-
-    if xfer.get_xfer_mode() == XferMode::Load {
-        logic.partition_manager.cell_size = cell_size;
-    }
-
     if version >= 2 {
-        let mut queue_size = snapshot.pending_undo_shroud_reveals.len() as i32;
+        let mut queue_size = i32::try_from(snapshot.pending_undo_shroud_reveals.len())
+            .map_err(|_| XferStatus::InvalidData)?;
         xfer.xfer_int(&mut queue_size)?;
-        if queue_size < 0 {
+        // Explicit Rust decode allocation bound, not an original C++ limit.
+        const MAX_PENDING_REVEALS: usize = 1024 * 1024;
+        let count = usize::try_from(queue_size).map_err(|_| XferStatus::InvalidData)?;
+        if count > MAX_PENDING_REVEALS {
             return Err(XferStatus::InvalidData);
         }
         if xfer.get_xfer_mode() == XferMode::Load {
-            snapshot.pending_undo_shroud_reveals = vec![
-                crate::system::shroud_manager::ShroudPendingUndoRevealSnapshot::default();
-                queue_size as usize
-            ];
+            let mut queue = Vec::new();
+            queue
+                .try_reserve_exact(count)
+                .map_err(|_| XferStatus::OutOfMemory)?;
+            queue.resize(
+                count,
+                crate::system::shroud_manager::ShroudPendingUndoRevealSnapshot::default(),
+            );
+            snapshot.pending_undo_shroud_reveals = queue;
         }
         for info in &mut snapshot.pending_undo_shroud_reveals {
             xfer_sighting_info(xfer, info)?;
+            if info.where_pos.iter().any(|value| !value.is_finite())
+                || !info.how_far.is_finite()
+                || info.how_far < 0.0
+            {
+                return Err(XferStatus::InvalidData);
+            }
         }
     }
-
     if xfer.get_xfer_mode() == XferMode::Load {
         shroud
-            .replace_state(&snapshot, logic.get_frame())
+            .replace_state_owned(&snapshot, frame)
             .map_err(|_| XferStatus::InvalidData)?;
+        *partition_cell_size = cell_size;
     }
-
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "partition_xfer_owner_tests.rs"]
+mod partition_xfer_owner_tests;
 
 fn xfer_sides_list_runtime_state(xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
     let current_version: XferVersion = 1;
