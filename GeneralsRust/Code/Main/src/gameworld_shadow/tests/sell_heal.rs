@@ -75,7 +75,7 @@ fn explosion_detonation_damage_source_authority_source() {
         ),
     ] {
         let owner_name = if name == "process_destroy_list" {
-            "process_destroy_list_with_effects_checked".to_owned()
+            "process_destroy_list_body_with_effects_checked".to_owned()
         } else {
             format!("{name}_with_effects")
         };
@@ -88,6 +88,12 @@ fn explosion_detonation_damage_source_authority_source() {
             let checked_adapter = last_rust_fn_body(src, "process_destroy_list_with_effects")
                 .expect("destroy adapter");
             assert!(checked_adapter.contains("self.process_destroy_list_with_effects_checked("));
+            let lifecycle_wrapper =
+                last_rust_fn_body(src, "process_destroy_list_with_effects_checked")
+                    .expect("destroy lifecycle wrapper");
+            assert!(
+                lifecycle_wrapper.contains("self.process_destroy_list_body_with_effects_checked(")
+            );
         }
         let body = last_rust_fn_body(src, &owner_name).expect(&owner_name);
         let normalized: String = body.split_whitespace().collect();
