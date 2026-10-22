@@ -781,7 +781,6 @@ fn retail_overcharge_behavior_metadata_drives_frozen_command_and_live_drain() {
     // name/KindOf-only permission.
     let defaults_source = r#"
 Object MetadataOnlyOvercharger
-  Type = Structure
   KindOf = STRUCTURE SELECTABLE
   EnergyProduction = 10
   Body = ActiveBody ModuleTag_Body
@@ -867,7 +866,7 @@ End
                 ),
                 (
                     "overcharge-defaults.ini".to_owned(),
-                    defaults_source.to_owned(),
+                    defaults_source.to_owned() + "Object ChinaPowerPlantNamedOnly\n KindOf = STRUCTURE FS_POWER\n Body = ActiveBody NamedOnlyBody\n MaxHealth = 1500\n InitialHealth = 1500\n End\nEnd\n",
                 ),
             ])
             .expect("paired retail and zero-bonus Object definitions"),
@@ -876,12 +875,16 @@ End
 
     // This keeps the old false positive shape (a China/power name plus
     // PowerPlant KindOf) but deliberately omits the parsed Behavior.
-    let mut name_only = ThingTemplate::new("ChinaPowerPlantNamedOnly");
-    name_only
-        .add_kind_of(KindOf::Structure)
-        .add_kind_of(KindOf::PowerPlant)
-        .set_health(1_500.0);
-    logic.templates.insert(name_only.name.clone(), name_only);
+    logic
+        .templates
+        .get_mut("ChinaPowerPlantNamedOnly")
+        .unwrap()
+        .add_kind_of(KindOf::PowerPlant);
+    assert!(
+        logic.templates["ChinaPowerPlantNamedOnly"]
+            .overcharge_behavior
+            .is_none()
+    );
 
     let plant_id = logic
         .create_object_for_player("ChinaPowerPlant", 0, glam::Vec3::ZERO)

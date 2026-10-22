@@ -540,8 +540,28 @@ fn heal_armor_absolute_hp_authority_source() {
     // Battle Drone repair no longer has an absolute-HP mirror writer: its
     // receiving SlavedUpdate callback uses the typed Body healing operation.
     let slave = include_str!("../../game_logic/world_combat/slaved_update.rs");
-    assert!(slave.contains("apply_residual_damage_owned"));
-    assert!(slave.contains("DamageType::Healing"));
+    let update = last_rust_fn_body(slave, "update_owned_slaved_object").expect("slave adapter");
+    assert!(update.contains("self.update_owned_slaved_object_with_effects("));
+    let owner = last_rust_fn_body(slave, "update_owned_slaved_object_with_effects")
+        .expect("receiving slave owner");
+    assert!(owner.contains("self.slave_repair_with_effects("));
+    let repair =
+        last_rust_fn_body(slave, "slave_repair_with_effects").expect("actual repair phase");
+    let repair: String = repair.split_whitespace().collect();
+    assert!(repair.contains("self.apply_owned_healing_with_effects(master,data.repair_rate/30.0,None,presentation_effects,)"), "repair retains recipient, rate, attribution and receiving effects");
+    assert!(
+        !repair.contains("write_object_health_authority_aware"),
+        "repair must not become an absolute-health mirror write"
+    );
+    let damage = include_str!("../../game_logic/world_objects/damage_application.rs");
+    let healing = last_rust_fn_body(damage, "apply_owned_healing_with_effects")
+        .expect("typed Body healing owner");
+    assert!(healing.contains("DamageType::Healing"));
+    assert!(
+        healing.contains(".with_healing_entry()"),
+        "Body::attemptHealing is distinct from a healing weapon"
+    );
+    assert!(healing.contains("self.apply_owned_damage_with_effects("));
 }
 
 #[test]

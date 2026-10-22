@@ -15,6 +15,29 @@ const PRODUCER: &str = "AmericaBarracks";
 const INFANTRY: &str = "AuthoredOwnerCaptureInfantry";
 
 fn install_rules(logic: &mut GameLogic, cost: u32, seconds: u32) {
+    // A logical-only save has no map bootstrap to supply its receiving team
+    // definitions. Admit the same ordered, owned roster on source and both
+    // load receivers; saved runtime membership is restored separately.
+    {
+        let mut factory = logic.team_factory.lock().expect("receiving TeamFactory");
+        for (controller, owner_name) in [
+            (OWNER, "Research owner"),
+            (OTHER, "Same faction foreign owner"),
+        ] {
+            let team_name = format!("team{owner_name}");
+            if factory.find_team_prototype(&team_name).is_none() {
+                factory
+                    .init_team_owned(
+                        team_name.into(),
+                        owner_name.into(),
+                        true,
+                        None,
+                        Some(controller),
+                    )
+                    .expect("receiving player default-team definition");
+            }
+        }
+    }
     crate::game_logic::host_upgrade_rules::register_test_upgrade(
         logic,
         UPGRADE_INFANTRY_CAPTURE,
@@ -26,7 +49,7 @@ fn install_rules(logic: &mut GameLogic, cost: u32, seconds: u32) {
     // Producer admission uses the existing static retail CommandSet fallback;
     // this fixture does not claim full authored Common CommandSet coverage.
     let source = format!(
-        "Object {PRODUCER}\n  Type = Structure\n  KindOf = STRUCTURE SELECTABLE ATTACKABLE FS_BARRACKS\n  Body = ActiveBody ModuleTag_Body\n    MaxHealth = 1000\n    InitialHealth = 1000\n  End\n  Behavior = ProductionUpdate ModuleTag_Production\n  End\nEnd\nObject {INFANTRY}\n  Type = Infantry\n  KindOf = INFANTRY SELECTABLE ATTACKABLE\n  Body = ActiveBody ModuleTag_Body\n    MaxHealth = 100\n    InitialHealth = 100\n  End\n  Behavior = SpecialAbility ModuleTag_Capture\n    SpecialPowerTemplate = SpecialAbilityRangerCaptureBuilding\n    StartsPaused = Yes\n  End\n  Behavior = UnpauseSpecialPowerUpgrade ModuleTag_CaptureUpgrade\n    SpecialPowerTemplate = SpecialAbilityRangerCaptureBuilding\n    TriggeredBy = {UPGRADE_INFANTRY_CAPTURE}\n  End\nEnd\n"
+        "Object {PRODUCER}\n  KindOf = STRUCTURE SELECTABLE FS_BARRACKS\n  Body = ActiveBody ModuleTag_Body\n    MaxHealth = 1000\n    InitialHealth = 1000\n  End\n  Behavior = ProductionUpdate ModuleTag_Production\n  End\nEnd\nObject {INFANTRY}\n  KindOf = INFANTRY SELECTABLE\n  Body = ActiveBody ModuleTag_Body\n    MaxHealth = 100\n    InitialHealth = 100\n  End\n  Behavior = SpecialAbility ModuleTag_Capture\n    SpecialPowerTemplate = SpecialAbilityRangerCaptureBuilding\n    StartsPaused = Yes\n  End\n  Behavior = UnpauseSpecialPowerUpgrade ModuleTag_CaptureUpgrade\n    SpecialPowerTemplate = SpecialAbilityRangerCaptureBuilding\n    TriggeredBy = {UPGRADE_INFANTRY_CAPTURE}\n  End\nEnd\n"
     );
     // Reset retains the already admitted receiving catalog and restores its
     // baseline. Fresh source and load receivers admit the identical source.

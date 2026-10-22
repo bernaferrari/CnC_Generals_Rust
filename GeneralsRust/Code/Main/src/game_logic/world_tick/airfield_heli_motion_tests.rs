@@ -110,7 +110,6 @@ End
     );
     let source = r#"
 Object HqO7b46Helipad
-  Type = Structure
   KindOf = STRUCTURE SELECTABLE FS_AIRFIELD
   Body = ActiveBody ModuleTag_Body
     MaxHealth = 1000

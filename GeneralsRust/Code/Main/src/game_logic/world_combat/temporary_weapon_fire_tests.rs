@@ -481,17 +481,40 @@ fn damaged_reaction_rejects_non_matching_damage_type() {
 }
 
 /// C++ FireWeaponWhenDamagedBehavior::onDamage — every ready module fires.
+/// This is an admitted-owner module visitation fixture. Its own ENEMIES-only
+/// instant weapon has no victim; it does not assert Crusader projectile parity.
 #[test]
 fn damaged_reaction_fires_every_ready_module() {
     let mut logic = GameLogic::new();
     logic.frame = 10;
+    let weapon_name = "OwnedMultiModuleReaction539";
+    let mut definitions = HashMap::new();
+    assert_eq!(
+        crate::assets::ini_template_loader::parse_weapon_definitions_ini_into(
+            &mut definitions,
+            &format!(
+                "Weapon {weapon_name}\n PrimaryDamage = 60\n PrimaryDamageRadius = 20\n DamageType = EXPLOSION\n RadiusDamageAffects = ENEMIES\n ProjectileObject = NONE\n ClipSize = 2\n ClipReloadTime = 0\n DelayBetweenShots = 0\nEnd\n"
+            ),
+            crate::assets::ini_template_loader::WeaponDefinitionLoadType::Normal,
+        ),
+        1,
+    );
+    logic
+        .admit_weapon_content_snapshot(
+            definitions
+                .into_values()
+                .map(|rule| (rule.name.clone(), rule))
+                .collect(),
+            &[],
+        )
+        .unwrap();
     let first = ready_weapon_on(
-        "CrusaderTankGun",
+        weapon_name,
         FireWeaponWhenDamagedWeaponRole::ReactionPristine,
         0,
     );
     let second = ready_weapon_on(
-        "CrusaderTankGun",
+        weapon_name,
         FireWeaponWhenDamagedWeaponRole::ReactionPristine,
         1,
     );
@@ -538,7 +561,11 @@ fn damaged_reaction_fires_every_ready_module() {
     assert!(runtime1.replace_weapon_state(second));
     object.temporary_weapon_runtime.damaged = vec![runtime0, runtime1];
     let source = ObjectId(21);
-    logic.objects.insert(source, object);
+    // Use real world admission: raw insertion leaves generation0, which
+    // first discharge would stamp and correctly invalidate a captured lease.
+    assert_eq!(logic.add_object(object), source);
+    assert_eq!(logic.objects.len(), 1);
+    let identity = logic.live_draw_playback_identity(logic.host_object(source).unwrap());
     let keys = logic.damaged_reaction_plan(source, 10.0, 0);
     assert_eq!(
         keys.len(),
@@ -547,8 +574,13 @@ fn damaged_reaction_fires_every_ready_module() {
     );
     assert_eq!(keys[0].module_source_index, 0);
     assert_eq!(keys[1].module_source_index, 1);
-    let _ = logic.execute_temporary_weapon_on_damage(source, 10.0, 0);
+    assert_eq!(logic.execute_temporary_weapon_on_damage(source, 10.0, 0), 0);
     let object = logic.host_object(source).expect("source");
+    assert_eq!(
+        object.health.current, 80.0,
+        "neither module changes the Body role"
+    );
+    assert_eq!(logic.live_draw_playback_identity(object), identity);
     let state0 = object.temporary_weapon_runtime.damaged[0]
         .weapon(TemporaryWeaponRuntimeKey {
             module_source_index: 0,
@@ -561,12 +593,10 @@ fn damaged_reaction_fires_every_ready_module() {
             role: FireWeaponWhenDamagedWeaponRole::ReactionPristine,
         })
         .expect("role1");
-    if store_fields_for_weapon_name("CrusaderTankGun").is_some() {
-        assert_eq!(state0.ammo_in_clip, 1, "first module must fire");
-        assert_eq!(state1.ammo_in_clip, 1, "second module must fire");
-        assert_eq!(state0.last_fire_frame, 10);
-        assert_eq!(state1.last_fire_frame, 10);
-    }
+    assert_eq!(state0.ammo_in_clip, 1, "first module must fire");
+    assert_eq!(state1.ammo_in_clip, 1, "second module must fire");
+    assert_eq!(state0.last_fire_frame, 10);
+    assert_eq!(state1.last_fire_frame, 10);
 }
 
 /// C++ FireWeaponWhenDamagedBehavior::update — every ready continuous module fires.

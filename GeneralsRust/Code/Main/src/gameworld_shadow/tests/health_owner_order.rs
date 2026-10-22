@@ -66,7 +66,7 @@ fn injured_world_with_reaction_threshold(threshold: f32) -> (GameLogic, GameWorl
         3
     );
     let object = format!(
-        "Object OwnerHealingVehicle\n KindOf = VEHICLE\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = FireWeaponWhenDamagedBehavior OwnedDamageReaction\n StartsActive = Yes\n DamageAmount = {threshold}\n ReactionWeaponDamaged = OwnerReactionDamaged539\n ReactionWeaponReallyDamaged = OwnerReactionCritical539\n ReactionWeaponPristine = OwnerReactionPristine539\n ReactionWeaponRubble = OwnerReactionPristine539\n End\nEnd\n"
+        "Object OwnerHealingVehicle\n KindOf = VEHICLE\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = FireWeaponWhenDamagedBehavior OwnedDamageReaction\n StartsActive = Yes\n DamageAmount = {threshold}\n ReactionWeaponDamaged = OwnerReactionDamaged539\n ReactionWeaponReallyDamaged = OwnerReactionCritical539\n ReactionWeaponPristine = OwnerReactionPristine539\n ReactionWeaponRubble = OwnerReactionPristine539\n End\n Behavior = InstantDeathBehavior OwnedInstantDeath\n DeathTypes = ALL\n End\nEnd\n"
     );
     let mut logic = GameLogic::new();
     logic.add_player(Player::new(0, Team::USA, "Owner", true));
@@ -74,7 +74,7 @@ fn injured_world_with_reaction_threshold(threshold: f32) -> (GameLogic, GameWorl
         .admit_receiving_module_content(
             crate::assets::ReceivingObjectContent::from_sources([(
                 "owned-damage-reactions539.ini".to_owned(),
-                object,
+                object + "Object ActualReactionTarget\n KindOf = VEHICLE\n ArmorSet\n Conditions = None\n Armor = OwnerReactionArmor\n End\n Body = ActiveBody TargetBody\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n",
             )])
             .unwrap(),
         )
@@ -97,6 +97,12 @@ fn injured_world_with_reaction_threshold(threshold: f32) -> (GameLogic, GameWorl
         .collect();
     logic.weapon_definition_base = Some(catalog.clone());
     logic.weapon_definitions = Some(catalog);
+    logic.admit_armor_definitions(std::sync::Arc::new(
+        gamelogic::object::armor::ArmorDefinitions::load_from_str(
+            "Armor OwnerReactionArmor\n Armor = Default 100%\n Armor = Poison 25%\nEnd\n",
+        )
+        .unwrap(),
+    ));
     let (logic, shadow, id) = finish_injured_world(logic);
     let source = logic.host_object(id).unwrap();
     assert!(
@@ -122,12 +128,7 @@ fn install_reaction_target(logic: &mut GameLogic) -> ObjectId {
         player.is_alive = true;
         player.alliance_team = alliance;
     }
-    let mut target = ThingTemplate::new("ActualReactionTarget");
-    target
-        .add_kind_of(KindOf::Vehicle)
-        .add_kind_of(KindOf::Attackable)
-        .set_health(100.0);
-    logic.templates.insert(target.name.clone(), target);
+    assert!(logic.templates.contains_key("ActualReactionTarget"));
     let id = logic
         .create_object(
             "ActualReactionTarget",
@@ -390,7 +391,7 @@ fn damage_reactions_observe_damage_state_before_later_healing() {
     );
     assert_eq!(
         target.previous_health, 99.0,
-        "TankArmor POISON25%: pristine0.625 follows damaged0.5 and critical0.5"
+        "authored POISON25%: pristine0.625 follows damaged0.5 and critical0.5"
     );
     // A second observation boundary cannot reexecute the reaction weapons.
     let _ = observe_completed_owner(&mut shadow, &mut logic);
@@ -454,7 +455,7 @@ fn fatal_owner_damage_reacts_to_zero_health_and_cannot_write_back_stale_hp() {
     assert_eq!(
         logic.host_object(reaction_target).unwrap().health.current,
         99.375,
-        "TankArmor POISON25% rubble reaction executes before source removal"
+        "authored POISON25% rubble reaction executes before source removal"
     );
     assert!(logic.host_object(id).unwrap().status.destroyed);
     assert!(logic.objects.ordered_ids().contains(&id));

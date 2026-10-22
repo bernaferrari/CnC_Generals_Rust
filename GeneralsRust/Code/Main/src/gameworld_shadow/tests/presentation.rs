@@ -940,7 +940,10 @@ fn residual_acquire_query_source() {
     }
     // Mine clearer nearest residual inside update_mines_and_demo_traps.
     {
-        let name = "update_mines_and_demo_traps";
+        let adapter =
+            last_rust_fn_body(src, "update_mines_and_demo_traps").expect("mine tick adapter");
+        assert!(adapter.contains("self.update_mines_and_demo_traps_with_effects("));
+        let name = "update_mines_and_demo_traps_with_effects";
         let i = src
             .find(&format!("fn {name}"))
             .unwrap_or_else(|| panic!("missing {name}"));
@@ -1039,10 +1042,10 @@ fn residual_acquire_query_source() {
     // Point-defense laser intercept residual (priority bands).
     {
         let name = "update_point_defense_intercept";
-        let i = src
-            .find(&format!("fn {name}"))
-            .unwrap_or_else(|| panic!("missing {name}"));
-        let body = &src[i..src.len().min(i + 6000)];
+        let adapter = last_rust_fn_body(src, name).expect(name);
+        assert!(adapter.contains("self.update_point_defense_intercept_with_effects("));
+        let body = last_rust_fn_body(src, "update_point_defense_intercept_with_effects")
+            .expect("effects-bearing point-defense implementation");
         assert!(
             body.contains("pick_best_priority_residual_target")
                 && body.contains("PriorityAcquireCandidate"),
