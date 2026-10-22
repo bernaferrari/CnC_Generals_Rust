@@ -222,31 +222,26 @@ impl GameLogic {
         gamelogic::team::flush_pending_team_script_events();
     }
 
-    /// C++ Object destructor unlinks from TeamMemberList.
-    pub fn unlink_leftover_team_host_member(&self, id: ObjectId, team_name: &str) {
-        let team_name = team_name.trim();
-        if team_name.is_empty() {
+    /// C++ Object destructor unlinks only its retained resident team pointer.
+    /// A missing identity never selects a same-name sibling or creates a team.
+    pub(in crate::game_logic) fn unlink_retiring_team_host_member(
+        &self,
+        id: ObjectId,
+        identity: Option<u32>,
+    ) {
+        let Some(identity) = identity else {
             return;
-        }
+        };
         let factory = self
             .team_factory
             .lock()
             .unwrap_or_else(|error| error.into_inner());
-        // Resolve existing instances only. A destructor must not create an
-        // inactive instance or select a different instance sharing this name.
-        let instances = match self
-            .objects
-            .get(&id)
-            .and_then(|object| object.team_instance_id)
-        {
-            Some(identity) => factory.find_team_by_id(identity).into_iter().collect(),
-            None => factory.find_team_instances(team_name),
+        let Some(team) = factory.find_team_by_id(identity) else {
+            return;
         };
-        for team in instances {
-            let mut guard = team.write().unwrap_or_else(|error| error.into_inner());
-            if guard.has_member(id.0) {
-                guard.remove_member(id.0);
-            }
+        let mut guard = team.write().unwrap_or_else(|error| error.into_inner());
+        if guard.has_member(id.0) {
+            guard.remove_member(id.0);
         }
     }
 

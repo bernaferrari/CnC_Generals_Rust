@@ -403,6 +403,9 @@ impl GameLogic {
         mut run_step: impl FnMut(&mut Self, f32) -> SimulationStepOutcome,
         mut after_step: impl FnMut(&mut Self),
     ) -> gamelogic::GameLogicResult<Option<NativeTickContinuation>> {
+        if let Some(error) = self.object_retirement_error() {
+            return Err(error);
+        }
         // An already-started source step is completed even if one of its
         // commands changed pause. Ordinary entry keeps its original guard.
         if self.is_paused && resumed_counts.is_none() {
@@ -572,6 +575,9 @@ impl GameLogic {
         ui: crate::game_logic::ScriptPresentationEffects<'_>,
         command_phase: CommandPhaseMode,
     ) -> SimulationStepOutcome {
+        if let Some(error) = self.object_retirement_error() {
+            return SimulationStepOutcome::Failed(error);
+        }
         assert!(
             !self.host_logic_step_active,
             "nested update on the same GameLogic"

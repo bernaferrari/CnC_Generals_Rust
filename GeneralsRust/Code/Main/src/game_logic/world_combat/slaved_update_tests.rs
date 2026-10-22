@@ -1,52 +1,13 @@
 //! Actual receiving SlavedUpdate callback order (CPP SlavedUpdate.cpp:91–261,410–674).
 use crate::game_logic::host_slave_drones::BattleDroneRepairState as Repair;
-use crate::game_logic::{GameLogic, KindOf, Player, Team, ThingTemplate};
+use crate::game_logic::{GameLogic, Player, Team};
 use glam::Vec3;
 fn world() -> (
     GameLogic,
     crate::game_logic::ObjectId,
     crate::game_logic::ObjectId,
 ) {
-    let mut game = GameLogic::new();
-    game.add_player(Player::new(0, Team::USA, "owner", true));
-    let mut master = ThingTemplate::new("OwnedSlaveMaster");
-    master
-        .add_kind_of(KindOf::Vehicle)
-        .add_kind_of(KindOf::Attackable)
-        .set_health(100.0);
-    game.templates.insert(master.name.clone(), master);
-    // Actual authored locomotor + SlavedUpdate factory path; a mobile KindOf
-    // alone is not CPP getCurLocomotor admission (SlavedUpdate.cpp:109–119).
-    let text = r#"
-Object OwnedSlaveRepair
- KindOf = VEHICLE ATTACKABLE
- Locomotor = SET_NORMAL ComancheLocomotor
- Behavior = AIUpdateInterface OwnedSlaveAI
-  AutoAcquireEnemiesWhenIdle = Yes
- End
- Behavior = SlavedUpdate OwnedSlaveUpdate
-  GuardMaxRange = 40
-  AttackRange = 75
-  ScoutRange = 75
-  RepairRatePerSecond = 30
-  RepairWhenHealthBelowPercentage = 50
-  RepairMinReadyTime = 66
-  RepairMaxReadyTime = 66
-  RepairMinWeldTime = 100
-  RepairMaxWeldTime = 100
- End
-End
-"#;
-    let mut parser = crate::assets::IniParser::new();
-    parser.parse_ini_content(text, "slaved-owner.ini").unwrap();
-    let drone = GameLogic::build_template_from_object_definition(
-        "OwnedSlaveRepair",
-        parser.get_definition("OwnedSlaveRepair").unwrap(),
-        None,
-    );
-    let data = drone.slaved_update_metadata.as_ref().unwrap();
-    assert_eq!((data.min_ready_frames, data.min_weld_frames), (2, 3));
-    game.templates.insert(drone.name.clone(), drone);
+    let mut game = receiving_world();
     let master = game
         .create_object_for_player("OwnedSlaveMaster", 0, Vec3::ZERO)
         .unwrap();
@@ -63,6 +24,72 @@ End
     assert!(game.enslave_owned_drone(drone, master));
     (game, master, drone)
 }
+
+/// One paired source owns both typed module data and the host projection.
+/// Fresh receiving sessions use these same definitions before snapshot admission.
+fn receiving_world() -> GameLogic {
+    let mut game = GameLogic::new();
+    // Actual authored locomotor + SlavedUpdate factory path; a mobile KindOf
+    // alone is not CPP getCurLocomotor admission (SlavedUpdate.cpp:109–119).
+    let text = r#"
+Object OwnedSlaveMaster
+ KindOf = VEHICLE SELECTABLE
+ Body = ActiveBody MasterBody
+  MaxHealth = 100
+  InitialHealth = 100
+ End
+End
+Object SlaveVictim
+ KindOf = VEHICLE SELECTABLE
+ Body = ActiveBody VictimBody
+  MaxHealth = 100
+  InitialHealth = 100
+ End
+End
+Object OwnedSlaveRepair
+ Body = ActiveBody DroneBody
+  MaxHealth = 100
+  InitialHealth = 100
+ End
+ KindOf = VEHICLE SELECTABLE
+ Locomotor = SET_NORMAL ComancheLocomotor
+ Behavior = AIUpdateInterface OwnedSlaveAI
+  AutoAcquireEnemiesWhenIdle = Yes
+ End
+ Behavior = SlavedUpdate OwnedSlaveUpdate
+  GuardMaxRange = 40
+  AttackRange = 75
+  ScoutRange = 75
+  RepairRatePerSecond = 30
+  RepairWhenBelowHealth% = 50
+  RepairMinReadyTime = 66
+  RepairMaxReadyTime = 66
+  RepairMinWeldTime = 100
+  RepairMaxWeldTime = 100
+ End
+End
+"#;
+    let mut parser = crate::assets::IniParser::new();
+    parser.parse_ini_content(text, "slaved-owner.ini").unwrap();
+    assert!(parser.get_definition("OwnedSlaveRepair").is_some());
+    game.admit_receiving_module_content(
+        crate::assets::ReceivingObjectContent::from_sources([(
+            "slaved-owner.ini".into(),
+            text.into(),
+        )])
+        .unwrap(),
+    )
+    .unwrap();
+    let data = game.templates["OwnedSlaveRepair"]
+        .slaved_update_metadata
+        .as_ref()
+        .unwrap();
+    assert_eq!((data.min_ready_frames, data.min_weld_frames), (2, 3));
+    assert_eq!(data.repair_priority_percent, 50);
+    game.add_player(Player::new(0, Team::USA, "owner", true));
+    game
+}
+
 #[test]
 fn receiving_repair_runs_unpack_extend_then_real_healing_once_without_peer_influence() {
     let (mut game, master, drone) = world();
@@ -133,9 +160,9 @@ fn missing_master_stops_slave_effects_before_unmanned_idle() {
         .set_status_disabled_held(true);
     // Remove the physical member as well; keep the slave's saved secondary
     // reference untouched to exercise missing-master resolution on update.
-    let team_name = game.host_object(master).unwrap().team_instance_name.clone();
-    game.unlink_leftover_team_host_member(master, &team_name);
-    game.objects.remove(&master);
+    game.take_object_for_physical_retirement(master, &mut Default::default())
+        .unwrap()
+        .expect("installed master at physical removal");
     game.update_owned_slaved_object(drone);
     let owner = game.host_object(drone).unwrap();
     assert!(!owner.status.unselectable);
@@ -186,11 +213,8 @@ fn normal_encoded_save_preserves_exact_repair_wait_and_resumed_body_healing() {
     let crate::save_load::DecodedGameSave {
         snapshot: decoded, ..
     } = manager.load_game_snapshot("slave_owner").unwrap();
-    let mut restored = GameLogic::new();
-    // Load the same receiving player/default-team definitions before applying
-    // the saved roster, just as map admission does in the production path.
-    restored.add_player(Player::new(0, Team::USA, "owner", true));
-    restored.templates = game.templates.clone();
+    // Admit the same paired content and player defaults before the saved roster.
+    let mut restored = receiving_world();
     manager
         .restore_game_snapshot(&decoded, &mut restored)
         .unwrap();
@@ -218,16 +242,14 @@ fn normal_encoded_save_preserves_exact_repair_wait_and_resumed_body_healing() {
     // next actual update, not rejected or repaired by loading.
     // Remove the physical member as well; keep the slave's saved secondary
     // reference untouched to exercise missing-master resolution on update.
-    let team_name = game.host_object(master).unwrap().team_instance_name.clone();
-    game.unlink_leftover_team_host_member(master, &team_name);
-    game.objects.remove(&master);
+    game.take_object_for_physical_retirement(master, &mut Default::default())
+        .unwrap()
+        .expect("installed master at physical removal");
     manager.save_game("slave_missing", &game, &info).unwrap();
     let crate::save_load::DecodedGameSave {
         snapshot: missing, ..
     } = manager.load_game_snapshot("slave_missing").unwrap();
-    let mut lost = GameLogic::new();
-    lost.add_player(Player::new(0, Team::USA, "owner", true));
-    lost.templates = game.templates.clone();
+    let mut lost = receiving_world();
     manager.restore_game_snapshot(&missing, &mut lost).unwrap();
     assert_eq!(
         lost.host_object(drone)
@@ -343,11 +365,7 @@ fn slaved_update_scouts_ahead_of_actual_master_path() {
 fn slaved_update_moves_toward_master_victim_not_nearest_enemy() {
     let (mut game, master, drone) = world();
     game.add_player(Player::new(1, Team::China, "enemy", false));
-    let mut target = ThingTemplate::new("SlaveVictim");
-    target
-        .add_kind_of(KindOf::Vehicle)
-        .add_kind_of(KindOf::Attackable);
-    game.templates.insert(target.name.clone(), target);
+    // SlaveVictim is admitted alongside the master and drone above.
     let far = game
         .create_object_for_player("SlaveVictim", 1, Vec3::new(200.0, 0.0, 0.0))
         .unwrap();
@@ -381,7 +399,7 @@ pub(in crate::game_logic) fn install_slave_fixture(
     let text = format!(
         r#"
 Object {name}
- KindOf = VEHICLE SELECTABLE ATTACKABLE
+ KindOf = VEHICLE SELECTABLE
  VisionRange = {vision}
  Locomotor = SET_NORMAL ComancheLocomotor
  Behavior = AIUpdateInterface FixtureSlaveAI
@@ -393,7 +411,7 @@ Object {name}
   AttackRange = 75
   ScoutRange = 75
   RepairRatePerSecond = {rate}
-  RepairWhenHealthBelowPercentage = 60
+  RepairWhenBelowHealth% = 60
   RepairMinReadyTime = 300
   RepairMaxReadyTime = 750
   RepairMinWeldTime = 1000

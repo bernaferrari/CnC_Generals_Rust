@@ -9,9 +9,9 @@ struct ReceivingView {
 }
 impl NativeViewEffects for ReceivingView {
     #[cfg(feature = "game_client")]
-    fn retire_object_drawable(
+    fn retire_physical_object_drawable(
         &mut self,
-        _: &crate::assets::LiveDrawPlaybackIdentity,
+        _: &crate::game_logic::NativeObjectRetirement<'_>,
     ) -> Result<(), String> {
         Err("camera-only fixture cannot physically retire native Drawables".into())
     }

@@ -11,7 +11,7 @@ impl GameLogic {
     /// Wave 912: true when destroy queue or destroy-ready residual has work.
     #[inline]
     pub fn has_pending_destroy_work(&self) -> bool {
-        !self.objects_to_destroy.is_empty()
+        !self.objects_to_destroy.is_empty() || self.objects.failed_retirement_reason().is_some()
     }
 
     /// Wave 912: process destroy list only when residual work is pending.
@@ -59,6 +59,9 @@ impl GameLogic {
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
+        if let Some(error) = self.object_retirement_error() {
+            return Err(error);
+        }
         let mut destroyed_structure = false;
         let mut rubble_stamps: Vec<(glam::Vec3, i32)> = Vec::new();
         while let Some(event) = self.objects_to_destroy.pop_front() {
@@ -66,8 +69,8 @@ impl GameLogic {
                 match self.finish_direct_object_removal_checked(event.id, presentation_effects) {
                     Ok(structure) => destroyed_structure |= structure,
                     Err(error) => {
-                        // Native failure stops this frame. Preserve the selected
-                        // event and installed host lifetime for diagnostics.
+                        // Terminal failure retains the event for diagnostics,
+                        // never replays callbacks or restores a live lookup.
                         self.objects_to_destroy.push_front(event);
                         return Err(error);
                     }
@@ -168,26 +171,15 @@ impl GameLogic {
             self.unregister_tunnel_containment_with_effects(event.id, presentation_effects);
             self.finish_building_sound(event.id);
             self.detach_host_fog_ghost(event.id);
-            // Object.cpp598-607: remove radar, notify the actual receiving
-            // Drawable, then unlink team and finally erase the host node.
-            self.remove_host_radar_provider(event.id);
-            self.host_radar_remove_object(event.id);
-            if let Err(error) =
-                self.retire_native_object_drawable_with_effects(event.id, presentation_effects)
-            {
-                self.objects_to_destroy.push_front(event);
-                return Err(error);
-            }
-            // CPP Object destructor unlinks only at physical removal, after onDelete.
-            // Dead-but-extant objects remain members through their onDie callbacks.
-            if let Some(team_name) = self
-                .objects
-                .get(&event.id)
-                .map(|o| o.team_instance_name.clone())
-            {
-                self.unlink_leftover_team_host_member(event.id, &team_name);
-            }
-            if let Some(obj) = self.objects.remove(&event.id) {
+            let retired =
+                match self.take_object_for_physical_retirement(event.id, presentation_effects) {
+                    Ok(object) => object,
+                    Err(error) => {
+                        self.objects_to_destroy.push_front(event);
+                        return Err(error);
+                    }
+                };
+            if let Some(obj) = retired {
                 // A DockUpdate queue is module-owned; discard it with the
                 // owning dock Object rather than retaining a dead ObjectId.
                 self.remove_host_dock_approach_queue(event.id);

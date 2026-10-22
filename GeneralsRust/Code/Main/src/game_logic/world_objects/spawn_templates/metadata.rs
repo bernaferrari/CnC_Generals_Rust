@@ -3007,7 +3007,8 @@ impl GameLogic {
                 repair_min_altitude: real("RepairMinAltitude")?,
                 repair_max_altitude: real("RepairMaxAltitude")?,
                 repair_rate: real("RepairRatePerSecond")?,
-                repair_priority_percent: int("RepairWhenHealthBelowPercentage")?,
+                // SlavedUpdate.h88: this is the authored integer percentage token.
+                repair_priority_percent: int("RepairWhenBelowHealth%")?,
                 min_ready_frames: duration("RepairMinReadyTime")?,
                 max_ready_frames: duration("RepairMaxReadyTime")?,
                 min_weld_frames: duration("RepairMinWeldTime")?,

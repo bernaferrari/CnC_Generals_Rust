@@ -773,6 +773,12 @@ impl GameLogic {
 
     /// Reset method - matching C++ GameLogic interface
     pub fn reset(&mut self) {
+        // A partial native destructor is terminal. Replacing that session and
+        // its native owner is a separate operation, never a successful reset.
+        assert!(
+            self.object_retirement_error().is_none(),
+            "GameLogic reset cannot recover a failed native retirement; replace the session and native owner"
+        );
         // Reject an unavailable live particle owner before any world mutation.
         // The compatibility reset API cannot yet receive that owner explicitly.
         assert!(

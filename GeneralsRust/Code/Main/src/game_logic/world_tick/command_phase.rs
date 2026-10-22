@@ -154,6 +154,9 @@ impl GameLogic {
         mut before: impl FnMut(u32),
         mut after: impl FnMut(&mut Self),
     ) -> NativeTickProgress {
+        if let Some(error) = self.object_retirement_error() {
+            return NativeTickProgress::Failed(error);
+        }
         assert!(
             std::sync::Weak::ptr_eq(
                 &pending.receiving_services,

@@ -271,11 +271,11 @@ impl NativeViewEffects for ActualFactoryProbe<'_, '_> {
     fn host_epoch(&self) -> u64 {
         self.runtime.host_epoch()
     }
-    fn retire_object_drawable(
+    fn retire_physical_object_drawable(
         &mut self,
-        identity: &crate::assets::LiveDrawPlaybackIdentity,
+        source: &crate::game_logic::NativeObjectRetirement<'_>,
     ) -> Result<(), String> {
-        self.runtime.retire_object_drawable(identity)
+        self.runtime.retire_physical_object_drawable(source)
     }
     fn sample_slave(&mut self, source: &NativeSlaveSource, bone: &str) -> SlaveCameraSample {
         self.runtime.sample_slave(source, bone)
@@ -493,11 +493,11 @@ fn actual_factory_birth_installs_receiving_drawable_before_immediate_query_and_i
         fn host_epoch(&self) -> u64 {
             self.runtime.host_epoch()
         }
-        fn retire_object_drawable(
+        fn retire_physical_object_drawable(
             &mut self,
-            identity: &crate::assets::LiveDrawPlaybackIdentity,
+            source: &crate::game_logic::NativeObjectRetirement<'_>,
         ) -> Result<(), String> {
-            self.runtime.retire_object_drawable(identity)
+            self.runtime.retire_physical_object_drawable(source)
         }
         fn sample_slave(&mut self, source: &NativeSlaveSource, bone: &str) -> SlaveCameraSample {
             self.runtime.sample_slave(source, bone)
@@ -1140,3 +1140,6 @@ fn missing_client_key_with_canonical_constructor_is_not_prebirth_absence() {
         },
     );
 }
+
+#[path = "native_physical_callback_tests.rs"]
+mod native_physical_callback_tests;

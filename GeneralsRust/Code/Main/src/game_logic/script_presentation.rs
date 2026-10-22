@@ -39,8 +39,10 @@ pub(crate) trait NativeViewEffects {
     fn local_player_id(&self) -> u32;
     fn sample_slave(&mut self, source: &NativeSlaveSource, bone: &str) -> SlaveCameraSample;
     #[cfg(feature = "game_client")]
-    fn retire_object_drawable(&mut self, identity: &LiveDrawPlaybackIdentity)
-    -> Result<(), String>;
+    fn retire_physical_object_drawable(
+        &mut self,
+        source: &NativeObjectRetirement<'_>,
+    ) -> Result<(), String>;
     #[cfg(feature = "game_client")]
     fn host_epoch(&self) -> u64;
     #[cfg(feature = "game_client")]
@@ -50,6 +52,16 @@ pub(crate) trait NativeViewEffects {
         birth: game_client::core::game_client::NativeDrawableBirthContext,
         content: &mut game_engine::common::thing::module_factory::ModuleFactory,
     ) -> Result<(), String>;
+}
+
+/// Object::~Object retains its original Object/team after GameLogic removed
+/// the Object from both lookup and visitation. These are bounded read loans
+/// into that physical phase, never an alternate object registry.
+#[cfg(feature = "game_client")]
+pub(crate) struct NativeObjectRetirement<'a> {
+    pub(crate) identity: LiveDrawPlaybackIdentity,
+    pub(crate) object: &'a super::Object,
+    pub(crate) live_objects: &'a super::HostObjectStore,
 }
 
 /// One bounded read of the canonical object at initObject/sendObjectCreated.

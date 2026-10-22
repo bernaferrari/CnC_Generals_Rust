@@ -32,12 +32,12 @@ pub(crate) mod terrain_definitions;
 pub(crate) use game_logic::PathfindingHeightSamples;
 pub(crate) use script_ui::ScriptUiEffects;
 mod script_presentation;
-#[cfg(feature = "game_client")]
-pub(crate) use script_presentation::NativeFactoryDrawableSource;
 pub(crate) use script_presentation::{
     NativeAudioEffects, NativeMapAdmission, NativeSlaveSource, NativeTerrainEffects,
     NativeViewEffects, ScriptPresentationEffects,
 };
+#[cfg(feature = "game_client")]
+pub(crate) use script_presentation::{NativeFactoryDrawableSource, NativeObjectRetirement};
 
 #[cfg(test)]
 pub(crate) fn evaluate_and_execute_scripts_for_test(logic: &mut game_logic::GameLogic, dt: f32) {

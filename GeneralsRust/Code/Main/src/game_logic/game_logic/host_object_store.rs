@@ -9,6 +9,17 @@ use super::prelude::*;
 pub struct HostObjectStore {
     map: HashMap<ObjectId, Object>,
     registration_order: Vec<ObjectId>,
+    // A failed destructor cannot put its Object back into the live lookup.
+    // Retain the exact owned value for diagnostics until this session is
+    // discarded with its native owner. Clearing a live roster is not an
+    // acknowledgement that failed native resource cleanup succeeded.
+    failed_retirement: Option<FailedObjectRetirement>,
+}
+
+#[derive(Debug)]
+struct FailedObjectRetirement {
+    object: Box<Object>,
+    reason: String,
 }
 
 impl HostObjectStore {
@@ -50,6 +61,33 @@ impl HostObjectStore {
     pub fn clear(&mut self) {
         self.map.clear();
         self.registration_order.clear();
+    }
+
+    pub(crate) fn failed_retirement_reason(&self) -> Option<&str> {
+        self.failed_retirement
+            .as_ref()
+            .map(|failure| failure.reason.as_str())
+    }
+
+    pub(crate) fn failed_retirement_object(&self) -> Option<&Object> {
+        self.failed_retirement
+            .as_ref()
+            .map(|failure| failure.object.as_ref())
+    }
+
+    pub(crate) fn retain_failed_retirement(&mut self, object: Object, reason: String) {
+        assert!(
+            self.failed_retirement.is_none(),
+            "a failed retirement is terminal"
+        );
+        assert!(
+            !self.map.contains_key(&object.id),
+            "a retiring Object is not live"
+        );
+        self.failed_retirement = Some(FailedObjectRetirement {
+            object: Box::new(object),
+            reason,
+        });
     }
 
     pub fn get_mut(&mut self, id: &ObjectId) -> Option<&mut Object> {

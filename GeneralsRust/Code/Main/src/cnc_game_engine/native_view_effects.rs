@@ -77,17 +77,6 @@ impl<'a> NativeRendererViewEffects<'a> {
         }
         Ok(())
     }
-    pub(super) fn on_level_start(&mut self) -> Result<(), String> {
-        self.drawables
-            .on_level_start()
-            .map_err(|error| error.to_string())
-    }
-}
-#[cfg(feature = "game_client")]
-impl NativeViewEffects for NativeRendererViewEffects<'_> {
-    fn local_player_id(&self) -> u32 {
-        self.local_player_id
-    }
     fn retire_object_drawable(
         &mut self,
         identity: &crate::assets::LiveDrawPlaybackIdentity,
@@ -132,6 +121,32 @@ impl NativeViewEffects for NativeRendererViewEffects<'_> {
                 draw.err().unwrap_or_else(|| "completed".into())
             )),
         }
+    }
+    pub(super) fn on_level_start(&mut self) -> Result<(), String> {
+        self.drawables
+            .on_level_start()
+            .map_err(|error| error.to_string())
+    }
+}
+#[cfg(feature = "game_client")]
+impl NativeViewEffects for NativeRendererViewEffects<'_> {
+    fn local_player_id(&self) -> u32 {
+        self.local_player_id
+    }
+    fn retire_physical_object_drawable(
+        &mut self,
+        source: &crate::game_logic::NativeObjectRetirement<'_>,
+    ) -> Result<(), String> {
+        let id = source.object.id;
+        if source.identity.object_id() != id.0
+            || source.live_objects.contains_key(&id)
+            || source.live_objects.ordered_ids().contains(&id)
+        {
+            return Err(
+                "physical Drawable retirement requires an unregistered owned Object".into(),
+            );
+        }
+        self.retire_object_drawable(&source.identity)
     }
     fn host_epoch(&self) -> u64 {
         self.host_epoch

@@ -12,7 +12,6 @@
 //!
 //! Rust conversion: 2025
 
-use std::cell::RefCell;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
@@ -382,28 +381,6 @@ impl Default for CriticalSectionManager {
     fn default() -> Self {
         Self::new()
     }
-}
-
-// THREAD: C++ plain static; driven only by the single game/client thread.
-thread_local! {
-    static CRITICAL_SECTION_MANAGER: RefCell<Option<CriticalSectionManager>> =
-        const { RefCell::new(None) };
-}
-
-/// Initialize the global critical section manager
-pub fn init_critical_section_manager() {
-    CRITICAL_SECTION_MANAGER.with_borrow_mut(|manager| {
-        *manager = Some(CriticalSectionManager::new());
-    });
-}
-
-/// Get a reference to a named critical section
-pub fn get_critical_section(name: &str) -> Option<Arc<FastCriticalSection>> {
-    CRITICAL_SECTION_MANAGER.with_borrow_mut(|manager| {
-        manager
-            .as_mut()
-            .map(|manager| manager.get_section(name))
-    })
 }
 
 #[cfg(test)]

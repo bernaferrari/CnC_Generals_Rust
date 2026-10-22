@@ -21,6 +21,7 @@ mod object_ai_combat;
 mod object_queries;
 mod object_upgrade_callbacks;
 mod overlord_addon_damage;
+mod physical_retirement;
 pub(crate) mod radar_live;
 mod radar_provider_owner;
 mod ready_completions;
