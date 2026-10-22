@@ -1,6 +1,6 @@
 //! Immutable receiving Die declarations; runtime receipts live on the Object.
 use crate::assets::ini_parser::BehaviorModuleDefinition;
-use crate::game_logic::host_fx_list_die::{HostFxListDieData, fx_list_die_from_behavior_attrs};
+use crate::game_logic::host_fx_list_die::{fx_list_die_from_behavior_attrs, HostFxListDieData};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -134,6 +134,7 @@ pub(crate) enum NativeDieKind {
         overlord: bool,
     },
     Bridge,
+    Parking,
 }
 pub(crate) fn bind(modules: &[BehaviorModuleDefinition]) -> Vec<NativeDieDeclaration> {
     modules
@@ -195,6 +196,7 @@ pub(crate) fn bind(modules: &[BehaviorModuleDefinition]) -> Vec<NativeDieDeclara
                 "structurecollapseupdate" => NativeDieKind::Collapse,
                 "fireweaponwhendeadbehavior" => NativeDieKind::DeadWeapon,
                 "productionupdate" => NativeDieKind::Production,
+                "parkingplacebehavior" => NativeDieKind::Parking,
                 "specialpowercompletiondie" => NativeDieKind::Completion,
                 "damdie" => NativeDieKind::Dam,
                 "ejectpilotdie" => NativeDieKind::Pilot,

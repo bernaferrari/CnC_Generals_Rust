@@ -360,6 +360,9 @@ impl GameLogic {
                         presentation_effects,
                     );
                 }
+                NativeDieKind::Parking => {
+                    let _ = self.kill_all_parked_units_with_effects(id, presentation_effects);
+                }
                 NativeDieKind::Bridge => {
                     let deletion_queued =
                         self.objects_to_destroy.iter().any(|event| event.id == id);

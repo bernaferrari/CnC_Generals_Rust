@@ -13,6 +13,12 @@ use crate::game_logic::host_overlord_addons::{is_emperor_template, is_helix_temp
 
 impl GameLogic {
     fn ensure_overlord_payload_template(&mut self, name: &str) {
+        if self.receiving_module_content.is_some() {
+            // Resolve this session's authored payload before any compatibility
+            // fallback; missing admitted definitions remain unavailable.
+            let _ = self.ensure_host_spawn_template(name);
+            return;
+        }
         if self.templates.contains_key(name) {
             return;
         }

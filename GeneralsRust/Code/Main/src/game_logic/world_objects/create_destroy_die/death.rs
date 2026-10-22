@@ -68,17 +68,6 @@ impl GameLogic {
         }
     }
 
-    /// Wave 482: sell residual kill (parked aircraft) — queue remove without
-    /// SlowDeath/Topple deferral peels used for combat deaths.
-    pub(in super::super::super) fn destroy_object_for_sell_residual(&mut self, id: ObjectId) {
-        self.maybe_notify_special_power_completion(id);
-        self.maybe_apply_dam_die(id);
-        let _ = self.apply_ocl_random_force(id);
-        self.maybe_apply_upgrade_die(id);
-        self.objects_to_destroy
-            .push_back(DestructionEvent::after_death(id, None));
-    }
-
     /// C++ FireWeaponWhenDeadBehavior::onDie leftover — death weapon splash.
     /// Specialized leftovers (bomb truck / toxin / nuke / demo) own exclusive modules.
     pub(in super::super::super) fn apply_fire_weapon_when_dead(&mut self, dying_id: ObjectId) {
@@ -142,7 +131,11 @@ impl GameLogic {
                 let dx = p.x - pos.x;
                 let dz = p.z - pos.z;
                 let dist = (dx * dx + dz * dz).sqrt();
-                if dist <= max_r { Some(*id) } else { None }
+                if dist <= max_r {
+                    Some(*id)
+                } else {
+                    None
+                }
             })
             .collect();
 
@@ -308,8 +301,8 @@ impl GameLogic {
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         use crate::game_logic::host_usa_pilot::{
-            EJECT_PILOT_TEMPLATE, HostDeathType, PILOT_EJECT_AUDIO, PILOT_SOUND_EJECT_AUDIO,
-            air_eject_spawn_height, is_significantly_above_terrain,
+            air_eject_spawn_height, is_significantly_above_terrain, HostDeathType,
+            EJECT_PILOT_TEMPLATE, PILOT_EJECT_AUDIO, PILOT_SOUND_EJECT_AUDIO,
         };
 
         let (

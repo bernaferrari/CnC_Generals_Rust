@@ -260,7 +260,7 @@ fn exact_sequence_snapshot_restore_preserves_selected_sibling_identity() {
 #[test]
 fn retained_missing_team_id_rejects_before_persist_tail_mutates_receiver() {
     use crate::save_load::snapshot::persist_v18::{
-        SequentialScriptPersist, WorldPersistV18, restore_persist_v18,
+        restore_persist_v18, SequentialScriptPersist, WorldPersistV18,
     };
     let (mut world, id, _) = world();
     let before = world.host_object(id).unwrap().ai_state.clone();
@@ -281,7 +281,20 @@ fn retained_missing_team_id_rejects_before_persist_tail_mutates_receiver() {
 
 #[test]
 fn sequence_idle_contains_cycle_is_bounded_and_still_visits_each_live_member() {
-    let (mut world, first, second) = world();
+    let (mut world, _, _) = world();
+    // privateIdle recurses through an actual Contain interface. A projected
+    // occupants list alone (for example parked aircraft) is not that interface.
+    let mut carrier = world.templates["OwnedNamedInfantry"].clone();
+    carrier.name = "OwnedCycleCarrier".into();
+    carrier.contain_module.kind = ContainModuleKind::Transport;
+    carrier.contain_module.slots = Some(2);
+    world.templates.insert(carrier.name.clone(), carrier);
+    let first = world
+        .create_object_for_player("OwnedCycleCarrier", 1, Vec3::ZERO)
+        .unwrap();
+    let second = world
+        .create_object_for_player("OwnedCycleCarrier", 2, Vec3::ZERO)
+        .unwrap();
     let id = admit(&world, "CycleRoster", first, 1);
     world.host_object_mut(first).unwrap().occupants = vec![second];
     world.host_object_mut(second).unwrap().occupants = vec![first, ObjectId(u32::MAX)];

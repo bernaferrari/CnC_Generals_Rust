@@ -1615,8 +1615,8 @@ impl GameLogic {
         leader_is_hacker: bool,
         player_id: Option<u32>,
     ) -> bool {
-        use crate::game_logic::KindOf;
         use crate::game_logic::host_deliver_payload::is_off_map_default_residual;
+        use crate::game_logic::KindOf;
         if !building.is_alive() || building.status.destroyed {
             return false;
         }
@@ -1650,8 +1650,8 @@ impl GameLogic {
     }
 
     pub(super) fn host_script_team_garrison_nearest(&mut self, team: &str) {
-        use crate::game_logic::KindOf;
         use crate::game_logic::host_deliver_payload::is_off_map_default_residual;
+        use crate::game_logic::KindOf;
         let members = self.host_script_garrison_team_member_ids(team);
         let Some(&leader_id) = members.first() else {
             return;
@@ -1718,8 +1718,8 @@ impl GameLogic {
     }
 
     pub(super) fn host_script_named_garrison_nearest(&mut self, unit: &str) {
-        use crate::game_logic::KindOf;
         use crate::game_logic::host_deliver_payload::is_off_map_default_residual;
+        use crate::game_logic::KindOf;
         let Some(unit_id) = self.host_object_id_by_script_name(unit) else {
             return;
         };
@@ -2444,17 +2444,20 @@ End
                 2
             );
             let mut logic = GameLogic::new();
-            let mut parser = crate::assets::IniParser::new();
-            parser
-                .parse_ini_content(
-                    r#"
+            // Use the actual registered C++ class, not the old projection-only
+            // AIUpdate shorthand (ModuleFactory.cpp:396).
+            logic
+                .admit_receiving_module_content(
+                    crate::assets::ReceivingObjectContent::from_sources([(
+                        "waypoint_fixture.ini".to_owned(),
+                        r#"
 Object WaypointFixtureAircraft
   KindOf = VEHICLE AIRCRAFT
   Body = ActiveBody ModuleTag_Body
     MaxHealth = 100
     InitialHealth = 100
   End
-  Behavior = AIUpdate ModuleTag_AI
+  Behavior = AIUpdateInterface ModuleTag_AI
   End
   Locomotor = SET_NORMAL WaypointFixtureAir
 End
@@ -2464,22 +2467,16 @@ Object WaypointFixtureInfantry
     MaxHealth = 100
     InitialHealth = 100
   End
-  Behavior = AIUpdate ModuleTag_AI
+  Behavior = AIUpdateInterface ModuleTag_AI
   End
   Locomotor = SET_NORMAL WaypointFixtureGround
 End
-"#,
-                    "waypoint_fixture.ini",
+"#
+                        .to_owned(),
+                    )])
+                    .unwrap(),
                 )
                 .unwrap();
-            for name in ["WaypointFixtureAircraft", "WaypointFixtureInfantry"] {
-                let template = GameLogic::build_template_from_object_definition(
-                    name,
-                    parser.get_definition(name).unwrap(),
-                    None,
-                );
-                logic.templates.insert(name.into(), template);
-            }
             let air = logic
                 .create_object("WaypointFixtureAircraft", Team::USA, glam::Vec3::ZERO)
                 .unwrap();
@@ -2496,13 +2493,11 @@ End
             assert!(logic.unit_can_move(air));
             assert!(logic.unit_can_move(foot));
             assert!(logic.host_object(air).unwrap().cur_locomotor_name.is_some());
-            assert!(
-                logic
-                    .host_object(foot)
-                    .unwrap()
-                    .cur_locomotor_name
-                    .is_some()
-            );
+            assert!(logic
+                .host_object(foot)
+                .unwrap()
+                .cur_locomotor_name
+                .is_some());
             assert!(
                 !crate::game_logic::PathfindingGrid::is_doing_ground_movement_full(
                     logic.host_object(air).unwrap()

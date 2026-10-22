@@ -52,6 +52,35 @@ fn world_with_authored_deaths(
         .expect("actual upgrade payload");
     (owner, unit, hull, payload)
 }
+fn world_with_authored_death_source(source: &str) -> (GameLogic, ObjectId, ObjectId, ObjectId) {
+    let mut owner = GameLogic::new();
+    owner.world_min = Vec3::ZERO;
+    owner.world_max = Vec3::splat(1000.0);
+    owner
+        .admit_receiving_module_content(
+            crate::assets::ReceivingObjectContent::from_sources([(
+                "OwnedOverlordDeath.ini".into(),
+                source.into(),
+            )])
+            .unwrap(),
+        )
+        .unwrap();
+    owner.add_player(Player::new(1, Team::China, "OverlordOwner", true));
+    let unit = owner
+        .create_object_for_player("PhysicalBunkerInfantry", 1, Vec3::new(50.0, 0.0, 50.0))
+        .unwrap();
+    let hull = owner
+        .create_object_for_player("ChinaTankOverlord", 1, Vec3::new(50.0, 0.0, 50.0))
+        .unwrap();
+    owner.apply_upgrade_to_object(hull, UPGRADE_OVERLORD_BUNKER);
+    let payload = owner
+        .host_object(hull)
+        .unwrap()
+        .overlord_portable_occupant
+        .expect("actual upgrade payload");
+    (owner, unit, hull, payload)
+}
+
 fn enter(owner: &mut GameLogic, unit: ObjectId, hull: ObjectId) {
     assert!(owner.can_unit_enter_normal_target(unit, hull));
     owner.queue_command(GameCommand {
@@ -84,24 +113,21 @@ fn overlord_enter_uses_actual_payload_roster_and_preserves_same_id_peer() {
     assert_eq!(owner.host_object(unit).unwrap().contained_by, Some(payload));
     assert_eq!(owner.owned_script_containment(hull).unwrap().count, 1);
     assert_eq!(owner.owned_script_containment(hull).unwrap().max, 5);
-    assert!(
-        peer.host_object(payload)
-            .unwrap()
-            .contained_units()
-            .is_empty()
-    );
+    assert!(peer
+        .host_object(payload)
+        .unwrap()
+        .contained_units()
+        .is_empty());
     owner.host_object_mut(hull).unwrap().status.disabled_subdued = true;
     assert!(!owner.can_unit_enter_normal_target(peer_unit, hull));
     assert!(!owner.evacuate_container_now(hull, false));
     owner.host_object_mut(hull).unwrap().status.disabled_subdued = false;
     assert!(owner.evacuate_container_now(hull, false));
-    assert!(
-        owner
-            .host_object(payload)
-            .unwrap()
-            .contained_units()
-            .is_empty()
-    );
+    assert!(owner
+        .host_object(payload)
+        .unwrap()
+        .contained_units()
+        .is_empty());
     assert_eq!(owner.host_object(unit).unwrap().contained_by, None);
     assert_eq!(
         owner.host_object(hull).unwrap().contained_units(),
@@ -115,21 +141,17 @@ fn overlord_delete_detaches_payload_and_riders_before_physical_removal() {
     owner.destroy_object(hull);
     assert!(owner.host_object(hull).unwrap().status.destroyed);
     assert!(!owner.host_object(hull).unwrap().overlord_redirection_active);
-    assert!(
-        owner
-            .host_object(hull)
-            .unwrap()
-            .contained_units()
-            .is_empty()
-    );
+    assert!(owner
+        .host_object(hull)
+        .unwrap()
+        .contained_units()
+        .is_empty());
     assert!(owner.host_object(payload).unwrap().is_alive());
-    assert!(
-        owner
-            .host_object(payload)
-            .unwrap()
-            .contained_units()
-            .is_empty()
-    );
+    assert!(owner
+        .host_object(payload)
+        .unwrap()
+        .contained_units()
+        .is_empty());
     assert_eq!(owner.host_object(payload).unwrap().contained_by, None);
     assert!(owner.host_object(unit).unwrap().is_alive());
     assert_eq!(owner.host_object(unit).unwrap().contained_by, None);
@@ -174,34 +196,28 @@ fn overlord_redirection_phase_survives_owned_lifecycle_codec() {
 fn overlord_on_die_deactivates_then_completes_installed_payload_before_removal() {
     let (mut owner, unit, hull, payload) = world();
     enter(&mut owner, unit, hull);
-    assert!(
-        owner
-            .objects
-            .get_mut(&hull)
-            .unwrap()
-            .kill(&mut owner.health_events)
-    );
+    assert!(owner
+        .objects
+        .get_mut(&hull)
+        .unwrap()
+        .kill(&mut owner.health_events));
     owner.mark_object_for_destruction(hull, None);
     assert!(!owner.host_object(hull).unwrap().overlord_redirection_active);
     assert_eq!(
         owner.host_object(hull).unwrap().overlord_portable_occupant,
         None
     );
-    assert!(
-        owner
-            .host_object(hull)
-            .unwrap()
-            .contained_units()
-            .is_empty()
-    );
+    assert!(owner
+        .host_object(hull)
+        .unwrap()
+        .contained_units()
+        .is_empty());
     assert!(!owner.host_object(payload).unwrap().is_alive());
-    assert!(
-        owner
-            .host_object(payload)
-            .unwrap()
-            .contained_units()
-            .is_empty()
-    );
+    assert!(owner
+        .host_object(payload)
+        .unwrap()
+        .contained_units()
+        .is_empty());
     assert_eq!(owner.host_object(payload).unwrap().contained_by, None);
     assert_eq!(owner.host_object(unit).unwrap().contained_by, None);
     assert_eq!(
@@ -229,10 +245,7 @@ fn authored_payload_contain_death_precedes_instant_death_creation_callback() {
         ));
         gamelogic::helpers::TheObjectCreationListStore::register_object_creation_list(name, list);
     }
-    let mut parser = crate::assets::IniParser::new();
-    parser
-        .parse_ini_content(
-            r#"
+    let authored_source = r#"
 Object PhysicalBunkerInfantry
   KindOf = INFANTRY SELECTABLE CAN_ATTACK
   TransportSlotCount = 1
@@ -245,6 +258,13 @@ Object PhysicalBunkerInfantry
   End
   Behavior = InstantDeathBehavior ModuleTag_Death
     OCL = RiderDeathWitness
+  End
+End
+Object ChinaTankOverlord
+  KindOf = VEHICLE CAN_ATTACK
+  Body = ActiveBody ModuleTag_Body
+    MaxHealth = 1000
+    InitialHealth = 1000
   End
 End
 Object ChinaTankOverlordBattleBunker
@@ -262,37 +282,43 @@ Object ChinaTankOverlordBattleBunker
     OCL = PayloadDeathWitness
   End
 End
-"#,
-            "OwnedOverlordDeath.ini",
-        )
-        .unwrap();
-    let infantry = GameLogic::build_template_from_object_definition(
-        "PhysicalBunkerInfantry",
-        parser.get_definition("PhysicalBunkerInfantry").unwrap(),
-        None,
+Object RiderDeathWitness
+ KindOf = IMMOBILE
+ Body = ActiveBody WitnessBody
+  MaxHealth = 1
+  InitialHealth = 1
+ End
+End
+Object PayloadDeathWitness
+ KindOf = IMMOBILE
+ Body = ActiveBody WitnessBody
+  MaxHealth = 1
+  InitialHealth = 1
+ End
+End
+"#;
+    let (mut owner, unit, hull, child) = world_with_authored_death_source(authored_source);
+    let peer_source = authored_source.replace("100%", "25%");
+    let (peer, _, _, _) = world_with_authored_death_source(&peer_source);
+    assert_eq!(
+        peer.templates["ChinaTankOverlordBattleBunker"]
+            .contain_module
+            .damage_percent_to_units,
+        Some(0.25),
+        "same-name admitted payloads retain each world's authored damage percentage"
     );
-    let payload = GameLogic::build_template_from_object_definition(
-        "ChinaTankOverlordBattleBunker",
-        parser
-            .get_definition("ChinaTankOverlordBattleBunker")
-            .unwrap(),
-        None,
+    assert_eq!(
+        owner.templates["ChinaTankOverlordBattleBunker"]
+            .contain_module
+            .damage_percent_to_units,
+        Some(1.0)
     );
-    assert_eq!(payload.contain_module.damage_percent_to_units, Some(1.0));
-    let (mut owner, unit, hull, child) = world_with_authored_deaths(Some((infantry, payload)));
-    for name in ["RiderDeathWitness", "PayloadDeathWitness"] {
-        owner
-            .templates
-            .insert(name.into(), ThingTemplate::new(name));
-    }
     enter(&mut owner, unit, hull);
-    assert!(
-        owner
-            .objects
-            .get_mut(&hull)
-            .unwrap()
-            .kill(&mut owner.health_events)
-    );
+    assert!(owner
+        .objects
+        .get_mut(&hull)
+        .unwrap()
+        .kill(&mut owner.health_events));
     owner.mark_object_for_destruction(hull, None);
     let rider_witness = owner
         .host_objects()
@@ -311,13 +337,11 @@ End
         "child contain onDie must finish before its later InstantDeath effect"
     );
     assert_eq!(owner.host_object(unit).unwrap().contained_by, None);
-    assert!(
-        owner
-            .host_object(child)
-            .unwrap()
-            .contained_units()
-            .is_empty()
-    );
+    assert!(owner
+        .host_object(child)
+        .unwrap()
+        .contained_units()
+        .is_empty());
 }
 
 #[test]
@@ -381,13 +405,11 @@ fn active_overlord_restore_rejects_wrong_child_and_admits_saved_links() {
     owner.host_object_mut(payload).unwrap().contained_by = None;
     apply_lifecycle_tail_to_host(&saved, &mut owner).unwrap();
     assert_eq!(owner.redirected_containment_owner(hull), payload);
-    assert!(
-        owner
-            .host_object(hull)
-            .unwrap()
-            .contained_units()
-            .contains(&payload)
-    );
+    assert!(owner
+        .host_object(hull)
+        .unwrap()
+        .contained_units()
+        .contains(&payload));
     assert_eq!(owner.host_object(payload).unwrap().contained_by, Some(hull));
     assert_eq!(peer.host_object(peer_unit).unwrap().contained_by, None);
 }

@@ -5,17 +5,93 @@ use super::*;
 use crate::command_system::{CommandType, GameCommand, ModifierKeys};
 use gamelogic::scripting::core::{Parameter, ParameterType, ScriptAction, ScriptActionType};
 use gamelogic::scripting::engine::{ScriptEngine, ScriptExecutionDriver, ScriptOwnerQuery};
-fn template(owner: &mut GameLogic, name: &str, module: &str) {
-    let mut parser = crate::assets::IniParser::new();
-    parser.parse_ini_content(&format!("Object {name}\n KindOf = VEHICLE\n Body = ActiveBody Health\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = {module} Cargo\n Slots = 2\n AllowInsideKindOf = INFANTRY\n CaveIndex = 0\n End\nEnd"),"OwnedTeamContain.ini").unwrap();
-    owner.templates.insert(
-        name.into(),
-        GameLogic::build_template_from_object_definition(
-            name,
-            parser.get_definition(name).unwrap(),
-            None,
-        ),
+
+/// All objects and both containment definitions enter through one receiving
+/// catalog before the first live object is born.
+fn receiving_world() -> GameLogic {
+    let source = r#"
+Object OwnedNamedInfantry
+ KindOf = INFANTRY SELECTABLE CAN_ATTACK
+ TransportSlotCount = 1
+ Locomotor = SET_NORMAL BasicHumanLocomotor
+ Locomotor = SET_PANIC RedguardLocomotor
+ Body = ActiveBody Health
+  MaxHealth = 100
+  InitialHealth = 100
+ End
+ Behavior = AIUpdateInterface OwnedAI
+ End
+End
+Object OwnedTeamTransport
+ KindOf = VEHICLE SELECTABLE
+ Body = ActiveBody Health
+  MaxHealth = 100
+  InitialHealth = 100
+ End
+ Behavior = TransportContain Cargo
+  Slots = 2
+  AllowInsideKindOf = INFANTRY
+ End
+End
+Object OwnedScriptCave
+ KindOf = STRUCTURE SELECTABLE
+ Body = ActiveBody Health
+  MaxHealth = 100
+  InitialHealth = 100
+ End
+ Behavior = CaveContain Cargo
+  ContainMax = 2
+  CaveIndex = 0
+ End
+End
+"#;
+    let mut world = GameLogic::new();
+    world.world_min = Vec3::ZERO;
+    world.world_max = Vec3::splat(1000.0);
+    world
+        .admit_receiving_module_content(
+            crate::assets::ReceivingObjectContent::from_sources([(
+                "OwnedTeamContain.ini".into(),
+                source.into(),
+            )])
+            .unwrap(),
+        )
+        .unwrap();
+    world.add_player(Player::new(1, Team::USA, "NamedOwner", true));
+    world.add_player(Player::new(2, Team::China, "NamedVictim", false));
+    world
+}
+fn spawn_named_pair(world: &mut GameLogic) -> (ObjectId, ObjectId) {
+    let unit = world
+        .create_object_for_player("OwnedNamedInfantry", 1, Vec3::new(50.0, 0.0, 50.0))
+        .unwrap();
+    let target = world
+        .create_object_for_player("OwnedNamedInfantry", 2, Vec3::new(70.0, 0.0, 70.0))
+        .unwrap();
+    world.host_object_mut(unit).unwrap().name = "NamedUnit".into();
+    world.host_object_mut(target).unwrap().name = "NamedTarget".into();
+    let object = world.host_object_mut(unit).unwrap();
+    object.set_formation(19, glam::Vec2::new(4.0, 6.0));
+    object.max_shots_to_fire = 3;
+    assert!(world.apply_unit_locomotor_set(unit, "panic"));
+    assert_eq!(
+        world
+            .host_object(unit)
+            .unwrap()
+            .cur_locomotor_name
+            .as_deref(),
+        Some("RedguardLocomotor")
     );
+    assert_eq!(
+        world
+            .host_object(unit)
+            .unwrap()
+            .jet_ai
+            .cur_locomotor_set
+            .as_deref(),
+        Some("SET_PANIC")
+    );
+    (unit, target)
 }
 fn roster(owner: &GameLogic, member: ObjectId) -> u32 {
     let mut factory = owner.team_factory.lock().unwrap();
@@ -30,12 +106,13 @@ fn roster(owner: &GameLogic, member: ObjectId) -> u32 {
 }
 #[test]
 fn actual_transport_team_wait_observes_only_driving_roster_and_physical_containment() {
-    let (mut owner, unit, _) = world();
-    let (mut peer, peer_unit, _) = world();
+    let mut owner = receiving_world();
+    let mut peer = receiving_world();
+    let (unit, _target) = spawn_named_pair(&mut owner);
+    let (peer_unit, _peer_target) = spawn_named_pair(&mut peer);
     assert_eq!(unit, peer_unit);
     let team = roster(&owner, unit);
     assert_eq!(team, roster(&peer, peer_unit));
-    template(&mut owner, "OwnedTeamTransport", "TransportContain");
     let transport = owner
         .create_object_for_player("OwnedTeamTransport", 1, Vec3::new(50.0, 0.0, 50.0))
         .unwrap();
@@ -95,11 +172,10 @@ fn actual_transport_team_wait_observes_only_driving_roster_and_physical_containm
 }
 #[test]
 fn authored_cave_index_driver_updates_exact_owner_network_and_rejects_occupied_switch() {
-    let (mut owner, unit, _) = world();
-    let (mut peer, _, _) = world();
-    for world in [&mut owner, &mut peer] {
-        template(world, "OwnedScriptCave", "CaveContain");
-    }
+    let mut owner = receiving_world();
+    let mut peer = receiving_world();
+    let (unit, _target) = spawn_named_pair(&mut owner);
+    let _peer_pair = spawn_named_pair(&mut peer);
     let cave = owner
         .create_object_for_player("OwnedScriptCave", 1, Vec3::ZERO)
         .unwrap();

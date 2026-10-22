@@ -23,8 +23,8 @@ impl GameLogic {
         source_id: Option<ObjectId>,
     ) -> Vec3 {
         use crate::game_logic::host_repair::{
-            DOZER_FIND_POSITION_OVERLAP_SPHERE, DozerFindPositionQuery,
-            find_good_build_or_repair_position as snap,
+            find_good_build_or_repair_position as snap, DozerFindPositionQuery,
+            DOZER_FIND_POSITION_OVERLAP_SPHERE,
         };
         use gamelogic::ai::pathfind_astar::PathfindCellType;
 
@@ -688,10 +688,8 @@ impl GameLogic {
         }
     }
 
-    /// C++ OpenContain::onSelling + ParkingPlaceBehavior::killAllParkedUnits residual.
-    ///
-    /// - Eject garrison/transport occupants (orderAllPassengersToExit residual)
-    /// - Kill parked aircraft at airfield hangar (grounded only)
+    /// C++ OpenContain::onSelling: eject containment passengers.
+    /// ParkingPlace runs separately after the selling object enters AI idle.
     pub fn on_selling_container_residual(&mut self, structure_id: ObjectId) {
         self.on_selling_container_residual_with_effects(structure_id, &mut Default::default())
     }
@@ -702,18 +700,15 @@ impl GameLogic {
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         let tree_move_frame = self.frame;
-        let Some(pos) = self.objects.get(&structure_id).map(|o| o.get_position()) else {
+        let Some(container) = self.objects.get(&structure_id) else {
             return;
         };
-        let is_airfield = self
-            .objects
-            .get(&structure_id)
-            .map(|o| {
-                o.is_kind_of(KindOf::FSAirfield)
-                    || o.template_name.to_ascii_lowercase().contains("airfield")
-            })
-            .unwrap_or(false);
-
+        // ParkingPlace's docked roster has a host containment projection, but
+        // that does not install C++ OpenContain::onSelling on the airfield.
+        if container.thing().template.contain_module.kind == ContainModuleKind::None {
+            return;
+        }
+        let pos = container.get_position();
         // Snapshot occupants.
         let occupants: Vec<ObjectId> = self
             .objects
@@ -723,24 +718,6 @@ impl GameLogic {
 
         // Eject passengers around structure (OpenContain::onSelling).
         for (i, uid) in occupants.iter().copied().enumerate() {
-            if is_airfield {
-                // Parked jets: kill if not airborne takeoff residual.
-                let kill = self
-                    .objects
-                    .get(&uid)
-                    .map(|u| {
-                        let aircraft =
-                            u.is_kind_of(KindOf::Aircraft) || u.object_type == ObjectType::Aircraft;
-                        let airborne = u.status.airborne_target || u.get_position().y > 5.0;
-                        aircraft && !airborne
-                    })
-                    .unwrap_or(false);
-                if kill {
-                    self.destroy_object_for_sell_residual(uid);
-                    self.sell_parked_units_killed = self.sell_parked_units_killed.saturating_add(1);
-                    continue;
-                }
-            }
             // Eject residual.
             if let Some(unit) = self.objects.get_mut(&uid) {
                 let angle = (uid.0 as f32 + i as f32 * 1.11) * 0.7;
@@ -822,33 +799,6 @@ impl GameLogic {
                 }
             }
         }
-
-        // Also kill any jet with contained_by = structure (hangar roster residual).
-        if is_airfield {
-            let parked: Vec<ObjectId> = self
-                .objects
-                .iter()
-                .filter_map(|(id, o)| {
-                    if o.contained_by != Some(structure_id) {
-                        return None;
-                    }
-                    let aircraft =
-                        o.is_kind_of(KindOf::Aircraft) || o.object_type == ObjectType::Aircraft;
-                    let airborne = o.status.airborne_target || o.get_position().y > 5.0;
-                    if aircraft && !airborne {
-                        Some(*id)
-                    } else {
-                        None
-                    }
-                })
-                .collect();
-            for pid in parked {
-                self.destroy_object_for_sell_residual(pid);
-                self.sell_parked_units_killed = self.sell_parked_units_killed.saturating_add(1);
-            }
-        }
-        // ParkingPlaceBehavior::killAllParkedUnits does not flush unrelated
-        // pending deletions. Physical retirement stays in the outer frame phase.
     }
 
     pub fn start_sell_object(&mut self, object_id: ObjectId) -> bool {
@@ -880,21 +830,14 @@ impl GameLogic {
         }
         let team = obj.team;
         let frame = self.frame;
-        // Cancel production + refund queue first (C++ ProductionUpdate cancelAndRefundAllProduction).
-        self.cancel_all_production(object_id);
-        // C++ contain->onSelling() + ParkingPlace killAllParkedUnits residual.
-        self.on_selling_container_residual_with_effects(object_id, effects);
         if let Some(obj) = self.objects.get_mut(&object_id) {
             // C++ setConstructionPercent(99.9f) on 0..100 scale → host 0.999
             obj.construction_percent = 0.999;
 
             obj.set_status_sold(true);
             obj.set_status_unselectable(true);
-            obj.set_status_under_construction(false);
             // Wave 212: deselect logs host_status selected last-writer.
             obj.deselect();
-            obj.set_ai_state(AIState::Idle);
-            {}
             obj.apply_sell_scaffold_model_conditions();
         }
         // Deselect from all players.
@@ -910,6 +853,15 @@ impl GameLogic {
             },
         );
         self.sell_process_starts = self.sell_process_starts.saturating_add(1);
+        // BuildAssistant.cpp: callbacks observe the installed SOLD/list state.
+        self.cancel_all_production(object_id);
+        self.on_selling_container_residual_with_effects(object_id, effects);
+        self.apply_owned_idle(
+            object_id,
+            crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_AI,
+        );
+        let killed = self.kill_all_parked_units_with_effects(object_id, effects);
+        self.sell_parked_units_killed = self.sell_parked_units_killed.saturating_add(killed);
         // C++ sellObject: destroy mines owned by this structure (producerID).
         let mine_ids: Vec<ObjectId> = self
             .objects

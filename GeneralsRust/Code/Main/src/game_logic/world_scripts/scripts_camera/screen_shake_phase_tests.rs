@@ -10,16 +10,37 @@ use gamelogic::scripting::engine::ScriptEngine;
 use std::sync::Arc;
 
 fn world() -> (GameLogic, [ObjectId; 2]) {
-    let mut parser = crate::assets::IniParser::new();
-    parser.parse_ini_content("Object ImmediateShakeVictim\nKindOf = INERT IMMOBILE\nBody = ActiveBody Body\nMaxHealth = 100\nInitialHealth = 100\nEnd\nBehavior = FXListDie Shake\nDeathFX = FX_ImmediateShakeDeath\nEnd\nBehavior = KeepObjectDie Retain\nEnd\nEnd", "immediate-shake.ini").unwrap();
-    let template = GameLogic::build_template_from_object_definition(
-        "ImmediateShakeVictim",
-        parser.get_definition("ImmediateShakeVictim").unwrap(),
-        None,
-    );
+    let source = r#"Object ImmediateShakeVictim
+KindOf = INERT IMMOBILE
+Body = ActiveBody Body
+MaxHealth = 100
+InitialHealth = 100
+End
+Behavior = FXListDie Shake
+DeathFX = FX_ImmediateShakeDeath
+End
+Behavior = KeepObjectDie Retain
+End
+End
+Object AmericaCommandCenter
+KindOf = STRUCTURE COMMANDCENTER
+Body = ActiveBody Body
+MaxHealth = 100
+InitialHealth = 100
+End
+End
+"#;
     let mut world = GameLogic::new();
+    world
+        .admit_receiving_module_content(
+            crate::assets::ReceivingObjectContent::from_sources([(
+                "immediate-shake.ini".to_owned(),
+                source.to_owned(),
+            )])
+            .unwrap(),
+        )
+        .unwrap();
     world.add_player(Player::new(1, Team::USA, "Owner", true));
-    world.templates.insert(template.name.clone(), template);
     world
         .admit_camera_application_shake(CameraShakeRules {
             shake_normal_intensity: 4.,
@@ -117,15 +138,12 @@ fn actual_same_walk_screen_shake_precedes_native_death_fx_and_never_replays_froz
             // W3DView3224-3280:8,8+4->fixed3,3+4=7. Deferring the first
             // authored action yields4,8,8+8->3, an observable different result.
             assert_eq!(trace, [8., 3., 7.]);
-            assert!(
-                ids.into_iter()
-                    .all(|id| !source.host_object(id).unwrap().is_alive())
-            );
-            assert!(
-                peer_ids
-                    .into_iter()
-                    .all(|id| peer.host_object(id).unwrap().is_alive())
-            );
+            assert!(ids
+                .into_iter()
+                .all(|id| !source.host_object(id).unwrap().is_alive()));
+            assert!(peer_ids
+                .into_iter()
+                .all(|id| peer.host_object(id).unwrap().is_alive()));
             assert_eq!(peer.capture_camera_continuation().unwrap(), peer_before);
             let source_before = source.session_view.capture();
             let frozen =
@@ -205,12 +223,10 @@ fn fallback_hooks_and_direct_driver_share_logic_frame_seed_without_double_admiss
         first,
         "same Logic frame and source operation, no presentation seed"
     );
-    assert!(
-        direct
-            .mission_scripts
-            .drain_screen_shake_requests()
-            .is_empty()
-    );
+    assert!(direct
+        .mission_scripts
+        .drain_screen_shake_requests()
+        .is_empty());
     assert!(direct.pending_screen_shakes.is_empty());
     assert_eq!(peer.capture_camera_continuation().unwrap(), peer_before);
 }
@@ -231,13 +247,8 @@ fn authored_shake_then_home_observes_active_impulse_and_rule_changes_only_next_a
         .write()
         .unwrap()
         .load_map_data(map);
-    let mut home = crate::game_logic::ThingTemplate::new("AmericaCommandCenter");
-    // Actual authored command-center capability makes Home unambiguous even
-    // when the same owner has other zero-cost IMMOBILE/Structure victims.
-    home.add_kind_of(crate::game_logic::KindOf::Structure)
-        .add_kind_of(crate::game_logic::KindOf::CommandCenter)
-        .set_health(100.);
-    owner.templates.insert(home.name.clone(), home);
+    // The receiving catalog authors COMMANDCENTER, so Home remains
+    // unambiguous among this owner's other immobile zero-cost objects.
     owner
         .create_object_for_player("AmericaCommandCenter", 1, Vec3::new(310., 0., 330.))
         .unwrap();

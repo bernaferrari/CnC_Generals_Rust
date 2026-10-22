@@ -243,11 +243,9 @@ fn actual_view_backend_uses_current_dirty_source_and_rejects_peer_or_unobserved_
         sample(&mut client, &mut pipeline, &mut graphics, &fresh),
         SlaveCameraSample::Unavailable(_)
     ));
-    assert!(
-        pipeline
-            .admit_native_drawable_binding(&fresh.identity, replacement)
-            .is_err()
-    );
+    assert!(pipeline
+        .admit_native_drawable_binding(&fresh.identity, replacement)
+        .is_err());
     // Only an actual new constructor observation may install that lifetime.
     client.destroy_drawable(replacement.drawable_id).unwrap();
     let recreated = frame_source(&mut world);
@@ -305,12 +303,11 @@ impl NativeViewEffects for ActualFactoryProbe<'_, '_> {
         );
         self.runtime
             .admit_factory_drawable(source, birth, content)?;
-        assert!(
-            self.runtime
-                .drawables
-                .binding_key(self.runtime.host_epoch, object)
-                .is_some()
-        );
+        assert!(self
+            .runtime
+            .drawables
+            .binding_key(self.runtime.host_epoch, object)
+            .is_some());
         self.births.push(object);
         Ok(())
     }
@@ -334,8 +331,8 @@ fn receiving_factory_world() -> GameLogic {
 
 #[test]
 #[ignore = "requires native WGPU; run explicit isolated strict-backend acceptance"]
-fn actual_factory_birth_installs_receiving_drawable_before_immediate_query_and_isolates_same_id_peer()
- {
+fn actual_factory_birth_installs_receiving_drawable_before_immediate_query_and_isolates_same_id_peer(
+) {
     ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
         width: 32,
         height: 32,
@@ -538,12 +535,10 @@ fn actual_factory_birth_installs_receiving_drawable_before_immediate_query_and_i
         },
     );
     assert!(failed.is_err());
-    assert!(
-        failed
-            .unwrap_err()
-            .to_string()
-            .contains("retirement unavailable")
-    );
+    assert!(failed
+        .unwrap_err()
+        .to_string()
+        .contains("retirement unavailable"));
     drop(wrong);
     assert_eq!(runtime.drawables.binding_key(EPOCH, id.0), Some(binding));
     assert_eq!(
@@ -752,8 +747,8 @@ fn birth_physical_retirement_actor(
 
 #[test]
 #[ignore = "requires native WGPU; run explicit isolated physical-retirement acceptance"]
-fn actual_physical_delete_retires_semantic_receiver_only_after_queue_and_rejects_stale_rebirth_including_no_draw()
- {
+fn actual_physical_delete_retires_semantic_receiver_only_after_queue_and_rejects_stale_rebirth_including_no_draw(
+) {
     ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
         width: 32,
         height: 32,
@@ -869,12 +864,10 @@ fn actual_physical_delete_retires_semantic_receiver_only_after_queue_and_rejects
                 runtime.retire_object_drawable(&old.identity).is_err(),
                 "a foreign world cannot retire the same numeric ID"
             );
-            assert!(
-                runtime
-                    .drawables
-                    .binding_key(EPOCH + 1, peer_id.0)
-                    .is_some()
-            );
+            assert!(runtime
+                .drawables
+                .binding_key(EPOCH + 1, peer_id.0)
+                .is_some());
             assert_eq!(
                 pose(runtime.sample_slave(&peer_source, "CAMERA"))
                     .w_axis
@@ -1039,12 +1032,10 @@ fn actual_physical_delete_retires_semantic_receiver_only_after_queue_and_rejects
                     },
                 )
                 .unwrap();
-            assert!(
-                runtime
-                    .drawables
-                    .binding_key(EPOCH, no_draw_reborn.0)
-                    .is_none()
-            );
+            assert!(runtime
+                .drawables
+                .binding_key(EPOCH, no_draw_reborn.0)
+                .is_none());
         },
     );
     with_physical_retirement_view(
@@ -1146,3 +1137,6 @@ mod native_physical_callback_tests;
 
 #[path = "native_deletion_phase_tests.rs"]
 mod native_deletion_phase_tests;
+
+#[path = "native_airfield_sell_tests.rs"]
+mod native_airfield_sell_tests;

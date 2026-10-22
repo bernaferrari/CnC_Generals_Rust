@@ -3,9 +3,16 @@
 use super::super::HostHeliTakeoffOrLanding;
 use super::super::*;
 
+#[path = "airfield_parking_death.rs"]
+mod parking_death;
+
 #[cfg(test)]
 #[path = "airfield_heli_motion_tests.rs"]
 pub(in crate::game_logic) mod heli_motion_tests;
+
+#[cfg(test)]
+#[path = "airfield_sell_owner_tests.rs"]
+mod sell_owner_tests;
 
 #[derive(Clone, Copy, Debug)]
 #[allow(dead_code)]
@@ -1162,54 +1169,6 @@ impl GameLogic {
         }
     }
 
-    /// C++ `ParkingPlaceBehavior::killAllParkedUnits`.
-    fn kill_all_parked_units(&mut self, airfield_id: ObjectId) {
-        self.kill_all_parked_units_with_effects(
-            airfield_id,
-            &mut crate::game_logic::ScriptPresentationEffects::default(),
-        )
-    }
-
-    fn kill_all_parked_units_with_effects(
-        &mut self,
-        airfield_id: ObjectId,
-        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
-        let Some(spaces) = self.airfield_parking_spaces.get(&airfield_id).cloned() else {
-            return;
-        };
-        let mut kill = Vec::new();
-        for space in &spaces {
-            let Some(jet_id) = space.object_id else {
-                continue;
-            };
-            let Some(jet) = self.objects.get(&jet_id) else {
-                continue;
-            };
-            if !jet.is_alive() {
-                continue;
-            }
-            let takeoff_or_landing = self.jet_holds_airfield_runway(airfield_id, jet_id);
-            if Self::jet_is_above_terrain(jet) && !takeoff_or_landing {
-                continue;
-            }
-            kill.push(jet_id);
-        }
-        for jet_id in kill {
-            let killed = self.apply_owned_kill_with_effects(
-                jet_id,
-                crate::game_logic::combat::DamageType::Unresistable,
-                crate::game_logic::host_usa_pilot::HostDeathType::Normal,
-                presentation_effects,
-            );
-            // CPP purgeDead must retain reservations for a surviving body.
-            if killed.is_some_and(|result| result.destroyed) {
-                let _ = self.release_airfield_parking_space_for_jet(jet_id);
-                self.release_airfield_runway_for_jet(jet_id);
-            }
-        }
-    }
-
     /// C++ `ParkingPlaceBehavior::defectAllParkedUnits`.
     pub(in super::super) fn defect_all_parked_units(&mut self, airfield_id: ObjectId) {
         self.defect_all_parked_units_with_effects(
@@ -1313,44 +1272,6 @@ impl GameLogic {
                     jet.producer_id = None;
                 }
             }
-        }
-    }
-
-    fn tick_airfield_parking_lifecycle(&mut self) {
-        self.tick_airfield_parking_lifecycle_with_effects(
-            &mut crate::game_logic::ScriptPresentationEffects::default(),
-        )
-    }
-
-    fn tick_airfield_parking_lifecycle_with_effects(
-        &mut self,
-        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
-        self.apply_pending_helipad_exits(presentation_effects);
-        let mut airfields: Vec<ObjectId> = self.airfield_parking_spaces.keys().copied().collect();
-        for (&id, object) in self.objects.iter() {
-            if object.thing().template.parking_place.is_some() {
-                airfields.push(id);
-            }
-        }
-        airfields.sort_by_key(|id| id.0);
-        airfields.dedup();
-        for airfield_id in airfields {
-            let dead_or_sold = self
-                .objects
-                .get(&airfield_id)
-                .map(|object| {
-                    !object.is_alive()
-                        || object.status.destroyed
-                        || object.status.sold
-                        || object.status.effectively_dead
-                })
-                .unwrap_or(true);
-            if dead_or_sold {
-                self.kill_all_parked_units_with_effects(airfield_id, presentation_effects);
-            }
-            // C++ `ParkingPlaceBehavior::defectAllParkedUnits` runs only from
-            // `Object::defect` (airfield capture), never each tick on team mismatch.
         }
     }
 
@@ -3156,7 +3077,7 @@ impl GameLogic {
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
-        self.tick_airfield_parking_lifecycle_with_effects(presentation_effects);
+        self.apply_pending_helipad_exits(presentation_effects);
         self.tick_heli_takeoff_or_landing();
         self.tick_flight_decks_with_effects(presentation_effects);
         self.sync_airfield_healees();

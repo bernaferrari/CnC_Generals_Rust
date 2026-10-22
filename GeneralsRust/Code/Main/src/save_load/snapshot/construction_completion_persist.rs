@@ -1,24 +1,29 @@
-//! Persist the explicit Player power-admission phase of instant construction.
-//! C++ Energy retains the admission while BuildAssistant leaves UC set. This
-//! suffix records that phase; restoring never calls Player or CreateModules.
+//! Persist owned construction admission and status continuation flags.
+//! C++ Object::xfer preserves status independently of BuildAssistant sellList.
+//! Restoring this framed suffix never calls Player or CreateModules.
 use crate::game_logic::{GameLogic, ObjectId};
 use crate::save_load::{SaveLoadError, SaveLoadResult};
 const MAGIC: &[u8; 4] = b"CPAD";
 
 pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, world: &GameLogic) {
-    let mut ids: Vec<u32> = world
+    let mut rows: Vec<(u32, u32)> = world
         .host_objects()
         .values()
-        .filter(|object| object.construction_power_admitted)
-        .map(|object| object.id.0)
+        .filter_map(|object| {
+            let flags = u32::from(object.construction_power_admitted)
+                | (u32::from(object.status.sold) << 1)
+                | (u32::from(object.status.reconstructing) << 2);
+            (flags != 0).then_some((object.id.0, flags))
+        })
         .collect();
-    ids.sort_unstable();
-    bytes.extend_from_slice(&(ids.len() as u32).to_le_bytes());
-    for id in &ids {
+    rows.sort_unstable_by_key(|row| row.0);
+    bytes.extend_from_slice(&(rows.len() as u32).to_le_bytes());
+    for (id, flags) in &rows {
         bytes.extend_from_slice(&id.to_le_bytes());
+        bytes.extend_from_slice(&flags.to_le_bytes());
     }
-    bytes.extend_from_slice(&1_u32.to_le_bytes());
-    bytes.extend_from_slice(&((ids.len() + 1) as u32 * 4).to_le_bytes());
+    bytes.extend_from_slice(&2_u32.to_le_bytes());
+    bytes.extend_from_slice(&(4 + rows.len() as u32 * 8).to_le_bytes());
     bytes.extend_from_slice(MAGIC);
 }
 
@@ -61,30 +66,40 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], world: &mut GameLogic) -> SaveLoa
     let version = u32::from_le_bytes(bytes[footer..footer + 4].try_into().unwrap());
     let length = u32::from_le_bytes(bytes[footer + 4..footer + 8].try_into().unwrap()) as usize;
     let start = footer.checked_sub(length).ok_or_else(invalid)?;
-    if version != 1 || length < 4 {
+    if !matches!(version, 1 | 2) || length < 4 {
         return Err(invalid());
     }
     let tail = &bytes[start..footer];
     let read = |offset| u32::from_le_bytes(tail[offset..offset + 4].try_into().unwrap());
     let count = read(0) as usize;
+    let stride = if version == 1 { 4 } else { 8 };
     if length
         != count
-            .checked_add(1)
-            .and_then(|value| value.checked_mul(4))
+            .checked_mul(stride)
+            .and_then(|value| value.checked_add(4))
             .ok_or_else(invalid)?
     {
         return Err(invalid());
     }
-    let mut ids = Vec::with_capacity(count);
+    // Validate the complete capsule before touching any receiving Object.
+    let mut rows = std::collections::BTreeMap::new();
     for index in 0..count {
-        let id = ObjectId(read(4 + index * 4));
-        if ids.contains(&id) || world.host_object(id).is_none() {
+        let offset = 4 + index * stride;
+        let id = ObjectId(read(offset));
+        let flags = if version == 1 { 1 } else { read(offset + 4) };
+        if flags & !7 != 0 || world.host_object(id).is_none() || rows.insert(id, flags).is_some() {
             return Err(invalid());
         }
-        ids.push(id);
     }
     for object in world.host_objects_mut().values_mut() {
-        object.construction_power_admitted = ids.contains(&object.id);
+        let flags = rows.get(&object.id).copied().unwrap_or(0);
+        object.construction_power_admitted = flags & 1 != 0;
+        // Version one contained only power IDs. It never overwrites status
+        // fields, preserving its exact historical interpretation.
+        if version == 2 {
+            object.status.sold = flags & 2 != 0;
+            object.status.reconstructing = flags & 4 != 0;
+        }
     }
     Ok(())
 }
@@ -121,7 +136,7 @@ mod tests {
         assert_eq!(source.script_object_count_changed_frame, 0);
         let mut bad = bytes.clone();
         let version = bad.len() - 12;
-        bad[version..version + 4].copy_from_slice(&2_u32.to_le_bytes());
+        bad[version..version + 4].copy_from_slice(&3_u32.to_le_bytes());
         assert!(apply_from_lifecycle_tail(&bad, &mut source).is_err());
         assert!(source.host_object(id).unwrap().construction_power_admitted);
         let mut oversized = bytes.clone();
@@ -130,9 +145,13 @@ mod tests {
         assert!(apply_from_lifecycle_tail(&oversized, &mut source).is_err());
         assert!(source.host_object(id).unwrap().construction_power_admitted);
         let mut absent = bytes.clone();
-        let object_id_offset = absent.len() - 16;
+        let object_id_offset = absent.len() - 20;
         absent[object_id_offset..object_id_offset + 4].copy_from_slice(&u32::MAX.to_le_bytes());
         assert!(apply_from_lifecycle_tail(&absent, &mut source).is_err());
         assert!(source.host_object(id).unwrap().construction_power_admitted);
     }
 }
+
+#[cfg(test)]
+#[path = "construction_status_persist_tests.rs"]
+mod status_tests;

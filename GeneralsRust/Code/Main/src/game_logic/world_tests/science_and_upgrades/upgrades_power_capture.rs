@@ -197,30 +197,22 @@ fn same_faction_players_keep_upgrade_and_construction_power_separate() {
         UPGRADE_AMERICA_SUPPLY_LINES.to_string(),
         p0_supply,
     )]);
-    assert!(
-        logic
-            .get_player(0)
-            .unwrap()
-            .has_unlocked_upgrade(UPGRADE_AMERICA_SUPPLY_LINES)
-    );
-    assert!(
-        !logic
-            .get_player(1)
-            .unwrap()
-            .has_unlocked_upgrade(UPGRADE_AMERICA_SUPPLY_LINES)
-    );
-    assert!(
-        logic
-            .host_object(p0_supply)
-            .unwrap()
-            .has_upgrade_tag(UPGRADE_AMERICA_SUPPLY_LINES)
-    );
-    assert!(
-        !logic
-            .host_object(p1_supply)
-            .unwrap()
-            .has_upgrade_tag(UPGRADE_AMERICA_SUPPLY_LINES)
-    );
+    assert!(logic
+        .get_player(0)
+        .unwrap()
+        .has_unlocked_upgrade(UPGRADE_AMERICA_SUPPLY_LINES));
+    assert!(!logic
+        .get_player(1)
+        .unwrap()
+        .has_unlocked_upgrade(UPGRADE_AMERICA_SUPPLY_LINES));
+    assert!(logic
+        .host_object(p0_supply)
+        .unwrap()
+        .has_upgrade_tag(UPGRADE_AMERICA_SUPPLY_LINES));
+    assert!(!logic
+        .host_object(p1_supply)
+        .unwrap()
+        .has_upgrade_tag(UPGRADE_AMERICA_SUPPLY_LINES));
 
     // A delayed special-power spawn is a second ownership boundary: the
     // source is player 0, while player 1 shares the same USA faction.  Both
@@ -273,12 +265,10 @@ fn host_upgrade_complete_chain_guns_includes_gattling_tank() {
         .expect("gattling");
     let n = logic.apply_chain_guns_to_team(Team::China, UPGRADE_CHINA_CHAIN_GUNS);
     assert_eq!(n, 1);
-    assert!(
-        logic
-            .host_object(id)
-            .unwrap()
-            .has_upgrade_tag(UPGRADE_CHINA_CHAIN_GUNS)
-    );
+    assert!(logic
+        .host_object(id)
+        .unwrap()
+        .has_upgrade_tag(UPGRADE_CHINA_CHAIN_GUNS));
 }
 
 #[test]
@@ -317,18 +307,14 @@ fn host_upgrade_complete_anthrax_beta_and_toxin_shells() {
 
     let n_a = logic.apply_anthrax_beta_to_team(Team::GLA, UPGRADE_GLA_ANTHRAX_BETA);
     assert!(n_a >= 2);
-    assert!(
-        logic
-            .host_object(tid)
-            .unwrap()
-            .has_upgrade_tag(UPGRADE_GLA_ANTHRAX_BETA)
-    );
-    assert!(
-        logic
-            .host_object(sid)
-            .unwrap()
-            .has_upgrade_tag(UPGRADE_GLA_ANTHRAX_BETA)
-    );
+    assert!(logic
+        .host_object(tid)
+        .unwrap()
+        .has_upgrade_tag(UPGRADE_GLA_ANTHRAX_BETA));
+    assert!(logic
+        .host_object(sid)
+        .unwrap()
+        .has_upgrade_tag(UPGRADE_GLA_ANTHRAX_BETA));
 
     // Fresh scud for toxin shells residual.
     let sid2 = logic
@@ -340,12 +326,10 @@ fn host_upgrade_complete_anthrax_beta_and_toxin_shells() {
         .expect("scud2");
     let n_t = logic.apply_toxin_shells_to_team(Team::GLA, UPGRADE_GLA_TOXIN_SHELLS);
     assert!(n_t >= 1);
-    assert!(
-        logic
-            .host_object(sid2)
-            .unwrap()
-            .has_upgrade_tag(UPGRADE_GLA_TOXIN_SHELLS)
-    );
+    assert!(logic
+        .host_object(sid2)
+        .unwrap()
+        .has_upgrade_tag(UPGRADE_GLA_TOXIN_SHELLS));
 }
 
 #[test]
@@ -402,39 +386,31 @@ fn host_upgrade_complete_ap_bullets_and_ap_rockets_team() {
 
     let n_b = logic.apply_ap_bullets_to_team(Team::GLA, UPGRADE_GLA_AP_BULLETS);
     assert!(n_b >= 2, "rebel+kell");
-    assert!(
-        logic
-            .host_object(rid)
-            .unwrap()
-            .has_upgrade_tag(UPGRADE_GLA_AP_BULLETS)
-    );
-    assert!(
-        logic
-            .host_object(kid)
-            .unwrap()
-            .has_upgrade_tag(UPGRADE_GLA_AP_BULLETS)
-    );
+    assert!(logic
+        .host_object(rid)
+        .unwrap()
+        .has_upgrade_tag(UPGRADE_GLA_AP_BULLETS));
+    assert!(logic
+        .host_object(kid)
+        .unwrap()
+        .has_upgrade_tag(UPGRADE_GLA_AP_BULLETS));
 
     let n_r = logic.apply_ap_rockets_to_team(Team::GLA, UPGRADE_GLA_AP_ROCKETS);
     assert!(n_r >= 2, "scorp+rpg");
-    assert!(
-        logic
-            .host_object(sid)
-            .unwrap()
-            .has_upgrade_tag(UPGRADE_GLA_AP_ROCKETS)
-    );
-    assert!(
-        logic
-            .host_object(pid)
-            .unwrap()
-            .has_upgrade_tag(UPGRADE_GLA_AP_ROCKETS)
-    );
+    assert!(logic
+        .host_object(sid)
+        .unwrap()
+        .has_upgrade_tag(UPGRADE_GLA_AP_ROCKETS));
+    assert!(logic
+        .host_object(pid)
+        .unwrap()
+        .has_upgrade_tag(UPGRADE_GLA_AP_ROCKETS));
 }
 
 #[test]
 fn host_upgrade_complete_uranium_and_black_napalm() {
     use crate::game_logic::host_battlemaster::{
-        UPGRADE_CHINA_URANIUM_SHELLS, has_uranium_shells_upgrade,
+        has_uranium_shells_upgrade, UPGRADE_CHINA_URANIUM_SHELLS,
     };
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
@@ -468,19 +444,17 @@ fn host_upgrade_complete_uranium_and_black_napalm() {
 
     let n_b = logic.apply_black_napalm_to_team(Team::China, "Upgrade_ChinaBlackNapalm");
     assert!(n_b >= 1);
-    assert!(
-        logic
-            .host_object(mid)
-            .unwrap()
-            .has_upgrade_tag("Upgrade_ChinaBlackNapalm")
-    );
+    assert!(logic
+        .host_object(mid)
+        .unwrap()
+        .has_upgrade_tag("Upgrade_ChinaBlackNapalm"));
 }
 
 #[test]
 fn host_upgrade_complete_scorpion_rocket_and_laser_missiles() {
-    use crate::game_logic::host_raptor::{UPGRADE_AMERICA_LASER_MISSILES, is_raptor_template};
+    use crate::game_logic::host_raptor::{is_raptor_template, UPGRADE_AMERICA_LASER_MISSILES};
     use crate::game_logic::host_scorpion::{
-        UPGRADE_GLA_SCORPION_ROCKET, has_scorpion_rocket_upgrade,
+        has_scorpion_rocket_upgrade, UPGRADE_GLA_SCORPION_ROCKET,
     };
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
@@ -520,12 +494,10 @@ fn host_upgrade_complete_scorpion_rocket_and_laser_missiles() {
     assert!(is_raptor_template(
         &logic.host_object(rid).unwrap().template_name
     ));
-    assert!(
-        logic
-            .host_object(rid)
-            .unwrap()
-            .has_upgrade_tag(UPGRADE_AMERICA_LASER_MISSILES)
-    );
+    assert!(logic
+        .host_object(rid)
+        .unwrap()
+        .has_upgrade_tag(UPGRADE_AMERICA_LASER_MISSILES));
 }
 
 #[test]
@@ -548,20 +520,16 @@ fn host_upgrade_complete_nationalism_tags_red_guard() {
         .expect("rg");
     let n = logic.apply_nationalism_to_team(Team::China, UPGRADE_NATIONALISM);
     assert!(n >= 1);
-    assert!(
-        logic
-            .host_object(id)
-            .unwrap()
-            .has_upgrade_tag(UPGRADE_NATIONALISM)
-    );
-    assert!(
-        logic
-            .players
-            .get(&0)
-            .unwrap()
-            .unlocked_sciences
-            .contains(UPGRADE_NATIONALISM)
-    );
+    assert!(logic
+        .host_object(id)
+        .unwrap()
+        .has_upgrade_tag(UPGRADE_NATIONALISM));
+    assert!(logic
+        .players
+        .get(&0)
+        .unwrap()
+        .unlocked_sciences
+        .contains(UPGRADE_NATIONALISM));
 }
 
 #[test]
@@ -590,14 +558,12 @@ fn subliminal_messaging_tags_propaganda_towers() {
     assert!(logic.subliminal_messaging_upgrades > 0);
     let t = logic.host_object(id).unwrap();
     assert!(t.has_upgrade_tag(UPGRADE_CHINA_SUBLIMINAL_MESSAGING));
-    assert!(
-        logic
-            .players
-            .get(&0)
-            .unwrap()
-            .unlocked_sciences
-            .contains(UPGRADE_CHINA_SUBLIMINAL_MESSAGING)
-    );
+    assert!(logic
+        .players
+        .get(&0)
+        .unwrap()
+        .unlocked_sciences
+        .contains(UPGRADE_CHINA_SUBLIMINAL_MESSAGING));
 }
 
 #[test]
@@ -880,11 +846,9 @@ End
         .get_mut("ChinaPowerPlantNamedOnly")
         .unwrap()
         .add_kind_of(KindOf::PowerPlant);
-    assert!(
-        logic.templates["ChinaPowerPlantNamedOnly"]
-            .overcharge_behavior
-            .is_none()
-    );
+    assert!(logic.templates["ChinaPowerPlantNamedOnly"]
+        .overcharge_behavior
+        .is_none());
 
     let plant_id = logic
         .create_object_for_player("ChinaPowerPlant", 0, glam::Vec3::ZERO)
@@ -1405,12 +1369,10 @@ fn capture_tech_building_sets_captured_model_condition() {
             glam::Vec3::new(0.0, 0.0, 0.0),
         )
         .expect("oil");
-    assert!(
-        !logic
-            .host_object(id)
-            .unwrap()
-            .has_captured_model_condition()
-    );
+    assert!(!logic
+        .host_object(id)
+        .unwrap()
+        .has_captured_model_condition());
 
     if let Some((o, ownership_events)) = logic.host_object_and_ownership_events_mut(id) {
         o.set_team(Team::USA, ownership_events);
@@ -1850,6 +1812,8 @@ fn sell_last_tunnel_ejects_shared_pool() {
     let mut tn = ThingTemplate::new("GLATunnelNetwork");
     tn.add_kind_of(KindOf::Structure).set_health(1000.0);
     tn.build_cost.supplies = 800;
+    tn.contain_module.kind = crate::game_logic::ContainModuleKind::Tunnel;
+    tn.contain_module.slots = Some(10);
     logic.templates.insert("GLATunnelNetwork".into(), tn);
     let mut ranger = ThingTemplate::new("GLARebel");
     ranger.add_kind_of(KindOf::Infantry).set_health(100.0);
@@ -1896,6 +1860,8 @@ fn sell_ejects_garrison_and_kills_parked_aircraft() {
         .add_kind_of(KindOf::Selectable)
         .set_health(1000.0);
     bunker.build_cost.supplies = 500;
+    bunker.contain_module.kind = crate::game_logic::ContainModuleKind::Garrison;
+    bunker.contain_module.slots = Some(5);
     logic.templates.insert("AmericaBunker".into(), bunker);
     let mut ranger = ThingTemplate::new("AmericaInfantryRanger");
     ranger.add_kind_of(KindOf::Infantry).set_health(100.0);
@@ -1907,6 +1873,15 @@ fn sell_ejects_garrison_and_kills_parked_aircraft() {
         .add_kind_of(KindOf::FSAirfield)
         .set_health(2000.0);
     af.build_cost.supplies = 1000;
+    af.parking_place = Some(crate::game_logic::ParkingPlaceMetadata {
+        num_rows: 2,
+        num_cols: 2,
+        approach_height: 50.0,
+        landing_deck_height_offset: 0.0,
+        has_runways: true,
+        park_in_hangars: true,
+        heal_amount_per_second: 10.0,
+    });
     logic.templates.insert("AmericaAirfield".into(), af);
     let mut jet = ThingTemplate::new("AmericaJetRaptor");
     jet.add_kind_of(KindOf::Aircraft).set_health(200.0);
@@ -1967,10 +1942,13 @@ fn sell_ejects_garrison_and_kills_parked_aircraft() {
         j.set_ai_state(AIState::Docked);
         j.status.airborne_target = false;
     }
-    if let Some(a) = logic.host_object_mut(afid) {
-        let _ = a.add_occupant(jid);
-    }
+    assert!(logic.reserve_produced_aircraft_parking_space(afid, jid));
     assert!(logic.start_sell_object(afid));
+    let killed = logic
+        .host_object(jid)
+        .expect("Body-dead jet awaits retirement");
+    assert_eq!(killed.health.current, 0.0);
+    assert!(killed.status.on_die_started);
     assert!(
         logic.objects.contains_key(&jid),
         "sell cannot advance the physical destroy-list phase"
@@ -2052,6 +2030,7 @@ fn sell_allows_under_construction_and_reconstructing() {
     }
     assert!(logic.start_sell_object(uc));
     assert!(logic.is_object_being_sold(uc));
+    assert!(logic.host_object(uc).unwrap().status.under_construction);
     let recon = logic
         .create_object(
             "AmericaPowerPlant",
@@ -2066,6 +2045,8 @@ fn sell_allows_under_construction_and_reconstructing() {
     }
     assert!(logic.start_sell_object(recon));
     assert!(logic.is_object_being_sold(recon));
+    assert!(logic.host_object(recon).unwrap().status.under_construction);
+    assert!(logic.host_object(recon).unwrap().status.reconstructing);
 }
 
 #[test]
@@ -2725,8 +2706,8 @@ fn eva_hero_detected_own_and_enemy_lotus() {
 
 #[test]
 fn eva_superweapon_launched_own_particle_and_enemy_scud() {
-    use crate::game_logic::Team;
     use crate::game_logic::special_power_strikes::HostSuperweaponKind;
+    use crate::game_logic::Team;
     use gamelogic::helpers::EvaEvent;
     let mut logic = GameLogic::new();
     logic.players.insert(
@@ -2831,8 +2812,8 @@ fn eva_superweapon_ready_own_particle_cannon() {
 
 #[test]
 fn eva_upgrade_complete_and_general_level_up() {
-    use crate::game_logic::Team;
     use crate::game_logic::host_science_rank::RANK2_SKILL_POINTS_NEEDED;
+    use crate::game_logic::Team;
     use gamelogic::helpers::EvaEvent;
     let mut logic = GameLogic::new();
     logic.players.insert(
