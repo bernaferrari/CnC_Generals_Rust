@@ -202,6 +202,9 @@ impl GameLogic {
                                     fx.clone(),
                                     true,
                                     deletion_queued,
+                                    &mut crate::game_logic::MovementAudio::queue(
+                                        &mut self.queued_audio_events,
+                                    ),
                                 );
                             }
                         }
@@ -265,12 +268,18 @@ impl GameLogic {
                                                 fx,
                                                 false,
                                                 deletion_queued,
+                                                &mut crate::game_logic::MovementAudio::queue(
+                                                    &mut self.queued_audio_events,
+                                                ),
                                             );
                                         }
                                         NativeSlowFamily::Helicopter(fx) => {
                                             object.begin_helicopter_slow_death_with_fx(
                                                 fx,
                                                 deletion_queued,
+                                                &mut crate::game_logic::MovementAudio::queue(
+                                                    &mut self.queued_audio_events,
+                                                ),
                                             );
                                         }
                                         NativeSlowFamily::Ordinary => {
@@ -278,6 +287,9 @@ impl GameLogic {
                                                 self.frame,
                                                 config,
                                                 deletion_queued,
+                                                &mut crate::game_logic::MovementAudio::queue(
+                                                    &mut self.queued_audio_events,
+                                                ),
                                             );
                                         }
                                     };
@@ -416,7 +428,10 @@ impl GameLogic {
                 return false;
             }
             object.native_die_runtime.ai_dead = true;
-            object.set_ai_state(AIState::Idle);
+            object.set_ai_state(
+                AIState::Idle,
+                &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+            );
             object.target = None;
         }
         true

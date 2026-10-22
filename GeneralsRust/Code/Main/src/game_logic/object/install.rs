@@ -155,6 +155,7 @@ impl Object {
         &mut self,
         amount: f32,
         health_events: &mut crate::game_logic::HostHealthEvents,
+        audio: &mut crate::game_logic::MovementAudio<'_>,
     ) {
         if amount <= 0.0 || !amount.is_finite() {
             return;
@@ -170,14 +171,18 @@ impl Object {
         self.subdual_heal_countdown = self.subdual_heal_rate_frames;
         let now = self.is_subdued();
         if now != was {
-            self.set_disabled_subdued(now, health_events);
+            self.set_disabled_subdued(now, health_events, audio);
         } else if now {
-            self.set_disabled_subdued(true, health_events);
+            self.set_disabled_subdued(true, health_events, audio);
         }
     }
 
     /// C++ SubdualDamageHelper::update residual heal step.
-    pub fn tick_subdual_damage(&mut self, health_events: &mut crate::game_logic::HostHealthEvents) {
+    pub fn tick_subdual_damage(
+        &mut self,
+        health_events: &mut crate::game_logic::HostHealthEvents,
+        audio: &mut crate::game_logic::MovementAudio<'_>,
+    ) {
         if self.subdual_damage <= 0.0 {
             if self.status.disabled_subdued && !self.is_emp_disabled() {
                 // Keep subdued clear if no other disable source.
@@ -197,7 +202,7 @@ impl Object {
         self.subdual_heal_countdown = self.subdual_heal_rate_frames;
         let now = self.is_subdued();
         if was && !now {
-            self.set_disabled_subdued(false, health_events);
+            self.set_disabled_subdued(false, health_events, audio);
         }
     }
 
@@ -205,6 +210,7 @@ impl Object {
         &mut self,
         subdued: bool,
         health_events: &mut crate::game_logic::HostHealthEvents,
+        audio: &mut crate::game_logic::MovementAudio<'_>,
     ) {
         if subdued {
             let already_power = self.is_power_style_disabled();
@@ -221,9 +227,9 @@ impl Object {
             // Structures do not move; stop any residual production-related AI.
             if !self.is_kind_of(KindOf::Structure) {
                 self.set_status_moving(false);
-                self.stop_moving();
+                self.stop_moving(audio);
                 if self.ai_state != AIState::Idle {
-                    self.set_ai_state(AIState::Idle);
+                    self.set_ai_state(AIState::Idle, audio);
                 }
             }
             // C++ ActiveBody::onSubdualChange: non-projectile contain
@@ -259,6 +265,7 @@ impl Object {
     pub fn apply_kill_pilot_unmanned(
         &mut self,
         health_events: &mut crate::game_logic::HostHealthEvents,
+        audio: &mut crate::game_logic::MovementAudio<'_>,
     ) {
         // Preserve original controller for same-player PartitionFilter residual.
         // Only snapshot on the edge into unmanned (refresh would overwrite Neutral).
@@ -277,12 +284,12 @@ impl Object {
         self.status.disabled_paralyzed_until_frame = 0;
         self.status.attacking = false;
         self.set_status_moving(false);
-        self.stop_moving();
+        self.stop_moving(audio);
         self.target = None;
         self.target_location = None;
         self.set_status_force_attack(false);
         if self.ai_state != AIState::Idle {
-            self.set_ai_state(AIState::Idle);
+            self.set_ai_state(AIState::Idle, audio);
         }
         // C++ TheGameLogic->deselectObject(obj, PLAYERMASK_ALL, TRUE).
         self.deselect();
@@ -307,6 +314,7 @@ impl Object {
         pilot_owner_player_id: Option<u32>,
         pilot_level: crate::game_logic::VeterancyLevel,
         ownership_events: &mut crate::game_logic::host_owner_log::OwnershipEvents,
+        audio: &mut crate::game_logic::MovementAudio<'_>,
     ) -> bool {
         use crate::game_logic::host_usa_pilot::{merged_recrew_veterancy, veterancy_rank};
 
@@ -324,12 +332,12 @@ impl Object {
         self.status.disabled_paralyzed_until_frame = 0;
         self.status.attacking = false;
         self.set_status_moving(false);
-        self.stop_moving();
+        self.stop_moving(audio);
         self.target = None;
         self.target_location = None;
         self.set_status_force_attack(false);
         if self.ai_state != AIState::Idle {
-            self.set_ai_state(AIState::Idle);
+            self.set_ai_state(AIState::Idle, audio);
         }
         self.set_team_and_owner(pilot_team, pilot_owner_player_id, ownership_events);
         self.set_private_captured(true);
@@ -353,12 +361,16 @@ impl Object {
     }
 
     /// Toggle DeployStyle residual (artillery / missile humvee / etc.).
-    pub fn set_deployed(&mut self, deployed: bool) {
+    pub fn set_deployed(
+        &mut self,
+        deployed: bool,
+        audio: &mut crate::game_logic::MovementAudio<'_>,
+    ) {
         // The installed object owns its deployed status.
         self.set_status_deployed(deployed);
         if deployed {
             // Deployed units typically stop locomoting residual.
-            self.stop_moving();
+            self.stop_moving(audio);
             self.set_status_moving(false);
         }
     }
@@ -669,6 +681,7 @@ impl Object {
         &mut self,
         mode: crate::game_logic::host_command_button_hunt::HostCommandButtonHuntMode,
         current_frame: u32,
+        audio: &mut crate::game_logic::MovementAudio<'_>,
     ) {
         self.command_button_hunt = Some(
             crate::game_logic::host_command_button_hunt::HostCommandButtonHuntData::new(
@@ -678,9 +691,9 @@ impl Object {
         );
         // C++ setCommandButton → aiIdle(CMD_FROM_AI).
         self.last_command_source = crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_AI;
-        self.set_ai_state(AIState::Idle);
+        self.set_ai_state(AIState::Idle, audio);
         self.target = None;
-        self.stop_moving();
+        self.stop_moving(audio);
     }
 
     pub fn clear_command_button_hunt(&mut self) {
@@ -720,6 +733,7 @@ impl Object {
         &mut self,
         until_frame: u32,
         health_events: &mut crate::game_logic::HostHealthEvents,
+        audio: &mut crate::game_logic::MovementAudio<'_>,
     ) {
         let becoming = !self.is_disabled();
         let already_power = self.is_power_style_disabled();
@@ -730,12 +744,12 @@ impl Object {
         self.status.disabled_hacked_until_frame = until_frame;
         self.status.attacking = false;
         self.set_status_moving(false);
-        self.stop_moving();
+        self.stop_moving(audio);
         self.target = None;
         self.target_location = None;
         self.set_status_force_attack(false);
         if self.ai_state != AIState::Idle {
-            self.set_ai_state(AIState::Idle);
+            self.set_ai_state(AIState::Idle, audio);
         }
         // C++ setDisabledUntil: KINDOF_SPAWNS_ARE_THE_WEAPONS orderSlavesDisabledUntil.
         if self.is_spawns_are_the_weapons() {
@@ -778,6 +792,7 @@ impl Object {
         &mut self,
         until_frame: u32,
         health_events: &mut crate::game_logic::HostHealthEvents,
+        audio: &mut crate::game_logic::MovementAudio<'_>,
     ) {
         let becoming = !self.is_disabled();
         let already_power = self.is_power_style_disabled();
@@ -788,12 +803,12 @@ impl Object {
         self.status.disabled_emp_until_frame = until_frame;
         self.set_status_attacking(false);
         self.set_status_moving(false);
-        self.stop_moving();
+        self.stop_moving(audio);
         self.target = None;
         self.target_location = None;
         self.set_status_force_attack(false);
         if self.ai_state != AIState::Idle {
-            self.set_ai_state(AIState::Idle);
+            self.set_ai_state(AIState::Idle, audio);
         }
         if becoming {
             self.on_disabled_edge(true);
@@ -826,7 +841,11 @@ impl Object {
     /// Apply DISABLED_PARALYZED residual until `until_frame` (absolute host logic frame).
     /// C++ BattlePlanUpdate::paralyzeTroop: setDisabledUntil(DISABLED_PARALYZED, now + frames).
     /// Refresh extends the timer if a later expiry is provided.
-    pub fn apply_disabled_paralyzed(&mut self, until_frame: u32) {
+    pub fn apply_disabled_paralyzed(
+        &mut self,
+        until_frame: u32,
+        audio: &mut crate::game_logic::MovementAudio<'_>,
+    ) {
         let becoming = !self.is_disabled();
         self.set_status_disabled_paralyzed(true);
         if until_frame > self.status.disabled_paralyzed_until_frame {
@@ -834,12 +853,12 @@ impl Object {
         }
         self.status.attacking = false;
         self.set_status_moving(false);
-        self.stop_moving();
+        self.stop_moving(audio);
         self.target = None;
         self.target_location = None;
         self.set_status_force_attack(false);
         if self.ai_state != AIState::Idle {
-            self.set_ai_state(AIState::Idle);
+            self.set_ai_state(AIState::Idle, audio);
         }
         if becoming {
             self.on_disabled_edge(true);

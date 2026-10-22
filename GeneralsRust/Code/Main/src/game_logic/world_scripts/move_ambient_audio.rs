@@ -2,8 +2,7 @@
 #![allow(unused_imports, non_snake_case)]
 use super::super::*;
 use crate::game_logic::host_move_ambient_audio::{
-    TemplateMoveAmbientSlot, drain_move_loop_stops, move_uses_damaged, resolve_ambient_event,
-    resolve_for_object,
+    TemplateMoveAmbientSlot, move_uses_damaged, resolve_ambient_event, resolve_for_object,
 };
 
 /// Existing Main policy for failed permanent-loop restart attempts. C++
@@ -51,21 +50,9 @@ fn leftover_ambient_is_permanent(name: &str) -> bool {
 }
 
 impl GameLogic {
-    pub(crate) fn drain_pending_move_ambient_audio(&mut self) {
-        for ev in drain_move_loop_stops() {
-            self.queue_audio_event(
-                AudioEventRequest::new(&ev.event_name)
-                    .with_object(ev.object)
-                    .with_position(ev.position)
-                    .stopping(),
-            );
-        }
-        self.restart_ambient_sounds_if_dropped();
-    }
-
     /// C++ `Drawable::update` (`Drawable.cpp:1290-1314`): permanent (loop-forever)
     /// SoundAmbient is re-added when Miles / leftover TheAudio culls it out of range.
-    fn restart_ambient_sounds_if_dropped(&mut self) {
+    pub(crate) fn retry_dropped_ambient_sounds(&mut self) {
         if !crate::assets::audio::leftover_the_audio_is_live() {
             return;
         }
@@ -117,7 +104,7 @@ impl GameLogic {
 
     /// C++ `AIInternalMoveToState::startMoveSound`.
     pub(crate) fn start_move_sound(&mut self, id: ObjectId) {
-        self.drain_pending_move_ambient_audio();
+        self.retry_dropped_ambient_sounds();
         let Some(unit) = self.objects.get(&id) else {
             return;
         };
@@ -177,16 +164,7 @@ impl GameLogic {
         let Some(unit) = self.objects.get_mut(&id) else {
             return;
         };
-        let Some(name) = unit.move_loop_audio.take() else {
-            return;
-        };
-        let pos = unit.get_position();
-        self.queue_audio_event(
-            AudioEventRequest::new(&name)
-                .with_object(id)
-                .with_position(pos)
-                .stopping(),
-        );
+        crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events).stop_loop(unit);
     }
 
     /// C++ `Drawable::startAmbientSound` (enabled, current body state).
@@ -397,10 +375,22 @@ mod tests {
                 .and_then(|o| o.move_loop_audio.as_deref()),
             Some("TechnicalMoveLoop")
         );
-        if let Some(unit) = logic.objects.get_mut(&id) {
-            unit.stop_moving();
+        {
+            let unit = logic.objects.get_mut(&id).expect("actual playing unit");
+            unit.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+                &mut logic.queued_audio_events,
+            ));
         }
-        logic.drain_pending_move_ambient_audio();
+        assert_eq!(
+            logic
+                .queued_audio_events
+                .iter()
+                .filter(|event| event.event_type == "TechnicalMoveLoop" && event.stop)
+                .count(),
+            1,
+            "onExit admits exactly one stop directly to its receiving owner"
+        );
+        logic.retry_dropped_ambient_sounds();
         assert!(
             logic
                 .queued_audio_events
@@ -455,7 +445,7 @@ mod tests {
             logic.host_object(id).unwrap().body_damage_state,
             HostBodyDamageType::Damaged
         );
-        logic.drain_pending_move_ambient_audio();
+        logic.retry_dropped_ambient_sounds();
         assert!(
             logic
                 .queued_audio_events
@@ -558,7 +548,7 @@ mod tests {
             logic.host_object(id).unwrap().body_damage_state,
             HostBodyDamageType::Damaged
         );
-        logic.drain_pending_move_ambient_audio();
+        logic.retry_dropped_ambient_sounds();
         assert!(
             logic
                 .queued_audio_events
@@ -670,7 +660,7 @@ mod tests {
             .create_object("AmericaWarFactory", Team::USA, Vec3::new(10.0, 0.0, 10.0))
             .expect("factory");
         logic.queued_audio_events.clear();
-        logic.drain_pending_move_ambient_audio();
+        logic.retry_dropped_ambient_sounds();
         assert!(
             logic.queued_audio_events.iter().any(|e| {
                 e.event_type == "WarFactoryAmbientLoop"
@@ -688,7 +678,7 @@ mod tests {
             let mut guard = manager.lock().expect("THE_AUDIO lock");
             guard.test_insert_active_named_event(id.0, "WarFactoryAmbientLoop");
         }
-        logic.drain_pending_move_ambient_audio();
+        logic.retry_dropped_ambient_sounds();
         assert!(
             logic
                 .queued_audio_events
@@ -729,7 +719,7 @@ mod tests {
         }
 
         logic.set_current_frame(100);
-        logic.drain_pending_move_ambient_audio();
+        logic.retry_dropped_ambient_sounds();
         assert!(
             restarts_queued(&logic, id),
             "first attempt must queue: {:?}",
@@ -741,7 +731,7 @@ mod tests {
         for frame in 101..=129 {
             logic.queued_audio_events.clear();
             logic.set_current_frame(frame);
-            logic.drain_pending_move_ambient_audio();
+            logic.retry_dropped_ambient_sounds();
             assert!(
                 !restarts_queued(&logic, id),
                 "frame {frame}: failed restart must back off, not re-queue"
@@ -749,7 +739,7 @@ mod tests {
         }
 
         logic.set_current_frame(130);
-        logic.drain_pending_move_ambient_audio();
+        logic.retry_dropped_ambient_sounds();
         assert!(
             restarts_queued(&logic, id),
             "30 frames after the failed attempt the retry is due"
@@ -775,7 +765,7 @@ mod tests {
         logic.queued_audio_events.clear();
 
         logic.set_current_frame(200);
-        logic.drain_pending_move_ambient_audio(); // initial attempt at 200
+        logic.retry_dropped_ambient_sounds(); // initial attempt at 200
         logic.queued_audio_events.clear();
 
         {
@@ -783,7 +773,7 @@ mod tests {
             let mut guard = manager.lock().expect("THE_AUDIO lock");
             guard.test_insert_active_named_event(id.0, "WarFactoryAmbientLoop");
         }
-        logic.drain_pending_move_ambient_audio(); // playing → was_playing
+        logic.retry_dropped_ambient_sounds(); // playing → was_playing
         logic.queued_audio_events.clear();
 
         {
@@ -795,7 +785,7 @@ mod tests {
                 .remove_audio_event(1001);
         }
         logic.set_current_frame(201); // inside the 30-frame backoff window
-        logic.drain_pending_move_ambient_audio();
+        logic.retry_dropped_ambient_sounds();
         assert!(
             logic.queued_audio_events.iter().any(|e| {
                 e.event_type == "WarFactoryAmbientLoop"
@@ -829,7 +819,7 @@ mod tests {
             Some("FactoryOneShotAmbient")
         );
         logic.queued_audio_events.clear();
-        logic.drain_pending_move_ambient_audio();
+        logic.retry_dropped_ambient_sounds();
         assert!(
             logic
                 .queued_audio_events

@@ -105,10 +105,10 @@ fn guard_radius_is_owned_and_shadow_only_observes() {
         .create_object("GuardU", Team::USA, glam::Vec3::new(50.0, 0.0, 50.0))
         .expect("id");
     let position = glam::Vec3::new(55.0, 0.0, 55.0);
-    logic
-        .host_object_mut(oid)
-        .unwrap()
-        .set_guard_position(Some(position));
+    logic.host_object_mut(oid).unwrap().set_guard_position(
+        Some(position),
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
     assert!(logic.unit_command_set_guard_radius(oid, 175.0));
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);

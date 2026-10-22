@@ -241,8 +241,15 @@ impl GameLogic {
                 ),
             );
             if let Some(obj) = self.objects.get_mut(&object_id) {
-                obj.set_order_target(Some(target_id), &mut self.attack_events);
-                obj.set_ai_state(AIState::SpecialAbility);
+                obj.set_order_target(
+                    Some(target_id),
+                    &mut self.attack_events,
+                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                );
+                obj.set_ai_state(
+                    AIState::SpecialAbility,
+                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                );
             }
             self.path_approach_with_state_ignoring(
                 object_id,
@@ -297,8 +304,13 @@ impl GameLogic {
 
         let timings = leftover_sa_timings(LeftoverSaKind::LaserGuided);
         if let Some(obj) = self.objects.get_mut(&object_id) {
-            obj.stop_moving();
-            obj.set_ai_state(AIState::SpecialAbility);
+            obj.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+                &mut self.queued_audio_events,
+            ));
+            obj.set_ai_state(
+                AIState::SpecialAbility,
+                &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+            );
             obj.set_status_using_ability(true);
         }
         let (beam_from, beam_to) = self
@@ -1794,13 +1806,20 @@ impl GameLogic {
         // target is cleared through stop_attack_decision_aware before it can
         // become a stale post-deploy shot.
         if let Some(attacker) = self.objects.get_mut(&sentry_id) {
-            attacker.note_attack_target(target_id, &mut self.attack_events);
+            attacker.note_attack_target(
+                target_id,
+                &mut self.attack_events,
+                &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+            );
             let entered_attack = !matches!(
                 attacker.ai_state,
                 AIState::Patrolling | AIState::AttackMoving | AIState::Attacking
             );
             if entered_attack {
-                attacker.set_ai_state(AIState::Attacking);
+                attacker.set_ai_state(
+                    AIState::Attacking,
+                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                );
             }
             {}
         }
@@ -2084,7 +2103,10 @@ impl GameLogic {
                 continue;
             }
             occ.set_contained_by(None);
-            occ.set_ai_state(AIState::Idle);
+            occ.set_ai_state(
+                AIState::Idle,
+                &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+            );
             {}
             ejected.push(occ_id);
         }
@@ -2383,7 +2405,10 @@ impl GameLogic {
                 clear_players.push(pid as i32);
             }
             occ.set_contained_by(None);
-            occ.set_ai_state(AIState::Idle);
+            occ.set_ai_state(
+                AIState::Idle,
+                &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+            );
             {}
             if let Some(aid) = attacker_id {
                 score_pairs.push((aid, occ_id));

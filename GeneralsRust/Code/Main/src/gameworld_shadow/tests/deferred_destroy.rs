@@ -67,7 +67,11 @@ fn phase0_probe_pose_target_weapon_contain_fields() {
         .expect("b");
     {
         let (o, attack_events) = logic.host_object_and_attack_events_mut(a).expect("o");
-        o.attack_target(b, attack_events);
+        o.attack_target(
+            b,
+            attack_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         o.movement.target_position = Some(Vec3::new(12.0, 0.0, 11.0));
         if let Some(w) = o.weapon.as_mut() {
             w.clip_size = 5;

@@ -117,10 +117,14 @@ End
         0
     );
     assert!(transport_object.add_occupant(passenger));
-    let passenger_object = logic.host_object_mut(passenger).unwrap();
+    let (passenger_object, audio_events) =
+        logic.host_object_and_audio_events_mut(passenger).unwrap();
     assert_eq!(passenger_object.health.current, 100.0);
     passenger_object.set_contained_by(Some(transport));
-    passenger_object.set_ai_state(AIState::Docked);
+    passenger_object.set_ai_state(
+        AIState::Docked,
+        &mut crate::game_logic::MovementAudio::queue(audio_events),
+    );
     (logic, transport, passenger)
 }
 

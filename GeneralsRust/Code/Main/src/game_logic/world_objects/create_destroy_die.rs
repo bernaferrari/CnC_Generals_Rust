@@ -173,13 +173,17 @@ impl GameLogic {
             return false;
         };
 
-        if let Some((collector, attack_events)) =
-            self.host_object_and_attack_events_mut(collector_id)
+        if let Some((collector, attack_events, audio_events)) =
+            self.host_object_attack_audio_mut(collector_id)
         {
             // `m_preferredDock` is set by the supply-center/AI handoff, and
             // stays distinct from merely sharing a faction team.
             collector.preferred_dock_id = Some(center_id);
-            collector.set_target(Some(source_id), attack_events);
+            collector.set_target(
+                Some(source_id),
+                attack_events,
+                &mut crate::game_logic::MovementAudio::queue(audio_events),
+            );
             // Keep a concrete one-shot latch/state mirror alongside the
             // host AIState.  The latter still owns path following; the former
             // makes the supply dock cadence observable and saveable.
@@ -189,7 +193,10 @@ impl GameLogic {
             // Do not replace `movement.path`: it already contains the
             // producer's natural/custom exit route.  Once it completes, the
             // normal Gathering update proceeds to this acquired warehouse.
-            collector.set_ai_state(AIState::Gathering);
+            collector.set_ai_state(
+                AIState::Gathering,
+                &mut crate::game_logic::MovementAudio::queue(audio_events),
+            );
         }
         true
     }

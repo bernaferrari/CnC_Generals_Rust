@@ -269,7 +269,7 @@ fn residual_auto_fire_host_attack_log_source() {
     let body =
         last_rust_fn_body(src, "residual_auto_fire_apply_damage_with_effects").expect("helper");
     assert!(
-        body.contains("source.note_attack_target(target_id, &mut self.attack_events)"),
+        body.split_whitespace().collect::<String>().contains("source.note_attack_target(target_id,&mutself.attack_events,&mutcrate::game_logic::MovementAudio::queue(&mutself.queued_audio_events),)"),
         "residual auto-fire helper must record receiving attack output for presentation AttackTargeted"
     );
     for name in [
@@ -1174,7 +1174,7 @@ fn command_move_attack_host_object_id_source() {
     let i = src.find("fn command_attack").expect("command_attack");
     let body = &src[i..src.len().min(i + 6000)];
     assert!(
-        body.contains("attack_target(target_id, &mut self.attack_events)")
+        body.split_whitespace().collect::<String>().contains("attack_target(target_id,&mutself.attack_events,&mutcrate::game_logic::MovementAudio::queue(&mutself.queued_audio_events),)")
             && !body.contains("bridge_attack_to_engine"),
         "command_attack must use host ObjectId attack_target only"
     );

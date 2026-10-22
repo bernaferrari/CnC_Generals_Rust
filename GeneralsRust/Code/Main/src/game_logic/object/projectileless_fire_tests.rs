@@ -103,7 +103,14 @@ fn fire_at_keeps_gattling_store_type() {
         .last_fire_time = -10.0;
     let target_position = Vec3::new(100.0, 0.0, 0.0);
     attacker.prev_victim_pos = Some(target_position);
-    assert!(attacker.fire_at(ObjectId(2), 1.0, 3, &mut combat, &mut _attack_output,));
+    assert!(attacker.fire_at(
+        ObjectId(2),
+        1.0,
+        3,
+        &mut combat,
+        &mut _attack_output,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
+    ));
     assert_eq!(
         crate::game_logic::combat::last_pending_projectile_damage_type_for_test(&combat),
         Some(crate::game_logic::combat::DamageType::Gattling),
@@ -190,7 +197,14 @@ fn fire_at_projectileless_keeps_identity_in_receiving_pending_queue() {
         ..Weapon::default()
     });
     let core_before = crate::game_logic::combat::leftover_delayed_damage_count_for_test();
-    assert!(attacker.fire_at(ObjectId(2), 1.0, 3, &mut combat, &mut _attack_output,));
+    assert!(attacker.fire_at(
+        ObjectId(2),
+        1.0,
+        3,
+        &mut combat,
+        &mut _attack_output,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
+    ));
     assert_eq!(
         crate::game_logic::combat::last_pending_projectile_identity_for_test(&combat),
         Some((ObjectId(1), Some(ObjectId(2)), NAME.to_string())),

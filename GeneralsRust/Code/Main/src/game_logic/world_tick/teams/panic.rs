@@ -35,7 +35,10 @@ impl GameLogic {
             let Some(unit) = self.objects.get_mut(&id) else {
                 return;
             };
-            unit.set_ai_state(AIState::Idle);
+            unit.set_ai_state(
+                AIState::Idle,
+                &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+            );
             unit.set_locomotor_goal_none();
         }
 
@@ -121,7 +124,10 @@ impl GameLogic {
         let actual_goal = goal;
         self.unit_command_waypoint_path_prep(id, false);
         if let Some(unit) = self.objects.get_mut(&id) {
-            unit.set_ai_state(AIState::Panic);
+            unit.set_ai_state(
+                AIState::Panic,
+                &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+            );
             if unit.ai_state != AIState::Panic {
                 return;
             }
@@ -427,7 +433,10 @@ impl GameLogic {
             }
             let _ = self.assign_unit_path(id, goal, &[]);
             if let Some(unit) = self.objects.get_mut(&id) {
-                unit.set_ai_state(AIState::Panic);
+                unit.set_ai_state(
+                    AIState::Panic,
+                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                );
                 unit.panic_runtime = Some(panic);
                 unit.path_extra_distance = extra;
                 unit.adjust_destinations = !append_goal && !has_links;

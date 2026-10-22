@@ -109,7 +109,10 @@ pub const JET_WHEEL_SCREECH_Z_SLOP: f32 = 0.25;
 impl Object {
     /// C++ JetSlowDeathBehavior residual begin.
     /// Returns true when air crash should defer destroy.
-    pub fn begin_jet_slow_death(&mut self) -> bool {
+    pub fn begin_jet_slow_death(
+        &mut self,
+        audio: &mut crate::game_logic::MovementAudio<'_>,
+    ) -> bool {
         if !crate::game_logic::host_jet_slow_death::is_jet_slow_death_template(&self.template_name)
         {
             return false;
@@ -118,7 +121,7 @@ impl Object {
             &self.template_name,
         );
         let grounded = !self.is_significantly_above_terrain() || self.status.deck_height_offset;
-        self.begin_jet_slow_death_with_fx(fx, grounded, false)
+        self.begin_jet_slow_death_with_fx(fx, grounded, false, audio)
     }
 
     pub(in crate::game_logic) fn begin_jet_slow_death_with_fx(
@@ -126,6 +129,7 @@ impl Object {
         fx: crate::game_logic::host_jet_slow_death::HostJetSlowDeathFx,
         grounded: bool,
         deletion_queued: bool,
+        audio: &mut crate::game_logic::MovementAudio<'_>,
     ) -> bool {
         if self
             .jet_slow_death
@@ -153,7 +157,7 @@ impl Object {
             self.status.destroyed = false;
         }
         self.status.deck_height_offset = false;
-        self.set_ai_state(crate::game_logic::AIState::Idle);
+        self.set_ai_state(crate::game_logic::AIState::Idle, audio);
         self.target = None;
         true
     }
@@ -222,7 +226,10 @@ impl Object {
     }
 
     /// C++ HelicopterSlowDeathBehavior residual begin.
-    pub fn begin_helicopter_slow_death(&mut self) -> bool {
+    pub fn begin_helicopter_slow_death(
+        &mut self,
+        audio: &mut crate::game_logic::MovementAudio<'_>,
+    ) -> bool {
         if !crate::game_logic::host_helicopter_slow_death::is_helicopter_slow_death_template(
             &self.template_name,
         ) {
@@ -231,13 +238,14 @@ impl Object {
         let fx = crate::game_logic::host_helicopter_slow_death::heli_slow_death_fx_for_template(
             &self.template_name,
         );
-        self.begin_helicopter_slow_death_with_fx(fx, false)
+        self.begin_helicopter_slow_death_with_fx(fx, false, audio)
     }
 
     pub(in crate::game_logic) fn begin_helicopter_slow_death_with_fx(
         &mut self,
         fx: crate::game_logic::host_helicopter_slow_death::HostHelicopterSlowDeathFx,
         deletion_queued: bool,
+        audio: &mut crate::game_logic::MovementAudio<'_>,
     ) -> bool {
         if self
             .helicopter_slow_death
@@ -260,7 +268,7 @@ impl Object {
         if !deletion_queued {
             self.status.destroyed = false;
         }
-        self.set_ai_state(crate::game_logic::AIState::Idle);
+        self.set_ai_state(crate::game_logic::AIState::Idle, audio);
         self.target = None;
         true
     }
@@ -380,7 +388,11 @@ impl Object {
 
     /// C++ `JetOrHeliCirclingDeadAirfieldState::onEnter`.
     /// Returns true when this call entered the state (play VoiceLowFuel).
-    pub fn enter_circling_dead_airfield(&mut self, now: u32) -> bool {
+    pub fn enter_circling_dead_airfield(
+        &mut self,
+        now: u32,
+        audio: &mut crate::game_logic::MovementAudio<'_>,
+    ) -> bool {
         if self.jet_circling_dead_airfield {
             return false;
         }
@@ -396,7 +408,7 @@ impl Object {
         self.movement.path.clear();
         self.movement.current_path_index = 0;
         self.movement.target_position = None;
-        self.set_ai_state(AIState::Idle);
+        self.set_ai_state(AIState::Idle, audio);
         true
     }
 
@@ -975,7 +987,7 @@ impl Object {
         pending
     }
 
-    pub fn apply_pending_jet_resume(&mut self) {
+    pub fn apply_pending_jet_resume(&mut self, audio: &mut crate::game_logic::MovementAudio<'_>) {
         let resume = self.jet_ai.pending_resume;
         self.jet_ai.has_pending_command = false;
         self.jet_ai.pending_resume = HostJetPendingResume::None;
@@ -983,23 +995,23 @@ impl Object {
             HostJetPendingResume::None => {}
             HostJetPendingResume::GuardArea => {
                 self.hunting = false;
-                self.set_ai_state(AIState::GuardingArea);
+                self.set_ai_state(AIState::GuardingArea, audio);
                 self.jet_ai.allow_interrupt_for_reload = true;
             }
             HostJetPendingResume::GuardObject => {
                 self.hunting = false;
-                self.set_ai_state(AIState::GuardingObject);
+                self.set_ai_state(AIState::GuardingObject, audio);
                 self.jet_ai.allow_interrupt_for_reload = true;
             }
             HostJetPendingResume::Hunt => {
                 self.hunting = true;
                 self.auto_acquire_when_idle = true;
-                self.set_ai_state(AIState::Patrolling);
+                self.set_ai_state(AIState::Patrolling, audio);
                 self.jet_ai.allow_interrupt_for_reload = true;
             }
             HostJetPendingResume::GuardRetaliate => {
                 self.hunting = false;
-                self.set_ai_state(AIState::GuardRetaliating);
+                self.set_ai_state(AIState::GuardRetaliating, audio);
                 self.jet_ai.allow_interrupt_for_reload = true;
             }
         }

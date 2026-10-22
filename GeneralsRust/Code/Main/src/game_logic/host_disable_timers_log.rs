@@ -41,9 +41,21 @@ mod owned_audio_tests {
         assert_eq!(id, peer_id);
         {
             let (object, outputs) = owner.host_object_and_health_events_mut(id).unwrap();
-            object.apply_disabled_emp(10, outputs);
-            object.apply_disabled_emp(11, outputs); // refresh is not another power edge
-            object.apply_disabled_hacked(20, outputs);
+            object.apply_disabled_emp(
+                10,
+                outputs,
+                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            );
+            object.apply_disabled_emp(
+                11,
+                outputs,
+                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            ); // refresh is not another power edge
+            object.apply_disabled_hacked(
+                20,
+                outputs,
+                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            );
             object.set_position(Vec3::new(8.0, 9.0, 10.0));
             object.tick_disabled_emp(11, outputs); // another power disable remains
             assert!(!object.status.disabled_emp);
@@ -92,7 +104,11 @@ mod owned_audio_tests {
         let expected = audio_values(&frame);
         let (mut peer, peer_id) = world(false);
         let (object, outputs) = peer.host_object_and_health_events_mut(peer_id).unwrap();
-        object.apply_disabled_emp(100, outputs);
+        object.apply_disabled_emp(
+            100,
+            outputs,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         let _ = PresentationFrame::build_from_logic(&mut peer, 0);
         assert_eq!(
             audio_values(&frame),
@@ -114,12 +130,25 @@ mod owned_audio_tests {
             object.subdual_damage_cap = 200.0;
             object.subdual_heal_rate_frames = 1;
             object.subdual_heal_amount = 200.0;
-            object.apply_subdual_damage(200.0, outputs);
+            object.apply_subdual_damage(
+                200.0,
+                outputs,
+                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            );
             assert!(object.status.disabled_subdued);
-            object.tick_subdual_damage(outputs);
-            object.tick_subdual_damage(outputs);
+            object.tick_subdual_damage(
+                outputs,
+                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            );
+            object.tick_subdual_damage(
+                outputs,
+                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            );
             assert!(!object.status.disabled_subdued);
-            object.apply_kill_pilot_unmanned(outputs);
+            object.apply_kill_pilot_unmanned(
+                outputs,
+                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            );
             assert!(object.is_unmanned());
         }
         let frame = PresentationFrame::build_from_logic(&mut owner, 0);
@@ -137,7 +166,10 @@ mod owned_audio_tests {
         );
         let (mut drone, id) = world(true);
         let (object, outputs) = drone.host_object_and_health_events_mut(id).unwrap();
-        object.apply_kill_pilot_unmanned(outputs);
+        object.apply_kill_pilot_unmanned(
+            outputs,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         assert!(object.is_unmanned());
         assert!(
             PresentationFrame::build_from_logic(&mut drone, 0)
@@ -150,12 +182,20 @@ mod owned_audio_tests {
     fn saved_disable_future_clears_only_committed_receivers_transient_cues() {
         let (mut owner, id) = world(false);
         let (object, outputs) = owner.host_object_and_health_events_mut(id).unwrap();
-        object.apply_disabled_emp(30, outputs);
+        object.apply_disabled_emp(
+            30,
+            outputs,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         let builder = crate::save_load::SnapshotBuilder::new();
         let snapshot = builder.create_world_snapshot(&owner).unwrap();
         let (mut peer, peer_id) = world(false);
         let (object, outputs) = peer.host_object_and_health_events_mut(peer_id).unwrap();
-        object.apply_disabled_hacked(99, outputs);
+        object.apply_disabled_hacked(
+            99,
+            outputs,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         builder.restore_from_snapshot(&snapshot, &mut peer).unwrap();
         assert!(
             PresentationFrame::build_from_logic(&mut peer, 0)

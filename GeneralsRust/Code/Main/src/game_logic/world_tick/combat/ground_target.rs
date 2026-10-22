@@ -147,7 +147,10 @@ impl GameLogic {
                 return CombatShotResult::NoShot;
             }
             let aim_ok = if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                attacker.set_ai_state(AIState::AttackingGround);
+                attacker.set_ai_state(
+                    AIState::AttackingGround,
+                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                );
                 {}
                 attacker.set_status_attacking(true);
                 let max_step = if attacker.status.moving && attacker.can_move() {
@@ -479,7 +482,10 @@ impl GameLogic {
                 if attacker.max_shots_to_fire == 0 {
                     attacker.target_location = None;
                     attacker.set_force_attack(false);
-                    attacker.set_ai_state(AIState::Idle);
+                    attacker.set_ai_state(
+                        AIState::Idle,
+                        &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    );
                 }
             }
             if self
@@ -549,7 +555,10 @@ impl GameLogic {
             };
             if self.assign_unit_path(attacker_id, goal, &[]) {
                 if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                    attacker.set_ai_state(AIState::AttackingGround);
+                    attacker.set_ai_state(
+                        AIState::AttackingGround,
+                        &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    );
                     attacker.ignored_obstacle_id = None;
                 }
                 self.set_turret_target_position(attacker_id, Some(target_location));
@@ -619,7 +628,10 @@ impl GameLogic {
                         attacker.movement.target_position = None;
                     }
                     attacker.set_status_moving(true);
-                    attacker.set_ai_state(AIState::AttackingGround);
+                    attacker.set_ai_state(
+                        AIState::AttackingGround,
+                        &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    );
                 }
             }
         }

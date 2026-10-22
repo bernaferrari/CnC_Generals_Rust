@@ -1146,7 +1146,11 @@ fn particle_cannon_emp_mid_beam_starts_decay_and_stops_killing() {
 
     let abort_frame = logic.frame;
     if let Some(puc_obj) = logic.objects.get_mut(&caster) {
-        puc_obj.apply_disabled_emp(abort_frame.saturating_add(300), &mut logic.health_events);
+        puc_obj.apply_disabled_emp(
+            abort_frame.saturating_add(300),
+            &mut logic.health_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
 
     for _ in 0..PARTICLE_BEAM_DURATION_FRAMES {
@@ -1457,7 +1461,10 @@ fn emp_pulse_residual_disables_vehicles_in_radius() {
     {
         let vehicle = game_logic.host_object_mut(vehicle_id).expect("vehicle");
         vehicle.target = Some(far_vehicle_id);
-        vehicle.set_ai_state(AIState::Attacking);
+        vehicle.set_ai_state(
+            AIState::Attacking,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         vehicle.set_status_attacking(true);
     }
     let far_hp_before = game_logic
@@ -1717,7 +1724,10 @@ fn frenzy_residual_buffs_allies_and_boosts_damage() {
     {
         let ally = game_logic.host_object_mut(ally_id).expect("ally");
         ally.target = Some(enemy_id);
-        ally.set_ai_state(AIState::Attacking);
+        ally.set_ai_state(
+            AIState::Attacking,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         ally.set_status_attacking(true);
         // Place in range without path chase residual.
         ally.set_position(Vec3::new(10.0, 0.0, 0.0));
@@ -2119,7 +2129,10 @@ fn strategy_center_battle_plan_residual_applies_unit_bonuses() {
     {
         let ally = game_logic.host_object_mut(ally_id).expect("ally");
         ally.target = Some(enemy_id);
-        ally.set_ai_state(AIState::Attacking);
+        ally.set_ai_state(
+            AIState::Attacking,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         ally.set_status_attacking(true);
         ally.set_position(Vec3::new(10.0, 0.0, 0.0));
     }
@@ -2200,7 +2213,10 @@ fn strategy_center_battle_plan_residual_applies_unit_bonuses() {
             ..Weapon::default()
         });
         enemy.target = Some(ally_id);
-        enemy.set_ai_state(AIState::Attacking);
+        enemy.set_ai_state(
+            AIState::Attacking,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         enemy.set_status_attacking(true);
         enemy.set_position(Vec3::new(15.0, 0.0, 0.0));
         enemy.template_mut().armor = 0.0;
@@ -2263,7 +2279,10 @@ fn strategy_center_battle_plan_residual_applies_unit_bonuses() {
         });
         ally.set_position(Vec3::new(0.0, 0.0, 0.0));
         ally.target = Some(enemy_id);
-        ally.set_ai_state(AIState::Attacking);
+        ally.set_ai_state(
+            AIState::Attacking,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         ally.set_status_attacking(true);
         ally.attack_substate = crate::game_logic::AttackSubState::AimAtTarget;
         ally.status.is_aiming_weapon = false;
@@ -2395,7 +2414,10 @@ fn strategy_center_battle_plan_paralyze_residual_on_plan_change() {
     {
         let ally = game_logic.host_object_mut(ally_id).expect("ally");
         ally.target = Some(enemy_id);
-        ally.set_ai_state(AIState::Attacking);
+        ally.set_ai_state(
+            AIState::Attacking,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         ally.set_status_attacking(true);
         ally.set_position(Vec3::new(10.0, 0.0, 0.0));
     }
@@ -2436,7 +2458,10 @@ fn strategy_center_battle_plan_paralyze_residual_on_plan_change() {
     {
         let ally = game_logic.host_object_mut(ally_id).expect("ally");
         ally.target = Some(enemy_id);
-        ally.set_ai_state(AIState::Attacking);
+        ally.set_ai_state(
+            AIState::Attacking,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         ally.set_status_attacking(true);
         ally.weapon = Some(Weapon {
             damage: 20.0,
@@ -2940,7 +2965,7 @@ fn eject_pilot_die_mux_death_types_and_hijacked_residual() {
             .host_object_and_health_events_mut(hijack_id)
             .expect("hijacked");
         h.experience.level = VeterancyLevel::Veteran;
-        h.apply_hijacked();
+        h.apply_hijacked(&mut crate::game_logic::MovementAudio::queue(&mut Vec::new()));
         let _ = h.take_damage(h.max_health * 2.0, health_events);
         // Preserve HIJACKED after damage residual.
         h.set_status_hijacked(true);
@@ -3040,7 +3065,10 @@ fn pilot_find_vehicle_collide_module_would_like_residual() {
     {
         let p = game_logic.host_object_mut(pilot_id).expect("pilot");
         p.experience.level = VeterancyLevel::Veteran; // levels_to_gain = 1
-        p.set_ai_state(AIState::Idle);
+        p.set_ai_state(
+            AIState::Idle,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
 
     // Closer Heroic unmanned tank — CollideModule canGainExp residual rejects.
@@ -3062,7 +3090,10 @@ fn pilot_find_vehicle_collide_module_would_like_residual() {
                 ownership_events,
             )
         };
-        t.apply_kill_pilot_unmanned(health_events);
+        t.apply_kill_pilot_unmanned(
+            health_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         t.set_team(Team::Neutral, ownership_events);
         t.experience.level = VeterancyLevel::Heroic;
         t.health.current = t.max_health;
@@ -3092,7 +3123,10 @@ fn pilot_find_vehicle_collide_module_would_like_residual() {
                 ownership_events,
             )
         };
-        t.apply_kill_pilot_unmanned(health_events);
+        t.apply_kill_pilot_unmanned(
+            health_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         t.set_team(Team::Neutral, ownership_events);
         t.experience.level = VeterancyLevel::Rookie;
         t.health.current = t.max_health;
@@ -3116,7 +3150,10 @@ fn pilot_find_vehicle_collide_module_would_like_residual() {
                 ownership_events,
             )
         };
-        t.apply_kill_pilot_unmanned(health_events);
+        t.apply_kill_pilot_unmanned(
+            health_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         t.set_team(Team::Neutral, ownership_events);
         t.experience.level = VeterancyLevel::Rookie;
         t.health.current = t.max_health;

@@ -1533,7 +1533,10 @@ fn special_power_authority_sole_ticks_cooldown() {
 
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
-    logic.host_object_mut(oid).unwrap().tick_timers(1.5);
+    logic.host_object_mut(oid).unwrap().tick_timers(
+        1.5,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
     shadow.sync_from_host(&logic);
     let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
     let ent = shadow.world().entity(eid).expect("ent");
@@ -1546,7 +1549,10 @@ fn special_power_authority_sole_ticks_cooldown() {
     let o = logic.host_object(oid).expect("obj");
     assert!((o.special_power_cooldown_remaining - 2.5).abs() < 1e-4);
     logic.host_object_mut(oid).unwrap().status.disabled_emp = true;
-    logic.host_object_mut(oid).unwrap().tick_timers(1.0);
+    logic.host_object_mut(oid).unwrap().tick_timers(
+        1.0,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
     assert_eq!(
         logic
             .host_object(oid)

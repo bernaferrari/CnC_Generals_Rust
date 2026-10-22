@@ -53,7 +53,10 @@ impl GameLogic {
             }
             {}
             if let Some(obj) = logic.objects.get_mut(&object_id) {
-                obj.set_ai_state(state);
+                obj.set_ai_state(
+                    state,
+                    &mut crate::game_logic::MovementAudio::queue(&mut logic.queued_audio_events),
+                );
             }
         };
 
@@ -1449,7 +1452,11 @@ impl GameLogic {
                                 let and_exit = obj.pending_exit_after_evacuate;
                                 if obj.needs_internal_move_arrival_observation() {
                                     plant_goal = obj.movement.path.last().copied();
-                                    obj.finish_locomotor_path_leg();
+                                    obj.finish_locomotor_path_leg(
+                                        &mut crate::game_logic::MovementAudio::queue(
+                                            &mut self.queued_audio_events,
+                                        ),
+                                    );
                                     if obj.holds_air_position_when_idle() {
                                         let _ = obj.loco_maintain_appearance_with_effects(
                                             dt, pose_frame, effects,
@@ -1502,7 +1509,11 @@ impl GameLogic {
                                         obj.set_precise_z_pos(false);
                                         obj.ignored_obstacle_id = None;
                                         obj.queue_for_path_frames = 0;
-                                        obj.stop_moving();
+                                        obj.stop_moving(
+                                            &mut crate::game_logic::MovementAudio::queue(
+                                                &mut self.queued_audio_events,
+                                            ),
+                                        );
                                         if adjusts_destination_now(obj) {
                                             obj.set_locomotor_goal_none();
                                         }
@@ -1884,7 +1895,11 @@ impl GameLogic {
                                             >= obj.movement.path.len()
                                     {
                                         if obj.needs_internal_move_arrival_observation() {
-                                            obj.finish_locomotor_path_leg();
+                                            obj.finish_locomotor_path_leg(
+                                                &mut crate::game_logic::MovementAudio::queue(
+                                                    &mut self.queued_audio_events,
+                                                ),
+                                            );
                                             if obj.holds_air_position_when_idle() {
                                                 let _ = obj.loco_maintain_appearance_with_effects(
                                                     dt, pose_frame, effects,
@@ -1938,7 +1953,11 @@ impl GameLogic {
                                                 obj.set_precise_z_pos(false);
                                                 obj.ignored_obstacle_id = None;
                                                 obj.queue_for_path_frames = 0;
-                                                obj.stop_moving();
+                                                obj.stop_moving(
+                                                    &mut crate::game_logic::MovementAudio::queue(
+                                                        &mut self.queued_audio_events,
+                                                    ),
+                                                );
                                                 if adjusts_destination_now(obj) {
                                                     obj.set_locomotor_goal_none();
                                                 }
@@ -2373,14 +2392,22 @@ impl GameLogic {
                                 {
                                     if obj.needs_internal_move_arrival_observation() {
                                         plant_goal = obj.movement.path.last().copied();
-                                        obj.finish_locomotor_path_leg();
+                                        obj.finish_locomotor_path_leg(
+                                            &mut crate::game_logic::MovementAudio::queue(
+                                                &mut self.queued_audio_events,
+                                            ),
+                                        );
                                         if obj.holds_air_position_when_idle() {
                                             let _ = obj.loco_maintain_appearance_with_effects(
                                                 dt, pose_frame, effects,
                                             );
                                         }
                                     } else if obj.holds_air_position_when_idle() {
-                                        obj.end_temporary_move_overlay();
+                                        obj.end_temporary_move_overlay(
+                                            &mut crate::game_logic::MovementAudio::queue(
+                                                &mut self.queued_audio_events,
+                                            ),
+                                        );
                                         obj.maintain_pos_valid = false;
                                         obj.can_path_through_units = false;
                                         obj.ignored_obstacle_id = None;
@@ -2393,7 +2420,11 @@ impl GameLogic {
                                         && !matches!(obj.ai_state, AIState::Moving)
                                     {
                                         plant_goal = Some(obj.get_position());
-                                        obj.end_temporary_move_overlay();
+                                        obj.end_temporary_move_overlay(
+                                            &mut crate::game_logic::MovementAudio::queue(
+                                                &mut self.queued_audio_events,
+                                            ),
+                                        );
                                         obj.ignored_obstacle_id = None;
                                         obj.set_locomotor_goal_none();
                                     } else {
@@ -2428,7 +2459,11 @@ impl GameLogic {
                                             obj.set_precise_z_pos(false);
                                             obj.ignored_obstacle_id = None;
                                             obj.queue_for_path_frames = 0;
-                                            obj.stop_moving();
+                                            obj.stop_moving(
+                                                &mut crate::game_logic::MovementAudio::queue(
+                                                    &mut self.queued_audio_events,
+                                                ),
+                                            );
                                             if adjusts_destination_now(obj) {
                                                 obj.set_locomotor_goal_none();
                                             }
@@ -2504,7 +2539,11 @@ impl GameLogic {
                                         >= obj.movement.path.len())
                             {
                                 if obj.holds_air_position_when_idle() {
-                                    obj.end_temporary_move_overlay();
+                                    obj.end_temporary_move_overlay(
+                                        &mut crate::game_logic::MovementAudio::queue(
+                                            &mut self.queued_audio_events,
+                                        ),
+                                    );
                                     obj.can_path_through_units = false;
                                     obj.ignored_obstacle_id = None;
                                     obj.set_precise_z_pos(false);
@@ -2513,7 +2552,11 @@ impl GameLogic {
                                     && !matches!(obj.ai_state, AIState::Moving)
                                 {
                                     plant_goal = Some(obj.get_position());
-                                    obj.end_temporary_move_overlay();
+                                    obj.end_temporary_move_overlay(
+                                        &mut crate::game_logic::MovementAudio::queue(
+                                            &mut self.queued_audio_events,
+                                        ),
+                                    );
                                     obj.ignored_obstacle_id = None;
                                     obj.set_locomotor_goal_none();
                                 } else {
@@ -2547,7 +2590,11 @@ impl GameLogic {
                                         obj.set_precise_z_pos(false);
                                         obj.ignored_obstacle_id = None;
                                         obj.queue_for_path_frames = 0;
-                                        obj.stop_moving();
+                                        obj.stop_moving(
+                                            &mut crate::game_logic::MovementAudio::queue(
+                                                &mut self.queued_audio_events,
+                                            ),
+                                        );
                                         if adjusts_destination_now(obj) {
                                             obj.set_locomotor_goal_none();
                                         }

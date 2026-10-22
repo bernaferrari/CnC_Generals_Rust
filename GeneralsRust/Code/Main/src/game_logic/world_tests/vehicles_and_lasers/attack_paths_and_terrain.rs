@@ -186,7 +186,10 @@ fn host_attack_los_gates_fire_through_building() {
                     ..Weapon::default()
                 });
                 o.target = Some(tgt);
-                o.set_ai_state(AIState::Attacking);
+                o.set_ai_state(
+                    AIState::Attacking,
+                    &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+                );
                 o.set_status_attacking(true);
             }
             let attacker = logic
@@ -266,7 +269,10 @@ fn host_attack_los_allows_fire_in_open() {
             ..Weapon::default()
         });
         o.target = Some(tgt);
-        o.set_ai_state(AIState::Attacking);
+        o.set_ai_state(
+            AIState::Attacking,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         o.set_status_attacking(true);
     }
     let hp_before = logic
@@ -334,7 +340,10 @@ fn generic_object_fire_uses_weapon_ini_damage_type() {
             ..Weapon::default()
         });
         o.target = Some(tgt);
-        o.set_ai_state(AIState::Attacking);
+        o.set_ai_state(
+            AIState::Attacking,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         o.set_status_attacking(true);
     }
     let hp_before = logic
@@ -430,7 +439,10 @@ fn find_attack_path_picks_los_cell_not_target_footprint() {
             ..Weapon::default()
         });
         o.target = Some(tgt);
-        o.set_ai_state(AIState::Attacking);
+        o.set_ai_state(
+            AIState::Attacking,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     assert!(
         logic.assign_unit_attack_path(atk, Some(tgt), to),
@@ -538,7 +550,10 @@ fn structure_footprint_blocks_attack_los() {
                     ..Weapon::default()
                 });
                 o.target = Some(tgt);
-                o.set_ai_state(AIState::Attacking);
+                o.set_ai_state(
+                    AIState::Attacking,
+                    &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+                );
                 o.set_status_attacking(true);
             }
             let attacker = logic

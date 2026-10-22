@@ -321,9 +321,14 @@ impl GameLogic {
             if let Some(occupant) = self.objects.get_mut(&occupant_id) {
                 occupant.set_contained_by(Some(container_id));
                 occupant.set_position_with_effects(position, self.frame, ui);
-                occupant.stop_moving();
+                occupant.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+                    &mut self.queued_audio_events,
+                ));
                 occupant.set_status_moving(false);
-                occupant.set_ai_state(AIState::Garrisoned);
+                occupant.set_ai_state(
+                    AIState::Garrisoned,
+                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                );
             }
             self.admit_object_drawable_deselection(occupant_id);
             self.apply_garrison_contain_on_enter_with_effects(container_id, occupant_id, ui);
@@ -869,7 +874,11 @@ impl GameLogic {
                 if !is_garrison {
                     let previous_allow_to_fall = unit.allow_to_fall;
                     unit.allow_to_fall = false;
-                    unit.set_destination(dest, &mut self.movement_events.writer(self.frame));
+                    unit.set_destination(
+                        dest,
+                        &mut self.movement_events.writer(self.frame),
+                        &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    );
                     unit.allow_to_fall = previous_allow_to_fall;
                     let mut path = vec![start, door_end, door_end];
                     if let Some(rally_point) = rally {
@@ -879,12 +888,19 @@ impl GameLogic {
                     unit.movement.current_path_index = 1;
                     unit.movement.target_position = Some(door_end);
                 } else {
-                    unit.set_destination(dest, &mut self.movement_events.writer(self.frame));
+                    unit.set_destination(
+                        dest,
+                        &mut self.movement_events.writer(self.frame),
+                        &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    );
                     unit.movement.path = vec![start, door_end];
                     unit.movement.current_path_index = 1;
                     unit.movement.target_position = Some(door_end);
                 }
-                unit.set_ai_state(AIState::Moving);
+                unit.set_ai_state(
+                    AIState::Moving,
+                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                );
                 unit.last_command_source =
                     crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_AI;
                 unit.status.moving = true;

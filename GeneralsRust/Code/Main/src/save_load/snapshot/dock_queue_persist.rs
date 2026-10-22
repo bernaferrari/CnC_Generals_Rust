@@ -280,7 +280,10 @@ mod tests {
                 // command: `set_target` enters Attacking, so seed the same
                 // target/session state used by the production gather path.
                 object.target = Some(dock);
-                object.set_ai_state(AIState::Gathering);
+                object.set_ai_state(
+                    AIState::Gathering,
+                    &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+                );
             }
             (world, dock, active, waiting)
         }

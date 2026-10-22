@@ -60,7 +60,11 @@ fn hunt_reentry_clears_previous_route_target_and_scan() {
         .set_hunt_scan_deadline(Some(9000));
     {
         let (object, attack_events) = world.host_object_and_attack_events_mut(id).unwrap();
-        object.set_target(Some(target), attack_events);
+        object.set_target(
+            Some(target),
+            attack_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     };
     world.host_object_mut(id).unwrap().pending_move = Some(Vec3::splat(200.0));
     assert!(world.append_unit_waypoint(id, Vec3::new(200.0, 0.0, 200.0)));
@@ -110,8 +114,11 @@ fn hunt_snapshot_continues_on_restored_owner() {
     // nested attack finishing: the real AI phase must resume its Hunt scan.
     for world in [&mut source, &mut restored] {
         let unit = world.host_object_mut(id).unwrap();
-        unit.clear_target();
-        unit.set_ai_state(AIState::Idle);
+        unit.clear_target(&mut crate::game_logic::MovementAudio::queue(&mut Vec::new()));
+        unit.set_ai_state(
+            AIState::Idle,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         world.frame = 1;
         world.update_ai(&[id], 1.0 / 30.0);
         assert!(world.host_object(id).unwrap().hunting);
@@ -237,8 +244,15 @@ fn hunt_exits_attack_submachine_before_reentering_parent() {
     let (mut world, id, target) = world();
     hunt(&mut world, "NamedUnit");
     let (unit, attack_events) = world.host_object_and_attack_events_mut(id).unwrap();
-    unit.set_ai_state(AIState::Attacking);
-    unit.set_target(Some(target), attack_events);
+    unit.set_ai_state(
+        AIState::Attacking,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
+    unit.set_target(
+        Some(target),
+        attack_events,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
     unit.status.is_firing_weapon = true;
     unit.status.is_aiming_weapon = true;
     unit.status.attacking = true;

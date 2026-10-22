@@ -192,7 +192,7 @@ fn assert_requests(world: &mut GameLogic, id: ObjectId, position: Vec3, count: u
 
 fn drain(world: &mut GameLogic, id: ObjectId, position: Vec3, frame: u32, count: usize, why: &str) {
     world.set_current_frame(u64::from(frame));
-    world.drain_pending_move_ambient_audio();
+    world.retry_dropped_ambient_sounds();
     assert_requests(world, id, position, count, why);
 }
 

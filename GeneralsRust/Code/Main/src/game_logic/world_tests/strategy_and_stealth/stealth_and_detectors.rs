@@ -2350,7 +2350,10 @@ fn detected_hero_wakes_idle_enemies() {
         .expect("idle tank");
     {
         let t = logic.host_object_mut(tank).unwrap();
-        t.set_ai_state(AIState::Idle);
+        t.set_ai_state(
+            AIState::Idle,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         t.target = None;
         t.vision_range = 150.0;
         t.weapon = Some(Weapon {
@@ -2618,7 +2621,10 @@ fn stealth_attack_move_does_not_destalth() {
         b.set_status_stealthed(true);
         b.stealth_allowed_frame = 0;
         b.stealth_delay_pending = false;
-        b.set_ai_state(AIState::AttackMoving);
+        b.set_ai_state(
+            AIState::AttackMoving,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         b.set_status_attacking(true);
         b.set_status_firing_weapon(false);
     }
@@ -2766,7 +2772,10 @@ fn pathfinder_grant_does_not_recloak_while_moving() {
         o.stealth_delay_frames = 0;
         o.set_status_stealthed(true);
         o.set_status_moving(true);
-        o.set_ai_state(AIState::Moving);
+        o.set_ai_state(
+            AIState::Moving,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         // Leftover destalths only when leftover velocity > leftover MoveThresholdSpeed.
         o.movement.velocity = Vec3::new(4.0, 0.0, 0.0);
         o.invalidate_velocity_magnitude();
@@ -2802,7 +2811,10 @@ fn pathfinder_move_order_below_threshold_stays_stealthed() {
         o.stealth_delay_frames = 0;
         o.set_status_stealthed(true);
         o.set_status_moving(true);
-        o.set_ai_state(AIState::Moving);
+        o.set_ai_state(
+            AIState::Moving,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         o.movement.velocity = Vec3::new(2.0, 0.0, 0.0);
         o.invalidate_velocity_magnitude();
     }
@@ -2837,7 +2849,10 @@ fn pathfinder_sliding_stop_above_threshold_destalths() {
         o.stealth_delay_frames = 0;
         o.set_status_stealthed(true);
         o.set_status_moving(false);
-        o.set_ai_state(AIState::Idle);
+        o.set_ai_state(
+            AIState::Idle,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         // Sliding stop: leftover destalths while leftover velocity still exceeds 3.
         o.movement.velocity = Vec3::new(4.0, 0.0, 0.0);
         o.invalidate_velocity_magnitude();

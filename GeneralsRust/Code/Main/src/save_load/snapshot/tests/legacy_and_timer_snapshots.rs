@@ -1131,7 +1131,10 @@ fn disabled_paralyzed_freeze_survives_snapshot_until_saved_frame() {
         .expect("create");
     {
         let obj = source.host_object_mut(id).expect("obj");
-        obj.apply_disabled_paralyzed(140);
+        obj.apply_disabled_paralyzed(
+            140,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
 
     let builder = SnapshotBuilder::new();

@@ -45,7 +45,10 @@ fn strategy_center_turret_mood_matrix_sleep_passive_residual() {
     {
         let sc = game_logic.host_object_mut(sc_id).expect("sc");
         sc.target = None;
-        sc.set_ai_state(AIState::Idle);
+        sc.set_ai_state(
+            AIState::Idle,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         sc.set_status_attacking(false);
         sc.turret_mood_target = false;
         sc.set_ai_attitude(HostAiAttitude::Sleep);
@@ -75,7 +78,10 @@ fn strategy_center_turret_mood_matrix_sleep_passive_residual() {
         sc.last_damage_source = None;
         sc.turret_mood_target = false;
         sc.target = None;
-        sc.set_ai_state(AIState::Idle);
+        sc.set_ai_state(
+            AIState::Idle,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         sc.set_status_attacking(false);
     }
     let frame = game_logic.frame;
@@ -96,7 +102,10 @@ fn strategy_center_turret_mood_matrix_sleep_passive_residual() {
         sc.last_damage_source = Some(enemy_id);
         sc.turret_mood_target = false;
         sc.target = None;
-        sc.set_ai_state(AIState::Idle);
+        sc.set_ai_state(
+            AIState::Idle,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         sc.set_status_attacking(false);
     }
     let frame = game_logic.frame;
@@ -463,7 +472,10 @@ fn strategy_center_bombardment_turret_fire_residual() {
         if let Some(w) = sc.weapon.as_mut() {
             w.last_fire_time = -100.0;
         }
-        sc.set_ai_state(AIState::Idle);
+        sc.set_ai_state(
+            AIState::Idle,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     // Natural angles before fire residual.
     {
@@ -540,7 +552,10 @@ fn strategy_center_bombardment_turret_fire_residual() {
         };
         let sc = game_logic.host_object_mut(sc_id).expect("sc");
         sc.target = None;
-        sc.set_ai_state(AIState::Idle);
+        sc.set_ai_state(
+            AIState::Idle,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         sc.set_status_attacking(false);
         sc.turret_angle_deg = STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG;
         sc.turret_pitch_deg = STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG;
@@ -1164,7 +1179,10 @@ fn strategy_center_delayed_set_battle_plan_and_turret_recenter_residual() {
     {
         use crate::game_logic::host_strategy_center::STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG;
         let sc = game_logic.host_object_mut(sc_id).expect("sc");
-        sc.set_ai_state(AIState::Attacking);
+        sc.set_ai_state(
+            AIState::Attacking,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         sc.set_status_attacking(true);
         sc.target = Some(ally_id);
         // 60° off natural → 30 frames at 2 deg/frame residual.
@@ -1703,7 +1721,10 @@ fn gps_scrambler_residual_grants_stealth_to_ally_units() {
             .host_object_mut(ally_vehicle_id)
             .expect("ally vehicle");
         ally.target = Some(enemy_id);
-        ally.set_ai_state(AIState::Attacking);
+        ally.set_ai_state(
+            AIState::Attacking,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         ally.set_status_attacking(true);
         ally.set_position(Vec3::new(10.0, 0.0, 0.0));
     }

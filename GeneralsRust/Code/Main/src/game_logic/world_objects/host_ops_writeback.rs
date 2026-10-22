@@ -1041,8 +1041,59 @@ impl GameLogic {
         self.objects.get_mut(&id)
     }
 
+    /// Split the canonical Object and this session's existing audio output.
+    /// Preserve the same named-unit observation as host_object_mut.
+    pub(crate) fn host_object_and_audio_events_mut(
+        &mut self,
+        id: ObjectId,
+    ) -> Option<(
+        &mut crate::game_logic::object::Object,
+        &mut Vec<crate::game_logic::AudioEventRequest>,
+    )> {
+        if let Some(object) = self.objects.get(&id) {
+            if !object.name.is_empty() {
+                self.named_unit_history.insert(object.name.clone());
+            }
+        }
+        self.objects
+            .get_mut(&id)
+            .map(|object| (object, &mut self.queued_audio_events))
+    }
+
     /// Borrow the canonical subject and its receiving match's presentation
     /// output together. Preserve named-unit history exactly as host_object_mut.
+    pub(crate) fn host_object_attack_audio_mut(
+        &mut self,
+        id: ObjectId,
+    ) -> Option<(
+        &mut crate::game_logic::Object,
+        &mut crate::game_logic::host_attack_log::AttackEvents,
+        &mut Vec<crate::game_logic::AudioEventRequest>,
+    )> {
+        let _ = self.host_object_mut(id)?;
+        Some((
+            self.objects.get_mut(&id)?,
+            &mut self.attack_events,
+            &mut self.queued_audio_events,
+        ))
+    }
+
+    pub(crate) fn host_object_movement_audio_mut(
+        &mut self,
+        id: ObjectId,
+    ) -> Option<(
+        &mut crate::game_logic::Object,
+        crate::game_logic::movement_events::MovementEventWriter<'_>,
+        &mut Vec<crate::game_logic::AudioEventRequest>,
+    )> {
+        let _ = self.host_object_mut(id)?;
+        Some((
+            self.objects.get_mut(&id)?,
+            self.movement_events.writer(self.frame),
+            &mut self.queued_audio_events,
+        ))
+    }
+
     pub(crate) fn host_object_and_attack_events_mut(
         &mut self,
         id: ObjectId,
@@ -1096,14 +1147,19 @@ impl GameLogic {
     /// Set an admitted object's immediate movement goal and record the change
     /// in this world's output. Existing velocity and path state are retained.
     pub fn move_object_to(&mut self, id: ObjectId, position: glam::Vec3) -> bool {
-        let Some((object, mut movement_events)) = self.host_object_and_movement_events_mut(id)
+        let Some((object, mut movement_events, audio_events)) =
+            self.host_object_movement_audio_mut(id)
         else {
             return false;
         };
         if !object.is_mobile() || !object.is_alive() {
             return false;
         }
-        object.move_to(position, &mut movement_events);
+        object.move_to(
+            position,
+            &mut movement_events,
+            &mut crate::game_logic::MovementAudio::queue(audio_events),
+        );
         true
     }
 
@@ -1198,7 +1254,11 @@ impl GameLogic {
                 // Host attack channel (default production path — host ObjectIds only).
                 if let Some(obj_mut) = self.objects.get_mut(&object_id) {
                     obj_mut.set_force_attack(false);
-                    obj_mut.attack_target(target_id, &mut self.attack_events);
+                    obj_mut.attack_target(
+                        target_id,
+                        &mut self.attack_events,
+                        &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    );
                 }
                 // Host residual: path toward target, then ensure the unit is inside
                 // weapon range this command so combat can apply real HP damage on
@@ -1239,10 +1299,21 @@ impl GameLogic {
                                     let stand = glam::Vec3::new(stand.x, from.y, stand.z);
                                     if let Some(a) = self.objects.get_mut(&object_id) {
                                         a.set_position_with_effects(stand, frame, effects);
-                                        a.attack_target(target_id, &mut self.attack_events);
+                                        a.attack_target(
+                                            target_id,
+                                            &mut self.attack_events,
+                                            &mut crate::game_logic::MovementAudio::queue(
+                                                &mut self.queued_audio_events,
+                                            ),
+                                        );
                                         // Host-immediate engagement residual (host-only
                                         // path when movement auth is off).
-                                        a.set_ai_state(AIState::Attacking);
+                                        a.set_ai_state(
+                                            AIState::Attacking,
+                                            &mut crate::game_logic::MovementAudio::queue(
+                                                &mut self.queued_audio_events,
+                                            ),
+                                        );
                                         {}
                                         a.set_status_attacking(true);
                                         a.set_status_moving(false);
@@ -1694,7 +1765,10 @@ mod select_object_cpp_parity_tests {
             // still gates is_selectable; clear UNSELECTABLE so this test stays
             // the contained/MASKED (no-contained-gate) check.
             o.set_status_unselectable(false);
-            o.set_ai_state(crate::game_logic::AIState::Garrisoned);
+            o.set_ai_state(
+                crate::game_logic::AIState::Garrisoned,
+                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            );
             o.status.masked = true;
         }
         logic.select_objects(0, vec![walker, rider]);

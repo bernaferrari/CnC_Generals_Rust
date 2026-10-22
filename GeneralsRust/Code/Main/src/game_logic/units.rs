@@ -350,6 +350,7 @@ impl UnitBehavior {
         objects: &mut HashMap<ObjectId, Object>,
         _dt: f32,
         movement_events: &mut crate::game_logic::movement_events::MovementEventWriter<'_>,
+        audio: &mut crate::game_logic::MovementAudio<'_>,
     ) {
         if let Some(leader) = objects.get(&leader_id) {
             let leader_pos = leader.get_position();
@@ -378,7 +379,7 @@ impl UnitBehavior {
                     // Move to formation position if not already there
                     let distance_to_formation = member.get_position().distance(formation_pos);
                     if distance_to_formation > 5.0 {
-                        member.move_to(formation_pos, movement_events);
+                        member.move_to(formation_pos, movement_events, audio);
                     }
                 }
             }
@@ -392,6 +393,7 @@ impl UnitBehavior {
         dt: f32,
         movement_events: &mut crate::game_logic::movement_events::MovementEventWriter<'_>,
         attack_events: &mut crate::game_logic::host_attack_log::AttackEvents,
+        audio: &mut crate::game_logic::MovementAudio<'_>,
     ) {
         let ai_state = {
             if let Some(obj) = objects.get(&object_id) {
@@ -404,15 +406,15 @@ impl UnitBehavior {
         match ai_state {
             AIState::Idle => {
                 // Look for enemies in sight range
-                Self::find_and_attack_enemies(object_id, objects, attack_events);
+                Self::find_and_attack_enemies(object_id, objects, attack_events, audio);
             }
             AIState::Patrolling => {
                 // Implement patrol behavior
-                Self::update_patrol_behavior(object_id, objects, dt, movement_events);
+                Self::update_patrol_behavior(object_id, objects, dt, movement_events, audio);
             }
             AIState::GuardingArea | AIState::GuardingObject => {
                 // Implement guard behavior
-                Self::update_guard_behavior(object_id, objects, dt, attack_events);
+                Self::update_guard_behavior(object_id, objects, dt, attack_events, audio);
             }
             _ => {} // Other states handled elsewhere
         }
@@ -422,6 +424,7 @@ impl UnitBehavior {
         object_id: ObjectId,
         objects: &mut HashMap<ObjectId, Object>,
         attack_events: &mut crate::game_logic::host_attack_log::AttackEvents,
+        audio: &mut crate::game_logic::MovementAudio<'_>,
     ) {
         let (position, team, sight_range) = {
             if let Some(obj) = objects.get(&object_id) {
@@ -452,7 +455,7 @@ impl UnitBehavior {
         // Attack nearest enemy
         if let Some(enemy_id) = nearest_enemy {
             if let Some(obj) = objects.get_mut(&object_id) {
-                obj.attack_target(enemy_id, attack_events);
+                obj.attack_target(enemy_id, attack_events, audio);
             }
         }
     }
@@ -462,6 +465,7 @@ impl UnitBehavior {
         objects: &mut HashMap<ObjectId, Object>,
         _dt: f32,
         movement_events: &mut crate::game_logic::movement_events::MovementEventWriter<'_>,
+        audio: &mut crate::game_logic::MovementAudio<'_>,
     ) {
         // Simplified patrol - move between waypoints
         // In a full implementation, this would cycle through patrol points
@@ -480,7 +484,7 @@ impl UnitBehavior {
                     current_pos.y,
                     current_pos.z + patrol_radius * random_angle.sin(),
                 );
-                obj.move_to(patrol_pos, movement_events);
+                obj.move_to(patrol_pos, movement_events, audio);
             }
         }
     }
@@ -490,9 +494,10 @@ impl UnitBehavior {
         objects: &mut HashMap<ObjectId, Object>,
         _dt: f32,
         attack_events: &mut crate::game_logic::host_attack_log::AttackEvents,
+        audio: &mut crate::game_logic::MovementAudio<'_>,
     ) {
         // Guard behavior - stay near guard position and attack enemies
-        Self::find_and_attack_enemies(object_id, objects, attack_events);
+        Self::find_and_attack_enemies(object_id, objects, attack_events, audio);
 
         // Return to guard position if moved too far (simplified)
         if let Some(obj) = objects.get_mut(&object_id) {

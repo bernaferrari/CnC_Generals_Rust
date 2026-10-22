@@ -382,11 +382,21 @@ impl GameLogic {
                         // Dead-man trigger residual — detonate after this borrow ends.
                         bomb_detonate_ids.push(id);
                     } else {
-                        obj.apply_kill_pilot_unmanned(&mut self.health_events);
+                        obj.apply_kill_pilot_unmanned(
+                            &mut self.health_events,
+                            &mut crate::game_logic::MovementAudio::queue(
+                                &mut self.queued_audio_events,
+                            ),
+                        );
                         // C++ NeutonBlastBehavior.cpp:124-127 neutronBlastToObject:
                         //   getAI()->aiIdle(CMD_FROM_AI);
                         //   TheGameLogic->deselectObject(obj, PLAYERMASK_ALL, TRUE);
-                        obj.set_ai_state(AIState::Idle);
+                        obj.set_ai_state(
+                            AIState::Idle,
+                            &mut crate::game_logic::MovementAudio::queue(
+                                &mut self.queued_audio_events,
+                            ),
+                        );
                         obj.deselect();
                         // C++ NeutronBlastBehavior: setTeam(neutral) residual.
                         obj.team = Team::Neutral;
@@ -432,7 +442,10 @@ impl GameLogic {
                     continue;
                 }
                 occ.set_contained_by(None);
-                occ.set_ai_state(AIState::Idle);
+                occ.set_ai_state(
+                    AIState::Idle,
+                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                );
                 let receiving_damage_id = occ.id;
                 let receiving_damage_argument_1 = occ.health.current.max(1.0) * 10.0;
                 let _ = self.apply_residual_damage_owned_with_effects(

@@ -131,11 +131,7 @@ impl GameLogic {
                 let dx = p.x - pos.x;
                 let dz = p.z - pos.z;
                 let dist = (dx * dx + dz * dz).sqrt();
-                if dist <= max_r {
-                    Some(*id)
-                } else {
-                    None
-                }
+                if dist <= max_r { Some(*id) } else { None }
             })
             .collect();
 
@@ -301,8 +297,8 @@ impl GameLogic {
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         use crate::game_logic::host_usa_pilot::{
-            air_eject_spawn_height, is_significantly_above_terrain, HostDeathType,
-            EJECT_PILOT_TEMPLATE, PILOT_EJECT_AUDIO, PILOT_SOUND_EJECT_AUDIO,
+            EJECT_PILOT_TEMPLATE, HostDeathType, PILOT_EJECT_AUDIO, PILOT_SOUND_EJECT_AUDIO,
+            air_eject_spawn_height, is_significantly_above_terrain,
         };
 
         let (
@@ -911,7 +907,10 @@ impl GameLogic {
             let Some(obj) = self.objects.get_mut(&id) else {
                 return false;
             };
-            if !obj.fire_instant_death_for(death_type) {
+            if !obj.fire_instant_death_for(
+                death_type,
+                &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+            ) {
                 false
             } else {
                 if !extra_owned.is_empty() {
@@ -999,7 +998,10 @@ impl GameLogic {
         if obj.status.keep_as_rubble {
             return true;
         }
-        if !obj.begin_keep_object_die(frame) {
+        if !obj.begin_keep_object_die(
+            frame,
+            &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+        ) {
             return false;
         }
         // Death FX / OCL peels without world removal.
@@ -1095,7 +1097,9 @@ impl GameLogic {
             {
                 return true;
             }
-            let deferred = obj.begin_jet_slow_death();
+            let deferred = obj.begin_jet_slow_death(&mut crate::game_logic::MovementAudio::queue(
+                &mut self.queued_audio_events,
+            ));
             return deferred;
         }
         // Helicopter spiral crash residual.
@@ -1115,7 +1119,9 @@ impl GameLogic {
         {
             return true;
         }
-        if obj.begin_helicopter_slow_death() {
+        if obj.begin_helicopter_slow_death(&mut crate::game_logic::MovementAudio::queue(
+            &mut self.queued_audio_events,
+        )) {
             return true;
         }
         // Already finished slow death → allow destroy.
@@ -1136,7 +1142,10 @@ impl GameLogic {
         {
             return true;
         }
-        if obj.begin_slow_death(frame) {
+        if obj.begin_slow_death(
+            frame,
+            &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+        ) {
             return true;
         }
         false
@@ -1754,16 +1763,20 @@ impl GameLogic {
                 if collapse_only == Some(false) {
                     return false;
                 }
-                obj.begin_structure_collapse_with_fx(frame, &mut |name, object, at_object| {
-                    Self::dispatch_object_phase_fx_with_view(
-                        name,
-                        object,
-                        at_object,
-                        fx_player,
-                        self.world_services.shroud(),
-                        view,
-                    );
-                })
+                obj.begin_structure_collapse_with_fx(
+                    frame,
+                    &mut |name, object, at_object| {
+                        Self::dispatch_object_phase_fx_with_view(
+                            name,
+                            object,
+                            at_object,
+                            fx_player,
+                            self.world_services.shroud(),
+                            view,
+                        );
+                    },
+                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                )
             },
         );
         #[cfg(not(feature = "game_client"))]
@@ -1828,6 +1841,7 @@ impl GameLogic {
                 direction,
                 delay,
                 Some(burst),
+                &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
             )
         });
         if prepared {

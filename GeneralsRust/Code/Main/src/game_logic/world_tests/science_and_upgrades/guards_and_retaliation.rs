@@ -50,7 +50,10 @@ fn enter_guard_does_not_shoot_enemies() {
         range: 80.0,
         ..Default::default()
     });
-    h.set_ai_state(AIState::GuardingArea);
+    h.set_ai_state(
+        AIState::GuardingArea,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
     logic.objects.insert(hid, h);
 
     let mut et = ThingTemplate::new("Ranger");
@@ -91,7 +94,10 @@ fn hijack_guard_boards_enemy_vehicle() {
         range: 20.0,
         ..Default::default()
     });
-    h.set_ai_state(AIState::GuardingArea);
+    h.set_ai_state(
+        AIState::GuardingArea,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
     logic.objects.insert(hid, h);
 
     let mut vt = ThingTemplate::new("Humvee");
@@ -192,7 +198,10 @@ fn sleep_guard_range_is_zero_not_hardcoded_80() {
         range: 80.0,
         ..Default::default()
     });
-    g.set_ai_state(AIState::GuardingArea);
+    g.set_ai_state(
+        AIState::GuardingArea,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
     logic.objects.insert(gid, g);
 
     assert_eq!(logic.host_std_guard_ranges(gid), (0.0, 0.0));
@@ -296,6 +305,7 @@ fn begin_guard_retaliate_sets_state_and_anchor() {
         Some(glam::Vec3::new(10.0, 0.0, 20.0)),
         Some(5),
         &mut _attack_output,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
     );
     let o = &logic.objects[&id];
     assert_eq!(o.ai_state, AIState::GuardRetaliating);
@@ -333,6 +343,7 @@ fn guard_retaliate_ends_when_victim_dead() {
         Some(glam::Vec3::ZERO),
         None,
         &mut _attack_output,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
     );
     // Kill victim
     if let Some(e) = logic.objects.get_mut(&vid) {
@@ -392,7 +403,10 @@ fn friends_retaliate_against_nearby_aggressor() {
     let fid = ObjectId(4402);
     let mut friend = guard_test_object(ft, fid, Team::USA);
     friend.set_position(glam::Vec3::new(30.0, 0.0, 0.0));
-    friend.set_ai_state(AIState::Idle);
+    friend.set_ai_state(
+        AIState::Idle,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
     friend.weapon = Some(Weapon {
         range: 100.0,
         damage: 10.0,
@@ -443,7 +457,10 @@ fn friends_retaliate_skipped_when_mode_off() {
     logic.objects.insert(fid, {
         let mut o = guard_test_object(ft, fid, Team::USA);
         o.set_position(glam::Vec3::new(20.0, 0.0, 0.0));
-        o.set_ai_state(AIState::Idle);
+        o.set_ai_state(
+            AIState::Idle,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         o.weapon = Some(Weapon {
             range: 80.0,
             ..Default::default()
@@ -475,7 +492,10 @@ fn guard_idle_acquire_uses_inner_not_outer() {
     g.guard_position = Some(glam::Vec3::ZERO);
     g.vision_range = 100.0;
     g.weapon = Some(wave21_guard_weapon());
-    g.set_ai_state(AIState::GuardingArea);
+    g.set_ai_state(
+        AIState::GuardingArea,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
     logic.objects.insert(gid, g);
 
     let (inner, outer) = logic.host_std_guard_ranges(gid);
@@ -510,7 +530,10 @@ fn guarding_object_flying_only_skips_ground() {
     h.vision_range = 200.0;
     h.weapon = Some(wave21_guard_weapon());
     h.guard_mode = GuardMode::FlyingUnitsOnly;
-    h.set_ai_state(AIState::GuardingObject);
+    h.set_ai_state(
+        AIState::GuardingObject,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
     logic.objects.insert(hid, h);
 
     let mut bt = ThingTemplate::new("Convoy");
@@ -586,7 +609,10 @@ fn guard_area_polygon_rejects_outside_and_covers_far_corner() {
     g.guard_area_trigger = Some("Wave21GuardAreaPoly".into());
     g.vision_range = 100.0;
     g.weapon = Some(wave21_guard_weapon());
-    g.set_ai_state(AIState::GuardingArea);
+    g.set_ai_state(
+        AIState::GuardingArea,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
     logic.objects.insert(gid, g);
 
     let mut ot = ThingTemplate::new("OutsidePoly");
@@ -655,6 +681,7 @@ fn guard_retaliate_chase_gives_up_on_timer() {
         Some(glam::Vec3::ZERO),
         None,
         &mut _attack_output,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
     );
     assert_eq!(
         logic.objects[&id].guard_chase_phase,
@@ -735,6 +762,7 @@ fn guard_retaliate_inner_scan_allows_base_defense() {
         Some(glam::Vec3::ZERO),
         None,
         &mut _attack_output,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
     );
     logic.objects.get_mut(&vid).unwrap().status.destroyed = true;
     logic.objects.get_mut(&vid).unwrap().health.current = 0.0;
@@ -790,6 +818,7 @@ fn guard_retaliate_computer_scan_allows_any_enemy_structure() {
         Some(glam::Vec3::ZERO),
         None,
         &mut _attack_output,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
     );
     logic.objects.get_mut(&vid).unwrap().status.destroyed = true;
     logic.objects.get_mut(&vid).unwrap().health.current = 0.0;
@@ -819,7 +848,10 @@ fn host_guardee_follow_is_per_axis_two_cells_not_inner_radius() {
     g.set_position(glam::Vec3::ZERO);
     g.vision_range = 200.0;
     g.weapon = Some(wave21_guard_weapon());
-    g.set_ai_state(AIState::GuardingObject);
+    g.set_ai_state(
+        AIState::GuardingObject,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
     logic.objects.insert(gid, g);
 
     let mut ct = ThingTemplate::new("CrusaderFollow");
@@ -879,7 +911,10 @@ fn inner_guard_attack_switches_to_new_last_attacker() {
     g.guard_radius = 200.0;
     g.vision_range = 200.0;
     g.weapon = Some(wave21_guard_weapon());
-    g.set_ai_state(AIState::Attacking);
+    g.set_ai_state(
+        AIState::Attacking,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
     g.target = Some(ObjectId(6211));
     g.guard_chase_phase = INNER;
     g.status.attacking = true;
@@ -929,7 +964,10 @@ fn guard_idle_acquire_uses_scan_rate_cadence() {
     g.guard_position = Some(glam::Vec3::ZERO);
     g.vision_range = 200.0;
     g.weapon = Some(wave21_guard_weapon());
-    g.set_ai_state(AIState::GuardingArea);
+    g.set_ai_state(
+        AIState::GuardingArea,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
     logic.objects.insert(gid, g);
 
     let mut et = ThingTemplate::new("ScanPrey");
@@ -967,7 +1005,10 @@ fn guard_idle_acquire_uses_scan_rate_cadence() {
         g.target = None;
         g.status.attacking = false;
         g.clear_guard_chase();
-        g.set_ai_state(AIState::GuardingArea);
+        g.set_ai_state(
+            AIState::GuardingArea,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         g.last_damage_source = None;
     }
     logic.update_support_states(&[gid, eid], 1.0 / 30.0);
@@ -997,7 +1038,10 @@ fn end_guard_chase_attack_clears_team_attack_common_target() {
     g.guard_position = Some(glam::Vec3::ZERO);
     g.vision_range = 200.0;
     g.weapon = Some(wave21_guard_weapon());
-    g.set_ai_state(AIState::Attacking);
+    g.set_ai_state(
+        AIState::Attacking,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
     g.guard_chase_phase = INNER;
     g.status.attacking = true;
     g.owner_player_id = Some(1);
@@ -1066,7 +1110,13 @@ fn retaliate_chase_exit_clears_team_attack_common_target() {
 
     {
         let o = logic.objects.get_mut(&gid).unwrap();
-        o.begin_guard_retaliate(eid, Some(glam::Vec3::ZERO), None, &mut logic.attack_events);
+        o.begin_guard_retaliate(
+            eid,
+            Some(glam::Vec3::ZERO),
+            None,
+            &mut logic.attack_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         o.guard_chase_phase = GUARD_CHASE_PHASE_RETALIATE;
         o.guard_chase_give_up_frame = 1;
         o.target = Some(eid);
@@ -1103,7 +1153,10 @@ fn guarding_object_prefers_team_attack_common_target() {
     g.set_position(glam::Vec3::ZERO);
     g.vision_range = 200.0;
     g.weapon = Some(wave21_guard_weapon());
-    g.set_ai_state(AIState::GuardingObject);
+    g.set_ai_state(
+        AIState::GuardingObject,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
     g.owner_player_id = Some(1);
     g.team_instance_name = "USA_DozerGuard".into();
     logic.objects.insert(gid, g);
@@ -1258,7 +1311,10 @@ fn area_guard_outer_chase_uses_polygon_radius() {
     g.guard_area_trigger = Some("Wave26GuardOuterPoly".into());
     g.vision_range = 100.0;
     g.weapon = Some(wave21_guard_weapon());
-    g.set_ai_state(AIState::Attacking);
+    g.set_ai_state(
+        AIState::Attacking,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
     g.guard_chase_phase = 2; // OUTER
     g.guard_chase_give_up_frame = logic.frame.saturating_add(10_000);
     g.status.attacking = true;
@@ -1339,6 +1395,7 @@ fn guard_retaliate_scan_victim_uses_inner_1_5x_not_aggressor() {
         Some(glam::Vec3::ZERO),
         None,
         &mut _attack_output,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
     );
     logic.objects.get_mut(&vid).unwrap().status.destroyed = true;
     logic.objects.get_mut(&vid).unwrap().health.current = 0.0;
@@ -1405,7 +1462,10 @@ fn guard_walks_back_to_post_after_chase() {
     g.guard_position = Some(glam::Vec3::ZERO);
     g.vision_range = 200.0;
     g.weapon = Some(wave21_guard_weapon());
-    g.set_ai_state(AIState::Attacking);
+    g.set_ai_state(
+        AIState::Attacking,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
     g.guard_chase_phase = 1;
     g.status.attacking = true;
     logic.objects.insert(gid, g);
@@ -1460,7 +1520,10 @@ fn without_pursuit_acquires_while_guarder_outside_ring() {
     g.guard_mode = GuardMode::WithoutPursuit;
     g.vision_range = 180.0;
     g.weapon = Some(wave21_guard_weapon());
-    g.set_ai_state(AIState::GuardingArea);
+    g.set_ai_state(
+        AIState::GuardingArea,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
     logic.objects.insert(gid, g);
 
     let (inner, _) = logic.host_std_guard_ranges(gid);
@@ -1511,7 +1574,13 @@ fn guard_retaliate_outer_refreshes_timer_while_victim_in_std_guard() {
 
     {
         let o = logic.objects.get_mut(&id).unwrap();
-        o.begin_guard_retaliate(vid, Some(glam::Vec3::ZERO), None, &mut logic.attack_events);
+        o.begin_guard_retaliate(
+            vid,
+            Some(glam::Vec3::ZERO),
+            None,
+            &mut logic.attack_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         o.guard_chase_phase = 2;
         o.guard_chase_give_up_frame = logic.frame.saturating_add(1);
         o.target = Some(vid);
@@ -1781,7 +1850,10 @@ fn named_guard_outer_geometry_is_owner_local_with_same_ids_and_reset() {
         guard.guard_area_trigger = Some(NAME.into());
         guard.vision_range = 100.0;
         guard.weapon = Some(wave21_guard_weapon());
-        guard.set_ai_state(AIState::Attacking);
+        guard.set_ai_state(
+            AIState::Attacking,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         guard.guard_chase_phase = 2;
         guard.guard_chase_give_up_frame = world.frame.saturating_add(10_000);
         guard.status.attacking = true;

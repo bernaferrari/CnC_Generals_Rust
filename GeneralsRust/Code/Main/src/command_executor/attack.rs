@@ -268,13 +268,19 @@ impl<'a> CommandExecutor<'a> {
             if !has_ai {
                 continue;
             }
-            if let Some((u, attack_events)) =
-                self.game_logic.host_object_and_attack_events_mut(unit_id)
-            {
+            // Preserve facade history admission before splitting receiving fields.
+            let _ = self.game_logic.host_object_mut(unit_id);
+            if let Some(u) = self.game_logic.objects.get_mut(&unit_id) {
                 if forced {
                     u.set_force_attack(true);
                 }
-                u.set_target(Some(target_id), attack_events);
+                u.set_target(
+                    Some(target_id),
+                    &mut self.game_logic.attack_events,
+                    &mut crate::game_logic::MovementAudio::queue(
+                        &mut self.game_logic.queued_audio_events,
+                    ),
+                );
                 any_attacker = true;
             }
         }
@@ -1002,9 +1008,15 @@ impl crate::game_logic::GameLogic {
                 // CPP AttackSquad completes after the inner attack has idled
                 // and no member can be selected. It does not broaden to a
                 // faction or retain an obsolete victim after the team empties.
-                if let Some(unit) = self.host_object_mut(id) {
-                    unit.clear_target();
-                    unit.set_ai_state(AIState::Idle);
+                let _ = self.host_object_mut(id);
+                if let Some(unit) = self.objects.get_mut(&id) {
+                    unit.clear_target(&mut crate::game_logic::MovementAudio::queue(
+                        &mut self.queued_audio_events,
+                    ));
+                    unit.set_ai_state(
+                        AIState::Idle,
+                        &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    );
                     unit.attack_priority_set = None;
                 }
             }

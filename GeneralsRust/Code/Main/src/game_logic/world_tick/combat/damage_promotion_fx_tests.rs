@@ -248,11 +248,11 @@ fn ordinary_hit(world: &mut GameLogic, source: ObjectId, victim: ObjectId) {
     assert!(world.score_the_kill_victim_counts(&world.objects[&victim]));
     assert!(!world.objects[&victim].status.under_construction);
     assert!(world.objects[&source].is_within_attack_range_for_slot(0, &world.objects[&victim]));
-    world
-        .objects
-        .get_mut(&source)
-        .unwrap()
-        .set_target(Some(victim), &mut world.attack_events);
+    world.objects.get_mut(&source).unwrap().set_target(
+        Some(victim),
+        &mut world.attack_events,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
     assert_eq!(world.objects[&source].target, Some(victim));
     assert_eq!(world.objects[&source].ai_state, AIState::Attacking);
     assert!(
@@ -494,7 +494,10 @@ fn normal_ground_kill_promotion_is_visible_to_damage_fx() {
             let impact = world.objects[&victim].get_position();
             {
                 let shooter = world.objects.get_mut(&source).unwrap();
-                shooter.set_target_location(Some(impact));
+                shooter.set_target_location(
+                    Some(impact),
+                    &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+                );
                 shooter.set_force_attack(true);
                 assert_eq!(shooter.target, None);
                 assert_eq!(shooter.target_location, Some(impact));
@@ -611,7 +614,10 @@ fn normal_ground_without_victim_commits_exactly_one_discharge() {
             let expected_sequence = world.weapon_discharge_next_sequence_for_snapshot();
             {
                 let shooter = world.objects.get_mut(&source).unwrap();
-                shooter.set_target_location(Some(impact));
+                shooter.set_target_location(
+                    Some(impact),
+                    &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+                );
                 shooter.set_force_attack(true);
                 assert!(shooter.is_within_attack_range_pos_for_slot(0, impact));
                 assert_eq!(shooter.weapon.as_ref().unwrap().ammo, Some(8));

@@ -145,7 +145,10 @@ fn try_idle_repulse_flees_flagged_repulsor() {
     let cid = ObjectId(4220);
     let mut civ = Object::new(ct, cid, Team::Neutral);
     civ.vision_range = 200.0;
-    civ.set_ai_state(AIState::Idle);
+    civ.set_ai_state(
+        AIState::Idle,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
     // Ensure can_move
     civ.movement.max_speed = 5.0;
     logic.objects.insert(cid, civ);
@@ -1026,7 +1029,10 @@ fn try_mood_auto_acquire_enters_attack() {
         o.owner_player_id = Some(1);
         o.set_position(Vec3::ZERO);
         o.set_orientation(0.0);
-        o.set_ai_state(AIState::Idle);
+        o.set_ai_state(
+            AIState::Idle,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         o.ai_attitude = 2; // Aggressive
         o.vision_range = 200.0;
         o.next_mood_check_time = 0;
@@ -1084,7 +1090,10 @@ fn transfer_attack_retargets_attackers() {
     logic.objects.insert(atk, {
         let mut o = mk(2403, Team::USA);
         o.target = Some(from);
-        o.set_ai_state(AIState::Attacking);
+        o.set_ai_state(
+            AIState::Attacking,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         o.turret_enabled = true;
         o.turret_target_id = Some(from);
         o.turret_substate = TurretSubState::Aim;
@@ -1338,7 +1347,7 @@ fn player_attack_command_uses_weaponset_target_legality_before_stamping_target()
     // SECONDARY's ground capability just to obtain a targeting cursor; once
     // unlocked the same object may use SECONDARY normally.
     let attacker = logic.objects.get_mut(&attacker_id).unwrap();
-    attacker.clear_target();
+    attacker.clear_target(&mut crate::game_logic::MovementAudio::queue(&mut Vec::new()));
     attacker.weapon.as_mut().unwrap().can_target_ground = false;
     attacker.weapon.as_mut().unwrap().can_target_air = true;
     attacker.secondary_weapon = Some(Weapon {
@@ -2092,7 +2101,10 @@ fn private_idle_clears_state() {
     let id = ObjectId(1311);
     logic.objects.insert(id, {
         let mut o = Object::new(t, id, Team::USA);
-        o.set_ai_state(AIState::Attacking);
+        o.set_ai_state(
+            AIState::Attacking,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         o.set_status_attacking(true);
         o.target = Some(ObjectId(1));
         o.movement.target_position = Some(Vec3::ONE);
@@ -2469,7 +2481,10 @@ fn downhill_only_blocks_uphill() {
     o.movement.acceleration = 100.0;
     o.movement.target_position = Some(Vec3::new(20.0, 20.0, 0.0)); // uphill
     let p0 = o.get_position();
-    o.update_movement(1.0 / 30.0);
+    o.update_movement(
+        1.0 / 30.0,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
     // Should not advance toward uphill goal.
     assert!((o.get_position() - p0).length() < 1e-3);
 }
@@ -2515,7 +2530,10 @@ fn group_speed_factor_scales_desired() {
     o.movement.acceleration = 1000.0;
     o.group_speed_factor = 0.5;
     o.movement.target_position = Some(Vec3::new(100.0, 0.0, 0.0));
-    o.update_movement(1.0 / 30.0);
+    o.update_movement(
+        1.0 / 30.0,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
     // With half group speed, shouldn't hit full 40 quickly.
     assert!(o.movement.velocity.length() < 35.0);
 }
@@ -2665,7 +2683,10 @@ fn wheels_cap_speed_while_turning() {
     o.movement.turn_rate = 0.5;
     o.min_turn_speed = 15.0;
     o.movement.target_position = Some(Vec3::new(0.0, 0.0, 100.0));
-    o.update_movement(1.0 / 30.0);
+    o.update_movement(
+        1.0 / 30.0,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
     // Hard turn: wheels should not instantly reach 60.
     assert!(o.movement.velocity.length() < 40.0);
 }
@@ -2718,7 +2739,10 @@ fn maintain_position_scrubs_ground_velocity() {
     let mut o = Object::new(t, ObjectId(962), Team::USA);
     o.movement.velocity = Vec3::new(5.0, 0.0, 3.0);
     o.movement.target_position = None;
-    o.update_movement(1.0 / 30.0);
+    o.update_movement(
+        1.0 / 30.0,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
     assert!(o.maintain_pos_valid);
     assert!(
         o.movement.velocity.x.abs() < 1e-3 && o.movement.velocity.z.abs() < 1e-3,
@@ -2827,7 +2851,10 @@ fn loco_turn_modulates_speed() {
     // Goal behind / to the side → large rel angle → reduced goal speed.
     o.movement.target_position = Some(Vec3::new(0.0, 0.0, 100.0)); // +Z, 90 deg turn
     let yaw0 = o.get_orientation();
-    o.update_movement(1.0 / 30.0);
+    o.update_movement(
+        1.0 / 30.0,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
     // 90° goal: treads residual clamps goal_speed via angleCoeff → near-zero thrust
     // while turning; orientation should advance toward +Z.
     let spd = o.movement.velocity.length();

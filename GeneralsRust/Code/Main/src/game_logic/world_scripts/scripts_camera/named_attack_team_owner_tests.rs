@@ -57,12 +57,16 @@ fn empty_resolved_team_clears_previous_attack_without_faction_fallback() {
     roster(&owner, "EmptySquad", &[]);
     {
         let (object, attack_events) = owner.host_object_and_attack_events_mut(unit).unwrap();
-        object.set_target(Some(target), attack_events);
+        object.set_target(
+            Some(target),
+            attack_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     };
-    owner
-        .host_object_mut(unit)
-        .unwrap()
-        .set_ai_state(AIState::Attacking);
+    owner.host_object_mut(unit).unwrap().set_ai_state(
+        AIState::Attacking,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
     assert_eq!(
         execute(
             &mut owner,
@@ -179,8 +183,15 @@ fn team_stop_disband_stops_then_recruits_and_merges_actual_owned_rosters() {
     let (object, attack_events) = owner.host_object_and_attack_events_mut(unit).unwrap();
     object.team_instance_name = "StopDisbandSource".into();
     object.is_recruitable = false;
-    object.set_target(Some(target), attack_events);
-    object.set_ai_state(AIState::Attacking);
+    object.set_target(
+        Some(target),
+        attack_events,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
+    object.set_ai_state(
+        AIState::Attacking,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
     let peer_name = foreign
         .host_object(peer)
         .unwrap()

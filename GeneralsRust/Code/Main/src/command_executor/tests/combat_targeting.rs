@@ -145,8 +145,15 @@ fn do_command_button_dispatches_stop() {
     let id = logic.create_object("DC_V", Team::USA, Vec3::ZERO).unwrap();
     {
         let (u, attack_events) = logic.host_object_and_attack_events_mut(id).unwrap();
-        u.set_ai_state(AIState::Moving);
-        u.set_target(Some(id), attack_events);
+        u.set_ai_state(
+            AIState::Moving,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
+        u.set_target(
+            Some(id),
+            attack_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
@@ -486,6 +493,7 @@ fn do_weapon_uses_the_real_tertiary_slot_without_secondary_aliasing() {
         logic.frame,
         &mut logic.combat_system,
         &mut logic.attack_events,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
     ));
     assert_eq!(unit.last_fire_slot, 2);
     assert!((unit.last_fire_damage - 73.0).abs() < f32::EPSILON);
@@ -812,7 +820,10 @@ fn move_to_and_evacuate_sets_pending_flag() {
     {
         let p = logic.host_object_mut(pax).unwrap();
         p.set_contained_by(Some(transport));
-        p.set_ai_state(crate::game_logic::AIState::Docked);
+        p.set_ai_state(
+            crate::game_logic::AIState::Docked,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     assert!(
         !logic
@@ -863,7 +874,10 @@ fn move_to_and_evacuate_unloads_when_path_completes() {
     {
         let p = logic.host_object_mut(pax).unwrap();
         p.set_contained_by(Some(transport));
-        p.set_ai_state(crate::game_logic::AIState::Docked);
+        p.set_ai_state(
+            crate::game_logic::AIState::Docked,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
@@ -923,7 +937,7 @@ fn evacuate_requires_container_not_passenger_only() {
 #[test]
 fn attack_move_uses_assign_unit_path() {
     // C++ AIGroup::groupAttackMoveToPosition (AIGroup.cpp:2260-2273): one pos.
-    let src = crate::command_executor::COMMAND_EXECUTOR_SRC;
+    let src = include_str!("../movement.rs");
     let prod = src.split("#[cfg(test)]").next().unwrap_or(src);
     let i = prod.find("fn execute_attack_move").expect("attack_move");
     let rest = &prod[i..];
@@ -1063,18 +1077,39 @@ fn execute_build_source_clears_trees_and_props() {
 
 #[test]
 fn interaction_commands_pathfind_surface() {
-    let src = crate::command_executor::COMMAND_EXECUTOR_SRC;
-    let prod = src.split("#[cfg(test)]").next().unwrap_or(src);
-    // Production locomotion commands should prefer path_to_goal_with_state.
-    assert!(prod.matches("path_to_goal_with_state").count() >= 10);
-    // Bare set_destination should not remain in execute_* interaction paths.
-    let exec = prod;
-    let bare = exec.matches("unit.set_destination(").count()
-        + exec.matches("unit_mut.set_destination(").count();
-    assert_eq!(
-        bare, 0,
-        "production execute paths still call unit.set_destination ({bare})"
-    );
+    // Inspect each actual production leaf: concatenating mod.rs first and then
+    // splitting at its test marker discards all later implementation leaves.
+    let attack = include_str!("../attack.rs");
+    let support = include_str!("../leftover.rs");
+    let movement = include_str!("../movement.rs");
+    for (source, method, next) in [
+        (
+            attack,
+            "fn execute_attack_team(",
+            "fn execute_attack_ground(",
+        ),
+        (attack, "fn execute_attack_ground(", "fn execute_stop("),
+        (support, "fn begin_support_order(", "fn execute_deploy("),
+        (support, "fn execute_gather(", "fn execute_return_supplies("),
+        (
+            support,
+            "fn execute_return_supplies(",
+            "fn execute_clear_mines(",
+        ),
+    ] {
+        let body = command_source_method(source, method, next);
+        assert!(
+            body.contains("path_to_goal_with_state"),
+            "{method} must enter owned pathfinding"
+        );
+    }
+    // Bare destination writes are forbidden throughout the actual production
+    // leaves, without treating a spellings count as coverage of interaction behavior.
+    for source in [attack, support, movement] {
+        let production = source.split("#[cfg(test)]").next().unwrap();
+        assert!(!production.contains("unit.set_destination("));
+        assert!(!production.contains("unit_mut.set_destination("));
+    }
 }
 
 #[test]
@@ -1251,9 +1286,12 @@ fn execute_stop_clears_guard_residual() {
         "fn unit_command_guard_position(",
     );
     assert!(
-        gbody.contains("set_guard_position(None)")
+        gbody
+            .split_whitespace()
+            .collect::<String>()
+            .contains("set_guard_position(None,")
             && gbody.contains("end_guard_retaliate")
-            && gbody.contains("clear_target()"),
+            && gbody.contains("clear_target(&mut crate::game_logic::MovementAudio::queue("),
         "unit_command_stop must clear guard anchors/targets"
     );
     let mood = command_source_method(
@@ -1296,7 +1334,10 @@ fn stop_delays_mood_for_unstealthed_stealth_unit() {
         u.status.stealthed = false;
         u.status.detected = false;
         u.next_mood_check_time = 0;
-        u.set_ai_state(AIState::Moving);
+        u.set_ai_state(
+            AIState::Moving,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     let mut exec = CommandExecutor::new(&mut logic, 0);
     assert_eq!(exec.execute_stop(&[a]), CommandResult::Success);
@@ -1507,8 +1548,15 @@ fn add_waypoint_breaks_off_attack() {
         .unwrap();
     {
         let (u, attack_events) = logic.host_object_and_attack_events_mut(a).unwrap();
-        u.set_target(Some(v), attack_events);
-        u.set_guard_target(Some(v));
+        u.set_target(
+            Some(v),
+            attack_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
+        u.set_guard_target(
+            Some(v),
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     let mut exec = CommandExecutor::new(&mut logic, 0);
     assert_eq!(
@@ -1899,12 +1947,18 @@ End
         ferry.movement.path = original_path.clone();
         ferry.movement.target_position = original_target;
         ferry.movement.current_path_index = 1;
-        ferry.set_ai_state(AIState::Idle);
+        ferry.set_ai_state(
+            AIState::Idle,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     {
         let passenger = logic.host_object_mut(rider).expect("passenger");
         passenger.set_contained_by(Some(carrier));
-        passenger.set_ai_state(AIState::Docked);
+        passenger.set_ai_state(
+            AIState::Docked,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
 
     let result = {
@@ -2117,7 +2171,10 @@ fn attack_team_persist_never_bleeds_into_same_faction_team() {
             ..Weapon::default()
         });
         unit.target = Some(first);
-        unit.set_ai_state(AIState::Attacking);
+        unit.set_ai_state(
+            AIState::Attacking,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         unit.attack_priority_set = Some("AIGroup.AttackTeam.GLA_TargetSquad".into());
         unit.auto_acquire_when_idle = true;
     }

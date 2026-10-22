@@ -646,7 +646,11 @@ impl GameLogic {
                 if !target.is_alive() {
                     continue;
                 }
-                target.apply_disabled_emp(plan.disable_until_frame, &mut self.health_events);
+                target.apply_disabled_emp(
+                    plan.disable_until_frame,
+                    &mut self.health_events,
+                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                );
                 self.admit_host_radar_disabled_edges(id);
                 disables = disables.saturating_add(1);
             }

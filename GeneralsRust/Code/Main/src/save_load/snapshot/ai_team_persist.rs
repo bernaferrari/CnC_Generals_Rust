@@ -1380,7 +1380,10 @@ mod tests {
             obj.pending_waypoint_labels = vec!["HeroPath".into()];
             obj.is_exact_path = true;
             obj.is_attack_path = true;
-            obj.set_ai_state(AIState::AttackMoving);
+            obj.set_ai_state(
+                AIState::AttackMoving,
+                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            );
             obj.set_status_moving(true);
         }
 
@@ -1437,7 +1440,10 @@ mod tests {
         if let Some(obj) = source.host_object_mut(id) {
             obj.waiting_for_path = true;
             obj.requested_destination = Some(dest);
-            obj.set_ai_state(AIState::Moving);
+            obj.set_ai_state(
+                AIState::Moving,
+                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            );
             obj.set_status_moving(true);
         }
         source.restore_pending_host_paths([PendingHostPath {

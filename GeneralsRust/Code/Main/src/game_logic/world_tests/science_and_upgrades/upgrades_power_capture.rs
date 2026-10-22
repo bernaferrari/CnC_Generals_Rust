@@ -121,8 +121,15 @@ fn same_faction_players_keep_upgrade_and_construction_power_separate() {
         let (object, attack_events) = logic
             .host_object_and_attack_events_mut(dozer_id)
             .expect("dozer");
-        object.set_target(Some(target_id), attack_events);
-        object.set_ai_state(AIState::Constructing);
+        object.set_target(
+            Some(target_id),
+            attack_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
+        object.set_ai_state(
+            AIState::Constructing,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
 
     let p0_ready_supply = logic
@@ -197,22 +204,30 @@ fn same_faction_players_keep_upgrade_and_construction_power_separate() {
         UPGRADE_AMERICA_SUPPLY_LINES.to_string(),
         p0_supply,
     )]);
-    assert!(logic
-        .get_player(0)
-        .unwrap()
-        .has_unlocked_upgrade(UPGRADE_AMERICA_SUPPLY_LINES));
-    assert!(!logic
-        .get_player(1)
-        .unwrap()
-        .has_unlocked_upgrade(UPGRADE_AMERICA_SUPPLY_LINES));
-    assert!(logic
-        .host_object(p0_supply)
-        .unwrap()
-        .has_upgrade_tag(UPGRADE_AMERICA_SUPPLY_LINES));
-    assert!(!logic
-        .host_object(p1_supply)
-        .unwrap()
-        .has_upgrade_tag(UPGRADE_AMERICA_SUPPLY_LINES));
+    assert!(
+        logic
+            .get_player(0)
+            .unwrap()
+            .has_unlocked_upgrade(UPGRADE_AMERICA_SUPPLY_LINES)
+    );
+    assert!(
+        !logic
+            .get_player(1)
+            .unwrap()
+            .has_unlocked_upgrade(UPGRADE_AMERICA_SUPPLY_LINES)
+    );
+    assert!(
+        logic
+            .host_object(p0_supply)
+            .unwrap()
+            .has_upgrade_tag(UPGRADE_AMERICA_SUPPLY_LINES)
+    );
+    assert!(
+        !logic
+            .host_object(p1_supply)
+            .unwrap()
+            .has_upgrade_tag(UPGRADE_AMERICA_SUPPLY_LINES)
+    );
 
     // A delayed special-power spawn is a second ownership boundary: the
     // source is player 0, while player 1 shares the same USA faction.  Both
@@ -265,10 +280,12 @@ fn host_upgrade_complete_chain_guns_includes_gattling_tank() {
         .expect("gattling");
     let n = logic.apply_chain_guns_to_team(Team::China, UPGRADE_CHINA_CHAIN_GUNS);
     assert_eq!(n, 1);
-    assert!(logic
-        .host_object(id)
-        .unwrap()
-        .has_upgrade_tag(UPGRADE_CHINA_CHAIN_GUNS));
+    assert!(
+        logic
+            .host_object(id)
+            .unwrap()
+            .has_upgrade_tag(UPGRADE_CHINA_CHAIN_GUNS)
+    );
 }
 
 #[test]
@@ -307,14 +324,18 @@ fn host_upgrade_complete_anthrax_beta_and_toxin_shells() {
 
     let n_a = logic.apply_anthrax_beta_to_team(Team::GLA, UPGRADE_GLA_ANTHRAX_BETA);
     assert!(n_a >= 2);
-    assert!(logic
-        .host_object(tid)
-        .unwrap()
-        .has_upgrade_tag(UPGRADE_GLA_ANTHRAX_BETA));
-    assert!(logic
-        .host_object(sid)
-        .unwrap()
-        .has_upgrade_tag(UPGRADE_GLA_ANTHRAX_BETA));
+    assert!(
+        logic
+            .host_object(tid)
+            .unwrap()
+            .has_upgrade_tag(UPGRADE_GLA_ANTHRAX_BETA)
+    );
+    assert!(
+        logic
+            .host_object(sid)
+            .unwrap()
+            .has_upgrade_tag(UPGRADE_GLA_ANTHRAX_BETA)
+    );
 
     // Fresh scud for toxin shells residual.
     let sid2 = logic
@@ -326,10 +347,12 @@ fn host_upgrade_complete_anthrax_beta_and_toxin_shells() {
         .expect("scud2");
     let n_t = logic.apply_toxin_shells_to_team(Team::GLA, UPGRADE_GLA_TOXIN_SHELLS);
     assert!(n_t >= 1);
-    assert!(logic
-        .host_object(sid2)
-        .unwrap()
-        .has_upgrade_tag(UPGRADE_GLA_TOXIN_SHELLS));
+    assert!(
+        logic
+            .host_object(sid2)
+            .unwrap()
+            .has_upgrade_tag(UPGRADE_GLA_TOXIN_SHELLS)
+    );
 }
 
 #[test]
@@ -386,31 +409,39 @@ fn host_upgrade_complete_ap_bullets_and_ap_rockets_team() {
 
     let n_b = logic.apply_ap_bullets_to_team(Team::GLA, UPGRADE_GLA_AP_BULLETS);
     assert!(n_b >= 2, "rebel+kell");
-    assert!(logic
-        .host_object(rid)
-        .unwrap()
-        .has_upgrade_tag(UPGRADE_GLA_AP_BULLETS));
-    assert!(logic
-        .host_object(kid)
-        .unwrap()
-        .has_upgrade_tag(UPGRADE_GLA_AP_BULLETS));
+    assert!(
+        logic
+            .host_object(rid)
+            .unwrap()
+            .has_upgrade_tag(UPGRADE_GLA_AP_BULLETS)
+    );
+    assert!(
+        logic
+            .host_object(kid)
+            .unwrap()
+            .has_upgrade_tag(UPGRADE_GLA_AP_BULLETS)
+    );
 
     let n_r = logic.apply_ap_rockets_to_team(Team::GLA, UPGRADE_GLA_AP_ROCKETS);
     assert!(n_r >= 2, "scorp+rpg");
-    assert!(logic
-        .host_object(sid)
-        .unwrap()
-        .has_upgrade_tag(UPGRADE_GLA_AP_ROCKETS));
-    assert!(logic
-        .host_object(pid)
-        .unwrap()
-        .has_upgrade_tag(UPGRADE_GLA_AP_ROCKETS));
+    assert!(
+        logic
+            .host_object(sid)
+            .unwrap()
+            .has_upgrade_tag(UPGRADE_GLA_AP_ROCKETS)
+    );
+    assert!(
+        logic
+            .host_object(pid)
+            .unwrap()
+            .has_upgrade_tag(UPGRADE_GLA_AP_ROCKETS)
+    );
 }
 
 #[test]
 fn host_upgrade_complete_uranium_and_black_napalm() {
     use crate::game_logic::host_battlemaster::{
-        has_uranium_shells_upgrade, UPGRADE_CHINA_URANIUM_SHELLS,
+        UPGRADE_CHINA_URANIUM_SHELLS, has_uranium_shells_upgrade,
     };
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
@@ -444,17 +475,19 @@ fn host_upgrade_complete_uranium_and_black_napalm() {
 
     let n_b = logic.apply_black_napalm_to_team(Team::China, "Upgrade_ChinaBlackNapalm");
     assert!(n_b >= 1);
-    assert!(logic
-        .host_object(mid)
-        .unwrap()
-        .has_upgrade_tag("Upgrade_ChinaBlackNapalm"));
+    assert!(
+        logic
+            .host_object(mid)
+            .unwrap()
+            .has_upgrade_tag("Upgrade_ChinaBlackNapalm")
+    );
 }
 
 #[test]
 fn host_upgrade_complete_scorpion_rocket_and_laser_missiles() {
-    use crate::game_logic::host_raptor::{is_raptor_template, UPGRADE_AMERICA_LASER_MISSILES};
+    use crate::game_logic::host_raptor::{UPGRADE_AMERICA_LASER_MISSILES, is_raptor_template};
     use crate::game_logic::host_scorpion::{
-        has_scorpion_rocket_upgrade, UPGRADE_GLA_SCORPION_ROCKET,
+        UPGRADE_GLA_SCORPION_ROCKET, has_scorpion_rocket_upgrade,
     };
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
@@ -494,10 +527,12 @@ fn host_upgrade_complete_scorpion_rocket_and_laser_missiles() {
     assert!(is_raptor_template(
         &logic.host_object(rid).unwrap().template_name
     ));
-    assert!(logic
-        .host_object(rid)
-        .unwrap()
-        .has_upgrade_tag(UPGRADE_AMERICA_LASER_MISSILES));
+    assert!(
+        logic
+            .host_object(rid)
+            .unwrap()
+            .has_upgrade_tag(UPGRADE_AMERICA_LASER_MISSILES)
+    );
 }
 
 #[test]
@@ -520,16 +555,20 @@ fn host_upgrade_complete_nationalism_tags_red_guard() {
         .expect("rg");
     let n = logic.apply_nationalism_to_team(Team::China, UPGRADE_NATIONALISM);
     assert!(n >= 1);
-    assert!(logic
-        .host_object(id)
-        .unwrap()
-        .has_upgrade_tag(UPGRADE_NATIONALISM));
-    assert!(logic
-        .players
-        .get(&0)
-        .unwrap()
-        .unlocked_sciences
-        .contains(UPGRADE_NATIONALISM));
+    assert!(
+        logic
+            .host_object(id)
+            .unwrap()
+            .has_upgrade_tag(UPGRADE_NATIONALISM)
+    );
+    assert!(
+        logic
+            .players
+            .get(&0)
+            .unwrap()
+            .unlocked_sciences
+            .contains(UPGRADE_NATIONALISM)
+    );
 }
 
 #[test]
@@ -558,12 +597,14 @@ fn subliminal_messaging_tags_propaganda_towers() {
     assert!(logic.subliminal_messaging_upgrades > 0);
     let t = logic.host_object(id).unwrap();
     assert!(t.has_upgrade_tag(UPGRADE_CHINA_SUBLIMINAL_MESSAGING));
-    assert!(logic
-        .players
-        .get(&0)
-        .unwrap()
-        .unlocked_sciences
-        .contains(UPGRADE_CHINA_SUBLIMINAL_MESSAGING));
+    assert!(
+        logic
+            .players
+            .get(&0)
+            .unwrap()
+            .unlocked_sciences
+            .contains(UPGRADE_CHINA_SUBLIMINAL_MESSAGING)
+    );
 }
 
 #[test]
@@ -846,9 +887,11 @@ End
         .get_mut("ChinaPowerPlantNamedOnly")
         .unwrap()
         .add_kind_of(KindOf::PowerPlant);
-    assert!(logic.templates["ChinaPowerPlantNamedOnly"]
-        .overcharge_behavior
-        .is_none());
+    assert!(
+        logic.templates["ChinaPowerPlantNamedOnly"]
+            .overcharge_behavior
+            .is_none()
+    );
 
     let plant_id = logic
         .create_object_for_player("ChinaPowerPlant", 0, glam::Vec3::ZERO)
@@ -1198,7 +1241,7 @@ fn car_bomb_detonates_when_pilot_sniped_unmanned() {
         )
         .expect("car");
     if let Some(c) = logic.host_object_mut(cid) {
-        c.apply_convert_to_car_bomb();
+        c.apply_convert_to_car_bomb(&mut crate::game_logic::MovementAudio::queue(&mut Vec::new()));
     }
     let sid = logic
         .create_object("GLABarracks", Team::USA, glam::Vec3::new(5.0, 0.0, 0.0))
@@ -1256,7 +1299,10 @@ fn infantry_collision_reclaims_unmanned_vehicle() {
         .expect("humvee");
     if let Some(v) = logic.objects.get_mut(&vid) {
         let ownership_events = &mut logic.ownership_events;
-        v.apply_kill_pilot_unmanned(&mut logic.health_events);
+        v.apply_kill_pilot_unmanned(
+            &mut logic.health_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         v.set_team(Team::Neutral, ownership_events);
     }
     let iid = logic
@@ -1326,7 +1372,10 @@ fn unmanned_recrew_transfers_script_name_and_captured_bit() {
         .expect("humvee");
     if let Some(v) = logic.objects.get_mut(&vid) {
         let ownership_events = &mut logic.ownership_events;
-        v.apply_kill_pilot_unmanned(&mut logic.health_events);
+        v.apply_kill_pilot_unmanned(
+            &mut logic.health_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         v.set_team(Team::Neutral, ownership_events);
         v.name.clear();
     }
@@ -1369,10 +1418,12 @@ fn capture_tech_building_sets_captured_model_condition() {
             glam::Vec3::new(0.0, 0.0, 0.0),
         )
         .expect("oil");
-    assert!(!logic
-        .host_object(id)
-        .unwrap()
-        .has_captured_model_condition());
+    assert!(
+        !logic
+            .host_object(id)
+            .unwrap()
+            .has_captured_model_condition()
+    );
 
     if let Some((o, ownership_events)) = logic.host_object_and_ownership_events_mut(id) {
         o.set_team(Team::USA, ownership_events);
@@ -1559,7 +1610,10 @@ fn capture_object_residual_idle_deselect_ai_sell() {
     // Flip ownership first (C++ order: setTeam then onCapture).
     if let Some((obj, ownership_events)) = logic.host_object_and_ownership_events_mut(id) {
         obj.set_team(Team::GLA, ownership_events);
-        obj.set_ai_state(AIState::Attacking);
+        obj.set_ai_state(
+            AIState::Attacking,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         obj.set_status_attacking(true);
     }
 
@@ -1689,7 +1743,10 @@ fn capture_kicks_transport_passengers_but_not_tunnel_pool() {
     }
     if let Some(r) = logic.host_object_mut(rid) {
         r.set_contained_by(Some(tid));
-        r.set_ai_state(AIState::Docked);
+        r.set_ai_state(
+            AIState::Docked,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     logic.on_capture_kick_passengers(tid, Team::USA, Team::GLA);
     assert!(logic.capture_kick_outs > 0);
@@ -1909,7 +1966,10 @@ fn sell_ejects_garrison_and_kills_parked_aircraft() {
     }
     if let Some(r) = logic.host_object_mut(rid) {
         r.set_contained_by(Some(bid));
-        r.set_ai_state(AIState::Garrisoned);
+        r.set_ai_state(
+            AIState::Garrisoned,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     assert!(logic.start_sell_object(bid));
     assert!(logic.sell_passengers_ejected > 0);
@@ -1939,7 +1999,10 @@ fn sell_ejects_garrison_and_kills_parked_aircraft() {
     if let Some(j) = logic.host_object_mut(jid) {
         j.object_type = ObjectType::Aircraft;
         j.set_contained_by(Some(afid));
-        j.set_ai_state(AIState::Docked);
+        j.set_ai_state(
+            AIState::Docked,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         j.status.airborne_target = false;
     }
     assert!(logic.reserve_produced_aircraft_parking_space(afid, jid));
@@ -2169,7 +2232,10 @@ fn actively_constructing_bit_on_dozer_and_factory() {
         )
         .expect("dozer");
     if let Some(o) = logic.host_object_mut(did) {
-        o.set_ai_state(AIState::Constructing);
+        o.set_ai_state(
+            AIState::Constructing,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     let bid = logic
         .create_object(
@@ -2213,12 +2279,16 @@ fn actively_constructing_bit_on_dozer_and_factory() {
     // after the goal object is set.
     {
         let (object, attack_events) = logic.host_object_and_attack_events_mut(did).unwrap();
-        object.set_target(Some(bid), attack_events);
+        object.set_target(
+            Some(bid),
+            attack_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     };
-    logic
-        .host_object_mut(did)
-        .unwrap()
-        .set_ai_state(AIState::Constructing);
+    logic.host_object_mut(did).unwrap().set_ai_state(
+        AIState::Constructing,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
     logic.update_actively_constructing_model_conditions();
     assert!(logic.honesty_actively_constructing_ok());
     let d = logic.host_object(did).expect("d");
@@ -2233,7 +2303,10 @@ fn actively_constructing_bit_on_dozer_and_factory() {
     );
     // Clear when idle / empty queue.
     if let Some(o) = logic.host_object_mut(did) {
-        o.set_ai_state(AIState::Idle);
+        o.set_ai_state(
+            AIState::Idle,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     if let Some(o) = logic.host_object_mut(bid) {
         if let Some(bd) = o.building_data.as_mut() {
@@ -2706,8 +2779,8 @@ fn eva_hero_detected_own_and_enemy_lotus() {
 
 #[test]
 fn eva_superweapon_launched_own_particle_and_enemy_scud() {
-    use crate::game_logic::special_power_strikes::HostSuperweaponKind;
     use crate::game_logic::Team;
+    use crate::game_logic::special_power_strikes::HostSuperweaponKind;
     use gamelogic::helpers::EvaEvent;
     let mut logic = GameLogic::new();
     logic.players.insert(
@@ -2812,8 +2885,8 @@ fn eva_superweapon_ready_own_particle_cannon() {
 
 #[test]
 fn eva_upgrade_complete_and_general_level_up() {
-    use crate::game_logic::host_science_rank::RANK2_SKILL_POINTS_NEEDED;
     use crate::game_logic::Team;
+    use crate::game_logic::host_science_rank::RANK2_SKILL_POINTS_NEEDED;
     use gamelogic::helpers::EvaEvent;
     let mut logic = GameLogic::new();
     logic.players.insert(

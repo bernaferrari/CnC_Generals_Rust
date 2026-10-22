@@ -137,14 +137,14 @@ fn sequential_start_keeps_same_name_chains_distinct_and_stops_only_selected_cont
     let (mut world, first, second) = world();
     let first_id = admit(&world, "SiblingRoster", first, 1);
     let second_id = admit(&world, "SiblingRoster", second, 2);
-    world
-        .host_object_mut(first)
-        .unwrap()
-        .set_ai_state(AIState::Moving);
-    world
-        .host_object_mut(second)
-        .unwrap()
-        .set_ai_state(AIState::Moving);
+    world.host_object_mut(first).unwrap().set_ai_state(
+        AIState::Moving,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
+    world.host_object_mut(second).unwrap().set_ai_state(
+        AIState::Moving,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
     let engine = sequence_engine();
     start(&engine, &mut world, first_id);
     assert_eq!(world.host_object(first).unwrap().ai_state, AIState::Idle);
@@ -260,7 +260,7 @@ fn exact_sequence_snapshot_restore_preserves_selected_sibling_identity() {
 #[test]
 fn retained_missing_team_id_rejects_before_persist_tail_mutates_receiver() {
     use crate::save_load::snapshot::persist_v18::{
-        restore_persist_v18, SequentialScriptPersist, WorldPersistV18,
+        SequentialScriptPersist, WorldPersistV18, restore_persist_v18,
     };
     let (mut world, id, _) = world();
     let before = world.host_object(id).unwrap().ai_state.clone();
@@ -298,14 +298,14 @@ fn sequence_idle_contains_cycle_is_bounded_and_still_visits_each_live_member() {
     let id = admit(&world, "CycleRoster", first, 1);
     world.host_object_mut(first).unwrap().occupants = vec![second];
     world.host_object_mut(second).unwrap().occupants = vec![first, ObjectId(u32::MAX)];
-    world
-        .host_object_mut(first)
-        .unwrap()
-        .set_ai_state(AIState::Moving);
-    world
-        .host_object_mut(second)
-        .unwrap()
-        .set_ai_state(AIState::Moving);
+    world.host_object_mut(first).unwrap().set_ai_state(
+        AIState::Moving,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
+    world.host_object_mut(second).unwrap().set_ai_state(
+        AIState::Moving,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
     let engine = sequence_engine();
     start(&engine, &mut world, id);
     for member in [first, second] {
@@ -418,7 +418,10 @@ fn sequence_script_idle_admits_immobile_ai_without_locomotor_preparation() {
     let id = admit(&world, "IdleRoster", first, 1);
     let unit = world.host_object_mut(first).unwrap();
     unit.template_mut().add_kind_of(KindOf::Immobile);
-    unit.set_ai_state(AIState::Moving);
+    unit.set_ai_state(
+        AIState::Moving,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
     let engine = sequence_engine();
     start(&engine, &mut world, id);
     let unit = world.host_object(first).unwrap();
@@ -464,10 +467,10 @@ fn sequence_script_idle_rejects_dead_sleep_surrender_and_projectile_members() {
             .unwrap()
             .add_member(accepted.0);
         for id in [rejected, accepted] {
-            world
-                .host_object_mut(id)
-                .unwrap()
-                .set_ai_state(AIState::Moving);
+            world.host_object_mut(id).unwrap().set_ai_state(
+                AIState::Moving,
+                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            );
         }
         reject(&mut world, rejected);
         let before = world.host_object(rejected).unwrap().last_command_source;

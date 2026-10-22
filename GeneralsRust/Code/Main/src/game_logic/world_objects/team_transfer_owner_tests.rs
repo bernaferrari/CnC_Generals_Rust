@@ -19,10 +19,10 @@ fn same_faction_player_transfer_moves_roster_before_capture_once_and_isolates_pe
     let (peer, peer_object) = world();
     let previous = game.objects[&object].team_instance_id.unwrap();
     let destination = game.host_default_team_id(1).unwrap();
-    game.objects
-        .get_mut(&object)
-        .unwrap()
-        .set_ai_state(AIState::Moving);
+    game.objects.get_mut(&object).unwrap().set_ai_state(
+        AIState::Moving,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
     assert!(game.transfer_object_to_player(object, 1));
     assert_eq!(game.objects[&object].team_instance_id, Some(destination));
     assert_eq!(game.objects[&object].ai_state, AIState::Idle);
@@ -56,10 +56,10 @@ fn same_faction_player_transfer_moves_roster_before_capture_once_and_isolates_pe
 fn exact_team_no_op_keeps_order_orders_and_capture_score() {
     let (mut game, object) = world();
     let identity = game.objects[&object].team_instance_id.unwrap();
-    game.objects
-        .get_mut(&object)
-        .unwrap()
-        .set_ai_state(AIState::Moving);
+    game.objects.get_mut(&object).unwrap().set_ai_state(
+        AIState::Moving,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
     assert!(game.set_host_object_team(object, identity));
     assert_eq!(game.objects[&object].ai_state, AIState::Moving);
     assert_eq!(game.get_player(0).unwrap().statistics.objects_captured, 0);
@@ -167,10 +167,10 @@ fn admitted_ai_presence_is_local_and_no_ai_capture_preserves_non_ai_orders() {
     assert_eq!(object, peer_object);
     assert!(!game.objects[&object].has_ai_update_interface());
     assert!(peer.objects[&peer_object].has_ai_update_interface());
-    game.objects
-        .get_mut(&object)
-        .unwrap()
-        .set_ai_state(AIState::Moving);
+    game.objects.get_mut(&object).unwrap().set_ai_state(
+        AIState::Moving,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
     assert!(game.transfer_object_to_player(object, 1));
     assert_eq!(
         game.objects[&object].ai_state,

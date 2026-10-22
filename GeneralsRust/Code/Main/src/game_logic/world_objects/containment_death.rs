@@ -81,6 +81,7 @@ fn apply_transport_death_scatter(
     bounding_radius: f32,
     frame: u32,
     effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    audio: &mut crate::game_logic::MovementAudio<'_>,
 ) -> glam::Vec3 {
     let leftover = gamelogic::object::contain::open_contain::leftover_scatter_to_nearby_position(
         container_pos.x,
@@ -90,12 +91,12 @@ fn apply_transport_death_scatter(
         Some(container_pos.y),
     );
     let dest = glam::Vec3::new(leftover.dest_x, leftover.dest_z, leftover.dest_y);
-    unit.stop_moving();
+    unit.stop_moving(audio);
     unit.target = None;
     unit.set_contained_by(None);
     unit.set_position_with_effects(container_pos, frame, effects);
     unit.set_orientation(leftover.orientation);
-    unit.set_ai_state(AIState::Moving);
+    unit.set_ai_state(AIState::Moving, audio);
     unit.status.moving = true;
     // Pathfinder ignore for the queued move. Physics still skips the wreck
     // through ignore_collisions_with; scatter does not start a collision timer.
@@ -333,6 +334,7 @@ impl GameLogic {
                 radius,
                 self.frame,
                 effects,
+                &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
             )
         };
         self.path_approach_with_state_ignoring(

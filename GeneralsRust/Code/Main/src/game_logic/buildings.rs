@@ -1089,6 +1089,7 @@ impl BuildingBehavior {
         unit_id: ObjectId,
         objects: &mut HashMap<ObjectId, Object>,
         ownership_events: &mut crate::game_logic::host_owner_log::OwnershipEvents,
+        audio: &mut crate::game_logic::MovementAudio<'_>,
     ) -> bool {
         let occupant_snap = objects.get(&unit_id).map(|unit| {
             (
@@ -1127,7 +1128,7 @@ impl BuildingBehavior {
 
         if let Some(unit) = objects.get_mut(&unit_id) {
             unit.deselect();
-            unit.stop();
+            unit.stop(audio);
             unit.target = Some(building_id);
             unit.contained_by = Some(building_id);
             unit.ai_state = AIState::Garrisoned;
@@ -1234,6 +1235,7 @@ impl BuildingBehavior {
         object_id: ObjectId,
         objects: &mut HashMap<ObjectId, Object>,
         attack_events: &mut crate::game_logic::host_attack_log::AttackEvents,
+        audio: &mut crate::game_logic::MovementAudio<'_>,
     ) {
         let (position, team, range) = {
             if let Some(building) = objects.get(&object_id) {
@@ -1274,7 +1276,7 @@ impl BuildingBehavior {
         // Attack nearest enemy
         if let Some(enemy_id) = nearest_enemy {
             if let Some(building) = objects.get_mut(&object_id) {
-                building.attack_target(enemy_id, attack_events);
+                building.attack_target(enemy_id, attack_events, audio);
             }
         }
     }

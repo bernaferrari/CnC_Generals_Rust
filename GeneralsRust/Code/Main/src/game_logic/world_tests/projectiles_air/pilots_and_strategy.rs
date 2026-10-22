@@ -49,7 +49,10 @@ fn pilot_find_vehicle_ai_auto_scan_min_health_residual() {
         let p = game_logic.host_object_mut(pilot_id).expect("pilot");
         assert!(is_pilot_template(&p.template_name));
         p.experience.level = VeterancyLevel::Veteran;
-        p.set_ai_state(AIState::Idle);
+        p.set_ai_state(
+            AIState::Idle,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
 
     // Healthy unmanned tank within scan range (100% HP ≥ MinHealth 0.5).
@@ -71,7 +74,10 @@ fn pilot_find_vehicle_ai_auto_scan_min_health_residual() {
                 ownership_events,
             )
         };
-        t.apply_kill_pilot_unmanned(health_events);
+        t.apply_kill_pilot_unmanned(
+            health_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         t.set_team(Team::Neutral, ownership_events);
         t.health.current = t.max_health;
     }
@@ -94,7 +100,10 @@ fn pilot_find_vehicle_ai_auto_scan_min_health_residual() {
                 ownership_events,
             )
         };
-        t.apply_kill_pilot_unmanned(health_events);
+        t.apply_kill_pilot_unmanned(
+            health_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         t.set_team(Team::Neutral, ownership_events);
         t.health.current = t.max_health * (PILOT_FIND_VEHICLE_MIN_HEALTH - 0.1);
     }
@@ -167,7 +176,10 @@ fn pilot_find_vehicle_ai_auto_scan_min_health_residual() {
         .expect("human pilot");
     {
         let p = human_logic.host_object_mut(hp).expect("hp");
-        p.set_ai_state(AIState::Idle);
+        p.set_ai_state(
+            AIState::Idle,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     let ht = human_logic
         .create_object("TestTank", Team::Neutral, Vec3::new(10.0, 0.0, 0.0))
@@ -176,7 +188,10 @@ fn pilot_find_vehicle_ai_auto_scan_min_health_residual() {
         let (t, health_events) = human_logic
             .host_object_and_health_events_mut(ht)
             .expect("ht");
-        t.apply_kill_pilot_unmanned(health_events);
+        t.apply_kill_pilot_unmanned(
+            health_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     human_logic.frame = PILOT_FIND_VEHICLE_SCAN_FRAMES;
     human_logic.update_ai(&[hp, ht], 1.0 / 30.0);
@@ -246,7 +261,10 @@ fn pilot_find_vehicle_base_center_fallback_residual() {
         .expect("pilot");
     {
         let p = game_logic.host_object_mut(pilot_id).expect("pilot");
-        p.set_ai_state(AIState::Idle);
+        p.set_ai_state(
+            AIState::Idle,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         assert!(!p.status.pilot_did_move_to_base);
     }
 
@@ -286,8 +304,11 @@ fn pilot_find_vehicle_base_center_fallback_residual() {
     // Reset to Idle so residual is eligible again but did_move latches.
     {
         let p = game_logic.host_object_mut(pilot_id).expect("pilot");
-        p.set_ai_state(AIState::Idle);
-        p.stop_moving();
+        p.set_ai_state(
+            AIState::Idle,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
+        p.stop_moving(&mut crate::game_logic::MovementAudio::queue(&mut Vec::new()));
     }
     game_logic.frame = PILOT_FIND_VEHICLE_SCAN_FRAMES * 2;
     game_logic.update_ai(&[pilot_id, cc_id], 1.0 / 30.0);
@@ -333,7 +354,10 @@ fn pilot_find_vehicle_base_center_fallback_residual() {
         .expect("hp");
     {
         let p = human_logic.host_object_mut(hp).expect("hp");
-        p.set_ai_state(AIState::Idle);
+        p.set_ai_state(
+            AIState::Idle,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     human_logic.frame = PILOT_FIND_VEHICLE_SCAN_FRAMES;
     human_logic.update_ai(&[hp, hcc], 1.0 / 30.0);
@@ -384,7 +408,10 @@ fn pilot_auto_find_healing_hospital_path_residual() {
         let p = game_logic.host_object_mut(pilot_id).expect("pilot");
         // Below NeverHeal 0.85 residual (50% HP).
         p.health.current = 50.0;
-        p.set_ai_state(AIState::Idle);
+        p.set_ai_state(
+            AIState::Idle,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
 
     assert!(!game_logic.honesty_pilot_auto_heal_ok());
@@ -450,7 +477,10 @@ fn pilot_auto_find_healing_hospital_path_residual() {
         let p = healthy_logic.host_object_mut(hpilot).expect("hp");
         // Just above NeverHeal threshold residual.
         p.health.current = 100.0 * AUTO_FIND_HEALING_NEVER_HEAL + 1.0;
-        p.set_ai_state(AIState::Idle);
+        p.set_ai_state(
+            AIState::Idle,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     healthy_logic.frame = AUTO_FIND_HEALING_SCAN_FRAMES;
     healthy_logic.update_ai(&[hpilot, hpad], 1.0 / 30.0);
@@ -489,7 +519,10 @@ fn pilot_auto_find_healing_hospital_path_residual() {
     {
         let p = human_logic.host_object_mut(hp2).expect("hp");
         p.health.current = 40.0;
-        p.set_ai_state(AIState::Idle);
+        p.set_ai_state(
+            AIState::Idle,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     human_logic.frame = AUTO_FIND_HEALING_SCAN_FRAMES;
     human_logic.update_ai(&[hp2, hpad2], 1.0 / 30.0);
@@ -543,7 +576,10 @@ fn usa_infantry_auto_find_healing_hospital_path_residual() {
     {
         let r = game_logic.host_object_mut(ranger_id).expect("ranger");
         r.health.current = 40.0;
-        r.set_ai_state(AIState::Idle);
+        r.set_ai_state(
+            AIState::Idle,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
 
     assert!(!game_logic.honesty_infantry_auto_heal_ok());
@@ -614,7 +650,10 @@ fn usa_infantry_auto_find_healing_hospital_path_residual() {
     {
         let r = china_logic.host_object_mut(cred).expect("rg");
         r.health.current = 30.0;
-        r.set_ai_state(AIState::Idle);
+        r.set_ai_state(
+            AIState::Idle,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     china_logic.frame = AUTO_FIND_HEALING_SCAN_FRAMES;
     china_logic.update_ai(&[cred, cpad], 1.0 / 30.0);
@@ -845,7 +884,10 @@ fn pilot_find_vehicle_same_player_partition_filter_residual() {
     {
         let p = game_logic.host_object_mut(pilot_id).expect("pilot");
         p.experience.level = VeterancyLevel::Veteran;
-        p.set_ai_state(AIState::Idle);
+        p.set_ai_state(
+            AIState::Idle,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
 
     // Closer foreign-owner unmanned (China sniped) — PartitionFilter rejects.
@@ -866,7 +908,10 @@ fn pilot_find_vehicle_same_player_partition_filter_residual() {
                 ownership_events,
             )
         };
-        t.apply_kill_pilot_unmanned(health_events);
+        t.apply_kill_pilot_unmanned(
+            health_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         t.set_team(Team::Neutral, ownership_events);
         t.experience.level = VeterancyLevel::Rookie;
         t.health.current = t.max_health;
@@ -891,7 +936,10 @@ fn pilot_find_vehicle_same_player_partition_filter_residual() {
                 ownership_events,
             )
         };
-        t.apply_kill_pilot_unmanned(health_events);
+        t.apply_kill_pilot_unmanned(
+            health_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         t.set_team(Team::Neutral, ownership_events);
         t.experience.level = VeterancyLevel::Rookie;
         t.health.current = t.max_health;
@@ -1143,7 +1191,10 @@ fn strategy_center_turret_idle_scan_residual() {
     {
         let sc = game_logic.host_object_mut(sc_id).expect("sc");
         sc.target = None;
-        sc.set_ai_state(AIState::Idle);
+        sc.set_ai_state(
+            AIState::Idle,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         sc.set_status_attacking(false);
         sc.turret_angle_deg = STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG;
         sc.turret_pitch_deg = STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG;
@@ -1262,7 +1313,10 @@ fn strategy_center_turret_idle_scan_residual() {
         sc.turret_holding = false;
         sc.turret_idle_scan_desired_angle_deg = desired;
         sc.set_status_attacking(true);
-        sc.set_ai_state(AIState::Attacking);
+        sc.set_ai_state(
+            AIState::Attacking,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     game_logic.frame = game_logic.frame.saturating_add(1);
     game_logic.tick_battle_plan_door_residuals();
@@ -1317,7 +1371,10 @@ fn strategy_center_turret_hold_and_idle_recenter_residual() {
     {
         let sc = game_logic.host_object_mut(sc_id).expect("sc");
         sc.target = None;
-        sc.set_ai_state(AIState::Idle);
+        sc.set_ai_state(
+            AIState::Idle,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         sc.set_status_attacking(false);
         sc.turret_angle_deg = desired;
         sc.turret_pitch_deg = STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG;
@@ -1472,7 +1529,10 @@ fn strategy_center_turret_mood_target_residual() {
     {
         let sc = game_logic.host_object_mut(sc_id).expect("sc");
         sc.target = None;
-        sc.set_ai_state(AIState::Idle);
+        sc.set_ai_state(
+            AIState::Idle,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         sc.set_status_attacking(false);
         sc.turret_mood_target = false;
         sc.turret_angle_deg = STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG;

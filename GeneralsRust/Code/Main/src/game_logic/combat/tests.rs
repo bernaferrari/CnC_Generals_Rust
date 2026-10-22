@@ -2874,7 +2874,14 @@ pub(in crate::game_logic) mod tests {
             last_fire_time: -10.0,
             ..Weapon::default()
         });
-        assert!(atk.fire_at(ObjectId(2), 1.0, 3, &mut combat, &mut _attack_output,));
+        assert!(atk.fire_at(
+            ObjectId(2),
+            1.0,
+            3,
+            &mut combat,
+            &mut _attack_output,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
+        ));
         let mut objects = crate::game_logic::HostObjectStore::new();
         objects.insert(
             ObjectId(2),

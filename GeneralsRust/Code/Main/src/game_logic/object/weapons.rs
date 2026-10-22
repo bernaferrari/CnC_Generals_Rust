@@ -1491,10 +1491,11 @@ impl Object {
         frame: u32,
         events: &mut crate::game_logic::host_fire_sound_loop_log::FireSoundLoopEvents,
         health_events: &mut crate::game_logic::HostHealthEvents,
+        audio: &mut crate::game_logic::MovementAudio<'_>,
     ) {
         self.tick_fire_sound_loop(frame, events);
         let _ = frame;
-        self.tick_subdual_damage(health_events);
+        self.tick_subdual_damage(health_events, audio);
         let until = self.continuous_fire_coast_until_frame;
         // C++ FiringTracker.cpp:189: strict `now > m_frameToStartCooldown` —
         // the deadline frame itself is still cool-free; cool one frame later.

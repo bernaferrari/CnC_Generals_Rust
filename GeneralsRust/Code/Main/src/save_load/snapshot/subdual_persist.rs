@@ -155,7 +155,11 @@ mod tests {
             factory.subdual_heal_amount = 50.0;
             factory.subdual_damage = 2000.0;
             factory.subdual_heal_countdown = 11;
-            factory.set_disabled_subdued(true, health_events);
+            factory.set_disabled_subdued(
+                true,
+                health_events,
+                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            );
             assert!(factory.is_subdued_disabled());
         }
 

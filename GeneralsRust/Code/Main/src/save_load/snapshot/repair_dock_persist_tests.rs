@@ -259,7 +259,10 @@ fn repair_cache_save_load_continues_real_docked_action_without_recomputing_rate(
     {
         let object = source.objects.get_mut(&master).unwrap();
         object.target = Some(dock);
-        object.set_ai_state(AIState::SeekingRepair);
+        object.set_ai_state(
+            AIState::SeekingRepair,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     source.objects.get_mut(&dock).unwrap().dock_active_docker = Some(master);
     source.frame = 10;

@@ -54,7 +54,10 @@ impl GameLogic {
                     u.can_path_through_units = false;
                     u.adjust_destinations = true;
                     u.set_precise_z_pos(false);
-                    u.set_ai_state(state);
+                    u.set_ai_state(
+                        state,
+                        &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    );
                 }
                 if let Some(gid) = guard_target {
                     let nemesis = self.objects.get(&gid).and_then(|g| {

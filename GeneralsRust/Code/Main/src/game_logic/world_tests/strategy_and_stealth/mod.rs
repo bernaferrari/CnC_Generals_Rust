@@ -39,7 +39,11 @@ fn arm_attacker_then_attack(attacker: &mut Object, target_id: ObjectId, damage: 
         projectile_speed: 0.0,
         ..Weapon::default()
     });
-    attacker.attack_target(target_id, &mut _attack_output);
+    attacker.attack_target(
+        target_id,
+        &mut _attack_output,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
 }
 
 fn spawn_live_black_market(logic: &mut GameLogic, team: Team, pos: Vec3) -> ObjectId {

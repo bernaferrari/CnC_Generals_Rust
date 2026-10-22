@@ -28,7 +28,10 @@ fn neutron_unman_deselects_and_idles_ai() {
     logic.select_objects(0, vec![tank_id]);
     {
         let obj = logic.host_object_mut(tank_id).expect("tank mut");
-        obj.set_ai_state(AIState::Moving);
+        obj.set_ai_state(
+            AIState::Moving,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         obj.target_location = Some(Vec3::new(80.0, 0.0, 0.0));
         obj.set_status_moving(true);
         assert!(obj.selected || obj.status.selected);
@@ -125,7 +128,10 @@ fn overlord_bunker_infantry_residual_fire_without_helix_flag() {
     {
         let r = logic.host_object_mut(rider).unwrap();
         r.contained_by = Some(tank);
-        r.set_ai_state(AIState::Docked);
+        r.set_ai_state(
+            AIState::Docked,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         if r.weapon.is_none() {
             r.weapon = Some(crate::game_logic::Weapon::default());
         }
@@ -207,7 +213,10 @@ fn combat_chinook_vehicle_rider_does_not_residual_fire() {
     {
         let r = logic.host_object_mut(rider).unwrap();
         r.contained_by = Some(bird);
-        r.set_ai_state(AIState::Docked);
+        r.set_ai_state(
+            AIState::Docked,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         r.weapon = Some(crate::game_logic::Weapon {
             last_fire_time: -10.0,
             reload_time: 0.1,
@@ -276,7 +285,10 @@ fn subdued_transport_stops_passenger_residual_fire() {
     {
         let r = logic.host_object_mut(rider).unwrap();
         r.contained_by = Some(truck);
-        r.set_ai_state(AIState::Docked);
+        r.set_ai_state(
+            AIState::Docked,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         r.weapon = Some(crate::game_logic::Weapon {
             last_fire_time: -10.0,
             reload_time: 0.1,
@@ -299,7 +311,11 @@ fn subdued_transport_stops_passenger_residual_fire() {
 
     {
         let (t, health_events) = logic.host_object_and_health_events_mut(truck).unwrap();
-        t.set_disabled_subdued(true, health_events);
+        t.set_disabled_subdued(
+            true,
+            health_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     {
         let r = logic.host_object_mut(rider).unwrap();
@@ -649,7 +665,10 @@ fn support_states_enter_sets_unselectable_and_masked() {
     {
         let r = logic.host_object_mut(ranger_id).unwrap();
         r.owner_player_id = Some(0);
-        r.set_ai_state(AIState::Entering);
+        r.set_ai_state(
+            AIState::Entering,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         r.target = Some(bunker);
     }
     logic.update_support_states(&[ranger_id], 1.0 / 30.0);
@@ -692,7 +711,10 @@ fn support_states_firebase_enter_does_not_mask() {
     {
         let r = logic.host_object_mut(ranger_id).unwrap();
         r.owner_player_id = Some(0);
-        r.set_ai_state(AIState::Entering);
+        r.set_ai_state(
+            AIState::Entering,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         r.target = Some(fb);
     }
     logic.update_support_states(&[ranger_id], 1.0 / 30.0);
@@ -960,7 +982,10 @@ fn really_damaged_ejects_garrison_with_burst_walk() {
     );
     if let Some(r) = logic.host_object_mut(ranger_id) {
         r.set_contained_by(Some(bunker));
-        r.set_ai_state(AIState::Garrisoned);
+        r.set_ai_state(
+            AIState::Garrisoned,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     damage_garrison_to_really_damaged(&mut logic, bunker);
     logic.check_building_damage_states(&[bunker]);
@@ -1003,7 +1028,10 @@ fn firebase_really_damaged_does_not_eject() {
     assert!(logic.host_object_mut(fb).unwrap().add_occupant(ranger_id));
     if let Some(r) = logic.host_object_mut(ranger_id) {
         r.set_contained_by(Some(fb));
-        r.set_ai_state(AIState::Garrisoned);
+        r.set_ai_state(
+            AIState::Garrisoned,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     damage_garrison_to_really_damaged(&mut logic, fb);
     logic.check_building_damage_states(&[fb]);
@@ -1086,7 +1114,10 @@ fn garrison_fire_releases_old_firepoint_before_taking_closer() {
             ..crate::game_logic::Weapon::default()
         });
         r.set_contained_by(Some(bunker));
-        r.set_ai_state(AIState::Garrisoned);
+        r.set_ai_state(
+            AIState::Garrisoned,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     assert!(logic.host_object_mut(bunker).unwrap().add_occupant(ranger));
     {
@@ -1146,7 +1177,10 @@ fn garrison_fire_frees_firepoint_when_no_in_range_victim() {
             ..crate::game_logic::Weapon::default()
         });
         r.set_contained_by(Some(bunker));
-        r.set_ai_state(AIState::Garrisoned);
+        r.set_ai_state(
+            AIState::Garrisoned,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     assert!(logic.host_object_mut(bunker).unwrap().add_occupant(ranger));
     {
@@ -1752,8 +1786,15 @@ fn defector_idles_and_kicks_cargo() {
         )
         .unwrap();
     if let Some((v, attack_events)) = logic.host_object_and_attack_events_mut(victim) {
-        v.set_ai_state(AIState::Attacking);
-        v.set_target(Some(caster), attack_events);
+        v.set_ai_state(
+            AIState::Attacking,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
+        v.set_target(
+            Some(caster),
+            attack_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         v.set_status_attacking(true);
         v.occupants.push(cargo);
     }
@@ -1812,7 +1853,10 @@ fn garrison_residual_fire_skips_undetected_stealth() {
             ..crate::game_logic::Weapon::default()
         });
         r.set_contained_by(Some(bunker));
-        r.set_ai_state(AIState::Garrisoned);
+        r.set_ai_state(
+            AIState::Garrisoned,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     assert!(logic.host_object_mut(bunker).unwrap().add_occupant(ranger));
     {
@@ -1880,7 +1924,10 @@ fn garrison_residual_fire_uses_garrisoned_133_range() {
             ..crate::game_logic::Weapon::default()
         });
         r.set_contained_by(Some(bunker));
-        r.set_ai_state(AIState::Garrisoned);
+        r.set_ai_state(
+            AIState::Garrisoned,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         assert!(
             (r.effective_weapon_range(100.0) - 133.0).abs() < 0.01,
             "Garrisoned infantry must receive RANGE 133%"
@@ -1933,7 +1980,10 @@ fn helix_infantry_residual_fire_uses_garrisoned_133_range() {
     {
         let r = logic.host_object_mut(rider).unwrap();
         r.set_contained_by(Some(heli));
-        r.set_ai_state(AIState::Docked);
+        r.set_ai_state(
+            AIState::Docked,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         r.weapon = Some(crate::game_logic::Weapon {
             damage: 20.0,
             range: 100.0,
@@ -2085,7 +2135,10 @@ fn tunnel_occupants_do_not_garrison_fire() {
             last_fire_time: -10.0,
             ..crate::game_logic::Weapon::default()
         });
-        r.set_ai_state(AIState::Entering);
+        r.set_ai_state(
+            AIState::Entering,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         r.target = Some(tunnel);
     }
     logic.update_support_states(&[rebel], 1.0 / 30.0);
@@ -2112,7 +2165,10 @@ fn tunnel_occupants_do_not_garrison_fire() {
 
     // Defense: even a wrongly stamped Garrisoned occupant stays silent.
     if let Some(r) = logic.host_object_mut(rebel) {
-        r.set_ai_state(AIState::Garrisoned);
+        r.set_ai_state(
+            AIState::Garrisoned,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     logic.try_garrison_residual_fire(rebel);
     let hp_forced = logic.host_object(enemy).unwrap().health.current;
@@ -2167,7 +2223,10 @@ fn firebase_does_not_spawn_garrison_gun() {
             ..crate::game_logic::Weapon::default()
         });
         r.set_contained_by(Some(fb));
-        r.set_ai_state(AIState::Garrisoned);
+        r.set_ai_state(
+            AIState::Garrisoned,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     assert!(logic.host_object_mut(fb).unwrap().add_occupant(ranger));
 
@@ -2240,7 +2299,10 @@ fn poison_garrison_shot_skips_muzzle_flash() {
             ..crate::game_logic::Weapon::default()
         });
         r.set_contained_by(Some(bunker));
-        r.set_ai_state(AIState::Garrisoned);
+        r.set_ai_state(
+            AIState::Garrisoned,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     assert!(logic.host_object_mut(bunker).unwrap().add_occupant(rebel));
 
@@ -2308,7 +2370,10 @@ fn garrison_gun_aims_at_occupant_target() {
             ..crate::game_logic::Weapon::default()
         });
         r.set_contained_by(Some(bunker));
-        r.set_ai_state(AIState::Garrisoned);
+        r.set_ai_state(
+            AIState::Garrisoned,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     assert!(logic.host_object_mut(bunker).unwrap().add_occupant(ranger));
 

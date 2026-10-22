@@ -213,8 +213,15 @@ mod tests {
         object.builder_id = Some(dozer);
         let (builder, attack_events) = logic.host_object_and_attack_events_mut(dozer).unwrap();
         builder.set_position(action);
-        builder.set_target(Some(id), attack_events);
-        builder.set_ai_state(AIState::Constructing);
+        builder.set_target(
+            Some(id),
+            attack_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
+        builder.set_ai_state(
+            AIState::Constructing,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         builder.movement.path.clear();
         builder.waiting_for_path = false;
         logic.update_construction(&[id, dozer], 0.2);

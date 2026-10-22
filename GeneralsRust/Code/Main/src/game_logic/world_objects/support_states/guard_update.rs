@@ -201,7 +201,9 @@ impl GameLogic {
                     Some(id) => id,
                     None => {
                         if let Some(obj) = self.objects.get_mut(&object_id) {
-                            obj.clear_target();
+                            obj.clear_target(&mut crate::game_logic::MovementAudio::queue(
+                                &mut self.queued_audio_events,
+                            ));
                         }
                         return;
                     }
@@ -214,7 +216,12 @@ impl GameLogic {
                     .map(|o| o.get_position())
                 else {
                     if let Some(obj) = self.objects.get_mut(&object_id) {
-                        obj.set_guard_target(None);
+                        obj.set_guard_target(
+                            None,
+                            &mut crate::game_logic::MovementAudio::queue(
+                                &mut self.queued_audio_events,
+                            ),
+                        );
                     }
                     self.clear_target_decision_aware(object_id);
                     return;

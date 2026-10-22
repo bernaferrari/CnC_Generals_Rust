@@ -530,7 +530,10 @@ fn combat_drop_sets_pending_evacuate() {
     {
         let p = logic.host_object_mut(pax).unwrap();
         p.set_contained_by(Some(transport));
-        p.set_ai_state(crate::game_logic::AIState::Docked);
+        p.set_ai_state(
+            crate::game_logic::AIState::Docked,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
@@ -576,10 +579,7 @@ End
 "#,
     )
     .unwrap();
-    let mut parser = crate::assets::IniParser::new();
-    parser
-        .parse_ini_content(
-            r#"
+    let source = r#"
 Object AmericaVehicleChinook
   KindOf = VEHICLE AIRCRAFT PRODUCED_AT_HELIPAD
   Geometry = CYLINDER
@@ -606,21 +606,14 @@ Object EvacPassenger
   Behavior = AIUpdateInterface ModuleTag_AI
   End
 End
-"#,
-            "hq_evacuation.ini",
-        )
-        .unwrap();
+"#;
+    let content = crate::assets::ReceivingObjectContent::from_sources([(
+        "hq_evacuation.ini".into(),
+        source.into(),
+    )])
+    .expect("paired evacuation module definitions");
     let mut world = GameLogic::new();
-    for name in ["AmericaVehicleChinook", "EvacPassenger"] {
-        world.templates.insert(
-            name.into(),
-            GameLogic::build_template_from_object_definition(
-                name,
-                parser.get_definition(name).unwrap(),
-                None,
-            ),
-        );
-    }
+    world.admit_receiving_module_content(content).unwrap();
     let width = world.pathfinding_system.grid.width() as u32;
     let height = world.pathfinding_system.grid.height() as u32;
     assert!(world.restore_terrain_heights_from_grid(
@@ -824,7 +817,10 @@ fn object_attack_orders_passenger_fire() {
     {
         let r = logic.host_object_mut(rider).unwrap();
         r.set_contained_by(Some(humvee));
-        r.set_ai_state(crate::game_logic::AIState::Garrisoned);
+        r.set_ai_state(
+            crate::game_logic::AIState::Garrisoned,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         r.weapon = Some(Weapon {
             damage: 10.0,
             range: 80.0,
@@ -890,7 +886,10 @@ fn object_attack_skips_vehicle_transport_riders() {
     {
         let r = logic.host_object_mut(rider).unwrap();
         r.set_contained_by(Some(chinook));
-        r.set_ai_state(crate::game_logic::AIState::Garrisoned);
+        r.set_ai_state(
+            crate::game_logic::AIState::Garrisoned,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         r.weapon = Some(Weapon {
             damage: 10.0,
             range: 80.0,
@@ -947,7 +946,10 @@ fn stop_idles_garrison_occupants_and_hive_slaves() {
     {
         let o = logic.host_object_mut(occ).unwrap();
         o.set_contained_by(Some(site));
-        o.set_ai_state(crate::game_logic::AIState::Attacking);
+        o.set_ai_state(
+            crate::game_logic::AIState::Attacking,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
@@ -1001,8 +1003,15 @@ fn stop_idles_ai_transport_occupants() {
     {
         let (r, attack_events) = logic.host_object_and_attack_events_mut(rider).unwrap();
         r.set_contained_by(Some(truck));
-        r.set_ai_state(crate::game_logic::AIState::Attacking);
-        r.set_target(Some(ObjectId(99)), attack_events);
+        r.set_ai_state(
+            crate::game_logic::AIState::Attacking,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
+        r.set_target(
+            Some(ObjectId(99)),
+            attack_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);

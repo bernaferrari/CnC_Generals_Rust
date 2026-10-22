@@ -60,7 +60,10 @@ fn internet_center_subdual_idles_occupant_hackers_and_resumes() {
     assert!(logic.host_object_mut(ic).expect("ic").add_occupant(hacker));
     if let Some(obj) = logic.host_object_mut(hacker) {
         obj.set_contained_by(Some(ic));
-        obj.set_ai_state(AIState::Docked);
+        obj.set_ai_state(
+            AIState::Docked,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
 
     logic.frame = 0;
@@ -71,7 +74,11 @@ fn internet_center_subdual_idles_occupant_hackers_and_resumes() {
     );
 
     if let Some((obj, health_events)) = logic.host_object_and_health_events_mut(ic) {
-        obj.set_disabled_subdued(true, health_events);
+        obj.set_disabled_subdued(
+            true,
+            health_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     logic.update_hacker_income();
     assert!(
@@ -100,7 +107,11 @@ fn internet_center_subdual_idles_occupant_hackers_and_resumes() {
     );
 
     if let Some((obj, health_events)) = logic.host_object_and_health_events_mut(ic) {
-        obj.set_disabled_subdued(false, health_events);
+        obj.set_disabled_subdued(
+            false,
+            health_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     logic.update_hacker_income();
     assert!(
@@ -654,7 +665,10 @@ fn steal_cash_hack_command_transfers_cash_after_reach() {
             .host_object_mut(lotus_id)
             .expect("lotus should exist");
         lotus.set_position(Vec3::new(100.0, 0.0, 0.0));
-        lotus.set_ai_state(AIState::SpecialAbility);
+        lotus.set_ai_state(
+            AIState::SpecialAbility,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         lotus.target = Some(target_id);
     }
     game_logic.update_ai(&[lotus_id, target_id], 1.0 / 60.0);
@@ -741,7 +755,10 @@ fn steal_cash_hack_awards_lotus_award_xp_for_triggering() {
     {
         let lotus = game_logic.host_object_mut(lotus_id).expect("lotus");
         lotus.set_position(Vec3::new(100.0, 0.0, 0.0));
-        lotus.set_ai_state(AIState::SpecialAbility);
+        lotus.set_ai_state(
+            AIState::SpecialAbility,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         lotus.target = Some(target_id);
     }
     game_logic.update_ai(&[lotus_id, target_id], 1.0 / 60.0);
@@ -885,7 +902,10 @@ fn steal_cash_hack_uses_controlling_players_not_faction_slot() {
     {
         let lotus = game_logic.host_object_mut(lotus_id).expect("lotus");
         lotus.set_position(Vec3::new(100.0, 0.0, 0.0));
-        lotus.set_ai_state(AIState::SpecialAbility);
+        lotus.set_ai_state(
+            AIState::SpecialAbility,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         lotus.target = Some(target_id);
     }
     game_logic.update_ai(&[lotus_id, target_id], 1.0 / 60.0);
@@ -965,7 +985,10 @@ fn leftover_lotus_prep_aborts_when_target_stealthed() {
     {
         let lotus = game_logic.host_object_mut(lotus_id).expect("lotus");
         lotus.set_position(Vec3::new(100.0, 0.0, 0.0));
-        lotus.set_ai_state(AIState::SpecialAbility);
+        lotus.set_ai_state(
+            AIState::SpecialAbility,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         lotus.target = Some(target_id);
     }
     // C++ NeedToFace → Unpack → Prep; facing consumes a variable number of
@@ -1038,7 +1061,10 @@ fn leftover_lotus_unpack_sets_model_and_unpack_sound() {
     {
         let lotus = game_logic.host_object_mut(lotus_id).expect("lotus");
         lotus.set_position(Vec3::new(100.0, 0.0, 0.0));
-        lotus.set_ai_state(AIState::SpecialAbility);
+        lotus.set_ai_state(
+            AIState::SpecialAbility,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         lotus.target = Some(target_id);
     }
     game_logic.queued_audio_events.clear();
@@ -1105,7 +1131,10 @@ fn leftover_sa_trigger_queues_ini_trigger_sound() {
     {
         let lotus = game_logic.host_object_mut(lotus_id).expect("lotus");
         lotus.set_position(Vec3::new(100.0, 0.0, 0.0));
-        lotus.set_ai_state(AIState::SpecialAbility);
+        lotus.set_ai_state(
+            AIState::SpecialAbility,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         lotus.target = Some(target_id);
     }
     game_logic.update_ai(&[lotus_id, target_id], 1.0 / 60.0);
@@ -1181,7 +1210,10 @@ fn leftover_sa_hot_swap_aborts_in_flight_channel() {
     {
         let lotus = game_logic.host_object_mut(lotus_id).expect("lotus");
         lotus.set_position(Vec3::new(100.0, 0.0, 0.0));
-        lotus.set_ai_state(AIState::SpecialAbility);
+        lotus.set_ai_state(
+            AIState::SpecialAbility,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         lotus.target = Some(supply_id);
     }
     game_logic.update_ai(&[lotus_id, supply_id], 1.0);
@@ -1212,7 +1244,10 @@ fn leftover_sa_hot_swap_aborts_in_flight_channel() {
     {
         let lotus = game_logic.host_object_mut(lotus_id).expect("lotus");
         lotus.set_position(Vec3::new(10.0, 0.0, 0.0));
-        lotus.set_ai_state(AIState::SpecialAbility);
+        lotus.set_ai_state(
+            AIState::SpecialAbility,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         lotus.target = Some(tank_id);
     }
     game_logic.update_ai(&[lotus_id, tank_id], 1.0);
@@ -1272,7 +1307,10 @@ fn leftover_burton_flips_180_after_unpack() {
         crate::game_logic::PendingSpecialAbility::PlantTimedDemoCharge { target_id },
     );
     if let Some(burton) = game_logic.host_object_mut(burton_id) {
-        burton.set_ai_state(AIState::SpecialAbility);
+        burton.set_ai_state(
+            AIState::SpecialAbility,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         burton.target = Some(target_id);
     }
     // C++ NeedToFace precedes Unpack; the facing slice consumes a variable
@@ -1341,7 +1379,10 @@ fn plant_start_range_requires_approach_los() {
     if let Some(unit) = blocked.host_object_mut(burton_id) {
         unit.set_selection_radius(80.0);
         unit.target = Some(target_id);
-        unit.set_ai_state(AIState::SpecialAbility);
+        unit.set_ai_state(
+            AIState::SpecialAbility,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     if let Some(target) = blocked.host_object_mut(target_id) {
         target.set_selection_radius(80.0);
@@ -1384,7 +1425,10 @@ fn plant_start_range_requires_approach_los() {
     if let Some(unit) = clear.host_object_mut(burton_id) {
         unit.set_selection_radius(80.0);
         unit.target = Some(target_id);
-        unit.set_ai_state(AIState::SpecialAbility);
+        unit.set_ai_state(
+            AIState::SpecialAbility,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     if let Some(target) = clear.host_object_mut(target_id) {
         target.set_selection_radius(80.0);
@@ -1515,7 +1559,10 @@ fn burton_and_tnt_plant_reject_bridges() {
         },
     );
     if let Some(burton) = game_logic.host_object_mut(burton_id) {
-        burton.set_ai_state(AIState::SpecialAbility);
+        burton.set_ai_state(
+            AIState::SpecialAbility,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         burton.target = Some(bridge_id);
     }
     game_logic.update_ai(&[burton_id, bridge_id], 1.0 / 30.0);
@@ -1531,7 +1578,10 @@ fn burton_and_tnt_plant_reject_bridges() {
         },
     );
     if let Some(hunter) = game_logic.host_object_mut(hunter_id) {
-        hunter.set_ai_state(AIState::SpecialAbility);
+        hunter.set_ai_state(
+            AIState::SpecialAbility,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         hunter.target = Some(bridge_id);
     }
     game_logic.update_ai(&[hunter_id, bridge_id], 1.0 / 30.0);
@@ -1733,7 +1783,10 @@ fn disable_vehicle_hack_command_disables_after_reach() {
             .host_object_mut(lotus_id)
             .expect("lotus should exist");
         lotus.set_position(Vec3::new(100.0, 0.0, 0.0));
-        lotus.set_ai_state(AIState::SpecialAbility);
+        lotus.set_ai_state(
+            AIState::SpecialAbility,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         lotus.target = Some(target_id);
     }
     game_logic.update_ai(&[lotus_id, target_id], 1.0 / 60.0);
@@ -1886,8 +1939,11 @@ fn black_lotus_capture_building_without_upgrade() {
         // The out-of-range tick above installed an approach leg; the fixture
         // teleport must settle it (C++ SpecialAbilityUpdate.cpp:209-220
         // aborts unpack/prep while the capturer is still moving).
-        lotus.stop_moving();
-        lotus.set_ai_state(AIState::Capturing);
+        lotus.stop_moving(&mut crate::game_logic::MovementAudio::queue(&mut Vec::new()));
+        lotus.set_ai_state(
+            AIState::Capturing,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         lotus.target = Some(building_id);
     }
     // Retail ModuleTag_09 runs unpack 6730ms → preparation 6000ms → trigger →
@@ -2199,7 +2255,10 @@ fn ecm_jam_residual_jams_enemy_weapons_in_radius() {
     {
         let enemy = game_logic.host_object_mut(enemy_id).expect("enemy");
         enemy.target = Some(ecm_id);
-        enemy.set_ai_state(AIState::Attacking);
+        enemy.set_ai_state(
+            AIState::Attacking,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         enemy.set_status_attacking(true);
     }
     let ecm_hp_before = game_logic.host_object(ecm_id).expect("ecm").health.current;
@@ -2779,7 +2838,10 @@ fn active_special_ability_channel_still_cancels_on_replacement_order() {
     {
         let object = logic.objects.get_mut(&id).unwrap();
         object.model_condition_bits |= unpacking;
-        object.set_ai_state(AIState::Moving);
+        object.set_ai_state(
+            AIState::Moving,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         object.set_status_using_ability(true);
     }
     logic.hero_abilities_mut().set_leftover_channel(

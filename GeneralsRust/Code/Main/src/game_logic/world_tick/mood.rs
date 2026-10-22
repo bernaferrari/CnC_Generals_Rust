@@ -1879,8 +1879,14 @@ mod common_target_parity {
                 o.idle_mood_reset_pending,
                 "spawn starts in Idle and must arm resetNextMoodCheckTime"
             );
-            o.set_ai_state(crate::game_logic::AIState::Moving);
-            o.set_ai_state(crate::game_logic::AIState::Idle);
+            o.set_ai_state(
+                crate::game_logic::AIState::Moving,
+                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            );
+            o.set_ai_state(
+                crate::game_logic::AIState::Idle,
+                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            );
             assert!(o.idle_mood_reset_pending);
             o.auto_acquire_idle_bits = AUTO_ACQUIRE_IDLE;
             o.mood_attack_check_rate = 30;
@@ -1922,7 +1928,10 @@ mod common_target_parity {
         assert!(logic.host_object(id).unwrap().randomly_offset_mood_check);
 
         if let Some(o) = logic.host_object_mut(id) {
-            o.set_ai_state(crate::game_logic::AIState::Idle);
+            o.set_ai_state(
+                crate::game_logic::AIState::Idle,
+                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            );
             assert!(!o.idle_mood_reset_pending, "already idle must not rearm");
         }
 
@@ -2027,8 +2036,14 @@ mod common_target_parity {
         );
 
         if let Some(o) = logic.host_object_mut(id) {
-            o.set_ai_state(crate::game_logic::AIState::Moving);
-            o.set_ai_state(crate::game_logic::AIState::Idle);
+            o.set_ai_state(
+                crate::game_logic::AIState::Moving,
+                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            );
+            o.set_ai_state(
+                crate::game_logic::AIState::Idle,
+                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            );
             o.set_position(start);
         }
         logic.frame = 2;
@@ -2038,8 +2053,14 @@ mod common_target_parity {
         assert_eq!(o.pathfind_goal_cell, (cell.x, cell.y));
         let far = glam::Vec3::new(80.0, 0.0, 80.0);
         if let Some(o) = logic.host_object_mut(id) {
-            o.set_ai_state(crate::game_logic::AIState::Moving);
-            o.set_ai_state(crate::game_logic::AIState::Idle);
+            o.set_ai_state(
+                crate::game_logic::AIState::Moving,
+                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            );
+            o.set_ai_state(
+                crate::game_logic::AIState::Idle,
+                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            );
             o.set_position(far);
         }
         logic.frame = 5;

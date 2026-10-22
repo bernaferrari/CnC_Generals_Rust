@@ -37,8 +37,15 @@ fn plant_approach_ignores_the_structure() {
         let (unit, attack_events) = logic
             .host_object_and_attack_events_mut(planter)
             .expect("planter");
-        unit.set_ai_state(AIState::SpecialAbility);
-        unit.set_order_target(Some(building), attack_events);
+        unit.set_ai_state(
+            AIState::SpecialAbility,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
+        unit.set_order_target(
+            Some(building),
+            attack_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         unit.ignored_obstacle_id = None;
     }
     let wall_x = {
@@ -110,8 +117,15 @@ fn successful_disguise_drops_the_vehicle_ignore() {
         let (unit, attack_events) = logic
             .host_object_and_attack_events_mut(infantry)
             .expect("infantry");
-        unit.set_ai_state(AIState::SpecialAbility);
-        unit.set_order_target(Some(vehicle), attack_events);
+        unit.set_ai_state(
+            AIState::SpecialAbility,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
+        unit.set_order_target(
+            Some(vehicle),
+            attack_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         unit.ignored_obstacle_id = Some(vehicle);
         unit.movement.path = vec![Vec3::ZERO];
         unit.set_status_moving(true);
@@ -148,7 +162,10 @@ fn flee_after_plant_ignores_the_structure() {
     {
         let unit = logic.host_object_mut(planter).expect("planter");
         unit.ignored_obstacle_id = None;
-        unit.set_ai_state(AIState::SpecialAbility);
+        unit.set_ai_state(
+            AIState::SpecialAbility,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         unit.set_orientation(0.0);
     }
     use crate::game_logic::pathfinding::GridPos;
@@ -217,8 +234,15 @@ fn recrew_enter_ignores_the_empty_vehicle() {
         let (unit, attack_events) = logic
             .host_object_and_attack_events_mut(infantry)
             .expect("infantry");
-        unit.set_order_target(Some(vehicle), attack_events);
-        unit.set_ai_state(AIState::Entering);
+        unit.set_order_target(
+            Some(vehicle),
+            attack_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
+        unit.set_ai_state(
+            AIState::Entering,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     use crate::game_logic::pathfinding::GridPos;
     let wall_x = {
@@ -544,8 +568,15 @@ fn reissued_build_stays_constructing() {
         let (obj, attack_events) = logic
             .host_object_and_attack_events_mut(dozer)
             .expect("dozer");
-        obj.set_order_target(Some(pad_id), attack_events);
-        obj.set_ai_state(AIState::Constructing);
+        obj.set_order_target(
+            Some(pad_id),
+            attack_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
+        obj.set_ai_state(
+            AIState::Constructing,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         obj.pending_move = Some(to);
         obj.shock_stun_frames = 0;
     }
@@ -675,8 +706,15 @@ fn construction_complete_end_dock_uses_stored_action() {
             .host_object_and_attack_events_mut(dozer)
             .expect("dozer");
         obj.set_position(off_line);
-        obj.set_target(Some(pad_id), attack_events);
-        obj.set_ai_state(AIState::Constructing);
+        obj.set_target(
+            Some(pad_id),
+            attack_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
+        obj.set_ai_state(
+            AIState::Constructing,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         obj.status.moving = false;
     }
 
@@ -887,7 +925,11 @@ fn overlord_gattling_addon_residual_install_and_fire() {
             .host_object_and_attack_events_mut(overlord_id)
             .unwrap();
         o.active_weapon_slot = 0;
-        o.attack_target(victim_id, attack_events);
+        o.attack_target(
+            victim_id,
+            attack_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         if let Some(w) = o.weapon.as_mut() {
             w.last_fire_time = -10.0;
             w.reload_time = 0.1;
@@ -1273,7 +1315,11 @@ fn nuke_cannon_primary_residual_area_and_radiation() {
         let (c, attack_events) = game_logic
             .host_object_and_attack_events_mut(cannon_id)
             .unwrap();
-        c.attack_target(primary_id, attack_events);
+        c.attack_target(
+            primary_id,
+            attack_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
 
     game_logic.set_current_frame(30);
@@ -1459,7 +1505,10 @@ fn battle_bus_residual_load_two_unload_both_free() {
                 ..Weapon::default()
             });
             unit.target = Some(bus_id);
-            unit.set_ai_state(AIState::Entering);
+            unit.set_ai_state(
+                AIState::Entering,
+                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            );
         }
         game_logic.update_ai(&[unit_id, bus_id], 1.0 / 30.0);
     }
@@ -1567,7 +1616,10 @@ fn battle_bus_residual_passenger_fire_damages_nearby_enemy() {
         });
         unit.target = Some(bus_id);
         unit.set_contained_by(Some(bus_id));
-        unit.set_ai_state(AIState::Docked);
+        unit.set_ai_state(
+            AIState::Docked,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         unit.set_position(Vec3::new(0.0, 0.0, 0.0));
     }
     {
@@ -1628,7 +1680,10 @@ fn battle_bus_residual_capacity_full_rejects_enter() {
         {
             let unit = game_logic.host_object_mut(id).unwrap();
             unit.target = Some(bus_id);
-            unit.set_ai_state(AIState::Entering);
+            unit.set_ai_state(
+                AIState::Entering,
+                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            );
         }
         game_logic.update_ai(&[id, bus_id], 1.0 / 30.0);
         loaded.push(id);
@@ -2887,7 +2942,10 @@ fn command_button_hunt_hijack_issues_nearest_enemy_vehicle() {
     {
         let h = logic.host_object_mut(hijacker).unwrap();
         h.template_name = "GLAInfantryHijacker".into();
-        h.set_ai_state(AIState::Idle);
+        h.set_ai_state(
+            AIState::Idle,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     let near = logic
         .create_object("TestTank", Team::USA, Vec3::new(40.0, 0.0, 0.0))
@@ -2933,7 +2991,10 @@ fn command_button_hunt_named_arms_capture_and_flashbang() {
             damage: 5.0,
             ..Weapon::default()
         });
-        r.set_ai_state(AIState::Idle);
+        r.set_ai_state(
+            AIState::Idle,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     assert!(
         logic
@@ -2963,7 +3024,10 @@ fn command_button_hunt_named_arms_capture_and_flashbang() {
     {
         let l = logic.host_object_mut(lotus).unwrap();
         l.template_name = "AmericaInfantryColonelBurton".into();
-        l.set_ai_state(AIState::Idle);
+        l.set_ai_state(
+            AIState::Idle,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     assert!(
         logic.start_command_button_hunt_named(lotus, Some("Command_CaptureBuilding")),
@@ -2990,7 +3054,10 @@ fn fire_weapon_command_button_hunt_rearms_lock_every_frame() {
             damage: 5.0,
             ..Weapon::default()
         });
-        r.set_ai_state(AIState::Idle);
+        r.set_ai_state(
+            AIState::Idle,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     assert!(
         logic
@@ -3046,7 +3113,10 @@ fn command_button_hunt_quits_after_player_move() {
     {
         let h = logic.host_object_mut(hijacker).unwrap();
         h.template_name = "GLAInfantryHijacker".into();
-        h.set_ai_state(AIState::Idle);
+        h.set_ai_state(
+            AIState::Idle,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     let _tank = logic
         .create_object("TestTank", Team::USA, Vec3::new(40.0, 0.0, 0.0))
@@ -3099,7 +3169,10 @@ fn command_button_hunt_enter_skips_stealth_ally_and_drone() {
         let h = logic.host_object_mut(hijacker).unwrap();
         h.template_name = "GLAInfantryHijacker".into();
         h.owner_player_id = Some(2);
-        h.set_ai_state(AIState::Idle);
+        h.set_ai_state(
+            AIState::Idle,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     let stealth = logic
         .create_object("TestTank", Team::USA, Vec3::new(20.0, 0.0, 0.0))
@@ -3123,7 +3196,10 @@ fn command_button_hunt_enter_skips_stealth_ally_and_drone() {
         let h = logic.host_object_mut(usa_hunter).unwrap();
         h.template_name = "GLAInfantryHijacker".into();
         h.owner_player_id = Some(0);
-        h.set_ai_state(AIState::Idle);
+        h.set_ai_state(
+            AIState::Idle,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     let drone_id = logic
         .create_object("TestDrone", Team::GLA, Vec3::new(15.0, 0.0, 0.0))
@@ -3178,7 +3254,10 @@ fn command_button_hunt_special_skips_ally_mine_and_uses_priority() {
         let l = logic.host_object_mut(lotus).unwrap();
         l.template_name = "AmericaInfantryColonelBurton".into();
         l.owner_player_id = Some(0);
-        l.set_ai_state(AIState::Idle);
+        l.set_ai_state(
+            AIState::Idle,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     let ally_b = logic
         .create_object("TestBuilding", Team::China, Vec3::new(30.0, 0.0, 0.0))
@@ -3207,7 +3286,10 @@ fn command_button_hunt_special_skips_ally_mine_and_uses_priority() {
         let h = logic.host_object_mut(hunter).unwrap();
         h.template_name = "ChinaInfantryTankHunter".into();
         h.owner_player_id = Some(0);
-        h.set_ai_state(AIState::Idle);
+        h.set_ai_state(
+            AIState::Idle,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     let mined = logic
         .create_object("TestTank", Team::GLA, Vec3::new(-150.0, 0.0, 0.0))
@@ -3246,7 +3328,10 @@ fn command_button_hunt_special_skips_ally_mine_and_uses_priority() {
         h.template_name = "ChinaInfantryTankHunter".into();
         h.owner_player_id = Some(0);
         h.attack_priority_set = Some("HuntPrio".into());
-        h.set_ai_state(AIState::Idle);
+        h.set_ai_state(
+            AIState::Idle,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     let near_tank = logic
         .create_object("TestTank", Team::GLA, Vec3::new(140.0, 0.0, 0.0))
@@ -3346,7 +3431,10 @@ fn command_button_hunt_tnt_and_booby_reject_neutral() {
         let h = logic.host_object_mut(hunter).unwrap();
         h.template_name = "ChinaInfantryTankHunter".into();
         h.owner_player_id = Some(0);
-        h.set_ai_state(AIState::Idle);
+        h.set_ai_state(
+            AIState::Idle,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     let civilian = logic
         .create_object("TestBuilding", Team::Neutral, Vec3::new(30.0, 0.0, 0.0))
@@ -3373,7 +3461,10 @@ fn command_button_hunt_tnt_and_booby_reject_neutral() {
     logic.pending_special_abilities.remove(&hunter);
     if let Some(h) = logic.host_object_mut(hunter) {
         h.clear_command_button_hunt();
-        h.set_ai_state(AIState::Idle);
+        h.set_ai_state(
+            AIState::Idle,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         h.target = None;
     }
     assert!(logic.start_command_button_hunt_named(hunter, Some("Command_BoobyTrapBuilding")));

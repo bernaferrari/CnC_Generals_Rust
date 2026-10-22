@@ -219,12 +219,15 @@ fn apply_payload(game_logic: &mut GameLogic, payload: AbilityHijackPersistPayloa
                 .host_object(vid)
                 .is_some_and(|vehicle| vehicle.is_alive())
         });
-        let Some(object) = game_logic.host_object_mut(object_id) else {
+        let Some((object, audio)) = game_logic.host_object_and_audio_events_mut(object_id) else {
             continue;
         };
         if entry.hijacker_in_vehicle {
             if let Some(vehicle_id) = vehicle_id.filter(|_| vehicle_alive) {
-                object.begin_hijacker_in_vehicle(vehicle_id);
+                object.begin_hijacker_in_vehicle(
+                    vehicle_id,
+                    &mut crate::game_logic::MovementAudio::queue(audio),
+                );
                 object.hijacker_update_active = entry.hijacker_update_active;
                 object.hijacker_was_airborne = entry.hijacker_was_airborne;
                 object.hijacker_eject_pos = entry
@@ -312,19 +315,29 @@ mod tests {
             .expect("barracks");
 
         {
-            let ranger = source.host_object_mut(ranger_id).expect("ranger");
+            let (ranger, audio) = source
+                .host_object_and_audio_events_mut(ranger_id)
+                .expect("ranger");
             ranger.capture_channel = Some(CaptureChannelState {
                 phase: CaptureChannelPhase::Preparing,
                 remaining_seconds: 1.25,
             });
-            ranger.set_ai_state(AIState::Capturing);
+            ranger.set_ai_state(
+                AIState::Capturing,
+                &mut crate::game_logic::MovementAudio::queue(audio),
+            );
             ranger.set_status_using_ability(true);
             ranger.target = Some(barracks_id);
         }
         {
-            let burton = source.host_object_mut(burton_id).expect("burton");
+            let (burton, audio) = source
+                .host_object_and_audio_events_mut(burton_id)
+                .expect("burton");
             burton.charge_plant_unpack_remaining_seconds = Some(2.2);
-            burton.set_ai_state(AIState::SpecialAbility);
+            burton.set_ai_state(
+                AIState::SpecialAbility,
+                &mut crate::game_logic::MovementAudio::queue(audio),
+            );
             burton.set_status_using_ability(true);
             burton.target = Some(barracks_id);
         }
@@ -419,11 +432,19 @@ mod tests {
         let vid = source
             .create_object("AmericaTankCrusader", Team::GLA, Vec3::new(8.0, 0.0, 6.0))
             .expect("tank");
-        source.host_object_mut(vid).expect("tank").apply_hijacked();
-        source
-            .host_object_mut(hid)
-            .expect("hijacker")
-            .begin_hijacker_in_vehicle(vid);
+        {
+            let (tank, audio) = source.host_object_and_audio_events_mut(vid).expect("tank");
+            tank.apply_hijacked(&mut crate::game_logic::MovementAudio::queue(audio));
+        }
+        {
+            let (hijacker, audio) = source
+                .host_object_and_audio_events_mut(hid)
+                .expect("hijacker");
+            hijacker.begin_hijacker_in_vehicle(
+                vid,
+                &mut crate::game_logic::MovementAudio::queue(audio),
+            );
+        }
         {
             let rider = source.host_object_mut(hid).expect("hijacker");
             rider.hijacker_was_airborne = true;

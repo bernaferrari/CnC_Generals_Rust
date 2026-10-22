@@ -626,12 +626,16 @@ impl Object {
     /// - endow vision + shroudClearing from converter
     /// - copy converter veterancy level
     /// Binds SuicideCarBomb residual weapon and marks IS_CARBOMB.
-    pub fn apply_convert_to_car_bomb(&mut self) {
-        self.apply_convert_to_car_bomb_from(None);
+    pub fn apply_convert_to_car_bomb(&mut self, audio: &mut crate::game_logic::MovementAudio<'_>) {
+        self.apply_convert_to_car_bomb_from(None, audio);
     }
 
     /// Convert with optional donor (terrorist) residual endowments.
-    pub fn apply_convert_to_car_bomb_from(&mut self, donor: Option<&Object>) {
+    pub fn apply_convert_to_car_bomb_from(
+        &mut self,
+        donor: Option<&Object>,
+        audio: &mut crate::game_logic::MovementAudio<'_>,
+    ) {
         self.set_status_is_carbomb(true);
         let _ = self.set_weapon_set_flag(2, true);
         self.set_status_disabled_unmanned(false);
@@ -648,12 +652,12 @@ impl Object {
         self.set_active_weapon_slot(0);
         self.status.attacking = false;
         self.set_status_moving(false);
-        self.stop_moving();
+        self.stop_moving(audio);
         self.target = None;
         self.target_location = None;
         self.set_status_force_attack(false);
         if self.ai_state != AIState::Idle {
-            self.set_ai_state(AIState::Idle);
+            self.set_ai_state(AIState::Idle, audio);
         }
         if let Some(d) = donor {
             // C++ setVisionRange / setShroudClearingRange from converter.
@@ -687,7 +691,11 @@ impl Object {
     /// C++ ConvertToHijackedVehicleCrateCollide: OBJECT_STATUS_HIJACKED + idle AI.
 
     /// C++ HijackerUpdate enter-vehicle residual (hide hijacker with vehicle).
-    pub fn begin_hijacker_in_vehicle(&mut self, vehicle_id: ObjectId) {
+    pub fn begin_hijacker_in_vehicle(
+        &mut self,
+        vehicle_id: ObjectId,
+        audio: &mut crate::game_logic::MovementAudio<'_>,
+    ) {
         self.hijack_vehicle_id = Some(vehicle_id);
         self.hijacker_in_vehicle = true;
         self.hijacker_update_active = true;
@@ -696,22 +704,28 @@ impl Object {
         self.set_status_unselectable(true);
         self.status.attacking = false;
         self.set_status_moving(false);
-        self.stop_moving();
+        self.stop_moving(audio);
         self.target = None;
         if self.ai_state != AIState::Idle {
-            self.set_ai_state(AIState::Idle);
+            self.set_ai_state(AIState::Idle, audio);
         }
         // C++ ConvertToHijackedVehicleCrateCollide: setDrawableHidden(true).
         self.set_drawable_hidden(true);
     }
 
     /// C++ HijackerUpdate exit when vehicle dies residual.
-    pub fn end_hijacker_in_vehicle(&mut self, eject_pos: glam::Vec3, was_airborne: bool) {
+    pub fn end_hijacker_in_vehicle(
+        &mut self,
+        eject_pos: glam::Vec3,
+        was_airborne: bool,
+        audio: &mut crate::game_logic::MovementAudio<'_>,
+    ) {
         self.end_hijacker_in_vehicle_with_effects(
             eject_pos,
             was_airborne,
             0,
             &mut Default::default(),
+            audio,
         );
     }
 
@@ -721,6 +735,7 @@ impl Object {
         was_airborne: bool,
         frame: u32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+        audio: &mut crate::game_logic::MovementAudio<'_>,
     ) {
         self.hijack_vehicle_id = None;
         self.hijacker_in_vehicle = false;
@@ -733,7 +748,7 @@ impl Object {
         self.set_position_with_effects(eject_pos, frame, effects);
         // C++ HijackerUpdate eject: setDrawableHidden(false) + registerObject.
         self.set_drawable_hidden(false);
-        self.stop_moving();
+        self.stop_moving(audio);
         self.target = None;
     }
 
@@ -804,8 +819,8 @@ impl Object {
         }
     }
 
-    pub fn apply_hijacked(&mut self) {
-        self.apply_hijacked_from(None);
+    pub fn apply_hijacked(&mut self, audio: &mut crate::game_logic::MovementAudio<'_>) {
+        self.apply_hijacked_from(None, audio);
     }
 
     /// Hijack with optional donor (hijacker) residual endowments.
@@ -817,7 +832,11 @@ impl Object {
     /// - setVisionRange / setShroudClearingRange from hijacker
     /// - MAX(target, jacker) veterancy on both (jacker may be destroyed after)
 
-    pub fn apply_hijacked_from(&mut self, donor: Option<&Object>) {
+    pub fn apply_hijacked_from(
+        &mut self,
+        donor: Option<&Object>,
+        audio: &mut crate::game_logic::MovementAudio<'_>,
+    ) {
         self.set_status_hijacked(true);
         self.set_status_disabled_unmanned(false);
         self.set_status_disabled_hacked(false);
@@ -827,13 +846,13 @@ impl Object {
         self.set_status_is_carbomb(false);
         self.status.attacking = false;
         self.set_status_moving(false);
-        self.stop_moving();
+        self.stop_moving(audio);
         self.target = None;
         self.target_location = None;
         self.set_status_force_attack(false);
         // C++ aiMoveToPosition(self) then aiIdle — host: clear move + Idle.
         if self.ai_state != AIState::Idle {
-            self.set_ai_state(AIState::Idle);
+            self.set_ai_state(AIState::Idle, audio);
         }
         if self.is_kind_of(KindOf::Worker) || self.is_worker() {
             self.target = None;
@@ -891,7 +910,10 @@ impl Object {
     /// ApproachHeight here; helipad aircraft keep pad Y so
     /// `HeliTakeoffOrLandingState` can climb the two-point path.
     /// Returns the airfield id that was left (if any).
-    pub fn takeoff_from_airfield_parking(&mut self) -> Option<ObjectId> {
+    pub fn takeoff_from_airfield_parking(
+        &mut self,
+        audio: &mut crate::game_logic::MovementAudio<'_>,
+    ) -> Option<ObjectId> {
         if !(self.is_kind_of(KindOf::Aircraft) || self.object_type == ObjectType::Aircraft) {
             return None;
         }
@@ -901,7 +923,7 @@ impl Object {
         let af = self.contained_by.take();
         // C++ JetAIUpdate.cpp:259-260 / :725-726 takeoff PRECISE_Z_POS + ULTRA_ACCURATE.
         self.set_precise_z_and_ultra_accurate(true);
-        self.set_ai_state(AIState::Idle);
+        self.set_ai_state(AIState::Idle, audio);
         self.status.airborne_target = true;
         let helipad =
             crate::game_logic::host_helicopter_slow_death::is_helicopter_slow_death_template(

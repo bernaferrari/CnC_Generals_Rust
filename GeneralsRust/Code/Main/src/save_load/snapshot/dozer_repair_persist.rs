@@ -139,7 +139,7 @@ fn resume_repair_if_idle(
     if !keep {
         return;
     }
-    let Some(object) = game_logic.host_object_mut(dozer_id) else {
+    let Some((object, audio)) = game_logic.host_object_and_audio_events_mut(dozer_id) else {
         return;
     };
     if matches!(object.ai_state, AIState::Repairing) {
@@ -152,7 +152,10 @@ fn resume_repair_if_idle(
         return;
     }
     object.target = Some(tid);
-    object.set_ai_state(AIState::Repairing);
+    object.set_ai_state(
+        AIState::Repairing,
+        &mut crate::game_logic::MovementAudio::queue(audio),
+    );
     object.idle_since_frame = 0;
 }
 
@@ -216,11 +219,16 @@ mod tests {
             building.set_status_under_construction(false);
         }
         {
-            let unit = source.host_object_mut(dozer).expect("dozer obj");
+            let (unit, audio) = source
+                .host_object_and_audio_events_mut(dozer)
+                .expect("dozer obj");
             unit.dozer_task_repair_target = Some(damaged);
             unit.dozer_task_repair_order_frame = 88;
             unit.dozer_dock_action = Some(Vec3::new(16.0, 0.0, 0.0));
-            unit.set_ai_state(AIState::Idle);
+            unit.set_ai_state(
+                AIState::Idle,
+                &mut crate::game_logic::MovementAudio::queue(audio),
+            );
         }
 
         let builder = super::super::SnapshotBuilder::new();

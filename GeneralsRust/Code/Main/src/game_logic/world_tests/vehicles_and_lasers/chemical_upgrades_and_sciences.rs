@@ -51,7 +51,11 @@ fn anthrax_gamma_residual_toxin_stream_and_field() {
         let (t, attack_events) = game_logic
             .host_object_and_attack_events_mut(truck_id)
             .unwrap();
-        t.attack_target(enemy, attack_events);
+        t.attack_target(
+            enemy,
+            attack_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         if let Some(w) = t.weapon.as_mut() {
             w.last_fire_time = -10.0;
             w.reload_time = 0.05;
@@ -167,7 +171,11 @@ fn anthrax_gamma_residual_toxin_stream_and_field() {
             .host_object_and_attack_events_mut(truck_id)
             .unwrap();
         t.active_weapon_slot = 0;
-        t.attack_target(gamma_enemy, attack_events);
+        t.attack_target(
+            gamma_enemy,
+            attack_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         if let Some(w) = t.weapon.as_mut() {
             w.last_fire_time = -10.0;
             w.reload_time = 0.05;
@@ -228,7 +236,11 @@ fn anthrax_gamma_residual_toxin_stream_and_field() {
             .host_object_and_attack_events_mut(truck_id)
             .unwrap();
         t.active_weapon_slot = 1;
-        t.attack_target(spray_victim, attack_events);
+        t.attack_target(
+            spray_victim,
+            attack_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         if let Some(w) = t.secondary_weapon.as_mut() {
             w.last_fire_time = -10.0;
             w.reload_time = 0.05;
@@ -582,7 +594,11 @@ fn chem_terrorist_gamma_and_demo_death_weapon_residual() {
         let (t, attack_events) = game_logic
             .host_object_and_attack_events_mut(chem_id)
             .unwrap();
-        t.attack_target(near, attack_events);
+        t.attack_target(
+            near,
+            attack_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     let hp_before = game_logic
         .host_object(near)
@@ -624,7 +640,11 @@ fn chem_terrorist_gamma_and_demo_death_weapon_residual() {
         let (t, attack_events) = game_logic
             .host_object_and_attack_events_mut(demo_id)
             .unwrap();
-        t.attack_target(near2, attack_events);
+        t.attack_target(
+            near2,
+            attack_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         if let Some(w) = t.weapon.as_mut() {
             assert!(
                 (w.damage - SUICIDE_DYNAMITE_PRIMARY_DAMAGE_DEMO).abs() < 1.0,

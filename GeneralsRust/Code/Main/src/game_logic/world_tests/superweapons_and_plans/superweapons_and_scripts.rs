@@ -651,7 +651,10 @@ fn carbomb_command_converts_vehicle_after_reach() {
             .host_object_mut(bomber_id)
             .expect("bomber should exist");
         bomber.set_position(Vec3::new(2.0, 0.0, 0.0));
-        bomber.set_ai_state(AIState::SpecialAbility);
+        bomber.set_ai_state(
+            AIState::SpecialAbility,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         bomber.target = Some(target_id);
     }
     game_logic.update_ai(&[bomber_id, target_id], 1.0 / 60.0);
@@ -774,7 +777,10 @@ fn carbomb_command_allows_neutral_targets() {
             .host_object_mut(bomber_id)
             .expect("bomber should exist");
         bomber.set_position(Vec3::new(2.0, 0.0, 0.0));
-        bomber.set_ai_state(AIState::SpecialAbility);
+        bomber.set_ai_state(
+            AIState::SpecialAbility,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         bomber.target = Some(target_id);
     }
     game_logic.update_ai(&[bomber_id, target_id], 1.0 / 60.0);
@@ -817,14 +823,20 @@ fn carbomb_attack_structure_detonates_with_observable_damage() {
             .get_mut(&car_id)
             .expect("car should exist");
         let attack_events = &mut game_logic.attack_events;
-        car.apply_convert_to_car_bomb();
+        car.apply_convert_to_car_bomb(
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         car.set_team(Team::GLA, &mut game_logic.ownership_events);
         // Ensure weapon is ready to fire immediately.
         if let Some(w) = car.weapon.as_mut() {
             w.last_fire_time = 0.0;
             w.reload_time = 0.0;
         }
-        car.attack_target(structure_id, attack_events);
+        car.attack_target(
+            structure_id,
+            attack_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     game_logic.car_bomb.record_conversion();
 
@@ -911,7 +923,11 @@ fn attack_order_chases_target_when_out_of_range() {
         let (attacker, attack_events) = game_logic
             .host_object_and_attack_events_mut(attacker_id)
             .expect("attacker should exist");
-        attacker.attack_target(target_id, attack_events);
+        attacker.attack_target(
+            target_id,
+            attack_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         let weapon = attacker.weapon.as_mut().expect("authored current weapon");
         weapon.range = 50.0;
         weapon.reload_time = 0.0;
@@ -962,7 +978,11 @@ fn attack_order_clears_dead_target() {
         let (attacker, attack_events) = game_logic
             .host_object_and_attack_events_mut(attacker_id)
             .expect("attacker should exist");
-        attacker.attack_target(target_id, attack_events);
+        attacker.attack_target(
+            target_id,
+            attack_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     {
         let target = game_logic
@@ -2119,7 +2139,10 @@ fn can_make_aircraft_blocked_when_airfield_parking_full() {
             .expect("jet");
         if let Some(jet) = logic.host_object_mut(j) {
             jet.set_contained_by(Some(af));
-            jet.set_ai_state(AIState::Docked);
+            jet.set_ai_state(
+                AIState::Docked,
+                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            );
             jet.producer_id = Some(af);
             jet.airfield_parking_space_index = Some(i);
         }
@@ -2609,7 +2632,10 @@ fn script_idle_all_units_and_resume_supply_write_live() {
     let far = glam::Vec3::new(400.0, 0.0, 0.0);
     let _ = logic.unit_command_move_to(tank, far);
     if let Some(obj) = logic.host_object_mut(truck) {
-        obj.set_ai_state(AIState::Idle);
+        obj.set_ai_state(
+            AIState::Idle,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         obj.supply_truck_force_pending = false;
     }
 

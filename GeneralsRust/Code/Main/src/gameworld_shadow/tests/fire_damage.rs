@@ -44,6 +44,7 @@ fn fire_at_records_fire_intent_residual() {
             logic.frame,
             &mut logic.combat_system,
             &mut logic.attack_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
         );
         assert!(fired, "close-range fire_at should discharge");
         // The shot commits its durable fields before any observer refresh.
@@ -86,6 +87,7 @@ fn fire_at_records_fire_intent_residual() {
             logic.frame,
             &mut logic.combat_system,
             &mut logic.attack_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
         );
         assert!(fired);
         assert_eq!(o.last_fire_victim_host, vid.0);
@@ -175,7 +177,10 @@ fn private_idle_decision_authority() {
     if let Some(o) = logic.host_object_mut(oid) {
         o.target = Some(vid);
         o.status.attacking = true;
-        o.set_ai_state(AIState::Attacking);
+        o.set_ai_state(
+            AIState::Attacking,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     assert!(logic.private_idle_for_test(oid));
 
@@ -242,32 +247,38 @@ fn residual_ai_state_paths_use_owned_state_writers() {
     for (header, write) in [
         (
             "fn try_return_to_base_rearm_with_effects(",
-            "jet.set_ai_state(AIState::Moving);",
+            "jet.set_ai_state(AIState::Moving,&mutcrate::game_logic::MovementAudio::queue(&mutself.queued_audio_events),);",
         ),
         (
             "fn try_min_range_backup_between(",
-            "a.set_ai_state(AIState::Attacking);",
+            "a.set_ai_state(AIState::Attacking,&mutcrate::game_logic::MovementAudio::queue(&mutself.queued_audio_events),);",
         ),
         (
             "fn append_unit_waypoint(",
-            "unit.set_ai_state(AIState::Moving);",
+            "unit.set_ai_state(AIState::Moving,&mutcrate::game_logic::MovementAudio::queue(&mutself.queued_audio_events),);",
         ),
         (
             "fn attack_aim_at_target_enter(",
-            "u.set_ai_state(AIState::Attacking);",
+            "u.set_ai_state(AIState::Attacking,&mutcrate::game_logic::MovementAudio::queue(&mutself.queued_audio_events),);",
         ),
         (
             "fn attack_fire_weapon_enter(",
-            "u.set_ai_state(AIState::Attacking);",
+            "u.set_ai_state(AIState::Attacking,&mutcrate::game_logic::MovementAudio::queue(&mutself.queued_audio_events),);",
         ),
-        ("fn try_idle_crate_pickup(", "u.set_ai_state(parent_state);"),
+        (
+            "fn try_idle_crate_pickup(",
+            "u.set_ai_state(parent_state,&mutcrate::game_logic::MovementAudio::queue(&mutself.queued_audio_events),);",
+        ),
         (
             "fn on_selling_container_residual_with_effects(",
-            "unit.set_ai_state(AIState::Idle);",
+            "unit.set_ai_state(AIState::Idle,&mutcrate::game_logic::MovementAudio::queue(&mutself.queued_audio_events),);",
         ),
     ] {
         assert!(
-            method(src, header).contains(write),
+            method(src, header)
+                .split_whitespace()
+                .collect::<String>()
+                .contains(write),
             "{header} must use its exact owned state writer {write}"
         );
     }
@@ -474,7 +485,10 @@ fn special_power_tick_updates_receiving_owner_timer() {
         o.special_power_cooldown = 10.0;
         o.special_power_cooldown_remaining = 5.0;
         o.set_special_power_ready(false);
-        let became = o.tick_timers(1.0);
+        let became = o.tick_timers(
+            1.0,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         let _ = became;
     }
     let owner = logic.host_object(oid).unwrap();

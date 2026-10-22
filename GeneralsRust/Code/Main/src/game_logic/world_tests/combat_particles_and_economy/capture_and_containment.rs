@@ -1331,7 +1331,10 @@ fn supply_lines_drop_off_yields_more_cash_than_without() {
         {
             let chinook = game_logic.host_object_mut(chinook_id).expect("chinook mut");
             chinook.set_stored_supplies(CARGO);
-            chinook.set_ai_state(AIState::ReturningResources);
+            chinook.set_ai_state(
+                AIState::ReturningResources,
+                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            );
         }
 
         let cash_before = game_logic.get_player(0).unwrap().resources.supplies;
@@ -1488,7 +1491,10 @@ fn supply_lines_does_not_boost_non_chinook_collector() {
     {
         let truck = game_logic.host_object_mut(truck_id).expect("truck mut");
         truck.set_stored_supplies(CARGO);
-        truck.set_ai_state(AIState::ReturningResources);
+        truck.set_ai_state(
+            AIState::ReturningResources,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     let cash_before = game_logic.get_player(0).unwrap().resources.supplies;
     // The first update enters DockingCenter; even a zero authored delay
@@ -1561,8 +1567,15 @@ fn loaded_combat_chinook_does_not_auto_gather() {
             center_delay_frames: 0,
             upgraded_supply_boost: 60,
         });
-        chinook.set_target(Some(source), attack_events);
-        chinook.set_ai_state(AIState::Gathering);
+        chinook.set_target(
+            Some(source),
+            attack_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
+        chinook.set_ai_state(
+            AIState::Gathering,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         chinook.supply_truck_state = SupplyTruckState::DockingWarehouse;
         chinook.set_stored_supplies(0);
     }
@@ -1640,11 +1653,14 @@ fn supply_truck_force_wanting_reenters_gathering() {
         .expect("truck");
     {
         let collector = logic.host_object_mut(collector_id).expect("truck mut");
-        collector.set_ai_state(AIState::Idle);
+        collector.set_ai_state(
+            AIState::Idle,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         collector.supply_truck_state = SupplyTruckState::Regrouping;
         collector.supply_truck_force_pending = true;
         collector.set_stored_supplies(0);
-        collector.stop_moving();
+        collector.stop_moving(&mut crate::game_logic::MovementAudio::queue(&mut Vec::new()));
     }
 
     // Admit this fixture's map before its first look, as load_map does.
@@ -1713,8 +1729,15 @@ fn worker_gather_arms_mine_clearing_detail() {
         let (worker, attack_events) = logic
             .host_object_and_attack_events_mut(worker_id)
             .expect("worker mut");
-        worker.set_target(Some(source), attack_events);
-        worker.set_ai_state(AIState::Gathering);
+        worker.set_target(
+            Some(source),
+            attack_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
+        worker.set_ai_state(
+            AIState::Gathering,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         worker.supply_truck_state = SupplyTruckState::DockingWarehouse;
         assert!(!worker.weapon_set_mine_clearing_detail);
     }
@@ -1817,7 +1840,10 @@ fn garrison_residual_exit_frees_unit_and_capacity() {
             .host_object_mut(infantry_id)
             .expect("infantry mut");
         unit.target = Some(bunker_id);
-        unit.set_ai_state(AIState::Entering);
+        unit.set_ai_state(
+            AIState::Entering,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     game_logic.update_ai(&[infantry_id, bunker_id], 1.0 / 30.0);
     assert_eq!(
@@ -1886,7 +1912,10 @@ fn garrison_residual_capacity_full_rejects_enter() {
     {
         let unit = game_logic.host_object_mut(first_id).unwrap();
         unit.target = Some(bunker_id);
-        unit.set_ai_state(AIState::Entering);
+        unit.set_ai_state(
+            AIState::Entering,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     game_logic.update_ai(&[first_id, bunker_id], 1.0 / 30.0);
     assert!(
@@ -2027,7 +2056,10 @@ fn garrison_really_damaged_edge_ejects_occupants() {
             .host_object_mut(infantry_id)
             .expect("infantry mut");
         unit.target = Some(bunker_id);
-        unit.set_ai_state(AIState::Entering);
+        unit.set_ai_state(
+            AIState::Entering,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     game_logic.update_ai(&[infantry_id, bunker_id], 1.0 / 30.0);
     assert_eq!(
@@ -2102,7 +2134,10 @@ fn garrisonable_until_destroyed_still_allows_occupy_when_really_damaged() {
             .host_object_mut(infantry_id)
             .expect("infantry mut");
         unit.target = Some(bunker_id);
-        unit.set_ai_state(AIState::Entering);
+        unit.set_ai_state(
+            AIState::Entering,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     game_logic.update_ai(&[infantry_id, bunker_id], 1.0 / 30.0);
     assert_eq!(
@@ -2163,7 +2198,10 @@ fn garrison_residual_fire_from_garrison_damages_nearby_enemy() {
         });
         unit.target = Some(bunker_id);
         unit.set_contained_by(Some(bunker_id));
-        unit.set_ai_state(AIState::Garrisoned);
+        unit.set_ai_state(
+            AIState::Garrisoned,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         unit.set_position(Vec3::new(0.0, 0.0, 0.0));
     }
     {
@@ -2326,7 +2364,10 @@ fn transport_residual_load_two_unload_both_free() {
         {
             let unit = game_logic.host_object_mut(unit_id).expect("unit mut");
             unit.target = Some(transport_id);
-            unit.set_ai_state(AIState::Entering);
+            unit.set_ai_state(
+                AIState::Entering,
+                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            );
         }
         game_logic.update_ai(&[unit_id, transport_id], 1.0 / 30.0);
     }
@@ -2426,7 +2467,10 @@ fn transport_residual_exit_command_unloads_all() {
         {
             let unit = game_logic.host_object_mut(unit_id).unwrap();
             unit.target = Some(transport_id);
-            unit.set_ai_state(AIState::Entering);
+            unit.set_ai_state(
+                AIState::Entering,
+                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            );
         }
         game_logic.update_ai(&[unit_id, transport_id], 1.0 / 30.0);
     }
@@ -2486,7 +2530,10 @@ fn transport_residual_capacity_full_rejects_enter() {
     {
         let unit = game_logic.host_object_mut(first_id).unwrap();
         unit.target = Some(transport_id);
-        unit.set_ai_state(AIState::Entering);
+        unit.set_ai_state(
+            AIState::Entering,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     game_logic.update_ai(&[first_id, transport_id], 1.0 / 30.0);
     assert!(
@@ -2778,7 +2825,10 @@ fn overlord_bunker_residual_load_two_unload_both_free() {
         {
             let unit = game_logic.host_object_mut(unit_id).expect("unit mut");
             unit.target = Some(overlord_id);
-            unit.set_ai_state(AIState::Entering);
+            unit.set_ai_state(
+                AIState::Entering,
+                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            );
         }
         game_logic.update_ai(&[unit_id, overlord_id], 1.0 / 30.0);
     }
@@ -2890,7 +2940,10 @@ fn overlord_bunker_residual_capacity_full_rejects_enter() {
     {
         let unit = game_logic.host_object_mut(first_id).unwrap();
         unit.target = Some(overlord_id);
-        unit.set_ai_state(AIState::Entering);
+        unit.set_ai_state(
+            AIState::Entering,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     game_logic.update_ai(&[first_id, overlord_id], 1.0 / 30.0);
     assert!(

@@ -2788,7 +2788,10 @@ impl GameLogic {
                     obj.is_attack_path = false;
                     obj.is_exact_path = false;
                     obj.refresh_follow_path_extra_distance();
-                    obj.set_ai_state(AIState::Moving);
+                    obj.set_ai_state(
+                        AIState::Moving,
+                        &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    );
                     obj.status.moving = true;
                     obj.pending_evacuate_on_stop = evacuating;
                 }
@@ -3197,9 +3200,14 @@ impl GameLogic {
                     hunter.weapon = Some(tank_hunter_missile_weapon());
                 }
                 hunter.set_contained_by(Some(outpost_id));
-                hunter.set_ai_state(AIState::Docked);
+                hunter.set_ai_state(
+                    AIState::Docked,
+                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                );
                 {}
-                hunter.stop_moving();
+                hunter.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+                    &mut self.queued_audio_events,
+                ));
                 hunter.set_status_moving(false);
                 hunter.set_status_attacking(false);
                 hunter.target = None;
@@ -3332,9 +3340,14 @@ impl GameLogic {
                     });
                 }
                 guard.set_contained_by(Some(crawler_id));
-                guard.set_ai_state(AIState::Docked);
+                guard.set_ai_state(
+                    AIState::Docked,
+                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                );
                 {}
-                guard.stop_moving();
+                guard.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+                    &mut self.queued_audio_events,
+                ));
                 guard.set_status_moving(false);
                 guard.set_status_attacking(false);
                 guard.target = None;
@@ -3417,7 +3430,9 @@ impl GameLogic {
             let angle = (occ_id.0 as f32 + i as f32 * 1.37).sin().atan2(1.0) + i as f32 * 0.7;
             let offset = Vec3::new(angle.cos(), 0.0, angle.sin()) * 8.0;
             if let Some(unit) = self.objects.get_mut(&occ_id) {
-                unit.stop_moving();
+                unit.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+                    &mut self.queued_audio_events,
+                ));
                 unit.set_position_with_effects(
                     crawler_pos + offset,
                     self.frame,

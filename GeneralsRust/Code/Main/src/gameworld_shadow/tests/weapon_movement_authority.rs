@@ -135,7 +135,11 @@ fn movement_authority_path_follow_matches_host_only_golden() {
             let (o, mut movement_events) =
                 logic.host_object_and_movement_events_mut(oid).expect("o");
             o.movement.max_speed = speed;
-            o.move_to(dest, &mut movement_events);
+            o.move_to(
+                dest,
+                &mut movement_events,
+                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            );
         }
         let mut shadow = GameWorldShadow::new(64);
         shadow.sync_from_host(&logic);
@@ -161,7 +165,11 @@ fn movement_authority_path_follow_matches_host_only_golden() {
     {
         let (o, mut movement_events) = logic.host_object_and_movement_events_mut(oid).expect("o");
         o.movement.max_speed = speed;
-        o.move_to(dest, &mut movement_events);
+        o.move_to(
+            dest,
+            &mut movement_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);

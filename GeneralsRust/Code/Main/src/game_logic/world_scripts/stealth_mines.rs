@@ -534,7 +534,11 @@ impl GameLogic {
                     ) {
                         continue;
                     }
-                    enemy.set_target(Some(rid), &mut self.attack_events);
+                    enemy.set_target(
+                        Some(rid),
+                        &mut self.attack_events,
+                        &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    );
                     {}
                     self.camo_netting_order_idle_enemies_count =
                         self.camo_netting_order_idle_enemies_count.saturating_add(1);
@@ -3102,7 +3106,10 @@ impl GameLogic {
                     AIState::Idle | AIState::Moving | AIState::Attacking
                 ) || obj.target.is_none()
                 {
-                    obj.set_ai_state(AIState::Moving);
+                    obj.set_ai_state(
+                        AIState::Moving,
+                        &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    );
                     {}
                     obj.movement.target_position = Some(mine_pos);
                     self.movement_events.record(
@@ -3360,7 +3367,10 @@ impl GameLogic {
                 clearer.target = None;
             }
             if matches!(clearer.ai_state, AIState::Attacking | AIState::Moving) {
-                clearer.set_ai_state(AIState::Idle);
+                clearer.set_ai_state(
+                    AIState::Idle,
+                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                );
                 {}
                 clearer.movement.target_position = None;
                 clearer.set_status_moving(false);

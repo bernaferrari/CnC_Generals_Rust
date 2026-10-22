@@ -793,12 +793,16 @@ impl Object {
     }
 
     /// C++ Drawable::setEmoticon residual (duration in logic frames @ 30Hz).
-    pub fn set_surrendered(&mut self, surrendered: bool) {
+    pub fn set_surrendered(
+        &mut self,
+        surrendered: bool,
+        audio: &mut crate::game_logic::MovementAudio<'_>,
+    ) {
         self.is_surrendered = surrendered;
         if surrendered {
-            self.clear_target();
+            self.clear_target(audio);
             self.set_force_attack(false);
-            self.stop_moving();
+            self.stop_moving(audio);
         }
     }
 
@@ -888,7 +892,11 @@ impl Object {
     /// Does not re-log host_ai_state (state already last-written). Syncs
     /// moving/attacking status bits from the authoritative ordinal.
 
-    pub fn set_ai_state(&mut self, state: AIState) {
+    pub fn set_ai_state(
+        &mut self,
+        state: AIState,
+        audio: &mut crate::game_logic::MovementAudio<'_>,
+    ) {
         if !matches!(state, AIState::Moving) && self.temporary_move_frames == 0 {
             self.movement_goal_object = None;
         }
@@ -945,13 +953,7 @@ impl Object {
         );
         if leaving_move {
             self.set_status_moving(false);
-            if let Some(name) = self.move_loop_audio.take() {
-                crate::game_logic::host_move_ambient_audio::record_move_loop_stop(
-                    self.id,
-                    name,
-                    self.get_position(),
-                );
-            }
+            audio.stop_loop(self);
             if self.ultra_accurate
                 && crate::game_logic::PathfindingGrid::is_doing_ground_movement_full(self)
             {

@@ -30,7 +30,10 @@ fn load(world: &mut GameLogic, passenger: ObjectId, container: ObjectId) {
     );
     let rider = world.host_object_mut(passenger).unwrap();
     rider.set_contained_by(Some(container));
-    rider.set_ai_state(AIState::Garrisoned);
+    rider.set_ai_state(
+        AIState::Garrisoned,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
     rider.set_status_stealthed(true);
     rider.set_status_detected(false);
 }
@@ -52,8 +55,15 @@ fn enter_rejected_noncontainer_preserves_ai_after_script_preparation() {
     assert_eq!(id, foreign);
     let old = Vec3::new(250.0, 0.0, 250.0);
     let (unit, attack_events) = a.host_object_and_attack_events_mut(id).unwrap();
-    unit.set_target(Some(target), attack_events);
-    unit.set_ai_state(AIState::AttackMoving);
+    unit.set_target(
+        Some(target),
+        attack_events,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
+    unit.set_ai_state(
+        AIState::AttackMoving,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
     unit.pending_move = Some(old);
     unit.last_command_source = 99;
     assert_eq!(
@@ -217,7 +227,11 @@ fn malformed_exit_goal_cannot_remove_a_different_containers_passenger() {
     evacuate(&mut a);
     {
         let (object, attack_events) = a.host_object_and_attack_events_mut(id).unwrap();
-        object.set_target(Some(id), attack_events);
+        object.set_target(
+            Some(id),
+            attack_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     };
     a.update_support_states(&[id], 1.0 / 30.0);
     assert_eq!(a.host_object(id).unwrap().contained_by, Some(container));

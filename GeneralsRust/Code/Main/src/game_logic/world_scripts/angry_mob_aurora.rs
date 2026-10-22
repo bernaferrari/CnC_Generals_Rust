@@ -1562,7 +1562,11 @@ impl GameLogic {
                     None => true,
                 };
                 if retarget {
-                    o.set_destination(pos, &mut self.movement_events.writer(self.frame));
+                    o.set_destination(
+                        pos,
+                        &mut self.movement_events.writer(self.frame),
+                        &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    );
                 }
             }
         }
@@ -1896,7 +1900,12 @@ impl GameLogic {
                         if let Some(tid) = first_target {
                             mob.target = Some(tid);
                         }
-                        mob.set_ai_state(AIState::Attacking);
+                        mob.set_ai_state(
+                            AIState::Attacking,
+                            &mut crate::game_logic::MovementAudio::queue(
+                                &mut self.queued_audio_events,
+                            ),
+                        );
                     }
                 }
                 let muzzle = self
@@ -2585,6 +2594,7 @@ mod spawn_behavior_parity {
             n.set_destination(
                 glam::Vec3::new(80.0, 0.0, 0.0),
                 &mut logic.movement_events.writer(logic.frame),
+                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
             );
         }
         assert_eq!(

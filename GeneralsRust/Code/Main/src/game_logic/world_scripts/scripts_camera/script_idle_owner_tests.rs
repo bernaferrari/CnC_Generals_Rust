@@ -9,8 +9,15 @@ use gamelogic::scripting::engine::ScriptEngine;
 
 fn attacking(owner: &mut GameLogic, unit: ObjectId, target: ObjectId) {
     let (object, attack_events) = owner.host_object_and_attack_events_mut(unit).unwrap();
-    object.set_target(Some(target), attack_events);
-    object.set_ai_state(AIState::Attacking);
+    object.set_target(
+        Some(target),
+        attack_events,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
+    object.set_ai_state(
+        AIState::Attacking,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
     object.requested_destination = Some(Vec3::new(90.0, 0.0, 90.0));
 }
 fn roster(owner: &GameLogic, unit: ObjectId) -> u32 {

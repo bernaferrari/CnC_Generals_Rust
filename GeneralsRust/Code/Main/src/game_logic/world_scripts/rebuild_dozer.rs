@@ -137,6 +137,7 @@ impl GameLogic {
                     inf_owner_player_id,
                     inf_level,
                     &mut self.ownership_events,
+                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
                 );
             }
             self.admit_host_radar_disabled_edges(vehicle_id);
@@ -155,9 +156,14 @@ impl GameLogic {
                 veh.status.unmanned_owner_player_id = None;
                 veh.set_status_disabled_hacked(false);
                 veh.status.disabled_hacked_until_frame = 0;
-                veh.stop_moving();
+                veh.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+                    &mut self.queued_audio_events,
+                ));
                 veh.target = None;
-                veh.set_ai_state(crate::game_logic::AIState::Idle);
+                veh.set_ai_state(
+                    crate::game_logic::AIState::Idle,
+                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                );
                 veh.set_team_and_owner(inf_team, inf_owner_player_id, &mut self.ownership_events);
                 veh.set_private_captured(true);
             }
@@ -260,7 +266,9 @@ impl GameLogic {
             for uid in outcome.cave_in_units {
                 if let Some(unit) = self.objects.get_mut(&uid) {
                     unit.set_contained_by(None);
-                    unit.stop_moving();
+                    unit.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+                        &mut self.queued_audio_events,
+                    ));
                     unit.set_status_moving(false);
                     unit.set_status_attacking(false);
                     unit.status.destroyed = true;
@@ -389,10 +397,15 @@ impl GameLogic {
         // Object.cpp:4514: aiIdle precedes score credit and module callbacks.
         if owner_changed && object.has_ai_update_interface() {
             if let Some(object) = self.objects.get_mut(&object_id) {
-                object.stop_moving();
+                object.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+                    &mut self.queued_audio_events,
+                ));
                 object.set_status_moving(false);
                 object.set_status_attacking(false);
-                object.set_ai_state(AIState::Idle);
+                object.set_ai_state(
+                    AIState::Idle,
+                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                );
             }
             self.clear_target_decision_aware(object_id);
         }
@@ -665,13 +678,20 @@ impl GameLogic {
             if let Some(unit) = self.objects.get_mut(&uid) {
                 let angle = (uid.0 as f32 + i as f32 * 1.11) * 0.7;
                 let offset = glam::Vec3::new(angle.cos(), 0.0, angle.sin()) * 10.0;
-                unit.stop_moving();
+                unit.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+                    &mut self.queued_audio_events,
+                ));
                 unit.set_position_with_effects(pos + offset, tree_move_frame, effects);
                 {}
-                unit.clear_target();
+                unit.clear_target(&mut crate::game_logic::MovementAudio::queue(
+                    &mut self.queued_audio_events,
+                ));
                 {}
                 unit.set_contained_by(None);
-                unit.set_ai_state(AIState::Idle);
+                unit.set_ai_state(
+                    AIState::Idle,
+                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                );
                 {}
                 unit.set_status_moving(false);
                 unit.set_status_attacking(false);
@@ -722,12 +742,19 @@ impl GameLogic {
             if let Some(unit) = self.objects.get_mut(&uid) {
                 let angle = (uid.0 as f32 + i as f32 * 1.11) * 0.7;
                 let offset = glam::Vec3::new(angle.cos(), 0.0, angle.sin()) * 10.0;
-                unit.stop_moving();
+                unit.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+                    &mut self.queued_audio_events,
+                ));
                 unit.set_position_with_effects(pos + offset, tree_move_frame, effects);
                 {}
-                unit.clear_target();
+                unit.clear_target(&mut crate::game_logic::MovementAudio::queue(
+                    &mut self.queued_audio_events,
+                ));
                 unit.set_contained_by(None);
-                unit.set_ai_state(AIState::Idle);
+                unit.set_ai_state(
+                    AIState::Idle,
+                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                );
                 {}
                 unit.set_status_moving(false);
                 unit.set_status_attacking(false);
@@ -781,12 +808,21 @@ impl GameLogic {
                         if let Some(unit) = self.objects.get_mut(&uid) {
                             let angle = (uid.0 as f32 + i as f32 * 1.11) * 0.7;
                             let offset = glam::Vec3::new(angle.cos(), 0.0, angle.sin()) * 10.0;
-                            unit.stop_moving();
+                            unit.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+                                &mut self.queued_audio_events,
+                            ));
                             unit.set_position_with_effects(pos + offset, tree_move_frame, effects);
                             {}
-                            unit.clear_target();
+                            unit.clear_target(&mut crate::game_logic::MovementAudio::queue(
+                                &mut self.queued_audio_events,
+                            ));
                             unit.set_contained_by(None);
-                            unit.set_ai_state(AIState::Idle);
+                            unit.set_ai_state(
+                                AIState::Idle,
+                                &mut crate::game_logic::MovementAudio::queue(
+                                    &mut self.queued_audio_events,
+                                ),
+                            );
                             {}
                             unit.set_status_moving(false);
                             unit.set_status_attacking(false);
@@ -1055,7 +1091,10 @@ impl GameLogic {
                     obj.dozer_dock_action = None;
                 }
                 obj.target = None;
-                obj.set_ai_state(AIState::Idle);
+                obj.set_ai_state(
+                    AIState::Idle,
+                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                );
                 {}
                 obj.set_actively_constructing(false);
                 cancelled = cancelled.saturating_add(1);

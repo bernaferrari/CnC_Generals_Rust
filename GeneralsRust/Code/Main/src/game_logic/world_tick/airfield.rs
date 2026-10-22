@@ -209,7 +209,9 @@ impl GameLogic {
                 }
                 JetAiTickAction::ResumePending => {
                     if let Some(jet) = self.objects.get_mut(&id) {
-                        jet.apply_pending_jet_resume();
+                        jet.apply_pending_jet_resume(&mut crate::game_logic::MovementAudio::queue(
+                            &mut self.queued_audio_events,
+                        ));
                     }
                     if self
                         .objects
@@ -472,7 +474,10 @@ impl GameLogic {
                 jet.is_exact_path = false;
                 jet.refresh_follow_path_extra_distance();
                 if jet.ai_state != AIState::Moving {
-                    jet.set_ai_state(AIState::Moving);
+                    jet.set_ai_state(
+                        AIState::Moving,
+                        &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    );
                 }
                 jet.set_status_moving(true);
             }
@@ -590,7 +595,10 @@ impl GameLogic {
                     jet.set_status_attacking(false);
                 }
                 if jet.ai_state != AIState::Moving {
-                    jet.set_ai_state(AIState::Moving);
+                    jet.set_ai_state(
+                        AIState::Moving,
+                        &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    );
                 }
             }
             let need_path = self
@@ -604,10 +612,12 @@ impl GameLogic {
             }
             return;
         }
-        let entered = self
-            .objects
-            .get_mut(&jet_id)
-            .is_some_and(|jet| jet.enter_circling_dead_airfield(self.frame));
+        let entered = self.objects.get_mut(&jet_id).is_some_and(|jet| {
+            jet.enter_circling_dead_airfield(
+                self.frame,
+                &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+            )
+        });
         if entered {
             // C++ JetOrHeliCirclingDeadAirfieldState::onEnter (JetAIUpdate.cpp:338-341):
             // play getPerUnitSound("VoiceLowFuel") at the jet object id. Missing
@@ -712,7 +722,10 @@ impl GameLogic {
             // C++ HeliTakeoffOrLandingState::onEnter (JetAIUpdate.cpp:975-976).
             jet.set_precise_z_and_ultra_accurate(true);
             if jet.ai_state != AIState::Moving {
-                jet.set_ai_state(AIState::Moving);
+                jet.set_ai_state(
+                    AIState::Moving,
+                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                );
             }
             jet.set_status_moving(true);
             jet.movement.path.clear();
@@ -762,7 +775,10 @@ impl GameLogic {
                 if next.landing {
                     self.finish_helipad_landing(jet_id, next.airfield_id);
                 } else if let Some(jet) = self.objects.get_mut(&jet_id) {
-                    jet.set_ai_state(AIState::Idle);
+                    jet.set_ai_state(
+                        AIState::Idle,
+                        &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    );
                     jet.set_precise_z_and_ultra_accurate(false);
                     jet.set_allow_invalid_position(false);
                     jet.status.airborne_target = true;
@@ -786,7 +802,10 @@ impl GameLogic {
                 return;
             };
             jet.set_contained_by(Some(airfield_id));
-            jet.set_ai_state(AIState::Docked);
+            jet.set_ai_state(
+                AIState::Docked,
+                &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+            );
             jet.set_status_moving(false);
             jet.set_precise_z_and_ultra_accurate(false);
             jet.set_allow_invalid_position(false);
@@ -1887,7 +1906,10 @@ impl GameLogic {
         jet.set_position_with_effects(info.hangar_internal, pose_frame, effects);
         jet.set_orientation(info.hangar_internal_orient);
         jet.set_contained_by(Some(producer_id));
-        jet.set_ai_state(AIState::Docked);
+        jet.set_ai_state(
+            AIState::Docked,
+            &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+        );
         jet.set_status_moving(false);
         jet.status.airborne_target = false;
         jet.apply_taxiing_locomotor_set_for_surfaces(taxi_surfaces);
@@ -2278,7 +2300,10 @@ impl GameLogic {
                 jet.is_exact_path = false;
                 jet.refresh_follow_path_extra_distance();
                 if jet.ai_state != AIState::Moving {
-                    jet.set_ai_state(AIState::Moving);
+                    jet.set_ai_state(
+                        AIState::Moving,
+                        &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    );
                 }
                 jet.set_status_moving(true);
             }
@@ -2516,7 +2541,9 @@ impl GameLogic {
                 return false;
             };
             let was_parked = jet.is_parked_at_airfield() || jet.contained_by.is_some();
-            let af = jet.takeoff_from_airfield_parking();
+            let af = jet.takeoff_from_airfield_parking(
+                &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+            );
             jet.set_contained_by(None);
             was_parked || af.is_some()
         };
@@ -2907,7 +2934,10 @@ impl GameLogic {
                 jet.set_status_attacking(false);
                 entered_move = jet.ai_state != AIState::Moving;
                 if entered_move {
-                    jet.set_ai_state(AIState::Moving);
+                    jet.set_ai_state(
+                        AIState::Moving,
+                        &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    );
                 }
             }
             {}
@@ -2974,7 +3004,10 @@ impl GameLogic {
             jet.target = None;
             jet.set_status_attacking(false);
             if jet.ai_state != AIState::Moving {
-                jet.set_ai_state(AIState::Moving);
+                jet.set_ai_state(
+                    AIState::Moving,
+                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                );
             }
             jet.movement.path = points.to_vec();
             jet.movement.current_path_index = 0;
@@ -3018,7 +3051,10 @@ impl GameLogic {
                 return false;
             };
             jet.set_contained_by(Some(airfield_id));
-            jet.set_ai_state(AIState::Docked);
+            jet.set_ai_state(
+                AIState::Docked,
+                &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+            );
             jet.set_status_moving(false);
             jet.status.airborne_target = false;
             jet.jet_ai.landing_in_progress = false;

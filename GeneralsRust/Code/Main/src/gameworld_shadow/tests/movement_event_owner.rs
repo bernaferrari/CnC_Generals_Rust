@@ -26,7 +26,11 @@ fn missing_mapping_retains_whole_suffix_until_a_later_session_case() {
     logic.movement_events.clear();
     for (id, x) in [(a, 20.0), (b, 30.0), (a, 40.0)] {
         let (object, mut writer) = logic.host_object_and_movement_events_mut(id).unwrap();
-        object.set_destination(Vec3::new(x, 0.0, 0.0), &mut writer);
+        object.set_destination(
+            Vec3::new(x, 0.0, 0.0),
+            &mut writer,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     // Missing observer admission cannot block the actual object command.
     assert!(shadow.entity_for_host(b).is_none());
@@ -111,7 +115,11 @@ fn eager_prefix_late_suffix_and_foreign_session_remain_once_and_ordered_case() {
     other.movement_events.clear();
     {
         let (object, mut writer) = owner.host_object_and_movement_events_mut(a).unwrap();
-        object.set_destination(Vec3::new(20.0, 0.0, 0.0), &mut writer);
+        object.set_destination(
+            Vec3::new(20.0, 0.0, 0.0),
+            &mut writer,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
 
     observe_completed_owner(&mut shadow, &mut owner);
@@ -126,9 +134,17 @@ fn eager_prefix_late_suffix_and_foreign_session_remain_once_and_ordered_case() {
     // accepted goal observation. Full session sync must see this newer value.
     owner.host_object_mut(a).unwrap().movement.target_position = Some(Vec3::new(99.0, 0.0, 0.0));
     let (object, mut writer) = owner.host_object_and_movement_events_mut(b).unwrap();
-    object.set_destination(Vec3::new(30.0, 0.0, 0.0), &mut writer);
+    object.set_destination(
+        Vec3::new(30.0, 0.0, 0.0),
+        &mut writer,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
     let (object, mut writer) = other.host_object_and_movement_events_mut(other_a).unwrap();
-    object.set_destination(Vec3::new(80.0, 0.0, 0.0), &mut writer);
+    object.set_destination(
+        Vec3::new(80.0, 0.0, 0.0),
+        &mut writer,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
     observe_completed_owner(&mut other_shadow, &mut other);
     let _ = observe_completed_owner(&mut other_shadow, &mut other);
     assert_eq!(
@@ -184,7 +200,11 @@ fn eager_prefix_late_suffix_and_foreign_session_remain_once_and_ordered() {
 fn restoring_a_snapshot_baselines_only_the_receiving_world_output_case() {
     let (mut owner, id) = admitted_world();
     let (object, mut writer) = owner.host_object_and_movement_events_mut(id).unwrap();
-    object.set_destination(Vec3::new(20.0, 0.0, 30.0), &mut writer);
+    object.set_destination(
+        Vec3::new(20.0, 0.0, 30.0),
+        &mut writer,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
     run_owned_host_boundary(None, &mut owner);
     let completed = owner.movement_events.snapshot_completed().to_vec();
     let builder = crate::save_load::snapshot::SnapshotBuilder::new();
@@ -192,7 +212,11 @@ fn restoring_a_snapshot_baselines_only_the_receiving_world_output_case() {
     let (mut receiver, receiver_id) = admitted_world();
     assert_eq!(receiver_id, id);
     let (object, mut writer) = receiver.host_object_and_movement_events_mut(id).unwrap();
-    object.set_destination(Vec3::new(80.0, 0.0, 90.0), &mut writer);
+    object.set_destination(
+        Vec3::new(80.0, 0.0, 90.0),
+        &mut writer,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
     let pending = receiver.movement_events.snapshot_pending().to_vec();
     let receiver_session = receiver.movement_events.session().clone();
     let version = saved.version;
@@ -218,7 +242,11 @@ fn restoring_a_snapshot_baselines_only_the_receiving_world_output_case() {
     assert!(receiver.movement_events.snapshot_completed().is_empty());
     let restored_session = receiver.movement_events.session().clone();
     let (object, mut writer) = receiver.host_object_and_movement_events_mut(id).unwrap();
-    object.set_destination(Vec3::new(40.0, 0.0, 50.0), &mut writer);
+    object.set_destination(
+        Vec3::new(40.0, 0.0, 50.0),
+        &mut writer,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
     run_owned_host_boundary(None, &mut receiver);
     assert_eq!(receiver.movement_events.snapshot_completed().len(), 1);
     assert_eq!(

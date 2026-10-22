@@ -446,14 +446,26 @@ impl SnapshotBuilder {
         // valid channel whose target happens to be restored later.
         if let Some(channel) = object.hacker_disable_channel {
             if object.thing().template.hacker_disable_building.is_some() && object.is_alive() {
-                object.set_ai_state(AIState::SpecialAbility);
-                object.restore_order_target(Some(channel.target_id));
+                object.set_ai_state(
+                    AIState::SpecialAbility,
+                    &mut crate::game_logic::MovementAudio::queue(
+                        &mut game_logic.queued_audio_events,
+                    ),
+                );
+                object.restore_order_target(
+                    Some(channel.target_id),
+                    &mut crate::game_logic::MovementAudio::queue(
+                        &mut game_logic.queued_audio_events,
+                    ),
+                );
             } else {
                 // A malformed/current save must not revive a guessed hacker
                 // channel.  Clear it before the object becomes live.
                 object.hacker_disable_channel = None;
                 object.set_status_using_ability(false);
-                object.clear_target();
+                object.clear_target(&mut crate::game_logic::MovementAudio::queue(
+                    &mut game_logic.queued_audio_events,
+                ));
             }
         }
 
@@ -952,12 +964,17 @@ impl SnapshotBuilder {
                         target_id: channel.target_id,
                     },
                 );
-            } else if let Some(source) = game_logic.host_object_mut(snapshot.id) {
+            } else if let Some((source, audio)) =
+                game_logic.host_object_and_audio_events_mut(snapshot.id)
+            {
                 source.hacker_disable_channel = None;
                 source.set_status_using_ability(false);
-                source.clear_target();
+                source.clear_target(&mut crate::game_logic::MovementAudio::queue(audio));
                 if source.ai_state == AIState::SpecialAbility {
-                    source.set_ai_state(AIState::Idle);
+                    source.set_ai_state(
+                        AIState::Idle,
+                        &mut crate::game_logic::MovementAudio::queue(audio),
+                    );
                 }
             }
         }

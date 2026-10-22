@@ -662,8 +662,15 @@ mod tests {
             let (o, attack_events) = logic.host_object_and_attack_events_mut(id).unwrap();
             o.health.current = 40.0;
             o.status.airborne_target = true;
-            o.set_target(Some(af), attack_events);
-            o.set_ai_state(AIState::SeekingRepair);
+            o.set_target(
+                Some(af),
+                attack_events,
+                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            );
+            o.set_ai_state(
+                AIState::SeekingRepair,
+                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            );
         }
         logic.update_support_states_for_test(&[id], 1.0);
         let hp = logic.host_object(id).unwrap().health.current;
@@ -702,8 +709,15 @@ mod tests {
         {
             let (o, attack_events) = logic.host_object_and_attack_events_mut(master).unwrap();
             o.health.current = 40.0;
-            o.set_target(Some(pad_id), attack_events);
-            o.set_ai_state(AIState::SeekingRepair);
+            o.set_target(
+                Some(pad_id),
+                attack_events,
+                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            );
+            o.set_ai_state(
+                AIState::SeekingRepair,
+                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            );
         }
         {
             let d = logic.host_object_mut(drone_id).unwrap();
@@ -747,8 +761,15 @@ mod tests {
         {
             let (o, attack_events) = logic.host_object_and_attack_events_mut(wid).unwrap();
             o.model_condition_bits |= 1u128 << moving_model_bit();
-            o.set_target(Some(dock), attack_events);
-            o.set_ai_state(AIState::Gathering);
+            o.set_target(
+                Some(dock),
+                attack_events,
+                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            );
+            o.set_ai_state(
+                AIState::Gathering,
+                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            );
         }
         assert!(logic.try_claim_dock_for_test(dock, wid));
         let o = logic.host_object(wid).unwrap();

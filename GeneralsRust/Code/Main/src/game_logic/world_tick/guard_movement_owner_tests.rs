@@ -36,12 +36,16 @@ fn guard_return_movement_receipts_stay_with_same_id_owner() {
                 let mut object = guard_test_object(template, id, Team::USA);
                 object.set_position(anchor + glam::Vec3::new(200.0, 0.0, 0.0));
                 object.guard_position = Some(anchor);
-                object.set_ai_state(AIState::GuardingArea);
+                object.set_ai_state(
+                    AIState::GuardingArea,
+                    &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+                );
                 object.begin_guard_retaliate(
                     ObjectId(49_211),
                     Some(anchor),
                     None,
                     &mut world.attack_events,
+                    &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
                 );
                 world.objects.insert(id, object);
                 id

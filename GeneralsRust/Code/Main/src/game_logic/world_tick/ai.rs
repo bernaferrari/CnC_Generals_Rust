@@ -104,7 +104,10 @@ impl GameLogic {
                 });
                 if let Some((tx, tz, _has_loc)) = fwp_shot {
                     obj.target_location = Some(glam::Vec3::new(tx, 0.0, tz));
-                    obj.set_ai_state(crate::game_logic::AIState::Attacking);
+                    obj.set_ai_state(
+                        crate::game_logic::AIState::Attacking,
+                        &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    );
                     if let Some(req) = obj.fire_weapon_power.as_mut() {
                         req.shots_remaining = req.shots_remaining.saturating_sub(1);
                         if req.shots_remaining == 0 {
@@ -205,6 +208,7 @@ impl GameLogic {
                         self.frame,
                         &mut self.combat_system.fire_sound_loop_events,
                         &mut self.health_events,
+                        &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
                     );
                     obj.tick_repulsor_status(self.frame);
                 }
@@ -745,7 +749,10 @@ impl GameLogic {
                     && obj.target.is_none()
                     && obj.is_alive()
                 {
-                    obj.set_ai_state(AIState::Patrolling);
+                    obj.set_ai_state(
+                        AIState::Patrolling,
+                        &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    );
                 }
             }
             // C++ AIIdleState::onEnter → resetNextMoodCheckTime, before the scan.
@@ -977,7 +984,11 @@ impl GameLogic {
                 .collect();
             for child_id in child_ids {
                 if let Some(child) = self.objects.get_mut(&child_id) {
-                    child.apply_disabled_hacked(until, &mut self.health_events);
+                    child.apply_disabled_hacked(
+                        until,
+                        &mut self.health_events,
+                        &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    );
                 }
                 self.admit_host_radar_disabled_edges(child_id);
             }

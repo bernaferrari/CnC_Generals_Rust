@@ -1158,7 +1158,11 @@ fn presentation_frame_observes_combat_kill_particle_systems() {
             pre_attack_delay: 0.0,
             ..Weapon::default()
         });
-        a.attack_target(victim, attack_events);
+        a.attack_target(
+            victim,
+            attack_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     {
         let v = logic.host_object_mut(victim).expect("victim");
@@ -2367,7 +2371,11 @@ fn leftover_wnd_stamps_single_use_subdued_and_unsellable() {
     if let Some((o, health_events)) = logic.host_object_and_health_events_mut(id) {
         o.selected = true;
         o.mark_single_use_command_used();
-        o.set_disabled_subdued(true, health_events);
+        o.set_disabled_subdued(
+            true,
+            health_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         o.set_script_unsellable(true);
     }
     if let Some(p) = logic.get_player_mut(0) {
@@ -2445,7 +2453,11 @@ fn leftover_strip_subdued_restricts_sell_and_evacuate() {
         .expect("b");
     if let Some((o, health_events)) = logic.host_object_and_health_events_mut(id) {
         o.selected = true;
-        o.set_disabled_subdued(true, health_events);
+        o.set_disabled_subdued(
+            true,
+            health_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     if let Some(p) = logic.get_player_mut(0) {
         p.selected_objects = vec![id];
@@ -2481,7 +2493,11 @@ fn leftover_strip_subdued_restricts_sell_and_evacuate() {
     }
     if let Some((o, health_events)) = logic.host_object_and_health_events_mut(tid) {
         o.selected = true;
-        o.set_disabled_subdued(true, health_events);
+        o.set_disabled_subdued(
+            true,
+            health_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         o.occupants = vec![ObjectId(9001), ObjectId(9002)];
     }
     if let Some(p) = logic.get_player_mut(0) {

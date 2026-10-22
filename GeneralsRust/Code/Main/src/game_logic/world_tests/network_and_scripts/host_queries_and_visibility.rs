@@ -1369,7 +1369,10 @@ fn entering_state_docks_unit_into_transport_when_close() {
             .host_object_mut(unit_id)
             .expect("unit should exist");
         unit.target = Some(transport_id);
-        unit.set_ai_state(AIState::Entering);
+        unit.set_ai_state(
+            AIState::Entering,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         unit.set_status_moving(true);
     }
 
@@ -1410,7 +1413,10 @@ fn docking_state_moves_unit_toward_transport_when_far() {
             .host_object_mut(unit_id)
             .expect("unit should exist");
         unit.target = Some(transport_id);
-        unit.set_ai_state(AIState::Docking);
+        unit.set_ai_state(
+            AIState::Docking,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
 
     game_logic.update_ai(&[transport_id, unit_id], 1.0 / 60.0);
@@ -1454,7 +1460,10 @@ fn enter_command_rejects_enemy_occupied_transport() {
             .host_object_mut(enemy_occupant_id)
             .expect("enemy occupant should exist");
         enemy_occupant.target = Some(enemy_transport_id);
-        enemy_occupant.set_ai_state(AIState::Docked);
+        enemy_occupant.set_ai_state(
+            AIState::Docked,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
 
     game_logic.queue_command(crate::command_system::GameCommand {
@@ -1535,7 +1544,10 @@ fn entering_state_clears_enemy_structure_target() {
             .host_object_mut(unit_id)
             .expect("unit should exist");
         unit.target = Some(enemy_barracks_id);
-        unit.set_ai_state(AIState::Entering);
+        unit.set_ai_state(
+            AIState::Entering,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         unit.set_status_moving(true);
     }
 
@@ -1571,7 +1583,10 @@ fn entering_state_allows_empty_enemy_non_faction_structure() {
             .host_object_mut(unit_id)
             .expect("unit should exist");
         unit.target = Some(enemy_garrison_id);
-        unit.set_ai_state(AIState::Entering);
+        unit.set_ai_state(
+            AIState::Entering,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         unit.set_status_moving(true);
     }
 
@@ -1604,7 +1619,10 @@ fn guard_state_engages_nearby_enemy() {
         let guard = game_logic
             .host_object_mut(guard_id)
             .expect("guard should exist");
-        guard.set_ai_state(AIState::GuardingArea);
+        guard.set_ai_state(
+            AIState::GuardingArea,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         guard.guard_position = Some(Vec3::new(0.0, 0.0, 0.0));
         guard.guard_radius = 100.0;
     }
@@ -1792,7 +1810,10 @@ fn repairing_state_heals_target_in_range() {
             .host_object_mut(repairer_id)
             .expect("repairer should exist");
         repairer.target = Some(damaged_id);
-        repairer.set_ai_state(AIState::Repairing);
+        repairer.set_ai_state(
+            AIState::Repairing,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     let before = game_logic
         .host_object(damaged_id)
@@ -1837,7 +1858,10 @@ fn seeking_repair_state_heals_self_in_range() {
             .expect("unit should exist");
         let _ = unit.take_damage(90.0, health_events);
         unit.target = Some(repair_bay_id);
-        unit.set_ai_state(AIState::SeekingRepair);
+        unit.set_ai_state(
+            AIState::SeekingRepair,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     let before = game_logic
         .host_object(unit_id)
@@ -1883,7 +1907,10 @@ fn seeking_repair_state_clears_under_construction_destination() {
             .expect("unit should exist");
         let _ = unit.take_damage(90.0, health_events);
         unit.target = Some(repair_bay_id);
-        unit.set_ai_state(AIState::SeekingRepair);
+        unit.set_ai_state(
+            AIState::SeekingRepair,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         unit.set_status_moving(true);
     }
 
@@ -1921,7 +1948,10 @@ fn evacuate_command_unloads_selected_transport_occupants() {
             .host_object_mut(unit_id)
             .expect("unit should exist");
         unit.target = Some(transport_id);
-        unit.set_ai_state(AIState::Docked);
+        unit.set_ai_state(
+            AIState::Docked,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         unit.set_position(Vec3::new(0.0, 0.0, 0.0));
     }
 
@@ -2085,7 +2115,10 @@ fn capture_channel_uses_authored_ranger_unpack_prepare_and_pack_timing() {
             .host_object_mut(captor_id)
             .expect("captor should exist");
         captor.target = Some(building_id);
-        captor.set_ai_state(AIState::Capturing);
+        captor.set_ai_state(
+            AIState::Capturing,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
 
     // C++ `SpecialAbilityUpdate` starts unpacking on arrival, but it does not
@@ -2185,7 +2218,10 @@ fn capture_trigger_awards_ranger_award_xp_for_triggering() {
         let captor = game_logic.host_object_mut(captor_id).expect("captor");
         captor.template_mut().is_trainable = true;
         captor.target = Some(building_id);
-        captor.set_ai_state(AIState::Capturing);
+        captor.set_ai_state(
+            AIState::Capturing,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         assert_eq!(captor.experience.current, 0.0);
     }
 
@@ -2237,7 +2273,10 @@ fn capture_does_not_heal_building_to_full() {
         let captor = game_logic.host_object_mut(captor_id).expect("captor");
         captor.template_mut().is_trainable = true;
         captor.target = Some(building_id);
-        captor.set_ai_state(AIState::Capturing);
+        captor.set_ai_state(
+            AIState::Capturing,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
 
     // Same one-phase-per-tick channel progression as the XP test: the third
@@ -2297,7 +2336,10 @@ fn black_lotus_capture_uses_its_zero_reload_at_preparation_not_ranger_timer() {
             .host_object_mut(lotus_id)
             .expect("Black Lotus object");
         lotus.target = Some(building_id);
-        lotus.set_ai_state(AIState::Capturing);
+        lotus.set_ai_state(
+            AIState::Capturing,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
 
     game_logic.update_ai(&[lotus_id, building_id], 1.0 / 30.0);
@@ -2424,7 +2466,10 @@ fn infantry_capture_prep_stamps_raising_flag() {
     {
         let captor = game_logic.host_object_mut(captor_id).expect("captor");
         captor.target = Some(building_id);
-        captor.set_ai_state(AIState::Capturing);
+        captor.set_ai_state(
+            AIState::Capturing,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     // Tick 1 creates the Unpacking channel (UNPACKING pose, no dt consumed);
     // tick 2 drains the 3s unpack and reaches Preparing, where C++
@@ -2458,7 +2503,10 @@ fn infantry_capture_start_range_requires_approach_los() {
     if let Some(captor) = blocked.host_object_mut(captor_id) {
         captor.set_selection_radius(80.0);
         captor.target = Some(building_id);
-        captor.set_ai_state(AIState::Capturing);
+        captor.set_ai_state(
+            AIState::Capturing,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     if let Some(building) = blocked.host_object_mut(building_id) {
         building.set_selection_radius(80.0);
@@ -2485,7 +2533,10 @@ fn infantry_capture_start_range_requires_approach_los() {
     if let Some(captor) = clear.host_object_mut(captor_id) {
         captor.set_selection_radius(80.0);
         captor.target = Some(building_id);
-        captor.set_ai_state(AIState::Capturing);
+        captor.set_ai_state(
+            AIState::Capturing,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     if let Some(building) = clear.host_object_mut(building_id) {
         building.set_selection_radius(80.0);
@@ -2518,7 +2569,10 @@ fn capture_approach_keeps_capturing_and_requests_a_path() {
     if let Some(unit) = logic.host_object_mut(captor) {
         unit.set_selection_radius(5.0);
         unit.target = Some(building);
-        unit.set_ai_state(AIState::Capturing);
+        unit.set_ai_state(
+            AIState::Capturing,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     if let Some(unit) = logic.host_object_mut(building) {
         unit.set_selection_radius(5.0);
@@ -2593,7 +2647,10 @@ fn lotus_capture_prep_stamps_firing_a() {
     {
         let lotus = game_logic.host_object_mut(lotus_id).expect("lotus");
         lotus.target = Some(building_id);
-        lotus.set_ai_state(AIState::Capturing);
+        lotus.set_ai_state(
+            AIState::Capturing,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     game_logic.update_ai(&[lotus_id, building_id], 1.0 / 30.0);
     let bits = game_logic
@@ -2992,7 +3049,10 @@ fn capturing_structure_refunds_old_owner_queued_production() {
             .host_object_mut(captor_id)
             .expect("captor should exist");
         captor.target = Some(barracks_id);
-        captor.set_ai_state(AIState::Capturing);
+        captor.set_ai_state(
+            AIState::Capturing,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
 
     game_logic.update_ai(&[captor_id, barracks_id], 1.0 / 60.0);

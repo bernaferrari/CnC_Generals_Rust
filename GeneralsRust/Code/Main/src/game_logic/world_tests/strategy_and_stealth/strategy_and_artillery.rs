@@ -2188,7 +2188,11 @@ fn cash_bounty_zero_percent_does_not_award() {
         let (attacker, attack_events) = game_logic
             .host_object_and_attack_events_mut(attacker_id)
             .expect("attacker exists");
-        attacker.attack_target(target_id, attack_events);
+        attacker.attack_target(
+            target_id,
+            attack_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         attacker.weapon = Some(Weapon {
             damage: 9999.0,
             range: 200.0,
@@ -2349,7 +2353,11 @@ fn combat_fire_queues_authored_fire_sound_audio_event() {
         let (attacker, attack_events) = game_logic
             .host_object_and_attack_events_mut(attacker_id)
             .expect("attacker exists");
-        attacker.attack_target(target_id, attack_events);
+        attacker.attack_target(
+            target_id,
+            attack_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         attacker.weapon = Some(Weapon {
             damage: 1.0,
             range: 200.0,
@@ -2424,7 +2432,11 @@ fn combat_fire_without_authored_fire_sound_queues_no_audio_token() {
         let (attacker, attack_events) = game_logic
             .host_object_and_attack_events_mut(attacker_id)
             .expect("attacker exists");
-        attacker.attack_target(target_id, attack_events);
+        attacker.attack_target(
+            target_id,
+            attack_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         attacker.weapon = Some(Weapon {
             damage: 1.0,
             range: 200.0,
@@ -2466,7 +2478,11 @@ fn weapon_discharge_world_tick_combat_preserves_preadvance_barrel_and_freezes_on
         let (attacker, attack_events) = game_logic
             .host_object_and_attack_events_mut(attacker_id)
             .expect("attacker exists");
-        attacker.attack_target(target_id, attack_events);
+        attacker.attack_target(
+            target_id,
+            attack_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         attacker.weapon = Some(Weapon {
             damage: 1.0,
             range: 200.0,

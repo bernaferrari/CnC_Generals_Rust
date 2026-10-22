@@ -276,13 +276,20 @@ impl GameLogic {
                 // Non-mood fire residual: ensure flag stays clear.
                 attacker.turret_mood_target = false;
             }
-            attacker.note_attack_target(target_id, &mut self.attack_events);
+            attacker.note_attack_target(
+                target_id,
+                &mut self.attack_events,
+                &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+            );
             let entered_attack = !matches!(
                 attacker.ai_state,
                 AIState::Patrolling | AIState::AttackMoving | AIState::Attacking
             );
             if entered_attack {
-                attacker.set_ai_state(AIState::Attacking);
+                attacker.set_ai_state(
+                    AIState::Attacking,
+                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                );
             }
             {}
             // Turret already aligned by tick_turret_aim (no snap).
@@ -652,13 +659,20 @@ impl GameLogic {
             {}
             // Track engagement for UI / subsequent frames without requiring
             // a player AttackObject. Structures stay immobile (no chase).
-            attacker.note_attack_target(target_id, &mut self.attack_events);
+            attacker.note_attack_target(
+                target_id,
+                &mut self.attack_events,
+                &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+            );
             let entered_attack = !matches!(
                 attacker.ai_state,
                 AIState::Patrolling | AIState::AttackMoving | AIState::Attacking
             );
             if entered_attack {
-                attacker.set_ai_state(AIState::Attacking);
+                attacker.set_ai_state(
+                    AIState::Attacking,
+                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                );
             }
             {}
             if destroyed {
@@ -1119,13 +1133,20 @@ impl GameLogic {
                 }
                 // AI attack authority: residual fire-intent for GameWorld last-writer.
                 {}
-                asst.note_attack_target(clip.victim_id, &mut self.attack_events);
+                asst.note_attack_target(
+                    clip.victim_id,
+                    &mut self.attack_events,
+                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                );
                 let entered_attack = !matches!(
                     asst.ai_state,
                     AIState::Patrolling | AIState::AttackMoving | AIState::Attacking
                 );
                 if entered_attack {
-                    asst.set_ai_state(AIState::Attacking);
+                    asst.set_ai_state(
+                        AIState::Attacking,
+                        &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    );
                 }
                 {}
                 // Kill XP awarded after this borrow via award_experience.
@@ -1348,7 +1369,11 @@ impl GameLogic {
             }
             if disable {
                 if let Some(v) = self.objects.get_mut(&vid) {
-                    v.apply_disabled_emp(until, &mut self.health_events);
+                    v.apply_disabled_emp(
+                        until,
+                        &mut self.health_events,
+                        &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    );
                     any = true;
                     spark_ids.push(vid);
                     if intended_target == Some(vid) {
@@ -1378,7 +1403,13 @@ impl GameLogic {
                 });
                 if apply {
                     if let Some(v) = self.objects.get_mut(&victim_id) {
-                        v.apply_disabled_emp(until, &mut self.health_events);
+                        v.apply_disabled_emp(
+                            until,
+                            &mut self.health_events,
+                            &mut crate::game_logic::MovementAudio::queue(
+                                &mut self.queued_audio_events,
+                            ),
+                        );
                         any = true;
                     }
                     self.admit_host_radar_disabled_edges(victim_id);

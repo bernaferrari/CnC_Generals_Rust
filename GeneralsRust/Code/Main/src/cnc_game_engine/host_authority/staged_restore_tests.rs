@@ -858,7 +858,11 @@ fn embedded_saved_map_restores_original_ai_companions_without_replacing_geometry
                 let (object, mut writer) = source
                     .host_object_and_movement_events_mut(mover_id)
                     .unwrap();
-                object.set_destination(saved_destination, &mut writer);
+                object.set_destination(
+                    saved_destination,
+                    &mut writer,
+                    &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+                );
                 let _ = source.movement_events.drain_for_host_boundary();
                 let source_movement_session = source.movement_events.session().clone();
                 let source_movement_receipts = source.movement_events.snapshot_completed().to_vec();
@@ -997,7 +1001,11 @@ fn embedded_saved_map_restores_original_ai_companions_without_replacing_geometry
                         .logic
                         .host_object_and_movement_events_mut(mover_id)
                         .unwrap();
-                    object.set_destination(glam::Vec3::new(43.0, 0.0, 44.0), &mut writer);
+                    object.set_destination(
+                        glam::Vec3::new(43.0, 0.0, 44.0),
+                        &mut writer,
+                        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+                    );
                     let _ = staged.logic.movement_events.drain_for_host_boundary();
                     assert_eq!(staged.logic.movement_events.snapshot_completed().len(), 1);
                     assert_eq!(

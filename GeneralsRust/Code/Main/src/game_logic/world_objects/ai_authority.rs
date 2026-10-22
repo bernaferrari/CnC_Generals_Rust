@@ -104,7 +104,10 @@ impl GameLogic {
                 // C++ AIFaceState SUCCESS → AI_IDLE. Apply host-immediate so
                 // decision-authority log-only SetAIState cannot leave FACE stuck.
                 if let Some(u) = self.objects.get_mut(&object_id) {
-                    u.set_ai_state(AIState::Idle);
+                    u.set_ai_state(
+                        AIState::Idle,
+                        &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    );
                 }
                 {}
                 return None;
@@ -548,7 +551,9 @@ impl GameLogic {
         // Log under decision authority for GameWorld last-write parity.
         self.drop_jet_targeters_on_attack_exit(unit_id);
         if let Some(obj) = self.objects.get_mut(&unit_id) {
-            obj.stop_attack();
+            obj.stop_attack(&mut crate::game_logic::MovementAudio::queue(
+                &mut self.queued_audio_events,
+            ));
         }
         {}
     }
@@ -562,7 +567,9 @@ impl GameLogic {
         // call set_target(None) directly without this helper.
         self.remove_self_as_jet_targeter_from_current_victim(unit_id);
         if let Some(obj) = self.objects.get_mut(&unit_id) {
-            obj.clear_target();
+            obj.clear_target(&mut crate::game_logic::MovementAudio::queue(
+                &mut self.queued_audio_events,
+            ));
         }
         {}
     }
@@ -657,7 +664,11 @@ impl GameLogic {
         // AI state. Garrisoned units and transport passengers remain contained
         // while their weapon fires (GarrisonContain.cpp / TransportContain.cpp).
         if let Some(source) = self.objects.get_mut(&attacker_id) {
-            source.note_attack_target(target_id, &mut self.attack_events);
+            source.note_attack_target(
+                target_id,
+                &mut self.attack_events,
+                &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+            );
         }
 
         let mut destroyed = false;
@@ -703,7 +714,10 @@ impl GameLogic {
         // same-frame. Decision authority still logs for GameWorld last-write.
         let ordinal = crate::gameworld_shadow::GameWorldShadow::host_ai_state_ordinal(&state);
         if let Some(u) = self.objects.get_mut(&unit_id) {
-            u.set_ai_state(state);
+            u.set_ai_state(
+                state,
+                &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+            );
         }
         {}
     }
@@ -849,9 +863,16 @@ impl GameLogic {
             // stays in AI_ATTACK_MOVE_TO while the nested attack machine runs.
             // Combat already fires from both parent states, and this block
             // owns the Attacking transition for every other parent.
-            u.set_order_target(Some(target_id), &mut self.attack_events);
+            u.set_order_target(
+                Some(target_id),
+                &mut self.attack_events,
+                &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+            );
             if !matches!(u.ai_state, AIState::Patrolling | AIState::AttackMoving) {
-                u.set_ai_state(AIState::Attacking);
+                u.set_ai_state(
+                    AIState::Attacking,
+                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                );
             }
             u.set_status_attacking(true);
             if matches!(u.ai_state, AIState::AttackMoving) {
@@ -913,7 +934,11 @@ impl GameLogic {
         // Full host attack_target residual (weapon arming / force-attack clear).
         if let Some(obj) = self.objects.get_mut(&unit_id) {
             obj.set_force_attack(false);
-            obj.attack_target(target_id, &mut self.attack_events);
+            obj.attack_target(
+                target_id,
+                &mut self.attack_events,
+                &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+            );
         }
         {}
         true
@@ -1099,7 +1124,10 @@ mod hq_m6gcj_tests {
         let mut logic = GameLogic::new();
         let mut hunter = Object::new(ThingTemplate::new("Hunter"), ObjectId(1), Team::USA);
         hunter.hunting = true;
-        hunter.set_ai_state(AIState::Patrolling);
+        hunter.set_ai_state(
+            AIState::Patrolling,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         logic.add_object(hunter);
         logic
             .unit_ai_runtime_mut(ObjectId(1))
@@ -1133,7 +1161,10 @@ mod hq_m6gcj_tests {
         let mut logic = GameLogic::new();
         let mut worker = Object::new(ThingTemplate::new("Worker"), ObjectId(1), Team::USA);
         worker.hunting = true;
-        worker.set_ai_state(AIState::Patrolling);
+        worker.set_ai_state(
+            AIState::Patrolling,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         logic.objects.insert(worker.id, worker);
         logic
             .unit_ai_runtime_mut(ObjectId(1))
@@ -1170,7 +1201,10 @@ mod hq_m6gcj_tests {
         let mut hunter = Object::new(ThingTemplate::new("Hunter"), ObjectId(1), Team::USA);
         hunter.owner_player_id = Some(1);
         hunter.hunting = true;
-        hunter.set_ai_state(AIState::Patrolling);
+        hunter.set_ai_state(
+            AIState::Patrolling,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         logic.objects.insert(hunter.id, hunter);
         logic
             .unit_ai_runtime_mut(ObjectId(1))
@@ -1212,7 +1246,10 @@ mod hq_m6gcj_tests {
             ..Weapon::default()
         });
         jet.template_mut().primary_weapon_name = Some("RaptorMissileWeapon".to_string());
-        jet.set_ai_state(AIState::AttackMoving);
+        jet.set_ai_state(
+            AIState::AttackMoving,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         jet.is_attack_path = true;
         logic.objects.insert(jet.id, jet);
         let command = logic.process_ai_behavior(
@@ -1247,7 +1284,10 @@ mod hq_m6gcj_tests {
         let mut idle = Object::new(ThingTemplate::new("IdleScout"), ObjectId(1), Team::USA);
         idle.auto_acquire_idle_bits = 0;
         idle.auto_acquire_when_idle = false;
-        idle.set_ai_state(AIState::Idle);
+        idle.set_ai_state(
+            AIState::Idle,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         idle.weapon = Some(Weapon {
             range: 200.0,
             damage: 10.0,
@@ -1294,13 +1334,16 @@ mod hq_m6gcj_tests {
     fn attack_move_stop_attack_keeps_parent_and_dest() {
         let dest = Vec3::new(120.0, 0.0, 80.0);
         let mut unit = Object::new(ThingTemplate::new("Crusader"), ObjectId(1), Team::USA);
-        unit.set_ai_state(AIState::AttackMoving);
+        unit.set_ai_state(
+            AIState::AttackMoving,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         unit.is_attack_path = true;
         unit.requested_destination = Some(dest);
         unit.movement.target_position = Some(dest);
         unit.target = Some(ObjectId(2));
         unit.status.attacking = true;
-        unit.stop_attack();
+        unit.stop_attack(&mut crate::game_logic::MovementAudio::queue(&mut Vec::new()));
         assert_eq!(unit.ai_state, AIState::AttackMoving);
         assert!(unit.target.is_none());
         assert_eq!(unit.requested_destination, Some(dest));
@@ -1318,7 +1361,10 @@ mod hq_m6gcj_tests {
             damage: 10.0,
             ..Weapon::default()
         });
-        tank.set_ai_state(AIState::AttackMoving);
+        tank.set_ai_state(
+            AIState::AttackMoving,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         tank.is_attack_path = true;
         tank.requested_destination = Some(dest);
         tank.movement.target_position = Some(dest);
@@ -1372,7 +1418,10 @@ mod hq_m6gcj_tests {
         let mut unit = Object::new(tmpl, ObjectId(id), Team::USA);
         unit.owner_player_id = Some(1);
         unit.set_position(Vec3::ZERO);
-        unit.set_ai_state(AIState::AttackMoving);
+        unit.set_ai_state(
+            AIState::AttackMoving,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         unit.is_attack_path = true;
         unit.requested_destination = Some(dest);
         unit.attack_move_retry_count = 5;
@@ -1586,7 +1635,10 @@ mod hq_m6gcj_tests {
             ..Weapon::default()
         });
         hunter.hunting = true;
-        hunter.set_ai_state(AIState::Patrolling);
+        hunter.set_ai_state(
+            AIState::Patrolling,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         hunter.set_position(Vec3::ZERO);
 
         let mut dozer_t = ThingTemplate::new("Dozer");
@@ -1638,7 +1690,10 @@ mod hq_m6gcj_tests {
         let mut logic = GameLogic::new();
         let mut hunter = Object::new(ThingTemplate::new("Hunter"), ObjectId(1), Team::USA);
         hunter.hunting = true;
-        hunter.set_ai_state(AIState::Patrolling);
+        hunter.set_ai_state(
+            AIState::Patrolling,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         hunter.set_position(Vec3::ZERO);
         hunter.weapon = Some(Weapon {
             range: 50.0,
@@ -1682,7 +1737,10 @@ mod hq_m6gcj_tests {
         let mut logic = GameLogic::new();
         let mut due = Object::new(ThingTemplate::new("DueHunter"), ObjectId(1), Team::USA);
         due.hunting = true;
-        due.set_ai_state(AIState::Patrolling);
+        due.set_ai_state(
+            AIState::Patrolling,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         due.set_position(Vec3::ZERO);
         due.weapon = Some(Weapon {
             range: 50.0,
@@ -1692,7 +1750,10 @@ mod hq_m6gcj_tests {
         });
         let mut waiting = Object::new(ThingTemplate::new("WaitHunter"), ObjectId(2), Team::USA);
         waiting.hunting = true;
-        waiting.set_ai_state(AIState::Patrolling);
+        waiting.set_ai_state(
+            AIState::Patrolling,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         waiting.set_position(Vec3::new(5.0, 0.0, 0.0));
         waiting.weapon = Some(Weapon {
             range: 50.0,

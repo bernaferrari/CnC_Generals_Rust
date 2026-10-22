@@ -333,7 +333,11 @@ fn repair_complete_removes_scaffolding() {
     if let Some((d, attack_events)) = logic.host_object_and_attack_events_mut(dozer) {
         d.worker_ai_update = false;
         d.dozer_task_repair_target = Some(tower);
-        d.set_target(Some(tower), attack_events);
+        d.set_target(
+            Some(tower),
+            attack_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     logic.dozer_internal_task_complete(dozer, true);
     assert!(

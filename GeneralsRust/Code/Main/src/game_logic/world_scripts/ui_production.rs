@@ -1392,7 +1392,11 @@ impl GameLogic {
         }
         for (id, dest) in to_move {
             if let Some(obj) = self.objects.get_mut(&id) {
-                obj.set_destination(dest, &mut self.movement_events.writer(self.frame));
+                obj.set_destination(
+                    dest,
+                    &mut self.movement_events.writer(self.frame),
+                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                );
             }
         }
         // C++ placement commit ends the preview session and its bibs

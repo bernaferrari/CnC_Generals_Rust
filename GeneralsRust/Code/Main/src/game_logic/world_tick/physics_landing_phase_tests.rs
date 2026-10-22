@@ -229,9 +229,11 @@ fn stamp_clears_freefall_before_resting_request_and_rereads_effective_death_for_
     let (mut owner, id) = world();
     resting(&mut owner, id);
     let object = owner.objects.get_mut(&id).unwrap();
-    let ContactStep::Damage { request, .. } =
-        object.step_stamp_contact(StampContact::Start(0.), false)
-    else {
+    let ContactStep::Damage { request, .. } = object.step_stamp_contact(
+        StampContact::Start(0.),
+        false,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    ) else {
         panic!("resting kill must yield at actual Body boundary");
     };
     assert!(request.kill);

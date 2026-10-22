@@ -33,7 +33,10 @@ fn combat_chinook_residual_load_two_unload_both_free() {
                 ..Weapon::default()
             });
             unit.target = Some(chinook_id);
-            unit.set_ai_state(AIState::Entering);
+            unit.set_ai_state(
+                AIState::Entering,
+                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            );
         }
         game_logic.update_ai(&[unit_id, chinook_id], 1.0 / 30.0);
     }
@@ -157,7 +160,10 @@ fn combat_chinook_residual_passenger_fire_damages_nearby_enemy() {
         });
         unit.target = Some(chinook_id);
         unit.set_contained_by(Some(chinook_id));
-        unit.set_ai_state(AIState::Docked);
+        unit.set_ai_state(
+            AIState::Docked,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         unit.set_position(Vec3::new(0.0, 0.0, 0.0));
     }
     {
@@ -221,7 +227,10 @@ fn combat_chinook_residual_capacity_full_rejects_enter() {
         {
             let unit = game_logic.host_object_mut(id).unwrap();
             unit.target = Some(chinook_id);
-            unit.set_ai_state(AIState::Entering);
+            unit.set_ai_state(
+                AIState::Entering,
+                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            );
         }
         game_logic.update_ai(&[id, chinook_id], 1.0 / 30.0);
     }
@@ -281,7 +290,10 @@ fn combat_chinook_residual_allows_vehicle_enter() {
     {
         let unit = game_logic.host_object_mut(tank_id).unwrap();
         unit.target = Some(chinook_id);
-        unit.set_ai_state(AIState::Entering);
+        unit.set_ai_state(
+            AIState::Entering,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     game_logic.update_ai(&[tank_id, chinook_id], 1.0 / 30.0);
 
@@ -311,7 +323,10 @@ fn combat_chinook_vehicle_rider_does_not_arm_weapon_set() {
             ..Weapon::default()
         });
         unit.set_contained_by(Some(chinook_id));
-        unit.set_ai_state(AIState::Docked);
+        unit.set_ai_state(
+            AIState::Docked,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     {
         let chinook = game_logic.host_object_mut(chinook_id).unwrap();
@@ -490,7 +505,10 @@ fn listening_outpost_residual_detect_stealth_in_range() {
     // (StealthUpdate.cpp:390-392), not the AI moving flag.
     {
         let o = game_logic.host_object_mut(outpost_id).unwrap();
-        o.set_ai_state(AIState::Moving);
+        o.set_ai_state(
+            AIState::Moving,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         o.movement.velocity = Vec3::new(10.0, 0.0, 0.0);
         // Direct field writes bypass the C++ PhysicsBehavior velocity cache.
         o.invalidate_velocity_magnitude();
@@ -506,7 +524,10 @@ fn listening_outpost_residual_detect_stealth_in_range() {
     }
     {
         let o = game_logic.host_object_mut(outpost_id).unwrap();
-        o.set_ai_state(AIState::Idle);
+        o.set_ai_state(
+            AIState::Idle,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         o.movement.velocity = Vec3::ZERO;
         o.invalidate_velocity_magnitude();
         o.set_status_moving(false);

@@ -1021,10 +1021,10 @@ mod tests {
         let parent = world.ai_manager.ai_players[&1].team_queue.front().unwrap();
         let parent_id = parent.team_id.unwrap();
         let unit = parent.work_orders[0].observed_unit_ids[0];
-        world
-            .host_object_mut(unit)
-            .unwrap()
-            .set_ai_state(AIState::Moving);
+        world.host_object_mut(unit).unwrap().set_ai_state(
+            AIState::Moving,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         prototype(&mut world, "Leaf", "CurrentOwner", "LeafReceipt");
         let mut display = ScriptAction::new(ScriptActionType::DisplayText);
         display

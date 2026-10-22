@@ -995,9 +995,12 @@ impl UnitControlSystem {
         let command = self.create_stop_command();
 
         for &object_id in &self.selected_objects {
-            if let Some(obj) = logic./* Wave 950 */ host_object_mut(object_id) {
+            let _ = logic.host_object_mut(object_id);
+            if let Some(obj) = logic.objects.get_mut(&object_id) {
                 if obj.is_mobile() {
-                    obj.stop();
+                    obj.stop(&mut crate::game_logic::MovementAudio::queue(
+                        &mut logic.queued_audio_events,
+                    ));
                 }
             }
         }
@@ -1018,8 +1021,12 @@ impl UnitControlSystem {
         let mut logic = &mut *game_logic;
 
         for &object_id in &self.selected_objects {
-            if let Some(obj) = logic.host_object_mut(object_id) {
-                obj.set_guard_position(None);
+            let _ = logic.host_object_mut(object_id);
+            if let Some(obj) = logic.objects.get_mut(&object_id) {
+                obj.set_guard_position(
+                    None,
+                    &mut crate::game_logic::MovementAudio::queue(&mut logic.queued_audio_events),
+                );
             }
         }
 
@@ -1038,8 +1045,12 @@ impl UnitControlSystem {
         let mut logic = &mut *game_logic;
 
         for &object_id in &self.selected_objects {
-            if let Some(obj) = logic.host_object_mut(object_id) {
-                obj.set_guard_target(None);
+            let _ = logic.host_object_mut(object_id);
+            if let Some(obj) = logic.objects.get_mut(&object_id) {
+                obj.set_guard_target(
+                    None,
+                    &mut crate::game_logic::MovementAudio::queue(&mut logic.queued_audio_events),
+                );
             }
         }
 

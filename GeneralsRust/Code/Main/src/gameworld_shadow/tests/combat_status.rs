@@ -218,13 +218,21 @@ fn host_emp_status_log_drives_set_combat_status_channel() {
     let until = logic.get_frame().saturating_add(300);
     {
         let (o, health_events) = logic.host_object_and_health_events_mut(id).expect("o");
-        o.apply_disabled_emp(until, health_events);
+        o.apply_disabled_emp(
+            until,
+            health_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
 
     let until2 = logic.get_frame().saturating_add(300);
     {
         let (o, health_events) = logic.host_object_and_health_events_mut(id).expect("o");
-        o.apply_disabled_emp(until2, health_events);
+        o.apply_disabled_emp(
+            until2,
+            health_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
@@ -558,10 +566,10 @@ fn host_ai_state_is_canonical_and_shadow_only_observes() {
     let id = logic
         .create_object("AiU", Team::USA, glam::Vec3::new(1.0, 0.0, 1.0))
         .expect("id");
-    logic
-        .host_object_mut(id)
-        .expect("o")
-        .set_ai_state(AIState::GuardingObject);
+    logic.host_object_mut(id).expect("o").set_ai_state(
+        AIState::GuardingObject,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
     assert_eq!(
         logic.host_object(id).expect("o").ai_state,
         AIState::GuardingObject
@@ -580,10 +588,10 @@ fn host_ai_state_is_canonical_and_shadow_only_observes() {
         logic.host_object(id).expect("o").ai_state,
         AIState::GuardingObject
     );
-    logic
-        .host_object_mut(id)
-        .expect("o")
-        .set_ai_state(AIState::Idle);
+    logic.host_object_mut(id).expect("o").set_ai_state(
+        AIState::Idle,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
     assert_eq!(logic.host_object(id).expect("o").ai_state, AIState::Idle);
     shadow.sync_from_host(&logic);
     assert_eq!(shadow.world().entity(eid).expect("e").ai_state_ordinal, 0);

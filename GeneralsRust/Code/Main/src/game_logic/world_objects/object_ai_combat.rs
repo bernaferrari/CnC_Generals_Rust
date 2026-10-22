@@ -69,6 +69,9 @@ impl GameLogic {
                                             self.weapon_definitions
                                                 .as_ref()
                                                 .map(|_| &self.projectile_definitions),
+                                            &mut crate::game_logic::MovementAudio::queue(
+                                                &mut self.queued_audio_events,
+                                            ),
                                         );
                                         if let Some((slot, shot)) = prepared {
                                             let capture =
@@ -368,7 +371,12 @@ impl GameLogic {
                     if attacker.max_shots_to_fire == 0 {
                         attacker.target_location = None;
                         attacker.set_force_attack(false);
-                        attacker.set_ai_state(AIState::Idle);
+                        attacker.set_ai_state(
+                            AIState::Idle,
+                            &mut crate::game_logic::MovementAudio::queue(
+                                &mut self.queued_audio_events,
+                            ),
+                        );
                     }
                 }
                 if self
@@ -1376,7 +1384,11 @@ mod live_upgrade_mux_tests {
             "America CC grants radar"
         );
         if let Some((obj, health_events)) = logic.host_object_and_health_events_mut(cc) {
-            obj.apply_disabled_emp(100, health_events);
+            obj.apply_disabled_emp(
+                100,
+                health_events,
+                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            );
         }
         logic.update_player_radar();
         assert!(
@@ -1415,7 +1427,11 @@ mod live_upgrade_mux_tests {
             "Radar Van grants radar"
         );
         if let Some((obj, health_events)) = logic.host_object_and_health_events_mut(van) {
-            obj.apply_disabled_hacked(80, health_events);
+            obj.apply_disabled_hacked(
+                80,
+                health_events,
+                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            );
         }
         logic.update_player_radar();
         assert!(

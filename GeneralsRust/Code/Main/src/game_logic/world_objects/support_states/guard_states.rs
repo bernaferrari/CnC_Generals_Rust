@@ -397,7 +397,10 @@ impl GameLogic {
                 runtime.enter_guard_return(goal, deadline);
             }
             if let Some(o) = self.objects.get_mut(&object_id) {
-                o.set_ai_state(state);
+                o.set_ai_state(
+                    state,
+                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                );
             }
             return;
         }
@@ -416,7 +419,10 @@ impl GameLogic {
         }
         let installed = self.path_approach_with_state(object_id, goal, state.clone());
         if let Some(o) = self.objects.get_mut(&object_id) {
-            o.set_ai_state(state);
+            o.set_ai_state(
+                state,
+                &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+            );
             o.unit_ai_runtime.enter_guard_return(goal, deadline);
         }
         if installed {
@@ -683,7 +689,9 @@ impl GameLogic {
         self.apply_arrival_goal_snap(id, Some(goal));
         let deadline = self.guard_initial_scan_deadline(false);
         let unit = self.objects.get_mut(&id).unwrap();
-        unit.stop_moving();
+        unit.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+            &mut self.queued_audio_events,
+        ));
         unit.set_locomotor_goal_none();
         unit.ignored_obstacle_id = None;
         // The original idle anchor has no initialized constructor value.
@@ -729,7 +737,10 @@ impl GameLogic {
             let pos = self.objects.get(&target_id).map(|t| t.get_position());
             if let Some(o) = self.objects.get_mut(&object_id) {
                 o.target = Some(target_id);
-                o.set_ai_state(AIState::SpecialAbility);
+                o.set_ai_state(
+                    AIState::SpecialAbility,
+                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                );
             }
             self.queue_pending_special_ability_with_effects(
                 object_id,
@@ -748,8 +759,15 @@ impl GameLogic {
         } else if self.can_unit_enter_normal_target(object_id, target_id) {
             if let Some(o) = self.objects.get_mut(&object_id) {
                 o.target = Some(target_id);
-                o.set_order_target(Some(target_id), &mut self.attack_events);
-                o.set_ai_state(AIState::Entering);
+                o.set_order_target(
+                    Some(target_id),
+                    &mut self.attack_events,
+                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                );
+                o.set_ai_state(
+                    AIState::Entering,
+                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                );
                 // C++ AIEnterState::onEnter ignoreObstacle(goalObject).
                 o.ignored_obstacle_id = Some(target_id);
             }

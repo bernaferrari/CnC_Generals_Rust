@@ -81,7 +81,10 @@ End
     world.frame = 40;
     let airfield = world.host_object_mut(rack).unwrap();
     assert!(airfield.has_ai_update_interface());
-    airfield.set_ai_state(AIState::GuardingArea);
+    airfield.set_ai_state(
+        AIState::GuardingArea,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
     airfield.last_command_source =
         crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT;
     (world, rack)
@@ -291,11 +294,13 @@ fn authored_airfield_sell_does_not_treat_containment_links_as_parking_reservatio
     assert!(object.is_inactive_body());
     assert_eq!(object.health.maximum, 0.0);
     assert!(!object.is_alive());
-    assert!(world
-        .host_object(rack)
-        .unwrap()
-        .contained_units()
-        .is_empty());
+    assert!(
+        world
+            .host_object(rack)
+            .unwrap()
+            .contained_units()
+            .is_empty()
+    );
     assert!(world.start_sell_object(rack));
     assert_instant_die(&world, reserved);
     assert_eq!(queued(&world), vec![reserved]);

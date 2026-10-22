@@ -102,7 +102,9 @@ pub use host_mods_structures::host_sub_objects_upgrade;
 
 pub mod locomotor_bootstrap;
 pub mod mission_scripts;
+mod movement_audio;
 pub mod object;
+pub use movement_audio::MovementAudio;
 pub use object::{
     AttackSubState, DEFAULT_AERO_FRICTION_RESIDUAL, DEFAULT_FORWARD_FRICTION_RESIDUAL,
     DEFAULT_LATERAL_FRICTION_RESIDUAL, DEFAULT_Z_FRICTION_RESIDUAL, LocomotorAppearance,

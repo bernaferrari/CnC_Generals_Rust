@@ -377,7 +377,10 @@ impl GameLogic {
             if object.guard_target == Some(id) {
                 object.guard_target = None;
                 if object.ai_state == AIState::GuardingObject {
-                    object.set_ai_state(AIState::Idle);
+                    object.set_ai_state(
+                        AIState::Idle,
+                        &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    );
                     {}
                 }
             }

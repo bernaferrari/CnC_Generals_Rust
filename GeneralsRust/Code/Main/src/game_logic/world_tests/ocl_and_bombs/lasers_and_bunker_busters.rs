@@ -1115,7 +1115,11 @@ fn neutron_shell_residual_upgrade_and_blast() {
             .host_object_and_attack_events_mut(cannon_id)
             .expect("cannon");
         c.active_weapon_slot = 1;
-        c.attack_target(infantry_id, attack_events);
+        c.attack_target(
+            infantry_id,
+            attack_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         if let Some(w) = c.secondary_weapon.as_mut() {
             w.last_fire_time = -100.0;
             w.reload_time = 0.1;
@@ -1249,7 +1253,11 @@ fn neutron_shell_residual_primary_does_not_blast() {
         let (c, attack_events) = game_logic
             .host_object_and_attack_events_mut(cannon_id)
             .unwrap();
-        c.attack_target(infantry_id, attack_events);
+        c.attack_target(
+            infantry_id,
+            attack_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
 
     game_logic.set_current_frame(30);
@@ -1339,7 +1347,10 @@ fn bunker_buster_residual_kills_garrison_and_damages_bunker() {
     for id in [inf_a, inf_b] {
         let u = game_logic.host_object_mut(id).unwrap();
         u.set_contained_by(Some(bunker_id));
-        u.set_ai_state(AIState::Garrisoned);
+        u.set_ai_state(
+            AIState::Garrisoned,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         u.set_position(Vec3::new(150.0, 0.0, 0.0));
     }
 
@@ -1402,7 +1413,11 @@ fn bunker_buster_residual_kills_garrison_and_damages_bunker() {
         let (f, attack_events) = game_logic
             .host_object_and_attack_events_mut(fighter_id)
             .unwrap();
-        f.attack_target(bunker_id, attack_events);
+        f.attack_target(
+            bunker_id,
+            attack_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         if let Some(w) = f.weapon.as_mut() {
             w.last_fire_time = -20.0;
             w.reload_time = 0.05;
@@ -1527,13 +1542,20 @@ fn bunker_buster_residual_without_upgrade_does_not_bust() {
     {
         let u = game_logic.host_object_mut(inf_id).unwrap();
         u.set_contained_by(Some(bunker_id));
-        u.set_ai_state(AIState::Garrisoned);
+        u.set_ai_state(
+            AIState::Garrisoned,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     {
         let (f, attack_events) = game_logic
             .host_object_and_attack_events_mut(fighter_id)
             .unwrap();
-        f.attack_target(bunker_id, attack_events);
+        f.attack_target(
+            bunker_id,
+            attack_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         if let Some(w) = f.weapon.as_mut() {
             w.last_fire_time = -10.0;
             w.reload_time = 0.1;
@@ -1608,7 +1630,10 @@ fn kill_garrisoned_residual_microwave_clears_occupants() {
     for id in [inf_a, inf_b] {
         let u = game_logic.host_object_mut(id).unwrap();
         u.set_contained_by(Some(bunker_id));
-        u.set_ai_state(AIState::Garrisoned);
+        u.set_ai_state(
+            AIState::Garrisoned,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
 
     let bunker_hp_before = game_logic
@@ -1620,7 +1645,11 @@ fn kill_garrisoned_residual_microwave_clears_occupants() {
         let (m, attack_events) = game_logic
             .host_object_and_attack_events_mut(micro_id)
             .unwrap();
-        m.attack_target(bunker_id, attack_events);
+        m.attack_target(
+            bunker_id,
+            attack_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         if let Some(w) = m.weapon.as_mut() {
             w.last_fire_time = -10.0;
             w.reload_time = 0.1;
@@ -1695,7 +1724,10 @@ fn ordinary_weapon_leftover_damages_garrisoned_structure() {
     {
         let u = game_logic.host_object_mut(inf_a).unwrap();
         u.set_contained_by(Some(bunker_id));
-        u.set_ai_state(AIState::Garrisoned);
+        u.set_ai_state(
+            AIState::Garrisoned,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
 
     let bunker_hp_before = game_logic
@@ -1707,7 +1739,11 @@ fn ordinary_weapon_leftover_damages_garrisoned_structure() {
         let (r, attack_events) = game_logic
             .host_object_and_attack_events_mut(rifle_id)
             .unwrap();
-        r.attack_target(bunker_id, attack_events);
+        r.attack_target(
+            bunker_id,
+            attack_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         if let Some(w) = r.weapon.as_mut() {
             w.last_fire_time = -10.0;
             w.reload_time = 0.1;

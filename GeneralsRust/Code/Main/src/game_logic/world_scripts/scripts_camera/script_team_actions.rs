@@ -367,7 +367,10 @@ impl GameLogic {
             if !obj.is_alive() || obj.status.destroyed {
                 return;
             }
-            obj.apply_kill_pilot_unmanned(&mut self.health_events);
+            obj.apply_kill_pilot_unmanned(
+                &mut self.health_events,
+                &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+            );
             obj.deselect();
             obj.set_team(Team::Neutral, &mut self.ownership_events);
         }
@@ -1566,9 +1569,12 @@ impl GameLogic {
         let _ = self.apply_unit_locomotor_set(unit, "normal");
         let _ = self.unit_command_stop_moving_order_target(unit, Some(dest));
         if !self.unit_command_path_with_state_ignoring(unit, pos, AIState::Entering, Some(dest)) {
-            if let Some(obj) = self.host_object_mut(unit) {
+            if let Some((obj, audio_events)) = self.host_object_and_audio_events_mut(unit) {
                 obj.ignored_obstacle_id = Some(dest);
-                obj.set_ai_state(AIState::Entering);
+                obj.set_ai_state(
+                    AIState::Entering,
+                    &mut crate::game_logic::MovementAudio::queue(audio_events),
+                );
             }
         }
     }
@@ -1615,8 +1621,8 @@ impl GameLogic {
         leader_is_hacker: bool,
         player_id: Option<u32>,
     ) -> bool {
-        use crate::game_logic::host_deliver_payload::is_off_map_default_residual;
         use crate::game_logic::KindOf;
+        use crate::game_logic::host_deliver_payload::is_off_map_default_residual;
         if !building.is_alive() || building.status.destroyed {
             return false;
         }
@@ -1650,8 +1656,8 @@ impl GameLogic {
     }
 
     pub(super) fn host_script_team_garrison_nearest(&mut self, team: &str) {
-        use crate::game_logic::host_deliver_payload::is_off_map_default_residual;
         use crate::game_logic::KindOf;
+        use crate::game_logic::host_deliver_payload::is_off_map_default_residual;
         let members = self.host_script_garrison_team_member_ids(team);
         let Some(&leader_id) = members.first() else {
             return;
@@ -1718,8 +1724,8 @@ impl GameLogic {
     }
 
     pub(super) fn host_script_named_garrison_nearest(&mut self, unit: &str) {
-        use crate::game_logic::host_deliver_payload::is_off_map_default_residual;
         use crate::game_logic::KindOf;
+        use crate::game_logic::host_deliver_payload::is_off_map_default_residual;
         let Some(unit_id) = self.host_object_id_by_script_name(unit) else {
             return;
         };
@@ -2278,10 +2284,16 @@ impl GameLogic {
     pub(super) fn apply_owned_attack_team_member(&mut self, id: ObjectId, team_id: u32) {
         self.drop_jet_targeters_on_attack_exit(id);
         self.clear_unit_movement_path(id);
-        let object = self.host_object_mut(id).unwrap();
-        Self::clear_owned_named_ai_goal(object);
-        object.stop_moving();
-        object.set_ai_state(AIState::Idle);
+        let (object, audio_events) = self.host_object_and_audio_events_mut(id).unwrap();
+        Self::clear_owned_named_ai_goal(
+            object,
+            &mut crate::game_logic::MovementAudio::queue(audio_events),
+        );
+        object.stop_moving(&mut crate::game_logic::MovementAudio::queue(audio_events));
+        object.set_ai_state(
+            AIState::Idle,
+            &mut crate::game_logic::MovementAudio::queue(audio_events),
+        );
         let identity = format!("owned:{team_id}");
         let target = self.choose_attack_team_victim(id, &identity, false);
         if let Some(target) = target {
@@ -2493,11 +2505,13 @@ End
             assert!(logic.unit_can_move(air));
             assert!(logic.unit_can_move(foot));
             assert!(logic.host_object(air).unwrap().cur_locomotor_name.is_some());
-            assert!(logic
-                .host_object(foot)
-                .unwrap()
-                .cur_locomotor_name
-                .is_some());
+            assert!(
+                logic
+                    .host_object(foot)
+                    .unwrap()
+                    .cur_locomotor_name
+                    .is_some()
+            );
             assert!(
                 !crate::game_logic::PathfindingGrid::is_doing_ground_movement_full(
                     logic.host_object(air).unwrap()

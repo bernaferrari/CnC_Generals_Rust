@@ -58,7 +58,11 @@ fn colonel_burton_residual_sniper_and_knife() {
         let (b, attack_events) = game_logic
             .host_object_and_attack_events_mut(burton_id)
             .unwrap();
-        b.attack_target(enemy, attack_events);
+        b.attack_target(
+            enemy,
+            attack_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         if let Some(w) = b.weapon.as_mut() {
             w.last_fire_time = -10.0;
             w.reload_time = 0.1;
@@ -101,7 +105,11 @@ fn colonel_burton_residual_sniper_and_knife() {
             .host_object_and_attack_events_mut(burton_id)
             .unwrap();
         b.set_position(Vec3::new(0.0, 0.0, 0.0));
-        b.attack_target(melee, attack_events);
+        b.attack_target(
+            melee,
+            attack_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         if let Some(w) = b.weapon.as_mut() {
             w.last_fire_time = -10.0;
             w.reload_time = 0.1;
@@ -138,7 +146,11 @@ fn colonel_burton_residual_sniper_and_knife() {
         let (b, attack_events) = game_logic
             .host_object_and_attack_events_mut(burton_id)
             .unwrap();
-        b.attack_target(tank, attack_events);
+        b.attack_target(
+            tank,
+            attack_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         if let Some(w) = b.weapon.as_mut() {
             w.last_fire_time = -10.0;
             w.reload_time = 0.1;
@@ -405,7 +417,10 @@ fn rebel_booby_trap_plant_and_capture_detonate_residual() {
     game_logic.process_commands();
     if let Some(rebel) = game_logic.host_object_mut(rebel_id) {
         rebel.set_position(Vec3::new(1.0, 0.0, 0.0));
-        rebel.set_ai_state(AIState::SpecialAbility);
+        rebel.set_ai_state(
+            AIState::SpecialAbility,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         rebel.target = Some(building_id);
     }
     for _ in 0..3 {
@@ -534,7 +549,10 @@ fn booby_trap_detonates_enemy_and_refuses_replace() {
     game_logic.process_commands();
     if let Some(ally) = game_logic.host_object_mut(ally_id) {
         ally.set_position(Vec3::new(1.0, 0.0, 0.0));
-        ally.set_ai_state(AIState::SpecialAbility);
+        ally.set_ai_state(
+            AIState::SpecialAbility,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         ally.target = Some(building_id);
     }
     for _ in 0..4 {
@@ -580,7 +598,10 @@ fn booby_trap_detonates_enemy_and_refuses_replace() {
     game_logic.process_commands();
     if let Some(ally) = game_logic.host_object_mut(ally_id) {
         ally.set_position(Vec3::new(1.0, 0.0, 0.0));
-        ally.set_ai_state(AIState::SpecialAbility);
+        ally.set_ai_state(
+            AIState::SpecialAbility,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         ally.target = Some(building_id);
     }
     for _ in 0..4 {
@@ -611,7 +632,10 @@ fn booby_trap_detonates_enemy_and_refuses_replace() {
     game_logic.process_commands();
     if let Some(enemy) = game_logic.host_object_mut(enemy_id) {
         enemy.set_position(Vec3::new(1.0, 0.0, 0.0));
-        enemy.set_ai_state(AIState::SpecialAbility);
+        enemy.set_ai_state(
+            AIState::SpecialAbility,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         enemy.target = Some(building_id);
     }
     for _ in 0..4 {

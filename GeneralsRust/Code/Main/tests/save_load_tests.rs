@@ -824,7 +824,11 @@ mod integration_tests {
                 projectile_speed: 0.0,
                 ..Weapon::default()
             });
-            attacker.attack_target(target, &mut _attack_output);
+            attacker.attack_target(
+                target,
+                &mut _attack_output,
+                &mut generals_main::game_logic::MovementAudio::queue(&mut Vec::new()),
+            );
         }
 
         let (mut loaded, _) = save_and_load("active_combat", &game_logic);

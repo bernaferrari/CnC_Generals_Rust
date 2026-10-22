@@ -804,6 +804,7 @@ impl GameLogic {
                     Some(anchor),
                     None,
                     &mut self.attack_events,
+                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
                 );
                 n += 1;
             }
@@ -898,6 +899,7 @@ impl GameLogic {
                         false,
                         None,
                         &mut self.movement_events.writer(self.frame),
+                        &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
                     );
                 }
                 // C++ AIGuardRetaliate Inner/Aggressor onExit:
@@ -980,7 +982,12 @@ impl GameLogic {
                 }
             }
             if let Some(o) = self.objects.get_mut(&id) {
-                o.tick_guard_retaliate(alive, vpos, &mut self.movement_events.writer(self.frame));
+                o.tick_guard_retaliate(
+                    alive,
+                    vpos,
+                    &mut self.movement_events.writer(self.frame),
+                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                );
             }
         }
     }
@@ -1568,9 +1575,12 @@ impl GameLogic {
                 AIState::Entering,
                 Some(target_id),
             ) {
-                if let Some(obj) = self.host_object_mut(id) {
+                if let Some((obj, audio_events)) = self.host_object_and_audio_events_mut(id) {
                     obj.ignored_obstacle_id = Some(target_id);
-                    obj.set_ai_state(AIState::Entering);
+                    obj.set_ai_state(
+                        AIState::Entering,
+                        &mut crate::game_logic::MovementAudio::queue(audio_events),
+                    );
                 }
             }
         }
@@ -1623,9 +1633,12 @@ impl GameLogic {
                 AIState::Entering,
                 Some(trans),
             ) {
-                if let Some(obj) = self.host_object_mut(unit) {
+                if let Some((obj, audio_events)) = self.host_object_and_audio_events_mut(unit) {
                     obj.ignored_obstacle_id = Some(trans);
-                    obj.set_ai_state(AIState::Entering);
+                    obj.set_ai_state(
+                        AIState::Entering,
+                        &mut crate::game_logic::MovementAudio::queue(audio_events),
+                    );
                 }
             }
         }
@@ -1971,7 +1984,10 @@ impl GameLogic {
                 u.requested_victim_id = Some(crate_id);
                 u.set_status_moving(true);
                 if keep_parent_state && u.ai_state != parent_state {
-                    u.set_ai_state(parent_state);
+                    u.set_ai_state(
+                        parent_state,
+                        &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    );
                 }
             }
         } else if let Some(u) = self.objects.get_mut(&unit_id) {
@@ -2094,7 +2110,10 @@ mod tests {
             obj.movement.target_position = None;
             obj.requested_destination = None;
             obj.status.moving = false;
-            obj.set_ai_state(AIState::Idle);
+            obj.set_ai_state(
+                AIState::Idle,
+                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            );
         }
         logic.test_tick_host_wander_in_place();
         let next = logic
@@ -2250,7 +2269,10 @@ mod tests {
             .test_wander_in_place_hop(id)
             .expect("wander session started");
         if let Some(obj) = logic.host_object_mut(id) {
-            obj.set_ai_state(AIState::Moving);
+            obj.set_ai_state(
+                AIState::Moving,
+                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            );
             obj.status.moving = true;
             obj.movement.target_position = Some(hop);
             obj.requested_destination = Some(hop);
@@ -2291,7 +2313,10 @@ mod tests {
         logic.test_host_wander_issue_path(id, &[goal]);
         assert!(logic.test_wander_path_active(id));
         if let Some(obj) = logic.host_object_mut(id) {
-            obj.set_ai_state(AIState::Moving);
+            obj.set_ai_state(
+                AIState::Moving,
+                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            );
             obj.status.moving = true;
         }
         spawn_flagged_repulsor(
@@ -2688,7 +2713,13 @@ mod tests {
         if let Some(o) = logic.objects.get_mut(&id) {
             o.owner_player_id = Some(1);
             o.team_instance_name = "USA_RetaliateSquad".into();
-            o.begin_guard_retaliate(dead, Some(glam::Vec3::ZERO), None, &mut logic.attack_events);
+            o.begin_guard_retaliate(
+                dead,
+                Some(glam::Vec3::ZERO),
+                None,
+                &mut logic.attack_events,
+                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            );
         }
         w25_spawn_fighter(
             &mut logic,

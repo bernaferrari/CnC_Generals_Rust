@@ -15,6 +15,7 @@ impl Object {
         logic_frame: u32,
         combat: &mut super::combat::CombatSystem,
         attack_events: &mut crate::game_logic::host_attack_log::AttackEvents,
+        audio: &mut crate::game_logic::MovementAudio<'_>,
     ) -> bool {
         self.fire_at_ex(
             target_id,
@@ -24,6 +25,7 @@ impl Object {
             logic_frame,
             combat,
             attack_events,
+            audio,
         )
     }
 
@@ -38,6 +40,7 @@ impl Object {
         logic_frame: u32,
         combat: &mut super::combat::CombatSystem,
         attack_events: &mut crate::game_logic::host_attack_log::AttackEvents,
+        audio: &mut crate::game_logic::MovementAudio<'_>,
     ) -> bool {
         let Some(slot) = self.fire_at_ex_defer_weapon_barrel_advance(
             target_id,
@@ -47,6 +50,7 @@ impl Object {
             logic_frame,
             combat,
             attack_events,
+            audio,
         ) else {
             return false;
         };
@@ -74,6 +78,7 @@ impl Object {
         logic_frame: u32,
         combat: &mut super::combat::CombatSystem,
         attack_events: &mut crate::game_logic::host_attack_log::AttackEvents,
+        audio: &mut crate::game_logic::MovementAudio<'_>,
     ) -> Option<u8> {
         let (slot, pending) = self.prepare_weapon_shot(
             WeaponShotRoute::Autonomous,
@@ -85,6 +90,7 @@ impl Object {
             &mut combat.fire_sound_loop_events,
             attack_events,
             None,
+            audio,
         )?;
         super::combat::queue_projectile(combat, pending);
         Some(slot)
@@ -105,6 +111,7 @@ impl Object {
         sound_events: &mut crate::game_logic::host_fire_sound_loop_log::FireSoundLoopEvents,
         attack_events: &mut crate::game_logic::host_attack_log::AttackEvents,
         content: Option<&crate::game_logic::projectile_definitions::ProjectileDefinitions>,
+        audio: &mut crate::game_logic::MovementAudio<'_>,
     ) -> Option<(u8, super::combat::PendingProjectile)> {
         self.prepare_weapon_shot(
             WeaponShotRoute::Passive {
@@ -119,6 +126,7 @@ impl Object {
             sound_events,
             attack_events,
             content,
+            audio,
         )
     }
 
@@ -132,6 +140,7 @@ impl Object {
         sound: &mut crate::game_logic::host_fire_sound_loop_log::FireSoundLoopEvents,
         attacks: &mut crate::game_logic::host_attack_log::AttackEvents,
         content: Option<&crate::game_logic::projectile_definitions::ProjectileDefinitions>,
+        audio: &mut crate::game_logic::MovementAudio<'_>,
     ) -> Option<(u8, super::combat::PendingProjectile)> {
         self.prepare_weapon_shot(
             WeaponShotRoute::Autonomous,
@@ -143,6 +152,7 @@ impl Object {
             sound,
             attacks,
             content,
+            audio,
         )
     }
 
@@ -184,6 +194,7 @@ impl Object {
         sound_events: &mut crate::game_logic::host_fire_sound_loop_log::FireSoundLoopEvents,
         attack_events: &mut crate::game_logic::host_attack_log::AttackEvents,
         content: Option<&crate::game_logic::projectile_definitions::ProjectileDefinitions>,
+        audio: &mut crate::game_logic::MovementAudio<'_>,
     ) -> Option<(u8, super::combat::PendingProjectile)> {
         let autonomous = matches!(route, WeaponShotRoute::Autonomous);
         // C++ Weapon::getMaxShotCount residual — AI burst / scatter limits.
@@ -345,13 +356,13 @@ impl Object {
                 self.activate_leech_range_for_slot(slot);
             }
             if current_time + 1e-6 < self.pre_attack_ready_at {
-                self.note_attack_target(target_id, attack_events);
+                self.note_attack_target(target_id, attack_events, audio);
                 let entered_attack = !matches!(
                     self.ai_state,
                     AIState::Patrolling | AIState::AttackMoving | AIState::Attacking
                 );
                 if autonomous && entered_attack {
-                    self.set_ai_state(AIState::Attacking);
+                    self.set_ai_state(AIState::Attacking, audio);
                 }
                 {}
                 return None;
@@ -361,13 +372,13 @@ impl Object {
             self.pre_attack_target = Some(target_id);
         }
 
-        self.note_attack_target(target_id, attack_events);
+        self.note_attack_target(target_id, attack_events, audio);
         let entered_attack = !matches!(
             self.ai_state,
             AIState::Patrolling | AIState::AttackMoving | AIState::Attacking
         );
         if autonomous && entered_attack {
-            self.set_ai_state(AIState::Attacking);
+            self.set_ai_state(AIState::Attacking, audio);
         }
         {}
 
@@ -825,25 +836,20 @@ impl Object {
         &mut self,
         position: Vec3,
         movement_events: &mut crate::game_logic::movement_events::MovementEventWriter<'_>,
+        audio: &mut crate::game_logic::MovementAudio<'_>,
     ) {
         if self.is_mobile() && self.is_alive() {
             self.movement_goal_object = None;
             self.movement.target_position = Some(position);
-            self.set_ai_state(AIState::Moving);
+            self.set_ai_state(AIState::Moving, audio);
             self.set_status_moving(true);
             movement_events.record(self.id, Some([position.x, position.y, position.z]));
         }
     }
     /// Drop a `setTemporaryState` move without `onExit` of the underlying state.
-    pub fn end_temporary_move_overlay(&mut self) {
+    pub fn end_temporary_move_overlay(&mut self, audio: &mut crate::game_logic::MovementAudio<'_>) {
         self.temporary_move_frames = 0;
-        if let Some(name) = self.move_loop_audio.take() {
-            crate::game_logic::host_move_ambient_audio::record_move_loop_stop(
-                self.id,
-                name,
-                self.get_position(),
-            );
-        }
+        audio.stop_loop(self);
         self.movement.velocity = glam::Vec3::ZERO;
         self.movement.path.clear();
         self.movement.current_path_index = 0;
@@ -865,17 +871,11 @@ impl Object {
         self.movement_goal_object = goal;
     }
 
-    pub fn stop_moving(&mut self) {
+    pub fn stop_moving(&mut self, audio: &mut crate::game_logic::MovementAudio<'_>) {
         self.movement_goal_object = None;
         let overlay = self.temporary_move_frames > 0;
-        self.end_temporary_move_overlay();
-        if let Some(name) = self.move_loop_audio.take() {
-            crate::game_logic::host_move_ambient_audio::record_move_loop_stop(
-                self.id,
-                name,
-                self.get_position(),
-            );
-        }
+        self.end_temporary_move_overlay(audio);
+        audio.stop_loop(self);
         self.movement.target_position = None;
         self.temporary_move_frames = 0;
         self.movement.velocity = Vec3::ZERO;
@@ -901,7 +901,7 @@ impl Object {
         // set a destination while remaining in-state; clobbering them to Idle
         // aborted capture/repair on arrival before support-state resolution.
         if !overlay && matches!(self.ai_state, AIState::Moving | AIState::AttackMoving) {
-            self.set_ai_state(AIState::Idle);
+            self.set_ai_state(AIState::Idle, audio);
         }
     }
 
@@ -909,6 +909,7 @@ impl Object {
         &mut self,
         target_id: ObjectId,
         attack_events: &mut crate::game_logic::host_attack_log::AttackEvents,
+        audio: &mut crate::game_logic::MovementAudio<'_>,
     ) {
         if !self.is_alive() {
             return;
@@ -918,7 +919,7 @@ impl Object {
             return;
         }
         // Jet takeoff residual: leave hangar before engaging.
-        let _ = self.takeoff_from_airfield_parking();
+        let _ = self.takeoff_from_airfield_parking(audio);
         if self.can_attack() {
             if self.pre_attack_target != Some(target_id) {
                 // New target — fire_at will start PRE_ATTACK clock.
@@ -929,7 +930,7 @@ impl Object {
             self.target = Some(target_id);
             self.target_location = None;
             self.set_status_force_attack(false);
-            self.set_ai_state(AIState::Attacking);
+            self.set_ai_state(AIState::Attacking, audio);
             self.status.attacking = true;
             attack_events.record(self.id, target_id);
         }
@@ -1027,7 +1028,7 @@ impl Object {
         self.leech_range_active_secondary = false;
     }
 
-    pub fn stop_attack(&mut self) {
+    pub fn stop_attack(&mut self, audio: &mut crate::game_logic::MovementAudio<'_>) {
         // C++ WeaponSet::releaseWeaponLock: any non-special player order and
         // an exited attack state release a temporary special-weapon lock.
         // Permanent user locks remain intact.
@@ -1054,11 +1055,11 @@ impl Object {
         let stay_hunt = matches!(self.ai_state, AIState::Patrolling);
         let stay_attack_move = matches!(self.ai_state, AIState::AttackMoving);
         if self.guard_target.is_some() {
-            self.set_ai_state(AIState::GuardingObject);
+            self.set_ai_state(AIState::GuardingObject, audio);
         } else if self.guard_position.is_some() {
-            self.set_ai_state(AIState::GuardingArea);
+            self.set_ai_state(AIState::GuardingArea, audio);
         } else if stay_hunt {
-            self.set_ai_state(AIState::Patrolling);
+            self.set_ai_state(AIState::Patrolling, audio);
         } else if stay_attack_move {
             // Nested attack just went idle. The next getNextMoodTarget must
             // not wait out the check rate (forceRetargetThisFrame).
@@ -1073,7 +1074,7 @@ impl Object {
                 self.set_status_moving(true);
             }
         } else {
-            self.set_ai_state(AIState::Idle);
+            self.set_ai_state(AIState::Idle, audio);
         }
     }
 
@@ -1242,7 +1243,14 @@ mod tests {
         // authoritative and must retain tertiary identity while firing.
         attacker.set_active_weapon_slot(0);
 
-        assert!(attacker.fire_at(ObjectId(2), 1.0, 0, &mut shot_combat, &mut _attack_output,));
+        assert!(attacker.fire_at(
+            ObjectId(2),
+            1.0,
+            0,
+            &mut shot_combat,
+            &mut _attack_output,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
+        ));
         assert_eq!(attacker.last_fire_slot, 2);
         assert!((attacker.last_fire_damage - 37.0).abs() < f32::EPSILON);
         assert_eq!(
@@ -1275,7 +1283,14 @@ mod tests {
         unit.apply_grant_stealth();
         unit.stealth_breaks_on_attack = true;
         unit.stealth_delay_frames = 30;
-        assert!(unit.fire_at(ObjectId(2), 1.0, 0, &mut shot_combat, &mut _attack_output,));
+        assert!(unit.fire_at(
+            ObjectId(2),
+            1.0,
+            0,
+            &mut shot_combat,
+            &mut _attack_output,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
+        ));
         assert!(!unit.status.stealthed);
         assert!(
             unit.innate_stealth,
@@ -1306,12 +1321,33 @@ mod tests {
             ..Weapon::default()
         });
         unit.status.under_construction = true;
-        assert!(!unit.fire_at(ObjectId(2), 1.0, 0, &mut shot_combat, &mut _attack_output,));
+        assert!(!unit.fire_at(
+            ObjectId(2),
+            1.0,
+            0,
+            &mut shot_combat,
+            &mut _attack_output,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
+        ));
         unit.status.under_construction = false;
         unit.status.sold = true;
-        assert!(!unit.fire_at(ObjectId(2), 1.0, 0, &mut shot_combat, &mut _attack_output,));
+        assert!(!unit.fire_at(
+            ObjectId(2),
+            1.0,
+            0,
+            &mut shot_combat,
+            &mut _attack_output,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
+        ));
         unit.status.sold = false;
-        assert!(unit.fire_at(ObjectId(2), 1.0, 0, &mut shot_combat, &mut _attack_output,));
+        assert!(unit.fire_at(
+            ObjectId(2),
+            1.0,
+            0,
+            &mut shot_combat,
+            &mut _attack_output,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
+        ));
     }
 }
 

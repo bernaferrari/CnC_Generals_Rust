@@ -96,8 +96,12 @@ pub fn simulate_live_command_cheer_science_log_honesty() -> bool {
         return false;
     };
 
-    let cheer_ok = if let Some(unit) = logic.host_object_mut(uid) {
-        unit.begin_cheer(3.0, Some(0));
+    let cheer_ok = if let Some((unit, audio_events)) = logic.host_object_and_audio_events_mut(uid) {
+        unit.begin_cheer(
+            3.0,
+            Some(0),
+            &mut crate::game_logic::MovementAudio::queue(audio_events),
+        );
         (unit.cheer_timer - 3.0).abs() < 1e-5 && unit.model_condition_bits & 1 != 0
     } else {
         false

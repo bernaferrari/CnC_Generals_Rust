@@ -702,10 +702,14 @@ impl AIPlayer {
             }
             if game_logic.assign_unit_path(obj_id, other_pos, &[]) {
                 game_logic.set_ai_state_decision_aware_for_ai(obj_id, AIState::Moving);
-            } else if let Some((unit, mut movement_events)) =
-                game_logic.host_object_and_movement_events_mut(obj_id)
-            {
-                unit.move_to(other_pos, &mut movement_events);
+            } else if let Some(unit) = game_logic.objects.get_mut(&obj_id) {
+                unit.move_to(
+                    other_pos,
+                    &mut game_logic.movement_events.writer(game_logic.frame),
+                    &mut crate::game_logic::MovementAudio::queue(
+                        &mut game_logic.queued_audio_events,
+                    ),
+                );
                 game_logic.set_ai_state_decision_aware_for_ai(obj_id, AIState::Moving);
             }
             return;
@@ -1847,8 +1851,14 @@ impl AIPlayer {
             order.num_completed = 1;
             order.observed_unit_ids.push(unit_id);
             self.assign_host_unit_to_leftover_team(game_logic, unit_id, Some(inst_id), &team_name);
-            if let Some(obj) = game_logic.host_object_mut(unit_id) {
-                obj.set_ai_state(AIState::Idle);
+            let _ = game_logic.host_object_mut(unit_id);
+            if let Some(obj) = game_logic.objects.get_mut(&unit_id) {
+                obj.set_ai_state(
+                    AIState::Idle,
+                    &mut crate::game_logic::MovementAudio::queue(
+                        &mut game_logic.queued_audio_events,
+                    ),
+                );
             }
         }
         let mut q = AITeamQueue::new(
@@ -2225,8 +2235,16 @@ impl AIPlayer {
             self.assign_host_unit_to_leftover_team(game_logic, unit_id, dest_id, &dest_name);
             if has_home {
                 let _ = game_logic.unit_command_move_to(unit_id, home);
-            } else if let Some(obj) = game_logic.host_object_mut(unit_id) {
-                obj.set_ai_state(AIState::Idle);
+            } else {
+                let _ = game_logic.host_object_mut(unit_id);
+                if let Some(obj) = game_logic.objects.get_mut(&unit_id) {
+                    obj.set_ai_state(
+                        AIState::Idle,
+                        &mut crate::game_logic::MovementAudio::queue(
+                            &mut game_logic.queued_audio_events,
+                        ),
+                    );
+                }
             }
         }
     }

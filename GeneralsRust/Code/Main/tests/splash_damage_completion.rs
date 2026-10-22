@@ -195,11 +195,11 @@ End
     // AttackObject commands enter the separately scoped queued-damage runtime.
     // Public set_target drives the ordinary host-combat path being repaired.
     let mut attack_output = generals_main::game_logic::host_attack_log::AttackEvents::default();
-    world
-        .objects
-        .get_mut(&shooter)
-        .unwrap()
-        .set_target(Some(anchor), &mut attack_output);
+    world.objects.get_mut(&shooter).unwrap().set_target(
+        Some(anchor),
+        &mut attack_output,
+        &mut generals_main::game_logic::MovementAudio::queue(&mut world.queued_audio_events),
+    );
     world.update();
     assert_eq!(world.get_current_frame(), 101);
     let source = &world.objects[&shooter];

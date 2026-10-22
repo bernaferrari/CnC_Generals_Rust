@@ -115,7 +115,10 @@ fn object_status_bits_survive_snapshot_restore() {
     {
         let object = source.host_object_mut(object_id).expect("created object");
         object.set_status_unselectable(true);
-        object.set_deployed(true);
+        object.set_deployed(
+            true,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         object.set_script_disabled(true);
         object.set_script_underpowered(true);
         object.set_script_unsellable(true);

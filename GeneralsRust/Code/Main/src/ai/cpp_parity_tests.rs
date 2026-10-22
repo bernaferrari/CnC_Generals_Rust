@@ -793,7 +793,10 @@ fn collector_returns_to_assigned_supply_center_over_nearer_center() {
         let collector = logic.host_object_mut(collector_id).expect("collector live");
         collector.preferred_dock_id = Some(assigned_center);
         collector.set_stored_supplies(100);
-        collector.set_ai_state(crate::game_logic::AIState::ReturningResources);
+        collector.set_ai_state(
+            crate::game_logic::AIState::ReturningResources,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
 
     logic.update_with_dt(1.0 / LOGIC_FRAMES_PER_SECOND);
@@ -923,8 +926,15 @@ fn active_loose_collector_rejoins_one_supply_center_before_paid_replacement() {
             .host_object_and_attack_events_mut(loose_collector)
             .expect("surviving collector live");
         collector.preferred_dock_id = Some(missing_former_dock);
-        collector.set_order_target(Some(source_id), attack_events);
-        collector.set_ai_state(crate::game_logic::AIState::Gathering);
+        collector.set_order_target(
+            Some(source_id),
+            attack_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
+        collector.set_ai_state(
+            crate::game_logic::AIState::Gathering,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
 
     let cash_before = logic.get_player(1).expect("AI player").effective_supplies();
@@ -1446,7 +1456,10 @@ fn queue_units_recruits_existing_idle_units() {
         .expect("idle ranger");
     if let Some(obj) = logic.host_object_mut(existing) {
         obj.owner_player_id = Some(1);
-        obj.set_ai_state(crate::game_logic::AIState::Idle);
+        obj.set_ai_state(
+            crate::game_logic::AIState::Idle,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
 
     let mut ai = ai_for_world(&logic, 1, Team::USA, AIDifficulty::Medium);
@@ -1509,7 +1522,10 @@ fn queue_units_skips_disabled_held_units() {
     if let Some(obj) = logic.host_object_mut(existing) {
         obj.owner_player_id = Some(1);
         obj.status.disabled_held = true;
-        obj.set_ai_state(crate::game_logic::AIState::Idle);
+        obj.set_ai_state(
+            crate::game_logic::AIState::Idle,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
 
     let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
@@ -1550,7 +1566,10 @@ fn try_to_recruit_takes_structures_and_contained() {
         .expect("pad");
     if let Some(obj) = logic.host_object_mut(pad) {
         obj.owner_player_id = Some(1);
-        obj.set_ai_state(crate::game_logic::AIState::Idle);
+        obj.set_ai_state(
+            crate::game_logic::AIState::Idle,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
     let order = AIWorkOrder::new("AmericaWarFactory".into(), 1, 100);
@@ -1578,7 +1597,10 @@ fn try_to_recruit_takes_structures_and_contained() {
     if let Some(obj) = logic.host_object_mut(garrisoned) {
         obj.owner_player_id = Some(1);
         obj.contained_by = Some(crate::game_logic::ObjectId(99));
-        obj.set_ai_state(crate::game_logic::AIState::Idle);
+        obj.set_ai_state(
+            crate::game_logic::AIState::Idle,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
     let order = AIWorkOrder::new("AmericaInfantryRanger".into(), 1, 100);
@@ -1616,7 +1638,10 @@ fn w21_ranger_logic() -> (crate::game_logic::GameLogic, crate::game_logic::Objec
         .expect("ranger");
     if let Some(obj) = logic.host_object_mut(existing) {
         obj.owner_player_id = Some(1);
-        obj.set_ai_state(crate::game_logic::AIState::Idle);
+        obj.set_ai_state(
+            crate::game_logic::AIState::Idle,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     (logic, existing)
 }
@@ -1756,7 +1781,10 @@ fn try_to_recruit_ranks_leftover_xy_not_host_3d() {
         .expect("leftover-XY nearer ranger");
     if let Some(obj) = logic.host_object_mut(closer_xy) {
         obj.owner_player_id = Some(1);
-        obj.set_ai_state(crate::game_logic::AIState::Idle);
+        obj.set_ai_state(
+            crate::game_logic::AIState::Idle,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     let farther_xy = logic
         .create_object(
@@ -1767,7 +1795,10 @@ fn try_to_recruit_ranks_leftover_xy_not_host_3d() {
         .expect("leftover-XY farther ranger");
     if let Some(obj) = logic.host_object_mut(farther_xy) {
         obj.owner_player_id = Some(1);
-        obj.set_ai_state(crate::game_logic::AIState::Idle);
+        obj.set_ai_state(
+            crate::game_logic::AIState::Idle,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
 
     let mut ai = ai_for_world(&logic, 1, Team::USA, AIDifficulty::Medium);
@@ -1857,7 +1888,10 @@ fn check_ready_teams_execute_actions_requires_production_condition_action() {
         )
         .expect("busy");
     if let Some(o) = logic.host_object_mut(busy) {
-        o.set_ai_state(crate::game_logic::AIState::Moving);
+        o.set_ai_state(
+            crate::game_logic::AIState::Moving,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     let mut order = AIWorkOrder::new("AmericaInfantryRanger".into(), 2, 100);
     order.num_completed = 2;
@@ -1901,7 +1935,10 @@ fn check_ready_teams_reinforcement_idles_only_reinforcement_unit() {
         )
         .expect("fielded");
     if let Some(o) = logic.host_object_mut(fielded) {
-        o.set_ai_state(crate::game_logic::AIState::Moving);
+        o.set_ai_state(
+            crate::game_logic::AIState::Moving,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     let mut order = AIWorkOrder::new("AmericaInfantryRanger".into(), 2, 100);
     order.num_completed = 2;

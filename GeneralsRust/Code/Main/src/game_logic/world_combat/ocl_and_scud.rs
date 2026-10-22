@@ -2984,7 +2984,10 @@ End
         {
             let o = logic.host_object_mut(tank).unwrap();
             o.install_overlord_gattling_addon();
-            o.set_ai_state(AIState::Idle);
+            o.set_ai_state(
+                AIState::Idle,
+                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            );
             o.target = None;
             if let Some(w) = o.weapon_slot_mut(1) {
                 w.last_fire_time = -10.0;

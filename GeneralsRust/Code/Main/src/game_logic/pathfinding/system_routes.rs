@@ -1508,12 +1508,13 @@ impl PathfindingSystem {
         object_id: ObjectId,
         objects: &mut HashMap<ObjectId, Object>,
         dt: f32,
+        audio: &mut crate::game_logic::MovementAudio<'_>,
     ) -> bool {
         if let Some(unit) = objects.get_mut(&object_id) {
             if unit.movement.path.is_empty()
                 || unit.movement.current_path_index >= unit.movement.path.len()
             {
-                unit.stop_moving();
+                unit.stop_moving(audio);
                 return false;
             }
 
@@ -1526,7 +1527,7 @@ impl PathfindingSystem {
                 unit.movement.current_path_index += 1;
                 if unit.movement.current_path_index >= unit.movement.path.len() {
                     unit.ignored_obstacle_id = None;
-                    unit.stop_moving();
+                    unit.stop_moving(audio);
                     return true;
                 }
                 return false; // Continue to next waypoint

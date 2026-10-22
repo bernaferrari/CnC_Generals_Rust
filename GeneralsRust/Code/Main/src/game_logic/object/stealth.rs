@@ -1410,7 +1410,10 @@ mod stealth_grant_tests {
             super::Team::USA,
         );
         unit.status.attacking = true;
-        unit.set_ai_state(super::AIState::AttackMoving);
+        unit.set_ai_state(
+            super::AIState::AttackMoving,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         assert!(!unit.stealth_is_firing_weapon());
         unit.set_status_firing_weapon(true);
         assert!(unit.stealth_is_firing_weapon());

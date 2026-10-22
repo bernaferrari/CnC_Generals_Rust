@@ -490,7 +490,10 @@ fn repair_mid_build_keeps_pending_build_and_idle_resumes() {
     {
         let dz = logic.host_object_mut(dozer).expect("dz");
         dz.target = Some(scaffold);
-        dz.set_ai_state(AIState::Constructing);
+        dz.set_ai_state(
+            AIState::Constructing,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     let result = CommandExecutor::new(&mut logic, 0)
         .execute_command(command(
@@ -513,8 +516,11 @@ fn repair_mid_build_keeps_pending_build_and_idle_resumes() {
     }
     logic.dozer_internal_task_complete(dozer, true);
     if let Some(dz) = logic.host_object_mut(dozer) {
-        dz.clear_target();
-        dz.set_ai_state(AIState::Idle);
+        dz.clear_target(&mut crate::game_logic::MovementAudio::queue(&mut Vec::new()));
+        dz.set_ai_state(
+            AIState::Idle,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     assert!(
         logic.dozer_idle_resume_pending_build(dozer),
@@ -579,8 +585,11 @@ fn same_frame_build_repair_tie_resumes_build() {
         assert_eq!(dz.dozer_task_repair_target, Some(damaged));
     }
     if let Some(dz) = logic.host_object_mut(dozer) {
-        dz.clear_target();
-        dz.set_ai_state(AIState::Idle);
+        dz.clear_target(&mut crate::game_logic::MovementAudio::queue(&mut Vec::new()));
+        dz.set_ai_state(
+            AIState::Idle,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     assert!(
         logic.dozer_idle_resume_pending_build(dozer),
@@ -620,8 +629,11 @@ fn idle_resumes_parked_repair_when_most_recent() {
     damage_for_fixture(&mut logic, damaged, 200.0);
     logic.dozer_new_task_repair(dozer, damaged);
     if let Some(dz) = logic.host_object_mut(dozer) {
-        dz.clear_target();
-        dz.set_ai_state(AIState::Idle);
+        dz.clear_target(&mut crate::game_logic::MovementAudio::queue(&mut Vec::new()));
+        dz.set_ai_state(
+            AIState::Idle,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     assert!(
         logic.dozer_idle_resume_pending_build(dozer),
@@ -677,8 +689,11 @@ fn idle_resumes_repair_parked_by_newer_build() {
     logic.frame = 9;
     logic.dozer_new_task_build(dozer, scaffold);
     if let Some(dz) = logic.host_object_mut(dozer) {
-        dz.clear_target();
-        dz.set_ai_state(AIState::Idle);
+        dz.clear_target(&mut crate::game_logic::MovementAudio::queue(&mut Vec::new()));
+        dz.set_ai_state(
+            AIState::Idle,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     assert!(
         logic.dozer_idle_resume_pending_build(dozer),
@@ -690,8 +705,11 @@ fn idle_resumes_repair_parked_by_newer_build() {
     );
     logic.dozer_internal_task_complete(dozer, false);
     if let Some(dz) = logic.host_object_mut(dozer) {
-        dz.clear_target();
-        dz.set_ai_state(AIState::Idle);
+        dz.clear_target(&mut crate::game_logic::MovementAudio::queue(&mut Vec::new()));
+        dz.set_ai_state(
+            AIState::Idle,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     assert!(
         logic.dozer_idle_resume_pending_build(dozer),
@@ -737,7 +755,10 @@ fn player_stop_cancels_current_build_so_idle_does_not_resume() {
     logic.dozer_new_task_build(dozer, scaffold);
     if let Some(dz) = logic.host_object_mut(dozer) {
         dz.target = Some(scaffold);
-        dz.set_ai_state(AIState::Constructing);
+        dz.set_ai_state(
+            AIState::Constructing,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         dz.set_actively_constructing(true);
     }
     let result = CommandExecutor::new(&mut logic, 0)
@@ -761,7 +782,10 @@ fn player_stop_cancels_current_build_so_idle_does_not_resume() {
         assert!(sc.status.under_construction);
     }
     if let Some(dz) = logic.host_object_mut(dozer) {
-        dz.set_ai_state(AIState::Idle);
+        dz.set_ai_state(
+            AIState::Idle,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     assert!(
         !logic.dozer_idle_resume_pending_build(dozer),
@@ -850,8 +874,11 @@ fn execute_build_records_build_slot_and_docks_off_center() {
         assert!(sc.status.under_construction);
     }
     if let Some(dz) = logic.host_object_mut(dozer) {
-        dz.clear_target();
-        dz.set_ai_state(AIState::Idle);
+        dz.clear_target(&mut crate::game_logic::MovementAudio::queue(&mut Vec::new()));
+        dz.set_ai_state(
+            AIState::Idle,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         dz.set_position(Vec3::new(400.0, 0.0, 0.0));
     }
     assert!(
@@ -905,7 +932,10 @@ fn gather_cancels_build_and_blocks_idle_resume_while_supply() {
     logic.dozer_new_task_build(worker, scaffold);
     if let Some(w) = logic.host_object_mut(worker) {
         w.target = Some(scaffold);
-        w.set_ai_state(AIState::Constructing);
+        w.set_ai_state(
+            AIState::Constructing,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     let result = CommandExecutor::new(&mut logic, 0)
         .execute_command(command(
@@ -926,7 +956,10 @@ fn gather_cancels_build_and_blocks_idle_resume_while_supply() {
         assert_eq!(w.ai_state, AIState::Gathering);
     }
     if let Some(w) = logic.host_object_mut(worker) {
-        w.set_ai_state(AIState::Idle);
+        w.set_ai_state(
+            AIState::Idle,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         w.supply_truck_state = SupplyTruckState::Regrouping;
     }
     assert!(
@@ -1030,7 +1063,10 @@ fn mine_clear_order_keeps_boxes_until_already_attacking() {
         "hq-6je29: initial order is not isClearingMines"
     );
     if let Some(w) = logic.host_object_mut(worker) {
-        w.set_ai_state(AIState::Attacking);
+        w.set_ai_state(
+            AIState::Attacking,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         w.status.attacking = true;
     }
     logic.drop_worker_supply_boxes_for_mine_clear(worker);

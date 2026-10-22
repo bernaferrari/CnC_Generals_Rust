@@ -158,7 +158,10 @@ fn worker_shoes_upgrade_speed_and_supply_boost_residual() {
         w.set_stored_supplies(100);
         w.set_position(Vec3::new(5.0, 0.0, 0.0));
         w.target = Some(supply_id);
-        w.set_ai_state(AIState::ReturningResources);
+        w.set_ai_state(
+            AIState::ReturningResources,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     let cash_before = game_logic
         .get_player(0)
@@ -1310,7 +1313,10 @@ fn plant_timed_demo_charge_command_plants_after_reach() {
             .host_object_mut(burton_id)
             .expect("burton should exist");
         burton.set_position(Vec3::new(2.0, 0.0, 0.0));
-        burton.set_ai_state(AIState::SpecialAbility);
+        burton.set_ai_state(
+            AIState::SpecialAbility,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         burton.target = Some(target_id);
     }
     // C++ NeedToFace precedes Unpack; facing consumes a variable number of
@@ -1392,7 +1398,10 @@ fn plant_and_detonate_remote_demo_charge_residual() {
             .host_object_mut(burton_id)
             .expect("burton should exist");
         burton.set_position(Vec3::new(2.0, 0.0, 0.0));
-        burton.set_ai_state(AIState::SpecialAbility);
+        burton.set_ai_state(
+            AIState::SpecialAbility,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         burton.target = Some(target_id);
     }
     // C++ NeedToFace precedes Unpack; facing consumes a variable number of
@@ -2828,7 +2837,10 @@ fn hacker_internet_center_residual_deposits_cash() {
     );
     if let Some(obj) = game_logic.host_object_mut(hacker_id) {
         obj.set_contained_by(Some(ic_id));
-        obj.set_ai_state(AIState::Docked);
+        obj.set_ai_state(
+            AIState::Docked,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
 
     let cash_before = game_logic

@@ -127,7 +127,10 @@ impl GameLogic {
         unit.is_attack_path = false;
         unit.path_extra_distance = unit.waypoint_link_extra_distance();
         unit.set_ultra_accurate(true);
-        unit.set_ai_state(AIState::Moving);
+        unit.set_ai_state(
+            AIState::Moving,
+            &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+        );
         unit.set_status_moving(true);
         true
     }
@@ -376,7 +379,10 @@ mod tests {
             let ferry = logic.host_object_mut(id).expect("arrive");
             ferry.set_position(Vec3::new(10.0, 0.0, 0.0));
             ferry.movement.path.clear();
-            ferry.set_ai_state(AIState::Idle);
+            ferry.set_ai_state(
+                AIState::Idle,
+                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            );
         }
         logic.update_railed_transports();
         let ferry = logic.host_object(id).expect("dock open");

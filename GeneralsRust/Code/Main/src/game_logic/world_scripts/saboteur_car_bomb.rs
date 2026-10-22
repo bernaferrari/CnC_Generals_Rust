@@ -281,9 +281,16 @@ impl GameLogic {
             // Issue Enter residual (matches player Enter command → recrew path).
             // C++ clears m_didMoveToBase when a vehicle target is found.
             if let Some(pilot) = self.objects.get_mut(&pilot_id) {
-                pilot.set_target(Some(vehicle_id), &mut self.attack_events);
+                pilot.set_target(
+                    Some(vehicle_id),
+                    &mut self.attack_events,
+                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                );
                 pilot.set_status_pilot_did_move_to_base(false);
-                pilot.set_ai_state(AIState::Entering);
+                pilot.set_ai_state(
+                    AIState::Entering,
+                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                );
                 pilot.ignored_obstacle_id = Some(vehicle_id);
                 let _ = pilot_radius;
                 let _ = pilot_team;
@@ -318,7 +325,9 @@ impl GameLogic {
             return;
         };
         if let Some(pilot) = self.objects.get_mut(&pilot_id) {
-            pilot.clear_target();
+            pilot.clear_target(&mut crate::game_logic::MovementAudio::queue(
+                &mut self.queued_audio_events,
+            ));
             pilot.set_status_pilot_did_move_to_base(true);
         }
         self.path_approach_with_state(pilot_id, base_pos, AIState::Moving);
@@ -576,7 +585,10 @@ impl GameLogic {
                 }
                 if let Some(r) = self.objects.get_mut(rid) {
                     r.set_contained_by(None);
-                    r.set_ai_state(AIState::Idle);
+                    r.set_ai_state(
+                        AIState::Idle,
+                        &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    );
                     {}
                     r.set_position_with_effects(land_pos, self.frame, effects);
                     {}
@@ -585,7 +597,9 @@ impl GameLogic {
                     r.set_status_masked(false);
                     r.set_status_unselectable(false);
                     r.set_status_no_collisions(false);
-                    r.stop_moving();
+                    r.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+                        &mut self.queued_audio_events,
+                    ));
                     r.target = None;
                 }
             }
@@ -834,10 +848,15 @@ impl GameLogic {
 
         // C++ riderAI->aiIdle(CMD_FROM_AI).
         if let Some(r) = self.objects.get_mut(&rider_id) {
-            r.set_ai_state(AIState::Idle);
+            r.set_ai_state(
+                AIState::Idle,
+                &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+            );
             r.hunting = false;
             r.target = None;
-            r.stop_moving();
+            r.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+                &mut self.queued_audio_events,
+            ));
             {}
         }
     }
@@ -1031,7 +1050,11 @@ impl GameLogic {
         };
 
         if let Some(unit) = self.objects.get_mut(&unit_id) {
-            unit.set_target(Some(pad_id), &mut self.attack_events);
+            unit.set_target(
+                Some(pad_id),
+                &mut self.attack_events,
+                &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+            );
         }
         self.path_approach_with_state(unit_id, pad_pos, AIState::SeekingHealing);
         if is_pilot {
@@ -1222,7 +1245,12 @@ impl GameLogic {
                     if new_struct_hp <= 0.0 {
                         obj.status.destroyed = true;
                         let hid = obj.id;
-                        obj.set_ai_state(AIState::Idle);
+                        obj.set_ai_state(
+                            AIState::Idle,
+                            &mut crate::game_logic::MovementAudio::queue(
+                                &mut self.queued_audio_events,
+                            ),
+                        );
                         {}
                         obj.target = None;
                         destroyed = true;
@@ -1713,7 +1741,11 @@ impl GameLogic {
             return;
         };
         if let Some(obj) = self.objects.get_mut(&unit_id) {
-            obj.set_target(Some(pad_id), &mut self.attack_events);
+            obj.set_target(
+                Some(pad_id),
+                &mut self.attack_events,
+                &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+            );
             obj.target_location = None;
         }
         self.path_approach_with_state(unit_id, pad_pos, AIState::SeekingRepair);
@@ -1783,7 +1815,11 @@ impl GameLogic {
         };
         if let Some(obj) = self.objects.get_mut(&unit_id) {
             // Construction target association stays host.
-            obj.set_target(Some(tid), &mut self.attack_events);
+            obj.set_target(
+                Some(tid),
+                &mut self.attack_events,
+                &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+            );
             obj.target_location = None;
         }
         self.set_ai_state_decision_aware(unit_id, AIState::Constructing);

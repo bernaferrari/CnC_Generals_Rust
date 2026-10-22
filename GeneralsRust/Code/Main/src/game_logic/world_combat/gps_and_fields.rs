@@ -256,7 +256,11 @@ impl GameLogic {
                 // DISABLED_SUBDUED is a full halt. Only vehicles here — microwave
                 // structures use the same flag via update_microwave_disable_field.
                 if vehicle && obj.status.disabled_subdued && !full {
-                    obj.set_disabled_subdued(false, &mut self.health_events);
+                    obj.set_disabled_subdued(
+                        false,
+                        &mut self.health_events,
+                        &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    );
                 }
             }
             return;
@@ -365,6 +369,7 @@ impl GameLogic {
                 target.apply_subdual_damage(
                     ECM_VEHICLE_DISABLER_PRIMARY_DAMAGE,
                     &mut self.health_events,
+                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
                 );
             }
         }
@@ -376,9 +381,17 @@ impl GameLogic {
                 && obj.object_type != ObjectType::Aircraft;
             let should = vehicle && obj.is_subdued();
             if should && !obj.status.disabled_subdued {
-                obj.set_disabled_subdued(true, &mut self.health_events);
+                obj.set_disabled_subdued(
+                    true,
+                    &mut self.health_events,
+                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                );
             } else if !should && vehicle && obj.status.disabled_subdued {
-                obj.set_disabled_subdued(false, &mut self.health_events);
+                obj.set_disabled_subdued(
+                    false,
+                    &mut self.health_events,
+                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                );
             }
             if should && !obj.status.weapons_jammed {
                 obj.set_weapons_jammed(true);

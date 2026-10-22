@@ -152,6 +152,7 @@ impl Object {
         new_y: f32,
         ground_y: f32,
         health_events: &mut crate::game_logic::HostHealthEvents,
+        audio: &mut crate::game_logic::MovementAudio<'_>,
     ) -> f32 {
         let mut ignored = |_| {};
         let repulsors = false;
@@ -164,7 +165,7 @@ impl Object {
             player_effects: &mut ignored,
             body_fx: &mut Object::standalone_body_fx,
         };
-        self.handle_shock_ground_bounce_with_services(old_y, new_y, ground_y, &mut services)
+        self.handle_shock_ground_bounce_with_services(old_y, new_y, ground_y, &mut services, audio)
     }
 
     pub(in crate::game_logic) fn handle_shock_ground_bounce_with_services(
@@ -173,11 +174,12 @@ impl Object {
         new_y: f32,
         ground_y: f32,
         services: &mut super::PhysicsDamageServices<'_>,
+        audio: &mut crate::game_logic::MovementAudio<'_>,
     ) -> f32 {
         let (bounce, request) = self.begin_contact_bounce(old_y, new_y, ground_y);
         if let Some(request) = request {
             let killed = services.apply_contact(self, &request);
-            self.finish_stun_kill(killed);
+            self.finish_stun_kill(killed, audio);
             if killed {
                 return 0.0;
             }
@@ -191,6 +193,7 @@ impl Object {
         &mut self,
         frame: u32,
         health_events: &mut crate::game_logic::HostHealthEvents,
+        audio: &mut crate::game_logic::MovementAudio<'_>,
     ) -> bool {
         let mut ignored = |_| {};
         let repulsors = false;
@@ -203,18 +206,19 @@ impl Object {
             player_effects: &mut ignored,
             body_fx: &mut Object::standalone_body_fx,
         };
-        self.test_stunned_unit_for_destruction_with_services(&mut services)
+        self.test_stunned_unit_for_destruction_with_services(&mut services, audio)
     }
 
     pub(in crate::game_logic) fn test_stunned_unit_for_destruction_with_services(
         &mut self,
         services: &mut super::PhysicsDamageServices<'_>,
+        audio: &mut crate::game_logic::MovementAudio<'_>,
     ) -> bool {
         let Some(request) = self.prepare_stun_kill() else {
             return false;
         };
         let killed = services.apply_contact(self, &request);
-        self.finish_stun_kill(killed);
+        self.finish_stun_kill(killed, audio);
         killed
     }
 }

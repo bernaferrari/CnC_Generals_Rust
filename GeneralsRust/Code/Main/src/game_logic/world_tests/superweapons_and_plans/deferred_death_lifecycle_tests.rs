@@ -68,7 +68,11 @@ End
         world
             .host_object_mut(id)
             .unwrap()
-            .begin_slow_death_from_ini(frame, &ini)
+            .begin_slow_death_from_ini(
+                frame,
+                &ini,
+                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
+            )
     );
     world.mark_object_for_destruction(id, Some(Team::GLA));
     let owner = world.host_object(id).unwrap();
@@ -557,8 +561,21 @@ End
         assert_eq!(restored.authored_structure_topple, topple);
         assert_eq!(restored.authored_structure_collapse, collapse);
         let mut object = Object::new(restored, ObjectId(7001), Team::Neutral);
-        assert_eq!(object.begin_structure_topple(0, None), topple);
-        assert_eq!(object.begin_structure_collapse(0), collapse);
+        assert_eq!(
+            object.begin_structure_topple(
+                0,
+                None,
+                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
+            ),
+            topple
+        );
+        assert_eq!(
+            object.begin_structure_collapse(
+                0,
+                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
+            ),
+            collapse
+        );
     }
 }
 

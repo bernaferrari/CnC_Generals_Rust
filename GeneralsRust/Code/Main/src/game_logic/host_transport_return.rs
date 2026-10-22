@@ -169,8 +169,10 @@ impl GameLogic {
             if active && self.frame <= expires_frame {
                 return;
             }
-            if let Some(object) = self.host_object_mut(id) {
-                object.end_temporary_move_overlay();
+            if let Some((object, audio_events)) = self.host_object_and_audio_events_mut(id) {
+                object.end_temporary_move_overlay(&mut crate::game_logic::MovementAudio::queue(
+                    audio_events,
+                ));
             }
             self.resume_transport_after_temporary_move(id);
         }
@@ -231,15 +233,18 @@ impl GameLogic {
             });
         }
         if self.assign_unit_path(id, origin, &[]) {
-            if let Some(object) = self.host_object_mut(id) {
-                object.set_ai_state(AIState::Moving);
+            if let Some((object, audio_events)) = self.host_object_and_audio_events_mut(id) {
+                object.set_ai_state(
+                    AIState::Moving,
+                    &mut crate::game_logic::MovementAudio::queue(audio_events),
+                );
             }
         } else {
             // AIInternalMoveTo::onEnter failure follows the state's failure
             // transition; it never executes MoveAndDelete::update's destroy.
-            if let Some(object) = self.host_object_mut(id) {
+            if let Some((object, audio_events)) = self.host_object_and_audio_events_mut(id) {
                 object.transport_return_state = None;
-                object.stop_moving();
+                object.stop_moving(&mut crate::game_logic::MovementAudio::queue(audio_events));
             }
         }
     }
@@ -284,7 +289,10 @@ mod tests {
         logic.prepare_transport_return_path(id);
         assert_eq!(logic.host_object(id).unwrap().movement.path.len(), 3);
         assert!(logic.host_object(id).unwrap().allow_invalid_position);
-        logic.host_object_mut(id).unwrap().stop_moving();
+        {
+            let (object, output) = logic.host_object_and_audio_events_mut(id).unwrap();
+            object.stop_moving(&mut crate::game_logic::MovementAudio::queue(output));
+        }
         logic.finish_transport_return_phase(id);
         let owner = logic.host_object(id).unwrap();
         assert!(owner.status.destroyed);
@@ -360,8 +368,11 @@ mod tests {
         assert!(logic.unit_command_set_pending_evacuate(id, true, true, true));
         assert!(logic.assign_unit_path(id, goal, &[]));
         {
-            let owner = logic.host_object_mut(id).unwrap();
-            owner.set_ai_state(AIState::Moving);
+            let (owner, output) = logic.host_object_and_audio_events_mut(id).unwrap();
+            owner.set_ai_state(
+                AIState::Moving,
+                &mut crate::game_logic::MovementAudio::queue(output),
+            );
             owner.last_command_source =
                 crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_AI;
         }
@@ -386,7 +397,11 @@ mod tests {
         logic.finish_transport_return_phase(id);
         assert!(!logic.host_object(id).unwrap().status.destroyed);
         for _ in 0..600 {
-            logic.host_object_mut(id).unwrap().tick_path_queue();
+            let (object, output) = logic.host_object_and_audio_events_mut(id).unwrap();
+            assert!(
+                !object.tick_path_queue(&mut crate::game_logic::MovementAudio::queue(output)),
+                "transport owns the absolute temporary deadline; observing the path queue does not expire it"
+            );
         }
         // Repeated observations in one logic frame never consume the saved deadline.
         assert_eq!(logic.host_object(id).unwrap().temporary_move_frames, 601);
@@ -420,10 +435,13 @@ mod tests {
             source.frame = 80;
             assert!(source.unit_command_set_pending_evacuate(id, true, true, true));
             assert!(source.assign_unit_path(id, goal, &[]));
-            source
-                .host_object_mut(id)
-                .unwrap()
-                .set_ai_state(AIState::Moving);
+            {
+                let (object, output) = source.host_object_and_audio_events_mut(id).unwrap();
+                object.set_ai_state(
+                    AIState::Moving,
+                    &mut crate::game_logic::MovementAudio::queue(output),
+                );
+            }
             if temporary {
                 source.host_object_mut(id).unwrap().last_command_source =
                     crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_AI;
@@ -478,7 +496,10 @@ mod tests {
                         ..
                     })
                 ));
-                receiving.host_object_mut(id).unwrap().stop_moving();
+                {
+                    let (object, output) = receiving.host_object_and_audio_events_mut(id).unwrap();
+                    object.stop_moving(&mut crate::game_logic::MovementAudio::queue(output));
+                }
                 receiving.finish_transport_return_phase(id);
                 assert!(receiving.host_object(id).unwrap().status.destroyed);
                 assert_eq!(receiving.host_object(id).unwrap().health.current, 200.0);

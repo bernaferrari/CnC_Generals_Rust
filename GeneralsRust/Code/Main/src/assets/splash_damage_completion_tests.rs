@@ -469,11 +469,11 @@ fn target_update(kind: Splash) {
     let target = admit(&mut world, "SplashCompletionVictim", 1, pos);
     // Public target assignment selects host combat; AttackObject commands
     // select the separately scoped queued-damage attack-machine runtime.
-    world
-        .objects
-        .get_mut(&source)
-        .unwrap()
-        .set_target(Some(anchor), &mut _attack_output);
+    world.objects.get_mut(&source).unwrap().set_target(
+        Some(anchor),
+        &mut _attack_output,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
     world.update();
     let shooter = &world.objects[&source];
     assert_eq!(shooter.weapon.as_ref().unwrap().ammo, Some(7));

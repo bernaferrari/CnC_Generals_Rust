@@ -149,7 +149,11 @@ fn accepted_status_hit(name: &str, status: &str, expected: bool) {
     assert_eq!(source_obj.weapon_name_for_slot(0), Some(name));
     assert_eq!(source_obj.weapon.as_ref().unwrap().damage, 200.0);
     let before_fire = source_obj.weapon.as_ref().unwrap().last_fire_time;
-    source_obj.attack_target(target, &mut world.attack_events);
+    source_obj.attack_target(
+        target,
+        &mut world.attack_events,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
     assert_eq!(
         source_obj.target,
         Some(target),
@@ -237,7 +241,11 @@ fn accepted_actual_avenger_status_hit(name: &str, damage: f32, expected_paint: b
     // with its zero-HP residual. This witness isolates the separate status gate.
     assert_eq!(source_obj.weapon.as_ref().unwrap().damage, damage);
     let before_fire = source_obj.weapon.as_ref().unwrap().last_fire_time;
-    source_obj.attack_target(target, &mut world.attack_events);
+    source_obj.attack_target(
+        target,
+        &mut world.attack_events,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
     assert_eq!(source_obj.target, Some(target));
     assert!(!world.honesty_avenger_paint_ok());
     world.update_combat(&[source], 1.0 / 30.0);

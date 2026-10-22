@@ -607,7 +607,13 @@ impl GameLogic {
                     if next != dock_id {
                         if let Some(dest) = self.objects.get(&next).map(|s| s.get_position()) {
                             if let Some(obj) = self.objects.get_mut(&docker_id) {
-                                obj.set_target(Some(next), &mut self.attack_events);
+                                obj.set_target(
+                                    Some(next),
+                                    &mut self.attack_events,
+                                    &mut crate::game_logic::MovementAudio::queue(
+                                        &mut self.queued_audio_events,
+                                    ),
+                                );
                             }
                             self.path_approach_with_state(docker_id, dest, AIState::Gathering);
                             return;

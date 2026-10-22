@@ -703,7 +703,10 @@ impl GameLogic {
                     occ.set_status_force_attack(false);
                     occ.target = None;
                     occ.target_location = None;
-                    occ.set_ai_state(AIState::Idle);
+                    occ.set_ai_state(
+                        AIState::Idle,
+                        &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    );
                 }
                 // C++ `aiIdle` leaves HACK_INTERNET (`aiDoCommand` PACKING).
                 self.hacker_income.stop_hacking(occ_id);
@@ -1021,9 +1024,14 @@ impl GameLogic {
         );
         if let Some(obj) = self.objects.get_mut(&hacker_id) {
             obj.set_status_moving(false);
-            obj.stop_moving();
+            obj.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+                &mut self.queued_audio_events,
+            ));
             if obj.ai_state != AIState::Idle {
-                obj.set_ai_state(AIState::Idle);
+                obj.set_ai_state(
+                    AIState::Idle,
+                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                );
             }
         }
         self.leftover_sa_set_pack_model(hacker_id, true, false, false);
@@ -1067,8 +1075,15 @@ impl GameLogic {
                 }
                 PendingHackerCommand::Stop => {
                     if let Some(unit) = self.objects.get_mut(&id) {
-                        unit.stop();
-                        unit.set_ai_state(AIState::Idle);
+                        unit.stop(&mut crate::game_logic::MovementAudio::queue(
+                            &mut self.queued_audio_events,
+                        ));
+                        unit.set_ai_state(
+                            AIState::Idle,
+                            &mut crate::game_logic::MovementAudio::queue(
+                                &mut self.queued_audio_events,
+                            ),
+                        );
                     }
                 }
             }

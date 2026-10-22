@@ -916,9 +916,18 @@ impl GameLogic {
                             crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_AI;
                         p.refresh_follow_path_extra_distance();
                         p.adjust_destinations = !p.ultra_accurate;
-                        p.set_destination(end, &mut self.movement_events.writer(self.frame));
+                        p.set_destination(
+                            end,
+                            &mut self.movement_events.writer(self.frame),
+                            &mut crate::game_logic::MovementAudio::queue(
+                                &mut self.queued_audio_events,
+                            ),
+                        );
                     }
-                    p.set_ai_state(AIState::Moving);
+                    p.set_ai_state(
+                        AIState::Moving,
+                        &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    );
                     p.status.moving = true;
                 } else {
                     // C++ OpenContain::exitObjectViaDoor — walk ExitStart/End.
@@ -950,8 +959,15 @@ impl GameLogic {
                         crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_AI;
                     p.refresh_follow_path_extra_distance();
                     p.adjust_destinations = !p.ultra_accurate;
-                    p.set_destination(end, &mut self.movement_events.writer(self.frame));
-                    p.set_ai_state(AIState::Moving);
+                    p.set_destination(
+                        end,
+                        &mut self.movement_events.writer(self.frame),
+                        &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    );
+                    p.set_ai_state(
+                        AIState::Moving,
+                        &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    );
                     p.status.moving = true;
                 }
             }
@@ -1149,7 +1165,10 @@ impl GameLogic {
             p.movement.target_position = Some(dest);
             p.movement.max_speed = rappel_speed;
             p.begin_rappel(dest_y, target_is_bldg, drop_target);
-            p.set_ai_state(AIState::Moving);
+            p.set_ai_state(
+                AIState::Moving,
+                &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+            );
             p.status.moving = true;
         }
         self.record_transport_residual_unload();
@@ -1255,7 +1274,9 @@ impl GameLogic {
             obj.status.rappel_dest_y = dest_y;
             if arrived {
                 obj.clear_rappel();
-                obj.stop_moving();
+                obj.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+                    &mut self.queued_audio_events,
+                ));
             }
         }
         if arrived && target_is_bldg {
@@ -1434,13 +1455,18 @@ impl GameLogic {
             .map(|c| c.is_enclosing_garrison_container())
             .unwrap_or(true);
         if let Some(obj) = self.objects.get_mut(&pid) {
-            obj.stop_moving();
+            obj.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+                &mut self.queued_audio_events,
+            ));
             obj.set_contained_by(Some(bldg_id));
             obj.target = Some(bldg_id);
             if enclosing {
                 obj.set_position_with_effects(container_pos, self.frame, presentation_effects);
             }
-            obj.set_ai_state(AIState::Garrisoned);
+            obj.set_ai_state(
+                AIState::Garrisoned,
+                &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+            );
             obj.set_status_moving(false);
             obj.deselect();
         }
@@ -1487,7 +1513,10 @@ impl GameLogic {
             obj.is_attack_path = false;
             obj.is_exact_path = false;
             obj.refresh_follow_path_extra_distance();
-            obj.set_ai_state(AIState::Moving);
+            obj.set_ai_state(
+                AIState::Moving,
+                &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+            );
             obj.status.moving = true;
         }
     }

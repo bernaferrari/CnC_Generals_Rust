@@ -146,7 +146,10 @@ impl GameLogic {
         if let Some(r) = self.objects.get_mut(&rider_id) {
             r.set_contained_by(Some(chute_id));
             r.producer_id = Some(chute_id);
-            r.set_ai_state(crate::game_logic::AIState::Docked);
+            r.set_ai_state(
+                crate::game_logic::AIState::Docked,
+                &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+            );
             {}
             r.set_position_with_effects(pos, tree_move_frame, presentation_effects);
             {}
@@ -177,7 +180,11 @@ impl GameLogic {
         if !unit.is_alive() {
             return false;
         }
-        unit.start_command_button_hunt(mode, frame);
+        unit.start_command_button_hunt(
+            mode,
+            frame,
+            &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+        );
         self.command_button_hunt_reg.record_start();
         true
     }
@@ -447,7 +454,10 @@ impl GameLogic {
             if let Some(tp) = self.objects.get(&target_id).map(|t| t.get_position()) {
                 if let Some(u) = self.objects.get_mut(&hunter_id) {
                     u.target = Some(target_id);
-                    u.set_ai_state(AIState::SpecialAbility);
+                    u.set_ai_state(
+                        AIState::SpecialAbility,
+                        &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    );
                     u.last_command_source = HUNT_CMD_FROM_AI;
                 }
                 let _ = self.assign_unit_path(hunter_id, tp, &[]);
@@ -718,7 +728,10 @@ impl GameLogic {
                 }
                 if let Some(u) = self.objects.get_mut(&hunter_id) {
                     u.target = Some(target_id);
-                    u.set_ai_state(AIState::Capturing);
+                    u.set_ai_state(
+                        AIState::Capturing,
+                        &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    );
                 }
                 let _ = self.assign_unit_path(hunter_id, tp, &[]);
                 true
@@ -757,7 +770,10 @@ impl GameLogic {
                 );
                 if let Some(u) = self.objects.get_mut(&hunter_id) {
                     u.target = Some(target_id);
-                    u.set_ai_state(AIState::SpecialAbility);
+                    u.set_ai_state(
+                        AIState::SpecialAbility,
+                        &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    );
                 }
                 let _ = self.assign_unit_path(hunter_id, tp, &[]);
                 true
@@ -820,10 +836,16 @@ impl GameLogic {
             };
             let (ready_atk, ready_mv) = ds.tick(frame);
             if ready_atk {
-                obj.set_deployed(true);
+                obj.set_deployed(
+                    true,
+                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                );
             }
             if ready_mv {
-                obj.set_deployed(false);
+                obj.set_deployed(
+                    false,
+                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                );
             }
         }
 
@@ -880,7 +902,9 @@ impl GameLogic {
                     continue;
                 };
                 if deploy.begin_deploy(frame) {
-                    obj.stop_moving();
+                    obj.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+                        &mut self.queued_audio_events,
+                    ));
                     obj.set_status_moving(false);
                     true
                 } else {
@@ -927,8 +951,13 @@ impl GameLogic {
                     continue;
                 };
                 if ds.finish_aligning_turrets(frame, natural) {
-                    obj.set_deployed(false);
-                    obj.stop_moving();
+                    obj.set_deployed(
+                        false,
+                        &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    );
+                    obj.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+                        &mut self.queued_audio_events,
+                    ));
                     obj.set_status_moving(false);
                     true
                 } else {
@@ -1004,7 +1033,9 @@ impl GameLogic {
                         let state = obj.deploy_style.as_ref().map(|ds| ds.state);
                         if started_now {
                             started = true;
-                            obj.stop_moving();
+                            obj.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+                                &mut self.queued_audio_events,
+                            ));
                             obj.set_status_moving(false);
                             if let Some(state) = state {
                                 crate::game_logic::host_deploy_style::leftover_stamp_deploy_style_conditions(
@@ -1094,7 +1125,10 @@ impl GameLogic {
             if self.assault_transport_is_attack_pointless(crawler_id) {
                 // C++ aiIdle(CMD_FROM_AI) — idle the transport only.
                 if let Some(c) = self.objects.get_mut(&crawler_id) {
-                    c.set_ai_state(AIState::Idle);
+                    c.set_ai_state(
+                        AIState::Idle,
+                        &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    );
                     c.set_status_attacking(false);
                 }
                 continue;
@@ -1190,7 +1224,12 @@ impl GameLogic {
                     if let Some(c) = self.objects.get_mut(&crawler_id) {
                         c.auto_acquire_when_idle = true;
                         c.requested_destination = Some(dest);
-                        c.set_ai_state(AIState::AttackMoving);
+                        c.set_ai_state(
+                            AIState::AttackMoving,
+                            &mut crate::game_logic::MovementAudio::queue(
+                                &mut self.queued_audio_events,
+                            ),
+                        );
                     }
                 }
             } else if is_attack_object {
@@ -1308,7 +1347,13 @@ impl GameLogic {
                     if let Some(unit) = self.objects.get_mut(&mid) {
                         unit.last_command_source = HUNT_CMD_FROM_PLAYER;
                         if !engaged {
-                            unit.set_target(Some(target_id), &mut self.attack_events);
+                            unit.set_target(
+                                Some(target_id),
+                                &mut self.attack_events,
+                                &mut crate::game_logic::MovementAudio::queue(
+                                    &mut self.queued_audio_events,
+                                ),
+                            );
                         }
                     }
                 }
@@ -1331,7 +1376,10 @@ impl GameLogic {
                 if let Some(unit) = self.objects.get_mut(&mid) {
                     unit.auto_acquire_when_idle = true;
                     unit.requested_destination = Some(dest);
-                    unit.set_ai_state(AIState::AttackMoving);
+                    unit.set_ai_state(
+                        AIState::AttackMoving,
+                        &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    );
                     unit.last_command_source = HUNT_CMD_FROM_PLAYER;
                 }
             } else if let Some(unit) = self.objects.get_mut(&mid) {
@@ -1395,7 +1443,11 @@ impl GameLogic {
 
         let crawler_pos = self.objects.get(&crawler_id).map(|c| c.get_position());
         if let Some(unit) = self.objects.get_mut(&member_id) {
-            unit.set_order_target(Some(crawler_id), &mut self.attack_events);
+            unit.set_order_target(
+                Some(crawler_id),
+                &mut self.attack_events,
+                &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+            );
             unit.ignored_obstacle_id = Some(crawler_id);
             unit.last_command_source = HUNT_CMD_FROM_AI;
         }
@@ -1407,7 +1459,10 @@ impl GameLogic {
                 Some(crawler_id),
             );
         } else if let Some(unit) = self.objects.get_mut(&member_id) {
-            unit.set_ai_state(AIState::Entering);
+            unit.set_ai_state(
+                AIState::Entering,
+                &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+            );
             unit.ignored_obstacle_id = Some(crawler_id);
         }
     }
@@ -1598,6 +1653,7 @@ impl GameLogic {
                                 view,
                             )
                         },
+                        &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
                     )
                 },
             );
@@ -1673,6 +1729,7 @@ impl GameLogic {
                         air,
                         self.frame,
                         presentation_effects,
+                        &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
                     );
                 }
                 // C++ HijackerUpdate: ThePartitionManager->registerObject(obj).
@@ -2398,7 +2455,11 @@ mod hq_tb5nn_tests {
             can_target_ground: true,
             ..Weapon::default()
         });
-        ranger.start_command_button_hunt(HostCommandButtonHuntMode::FireWeapon, 0);
+        ranger.start_command_button_hunt(
+            HostCommandButtonHuntMode::FireWeapon,
+            0,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         if let Some(h) = ranger.command_button_hunt.as_mut() {
             h.weapon_slot = 1;
         }

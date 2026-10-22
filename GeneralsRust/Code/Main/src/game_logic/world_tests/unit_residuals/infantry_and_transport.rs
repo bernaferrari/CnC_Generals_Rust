@@ -71,7 +71,11 @@ fn ranger_residual_rifle_and_flashbang_splash() {
         let (ranger, attack_events) = game_logic
             .host_object_and_attack_events_mut(ranger_id)
             .unwrap();
-        ranger.attack_target(vehicle, attack_events);
+        ranger.attack_target(
+            vehicle,
+            attack_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         if let Some(w) = ranger.weapon.as_mut() {
             w.last_fire_time = -10.0;
             w.reload_time = 0.1;
@@ -124,7 +128,11 @@ fn ranger_residual_rifle_and_flashbang_splash() {
         let (ranger, attack_events) = game_logic
             .host_object_and_attack_events_mut(ranger_id)
             .unwrap();
-        ranger.attack_target(enemy, attack_events);
+        ranger.attack_target(
+            enemy,
+            attack_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         // Prefer secondary vs infantry (PreferredAgainst residual).
         if let Some(w) = ranger.weapon.as_mut() {
             w.last_fire_time = -10.0;
@@ -666,7 +674,11 @@ fn rpg_trooper_residual_rocket_and_ap_rockets() {
         let (rpg, attack_events) = game_logic
             .host_object_and_attack_events_mut(rpg_id)
             .unwrap();
-        rpg.attack_target(enemy, attack_events);
+        rpg.attack_target(
+            enemy,
+            attack_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         if let Some(w) = rpg.weapon.as_mut() {
             w.last_fire_time = -10.0;
             w.reload_time = 0.1;
@@ -808,7 +820,11 @@ fn terrorist_residual_suicide_dynamite_pack() {
         let (t, attack_events) = game_logic
             .host_object_and_attack_events_mut(terror_id)
             .unwrap();
-        t.attack_target(near, attack_events);
+        t.attack_target(
+            near,
+            attack_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         if let Some(w) = t.weapon.as_mut() {
             w.last_fire_time = -10.0;
             w.reload_time = 0.1;
@@ -920,7 +936,11 @@ fn missile_defender_residual_missile_and_laser_guided() {
     {
         let (md, attack_events) = game_logic.host_object_and_attack_events_mut(md_id).unwrap();
         md.active_weapon_slot = 0;
-        md.attack_target(enemy, attack_events);
+        md.attack_target(
+            enemy,
+            attack_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         if let Some(w) = md.weapon.as_mut() {
             w.last_fire_time = -10.0;
             w.reload_time = 0.1;
@@ -1285,7 +1305,10 @@ fn troop_crawler_residual_transport_load_unload() {
                 ..Weapon::default()
             });
             unit.target = Some(crawler_id);
-            unit.set_ai_state(AIState::Entering);
+            unit.set_ai_state(
+                AIState::Entering,
+                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            );
         }
         game_logic.update_ai(&[unit_id, crawler_id], 1.0 / 30.0);
     }
@@ -1443,7 +1466,11 @@ fn structure_topple_crush_sweep_kills_nearby_infantry() {
     {
         let b = logic.objects.get_mut(&bid).unwrap();
         b.selection_radius = 25.0;
-        assert!(b.begin_structure_topple(0, Some((-10.0, 0.0))));
+        assert!(b.begin_structure_topple(
+            0,
+            Some((-10.0, 0.0)),
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
+        ));
         if let Some(st) = b.structure_topple_data.as_mut() {
             st.state = HostStructureToppleState::Toppling;
             st.accumulated_angle = std::f32::consts::FRAC_PI_2 - 0.05;
@@ -1515,7 +1542,11 @@ fn structure_topple_height_from_geometry_not_maxhp() {
         .unwrap();
     {
         let b = logic.objects.get_mut(&bid).unwrap();
-        assert!(b.begin_structure_topple(0, Some((-10.0, 0.0))));
+        assert!(b.begin_structure_topple(
+            0,
+            Some((-10.0, 0.0)),
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
+        ));
         let st = b.structure_topple_data.as_ref().unwrap();
         assert!(
             (st.building_height - 33.0).abs() < 1e-3,
@@ -2232,7 +2263,11 @@ fn slow_death_defers_infantry_destruction() {
     {
         let o = logic.objects.get_mut(&id2).unwrap();
         assert!(
-            o.begin_slow_death_from_ini(logic.frame, &HostSlowDeathIni::infantry_retail()),
+            o.begin_slow_death_from_ini(
+                logic.frame,
+                &HostSlowDeathIni::infantry_retail(),
+                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
+            ),
             "SlowDeathBehavior residual must start from authored INI"
         );
         assert!(o.slow_death.as_ref().is_some_and(|s| s.is_active()));
@@ -2523,7 +2558,11 @@ fn troop_crawler_residual_assault_deploy_unloads_and_attacks() {
         let (c, attack_events) = game_logic
             .host_object_and_attack_events_mut(crawler_id)
             .unwrap();
-        c.attack_target(enemy, attack_events);
+        c.attack_target(
+            enemy,
+            attack_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         if let Some(w) = c.weapon.as_mut() {
             w.last_fire_time = -10.0;
             w.reload_time = 0.1;
@@ -2684,7 +2723,10 @@ fn troop_crawler_assault_keeps_wounded_and_retrieves_outside() {
     {
         let h = game_logic.host_object_mut(healthy_id).unwrap();
         h.set_contained_by(Some(crawler_id));
-        h.set_ai_state(AIState::Idle);
+        h.set_ai_state(
+            AIState::Idle,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         h.health.current = 100.0;
     }
     game_logic.tick_assault_transport_updates();
@@ -3045,7 +3087,10 @@ fn troop_crawler_assault_walks_enter_and_exit() {
     {
         let h = game_logic.host_object_mut(fighter).unwrap();
         h.set_contained_by(Some(crawler_id));
-        h.set_ai_state(AIState::Idle);
+        h.set_ai_state(
+            AIState::Idle,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         h.health.current = 100.0;
     }
     game_logic.tick_assault_transport_updates();
@@ -3096,7 +3141,10 @@ fn troop_crawler_residual_rejects_vehicle_enter() {
     {
         let unit = game_logic.host_object_mut(tank_id).unwrap();
         unit.target = Some(crawler_id);
-        unit.set_ai_state(AIState::Entering);
+        unit.set_ai_state(
+            AIState::Entering,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     game_logic.update_ai(&[tank_id, crawler_id], 1.0 / 30.0);
 

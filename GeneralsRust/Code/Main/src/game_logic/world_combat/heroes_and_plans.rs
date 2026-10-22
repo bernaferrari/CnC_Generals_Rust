@@ -342,7 +342,11 @@ impl GameLogic {
             }
         }
         if let Some(target) = self.objects.get_mut(&center_id) {
-            target.apply_disabled_hacked(until_frame, &mut self.health_events);
+            target.apply_disabled_hacked(
+                until_frame,
+                &mut self.health_events,
+                &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+            );
             target.apply_spy_vision_disabled_until(until_frame);
         }
 
@@ -350,7 +354,11 @@ impl GameLogic {
         // 3) Contained hackers DISABLED_HACKED residual.
         for hid in occupants {
             if let Some(h) = self.objects.get_mut(&hid) {
-                h.apply_disabled_hacked(until_frame, &mut self.health_events);
+                h.apply_disabled_hacked(
+                    until_frame,
+                    &mut self.health_events,
+                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                );
                 hackers = hackers.saturating_add(1);
             }
             self.admit_host_radar_disabled_edges(hid);
@@ -480,7 +488,10 @@ impl GameLogic {
 
         let destroyed = if let Some(r) = self.objects.get_mut(&rider_id) {
             r.set_contained_by(None);
-            r.set_ai_state(AIState::Idle);
+            r.set_ai_state(
+                AIState::Idle,
+                &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+            );
             {}
             r.set_position_with_effects(eject_pos, self.frame, presentation_effects);
             {}
@@ -797,7 +808,9 @@ impl GameLogic {
                     HostBattlePlan::Bombardment => {
                         let _ = center.replace_weapon_set_slot(0, None);
                         let _ = center.replace_weapon_set_slot(1, None);
-                        center.stop_attack();
+                        center.stop_attack(&mut crate::game_logic::MovementAudio::queue(
+                            &mut self.queued_audio_events,
+                        ));
                         // C++ enableTurret(false) when leaving Bombardment.
                         center.turret_enabled = false;
                         // Cancel TurretAI idle-scan / Hold residual when gun unequips.
@@ -865,7 +878,12 @@ impl GameLogic {
                 for id in candidates {
                     if let Some(target) = self.objects.get_mut(&id) {
                         if target.is_alive() {
-                            target.apply_disabled_paralyzed(paralyze_until);
+                            target.apply_disabled_paralyzed(
+                                paralyze_until,
+                                &mut crate::game_logic::MovementAudio::queue(
+                                    &mut self.queued_audio_events,
+                                ),
+                            );
                             paralyzed = paralyzed.saturating_add(1);
                         }
                     }

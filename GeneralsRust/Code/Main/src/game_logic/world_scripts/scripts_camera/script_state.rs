@@ -113,7 +113,7 @@ impl GameLogic {
                     .with_priority(160),
             );
         }
-        self.drain_pending_move_ambient_audio();
+        self.retry_dropped_ambient_sounds();
 
         for event in self.queued_audio_events.drain(..) {
             let names = crate::game_logic::resolve_audio_event_names(&event.event_type);

@@ -66,10 +66,18 @@ End
                 let ini =
                     crate::game_logic::host_slow_death::slow_death_ini_from_behavior_attrs(&attrs);
                 assert_eq!(ini.destruction_delay_ms, 300);
-                assert!(object.begin_slow_death_from_ini(frame, &ini));
+                assert!(object.begin_slow_death_from_ini(
+                    frame,
+                    &ini,
+                    &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
+                ));
             }
-            DeathKind::Jet => assert!(object.begin_jet_slow_death()),
-            DeathKind::Helicopter => assert!(object.begin_helicopter_slow_death()),
+            DeathKind::Jet => assert!(object.begin_jet_slow_death(
+                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
+            )),
+            DeathKind::Helicopter => assert!(object.begin_helicopter_slow_death(
+                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
+            )),
         }
     }
     let mut shadow = GameWorldShadow::new(64);

@@ -230,8 +230,15 @@ fn construction_percent_cpp_scale_and_exclusive_dozer() {
         .create_object("TestDozer", Team::USA, glam::Vec3::new(5.0, 0.0, 0.0))
         .expect("dozer");
     if let Some((d, attack_events)) = logic.host_object_and_attack_events_mut(did) {
-        d.set_target(Some(sid), attack_events);
-        d.set_ai_state(AIState::Constructing);
+        d.set_target(
+            Some(sid),
+            attack_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
+        d.set_ai_state(
+            AIState::Constructing,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     let _ = logic.update_with_dt(1.0);
     let after_dock = logic
@@ -280,8 +287,15 @@ fn exclusive_dozer_does_not_stack_build_rate() {
         .expect("dozer2");
     assert!(logic.resume_construction(&[d1], sid));
     if let Some((d, attack_events)) = logic.host_object_and_attack_events_mut(d2) {
-        d.set_target(Some(sid), attack_events);
-        d.set_ai_state(AIState::Constructing);
+        d.set_target(
+            Some(sid),
+            attack_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
+        d.set_ai_state(
+            AIState::Constructing,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     assert_eq!(
         logic.host_object(sid).and_then(|o| o.builder_id),

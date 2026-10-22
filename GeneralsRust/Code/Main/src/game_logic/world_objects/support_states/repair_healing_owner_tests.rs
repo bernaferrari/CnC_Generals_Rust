@@ -11,16 +11,16 @@ fn world_with_duration(duration: Option<&str>) -> (GameLogic, ObjectId, ObjectId
     let duration = duration
         .map(|value| format!("TimeForFullHeal = {value}\n"))
         .unwrap_or_default();
-    let mut parser = crate::assets::IniParser::new();
-    parser.parse_ini_content(&format!("Object RepairRecipient\n KindOf = DRONE VEHICLE REPAIR_PAD\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 20\n End\n Behavior = RepairDockUpdate RepairTag\n {duration} End\nEnd\n"), "repair-owner.ini").unwrap();
+    let ini = format!(
+        "Object RepairRecipient\n KindOf = DRONE VEHICLE REPAIR_PAD\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 20\n End\n Behavior = RepairDockUpdate RepairTag\n {duration} End\nEnd\n"
+    );
     let mut game = GameLogic::new();
     game.add_player(Player::new(1, Team::USA, "RepairOwner", true));
-    let template = GameLogic::build_template_from_object_definition(
-        "RepairRecipient",
-        parser.get_definition("RepairRecipient").unwrap(),
-        None,
-    );
-    game.templates.insert(template.name.clone(), template);
+    game.admit_receiving_module_content(
+        crate::assets::ReceivingObjectContent::from_sources([("repair-owner.ini".into(), ini)])
+            .unwrap(),
+    )
+    .unwrap();
     let dock = game
         .create_object_for_player("RepairRecipient", 1, Vec3::ZERO)
         .unwrap();
@@ -63,7 +63,10 @@ fn seeking_repair_master_records_receiving_body_history_before_drone() {
     game.frame = 29;
     let object = game.host_object_mut(master).unwrap();
     object.target = Some(dock);
-    object.set_ai_state(AIState::SeekingRepair);
+    object.set_ai_state(
+        AIState::SeekingRepair,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
     // This control starts after DockUpdate has admitted the active docker;
     // approach movement is exercised by the separate docking fixtures.
     game.host_object_mut(dock).unwrap().dock_active_docker = Some(master);
@@ -192,7 +195,10 @@ fn seeking_repair_consumes_one_logic_action_independent_of_display_delta() {
     ] {
         let object = world.host_object_mut(master).unwrap();
         object.target = Some(dock);
-        object.set_ai_state(AIState::SeekingRepair);
+        object.set_ai_state(
+            AIState::SeekingRepair,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         world.host_object_mut(dock).unwrap().dock_active_docker = Some(master);
     }
     game.update_support_states(&[master], 1.0 / 30.0);

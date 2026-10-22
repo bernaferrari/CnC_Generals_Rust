@@ -6,6 +6,7 @@ use crate::game_logic::host_transition_damage_fx::HostTransitionDamageFxEvent;
 pub(in crate::game_logic) enum BodyStateFx {
     Transition(HostTransitionDamageFxEvent),
     VoiceFear(crate::game_logic::AudioEventRequest),
+    MovementStop(crate::game_logic::AudioEventRequest),
     FxListDie,
     FxListDieSlot(crate::game_logic::host_fx_list_die::HostFxListDieData),
     ArmorDamage {
@@ -67,7 +68,7 @@ impl Object {
             // Detached Object fixtures have no AudioManager owner. A caller
             // observing presentation supplies its BodyStateFxReceiver; admitted
             // objects use the receiving session operations below.
-            BodyStateFx::VoiceFear(_) => {}
+            BodyStateFx::VoiceFear(_) | BodyStateFx::MovementStop(_) => {}
             BodyStateFx::Transition(event) => {
                 object.queue_transition_damage_fx_event_with_source(event, source)
             }
@@ -230,7 +231,9 @@ impl crate::game_logic::GameLogic {
         audio: &mut Vec<crate::game_logic::AudioEventRequest>,
     ) {
         match effect {
-            BodyStateFx::VoiceFear(request) => audio.push(request),
+            BodyStateFx::VoiceFear(request) | BodyStateFx::MovementStop(request) => {
+                audio.push(request)
+            }
             effect => Object::standalone_body_fx(object, effect, source),
         }
     }
@@ -249,7 +252,9 @@ impl crate::game_logic::GameLogic {
         view: &mut game_client::fx_list::FxViewServices<'_>,
     ) {
         match effect {
-            BodyStateFx::VoiceFear(request) => audio.push(request),
+            BodyStateFx::VoiceFear(request) | BodyStateFx::MovementStop(request) => {
+                audio.push(request)
+            }
             BodyStateFx::Transition(event) => Self::execute_transition_damage_fx_with_view(
                 object, event, source, particles, frame, view,
             ),

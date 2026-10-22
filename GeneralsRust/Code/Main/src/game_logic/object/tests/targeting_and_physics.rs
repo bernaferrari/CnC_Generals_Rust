@@ -105,12 +105,33 @@ fn return_to_base_blocks_fire_until_rearm() {
         ..Weapon::default()
     });
     let tgt = ObjectId(9);
-    assert!(jet.fire_at(tgt, 1.0, 0, &mut shot_combat, &mut _attack_output,));
+    assert!(jet.fire_at(
+        tgt,
+        1.0,
+        0,
+        &mut shot_combat,
+        &mut _attack_output,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
+    ));
     assert_eq!(jet.weapon.as_ref().unwrap().ammo, Some(1));
-    assert!(jet.fire_at(tgt, 1.0, 0, &mut shot_combat, &mut _attack_output,));
+    assert!(jet.fire_at(
+        tgt,
+        1.0,
+        0,
+        &mut shot_combat,
+        &mut _attack_output,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
+    ));
     assert_eq!(jet.weapon.as_ref().unwrap().ammo, Some(0));
     assert!(jet.needs_return_to_base_rearm());
-    assert!(!jet.fire_at(tgt, 2.0, 0, &mut shot_combat, &mut _attack_output,));
+    assert!(!jet.fire_at(
+        tgt,
+        2.0,
+        0,
+        &mut shot_combat,
+        &mut _attack_output,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
+    ));
     assert!(!Object::weapon_ready_named(
         jet.weapon.as_ref().unwrap(),
         2.0,
@@ -119,7 +140,14 @@ fn return_to_base_blocks_fire_until_rearm() {
     ));
     assert!(jet.rearm_return_to_base_weapons());
     assert_eq!(jet.weapon.as_ref().unwrap().ammo, Some(2));
-    assert!(jet.fire_at(tgt, 3.0, 0, &mut shot_combat, &mut _attack_output,));
+    assert!(jet.fire_at(
+        tgt,
+        3.0,
+        0,
+        &mut shot_combat,
+        &mut _attack_output,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
+    ));
     assert_eq!(jet.weapon.as_ref().unwrap().ammo, Some(1));
 }
 
@@ -184,10 +212,16 @@ fn out_of_ammo_damage_ticks_empty_rtb_jet() {
     assert!((hp0 - jet.health.current - dmg).abs() < 1e-3);
     // Docked: no damage.
     jet.health.current = 100.0;
-    jet.set_ai_state(AIState::Docked);
+    jet.set_ai_state(
+        AIState::Docked,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
     assert_eq!(jet.apply_out_of_ammo_damage_frame(&mut health_events), 0.0);
     // Rearmed: no damage.
-    jet.set_ai_state(AIState::Idle);
+    jet.set_ai_state(
+        AIState::Idle,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
     jet.rearm_return_to_base_weapons();
     assert_eq!(jet.apply_out_of_ammo_damage_frame(&mut health_events), 0.0);
 }
@@ -270,7 +304,10 @@ fn empty_jet_circles_last_airfield_not_own_pos() {
     });
     jet.capture_jet_producer_location(Some(Vec3::ZERO));
     assert!(!jet.is_at_jet_producer_location(80.0));
-    assert!(jet.enter_circling_dead_airfield(1));
+    assert!(jet.enter_circling_dead_airfield(
+        1,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
+    ));
     assert!(jet.jet_circling_dead_airfield);
     jet.leave_circling_dead_airfield();
     jet.set_position(Vec3::new(10.0, 50.0, 0.0));
@@ -303,11 +340,18 @@ fn parked_jet_takeoff_on_attack_and_move() {
         ..Weapon::default()
     });
     jet.contained_by = Some(ObjectId(99));
-    jet.set_ai_state(AIState::Docked);
+    jet.set_ai_state(
+        AIState::Docked,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
     jet.status.airborne_target = false;
     assert!(jet.is_parked_at_airfield());
     assert!(jet.can_attack()); // parked aircraft may sortie
-    jet.attack_target(ObjectId(7), &mut _attack_output);
+    jet.attack_target(
+        ObjectId(7),
+        &mut _attack_output,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
     assert!(jet.contained_by.is_none());
     assert_ne!(jet.ai_state, AIState::Docked);
     assert!(jet.status.airborne_target);
@@ -317,12 +361,19 @@ fn parked_jet_takeoff_on_attack_and_move() {
 
     // Re-dock and move.
     jet.contained_by = Some(ObjectId(99));
-    jet.set_ai_state(AIState::Docked);
+    jet.set_ai_state(
+        AIState::Docked,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
     jet.status.airborne_target = false;
     jet.set_position(Vec3::new(10.0, 0.0, 0.0));
     let mut movement_events = crate::game_logic::movement_events::MovementEvents::default();
     let mut movement_writer = movement_events.writer(0);
-    jet.set_destination(Vec3::new(100.0, 0.0, 0.0), &mut movement_writer);
+    jet.set_destination(
+        Vec3::new(100.0, 0.0, 0.0),
+        &mut movement_writer,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
     assert!(jet.contained_by.is_none());
     assert!(jet.status.airborne_target || jet.ai_state != AIState::Docked);
     assert!(jet.get_position().y >= PARKING_PLACE_AIRFIELD_APPROACH_HEIGHT - 1e-3);
@@ -1173,7 +1224,11 @@ fn stunned_off_map_cliff_water_kills_without_loco() {
     assert!(!o.has_locomotor_for_surface(LOCO_SURFACE_WATER));
     o.set_position(glam::Vec3::new(RESIDUAL_MAP_EXTENT_MAX_X + 50.0, 0.0, 0.0));
     assert!(is_off_map_default_residual(o.get_position()));
-    assert!(o.test_stunned_unit_for_destruction(0, &mut health_events));
+    assert!(o.test_stunned_unit_for_destruction(
+        0,
+        &mut health_events,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
+    ));
     assert!(o.status.destroyed);
     assert_eq!(
         o.status.death_type,
@@ -1187,7 +1242,11 @@ fn stunned_off_map_cliff_water_kills_without_loco() {
     c.shock_stun_frames = 20;
     c.cell_is_cliff = true;
     c.set_position(glam::Vec3::ZERO);
-    assert!(c.test_stunned_unit_for_destruction(0, &mut health_events));
+    assert!(c.test_stunned_unit_for_destruction(
+        0,
+        &mut health_events,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
+    ));
     assert!(c.status.destroyed);
 
     let mut t3 = ThingTemplate::new("WaterVictim");
@@ -1196,7 +1255,11 @@ fn stunned_off_map_cliff_water_kills_without_loco() {
     w.shock_stun_frames = 20;
     w.cell_is_underwater = true;
     w.set_position(glam::Vec3::ZERO);
-    assert!(w.test_stunned_unit_for_destruction(0, &mut health_events));
+    assert!(w.test_stunned_unit_for_destruction(
+        0,
+        &mut health_events,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
+    ));
     assert!(w.status.destroyed);
 
     let mut th = ThingTemplate::new("AmphibHover");
@@ -1206,12 +1269,20 @@ fn stunned_off_map_cliff_water_kills_without_loco() {
     h.locomotor_surfaces = LOCO_SURFACE_GROUND | LOCO_SURFACE_WATER;
     h.cell_is_underwater = true;
     h.set_position(glam::Vec3::ZERO);
-    assert!(!h.test_stunned_unit_for_destruction(0, &mut health_events));
+    assert!(!h.test_stunned_unit_for_destruction(
+        0,
+        &mut health_events,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
+    ));
     assert!(!h.status.destroyed);
     h.cell_is_underwater = false;
     h.cell_is_cliff = true;
     h.locomotor_surfaces |= LOCO_SURFACE_CLIFF;
-    assert!(!h.test_stunned_unit_for_destruction(0, &mut health_events));
+    assert!(!h.test_stunned_unit_for_destruction(
+        0,
+        &mut health_events,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
+    ));
 }
 
 #[test]
@@ -1226,12 +1297,20 @@ fn stunned_ai_less_debris_keeps_tumbling_on_cliff_water() {
     debris.cell_is_cliff = true;
     debris.set_position(glam::Vec3::ZERO);
     assert!(!debris.has_ai_update_interface());
-    assert!(!debris.test_stunned_unit_for_destruction(0, &mut health_events));
+    assert!(!debris.test_stunned_unit_for_destruction(
+        0,
+        &mut health_events,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
+    ));
     assert!(!debris.status.destroyed);
 
     debris.cell_is_cliff = false;
     debris.cell_is_underwater = true;
-    assert!(!debris.test_stunned_unit_for_destruction(0, &mut health_events));
+    assert!(!debris.test_stunned_unit_for_destruction(
+        0,
+        &mut health_events,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
+    ));
     assert!(!debris.status.destroyed);
 
     let mut crate_t = ThingTemplate::new("SalvageCrate");
@@ -1242,13 +1321,21 @@ fn stunned_ai_less_debris_keeps_tumbling_on_cliff_water() {
     crate_obj.cell_is_underwater = true;
     crate_obj.set_position(glam::Vec3::ZERO);
     assert!(!crate_obj.has_ai_update_interface());
-    assert!(!crate_obj.test_stunned_unit_for_destruction(0, &mut health_events));
+    assert!(!crate_obj.test_stunned_unit_for_destruction(
+        0,
+        &mut health_events,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
+    ));
     assert!(!crate_obj.status.destroyed);
 
     // C++ still kills AI-less stunned debris when upside-down or off-map.
     debris.cell_is_underwater = false;
     debris.apply_physics_ypr(0.0, 0.0, std::f32::consts::PI);
-    assert!(debris.test_stunned_unit_for_destruction(0, &mut health_events));
+    assert!(debris.test_stunned_unit_for_destruction(
+        0,
+        &mut health_events,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
+    ));
     assert!(debris.status.destroyed);
 
     let mut off = Object::new(
@@ -1258,7 +1345,11 @@ fn stunned_ai_less_debris_keeps_tumbling_on_cliff_water() {
     );
     off.shock_stun_frames = 20;
     off.set_position(glam::Vec3::new(RESIDUAL_MAP_EXTENT_MAX_X + 50.0, 0.0, 0.0));
-    assert!(off.test_stunned_unit_for_destruction(0, &mut health_events));
+    assert!(off.test_stunned_unit_for_destruction(
+        0,
+        &mut health_events,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
+    ));
     assert!(off.status.destroyed);
 }
 
@@ -1405,7 +1496,14 @@ fn shock_bounce_keep_flip_before_stun_test() {
     o.shock_allow_bounce = true;
     o.shock_stun_frames = 40;
     o.movement.velocity = glam::Vec3::new(0.0, -4.0, 0.0);
-    let bounced = o.handle_shock_ground_bounce(0, 2.0, -0.1, 0.0, &mut health_events);
+    let bounced = o.handle_shock_ground_bounce(
+        0,
+        2.0,
+        -0.1,
+        0.0,
+        &mut health_events,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
     assert!(
         o.status.destroyed,
         "inverted stunned must die after keep_flip"
@@ -1419,7 +1517,16 @@ fn shock_bounce_keep_flip_before_stun_test() {
     w.apply_physics_ypr(0.0, 0.0, std::f32::consts::PI);
     w.shock_allow_bounce = true;
     w.movement.velocity = glam::Vec3::new(0.0, -4.0, 0.0);
-    assert!(w.handle_shock_ground_bounce(0, 2.0, -0.1, 0.0, &mut health_events) > 0.0);
+    assert!(
+        w.handle_shock_ground_bounce(
+            0,
+            2.0,
+            -0.1,
+            0.0,
+            &mut health_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
+        ) > 0.0
+    );
     assert!(
         w.physics_transform_up_y() < 0.0,
         "hq-p6amn: shock bounce must keep inverted roll, up={}",
@@ -1444,7 +1551,14 @@ fn stunned_upside_down_bounce_kills_and_freefall_disables() {
     // Invert integrated pose (C++ Get_Z_Vector().Z < 0) after set_position.
     o.apply_physics_ypr(0.0, 0.0, std::f32::consts::PI);
     o.movement.velocity = glam::Vec3::new(0.0, -4.0, 0.0);
-    let bounced = o.handle_shock_ground_bounce(0, 2.0, -0.1, 0.0, &mut health_events);
+    let bounced = o.handle_shock_ground_bounce(
+        0,
+        2.0,
+        -0.1,
+        0.0,
+        &mut health_events,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
     assert!(o.status.destroyed, "upside-down stunned must die on bounce");
     assert_eq!(bounced, 0.0);
     // Freefall disable residual while airborne.
@@ -1684,7 +1798,14 @@ fn handle_shock_ground_bounce_restores_original_allow_bounce() {
     o.shock_allow_bounce = true;
     o.original_allow_bounce = true;
     o.movement.velocity = glam::Vec3::ZERO;
-    let bounced = o.handle_shock_ground_bounce(0, 0.0, -0.1, 0.0, &mut health_events);
+    let bounced = o.handle_shock_ground_bounce(
+        0,
+        0.0,
+        -0.1,
+        0.0,
+        &mut health_events,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
     assert_eq!(bounced, 0.0);
     assert!(
         o.shock_allow_bounce,
@@ -1703,8 +1824,14 @@ fn handle_shock_ground_bounce_restores_original_allow_bounce() {
     authored_off.shock_allow_bounce = true;
     authored_off.original_allow_bounce = false;
     authored_off.movement.velocity = glam::Vec3::ZERO;
-    let bounced_off =
-        authored_off.handle_shock_ground_bounce(0, 0.0, -0.1, 0.0, &mut health_events);
+    let bounced_off = authored_off.handle_shock_ground_bounce(
+        0,
+        0.0,
+        -0.1,
+        0.0,
+        &mut health_events,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
     assert_eq!(bounced_off, 0.0);
     assert!(
         !authored_off.shock_allow_bounce,
@@ -1747,7 +1874,16 @@ fn bounce_damps_pitch_roll_rates_not_zero() {
     s.shock_roll_rate = 1.0;
     s.movement.velocity = glam::Vec3::new(0.0, -4.0, 0.0);
     s.immune_to_falling_damage = true;
-    assert!(s.handle_shock_ground_bounce(0, 2.0, -0.1, 0.0, &mut health_events) > 0.0);
+    assert!(
+        s.handle_shock_ground_bounce(
+            0,
+            2.0,
+            -0.1,
+            0.0,
+            &mut health_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
+        ) > 0.0
+    );
     assert!((s.shock_yaw_rate - 0.7).abs() < 1e-5);
     assert!((s.shock_pitch_rate - 0.7).abs() < 1e-5);
     assert!((s.shock_roll_rate - 0.7).abs() < 1e-5);
@@ -1786,7 +1922,11 @@ fn shock_stun_blocks_attack_fire_and_flail_move() {
     assert!(o.can_move(), "settled stun may stagger-move");
     // attack_target ignored while stunned.
     o.shock_stun_frames = 20;
-    o.attack_target(ObjectId(99), &mut _attack_output);
+    o.attack_target(
+        ObjectId(99),
+        &mut _attack_output,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
     assert!(o.target.is_none() || o.ai_state != AIState::Attacking || !o.can_attack());
     // After stun clears, combat again.
     o.shock_stun_frames = 0;
@@ -1811,12 +1951,18 @@ fn jet_stop_idle_timer_sneaky_and_lockon() {
     let mut aurora = Object::new(aurora_t, ObjectId(1), Team::USA);
     aurora.set_position(Vec3::new(0.0, 50.0, 0.0));
     aurora.status.airborne_target = true;
-    aurora.set_ai_state(AIState::Idle);
+    aurora.set_ai_state(
+        AIState::Idle,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
     aurora.status.attacking = true;
     let persist = aurora.tick_jet_ai_update(10);
     assert_eq!(persist, JetAiTickAction::None);
     aurora.status.attacking = false;
-    aurora.set_ai_state(AIState::Idle);
+    aurora.set_ai_state(
+        AIState::Idle,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
     let _ = aurora.tick_jet_ai_update(11);
     assert_eq!(
         aurora.jet_ai.return_to_base_frame,
@@ -1872,7 +2018,10 @@ fn jet_stop_idle_timer_sneaky_and_lockon() {
     raptor_t.primary_weapon_name = Some("HostTestRaptorJetMissileWeapon".into());
     let mut raptor = Object::new(raptor_t, ObjectId(3), Team::USA);
     raptor.status.airborne_target = true;
-    raptor.set_ai_state(AIState::GuardingArea);
+    raptor.set_ai_state(
+        AIState::GuardingArea,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
     raptor.mark_jet_command_for_reload_interrupt(true);
     raptor.weapon = Some(crate::game_logic::Weapon {
         ammo: Some(0),
@@ -1889,12 +2038,21 @@ fn jet_stop_idle_timer_sneaky_and_lockon() {
         HostJetPendingResume::GuardArea
     );
 
-    raptor.set_ai_state(AIState::Attacking);
+    raptor.set_ai_state(
+        AIState::Attacking,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
     raptor.target = Some(ObjectId(9));
     raptor.jet_ai.allow_interrupt_for_reload = false;
     raptor.jet_ai.has_pending_command = false;
     assert!(!raptor.jet_empty_clip_should_auto_rtb());
-    raptor.begin_guard_retaliate(ObjectId(9), Some(Vec3::ZERO), None, &mut _attack_output);
+    raptor.begin_guard_retaliate(
+        ObjectId(9),
+        Some(Vec3::ZERO),
+        None,
+        &mut _attack_output,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
     assert!(
         raptor.jet_ai.allow_interrupt_for_reload,
         "C++ GUARD_RETALIATE sets ALLOW_INTERRUPT_AND_RESUME_OF_CUR_STATE_FOR_RELOAD"
@@ -2173,7 +2331,10 @@ fn jet_stop_and_enter_airfield_land() {
         j.status.airborne_target = true;
         j.owner_player_id = Some(0);
         j.producer_id = Some(af);
-        j.set_ai_state(AIState::Attacking);
+        j.set_ai_state(
+            AIState::Attacking,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         j.target = Some(ObjectId(99));
     }
     assert!(logic.unit_command_stop(jet));

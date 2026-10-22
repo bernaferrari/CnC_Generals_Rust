@@ -243,17 +243,37 @@ fn generic_tracker_arms_base_and_preserves_two_stage_strict_cooldown() {
                 crate::game_logic::host_fire_sound_loop_log::FireSoundLoopEvents::default();
             let (actor, health) = owner.host_object_and_health_events_mut(source).unwrap();
             let shot_level = actor.continuous_fire_level;
-            actor.tick_continuous_fire_coast(deadline, &mut sound, health);
+            actor.tick_continuous_fire_coast(
+                deadline,
+                &mut sound,
+                health,
+                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            );
             assert_eq!(actor.continuous_fire_level, shot_level);
-            actor.tick_continuous_fire_coast(deadline + 1, &mut sound, health);
+            actor.tick_continuous_fire_coast(
+                deadline + 1,
+                &mut sound,
+                health,
+                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            );
             assert_eq!(actor.continuous_fire_level, 0);
             assert_eq!(actor.consecutive_shots_at_target, 0);
             assert_eq!(actor.consecutive_shot_target, None);
             if shot_level != 0 {
                 assert_eq!(actor.continuous_fire_coast_until_frame, deadline + 31);
-                actor.tick_continuous_fire_coast(deadline + 31, &mut sound, health);
+                actor.tick_continuous_fire_coast(
+                    deadline + 31,
+                    &mut sound,
+                    health,
+                    &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+                );
                 assert_eq!(actor.continuous_fire_coast_until_frame, deadline + 31);
-                actor.tick_continuous_fire_coast(deadline + 32, &mut sound, health);
+                actor.tick_continuous_fire_coast(
+                    deadline + 32,
+                    &mut sound,
+                    health,
+                    &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+                );
             }
             assert_eq!(actor.continuous_fire_coast_until_frame, 0);
         }

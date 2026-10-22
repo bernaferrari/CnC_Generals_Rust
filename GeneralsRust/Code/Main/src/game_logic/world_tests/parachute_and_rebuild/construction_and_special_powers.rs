@@ -48,7 +48,10 @@ fn dozer_repair_sets_actively_constructing_and_completes() {
         )
         .expect("dozer");
     if let Some(o) = logic.host_object_mut(did) {
-        o.set_ai_state(AIState::Repairing);
+        o.set_ai_state(
+            AIState::Repairing,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         o.target = Some(sid);
         assert!(o.can_construct(), "dozer must can_construct");
         assert!(o.can_repair(), "dozer must can_repair");
@@ -78,8 +81,11 @@ fn dozer_repair_sets_actively_constructing_and_completes() {
                 logic.queue_radar_message_at(msg, pos, radar_notifications::RadarKind::Generic);
                 logic.repair_complete_events = logic.repair_complete_events.saturating_add(1);
                 if let Some(d) = logic.host_object_mut(did) {
-                    d.clear_target();
-                    d.set_ai_state(AIState::Idle);
+                    d.clear_target(&mut crate::game_logic::MovementAudio::queue(&mut Vec::new()));
+                    d.set_ai_state(
+                        AIState::Idle,
+                        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+                    );
                     d.set_actively_constructing(false);
                 }
                 break;
@@ -386,7 +392,10 @@ fn resume_construction_allows_dead_or_retasked_builder() {
         )
         .expect("dozer2");
     if let Some(d) = logic.host_object_mut(did) {
-        d.set_ai_state(AIState::Idle);
+        d.set_ai_state(
+            AIState::Idle,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         d.target = None;
         // C++ DozerAIUpdate.cpp:2012-2022 cancelTask / internalCancelTask
         // clears the BUILD task target when the dozer is re-tasked, so
@@ -503,7 +512,10 @@ fn mine_clear_drops_worker_supply_boxes() {
         "hq-6je29: not attacking yet — keep boxes"
     );
     if let Some(w) = logic.host_object_mut(wid) {
-        w.set_ai_state(AIState::Attacking);
+        w.set_ai_state(
+            AIState::Attacking,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         w.status.attacking = true;
     }
     logic.drop_worker_supply_boxes_for_mine_clear(wid);
@@ -555,7 +567,10 @@ fn cancel_construction_clears_dozer_actively_constructing() {
         )
         .expect("dozer");
     if let Some(o) = logic.host_object_mut(did) {
-        o.set_ai_state(AIState::Constructing);
+        o.set_ai_state(
+            AIState::Constructing,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         o.target = Some(sid);
         o.set_actively_constructing(true);
     }
@@ -1413,7 +1428,10 @@ fn disabled_freezes_structure_superweapon_countdown() {
     }
     // Tick while enabled: countdown advances.
     if let Some(o) = logic.host_object_mut(puc) {
-        let _ = o.tick_timers(10.0);
+        let _ = o.tick_timers(
+            10.0,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         let rem = o
             .special_power_cooldowns
             .get(&SpecialPowerType::ParticleCannon)
@@ -1424,7 +1442,10 @@ fn disabled_freezes_structure_superweapon_countdown() {
     // Disable (underpowered residual) → freeze.
     if let Some(o) = logic.host_object_mut(puc) {
         o.set_status_disabled_underpowered(true);
-        let _ = o.tick_timers(50.0);
+        let _ = o.tick_timers(
+            50.0,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         let rem = o
             .special_power_cooldowns
             .get(&SpecialPowerType::ParticleCannon)
@@ -1438,7 +1459,10 @@ fn disabled_freezes_structure_superweapon_countdown() {
     // Re-enable → resume.
     if let Some(o) = logic.host_object_mut(puc) {
         o.set_status_disabled_underpowered(false);
-        let _ = o.tick_timers(5.0);
+        let _ = o.tick_timers(
+            5.0,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         let rem = o
             .special_power_cooldowns
             .get(&SpecialPowerType::ParticleCannon)
@@ -1974,7 +1998,10 @@ fn shared_timer_ready_fires_eva_superweapon_ready_residual() {
     assert!(!logic.honesty_eva_superweapon_ready_ok());
     // Object tick_timers edge → try_eva_superweapon_ready residual.
     if let Some(o) = logic.host_object_mut(id) {
-        let became = o.tick_timers(0.1);
+        let became = o.tick_timers(
+            0.1,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         assert!(became, "PUC must become ready");
     }
     // GameLogic update path also calls try_eva on became_ready — call residual directly.
@@ -2328,7 +2355,10 @@ fn airfield_dock_reloads_countermeasures_residual() {
     {
         let o = logic.host_object_mut(air).unwrap();
         o.apply_upgrade_tag(UPGRADE_AMERICA_COUNTERMEASURES);
-        o.set_ai_state(AIState::Docked);
+        o.set_ai_state(
+            AIState::Docked,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         o.set_contained_by(Some(af_id));
         assert!(aircraft_has_countermeasures_upgrade(&o.applied_upgrades));
     }
@@ -2705,10 +2735,16 @@ fn shared_synced_special_power_timer_is_player_wide() {
     // Tick 240s clears shared residual.
     logic.tick_shared_special_power_timers(240.0);
     if let Some(o) = logic.host_object_mut(cc1) {
-        let _ = o.tick_timers(240.0);
+        let _ = o.tick_timers(
+            240.0,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     if let Some(o) = logic.host_object_mut(cc2) {
-        let _ = o.tick_timers(240.0);
+        let _ = o.tick_timers(
+            240.0,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     assert!(logic.is_special_power_ready_for(cc2, &SpecialPowerType::Airstrike));
 }
@@ -2968,14 +3004,23 @@ fn special_power_cooldowns_are_independent_per_power() {
     let o = logic.host_object_mut(id).unwrap();
     assert!(o.is_special_power_ready(&SpecialPowerType::Airstrike));
     assert!(o.is_special_power_ready(&SpecialPowerType::SpySatellite));
-    o.consume_special_power_charge(&SpecialPowerType::Airstrike);
+    o.consume_special_power_charge(
+        &SpecialPowerType::Airstrike,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
     // A10 reloading must not block SpySatellite residual.
     assert!(!o.is_special_power_ready(&SpecialPowerType::Airstrike));
     assert!(o.is_special_power_ready(&SpecialPowerType::SpySatellite));
-    o.consume_special_power_charge(&SpecialPowerType::SpySatellite);
+    o.consume_special_power_charge(
+        &SpecialPowerType::SpySatellite,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
     assert!(!o.is_special_power_ready(&SpecialPowerType::SpySatellite));
     // Tick 60s: spy sat (60s) clears, A10 (240s) remains.
-    let _ = o.tick_timers(60.0);
+    let _ = o.tick_timers(
+        60.0,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
     assert!(
         o.is_special_power_ready(&SpecialPowerType::SpySatellite),
         "spy remaining should clear at 60s"
@@ -3033,7 +3078,10 @@ fn special_power_reload_seconds_uses_retail_residual_table() {
         .expect("cc");
     if let Some(o) = logic.host_object_mut(id) {
         assert!(o.is_special_power_ready(&SpecialPowerType::Airstrike));
-        o.consume_special_power_charge(&SpecialPowerType::Airstrike);
+        o.consume_special_power_charge(
+            &SpecialPowerType::Airstrike,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         assert!(!o.special_power_ready);
         assert!(
             (o.special_power_cooldown_remaining - 240.0).abs() < 0.01,

@@ -47,14 +47,19 @@ impl Object {
     }
 
     /// C++ StructureCollapseUpdate::onDie / beginStructureCollapse residual.
-    pub fn begin_structure_collapse(&mut self, current_frame: u32) -> bool {
-        self.begin_structure_collapse_with_fx(current_frame, &mut Self::standalone_object_fx)
+    pub fn begin_structure_collapse(
+        &mut self,
+        current_frame: u32,
+        audio: &mut crate::game_logic::MovementAudio<'_>,
+    ) -> bool {
+        self.begin_structure_collapse_with_fx(current_frame, &mut Self::standalone_object_fx, audio)
     }
 
     pub(in crate::game_logic) fn begin_structure_collapse_with_fx(
         &mut self,
         current_frame: u32,
         fx: &mut dyn FnMut(&str, &Object, bool),
+        audio: &mut crate::game_logic::MovementAudio<'_>,
     ) -> bool {
         if !self.is_kind_of(crate::game_logic::KindOf::Structure) {
             return false;
@@ -89,7 +94,7 @@ impl Object {
         }
         self.selected = false;
         self.status.selected = false;
-        self.set_ai_state(crate::game_logic::AIState::Idle);
+        self.set_ai_state(crate::game_logic::AIState::Idle, audio);
         // ActiveBody has already committed lethal HP/dead state before onDie.
         // The independently scheduled structure update must not revive that body.
         // C++ beginStructureCollapse: doPhaseStuff(SCPHASE_INITIAL) → FXList::doFXPos.
@@ -172,6 +177,7 @@ impl Object {
         &mut self,
         current_frame: u32,
         attacker_pos: Option<(f32, f32)>,
+        audio: &mut crate::game_logic::MovementAudio<'_>,
     ) -> bool {
         let override_direction = if self.name.is_empty() {
             None
@@ -183,7 +189,12 @@ impl Object {
             .map(|direction| (direction.x, direction.y))
             .or_else(|| gamelogic::scripting::host_script_topple_direction_for(&self.name))
         };
-        self.begin_structure_topple_with_direction(current_frame, attacker_pos, override_direction)
+        self.begin_structure_topple_with_direction(
+            current_frame,
+            attacker_pos,
+            override_direction,
+            audio,
+        )
     }
 
     pub(crate) fn begin_structure_topple_with_direction(
@@ -191,6 +202,7 @@ impl Object {
         current_frame: u32,
         attacker_pos: Option<(f32, f32)>,
         override_direction: Option<(f32, f32)>,
+        audio: &mut crate::game_logic::MovementAudio<'_>,
     ) -> bool {
         let prepared = self.prepare_structure_topple_with_direction(
             current_frame,
@@ -198,6 +210,7 @@ impl Object {
             override_direction,
             0,
             None,
+            audio,
         );
         if prepared {
             self.dispatch_pending_structure_topple_fx();
@@ -212,6 +225,7 @@ impl Object {
         override_direction: Option<(f32, f32)>,
         delay: u32,
         burst_location: Option<glam::Vec3>,
+        audio: &mut crate::game_logic::MovementAudio<'_>,
     ) -> bool {
         if !self.is_kind_of(crate::game_logic::KindOf::Structure) {
             return false;
@@ -267,7 +281,7 @@ impl Object {
         // Original onDie marks AI dead and deselects BEFORE Start FX.
         self.selected = false;
         self.status.selected = false;
-        self.set_ai_state(crate::game_logic::AIState::Idle);
+        self.set_ai_state(crate::game_logic::AIState::Idle, audio);
         data.begin(current_frame, dx, dz, delay);
         data.structural_integrity = definition.integrity;
         if let Some(location) = burst_location {
@@ -377,7 +391,11 @@ impl Object {
     }
 
     /// C++ KeepObjectDie residual: leave rubble instead of DestroyDie remove.
-    pub fn begin_keep_object_die(&mut self, current_frame: u32) -> bool {
+    pub fn begin_keep_object_die(
+        &mut self,
+        current_frame: u32,
+        audio: &mut crate::game_logic::MovementAudio<'_>,
+    ) -> bool {
         let is_struct = self.is_kind_of(crate::game_logic::KindOf::Structure);
         if !crate::game_logic::host_keep_object_die::wants_keep_object_die(
             &self.template_name,
@@ -402,7 +420,7 @@ impl Object {
         // Not destroyed: remains in world. Unselectable rubble husk.
         self.status.destroyed = false;
         self.status.selected = false;
-        self.set_ai_state(crate::game_logic::AIState::Idle);
+        self.set_ai_state(crate::game_logic::AIState::Idle, audio);
         self.target = None;
         self.refresh_model_condition_bits();
         true
@@ -437,7 +455,11 @@ impl Object {
     /// C++ SlowDeathBehavior::beginSlowDeath residual.
     /// Returns true if slow death started (caller should defer destroy).
     /// Starts only when Object INI authors `SlowDeathBehavior`.
-    pub fn begin_slow_death(&mut self, current_frame: u32) -> bool {
+    pub fn begin_slow_death(
+        &mut self,
+        current_frame: u32,
+        audio: &mut crate::game_logic::MovementAudio<'_>,
+    ) -> bool {
         let ini = match &self.thing.template.authored_slow_death {
             Some(modules) => modules.first().cloned(),
             None => {
@@ -451,7 +473,7 @@ impl Object {
                 .map(|s| s.is_active())
                 .unwrap_or(false);
         };
-        self.begin_slow_death_from_ini(current_frame, &ini)
+        self.begin_slow_death_from_ini(current_frame, &ini, audio)
     }
 
     /// C++ SlowDeathBehavior::beginSlowDeath with authored module data.
@@ -459,8 +481,9 @@ impl Object {
         &mut self,
         current_frame: u32,
         ini: &crate::game_logic::host_slow_death::HostSlowDeathIni,
+        audio: &mut crate::game_logic::MovementAudio<'_>,
     ) -> bool {
-        self.begin_slow_death_from_ini_with_removal(current_frame, ini, false)
+        self.begin_slow_death_from_ini_with_removal(current_frame, ini, false, audio)
     }
 
     pub(in crate::game_logic) fn begin_slow_death_from_ini_with_removal(
@@ -468,6 +491,7 @@ impl Object {
         current_frame: u32,
         ini: &crate::game_logic::host_slow_death::HostSlowDeathIni,
         deletion_queued: bool,
+        audio: &mut crate::game_logic::MovementAudio<'_>,
     ) -> bool {
         if self
             .slow_death
@@ -501,7 +525,7 @@ impl Object {
         // CPP SlowDeath retains the dead Body. Its owned timer and Physics
         // continue without healing HP or replaying a damage-state transition.
         // Mark "dead" for AI but not removed yet.
-        self.set_ai_state(crate::game_logic::AIState::Idle);
+        self.set_ai_state(crate::game_logic::AIState::Idle, audio);
         self.target = None;
         self.selected = false;
         self.status.selected = false;
@@ -885,13 +909,14 @@ impl Object {
     }
 
     /// C++ InstantDeathBehavior::onDie residual — queues FX/OCL/Weapon.
-    pub fn fire_instant_death(&mut self) -> bool {
-        self.fire_instant_death_for(self.status.death_type)
+    pub fn fire_instant_death(&mut self, audio: &mut crate::game_logic::MovementAudio<'_>) -> bool {
+        self.fire_instant_death_for(self.status.death_type, audio)
     }
 
     pub(crate) fn fire_instant_death_for(
         &mut self,
         death_type: crate::game_logic::host_usa_pilot::HostDeathType,
+        audio: &mut crate::game_logic::MovementAudio<'_>,
     ) -> bool {
         let ini = match &self.thing.template.authored_instant_death {
             Some(modules) => modules
@@ -921,7 +946,7 @@ impl Object {
             }
         }
         self.pending_instant_death_weapon = burst.weapon;
-        self.set_ai_state(crate::game_logic::AIState::Idle);
+        self.set_ai_state(crate::game_logic::AIState::Idle, audio);
         self.target = None;
         true
     }

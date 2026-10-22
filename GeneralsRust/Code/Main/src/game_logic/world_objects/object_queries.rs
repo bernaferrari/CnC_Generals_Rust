@@ -2091,12 +2091,18 @@ impl GameLogic {
                 }
                 obj.refresh_special_power_aggregate_cooldown();
             }
-        } else if let Some(obj) = self.host_object_mut(object_id) {
+        } else if let Some((obj, audio_events)) = self.host_object_and_audio_events_mut(object_id) {
             if let Some(module) = parsed_module.as_ref() {
                 obj.start_power_recharge_with_frames(power, module.reload_time_frames);
-                obj.set_ai_state(AIState::Idle);
+                obj.set_ai_state(
+                    AIState::Idle,
+                    &mut crate::game_logic::MovementAudio::queue(audio_events),
+                );
             } else {
-                obj.consume_special_power_charge(power);
+                obj.consume_special_power_charge(
+                    power,
+                    &mut crate::game_logic::MovementAudio::queue(audio_events),
+                );
             }
         }
         true
@@ -3246,7 +3252,10 @@ mod dock_approach_owner_tests {
     fn make_gathering(world: &mut GameLogic, dock: ObjectId, docker: ObjectId) {
         let worker = world.host_object_mut(docker).expect("worker");
         worker.target = Some(dock);
-        worker.set_ai_state(AIState::Gathering);
+        worker.set_ai_state(
+            AIState::Gathering,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
 
     #[test]
@@ -3362,8 +3371,14 @@ mod dock_approach_owner_tests {
         // retain the exit event even though the current state is live again.
         {
             let owner = world.host_object_mut(docker_ids[0]).expect("first owner");
-            owner.set_ai_state(AIState::Moving);
-            owner.set_ai_state(AIState::Gathering);
+            owner.set_ai_state(
+                AIState::Moving,
+                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            );
+            owner.set_ai_state(
+                AIState::Gathering,
+                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            );
         }
         assert_eq!(
             world.find_nearest_harvestable_supply_within(
@@ -3390,8 +3405,14 @@ mod dock_approach_owner_tests {
 
         let replacement = world.host_object(owner_id).expect("owner").clone();
         let mut query_clone = world.host_object(owner_id).expect("owner").clone();
-        query_clone.set_ai_state(AIState::Moving);
-        query_clone.set_ai_state(AIState::Gathering);
+        query_clone.set_ai_state(
+            AIState::Moving,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
+        query_clone.set_ai_state(
+            AIState::Gathering,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         assert_eq!(
             world.find_nearest_harvestable_supply_within(
                 Team::USA,
@@ -3512,7 +3533,10 @@ mod dock_approach_owner_tests {
         world_a
             .host_object_mut(active_a)
             .expect("active docker")
-            .set_ai_state(AIState::Moving);
+            .set_ai_state(
+                AIState::Moving,
+                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            );
         let waiter_a = workers_a[1];
         make_gathering(&mut world_a, dock_a, waiter_a);
         // The normal mutable support-state update flushes callback epochs
@@ -3576,8 +3600,15 @@ mod dock_approach_owner_tests {
             let (object, attack_events) = world
                 .host_object_and_attack_events_mut(id)
                 .expect("repairer object");
-            object.set_target(Some(dock), attack_events);
-            object.set_ai_state(AIState::SeekingRepair);
+            object.set_target(
+                Some(dock),
+                attack_events,
+                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            );
+            object.set_ai_state(
+                AIState::SeekingRepair,
+                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            );
         }
 
         let first_epoch = world.host_object(first).unwrap().dock_cancel_epoch;

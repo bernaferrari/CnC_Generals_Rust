@@ -630,8 +630,14 @@ pub(super) fn setup_ground_attacker(
         .host_object_mut(attacker_id)
         .expect("attacker should exist");
     attacker.set_force_attack(true);
-    attacker.set_target_location(Some(target_location));
-    attacker.set_ai_state(AIState::AttackingGround);
+    attacker.set_target_location(
+        Some(target_location),
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
+    attacker.set_ai_state(
+        AIState::AttackingGround,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
     attacker.set_status_attacking(true);
     if let Some(weapon) = attacker.weapon.as_mut() {
         weapon.damage = 40.0;

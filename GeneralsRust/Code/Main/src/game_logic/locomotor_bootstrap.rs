@@ -1923,7 +1923,10 @@ mod tests {
                 .abs()
                 < 1e-4
         );
-        ground.update_movement(1.0 / 30.0);
+        ground.update_movement(
+            1.0 / 30.0,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         assert!(
             ground.movement.target_position.is_none(),
             "ground leftover arrival is 2D, 1wu < 2"
@@ -1939,7 +1942,10 @@ mod tests {
         let d3 =
             dive.host_locomotor_distance_to_goal(dive.get_position(), Vec3::new(1.0, 0.0, 0.0));
         assert!(d3 > 9.0, "flag uses 3D hypotenuse, got {d3}");
-        dive.update_movement(1.0 / 30.0);
+        dive.update_movement(
+            1.0 / 30.0,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         assert!(
             dive.movement.target_position.is_some(),
             "CloseEnoughDist3D must not plant on 2D when 3D > arrive"

@@ -44,7 +44,10 @@ fn setup_rider(
         .unwrap();
     let unit = world.host_object_mut(rider).unwrap();
     unit.set_contained_by(Some(transport));
-    unit.set_ai_state(state);
+    unit.set_ai_state(
+        state,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
     unit.next_mood_check_time = 9999;
     unit.randomly_offset_mood_check = jitter;
     assert!(

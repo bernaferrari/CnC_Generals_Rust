@@ -15,11 +15,8 @@ fn world_with_duration(
     attributes: &str,
     milliseconds: u32,
 ) -> (GameLogic, ObjectId, ObjectId) {
-    let mut parser = crate::assets::IniParser::new();
-    parser
-        .parse_ini_content(
-            &format!(
-                r#"
+    let ini = format!(
+        r#"
 Object ContainmentHealingOwner
  KindOf = STRUCTURE
  Body = ActiveBody BodyTag
@@ -45,24 +42,20 @@ Object ContainmentHealingPassenger
  End
 End
 "#
-            ),
-            "containment_healing_owner.ini",
-        )
-        .unwrap();
+    );
     let mut owner = GameLogic::new();
     owner.world_min = Vec3::ZERO;
     owner.world_max = Vec3::splat(1000.0);
     owner.add_player(Player::new(1, Team::USA, "HealingOwner", true));
-    for name in ["ContainmentHealingOwner", "ContainmentHealingPassenger"] {
-        owner.templates.insert(
-            name.into(),
-            GameLogic::build_template_from_object_definition(
-                name,
-                parser.get_definition(name).unwrap(),
-                None,
-            ),
-        );
-    }
+    owner
+        .admit_receiving_module_content(
+            crate::assets::ReceivingObjectContent::from_sources([(
+                "containment_healing_owner.ini".into(),
+                ini,
+            )])
+            .unwrap(),
+        )
+        .unwrap();
     let container = owner
         .create_object_for_player("ContainmentHealingOwner", 1, Vec3::new(50.0, 0.0, 50.0))
         .unwrap();

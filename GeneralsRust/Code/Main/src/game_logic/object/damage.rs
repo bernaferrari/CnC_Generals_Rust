@@ -504,7 +504,14 @@ impl Object {
                             frame,
                             body_fx,
                         );
-                        self.set_ai_state(AIState::Idle);
+                        self.set_ai_state(
+                            AIState::Idle,
+                            &mut crate::game_logic::MovementAudio::callback(
+                                &mut |object, request| {
+                                    body_fx(object, BodyStateFx::MovementStop(request), None)
+                                },
+                            ),
+                        );
                         self.target = None;
                         health_events.record_applied_damage(
                             self.id,
@@ -581,7 +588,12 @@ impl Object {
                 if self.is_car_bomb() {
                     // Detonation handled by combat caller; mark unmanned edge.
                 }
-                self.apply_kill_pilot_unmanned(health_events);
+                self.apply_kill_pilot_unmanned(
+                    health_events,
+                    &mut crate::game_logic::MovementAudio::callback(&mut |object, request| {
+                        body_fx(object, BodyStateFx::MovementStop(request), None)
+                    }),
+                );
                 if let Some(output) = ownership_events {
                     self.set_team_and_owner(
                         crate::game_logic::Team::Neutral,
@@ -635,7 +647,13 @@ impl Object {
                 damage_type,
                 damage,
             );
-            self.apply_subdual_damage(typed, health_events);
+            self.apply_subdual_damage(
+                typed,
+                health_events,
+                &mut crate::game_logic::MovementAudio::callback(&mut |object, request| {
+                    body_fx(object, BodyStateFx::MovementStop(request), None)
+                }),
+            );
             if typed > 0.0 || context.is_kill() {
                 self.stamp_last_damage_cpp(source, damage_type, frame, context);
                 player_effects(BodyPlayerEffect::AttackedBy {
@@ -900,7 +918,12 @@ impl Object {
             if !self.status.destroyed {
                 self.status.destroyed = true;
                 self.status.death_type = death_type;
-                self.set_ai_state(AIState::Idle);
+                self.set_ai_state(
+                    AIState::Idle,
+                    &mut crate::game_logic::MovementAudio::callback(&mut |object, request| {
+                        body_fx(object, BodyStateFx::MovementStop(request), None)
+                    }),
+                );
                 self.target = None;
             }
             true

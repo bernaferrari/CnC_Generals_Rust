@@ -46,7 +46,9 @@ impl GameLogic {
         for (id, o) in self.objects.iter_mut() {
             o.clear_blocked_frame_state();
             o.tick_move_away_state();
-            if o.tick_path_queue() {
+            if o.tick_path_queue(&mut crate::game_logic::MovementAudio::queue(
+                &mut self.queued_audio_events,
+            )) {
                 expired_paths.push(*id);
             }
             // C++ DISABLED_HELD skips gravity/friction/Euler; accel still zeros.
@@ -986,7 +988,10 @@ impl GameLogic {
                 AIState::Patrolling | AIState::AttackMoving | AIState::Attacking
             );
             if entered_attack {
-                a.set_ai_state(AIState::Attacking);
+                a.set_ai_state(
+                    AIState::Attacking,
+                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                );
             }
             a.set_status_attacking(true);
             {}
@@ -1203,7 +1208,10 @@ impl GameLogic {
         let next_pos = self.objects.get(&next_id).map(|obj| obj.get_position());
         let armed = if let Some(attacker) = self.objects.get_mut(&attacker_id) {
             attacker.target = Some(next_id);
-            attacker.set_ai_state(AIState::Attacking);
+            attacker.set_ai_state(
+                AIState::Attacking,
+                &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+            );
             attacker.set_status_attacking(true);
             true
         } else {

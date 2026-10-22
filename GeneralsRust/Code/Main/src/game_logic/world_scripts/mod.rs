@@ -37,3 +37,6 @@ mod cold_grid_owner_tests;
 
 #[cfg(test)]
 mod voice_fear_owner_tests;
+
+#[cfg(test)]
+mod movement_audio_owner_tests;

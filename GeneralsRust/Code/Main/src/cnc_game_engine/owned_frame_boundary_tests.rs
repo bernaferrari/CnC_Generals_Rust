@@ -22,8 +22,16 @@ fn advance_owned(logic: &mut GameLogic, shadow: Option<&mut GameWorldShadow>) {
 fn author_timers(logic: &mut GameLogic, id: ObjectId) -> u32 {
     let (object, health_events) = logic.host_object_and_health_events_mut(id).unwrap();
     object.flash_as_selected_with_color([0.1, 0.2, 0.3]);
-    object.apply_disabled_emp(1, health_events);
-    object.apply_disabled_hacked(2, health_events);
+    object.apply_disabled_emp(
+        1,
+        health_events,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
+    object.apply_disabled_hacked(
+        2,
+        health_events,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
     object.begin_undetected_defection(0, 1, false);
     object.selection_flash_remaining
 }
@@ -289,8 +297,15 @@ fn ordinary_boundary_keeps_actual_construction_completion_pending_for_presentati
     object.construction_percent = 0.99;
     object.builder_id = Some(dozer);
     let (builder, attack_events) = logic.host_object_and_attack_events_mut(dozer).unwrap();
-    builder.set_target(Some(id), attack_events);
-    builder.set_ai_state(AIState::Constructing);
+    builder.set_target(
+        Some(id),
+        attack_events,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
+    builder.set_ai_state(
+        AIState::Constructing,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
     builder.dozer_task_build_target = Some(id);
     builder.status.moving = false;
     builder.dozer_dock_action = Some(builder.get_position());
@@ -341,9 +356,20 @@ fn ordinary_disabled_producer_resumes_only_after_the_expiry_frame_case() {
         .expect("actual producer");
     assert!(logic.enqueue_production(producer, "OwnedDisableInfantry".into()));
     let (object, health_events) = logic.host_object_and_health_events_mut(producer).unwrap();
-    object.apply_disabled_emp(1, health_events);
-    object.apply_disabled_hacked(1, health_events);
-    object.apply_disabled_paralyzed(1);
+    object.apply_disabled_emp(
+        1,
+        health_events,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
+    object.apply_disabled_hacked(
+        1,
+        health_events,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
+    object.apply_disabled_paralyzed(
+        1,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
     shadow.sync_from_host(&logic);
 
     for next_frame in 1..=3 {
@@ -444,7 +470,11 @@ fn ordinary_expiry_restores_radar_and_generation_in_the_same_completed_frame_cas
             let (object, health_events) = logic
                 .host_object_and_health_events_mut(if disable_generator { plant } else { cc })
                 .unwrap();
-            object.apply_disabled_emp(1, health_events);
+            object.apply_disabled_emp(
+                1,
+                health_events,
+                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            );
         };
         advance_owned(&mut logic, Some(&mut shadow));
         assert_eq!(logic.get_frame(), 2, "processed expiry frame 1 completed");
@@ -564,11 +594,19 @@ fn ordinary_same_id_worlds_keep_pending_disabled_radar_callbacks_owned_case() {
     let owner = a.get_player_by_team(Team::USA).unwrap().id;
     {
         let (object, health_events) = a.host_object_and_health_events_mut(id_a).unwrap();
-        object.apply_disabled_emp(1, health_events);
+        object.apply_disabled_emp(
+            1,
+            health_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     };
     {
         let (object, health_events) = b.host_object_and_health_events_mut(id_b).unwrap();
-        object.apply_disabled_emp(10, health_events);
+        object.apply_disabled_emp(
+            10,
+            health_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     };
     assert_eq!(
         b.host_object(id_b)

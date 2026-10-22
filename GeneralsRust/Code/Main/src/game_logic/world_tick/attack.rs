@@ -113,10 +113,17 @@ impl GameLogic {
             if u.max_shots_to_fire == 0 {
                 u.max_shots_to_fire = -1;
             }
-            u.note_attack_target(victim_id, &mut self.attack_events);
+            u.note_attack_target(
+                victim_id,
+                &mut self.attack_events,
+                &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+            );
             entered_attack = u.ai_state != AIState::Attacking;
             if entered_attack {
-                u.set_ai_state(AIState::Attacking);
+                u.set_ai_state(
+                    AIState::Attacking,
+                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                );
             }
         }
         {}
@@ -421,14 +428,21 @@ impl GameLogic {
 
         let mut entered_attack = false;
         if let Some(u) = self.objects.get_mut(&unit_id) {
-            u.note_attack_target(victim_id, &mut self.attack_events);
+            u.note_attack_target(
+                victim_id,
+                &mut self.attack_events,
+                &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+            );
             u.set_status_attacking(true);
             entered_attack = !matches!(
                 u.ai_state,
                 AIState::Patrolling | AIState::AttackMoving | AIState::Attacking
             );
             if entered_attack {
-                u.set_ai_state(AIState::Attacking);
+                u.set_ai_state(
+                    AIState::Attacking,
+                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                );
             }
         }
         {}
@@ -1722,7 +1736,10 @@ impl GameLogic {
                 AIState::Patrolling | AIState::AttackMoving | AIState::Attacking
             );
             if entered_attack {
-                u.set_ai_state(AIState::Attacking);
+                u.set_ai_state(
+                    AIState::Attacking,
+                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                );
             }
         }
         {}
@@ -1788,7 +1805,11 @@ impl GameLogic {
                 return AttackAimResult::Failure;
             }
             u.set_status_aiming_weapon(true);
-            u.note_attack_target(victim_id, &mut self.attack_events);
+            u.note_attack_target(
+                victim_id,
+                &mut self.attack_events,
+                &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+            );
             {}
             let Some(slot) = u.selected_weapon_slot() else {
                 return AttackAimResult::Failure;
@@ -1835,7 +1856,10 @@ impl GameLogic {
                 AIState::Patrolling | AIState::AttackMoving | AIState::Attacking
             );
             if entered_attack {
-                u.set_ai_state(AIState::Attacking);
+                u.set_ai_state(
+                    AIState::Attacking,
+                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                );
             }
             {}
         }
@@ -1934,13 +1958,20 @@ impl GameLogic {
                 return AttackFireResult::Failure;
             };
             u.set_status_firing_weapon(true);
-            u.note_attack_target(victim_id, &mut self.attack_events);
+            u.note_attack_target(
+                victim_id,
+                &mut self.attack_events,
+                &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+            );
             let entered_attack = !matches!(
                 u.ai_state,
                 AIState::Patrolling | AIState::AttackMoving | AIState::Attacking
             );
             if entered_attack {
-                u.set_ai_state(AIState::Attacking);
+                u.set_ai_state(
+                    AIState::Attacking,
+                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                );
             }
             u.set_status_attacking(true);
             {}
@@ -1956,6 +1987,7 @@ impl GameLogic {
                 self.weapon_definitions
                     .as_ref()
                     .map(|_| &self.projectile_definitions),
+                &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
             )
         };
 
@@ -2234,9 +2266,14 @@ impl GameLogic {
                     u.temporary_move_frames += 1;
                 }
             } else {
-                u.clear_order_target();
+                u.clear_order_target(&mut crate::game_logic::MovementAudio::queue(
+                    &mut self.queued_audio_events,
+                ));
                 u.set_status_attacking(false);
-                u.set_ai_state(AIState::Moving);
+                u.set_ai_state(
+                    AIState::Moving,
+                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                );
             }
             u.adjust_destinations = !u.ultra_accurate;
             u.try_one_more_repath = true;
@@ -2289,13 +2326,18 @@ impl GameLogic {
             self.start_move_sound(unit_id);
         } else if let Some(u) = self.objects.get_mut(&unit_id) {
             u.set_status_moving(false);
-            u.end_temporary_move_overlay();
+            u.end_temporary_move_overlay(&mut crate::game_logic::MovementAudio::queue(
+                &mut self.queued_audio_events,
+            ));
             u.ignored_obstacle_id = None;
             u.set_locomotor_goal_none();
             if was_idle {
                 u.path_goal_position = None;
                 u.requested_destination = None;
-                u.set_ai_state(AIState::Idle);
+                u.set_ai_state(
+                    AIState::Idle,
+                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                );
             }
         }
         if !ok {
@@ -2309,7 +2351,9 @@ impl GameLogic {
         let Some(u) = self.objects.get_mut(&unit_id) else {
             return false;
         };
-        u.stop_moving();
+        u.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+            &mut self.queued_audio_events,
+        ));
         u.set_status_attacking(false);
         u.target = None;
         u.target_location = None;
@@ -2321,7 +2365,10 @@ impl GameLogic {
             AIState::Attacking | AIState::AttackMoving | AIState::AttackingGround
         );
         if left_attack {
-            u.set_ai_state(AIState::Idle);
+            u.set_ai_state(
+                AIState::Idle,
+                &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+            );
         }
         let ended_idle = matches!(u.ai_state, AIState::Idle);
         {}

@@ -283,6 +283,7 @@ End
                 &mut world.combat_system.fire_sound_loop_events,
                 &mut world.attack_events,
                 Some(&world.projectile_definitions),
+                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
             )
             .unwrap();
         (world, shot)

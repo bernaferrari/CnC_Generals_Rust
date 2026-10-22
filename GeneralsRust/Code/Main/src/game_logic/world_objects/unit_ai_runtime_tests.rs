@@ -83,7 +83,10 @@ fn quick_exit_completion_restores_guard_before_same_tick_dispatch() {
         unit.guard_target = Some(guard_id);
         unit.cur_locomotor_name = Some("BasicHumanLocomotor".into());
         unit.close_enough_dist = Some(1.0);
-        unit.set_ai_state(crate::game_logic::AIState::Moving);
+        unit.set_ai_state(
+            crate::game_logic::AIState::Moving,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         unit.movement.path = vec![endpoint; points];
         unit.movement.target_position = Some(endpoint);
         unit.can_path_through_units = true;
@@ -157,7 +160,10 @@ fn quick_exit_deadline_preserves_path_at_end_frame_and_expires_next_frame() {
     let endpoint = Vec3::new(10.0, 0.0, 0.0);
     let mut unit = object(unit_id);
     unit.guard_target = Some(guard_id);
-    unit.set_ai_state(crate::game_logic::AIState::Moving);
+    unit.set_ai_state(
+        crate::game_logic::AIState::Moving,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
     unit.movement.path = vec![endpoint, endpoint];
     unit.movement.target_position = Some(endpoint);
     unit.can_path_through_units = true;
@@ -272,7 +278,10 @@ fn suspended_quick_exit_does_not_bypass_invalid_sally_cleanup() {
         let mut world = GameLogic::new();
         let id = ObjectId(934207);
         let mut unit = object(id);
-        unit.set_ai_state(crate::game_logic::AIState::Moving);
+        unit.set_ai_state(
+            crate::game_logic::AIState::Moving,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         unit.can_path_through_units = true;
         unit.adjust_destinations = false;
         world.add_object(unit);

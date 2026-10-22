@@ -859,7 +859,10 @@ impl GameLogic {
         // C++ aiAttackPosition(loc, maxShotsToFire, CMD_FROM_AI)
         if let Some(o) = self.objects.get_mut(&source_id) {
             o.target_location = Some(location);
-            o.set_ai_state(crate::game_logic::AIState::Attacking);
+            o.set_ai_state(
+                crate::game_logic::AIState::Attacking,
+                &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+            );
             let shots = o
                 .fire_weapon_power
                 .as_ref()
@@ -901,7 +904,11 @@ impl GameLogic {
             return false;
         }
         if let Some(o) = self.objects.get_mut(&source_id) {
-            o.set_target(Some(target_id), &mut self.attack_events);
+            o.set_target(
+                Some(target_id),
+                &mut self.attack_events,
+                &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+            );
             let shots = o
                 .fire_weapon_power
                 .as_ref()

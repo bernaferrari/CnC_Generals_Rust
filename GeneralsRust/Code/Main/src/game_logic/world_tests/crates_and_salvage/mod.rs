@@ -50,7 +50,10 @@ fn dock_helipad_comanche(logic: &mut GameLogic) -> (ObjectId, ObjectId) {
     {
         let heli = logic.objects.get_mut(&heli_id).unwrap();
         heli.set_contained_by(Some(pad_id));
-        heli.set_ai_state(AIState::Docked);
+        heli.set_ai_state(
+            AIState::Docked,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         heli.status.airborne_target = false;
         heli.producer_id = Some(pad_id);
         heli.movement.max_speed = 30.0;

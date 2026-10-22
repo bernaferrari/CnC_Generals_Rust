@@ -410,7 +410,10 @@ impl GameLogic {
                     // locomotion state so the nested Guard remains suspended.
                     unit.unit_ai_runtime
                         .set_quick_exit_deadline(Some(self.frame.wrapping_add(300)));
-                    unit.set_ai_state(AIState::Moving);
+                    unit.set_ai_state(
+                        AIState::Moving,
+                        &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    );
                     unit.set_status_moving(true);
                     {}
                 }
@@ -462,8 +465,15 @@ impl GameLogic {
             };
             if let Some(o) = self.objects.get_mut(&uid) {
                 o.target = Some(best);
-                o.set_order_target(Some(best), &mut self.attack_events);
-                o.set_ai_state(AIState::Entering);
+                o.set_order_target(
+                    Some(best),
+                    &mut self.attack_events,
+                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                );
+                o.set_ai_state(
+                    AIState::Entering,
+                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                );
                 o.ignored_obstacle_id = Some(best);
             }
             if let Some(tpos) = self.objects.get(&best).map(|t| t.get_position()) {
@@ -646,7 +656,13 @@ impl GameLogic {
                             || s.template_name.to_ascii_lowercase().contains("supplypile")
                     });
                     if let Some(obj) = self.objects.get_mut(&object_id) {
-                        obj.set_order_target(Some(next), &mut self.attack_events);
+                        obj.set_order_target(
+                            Some(next),
+                            &mut self.attack_events,
+                            &mut crate::game_logic::MovementAudio::queue(
+                                &mut self.queued_audio_events,
+                            ),
+                        );
                         obj.supply_truck_state = SupplyTruckState::Wanting;
                     }
                     self.set_ai_state_decision_aware(object_id, AIState::Gathering);

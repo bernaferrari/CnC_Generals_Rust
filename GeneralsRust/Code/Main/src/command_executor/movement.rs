@@ -1455,9 +1455,15 @@ impl<'a> CommandExecutor<'a> {
                 // C++ still records m_goalPosition for a same-position move
                 // (AIUpdateInterface::doCommandMove), so arrival-gated reads
                 // observe the formation goal even though no path is walked.
-                if let Some(unit) = self.game_logic.host_object_mut(unit_id) {
+                let _ = self.game_logic.host_object_mut(unit_id);
+                if let Some(unit) = self.game_logic.objects.get_mut(&unit_id) {
                     unit.movement.target_position = Some(goal);
-                    unit.set_ai_state(AIState::Moving);
+                    unit.set_ai_state(
+                        AIState::Moving,
+                        &mut crate::game_logic::MovementAudio::queue(
+                            &mut self.game_logic.queued_audio_events,
+                        ),
+                    );
                 }
                 any = true;
                 continue;

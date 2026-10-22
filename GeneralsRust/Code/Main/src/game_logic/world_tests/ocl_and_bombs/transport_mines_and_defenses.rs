@@ -65,7 +65,10 @@ fn listening_outpost_residual_transport_load_unload() {
                 ..Weapon::default()
             });
             unit.target = Some(outpost_id);
-            unit.set_ai_state(AIState::Entering);
+            unit.set_ai_state(
+                AIState::Entering,
+                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            );
         }
         game_logic.update_ai(&[unit_id, outpost_id], 1.0 / 30.0);
     }
@@ -101,7 +104,10 @@ fn listening_outpost_residual_transport_load_unload() {
     {
         let unit = game_logic.host_object_mut(unit_c).unwrap();
         unit.target = Some(outpost_id);
-        unit.set_ai_state(AIState::Entering);
+        unit.set_ai_state(
+            AIState::Entering,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     game_logic.update_ai(&[unit_c, outpost_id], 1.0 / 30.0);
     {
@@ -205,7 +211,10 @@ fn listening_outpost_residual_rejects_vehicle_enter() {
     {
         let unit = game_logic.host_object_mut(tank_id).unwrap();
         unit.target = Some(outpost_id);
-        unit.set_ai_state(AIState::Entering);
+        unit.set_ai_state(
+            AIState::Entering,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     game_logic.update_ai(&[tank_id, outpost_id], 1.0 / 30.0);
 
@@ -826,7 +835,10 @@ fn dozer_mine_clear_residual_approaches_then_clears() {
     {
         let dozer = game_logic.host_object_mut(dozer_id).unwrap();
         dozer.set_position(Vec3::new(DOZER_MINE_CLEAR_RANGE * 0.25, 0.0, 0.0));
-        dozer.set_ai_state(AIState::Idle);
+        dozer.set_ai_state(
+            AIState::Idle,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     game_logic.frame = 10;
     game_logic.update_mines_and_demo_traps();
@@ -1276,7 +1288,10 @@ fn bored_dozer_arms_mine_clearing_weaponset() {
         .create_object("TestDozer", Team::USA, Vec3::new(0.0, 0.0, 0.0))
         .expect("dozer");
     if let Some(o) = logic.host_object_mut(did) {
-        o.set_ai_state(AIState::Idle);
+        o.set_ai_state(
+            AIState::Idle,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         o.idle_since_frame = 1;
         assert!(!o.weapon_set_mine_clearing_detail);
     }
@@ -1433,6 +1448,7 @@ fn stealth_residual_fire_breaks_stealth() {
             game_logic.frame,
             &mut game_logic.combat_system,
             &mut game_logic.attack_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
         ));
         assert!(!s.status.stealthed, "fire_at must break stealth");
     }
@@ -1735,7 +1751,10 @@ fn stinger_site_residual_dual_fire_and_ap_rockets() {
         }
         // Drop ground target so AA scan prefers aircraft.
         s.target = None;
-        s.set_ai_state(AIState::Idle);
+        s.set_ai_state(
+            AIState::Idle,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     // Remove ground tank from consideration by destroying it.
     if let Some(t) = game_logic.host_object_mut(enemy_id) {
@@ -2294,7 +2313,10 @@ fn camo_netting_structure_attack_and_damage_reveal_residual() {
         s.stealth_delay_pending = false;
         s.set_status_attacking(false);
         s.set_status_firing_weapon(false);
-        s.set_ai_state(AIState::Idle);
+        s.set_ai_state(
+            AIState::Idle,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         s.set_status_using_ability(true);
     }
     game_logic.frame = 3;
@@ -2319,7 +2341,10 @@ fn camo_netting_structure_attack_and_damage_reveal_residual() {
         .expect("enemy tank");
     {
         let e = game_logic.host_object_mut(enemy_id).unwrap();
-        e.set_ai_state(AIState::Idle);
+        e.set_ai_state(
+            AIState::Idle,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         e.target = None;
         e.weapon = Some(Weapon {
             damage: 10.0,
@@ -2337,7 +2362,10 @@ fn camo_netting_structure_attack_and_damage_reveal_residual() {
         t.set_status_stealthed(true);
         t.set_status_attacking(false);
         t.set_status_using_ability(false);
-        t.set_ai_state(AIState::Idle);
+        t.set_ai_state(
+            AIState::Idle,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         t.stealth_allowed_frame = 0;
         t.stealth_delay_pending = false;
         t.set_status_firing_weapon(true); // force uncloak this frame
@@ -2378,7 +2406,10 @@ fn camo_netting_structure_attack_and_damage_reveal_residual() {
         t.set_status_attacking(false);
         t.set_status_firing_weapon(false);
         t.set_status_using_ability(false);
-        t.set_ai_state(AIState::Idle);
+        t.set_ai_state(
+            AIState::Idle,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         t.target = None;
         t.set_status_stealthed(false);
         // frame < allowed forbids; equal allows re-cloak residual.

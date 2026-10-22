@@ -157,7 +157,11 @@ fn script_named_set_topple_direction_used_by_live_topple() {
     let started = logic
         .host_object_mut(id)
         .expect("bldg")
-        .begin_structure_topple(0, Some((100.0, 0.0)));
+        .begin_structure_topple(
+            0,
+            Some((100.0, 0.0)),
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     assert!(started, "named structure must begin topple");
     let st = logic
         .host_object(id)
@@ -309,8 +313,15 @@ fn host_construction_completes_without_coupled_shadow() {
         let (dozer, attack_events) = game_logic
             .host_object_and_attack_events_mut(dozer_id)
             .expect("dozer");
-        dozer.set_target(Some(id), attack_events);
-        dozer.set_ai_state(AIState::Constructing);
+        dozer.set_target(
+            Some(id),
+            attack_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
+        dozer.set_ai_state(
+            AIState::Constructing,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         dozer.status.moving = false;
         dozer.dozer_dock_action = Some(dozer.get_position());
     }
@@ -380,8 +391,15 @@ fn host_construction_completes_when_sole_tick_unmapped() {
             let (dozer, attack_events) = game_logic
                 .host_object_and_attack_events_mut(dozer_id)
                 .expect("dozer");
-            dozer.set_target(Some(id), attack_events);
-            dozer.set_ai_state(AIState::Constructing);
+            dozer.set_target(
+                Some(id),
+                attack_events,
+                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            );
+            dozer.set_ai_state(
+                AIState::Constructing,
+                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            );
             dozer.status.moving = false;
             dozer.dozer_dock_action = Some(dozer.get_position());
         }

@@ -1839,7 +1839,10 @@ fn tighten_scatter_include_stunned_members() {
     {
         let u = logic.host_object_mut(b).unwrap();
         u.shock_stun_frames = 40;
-        u.set_ai_state(AIState::Idle);
+        u.set_ai_state(
+            AIState::Idle,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);

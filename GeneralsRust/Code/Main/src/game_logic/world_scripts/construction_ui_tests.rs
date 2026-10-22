@@ -55,7 +55,10 @@ fn fixture() -> (GameLogic, ObjectId) {
     dozer.dozer_task_build_target = Some(id);
     dozer.dozer_dock_action = Some(Vec3::ZERO);
     dozer.target = Some(id);
-    dozer.set_ai_state(AIState::Constructing);
+    dozer.set_ai_state(
+        AIState::Constructing,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
     world
         .ai_manager
         .add_ai_player(0, Team::USA, crate::ai::AIDifficulty::Medium);

@@ -64,7 +64,12 @@ fn host_march_closes_range_without_teleport() {
         u.movement.current_path_index = 0;
     }
     for _ in 0..400 {
-        let _ = sys.move_unit_along_path(ObjectId(1), &mut objects, 1.0 / 30.0);
+        let _ = sys.move_unit_along_path(
+            ObjectId(1),
+            &mut objects,
+            1.0 / 30.0,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     let end = objects[&ObjectId(1)].get_position();
     let dx = end.x - goal.x;
@@ -1864,7 +1869,10 @@ fn blocked_route_does_not_walk_the_click() {
             unpack_frames: 2,
             turrets_must_center_before_packing: false,
         });
-        unit.set_deployed(true);
+        unit.set_deployed(
+            true,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     assert!(logic.unit_command_move_to_moving(packed, near));
     logic.frame = 0;

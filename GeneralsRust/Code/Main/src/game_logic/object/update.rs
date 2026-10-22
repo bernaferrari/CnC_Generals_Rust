@@ -42,22 +42,29 @@ impl Object {
             )
     }
 
-    pub(crate) fn finish_locomotor_path_leg(&mut self) {
+    pub(crate) fn finish_locomotor_path_leg(
+        &mut self,
+        audio: &mut crate::game_logic::MovementAudio<'_>,
+    ) {
         if self.needs_internal_move_arrival_observation() {
             self.movement.target_position = None;
             self.movement.velocity = glam::Vec3::ZERO;
             self.set_status_moving(false);
             self.is_braking = false;
         } else {
-            self.stop_moving();
+            self.stop_moving(audio);
         }
     }
 
-    pub fn tick_timers(&mut self, dt: f32) -> bool {
+    pub fn tick_timers(
+        &mut self,
+        dt: f32,
+        audio: &mut crate::game_logic::MovementAudio<'_>,
+    ) -> bool {
         if self.cheer_timer > 0.0 {
             self.cheer_timer -= dt;
             if self.cheer_timer <= 0.0 && self.ai_state == AIState::SpecialAbility {
-                self.set_ai_state(AIState::Idle);
+                self.set_ai_state(AIState::Idle, audio);
                 self.cheer_timer = 0.0;
             }
         }
@@ -366,7 +373,7 @@ impl Object {
         }
         extra
     }
-    pub fn update_movement(&mut self, dt: f32) {
+    pub fn update_movement(&mut self, dt: f32, audio: &mut crate::game_logic::MovementAudio<'_>) {
         // C++ AIUpdate::doLocomotor returns immediately for KINDOF_IMMOBILE.
         if self.is_kind_of(KindOf::Immobile) {
             return;
@@ -461,7 +468,7 @@ impl Object {
                         self.queue_for_path_frames = 0;
                         self.set_locomotor_goal_none();
                     }
-                    self.finish_locomotor_path_leg();
+                    self.finish_locomotor_path_leg(audio);
                 }
                 return;
             }
@@ -663,7 +670,7 @@ impl Object {
                         self.queue_for_path_frames = 0;
                         self.set_locomotor_goal_none();
                     }
-                    self.finish_locomotor_path_leg();
+                    self.finish_locomotor_path_leg(audio);
                     self.is_braking = false;
                 }
             }

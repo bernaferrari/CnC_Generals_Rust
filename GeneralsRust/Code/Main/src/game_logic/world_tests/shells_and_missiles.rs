@@ -175,7 +175,10 @@ fn bomb_truck_disguise_residual_reveals_near_attack_target() {
     {
         let truck = game_logic.host_object_mut(truck_id).expect("truck");
         truck.target = Some(usa_tank_id);
-        truck.set_ai_state(AIState::SpecialAbility);
+        truck.set_ai_state(
+            AIState::SpecialAbility,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     game_logic.queue_pending_special_ability(
         truck_id,
@@ -197,7 +200,10 @@ fn bomb_truck_disguise_residual_reveals_near_attack_target() {
     {
         let truck = game_logic.host_object_mut(truck_id).expect("truck");
         truck.target = Some(victim_id);
-        truck.set_ai_state(AIState::Attacking);
+        truck.set_ai_state(
+            AIState::Attacking,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         truck.set_status_attacking(true);
     }
     game_logic.update_stealth_and_detection();
@@ -243,7 +249,10 @@ fn bomb_truck_disguise_holds_without_victim() {
     {
         let truck = game_logic.host_object_mut(truck_id).expect("truck");
         truck.target = Some(usa_tank_id);
-        truck.set_ai_state(AIState::SpecialAbility);
+        truck.set_ai_state(
+            AIState::SpecialAbility,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     game_logic.queue_pending_special_ability(
         truck_id,
@@ -264,7 +273,10 @@ fn bomb_truck_disguise_holds_without_victim() {
     {
         let truck = game_logic.host_object_mut(truck_id).expect("truck");
         truck.target = None;
-        truck.set_ai_state(AIState::AttackMoving);
+        truck.set_ai_state(
+            AIState::AttackMoving,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         truck.set_status_attacking(true);
     }
     game_logic.update_stealth_and_detection();
@@ -279,7 +291,10 @@ fn bomb_truck_disguise_holds_without_victim() {
     {
         let truck = game_logic.host_object_mut(truck_id).expect("truck");
         truck.target = None;
-        truck.set_ai_state(AIState::AttackingGround);
+        truck.set_ai_state(
+            AIState::AttackingGround,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         truck.set_status_attacking(true);
         truck.set_status_firing_weapon(true);
     }
@@ -909,7 +924,10 @@ fn camouflage_residual_attack_breaks_and_idle_recloaks() {
     {
         let _ = game_logic.host_object_mut(rebel_id).expect("rebel");
         let rebel = game_logic.objects.get_mut(&rebel_id).expect("rebel");
-        rebel.set_ai_state(AIState::Idle);
+        rebel.set_ai_state(
+            AIState::Idle,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         rebel.set_status_attacking(false);
         rebel.target = None;
     }
@@ -942,6 +960,7 @@ fn camouflage_residual_attack_breaks_and_idle_recloaks() {
                 game_logic.frame,
                 &mut game_logic.combat_system,
                 &mut game_logic.attack_events,
+                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
             ) || true
         );
         // fire_at may fail without weapon; force residual break path.
@@ -961,7 +980,10 @@ fn camouflage_residual_attack_breaks_and_idle_recloaks() {
     {
         let _ = game_logic.host_object_mut(rebel_id).expect("rebel");
         let rebel = game_logic.objects.get_mut(&rebel_id).expect("rebel");
-        rebel.set_ai_state(AIState::Idle);
+        rebel.set_ai_state(
+            AIState::Idle,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         rebel.set_status_attacking(false);
         rebel.target = None;
     }
@@ -1069,7 +1091,11 @@ fn marauder_residual_salvage_fire_rate_tiers() {
         let (m, attack_events) = game_logic
             .host_object_and_attack_events_mut(marauder_id)
             .unwrap();
-        m.attack_target(enemy, attack_events);
+        m.attack_target(
+            enemy,
+            attack_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         if let Some(w) = m.weapon.as_mut() {
             w.last_fire_time = -10.0;
             w.reload_time = 0.1;
@@ -1283,7 +1309,11 @@ fn scorpion_residual_gun_salvage_and_rocket() {
             .host_object_and_attack_events_mut(scorp_id)
             .unwrap();
         s.active_weapon_slot = 0;
-        s.attack_target(enemy, attack_events);
+        s.attack_target(
+            enemy,
+            attack_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         if let Some(w) = s.weapon.as_mut() {
             w.last_fire_time = -10.0;
             w.reload_time = 0.1;
@@ -1366,7 +1396,11 @@ fn scorpion_residual_gun_salvage_and_rocket() {
             .host_object_and_attack_events_mut(scorp_id)
             .unwrap();
         s.active_weapon_slot = 1;
-        s.attack_target(enemy, attack_events);
+        s.attack_target(
+            enemy,
+            attack_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         if let Some(w) = s.secondary_weapon.as_mut() {
             w.last_fire_time = -100.0;
             w.reload_time = 0.1;
@@ -1481,7 +1515,11 @@ fn tomahawk_residual_dual_radius_missile() {
         let (t, attack_events) = game_logic
             .host_object_and_attack_events_mut(tom_id)
             .unwrap();
-        t.attack_target(enemy, attack_events);
+        t.attack_target(
+            enemy,
+            attack_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         if let Some(w) = t.weapon.as_mut() {
             w.last_fire_time = -20.0;
             w.reload_time = 0.1;
@@ -1632,7 +1670,11 @@ fn mig_residual_napalm_and_black_napalm() {
         let (m, attack_events) = game_logic
             .host_object_and_attack_events_mut(mig_id)
             .unwrap();
-        m.attack_target(enemy, attack_events);
+        m.attack_target(
+            enemy,
+            attack_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         if let Some(w) = m.weapon.as_mut() {
             w.last_fire_time = -20.0;
             w.reload_time = 0.05;
@@ -1732,7 +1774,11 @@ fn mig_residual_napalm_and_black_napalm() {
         let (m, attack_events) = game_logic
             .host_object_and_attack_events_mut(mig_id)
             .unwrap();
-        m.attack_target(enemy, attack_events);
+        m.attack_target(
+            enemy,
+            attack_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         if let Some(w) = m.weapon.as_mut() {
             w.last_fire_time = -20.0;
             w.reload_time = 0.05;
@@ -1821,7 +1867,11 @@ fn mig_nuke_residual_tactical_nuke() {
         let (m, attack_events) = game_logic
             .host_object_and_attack_events_mut(mig_id)
             .unwrap();
-        m.attack_target(enemy, attack_events);
+        m.attack_target(
+            enemy,
+            attack_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         if let Some(w) = m.weapon.as_mut() {
             w.last_fire_time = -20.0;
             w.reload_time = 0.05;
@@ -1871,7 +1921,11 @@ fn mig_nuke_residual_tactical_nuke() {
         let (m, attack_events) = game_logic
             .host_object_and_attack_events_mut(mig_id)
             .unwrap();
-        m.attack_target(enemy, attack_events);
+        m.attack_target(
+            enemy,
+            attack_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         if let Some(w) = m.weapon.as_mut() {
             w.last_fire_time = -20.0;
             w.reload_time = 0.05;
@@ -2119,7 +2173,11 @@ fn raptor_residual_missiles_and_laser_missiles() {
         let (r, attack_events) = game_logic
             .host_object_and_attack_events_mut(raptor_id)
             .unwrap();
-        r.attack_target(enemy, attack_events);
+        r.attack_target(
+            enemy,
+            attack_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         if let Some(w) = r.weapon.as_mut() {
             w.last_fire_time = -20.0;
             w.reload_time = 0.05;
@@ -2293,7 +2351,11 @@ fn stealth_fighter_residual_missiles_and_splash() {
         let (f, attack_events) = game_logic
             .host_object_and_attack_events_mut(fighter_id)
             .unwrap();
-        f.attack_target(enemy, attack_events);
+        f.attack_target(
+            enemy,
+            attack_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         if let Some(w) = f.weapon.as_mut() {
             w.last_fire_time = -20.0;
             w.reload_time = 0.05;
@@ -2428,7 +2490,11 @@ fn comanche_residual_cannon_and_antitank() {
         let (c, attack_events) = game_logic
             .host_object_and_attack_events_mut(comanche_id)
             .unwrap();
-        c.attack_target(enemy, attack_events);
+        c.attack_target(
+            enemy,
+            attack_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         c.active_weapon_slot = 0;
         if let Some(w) = c.weapon.as_mut() {
             w.last_fire_time = -20.0;
@@ -2469,7 +2535,11 @@ fn comanche_residual_cannon_and_antitank() {
         let (c, attack_events) = game_logic
             .host_object_and_attack_events_mut(comanche_id)
             .unwrap();
-        c.attack_target(enemy, attack_events);
+        c.attack_target(
+            enemy,
+            attack_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         c.active_weapon_slot = 1;
         if let Some(w) = c.secondary_weapon.as_mut() {
             w.last_fire_time = -20.0;
@@ -2582,7 +2652,11 @@ fn helix_minigun_residual_intended_only() {
         let (h, attack_events) = game_logic
             .host_object_and_attack_events_mut(helix_id)
             .expect("helix");
-        h.attack_target(enemy_id, attack_events);
+        h.attack_target(
+            enemy_id,
+            attack_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         if let Some(w) = h.weapon.as_mut() {
             w.last_fire_time = -100.0;
             w.reload_time = 0.05;
@@ -2677,7 +2751,11 @@ fn inferno_black_napalm_upgraded_fire_field_residual() {
         let (c, attack_events) = game_logic
             .host_object_and_attack_events_mut(cannon_id)
             .expect("cannon");
-        c.attack_target(enemy_id, attack_events);
+        c.attack_target(
+            enemy_id,
+            attack_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         if let Some(w) = c.weapon.as_mut() {
             w.last_fire_time = -100.0;
             w.reload_time = 0.1;
@@ -2873,7 +2951,11 @@ fn battle_drone_residual_attach_fire_and_repair() {
         let (d, attack_events) = game_logic
             .host_object_and_attack_events_mut(drone_id)
             .unwrap();
-        d.attack_target(enemy, attack_events);
+        d.attack_target(
+            enemy,
+            attack_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         if let Some(w) = d.weapon.as_mut() {
             w.last_fire_time = -20.0;
             w.reload_time = 0.05;
@@ -2963,7 +3045,11 @@ fn overlord_gun_residual_dual_radius_and_uranium() {
         .expect("secondary ring");
     {
         let (o, attack_events) = game_logic.host_object_and_attack_events_mut(ov_id).unwrap();
-        o.attack_target(enemy, attack_events);
+        o.attack_target(
+            enemy,
+            attack_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         if let Some(w) = o.weapon.as_mut() {
             w.last_fire_time = -20.0;
             w.reload_time = 0.1;
@@ -3120,7 +3206,11 @@ fn jarmen_kell_residual_sniper_and_ap_bullets() {
         let (k, attack_events) = game_logic
             .host_object_and_attack_events_mut(kell_id)
             .unwrap();
-        k.attack_target(enemy, attack_events);
+        k.attack_target(
+            enemy,
+            attack_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         if let Some(w) = k.weapon.as_mut() {
             w.last_fire_time = -10.0;
             w.reload_time = 0.1;
@@ -3291,7 +3381,11 @@ fn battlemaster_residual_gun_uranium_and_horde_nationalism() {
         .expect("splash");
     {
         let (bm, attack_events) = game_logic.host_object_and_attack_events_mut(bm0).unwrap();
-        bm.attack_target(enemy, attack_events);
+        bm.attack_target(
+            enemy,
+            attack_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         if let Some(w) = bm.weapon.as_mut() {
             w.last_fire_time = -10.0;
             w.reload_time = 0.1;
@@ -3478,7 +3572,11 @@ fn red_guard_residual_gun_horde_nationalism_and_bayonet() {
         .expect("enemy");
     {
         let (rg, attack_events) = game_logic.host_object_and_attack_events_mut(rg0).unwrap();
-        rg.attack_target(enemy, attack_events);
+        rg.attack_target(
+            enemy,
+            attack_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         if let Some(w) = rg.weapon.as_mut() {
             w.last_fire_time = -10.0;
             w.reload_time = 0.1;
@@ -3513,7 +3611,11 @@ fn red_guard_residual_gun_horde_nationalism_and_bayonet() {
     {
         let (rg, attack_events) = game_logic.host_object_and_attack_events_mut(rg0).unwrap();
         rg.set_position(Vec3::new(0.0, 0.0, 0.0));
-        rg.attack_target(melee, attack_events);
+        rg.attack_target(
+            melee,
+            attack_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         if let Some(w) = rg.weapon.as_mut() {
             w.last_fire_time = -10.0;
             w.reload_time = 0.1;
@@ -3623,7 +3725,11 @@ fn tank_hunter_residual_rpg_horde_and_tnt() {
         .expect("splash");
     {
         let (th, attack_events) = game_logic.host_object_and_attack_events_mut(th0).unwrap();
-        th.attack_target(enemy, attack_events);
+        th.attack_target(
+            enemy,
+            attack_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         if let Some(w) = th.weapon.as_mut() {
             w.last_fire_time = -10.0;
             w.reload_time = 0.1;
@@ -3710,7 +3816,10 @@ fn tank_hunter_residual_rpg_horde_and_tnt() {
         th.set_position(Vec3::new(200.0, 0.0, 2.0));
         // Facing direction to the building is atan2(-dz, dx) = +PI/2 (0 faces +X).
         th.set_orientation(std::f32::consts::FRAC_PI_2);
-        th.set_ai_state(AIState::SpecialAbility);
+        th.set_ai_state(
+            AIState::SpecialAbility,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         th.target = Some(bldg);
     }
     game_logic.queue_pending_special_ability(
@@ -3827,7 +3936,11 @@ fn rebel_residual_gun_and_ap_bullets() {
         let (rebel, attack_events) = game_logic
             .host_object_and_attack_events_mut(rebel_id)
             .unwrap();
-        rebel.attack_target(enemy, attack_events);
+        rebel.attack_target(
+            enemy,
+            attack_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         if let Some(w) = rebel.weapon.as_mut() {
             w.last_fire_time = -10.0;
             w.reload_time = 0.1;

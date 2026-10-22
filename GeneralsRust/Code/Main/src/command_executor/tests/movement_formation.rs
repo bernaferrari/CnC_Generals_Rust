@@ -3,7 +3,7 @@ use super::dispatch_test_command;
 #[test]
 fn group_move_destinations_spreads_multi_unit() {
     // Wave 955: multi-unit move spreads via group_move_destinations + unit_command_move_free.
-    let src = crate::command_executor::COMMAND_EXECUTOR_SRC;
+    let src = include_str!("../movement.rs");
     let prod = src.split("#[cfg(test)]").next().unwrap_or(src);
     assert!(
         prod.contains("fn group_move_destinations")
@@ -1909,20 +1909,20 @@ fn group_idle_busy_dead_queries() {
         assert!(!exec.group_is_busy(&[a, b]));
         assert!(!exec.group_is_ai_dead(&[a, b]));
     }
-    logic
-        .host_object_mut(a)
-        .unwrap()
-        .set_ai_state(AIState::Moving);
+    logic.host_object_mut(a).unwrap().set_ai_state(
+        AIState::Moving,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
     {
         let exec = CommandExecutor::new(&mut logic, 0);
         assert!(!exec.group_is_idle(&[a, b]));
         // busy requires ALL living busy
         assert!(!exec.group_is_busy(&[a, b]));
     }
-    logic
-        .host_object_mut(b)
-        .unwrap()
-        .set_ai_state(AIState::Moving);
+    logic.host_object_mut(b).unwrap().set_ai_state(
+        AIState::Moving,
+        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    );
     {
         let exec = CommandExecutor::new(&mut logic, 0);
         assert!(exec.group_is_busy(&[a, b]));

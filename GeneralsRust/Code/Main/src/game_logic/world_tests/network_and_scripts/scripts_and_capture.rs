@@ -24,7 +24,10 @@ fn capturing_state_does_not_transfer_under_construction_building() {
             .host_object_mut(captor_id)
             .expect("captor should exist");
         captor.target = Some(building_id);
-        captor.set_ai_state(AIState::Capturing);
+        captor.set_ai_state(
+            AIState::Capturing,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
 
     game_logic.update_ai(&[captor_id, building_id], 1.0 / 60.0);
@@ -1706,7 +1709,10 @@ fn special_ability_state_without_pending_order_resets_to_idle() {
             .host_object_mut(actor_id)
             .expect("actor should exist");
         actor.target = Some(target_id);
-        actor.set_ai_state(AIState::SpecialAbility);
+        actor.set_ai_state(
+            AIState::SpecialAbility,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
 
     game_logic.update_ai(&[actor_id, target_id], 1.0 / 60.0);
@@ -1936,7 +1942,7 @@ fn hijack_rejects_already_hijacked_vehicle() {
         let target = game_logic
             .host_object_mut(target_id)
             .expect("target should exist");
-        target.apply_hijacked();
+        target.apply_hijacked(&mut crate::game_logic::MovementAudio::queue(&mut Vec::new()));
     }
 
     game_logic.queue_command(crate::command_system::GameCommand {
@@ -2025,7 +2031,10 @@ fn hijack_command_applies_only_after_unit_reaches_target() {
             .host_object_mut(hijacker_id)
             .expect("hijacker should exist");
         hijacker.set_position(Vec3::new(2.0, 0.0, 0.0));
-        hijacker.set_ai_state(AIState::SpecialAbility);
+        hijacker.set_ai_state(
+            AIState::SpecialAbility,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         hijacker.target = Some(target_id);
     }
     game_logic.update_ai(&[hijacker_id, target_id], 1.0 / 60.0);
@@ -2084,7 +2093,10 @@ fn sabotage_command_applies_only_after_unit_reaches_target() {
             .host_object_mut(saboteur_id)
             .expect("saboteur should exist");
         saboteur.set_position(Vec3::new(2.0, 0.0, 0.0));
-        saboteur.set_ai_state(AIState::SpecialAbility);
+        saboteur.set_ai_state(
+            AIState::SpecialAbility,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         saboteur.target = Some(target_id);
     }
     game_logic.frame = 30;
@@ -2165,7 +2177,10 @@ fn saboteur_military_factory_residual_disables_production() {
     {
         let s = game_logic.host_object_mut(saboteur_id).unwrap();
         s.set_position(Vec3::new(1.0, 0.0, 0.0));
-        s.set_ai_state(AIState::SpecialAbility);
+        s.set_ai_state(
+            AIState::SpecialAbility,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         s.target = Some(target_id);
     }
     game_logic.frame = 10;
@@ -2270,7 +2285,10 @@ fn snipe_vehicle_command_applies_only_after_unit_reaches_target() {
         // C++ MSG_DO_WEAPON_AT_OBJECT uses GLAJarmenKellVehiclePilotSniperRifle
         // AttackRange 225, not contact radii+4.
         sniper.set_position(Vec3::new(200.0, 0.0, 0.0));
-        sniper.set_ai_state(AIState::SpecialAbility);
+        sniper.set_ai_state(
+            AIState::SpecialAbility,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         sniper.target = Some(target_id);
     }
     game_logic.update_ai(&[sniper_id, target_id], 1.0 / 60.0);
@@ -2416,7 +2434,10 @@ fn retail_pilot_metadata_drives_starting_veteran_and_same_owner_recrew() {
                 ownership_events,
             )
         };
-        t.apply_kill_pilot_unmanned(health_events);
+        t.apply_kill_pilot_unmanned(
+            health_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         t.set_team(Team::Neutral, ownership_events);
         t.experience.level = VeterancyLevel::Rookie;
         assert_eq!(t.status.unmanned_owner_player_id, Some(1));
@@ -2461,7 +2482,10 @@ fn retail_pilot_metadata_drives_starting_veteran_and_same_owner_recrew() {
                 ownership_events,
             )
         };
-        t.apply_kill_pilot_unmanned(health_events);
+        t.apply_kill_pilot_unmanned(
+            health_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         t.set_team(Team::Neutral, ownership_events);
         t.experience.level = VeterancyLevel::Rookie;
         assert_eq!(t.status.unmanned_owner_player_id, Some(0));
@@ -2769,7 +2793,10 @@ fn live_set_stopping_distance_drains_and_arrives_at_scripted_band() {
     }
 
     if let Some(o) = logic.host_object_mut(id) {
-        o.update_movement(1.0 / 30.0);
+        o.update_movement(
+            1.0 / 30.0,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         assert!(
             o.movement.target_position.is_none(),
             "scripted closeEnoughDist 25 must stop a 10wu goal"
@@ -2920,7 +2947,10 @@ fn live_named_enter_and_exit_all_drain_ai_enter_evacuate() {
             .push(infantry);
         let infantry = logic.host_object_mut(infantry).unwrap();
         infantry.set_contained_by(Some(transport));
-        infantry.set_ai_state(AIState::Idle);
+        infantry.set_ai_state(
+            AIState::Idle,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         infantry.target = None;
     }
     let (mut logic, infantry, transport) = world(0.0);

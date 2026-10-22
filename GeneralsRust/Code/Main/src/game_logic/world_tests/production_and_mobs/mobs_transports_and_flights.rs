@@ -2659,7 +2659,10 @@ fn tunnel_network_residual_cross_exit_enter_a_evacuate_b() {
     {
         let unit = game_logic.host_object_mut(infantry_id).unwrap();
         unit.target = Some(tunnel_a);
-        unit.set_ai_state(AIState::Entering);
+        unit.set_ai_state(
+            AIState::Entering,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     }
     game_logic.update_ai(&[infantry_id, tunnel_a, tunnel_b], 1.0 / 30.0);
     // C++ TunnelContain::isGarrisonable is FALSE — occupants are DISABLED_HELD.
@@ -2758,7 +2761,10 @@ fn tunnel_network_residual_shared_capacity_full_rejects_enter() {
         {
             let unit = game_logic.host_object_mut(id).unwrap();
             unit.target = Some(tunnel);
-            unit.set_ai_state(AIState::Entering);
+            unit.set_ai_state(
+                AIState::Entering,
+                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            );
         }
         game_logic.update_ai(&[id, tunnel_a, tunnel_b], 1.0 / 30.0);
     }

@@ -51,44 +51,50 @@ impl Object {
         &mut self,
         destination: Vec3,
         movement_events: &mut crate::game_logic::movement_events::MovementEventWriter<'_>,
+        audio: &mut crate::game_logic::MovementAudio<'_>,
     ) {
-        let _ = self.takeoff_from_airfield_parking();
+        let _ = self.takeoff_from_airfield_parking(audio);
         // C++ DeployStyle: ordered move packs up (undeploy) residual.
         if self.status.deployed {
-            self.set_deployed(false);
+            self.set_deployed(false, audio);
         }
-        self.move_to(destination, movement_events);
+        self.move_to(destination, movement_events, audio);
     }
 
-    pub fn clear_target(&mut self) {
-        self.set_target_state(None);
+    pub fn clear_target(&mut self, audio: &mut crate::game_logic::MovementAudio<'_>) {
+        self.set_target_state(None, audio);
     }
 
     pub fn set_target(
         &mut self,
         target: Option<ObjectId>,
         attack_events: &mut crate::game_logic::host_attack_log::AttackEvents,
+        audio: &mut crate::game_logic::MovementAudio<'_>,
     ) {
-        self.set_target_state(target);
+        self.set_target_state(target, audio);
         if let Some(target) = target {
             attack_events.record(self.id, target);
         }
     }
 
-    fn set_target_state(&mut self, target: Option<ObjectId>) {
+    fn set_target_state(
+        &mut self,
+        target: Option<ObjectId>,
+        audio: &mut crate::game_logic::MovementAudio<'_>,
+    ) {
         if target.is_some() {
-            let _ = self.takeoff_from_airfield_parking();
+            let _ = self.takeoff_from_airfield_parking(audio);
         }
         self.target = target;
         if target.is_some() {
             self.target_location = None;
 
-            self.set_ai_state(AIState::Attacking);
+            self.set_ai_state(AIState::Attacking, audio);
             self.set_status_attacking(true);
         } else {
             self.target_location = None;
             self.set_status_force_attack(false);
-            self.set_ai_state(AIState::Idle);
+            self.set_ai_state(AIState::Idle, audio);
             self.set_status_attacking(false);
         }
     }
@@ -101,8 +107,9 @@ impl Object {
         &mut self,
         target: ObjectId,
         attack_events: &mut crate::game_logic::host_attack_log::AttackEvents,
+        audio: &mut crate::game_logic::MovementAudio<'_>,
     ) {
-        let _ = self.takeoff_from_airfield_parking();
+        let _ = self.takeoff_from_airfield_parking(audio);
         if self.target != Some(target) {
             self.target_location = None;
 
@@ -116,16 +123,17 @@ impl Object {
     /// Used by capture/hijack/gather/special-ability pathing where
     /// `path_to_goal_with_state` owns the AI state residual.
     /// Records the positive targeting observation after the canonical write.
-    pub fn clear_order_target(&mut self) {
-        self.set_order_target_state(None);
+    pub fn clear_order_target(&mut self, audio: &mut crate::game_logic::MovementAudio<'_>) {
+        self.set_order_target_state(None, audio);
     }
 
     pub fn set_order_target(
         &mut self,
         target: Option<ObjectId>,
         attack_events: &mut crate::game_logic::host_attack_log::AttackEvents,
+        audio: &mut crate::game_logic::MovementAudio<'_>,
     ) {
-        self.set_order_target_state(target);
+        self.set_order_target_state(target, audio);
         if let Some(target) = target {
             attack_events.record(self.id, target);
         }
@@ -133,13 +141,21 @@ impl Object {
 
     /// Reconstruct the saved order without admitting a new player/AI order.
     /// Presentation receipts are transient and must not be replayed by load.
-    pub(crate) fn restore_order_target(&mut self, target: Option<ObjectId>) {
-        self.set_order_target_state(target);
+    pub(crate) fn restore_order_target(
+        &mut self,
+        target: Option<ObjectId>,
+        audio: &mut crate::game_logic::MovementAudio<'_>,
+    ) {
+        self.set_order_target_state(target, audio);
     }
 
-    fn set_order_target_state(&mut self, target: Option<ObjectId>) {
+    fn set_order_target_state(
+        &mut self,
+        target: Option<ObjectId>,
+        audio: &mut crate::game_logic::MovementAudio<'_>,
+    ) {
         if target.is_some() {
-            let _ = self.takeoff_from_airfield_parking();
+            let _ = self.takeoff_from_airfield_parking(audio);
         }
         self.target = target;
         self.target_location = None;
@@ -509,7 +525,11 @@ impl Object {
     }
 
     /// Consume a charge for the special power and start per-power cooldown.
-    pub fn consume_special_power_charge(&mut self, power: &SpecialPowerType) {
+    pub fn consume_special_power_charge(
+        &mut self,
+        power: &SpecialPowerType,
+        audio: &mut crate::game_logic::MovementAudio<'_>,
+    ) {
         if !self.is_special_power_ready(power) {
             return;
         }
@@ -541,7 +561,7 @@ impl Object {
                 self.missile_launcher_building = Some(data);
             }
         }
-        self.set_ai_state(AIState::Idle);
+        self.set_ai_state(AIState::Idle, audio);
     }
 
     /// Refresh legacy aggregate ready/remaining from per-power residual timers.
@@ -616,11 +636,15 @@ impl Object {
             Some(crate::game_logic::host_upgrade_die::HostUpgradeDieData::new(upgrade_to_remove));
     }
 
-    pub fn set_target_location(&mut self, location: Option<Vec3>) {
+    pub fn set_target_location(
+        &mut self,
+        location: Option<Vec3>,
+        audio: &mut crate::game_logic::MovementAudio<'_>,
+    ) {
         self.target_location = location;
         if location.is_some() {
             self.target = None;
-            self.set_ai_state(AIState::Attacking);
+            self.set_ai_state(AIState::Attacking, audio);
             self.status.attacking = true;
         } else {
             self.set_status_force_attack(false);
@@ -631,21 +655,25 @@ impl Object {
         self.set_status_force_attack(force);
     }
 
-    pub fn stop(&mut self) {
+    pub fn stop(&mut self, audio: &mut crate::game_logic::MovementAudio<'_>) {
         // A held move must not resume after Stop. pending_move is not a
         // locomotor goal, so stop_moving does not clear it.
         self.pending_move = None;
-        self.stop_moving();
-        self.stop_attack();
+        self.stop_moving(audio);
+        self.stop_attack(audio);
     }
 
-    pub fn set_guard_position(&mut self, position: Option<Vec3>) {
+    pub fn set_guard_position(
+        &mut self,
+        position: Option<Vec3>,
+        audio: &mut crate::game_logic::MovementAudio<'_>,
+    ) {
         self.guard_position = position;
         // A fresh position guard is not a polygon area unless a caller stamps
         // `guard_area_trigger` after this (TEAM_GUARD_AREA / execute_guard_area).
         self.guard_area_trigger = None;
         if position.is_some() {
-            self.set_ai_state(AIState::GuardingArea);
+            self.set_ai_state(AIState::GuardingArea, audio);
         }
     }
 
@@ -653,11 +681,15 @@ impl Object {
         self.guard_mode = mode;
     }
 
-    pub fn set_guard_target(&mut self, target: Option<ObjectId>) {
+    pub fn set_guard_target(
+        &mut self,
+        target: Option<ObjectId>,
+        audio: &mut crate::game_logic::MovementAudio<'_>,
+    ) {
         self.guard_target = target;
         self.guard_area_trigger = None;
         if target.is_some() {
-            self.set_ai_state(AIState::GuardingObject);
+            self.set_ai_state(AIState::GuardingObject, audio);
         }
     }
 
@@ -692,6 +724,7 @@ impl Object {
         anchor: Option<glam::Vec3>,
         max_shots: Option<i32>,
         attack_events: &mut crate::game_logic::host_attack_log::AttackEvents,
+        audio: &mut crate::game_logic::MovementAudio<'_>,
     ) {
         if !self.is_alive() || self.status.destroyed {
             return;
@@ -709,7 +742,7 @@ impl Object {
         }
         self.target = Some(victim);
         self.target_location = None;
-        self.set_ai_state(AIState::GuardRetaliating);
+        self.set_ai_state(AIState::GuardRetaliating, audio);
         // C++ AttackAggressor onEnter: chase timer + radius/owner leash.
         // Give-up frame is stamped on the first GuardRetaliate tick (needs GameLogic.frame).
         self.guard_chase_phase = crate::game_logic::GUARD_CHASE_PHASE_RETALIATE;
@@ -725,17 +758,17 @@ impl Object {
     }
 
     /// Clear GuardRetaliate residual and return to guard/idle.
-    pub fn end_guard_retaliate(&mut self) {
+    pub fn end_guard_retaliate(&mut self, audio: &mut crate::game_logic::MovementAudio<'_>) {
         self.guard_retaliate_victim = None;
         self.guard_retaliate_anchor = None;
         self.target = None;
         self.status.attacking = false;
         if self.guard_target.is_some() {
-            self.set_ai_state(AIState::GuardingObject);
+            self.set_ai_state(AIState::GuardingObject, audio);
         } else if self.guard_position.is_some() {
-            self.set_ai_state(AIState::GuardingArea);
+            self.set_ai_state(AIState::GuardingArea, audio);
         } else {
-            self.set_ai_state(AIState::Idle);
+            self.set_ai_state(AIState::Idle, audio);
         }
     }
 
@@ -748,6 +781,7 @@ impl Object {
         victim_alive: bool,
         victim_pos: Option<glam::Vec3>,
         movement_events: &mut crate::game_logic::movement_events::MovementEventWriter<'_>,
+        audio: &mut crate::game_logic::MovementAudio<'_>,
     ) {
         if !matches!(self.ai_state, AIState::GuardRetaliating) {
             return;
@@ -767,7 +801,7 @@ impl Object {
                     return;
                 }
             }
-            self.end_guard_retaliate();
+            self.end_guard_retaliate(audio);
             return;
         }
         // Keep target locked on victim.

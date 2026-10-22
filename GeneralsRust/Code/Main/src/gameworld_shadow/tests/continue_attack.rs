@@ -67,7 +67,11 @@ fn ai_decision_authority_applies_attack_via_gameworld() {
         .expect("v");
     {
         let (object, attack_events) = logic.host_object_and_attack_events_mut(oid).unwrap();
-        object.set_target(Some(vid), attack_events);
+        object.set_target(
+            Some(vid),
+            attack_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     };
     assert_eq!(logic.host_object(oid).unwrap().target, Some(vid));
     let mut shadow = GameWorldShadow::new(64);
@@ -608,7 +612,10 @@ fn mood_auto_acquire_logs_decision_under_authority() {
         let o = logic.host_object_mut(oid).expect("o");
         // Mood auto-acquire is an IDLE-state scan (mood.rs:601 eligible gate);
         // the try_mood_auto_acquire_enters_attack precedent sets Idle explicitly.
-        o.set_ai_state(crate::game_logic::AIState::Idle);
+        o.set_ai_state(
+            crate::game_logic::AIState::Idle,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         o.auto_acquire_when_idle = true;
         // C++ AutoAcquireEnemiesWhenIdle is a BITFIELD parsed from INI
         // (AIUpdate.cpp; AUTO_ACQUIRE_* flags) — get_next_mood_target gates

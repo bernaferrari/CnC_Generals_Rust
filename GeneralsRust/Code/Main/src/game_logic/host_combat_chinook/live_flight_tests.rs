@@ -216,7 +216,10 @@ fn authored_evacuation_retains_passenger_through_takeoff_and_landing() {
             );
             let rider = logic.host_object_mut(second).unwrap();
             rider.set_contained_by(Some(transport));
-            rider.set_ai_state(AIState::Docked);
+            rider.set_ai_state(
+                AIState::Docked,
+                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            );
             // The initial condition is a landed, loaded transport. Every
             // subsequent pose comes from the actual full-frame locomotor.
             let object = logic.host_object_mut(transport).unwrap();

@@ -2809,7 +2809,10 @@ mod tests {
         template.add_kind_of(KindOf::Selectable);
         let mut obj = Object::new(template, ObjectId(3), Team::USA);
         obj.contained_by = Some(ObjectId(99));
-        obj.set_ai_state(AIState::Garrisoned);
+        obj.set_ai_state(
+            AIState::Garrisoned,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         obj.status.masked = true;
         obj.hijacker_in_vehicle = true;
         assert!(
@@ -2821,7 +2824,10 @@ mod tests {
             !obj.is_selectable(),
             "OBJECT_STATUS_UNSELECTABLE still drops isSelectable"
         );
-        obj.set_ai_state(AIState::Docked);
+        obj.set_ai_state(
+            AIState::Docked,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
         obj.status.unselectable = false;
         assert!(obj.is_selectable());
     }

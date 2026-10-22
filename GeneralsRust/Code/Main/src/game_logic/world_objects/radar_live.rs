@@ -833,7 +833,9 @@ mod tests {
             .create_object_for_player("CivCar", 1, Vec3::new(1.0, 0.0, 1.0))
             .expect("spawn");
         if let Some(obj) = logic.host_object_mut(id) {
-            obj.apply_convert_to_car_bomb();
+            obj.apply_convert_to_car_bomb(&mut crate::game_logic::MovementAudio::queue(
+                &mut Vec::new(),
+            ));
         }
         logic.host_radar_add_object(id);
         let radar = logic.radar();

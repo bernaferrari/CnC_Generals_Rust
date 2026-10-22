@@ -273,7 +273,10 @@ impl GameLogic {
                 }
             }
             if let Some(obj) = self.objects.get_mut(&id) {
-                if obj.tick_timers(dt) {
+                if obj.tick_timers(
+                    dt,
+                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                ) {
                     // Defer EVA until after borrow ends.
                     ready_superweapons.push(id);
                 }
@@ -318,7 +321,10 @@ impl GameLogic {
             if live_construct {
                 if let Some(dozer) = self.objects.get_mut(&did) {
                     dozer.target = None;
-                    dozer.set_ai_state(AIState::Idle);
+                    dozer.set_ai_state(
+                        AIState::Idle,
+                        &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    );
                 }
             }
         }
@@ -381,9 +387,16 @@ impl GameLogic {
                             ),
                         ));
                     } else {
-                        obj.stop_moving();
+                        obj.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+                            &mut self.queued_audio_events,
+                        ));
                         if obj.ai_state != AIState::Idle {
-                            obj.set_ai_state(AIState::Idle);
+                            obj.set_ai_state(
+                                AIState::Idle,
+                                &mut crate::game_logic::MovementAudio::queue(
+                                    &mut self.queued_audio_events,
+                                ),
+                            );
                         }
                         {}
                     }
@@ -411,7 +424,9 @@ impl GameLogic {
                             obj.set_status_force_attack(false);
                             obj.set_status_attacking(false);
                         }
-                        obj.stop_moving();
+                        obj.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+                            &mut self.queued_audio_events,
+                        ));
                     }
                 }
                 finished_builders.push(oid);

@@ -7,7 +7,6 @@
 use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
 use crate::game_logic::{ObjectId, ThingTemplate};
 use glam::Vec3;
-use std::cell::RefCell;
 
 /// INI / leftover `ThingTemplateAudioType` keys for move and ambient events.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -37,17 +36,6 @@ impl TemplateMoveAmbientSlot {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct MoveAmbientStopEvent {
-    pub object: ObjectId,
-    pub event_name: String,
-    pub position: Vec3,
-}
-
-thread_local! {
-    static STOP_LOG: RefCell<Vec<MoveAmbientStopEvent>> = RefCell::new(Vec::new());
-}
-
 pub fn nonempty_audio_event_name(name: &str) -> Option<String> {
     let trimmed = name.trim();
     if trimmed.is_empty() || trimmed.eq_ignore_ascii_case("NoSound") {
@@ -55,20 +43,6 @@ pub fn nonempty_audio_event_name(name: &str) -> Option<String> {
     } else {
         Some(trimmed.to_string())
     }
-}
-
-pub fn record_move_loop_stop(object: ObjectId, event_name: String, position: Vec3) {
-    STOP_LOG.with(|log| {
-        log.borrow_mut().push(MoveAmbientStopEvent {
-            object,
-            event_name,
-            position,
-        });
-    });
-}
-
-pub fn drain_move_loop_stops() -> Vec<MoveAmbientStopEvent> {
-    STOP_LOG.with(|log| std::mem::take(&mut *log.borrow_mut()))
 }
 
 pub fn host_template_move_ambient(

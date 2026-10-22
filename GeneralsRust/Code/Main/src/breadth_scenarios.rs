@@ -424,6 +424,7 @@ pub fn breadth_economy_combat() -> BreadthCategoryResult {
                 logic.frame,
                 &mut logic.combat_system,
                 &mut logic.attack_events,
+                &mut crate::game_logic::MovementAudio::queue(&mut logic.queued_audio_events),
             ) && !u.status.stealthed;
         }
 

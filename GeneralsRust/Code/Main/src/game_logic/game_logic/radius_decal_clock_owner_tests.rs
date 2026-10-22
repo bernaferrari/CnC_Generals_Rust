@@ -211,7 +211,11 @@ End
     );
     {
         let (object, attack_events) = world.host_object_and_attack_events_mut(source).unwrap();
-        object.attack_target(target, attack_events);
+        object.attack_target(
+            target,
+            attack_events,
+            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        );
     };
     assert!(world.host_object(source).unwrap().status.attacking);
     assert!(world.create_delivery_radius_decal(source, Vec3::new(40.0, 0.0, 0.0)));
@@ -297,7 +301,10 @@ fn radius_decal_same_owner_clock_control_and_real_stop_kill() {
             let (mut world, id) = world(2);
             ordinary(&mut world, 2);
             assert!((opacity(&world, id) - expected(2)).abs() < 1e-6);
-            world.host_object_mut(id).unwrap().stop();
+            world
+                .host_object_mut(id)
+                .unwrap()
+                .stop(&mut crate::game_logic::MovementAudio::queue(&mut Vec::new()));
             ordinary(&mut world, 3);
             let rd = world
                 .host_object(id)

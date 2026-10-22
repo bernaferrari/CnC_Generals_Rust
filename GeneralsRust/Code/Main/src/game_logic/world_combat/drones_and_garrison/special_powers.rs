@@ -347,7 +347,11 @@ impl GameLogic {
             if !target.is_alive() {
                 continue;
             }
-            target.apply_disabled_emp(until, &mut self.health_events);
+            target.apply_disabled_emp(
+                until,
+                &mut self.health_events,
+                &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+            );
             self.admit_host_radar_disabled_edges(id);
             disables = disables.saturating_add(1);
             spark_ids.push(id);
@@ -675,7 +679,11 @@ impl GameLogic {
             let _ = self.choose_best_weapon_for_target(cid, Some(tid), current_time);
             let mut entered_attack = false;
             if let Some(o) = self.objects.get_mut(&cid) {
-                o.note_attack_target(tid, &mut self.attack_events);
+                o.note_attack_target(
+                    tid,
+                    &mut self.attack_events,
+                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                );
                 o.turret_mood_target = true;
                 o.turret_idle_scanning = false;
                 o.turret_holding = false;
@@ -686,7 +694,10 @@ impl GameLogic {
                     AIState::Patrolling | AIState::AttackMoving | AIState::Attacking
                 );
                 if entered_attack {
-                    o.set_ai_state(AIState::Attacking);
+                    o.set_ai_state(
+                        AIState::Attacking,
+                        &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    );
                 }
             }
             {}
@@ -796,7 +807,12 @@ impl GameLogic {
                         o.set_status_attacking(false);
                         o.target = None;
                         if matches!(o.ai_state, AIState::Attacking) {
-                            o.set_ai_state(AIState::Idle);
+                            o.set_ai_state(
+                                AIState::Idle,
+                                &mut crate::game_logic::MovementAudio::queue(
+                                    &mut self.queued_audio_events,
+                                ),
+                            );
                             {}
                         }
                     }
@@ -809,7 +825,12 @@ impl GameLogic {
                         o.set_status_attacking(true);
                         let entered_attack = o.ai_state != AIState::Attacking;
                         if entered_attack {
-                            o.set_ai_state(AIState::Attacking);
+                            o.set_ai_state(
+                                AIState::Attacking,
+                                &mut crate::game_logic::MovementAudio::queue(
+                                    &mut self.queued_audio_events,
+                                ),
+                            );
                         }
                         {}
                     }

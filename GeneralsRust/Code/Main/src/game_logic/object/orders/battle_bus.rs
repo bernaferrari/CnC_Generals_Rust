@@ -77,7 +77,12 @@ impl Object {
         self.movement.velocity.x = 0.0;
         self.movement.velocity.z = 0.0;
         self.movement.target_position = None;
-        self.set_ai_state(AIState::Idle);
+        self.set_ai_state(
+            AIState::Idle,
+            &mut crate::game_logic::MovementAudio::callback(&mut |object, request| {
+                body_fx(object, BodyStateFx::MovementStop(request), None)
+            }),
+        );
         self.target = None;
         self.status.attacking = false;
         let _ = BATTLE_BUS_MC_BIT_SECOND_LIFE; // set on land
@@ -100,12 +105,14 @@ impl Object {
         current_frame: u32,
         _above_terrain_hint: bool,
         passenger_count: usize,
+        audio: &mut crate::game_logic::MovementAudio<'_>,
     ) -> (bool, bool) {
         self.tick_battle_bus_slow_death_with_fx(
             current_frame,
             _above_terrain_hint,
             passenger_count,
             &mut Self::standalone_object_fx,
+            audio,
         )
     }
 
@@ -115,6 +122,7 @@ impl Object {
         _above_terrain_hint: bool,
         passenger_count: usize,
         dispatch: &mut dyn FnMut(&str, &Object, bool),
+        audio: &mut crate::game_logic::MovementAudio<'_>,
     ) -> (bool, bool) {
         use crate::game_logic::host_battle_bus::{
             BATTLE_BUS_MC_BIT_SECOND_LIFE, battle_bus_hit_ground_fx_name,
@@ -152,9 +160,9 @@ impl Object {
             // C++ setModelConditionState(MODELCONDITION_SECOND_LIFE) + DISABLED_HELD.
             self.model_condition_bits |= 1u128 << BATTLE_BUS_MC_BIT_SECOND_LIFE;
             self.set_status_disabled_held(true);
-            self.stop_moving();
+            self.stop_moving(audio);
             if self.ai_state != AIState::Idle {
-                self.set_ai_state(AIState::Idle);
+                self.set_ai_state(AIState::Idle, audio);
             }
             self.refresh_model_condition_bits();
             // Leftover `finish_first_death` / C++ `FXList::doFXObj(m_fxHitGround, me)`.

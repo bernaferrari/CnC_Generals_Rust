@@ -126,8 +126,13 @@ impl Object {
         self.formation_offset = formation_offset;
     }
 
-    pub fn begin_cheer(&mut self, duration_secs: f32, cheer_bit: Option<usize>) {
-        self.set_ai_state(AIState::SpecialAbility);
+    pub fn begin_cheer(
+        &mut self,
+        duration_secs: f32,
+        cheer_bit: Option<usize>,
+        audio: &mut crate::game_logic::MovementAudio<'_>,
+    ) {
+        self.set_ai_state(AIState::SpecialAbility, audio);
         self.cheer_timer = duration_secs.max(0.0);
         if let Some(bit) = cheer_bit {
             if bit < 128 {
@@ -208,10 +213,14 @@ impl Object {
     }
 
     /// C++ AICMD_GO_PRONE residual — infantry hit the dirt briefly.
-    pub fn go_prone(&mut self, duration_secs: f32) {
-        self.clear_target();
+    pub fn go_prone(
+        &mut self,
+        duration_secs: f32,
+        audio: &mut crate::game_logic::MovementAudio<'_>,
+    ) {
+        self.clear_target(audio);
         self.set_force_attack(false);
-        self.stop_moving();
+        self.stop_moving(audio);
         self.prone_timer = duration_secs.max(0.1);
         if let Some(pu) = self.prone_update.as_mut() {
             // Approximate seconds → frames at 30 Hz for module residual.
@@ -237,7 +246,7 @@ impl Object {
                 | AIState::GuardingArea
                 | AIState::GuardingObject
         ) {
-            self.set_ai_state(AIState::Idle);
+            self.set_ai_state(AIState::Idle, audio);
         }
     }
 

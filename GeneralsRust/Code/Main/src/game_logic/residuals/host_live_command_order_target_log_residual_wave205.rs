@@ -100,9 +100,16 @@ pub fn simulate_live_command_order_target_log_honesty() -> bool {
         return false;
     };
 
-    if let Some((unit, attack_events)) = logic.host_object_and_attack_events_mut(u) {
-        unit.set_ai_state(AIState::Idle);
-        unit.set_order_target(Some(b), attack_events);
+    if let Some((unit, attack_events, audio_events)) = logic.host_object_attack_audio_mut(u) {
+        unit.set_ai_state(
+            AIState::Idle,
+            &mut crate::game_logic::MovementAudio::queue(audio_events),
+        );
+        unit.set_order_target(
+            Some(b),
+            attack_events,
+            &mut crate::game_logic::MovementAudio::queue(audio_events),
+        );
         if unit.target != Some(b) {
             return false;
         }

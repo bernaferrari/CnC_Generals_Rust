@@ -92,8 +92,15 @@ impl GameLogic {
             p.last_command_source = crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_AI;
             p.refresh_follow_path_extra_distance();
             p.adjust_destinations = !p.ultra_accurate;
-            p.set_destination(end, &mut self.movement_events.writer(self.frame));
-            p.set_ai_state(AIState::Moving);
+            p.set_destination(
+                end,
+                &mut self.movement_events.writer(self.frame),
+                &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+            );
+            p.set_ai_state(
+                AIState::Moving,
+                &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+            );
             p.status.moving = true;
         } else {
             let mut start =
@@ -132,8 +139,15 @@ impl GameLogic {
             p.last_command_source = crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_AI;
             p.refresh_follow_path_extra_distance();
             p.adjust_destinations = !p.ultra_accurate;
-            p.set_destination(end, &mut self.movement_events.writer(self.frame));
-            p.set_ai_state(AIState::Moving);
+            p.set_destination(
+                end,
+                &mut self.movement_events.writer(self.frame),
+                &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+            );
+            p.set_ai_state(
+                AIState::Moving,
+                &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+            );
             p.status.moving = true;
         }
         if let Some(goal) = self
