@@ -1828,7 +1828,13 @@ impl GameLogic {
         };
         use crate::game_logic::{KindOf, ThingTemplate};
 
-        if !self.templates.contains_key(HOST_CLEANUP_PROJECTILE) {
+        if self.receiving_module_content.is_some() {
+            // Projectile rows can be absent from map seeding. Lazy
+            // creation must still use this world's already admitted definition.
+            if !self.ensure_host_spawn_template(HOST_CLEANUP_PROJECTILE) {
+                return None;
+            }
+        } else if !self.templates.contains_key(HOST_CLEANUP_PROJECTILE) {
             if let Some(authored) =
                 Self::build_template_from_asset_definition(HOST_CLEANUP_PROJECTILE)
             {
@@ -2039,7 +2045,11 @@ impl GameLogic {
         use crate::game_logic::{KindOf, ThingTemplate};
 
         let name = kind.projectile_name();
-        if !self.templates.contains_key(name) {
+        if self.receiving_module_content.is_some() {
+            if !self.ensure_host_spawn_template(name) {
+                return None;
+            }
+        } else if !self.templates.contains_key(name) {
             if let Some(authored) = Self::build_template_from_asset_definition(name) {
                 self.templates.insert(name.to_string(), authored);
             } else {

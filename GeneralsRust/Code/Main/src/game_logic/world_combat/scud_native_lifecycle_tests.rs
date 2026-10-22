@@ -110,13 +110,14 @@ fn native_retail_scud_does_not_acquire_unrequested_height_module() {
             .iter()
             .any(|module| module.class_name.eq_ignore_ascii_case("HeightDieUpdate"))
     );
-    let template =
-        GameLogic::build_template_from_object_definition("SCUDMissile", definition, None);
+    let content = crate::assets::ReceivingObjectContent::from_sources([
+        ("retail-scud-native.ini".into(), SCUD_DEFINITION.to_owned()),
+        ("scud-launcher-owner.ini".into(), String::from(
+            "Object NativeScudLauncherOwner\nKindOf = VEHICLE\nBody = ActiveBody LauncherBody\nMaxHealth = 100\nInitialHealth = 100\nEnd\nEnd\n",
+        )),
+    ]).unwrap();
     let mut world = GameLogic::new();
-    world.templates.insert("SCUDMissile".into(), template);
-    let mut launcher = ThingTemplate::new("NativeScudLauncherOwner");
-    launcher.add_kind_of(KindOf::Vehicle).set_health(100.0);
-    world.templates.insert(launcher.name.clone(), launcher);
+    world.admit_receiving_module_content(content).unwrap();
     let source = world
         .create_object("NativeScudLauncherOwner", Team::GLA, Vec3::ZERO)
         .unwrap();

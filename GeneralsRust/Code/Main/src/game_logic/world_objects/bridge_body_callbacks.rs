@@ -61,20 +61,32 @@ impl GameLogic {
         )
     }
 
-    fn propagate_owned_bridge_body_change_with_effects(
+    /// Bounded synchronous bridge delivery. Every recipient borrow ends before
+    /// its callback; later slots and bodies are resolved after that callback.
+    pub(in crate::game_logic) fn visit_owned_bridge_mirror_recipients(
         &mut self,
         callbacks: BridgeBodyCallbacks,
-        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+        mut deliver: impl FnMut(&mut Self, ObjectId, f32),
     ) {
-        if callbacks.input_amount <= 0.0
-            || !callbacks.input_amount.is_finite()
-            || callbacks.max_health <= 0.0
-        {
+        if callbacks.input_amount <= 0.0 || !callbacks.input_amount.is_finite() {
             return;
         }
         let Some(span) = self.bridge_behavior.span_id_for(callbacks.victim) else {
             return;
         };
+        // CPP reads Body::getMaxHealth when this module callback starts,
+        // after any earlier body callback, not when damage was admitted.
+        let Some(maximum) = self
+            .objects
+            .get(&callbacks.victim)
+            .map(|o| o.health.maximum)
+        else {
+            return;
+        };
+        if maximum <= 0.0 || !maximum.is_finite() {
+            return;
+        }
+        let fraction = callbacks.input_amount / maximum;
         let source = callbacks.source.and_then(|id| self.objects.get(&id));
         // A span suppresses only tower-origin changes; a tower suppresses
         // both span- and tower-origin changes (not template-name guesses).
@@ -85,45 +97,61 @@ impl GameLogic {
         if suppressed {
             return;
         }
-        let targets = self.bridge_behavior.mirror_targets(callbacks.victim);
-        if targets.is_empty() {
+        if !(0..5).any(|slot| {
+            self.bridge_behavior
+                .callback_target_at(span, callbacks.victim, slot)
+                .is_some()
+        }) {
             return;
         }
         self.bridge_behavior.record_mirror_applied();
-        let fraction = callbacks.input_amount / callbacks.max_health;
-        for target in targets {
+        for slot in 0..5 {
+            let Some(target) =
+                self.bridge_behavior
+                    .callback_target_at(span, callbacks.victim, slot)
+            else {
+                continue;
+            };
             // Original resolves every recipient afresh, in tower slot order;
             // a tower's span is visited only after all sibling towers.
             let Some(maximum) = self.objects.get(&target).map(|o| o.health.maximum) else {
                 continue;
             };
-            // CPP BridgeBehavior::onHealing479 uses Object::attemptHealing,
-            // including dead tower revival, rather than damage admission.
+            deliver(self, target, fraction * maximum);
+        }
+    }
+
+    fn propagate_owned_bridge_body_change_with_effects(
+        &mut self,
+        callbacks: BridgeBodyCallbacks,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
+        self.visit_owned_bridge_mirror_recipients(callbacks, |owner, target, amount| {
             if callbacks.damage_type == DamageType::Healing {
-                let _ = self.apply_owned_healing_with_effects(
+                let _ = owner.apply_owned_healing_with_effects(
                     target,
-                    fraction * maximum,
+                    amount,
                     Some(callbacks.victim),
                     presentation_effects,
                 );
-                continue;
+            } else {
+                let context = DamageHitContext::new(
+                    owner.objects.get(&callbacks.victim),
+                    None,
+                    callbacks.damage_type,
+                );
+                let _ = owner.apply_owned_damage_with_effects(
+                    target,
+                    amount,
+                    Some(callbacks.victim),
+                    callbacks.damage_type,
+                    callbacks.death_type,
+                    None,
+                    &context,
+                    presentation_effects,
+                );
             }
-            let context = DamageHitContext::new(
-                self.objects.get(&callbacks.victim),
-                None,
-                callbacks.damage_type,
-            );
-            let _ = self.apply_owned_damage_with_effects(
-                target,
-                fraction * maximum,
-                Some(callbacks.victim),
-                callbacks.damage_type,
-                callbacks.death_type,
-                None,
-                &context,
-                presentation_effects,
-            );
-        }
+        });
     }
 
     /// Full original terrain linked-list walk. Release its borrow before
@@ -283,22 +311,33 @@ impl GameLogic {
         victim: ObjectId,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
-        let Some(span) = self.bridge_behavior.span_id_for(victim) else {
-            return;
-        };
-        let targets = if span == victim {
-            self.bridge_behavior.mirror_targets(victim)
-        } else {
-            vec![span]
-        };
-        self.bridge_behavior.record_death_link_applied();
-        for target in targets {
-            let _ = self.apply_owned_kill_with_effects(
+        self.visit_owned_bridge_death_recipients(victim, |owner, target| {
+            let _ = owner.apply_owned_kill_with_effects(
                 target,
                 DamageType::Unresistable,
                 HostDeathType::Normal,
                 presentation_effects,
             );
+        });
+    }
+
+    pub(in crate::game_logic) fn visit_owned_bridge_death_recipients(
+        &mut self,
+        victim: ObjectId,
+        mut deliver: impl FnMut(&mut Self, ObjectId),
+    ) {
+        let Some(span) = self.bridge_behavior.span_id_for(victim) else {
+            return;
+        };
+        self.bridge_behavior.record_death_link_applied();
+        // Span onDie rereads each tower slot after the preceding immediate
+        // kill; tower onDie addresses only its originally resolved span.
+        let slots = if span == victim { 0..4 } else { 4..5 };
+        for slot in slots {
+            let Some(target) = self.bridge_behavior.callback_target_at(span, victim, slot) else {
+                continue;
+            };
+            deliver(self, target);
         }
         if span == victim {
             self.bridge_behavior.mark_death(span, self.frame);

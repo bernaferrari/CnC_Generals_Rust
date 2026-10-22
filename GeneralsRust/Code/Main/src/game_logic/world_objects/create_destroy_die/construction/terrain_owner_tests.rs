@@ -1,6 +1,5 @@
 //! Real dozer creation, admitted map bytes and encoded continuation.
 use super::*;
-use crate::game_logic::{HostGeometryInfo, HostGeometryType};
 use crate::save_load::{
     GameDifficulty, SaveFileManager, SaveFileType, SaveGameInfo, SnapshotBuilder,
 };
@@ -48,35 +47,26 @@ fn map_bytes(raw: &[u8]) -> Vec<u8> {
 }
 
 fn world(path: &std::path::Path, raw: &[u8]) -> (GameLogic, ObjectId) {
+    world_with_scaffold_geometry(path, raw, DEFAULT_SCAFFOLD_GEOMETRY)
+}
+
+fn world_with_scaffold_geometry(
+    path: &std::path::Path,
+    raw: &[u8],
+    scaffold_geometry: &str,
+) -> (GameLogic, ObjectId) {
     std::fs::write(path, map_bytes(raw)).unwrap();
     crate::skirmish_config::lobby_definition_tests::admit_slot_definitions();
     let mut logic = GameLogic::new();
+    admit_construction_content(&mut logic, scaffold_geometry);
     assert!(logic.load_map(path.to_str().unwrap()));
     let mut player = Player::new(0, Team::USA, "USA", true);
     player.apply_map_side_dict(&authored_owner(), false, &mut logic.economy_events);
     player.resources.supplies = 1000;
     logic.add_player(player);
-    let mut builder = ThingTemplate::new("OwnedHeightDozer");
-    builder.add_kind_of(KindOf::Dozer).set_health(200.);
-    logic.templates.insert("OwnedHeightDozer".into(), builder);
     let constructor = logic
         .create_object_for_player("OwnedHeightDozer", 0, Vec3::ZERO)
         .unwrap();
-    let mut template = ThingTemplate::new("OwnedHeightScaffold");
-    template
-        .add_kind_of(KindOf::Structure)
-        .set_health(900.)
-        .set_cost(300, 0);
-    template.geometry_info = HostGeometryInfo {
-        geom_type: HostGeometryType::Box,
-        authored: true,
-        major_radius: 13.,
-        minor_radius: 9.,
-        ..Default::default()
-    };
-    logic
-        .templates
-        .insert("OwnedHeightScaffold".into(), template);
     (logic, constructor)
 }
 
@@ -166,17 +156,15 @@ fn authored_small_and_zero_radius_skip_edits_but_still_snap_at_original_phase() 
         || {
             for small in [true, false] {
                 let temp = tempfile::tempdir().unwrap();
-                let (mut logic, builder) = world(&temp.path().join("Skip.map"), &ramp());
-                let geometry = &mut logic
-                    .templates
-                    .get_mut("OwnedHeightScaffold")
-                    .unwrap()
-                    .geometry_info;
-                geometry.is_small = small;
-                if !small {
-                    geometry.geom_type = HostGeometryType::Cylinder;
-                    geometry.major_radius = 0.;
-                }
+                // Author each exact geometry before either native or host
+                // template is admitted, rather than editing one projection.
+                let geometry = if small {
+                    "Geometry = BOX\nGeometryIsSmall = Yes\nGeometryHeight = 1\nGeometryMajorRadius = 13\nGeometryMinorRadius = 9\n"
+                } else {
+                    "Geometry = CYLINDER\nGeometryIsSmall = No\nGeometryHeight = 1\nGeometryMajorRadius = 0\nGeometryMinorRadius = 9\n"
+                };
+                let (mut logic, builder) =
+                    world_with_scaffold_geometry(&temp.path().join("Skip.map"), &ramp(), geometry);
                 let before = bytes(&logic);
                 let id = construct(&mut logic, builder, Vec3::new(30., -90., 30.));
                 assert_eq!(bytes(&logic), before);
@@ -225,8 +213,8 @@ fn constructed_raw_height_survives_native_encoded_restore_and_next_creation() {
                 .unwrap();
             let decoded = saves.load_game_snapshot("height_owner").unwrap();
             let mut restored = GameLogic::new();
+            admit_construction_content(&mut restored, DEFAULT_SCAFFOLD_GEOMETRY);
             assert!(restored.load_map(&decoded.save_info.map_name));
-            restored.templates = source.templates.clone();
             SnapshotBuilder::new()
                 .restore_from_snapshot(&decoded.snapshot, &mut restored)
                 .unwrap();
@@ -266,23 +254,28 @@ fn constructed_raw_height_survives_native_encoded_restore_and_next_creation() {
     );
 }
 
+const DEFAULT_SCAFFOLD_GEOMETRY: &str = "Geometry = BOX\nGeometryIsSmall = No\nGeometryHeight = 1\nGeometryMajorRadius = 13\nGeometryMinorRadius = 9\n";
+
+fn admit_construction_content(world: &mut GameLogic, scaffold_geometry: &str) {
+    world
+        .admit_receiving_module_content(
+            crate::assets::ReceivingObjectContent::from_sources([(
+                "owned_flatten_group.ini".to_owned(),
+                format!(
+                    "{GROUP_MEMBER_SOURCE}\nObject OwnedHeightDozer\nKindOf = DOZER\nBody = ActiveBody DozerBody\nMaxHealth = 200\nInitialHealth = 200\nEnd\nEnd\nObject OwnedHeightScaffold\nKindOf = STRUCTURE\nBuildCost = 300\n{scaffold_geometry}Body = ActiveBody ScaffoldBody\nMaxHealth = 900\nInitialHealth = 900\nEnd\nEnd\n"
+                ),
+            )])
+            .expect("paired receiving construction and group definitions"),
+        )
+        .expect("complete receiving construction content before birth/restore");
+}
+
+const GROUP_MEMBER_SOURCE: &str = "Object OwnedFlattenGroupMember\n  KindOf = VEHICLE SELECTABLE\n  Geometry = CYLINDER\n  GeometryMajorRadius = 1\n  Body = ActiveBody ModuleTag_Body\n    MaxHealth = 100\n    InitialHealth = 100\n  End\n  Behavior = AIUpdateInterface ModuleTag_AI\n  End\n  Locomotor = SET_NORMAL OwnedFlattenGroupLocomotor\nEnd\n";
+
 fn admit_group_member(world: &mut GameLogic) -> ObjectId {
     game_engine::common::ini::ini_locomotor::load_locomotors_from_str(
         "Locomotor OwnedFlattenGroupLocomotor\n  Surfaces = GROUND\n  Speed = 30\n  Appearance = TREADS\nEnd\n",
     ).unwrap();
-    let mut parser = crate::assets::IniParser::new();
-    parser.parse_ini_content(
-        "Object OwnedFlattenGroupMember\n  KindOf = VEHICLE SELECTABLE\n  Geometry = CYLINDER\n  GeometryMajorRadius = 1\n  Body = ActiveBody ModuleTag_Body\n    MaxHealth = 100\n    InitialHealth = 100\n  End\n  Behavior = AIUpdateInterface ModuleTag_AI\n  End\n  Locomotor = SET_NORMAL OwnedFlattenGroupLocomotor\nEnd\n",
-        "owned_flatten_group.ini",
-    ).unwrap();
-    world.templates.insert(
-        "OwnedFlattenGroupMember".into(),
-        GameLogic::build_template_from_object_definition(
-            "OwnedFlattenGroupMember",
-            parser.get_definition("OwnedFlattenGroupMember").unwrap(),
-            None,
-        ),
-    );
     let id = world
         .create_object_for_player("OwnedFlattenGroupMember", 0, Vec3::new(60., 0., 30.))
         .unwrap();

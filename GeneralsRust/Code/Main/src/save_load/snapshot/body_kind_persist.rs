@@ -116,9 +116,17 @@ pub(super) fn validate(
             _ => return Err(corrupted("invalid body-kind value")),
         };
         if let Some(kind) = kind {
-            if world
-                .templates
-                .get(&object.template_name)
+            let template = super::receiving_template::resolve(world, &object.template_name)?;
+            if let Some(error) = template
+                .as_deref()
+                .and_then(|template| template.body_definition_error.as_ref())
+            {
+                return Err(corrupted(format!(
+                    "receiving Body definition invalid: {error}"
+                )));
+            }
+            if template
+                .as_deref()
                 .and_then(|template| template.body_kind)
                 .is_some_and(|loaded| loaded != kind)
             {

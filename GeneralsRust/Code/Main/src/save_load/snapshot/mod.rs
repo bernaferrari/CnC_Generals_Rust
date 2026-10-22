@@ -83,6 +83,7 @@ mod player;
 mod player_upgrade_persist;
 mod production_door_persist;
 mod rebuild_hole_persist;
+mod receiving_template;
 mod restore;
 mod shroud;
 mod special_power_cooldown_persist;

@@ -122,8 +122,8 @@ impl GameLogic {
         .map(|result| result.destroyed())
     }
 
-    /// Residual callers retain their original batched death dispatch, but Body
-    /// and Player mutations execute immediately on this receiving session.
+    /// Complete residual Body, Player and world callbacks on this receiving
+    /// session before the caller resumes its candidate loop.
     pub(in crate::game_logic) fn apply_residual_damage_owned(
         &mut self,
         victim_id: ObjectId,
@@ -154,159 +154,20 @@ impl GameLogic {
         fx_override: Option<crate::game_logic::combat::DamageType>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> bool {
-        let Some(previous_source) = self
-            .objects
-            .get(&victim_id)
-            .map(|object| object.last_damage_source)
-        else {
-            return false;
-        };
-        let source_players = [source_id, previous_source].map(|source| {
-            source.and_then(|id| {
-                self.objects
-                    .get(&id)
-                    .and_then(|object| object.owner_player_id.map(|player| (id, player)))
-            })
-        });
-        let frame = self.frame;
-        let context = DamageHitContext::default()
-            .with_last_damage_sources(
-                source_id.and_then(|id| self.objects.get(&id)),
-                previous_source.and_then(|id| self.objects.get(&id)),
-            )
-            .with_neutral_player_id(
-                self.players
-                    .iter()
-                    .filter_map(|(id, player)| player.is_reserved_neutral().then_some(*id))
-                    .min(),
-            );
-        #[cfg(feature = "game_client")]
-        {
-            let player = self.local_player_id();
-            let armor_source = source_id
-                .and_then(|id| self.objects.get(&id))
-                .map(crate::game_logic::host_transition_damage_fx::snapshot_damage_fx_source);
-            let secondaries = [source_id, previous_source].map(|id| {
-                id.and_then(|id| self.objects.get(&id)).map(|object| {
-                    Self::observe_host_fx_object(object, player, self.world_services.shroud())
-                })
-            });
-            Self::with_host_fx_view_parts_and_terrain(
-                &mut self.session_view,
-                player,
-                self.world_services.shroud(),
-                effects.terrain.as_mut().map(|terrain| {
-                    &mut **terrain as &mut dyn crate::game_logic::NativeTerrainEffects
-                }),
-                |view| {
-                    let victim = self
-                        .objects
-                        .get_mut(&victim_id)
-                        .expect("validated receiving victim");
-                    let players = &mut self.players;
-                    let particles = &mut self.combat_particles;
-                    let shroud = self.world_services.shroud();
-                    let mut body_fx = |object: &mut Object,
-                                       effect: crate::game_logic::object::BodyStateFx,
-                                       source: Option<
-                        &crate::game_logic::host_transition_damage_fx::HostDamageFxVictim,
-                    >| {
-                        // ArmorFX resolves this request's actual source at
-                        // its owner boundary, not a frozen ingress context.
-                        let source = if matches!(
-                            &effect,
-                            crate::game_logic::object::BodyStateFx::ArmorDamage { .. }
-                        ) {
-                            armor_source.as_ref()
-                        } else {
-                            source
-                        };
-                        let secondary_id = if matches!(
-                            &effect,
-                            crate::game_logic::object::BodyStateFx::ArmorDamage { .. }
-                        ) {
-                            source.map(|source| ObjectId(source.id))
-                        } else {
-                            object.last_damage_source
-                        };
-                        let secondary = secondaries
-                            .iter()
-                            .flatten()
-                            .find(|pose| Some(ObjectId(pose.id)) == secondary_id);
-                        Self::execute_body_state_fx_with_view(
-                            object,
-                            effect,
-                            source,
-                            secondary,
-                            player,
-                            shroud,
-                            particles,
-                            &mut self.queued_audio_events,
-                            frame,
-                            view,
-                        );
-                    };
-                    let application = victim.begin_damage_with_context_and_effects(
-                        amount,
-                        source_id,
-                        damage_type,
-                        death_type,
-                        fx_override,
-                        frame,
-                        &context,
-                        &mut self.health_events,
-                        Some(&mut self.ownership_events),
-                        |effect| {
-                            Self::apply_body_player_effect(players, frame, &source_players, effect)
-                        },
-                        &mut body_fx,
-                    );
-                    application.finish_standalone_with_body_fx(
-                        victim,
-                        None,
-                        &self.enable_repulsors,
-                        &mut body_fx,
-                    )
-                },
-            )
-        }
-        #[cfg(not(feature = "game_client"))]
-        {
-            let players = &mut self.players;
-            let victim = self
-                .objects
-                .get_mut(&victim_id)
-                .expect("validated receiving victim");
-            let audio = &mut self.queued_audio_events;
-            let mut body_fx = |object: &mut Object,
-                               effect,
-                               source: Option<
-                &crate::game_logic::host_transition_damage_fx::HostDamageFxVictim,
-            >| {
-                Self::execute_body_state_fx_without_view(object, effect, source, audio);
-            };
-            let application = victim.begin_damage_with_context_and_effects(
-                amount,
-                source_id,
-                damage_type,
-                death_type,
-                fx_override,
-                frame,
-                &context,
-                &mut self.health_events,
-                Some(&mut self.ownership_events),
-                |effect| {
-                    Self::apply_body_player_effect(players, frame, &source_players, effect);
-                },
-                &mut body_fx,
-            );
-            application.finish_standalone_with_body_fx(
-                victim,
-                None,
-                &self.enable_repulsors,
-                &mut body_fx,
-            )
-        }
+        // Residual weapons and world effects use the same installed Body owner
+        // as ordinary impacts. Finish reentrant bridge, score and onDie callbacks
+        // before returning to the caller's original next-candidate boundary.
+        self.apply_owned_damage_with_effects(
+            victim_id,
+            amount,
+            source_id,
+            damage_type,
+            death_type,
+            fx_override,
+            &DamageHitContext::default(),
+            effects,
+        )
+        .is_some_and(|result| result.destroyed)
     }
 
     /// CPP Object1930–1940: preserve the requested damage/death types and

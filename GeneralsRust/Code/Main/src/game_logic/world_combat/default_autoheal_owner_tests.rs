@@ -11,17 +11,19 @@ use crate::game_logic::{GameLogic, ObjectId, Player, Team};
 use glam::Vec3;
 
 fn world(maximum: f32, initial: f32) -> (GameLogic, ObjectId) {
-    let mut parser = crate::assets::IniParser::new();
-    parser.parse_ini_content(&format!("Object ReceivingDefaultAutoHeal\n KindOf = INFANTRY\n Body = ActiveBody BodyTag\n MaxHealth = {maximum}\n InitialHealth = {initial}\n End\nEnd\n"), "receiving_default_autoheal.ini").unwrap();
+    let source = format!(
+        "Object ReceivingDefaultAutoHeal\n KindOf = INFANTRY\n IsTrainable = Yes\n Body = ActiveBody BodyTag\n MaxHealth = {maximum}\n InitialHealth = {initial}\n End\nEnd\n"
+    );
+    let content = crate::assets::ReceivingObjectContent::from_sources([(
+        "receiving_default_autoheal.ini".to_string(),
+        source,
+    )])
+    .unwrap();
     let mut owner = GameLogic::new();
     owner.add_player(Player::new(1, Team::USA, "HealingOwner", true));
-    let mut template = GameLogic::build_template_from_object_definition(
-        "ReceivingDefaultAutoHeal",
-        parser.get_definition("ReceivingDefaultAutoHeal").unwrap(),
-        None,
-    );
-    template.is_trainable = true;
-    owner.templates.insert(template.name.clone(), template);
+    // Body and template must be admitted from the same receiving catalog.
+    // Keep exact authored zero/small/max/initial values; do not synthesize HP.
+    owner.admit_receiving_module_content(content).unwrap();
     let id = owner
         .create_object_for_player("ReceivingDefaultAutoHeal", 1, Vec3::ZERO)
         .unwrap();

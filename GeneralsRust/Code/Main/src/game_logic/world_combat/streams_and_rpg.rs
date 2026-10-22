@@ -154,7 +154,11 @@ impl GameLogic {
         };
         use crate::game_logic::{KindOf, ThingTemplate};
 
-        if !self.templates.contains_key(TECH_CANNON_SHELL_PROJECTILE) {
+        if self.receiving_module_content.is_some() {
+            if !self.ensure_host_spawn_template(TECH_CANNON_SHELL_PROJECTILE) {
+                return None;
+            }
+        } else if !self.templates.contains_key(TECH_CANNON_SHELL_PROJECTILE) {
             if let Some(authored) =
                 Self::build_template_from_asset_definition(TECH_CANNON_SHELL_PROJECTILE)
             {

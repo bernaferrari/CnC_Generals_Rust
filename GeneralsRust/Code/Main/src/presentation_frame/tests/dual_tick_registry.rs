@@ -1377,8 +1377,10 @@ fn superweapon_damage_applies_host_hp() {
     // Structural admission evidence, not an independent C++ behavior proof.
     let owner = include_str!("../../game_logic/world_objects/damage_application.rs");
     let owner: String = owner.split_whitespace().collect();
-    assert!(owner.contains("victim.begin_damage_with_context_and_effects(amount,source_id,damage_type,death_type,fx_override,frame,") && owner.contains("letframe=self.frame;"),
-        "strikes must enter the actual typed Body operation with the receiving frame");
+    assert!(owner.contains("self.apply_owned_damage_with_effects(victim_id,amount,source_id,damage_type,death_type,fx_override,&DamageHitContext::default(),effects,")
+        && owner.contains("damage,source_id,damage_type,death_type,fx_override,frame,")
+        && owner.contains("letframe=self.frame;"),
+        "strikes must delegate to the shared typed Body owner with the receiving frame");
     // Facade split: superweapon strikes live in the world_scripts module.
     let gl = include_str!("../../game_logic/world_scripts/special_power_strikes.rs");
     let gl: String = gl.split_whitespace().collect();

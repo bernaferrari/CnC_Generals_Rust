@@ -1261,7 +1261,14 @@ End
             r.next_mood_check_time = 9999;
             r.randomly_offset_mood_check = false;
         }
-        logic.mark_object_for_destruction(transport, None);
+        logic.mark_object_for_destruction_with_effects(
+            transport,
+            None,
+            &mut crate::game_logic::ScriptPresentationEffects {
+                audio: Some(&mut output),
+                ..Default::default()
+            },
+        );
         logic.process_destroy_list_with_effects(
             &mut crate::game_logic::ScriptPresentationEffects {
                 audio: Some(&mut output),

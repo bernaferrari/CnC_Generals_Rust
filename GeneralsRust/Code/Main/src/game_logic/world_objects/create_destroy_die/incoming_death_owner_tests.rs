@@ -4,22 +4,16 @@
 use crate::game_logic::combat::DamageType;
 use crate::game_logic::host_usa_pilot::HostDeathType;
 use crate::game_logic::object::DamageHitContext;
-use crate::game_logic::{GameLogic, ObjectId, Team, ThingTemplate};
+use crate::game_logic::{GameLogic, ObjectId, Team};
 
-fn authored(name: &str, body: &str, kind: &str, behaviors: &str) -> ThingTemplate {
+fn authored(name: &str, body: &str, kind: &str, behaviors: &str) -> String {
     let health = if body == "InactiveBody" {
         ""
     } else {
         "MaxHealth = 100\nInitialHealth = 100"
     };
-    let mut parser = crate::assets::IniParser::new();
-    parser.parse_ini_content(&format!(
+    format!(
         "Object {name}\nKindOf = {kind}\nGeometry = BOX\nGeometryMajorRadius = 20\nGeometryMinorRadius = 10\nGeometryHeight = 30\nBody = {body} BodyTag\n{health}\nEnd\n{behaviors}\nEnd"
-    ), "incoming-death-owner.ini").unwrap();
-    GameLogic::build_template_from_object_definition(
-        name,
-        parser.get_definition(name).unwrap(),
-        None,
     )
 }
 
@@ -36,13 +30,18 @@ fn setup(body: &str, toppler: bool) -> (GameLogic, ObjectId, ObjectId, ObjectId)
             "Behavior = CrushDie CrushTag\nDeathTypes = ALL\nEnd"
         },
     );
-    for template in [
+    let source = [
         victim,
         authored("PreferredSource", "ActiveBody", "VEHICLE", ""),
         authored("IncomingSource", "ActiveBody", "INERT IMMOBILE", ""),
-    ] {
-        world.templates.insert(template.name.clone(), template);
-    }
+    ]
+    .join("\n");
+    let content = crate::assets::ReceivingObjectContent::from_sources([(
+        "incoming-death-owner.ini".to_string(),
+        source,
+    )])
+    .unwrap();
+    world.admit_receiving_module_content(content).unwrap();
     let victim = world
         .create_object("IncomingVictim", Team::USA, glam::Vec3::ZERO)
         .unwrap();
@@ -210,9 +209,12 @@ fn immortal_body_rejects_both_ordinary_detonation_and_explicit_kill() {
     // generic subclass definition admission is a separate tracked obligation.
     let name = "SupplyWarehouseImmortalWitness";
     let mut owner = GameLogic::new();
-    owner
-        .templates
-        .insert(name.into(), authored(name, "ImmortalBody", "INERT", ""));
+    let content = crate::assets::ReceivingObjectContent::from_sources([(
+        "incoming-immortal-owner.ini".to_string(),
+        authored(name, "ImmortalBody", "INERT", ""),
+    )])
+    .unwrap();
+    owner.admit_receiving_module_content(content).unwrap();
     let victim = owner
         .create_object(name, Team::USA, glam::Vec3::ZERO)
         .unwrap();

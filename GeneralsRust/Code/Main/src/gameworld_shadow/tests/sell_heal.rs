@@ -106,28 +106,40 @@ fn explosion_detonation_damage_source_authority_source() {
             "{name} must not keep anonymous Object damage"
         );
     }
-    let owner = last_rust_fn_body(src, "apply_residual_damage_owned_with_effects")
-        .expect("receiving body owner");
+    let residual = last_rust_fn_body(src, "apply_residual_damage_owned_with_effects")
+        .expect("receiving residual adapter");
+    let residual: String = residual.split_whitespace().collect();
+    assert!(residual.contains("self.apply_owned_damage_with_effects(victim_id,amount,source_id,damage_type,death_type,fx_override,&DamageHitContext::default(),effects,"),
+        "residual effects must use the canonical installed owner, without a second Body kernel");
+    let owner = last_rust_fn_body(
+        src,
+        "apply_owned_damage_with_killer_team_and_after_fx_with_effects",
+    )
+    .expect("canonical receiving Body owner");
     let owner: String = owner.split_whitespace().collect();
     assert!(
         owner.contains("letframe=self.frame;")
-            && owner.contains("amount,source_id,damage_type,death_type,fx_override,frame,")
+            && owner.contains("damage,source_id,damage_type,death_type,fx_override,frame,")
     );
-    assert!(
+    assert_eq!(
         owner
-            .matches("victim.begin_damage_with_context_and_effects(")
-            .count()
-            == 2,
-        "both native and no-client routes must enter the effects-bearing Body kernel"
+            .matches(".begin_damage_with_context_and_effects(")
+            .count(),
+        2,
+        "native and no-client routes must enter the effects-bearing Body kernel"
     );
     assert!(
-        owner.contains("Self::execute_body_state_fx_without_view(object,effect,source,audio)")
-            && owner.contains("letaudio=&mutself.queued_audio_events;"),
+        owner.contains("Self::execute_body_state_fx_without_view(")
+            && owner.contains("&mutself.queued_audio_events"),
         "no-client route retains the explicit receiving audio owner"
     );
     assert!(
-        owner.contains("Self::apply_body_player_effect(players,frame,&source_players,effect);"),
-        "Player mutation must use the selected source at the real receiving Body callback"
+        owner.contains("Self::apply_body_player_effect(players,frame,&source_players,effect)"),
+        "Player mutation must use the selected source at the receiving Body callback"
+    );
+    assert!(
+        owner.contains("self.complete_owned_bridge_body_callbacks_with_effects(callbacks,effects)"),
+        "bridge callbacks must complete synchronously in the canonical owner"
     );
 }
 

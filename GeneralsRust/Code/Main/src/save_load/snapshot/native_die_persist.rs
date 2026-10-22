@@ -172,29 +172,26 @@ pub(super) fn validate(
         for (id, object) in &snapshot.objects {
             // InactiveBody starts effectively-dead even before any onDie.
             // Its explicit world latch or destroyed flag is the useful evidence.
+            let template = super::receiving_template::resolve(world, &object.template_name)?;
             let inactive = body_kinds.get(id).map_or_else(
                 || {
-                    world
-                        .templates
-                        .get(&object.template_name)
-                        .is_some_and(|template| {
-                            let runtime = world.temporary_weapon_runtime_for_template(template, 0);
-                            Object::new_with_initial_status_and_temporary_weapons(
-                                template.clone(),
-                                *id,
-                                object.team,
-                                0,
-                                Default::default(),
-                                runtime,
-                            )
-                            .is_inactive_body()
-                        })
+                    template.as_deref().is_some_and(|template| {
+                        let runtime = world.temporary_weapon_runtime_for_template(template, 0);
+                        Object::new_with_initial_status_and_temporary_weapons(
+                            template.clone(),
+                            *id,
+                            object.team,
+                            0,
+                            Default::default(),
+                            runtime,
+                        )
+                        .is_inactive_body()
+                    })
                 },
                 |kind| *kind == crate::game_logic::thing::BodyKind::Inactive,
             );
-            if world
-                .templates
-                .get(&object.template_name)
+            if template
+                .as_deref()
                 .and_then(|template| template.native_die_declarations.as_ref())
                 .is_some_and(|declarations| !declarations.is_empty())
                 && (object.status.destroyed
@@ -223,7 +220,8 @@ pub(super) fn validate(
         if id.0 == 0 || runtimes.contains_key(&id) {
             return Err(corrupted("invalid or duplicate owner"));
         }
-        let template = world.templates.get(&saved.template_name);
+        let resolved = super::receiving_template::resolve(world, &saved.template_name)?;
+        let template = resolved.as_deref();
         if record.declarations != template.and_then(identity) {
             return Err(corrupted(format!(
                 "receiving Die declarations differ for {}",

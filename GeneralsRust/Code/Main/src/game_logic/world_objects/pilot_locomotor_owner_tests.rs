@@ -13,6 +13,28 @@ fn world_with_training(
     vehicle_kind: &str,
     trainable: &str,
 ) -> (GameLogic, ObjectId, ObjectId) {
+    let mut owner = admitted_world(locomotor, vehicle_kind, trainable);
+    let pilot = owner
+        .create_object_for_player("OwnedPilot", 1, Vec3::ZERO)
+        .unwrap();
+    assert_eq!(
+        owner.host_object(pilot).unwrap().experience.level,
+        crate::game_logic::VeterancyLevel::Veteran,
+        "actual companion VeterancyGainCreate must admit a positive pilot transfer"
+    );
+    let vehicle = owner
+        .create_object_for_player("OwnedVehicle", 1, Vec3::new(30.0, 0.0, 0.0))
+        .unwrap();
+    let vehicle_object = owner.host_object_mut(vehicle).unwrap();
+    assert!(
+        vehicle_object.selected_locomotor_definition.is_some(),
+        "real factory must bind selected definition"
+    );
+    vehicle_object.status.disabled_unmanned = true;
+    (owner, pilot, vehicle)
+}
+
+fn admitted_world(locomotor: &str, vehicle_kind: &str, trainable: &str) -> GameLogic {
     let mut owner = GameLogic::new();
     owner.add_player(Player::new(1, Team::USA, "PilotOwner", false));
     let text = format!(
@@ -42,35 +64,19 @@ Object OwnedVehicle
 End
 "#
     );
-    let mut parser = crate::assets::IniParser::new();
-    parser.parse_ini_content(&text, "pilot-owner.ini").unwrap();
+    let content = crate::assets::ReceivingObjectContent::from_sources([(
+        "pilot-owner.ini".to_string(),
+        text,
+    )])
+    .unwrap();
+    owner.admit_receiving_module_content(content).unwrap();
     for name in ["OwnedPilot", "OwnedVehicle"] {
-        let template = GameLogic::build_template_from_object_definition(
-            name,
-            parser.get_definition(name).unwrap(),
-            None,
+        assert_eq!(
+            owner.templates[name].authored_ai_update_interface(),
+            Some(true)
         );
-        assert_eq!(template.authored_ai_update_interface(), Some(true));
-        owner.templates.insert(name.into(), template);
     }
-    let pilot = owner
-        .create_object_for_player("OwnedPilot", 1, Vec3::ZERO)
-        .unwrap();
-    assert_eq!(
-        owner.host_object(pilot).unwrap().experience.level,
-        crate::game_logic::VeterancyLevel::Veteran,
-        "actual companion VeterancyGainCreate must admit a positive pilot transfer"
-    );
-    let vehicle = owner
-        .create_object_for_player("OwnedVehicle", 1, Vec3::new(30.0, 0.0, 0.0))
-        .unwrap();
-    let vehicle_object = owner.host_object_mut(vehicle).unwrap();
-    assert!(
-        vehicle_object.selected_locomotor_definition.is_some(),
-        "real factory must bind selected definition"
-    );
-    vehicle_object.status.disabled_unmanned = true;
-    (owner, pilot, vehicle)
+    owner
 }
 
 #[test]
@@ -140,9 +146,7 @@ fn selected_air_admission_reconstructs_through_normal_world_save() {
         .unwrap();
     let encoded = bincode_legacy::serialize(&snapshot).unwrap();
     let decoded = decode_bincode_world_snapshot(&encoded).unwrap();
-    let mut restored = GameLogic::new();
-    restored.templates = owner.templates.clone();
-    restored.add_player(Player::new(1, Team::USA, "PilotOwner", false));
+    let mut restored = admitted_world("ComancheLocomotor", "VEHICLE SELECTABLE", "Yes");
     SnapshotBuilder::new()
         .restore_from_snapshot(&decoded, &mut restored)
         .unwrap();

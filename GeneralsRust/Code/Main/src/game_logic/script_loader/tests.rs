@@ -596,7 +596,24 @@ End\n";
         map_data.polygon_triggers = triggers;
         map_data.bridges = bridges;
         let mut terrain = gamelogic::terrain::TerrainLogic::new();
-        terrain.load_map_data(map_data);
+        let mut owner = crate::game_logic::GameLogic::new();
+        // Parse into this terrain and reserve layers in this match's grid.
+        // The standalone loader discovers ambient Core AI and can select a
+        // concurrently published Main world even though this is a local fixture.
+        for (info, template) in terrain.try_load_map_geometry(map_data).unwrap() {
+            let host = |p: gamelogic::common::Coord3D| glam::Vec3::new(p.x, p.z, p.y);
+            let layer = owner.pathfinding_system.grid.reserve_bridge_layer(
+                host(info.from_left),
+                host(info.from_right),
+                host(info.to_left),
+                host(info.to_right),
+            );
+            terrain.prepend_bridge_on_layer(
+                info,
+                template,
+                gamelogic::path::PathfindLayerEnum::from_u32(layer as u32),
+            );
+        }
         assert_eq!(
             terrain
                 .get_water_handle(10.0, 10.0)

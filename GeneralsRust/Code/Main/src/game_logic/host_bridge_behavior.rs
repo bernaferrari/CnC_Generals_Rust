@@ -10,7 +10,6 @@
 use super::ObjectId;
 use glam::Vec3;
 use serde::{Deserialize, Serialize};
-use std::cell::RefCell;
 use std::collections::HashMap;
 
 /// C++ FRAMES while scaffolds rise (lateral then vertical). Host residual: 45.
@@ -45,69 +44,6 @@ pub const BRIDGE_DIE_OCL_NAME: &str = "OCL_GenericBridgeDie";
 pub const BRIDGE_DAMAGED_TO_SOUND: &str = "BridgeDamaged";
 /// C++ Roads.ini `RepairedToSound` residual.
 pub const BRIDGE_REPAIRED_TO_SOUND: &str = "BridgeRepaired";
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum HostBridgeMirrorKind {
-    Damage,
-    Heal,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct HostBridgeMirrorEvent {
-    pub victim: ObjectId,
-    pub amount: f32,
-    pub max_health: f32,
-    pub source: Option<ObjectId>,
-    pub damage_type: u32,
-    pub death_type: u32,
-    pub kind: HostBridgeMirrorKind,
-}
-
-thread_local! {
-    static MIRROR_LOG: RefCell<Vec<HostBridgeMirrorEvent>> = const { RefCell::new(Vec::new()) };
-    static DEATH_LOG: RefCell<Vec<ObjectId>> = const { RefCell::new(Vec::new()) };
-}
-
-pub fn record_mirror(
-    victim: ObjectId,
-    amount: f32,
-    max_health: f32,
-    source: Option<ObjectId>,
-    damage_type: u32,
-    death_type: u32,
-    kind: HostBridgeMirrorKind,
-) {
-    if amount <= 0.0 || !amount.is_finite() || max_health <= 0.0 {
-        return;
-    }
-    MIRROR_LOG.with(|log| {
-        log.borrow_mut().push(HostBridgeMirrorEvent {
-            victim,
-            amount,
-            max_health,
-            source,
-            damage_type,
-            death_type,
-            kind,
-        });
-    });
-}
-
-pub fn drain_mirrors() -> Vec<HostBridgeMirrorEvent> {
-    MIRROR_LOG.with(|log| std::mem::take(&mut *log.borrow_mut()))
-}
-
-pub fn record_death_link(victim: ObjectId) {
-    DEATH_LOG.with(|log| {
-        if !log.borrow().iter().any(|id| *id == victim) {
-            log.borrow_mut().push(victim);
-        }
-    });
-}
-
-pub fn drain_death_links() -> Vec<ObjectId> {
-    DEATH_LOG.with(|log| std::mem::take(&mut *log.borrow_mut()))
-}
 
 /// C++ `ScaffoldTargetMotion` residual.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -456,6 +392,27 @@ impl HostBridgeBehaviorRegistry {
             .get(&span_id.0)
             .map(|s| s.members().collect())
             .unwrap_or_default()
+    }
+
+    /// One synchronous callback slot. `span_id` is captured at callback entry;
+    /// reread its current routing before each recipient, after prior callbacks.
+    pub(in crate::game_logic) fn callback_target_at(
+        &self,
+        span_id: ObjectId,
+        victim: ObjectId,
+        slot: usize,
+    ) -> Option<ObjectId> {
+        if slot == 4 {
+            // Tower callbacks finish on the originally resolved span, even if
+            // a prior sibling callback changes the tower-to-span lookup.
+            return (span_id != victim).then_some(span_id);
+        }
+        self.spans
+            .get(&span_id.0)?
+            .tower_ids
+            .get(slot)
+            .copied()
+            .filter(|id| id.0 != 0 && *id != victim)
     }
 
     /// C++ tower/span onDamage/onHealing: siblings excluding `victim`.
@@ -1085,5 +1042,31 @@ mod tests {
         assert_eq!(reg.take_due_die_ocl(id, 18), 1);
         assert!(reg.die_fx >= 2);
         assert!(reg.die_ocl >= 2);
+    }
+    #[test]
+    fn callback_slots_reread_routing_without_reselecting_the_original_span() {
+        let mut reg = HostBridgeBehaviorRegistry::new();
+        let span = ObjectId(1);
+        let other = ObjectId(2);
+        let victim = ObjectId(10);
+        let old = ObjectId(11);
+        let replacement = ObjectId(12);
+        for id in [span, other] {
+            reg.register_span(id, Vec3::ZERO, Vec3::X, Vec3::Z, Vec3::ONE);
+        }
+        reg.bind_towers(span, [victim, old, ObjectId(0), ObjectId(0)]);
+        let captured_span = reg.span_id_for(victim).unwrap();
+        assert_eq!(reg.callback_target_at(captured_span, victim, 0), None);
+        // A completed recipient may rewrite a later slot before it is visited.
+        reg.bind_towers(span, [victim, replacement, ObjectId(0), ObjectId(0)]);
+        assert_eq!(
+            reg.callback_target_at(captured_span, victim, 1),
+            Some(replacement)
+        );
+        reg.bind_towers(other, [victim, ObjectId(0), ObjectId(0), ObjectId(0)]);
+        assert_eq!(reg.span_id_for(victim), Some(other));
+        assert_eq!(reg.callback_target_at(captured_span, victim, 4), Some(span));
+        assert_eq!(reg.callback_target_at(span, span, 4), None);
+        assert_eq!(reg.callback_target_at(span, span, 2), None);
     }
 }

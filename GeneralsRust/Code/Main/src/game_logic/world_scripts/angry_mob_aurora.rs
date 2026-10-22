@@ -2474,22 +2474,65 @@ impl GameLogic {
 #[cfg(test)]
 mod spawn_behavior_parity {
     use super::*;
+    use crate::game_logic::Team;
     use crate::game_logic::host_angry_mob::{
-        ANGRY_MOB_EXPAND_INTERVAL_FRAMES, ANGRY_MOB_MAX_MEMBERS,
+        ANGRY_MOB_EXIT_DELAY_FRAMES, ANGRY_MOB_EXPAND_INTERVAL_FRAMES, ANGRY_MOB_INITIAL_MEMBERS,
+        ANGRY_MOB_MAX_MEMBERS, ANGRY_MOB_MEMBER_TEMPLATES,
     };
-    use crate::game_logic::{KindOf, Team, ThingTemplate};
 
     fn make_nexus_logic() -> (GameLogic, ObjectId) {
+        // Literal retail fields: SpawnNumber10/InitialBurst5, Queue exit5000ms,
+        // replacement30000ms at30 logic FPS. Do not derive the oracle solely
+        // from the production constants used by the host registry.
+        assert_eq!(
+            (
+                ANGRY_MOB_MAX_MEMBERS,
+                ANGRY_MOB_INITIAL_MEMBERS,
+                ANGRY_MOB_EXIT_DELAY_FRAMES,
+                ANGRY_MOB_EXPAND_INTERVAL_FRAMES
+            ),
+            (10, 5, 150, 900)
+        );
+        assert_eq!(
+            ANGRY_MOB_MEMBER_TEMPLATES,
+            &[
+                "GLAInfantryAngryMobPistol01",
+                "GLAInfantryAngryMobRock02",
+                "GLAInfantryAngryMobMolotov02",
+                "GLAInfantryAngryMobPistol03",
+                "GLAInfantryAngryMobRock04",
+                "GLAInfantryAngryMobMolotov02",
+                "GLAInfantryAngryMobPistol05",
+            ]
+        );
+        let members = ANGRY_MOB_MEMBER_TEMPLATES
+            .iter()
+            .map(|name| format!("    SpawnTemplateName = {name}\n"))
+            .collect::<String>();
+        let mut source = format!(
+            "Object GLAInfantryAngryMobNexus\nKindOf = INFANTRY SELECTABLE\nBody = ImmortalBody NexusBody\nMaxHealth = 99999\nInitialHealth = 99999\nEnd\nBehavior = AIUpdateInterface NexusAI\nEnd\nBehavior = SpawnBehavior NexusSpawn\nSpawnNumber = 10\nSpawnReplaceDelay = 30000\n{members}ExitByBudding = Yes\nInitialBurst = 5\nOneShot = No\nAggregateHealth = Yes\nSlavesHaveFreeWill = No\nEnd\nBehavior = QueueProductionExitUpdate NexusExit\nUnitCreatePoint = X:0 Y:0 Z:0\nNaturalRallyPoint = X:0 Y:0 Z:0\nExitDelay = 5000\nInitialBurst = 5\nEnd\nEnd\n"
+        );
+        let mut defined = std::collections::HashSet::new();
+        for name in ANGRY_MOB_MEMBER_TEMPLATES {
+            if defined.insert(*name) {
+                source.push_str(&format!(
+                    "Object {name}\nKindOf = INFANTRY SELECTABLE IGNORED_IN_GUI\nBody = ActiveBody MemberBody\nMaxHealth = 50\nInitialHealth = 50\nEnd\nEnd\n"
+                ));
+            }
+        }
+        let content = crate::assets::ReceivingObjectContent::from_sources([(
+            "owned-mob-spawn.ini".into(),
+            source,
+        )])
+        .unwrap();
         let mut logic = GameLogic::new();
-        let mut nexus = ThingTemplate::new("GLAInfantryAngryMobNexus");
-        nexus
-            .add_kind_of(KindOf::Infantry)
-            .add_kind_of(KindOf::Attackable)
-            .add_kind_of(KindOf::Selectable)
-            .set_health(99_999.0);
-        logic
-            .templates
-            .insert("GLAInfantryAngryMobNexus".into(), nexus);
+        logic.admit_receiving_module_content(content).unwrap();
+        // The map-object filter deliberately omits the authored nexus. Resolve
+        // its existing receiving definition lazily before this explicit birth.
+        assert!(logic.ensure_host_spawn_template("GLAInfantryAngryMobNexus"));
+        // CPP SpawnBehavior::update uses currentTime > replacementTime;
+        // offer a real nonzero frame instead of treating frame0 as all due.
+        logic.frame = 1;
         let nid = logic
             .create_object(
                 "GLAInfantryAngryMobNexus",
@@ -2502,6 +2545,34 @@ mod spawn_behavior_parity {
             o.status.under_construction = false;
         }
         (logic, nid)
+    }
+
+    fn fill_initial_members(logic: &mut GameLogic, nid: ObjectId) {
+        let first = logic.frame;
+        logic.update_angry_mobs();
+        assert_eq!(
+            logic.angry_mobs().member_count_of(nid),
+            Some(ANGRY_MOB_INITIAL_MEMBERS)
+        );
+        assert_eq!(
+            live_members(logic, nid).len() as u32,
+            ANGRY_MOB_INITIAL_MEMBERS
+        );
+        // QueueProductionExitUpdate permits InitialBurst5, then one member per
+        // authored5000ms exit delay. Offer interior frames; this is not a proof
+        // of exact Spawn-vs-exit UpdateModule visitation at the deadline.
+        for extra in 1..=ANGRY_MOB_MAX_MEMBERS - ANGRY_MOB_INITIAL_MEMBERS {
+            logic.frame = first + extra * ANGRY_MOB_EXIT_DELAY_FRAMES + 1;
+            logic.update_angry_mobs();
+            assert_eq!(
+                logic.angry_mobs().member_count_of(nid),
+                Some(ANGRY_MOB_INITIAL_MEMBERS + extra)
+            );
+            assert_eq!(
+                live_members(logic, nid).len() as u32,
+                ANGRY_MOB_INITIAL_MEMBERS + extra
+            );
+        }
     }
 
     fn live_members(logic: &GameLogic, nid: ObjectId) -> Vec<ObjectId> {
@@ -2528,15 +2599,36 @@ mod spawn_behavior_parity {
 
     #[test]
     fn rapid_spawn_all_spawn_number_then_replace_delay() {
-        // C++ SpawnBehavior::update (SpawnBehavior.cpp:194-208, 221-243).
+        // CPP SpawnBehavior owns10 slots; QueueProductionExitUpdate gates the
+        // first5 and later150-frame exits (reserveDoor/isFreeToExit/budding).
         let (mut logic, nid) = make_nexus_logic();
-        logic.update_angry_mobs();
+        fill_initial_members(&mut logic, nid);
         assert_eq!(
             logic.angry_mobs().member_count_of(nid),
             Some(ANGRY_MOB_MAX_MEMBERS)
         );
         let members = live_members(&logic, nid);
         assert_eq!(members.len() as u32, ANGRY_MOB_MAX_MEMBERS);
+        let mut births = members.clone();
+        births.sort_unstable();
+        assert_eq!(
+            births
+                .iter()
+                .map(|id| logic.host_object(*id).unwrap().template_name.as_str())
+                .collect::<Vec<_>>(),
+            vec![
+                "GLAInfantryAngryMobPistol01",
+                "GLAInfantryAngryMobRock02",
+                "GLAInfantryAngryMobMolotov02",
+                "GLAInfantryAngryMobPistol03",
+                "GLAInfantryAngryMobRock04",
+                "GLAInfantryAngryMobMolotov02",
+                "GLAInfantryAngryMobPistol05",
+                "GLAInfantryAngryMobPistol01",
+                "GLAInfantryAngryMobRock02",
+                "GLAInfantryAngryMobMolotov02",
+            ]
+        );
 
         kill_member(&mut logic, members[0]);
         logic.update_angry_mobs();
@@ -2545,7 +2637,16 @@ mod spawn_behavior_parity {
             Some(ANGRY_MOB_MAX_MEMBERS - 1)
         );
 
-        logic.frame = logic.frame.saturating_add(ANGRY_MOB_EXPAND_INTERVAL_FRAMES);
+        let death_frame = logic.frame;
+        logic.frame = death_frame + ANGRY_MOB_EXPAND_INTERVAL_FRAMES - 1;
+        logic.update_angry_mobs();
+        assert_eq!(
+            logic.angry_mobs().member_count_of(nid),
+            Some(ANGRY_MOB_MAX_MEMBERS - 1)
+        );
+        // CPP requires strictly AFTER replacementTime. The exact boundary is
+        // an independent production gap, not established by this fixture.
+        logic.frame = death_frame + ANGRY_MOB_EXPAND_INTERVAL_FRAMES + 1;
         logic.update_angry_mobs();
         assert_eq!(
             logic.angry_mobs().member_count_of(nid),
@@ -2558,7 +2659,7 @@ mod spawn_behavior_parity {
     fn last_member_death_destroys_nexus() {
         // C++ SpawnBehavior::onSpawnDeath (SpawnBehavior.cpp:749-757).
         let (mut logic, nid) = make_nexus_logic();
-        logic.update_angry_mobs();
+        fill_initial_members(&mut logic, nid);
         let members = live_members(&logic, nid);
         assert_eq!(members.len() as u32, ANGRY_MOB_MAX_MEMBERS);
         for mid in members {

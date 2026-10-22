@@ -41,10 +41,9 @@ End
 "#,
     )
     .unwrap();
-    let mut parser = crate::assets::IniParser::new();
-    parser
-        .parse_ini_content(
-            r#"
+    let content = crate::assets::ReceivingObjectContent::from_sources([(
+        "hq_flight_owner.ini".into(),
+        r#"
 Object AmericaVehicleComanche
   KindOf = VEHICLE AIRCRAFT PRODUCED_AT_HELIPAD
   Geometry = CYLINDER
@@ -52,26 +51,32 @@ Object AmericaVehicleComanche
   GeometryHeight = 12
   Body = ActiveBody ModuleTag_Body
     MaxHealth = 220
+    InitialHealth = 220
   End
   Behavior = AIUpdateInterface ModuleTag_AI
   End
   Locomotor = SET_NORMAL HqFlightOwnerHover
 End
-"#,
-            "hq_flight_owner.ini",
-        )
-        .unwrap();
+
+Object HqFlightOwnerWall
+  KindOf = STRUCTURE IMMOBILE WALK_ON_TOP_OF_WALL
+  Geometry = BOX
+  GeometryMajorRadius = 50
+  GeometryMinorRadius = 50
+  GeometryHeight = 80
+  Body = ActiveBody ModuleTag_Body
+    MaxHealth = 220
+    InitialHealth = 220
+  End
+End
+"#
+        .into(),
+    )])
+    .unwrap();
     let mut world = GameLogic::new();
+    world.admit_receiving_module_content(content).unwrap();
     world.set_ai_definition_base(data);
     world.override_world_size(200.0, 200.0);
-    world.templates.insert(
-        "AmericaVehicleComanche".into(),
-        GameLogic::build_template_from_object_definition(
-            "AmericaVehicleComanche",
-            parser.get_definition("AmericaVehicleComanche").unwrap(),
-            None,
-        ),
-    );
     let width = world.pathfinding_system.grid.width() as u32;
     let height = world.pathfinding_system.grid.height() as u32;
     assert!(world.restore_terrain_heights_from_grid(
@@ -95,6 +100,9 @@ End
             Vec3::new(5.0, 60.0, 5.0),
         )
         .unwrap();
+    assert_eq!(world.objects[&id].body_initial_health(), 220.0);
+    assert_eq!(world.objects[&id].health.current, 220.0);
+    assert!(world.objects[&id].is_alive());
     assert_eq!(
         world.objects[&id].loco_behavior_z,
         LocomotorBehaviorZ::SmoothRelativeToHighestLayer
@@ -478,34 +486,8 @@ fn real_wall_factory_preserves_zero_authored_height_and_nonzero_rules() {
     isolated(
         "real_wall_factory_preserves_zero_authored_height_and_nonzero_rules",
         || {
-            let mut parser = crate::assets::IniParser::new();
-            parser
-                .parse_ini_content(
-                    r#"
-Object HqFlightOwnerWall
-  KindOf = STRUCTURE IMMOBILE WALK_ON_TOP_OF_WALL
-  Geometry = BOX
-  GeometryMajorRadius = 50
-  GeometryMinorRadius = 50
-  GeometryHeight = 80
-  Body = ActiveBody ModuleTag_Body
-    MaxHealth = 220
-  End
-End
-"#,
-                    "hq_flight_owner_wall.ini",
-                )
-                .unwrap();
-            let template = GameLogic::build_template_from_object_definition(
-                "HqFlightOwnerWall",
-                parser.get_definition("HqFlightOwnerWall").unwrap(),
-                None,
-            );
             for height in [0.0, 21.0] {
                 let (mut world, _) = world(height, 3.0);
-                world
-                    .templates
-                    .insert(template.name.clone(), template.clone());
                 let wall = world
                     .create_object("HqFlightOwnerWall", Team::USA, Vec3::ZERO)
                     .unwrap();

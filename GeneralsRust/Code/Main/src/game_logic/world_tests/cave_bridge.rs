@@ -415,15 +415,12 @@ fn rubble_span_is_repairable() {
         s.convert_bridge_to_rubble_husk(body_frame);
     }
     let t0_max = logic.host_object(t0).expect("t0").health.maximum;
-    crate::game_logic::host_bridge_behavior::record_mirror(
-        t0,
-        t0_max * 0.25,
-        t0_max,
-        None,
-        crate::game_logic::combat::DamageType::Healing.to_store() as u32,
-        0,
-        crate::game_logic::host_bridge_behavior::HostBridgeMirrorKind::Heal,
-    );
+    // A real healing operation must change the clicked tower's health before
+    // its receiving owner's synchronous bridge callbacks mirror the fraction.
+    logic.host_object_mut(t0).expect("t0").health.current = t0_max * 0.75;
+    logic
+        .apply_owned_healing(t0, t0_max * 0.25, None)
+        .expect("receiving tower heal");
     logic.sync_host_bridge_rubble_and_scaffolds();
     let span_obj = logic.host_object(span).expect("mirrored span");
     assert!(
@@ -442,9 +439,17 @@ fn tower_damage_and_heal_mirror_to_span_and_siblings() {
     let before_span = logic.host_object(span).expect("span").health.current;
     let before_t1 = logic.host_object(t1).expect("t1").health.current;
     let t0_max = logic.host_object(t0).expect("t0").health.maximum;
-    if let Some((t, health_events)) = logic.host_object_and_health_events_mut(t0) {
-        let _ = t.take_damage_from(t0_max * 0.25, None, health_events);
-    }
+    logic
+        .apply_owned_damage(
+            t0,
+            t0_max * 0.25,
+            None,
+            crate::game_logic::combat::DamageType::Unresistable,
+            HostDeathType::Normal,
+            None,
+            &crate::game_logic::object::DamageHitContext::default(),
+        )
+        .expect("receiving tower damage");
     logic.sync_host_bridge_rubble_and_scaffolds();
     let span_hp = logic.host_object(span).expect("span").health.current;
     let t1_hp = logic.host_object(t1).expect("t1").health.current;
@@ -457,15 +462,9 @@ fn tower_damage_and_heal_mirror_to_span_and_siblings() {
         "sibling tower must take mirrored % damage {before_t1} -> {t1_hp}"
     );
 
-    if let Some((t, health_events)) = logic.host_object_and_health_events_mut(t0) {
-        t.revive_from_bridge_rubble();
-        let _ = t.take_damage_from_typed(
-            t0_max * 0.25,
-            None,
-            crate::game_logic::combat::DamageType::Healing,
-            health_events,
-        );
-    }
+    logic
+        .apply_owned_healing(t0, t0_max * 0.25, None)
+        .expect("receiving tower healing");
     logic.sync_host_bridge_rubble_and_scaffolds();
     let span_healed = logic.host_object(span).expect("span").health.current;
     let t1_healed = logic.host_object(t1).expect("t1").health.current;
@@ -484,10 +483,18 @@ fn killing_tower_collapses_span_and_span_death_kills_towers() {
     // C++ tower onDie kills bridge; bridge onDie kills towers.
     let mut logic = GameLogic::new();
     let (span, t0, t1) = spawn_linked_bridge(&mut logic);
-    if let Some((t, health_events)) = logic.host_object_and_health_events_mut(t0) {
-        let max = t.health.maximum;
-        let _ = t.take_damage_from(max * 2.0, None, health_events);
-    }
+    let max = logic.host_object(t0).expect("tower").health.maximum;
+    logic
+        .apply_owned_damage(
+            t0,
+            max * 2.0,
+            None,
+            crate::game_logic::combat::DamageType::Unresistable,
+            HostDeathType::Normal,
+            None,
+            &crate::game_logic::object::DamageHitContext::default(),
+        )
+        .expect("receiving tower lethal damage");
     logic.sync_host_bridge_rubble_and_scaffolds();
     let span_obj = logic.host_object(span).expect("span");
     let t1_obj = logic.host_object(t1).expect("t1");
@@ -522,11 +529,11 @@ fn killing_tower_collapses_span_and_span_death_kills_towers() {
 }
 
 #[test]
-fn live_tick_drains_bridge_mirrors_and_death_links() {
+fn live_tick_updates_bridge_rubble_and_scaffolds() {
     let step = include_str!("../world_tick/post_command_update.rs");
     assert!(
         step.contains("sync_host_bridge_rubble_and_scaffolds"),
-        "live update_simulation must drain bridge mirrors/death/scaffolds"
+        "live update_simulation must advance bridge rubble/scaffolds"
     );
     let commands = include_str!("../../command_executor/leftover.rs");
     let repair = source_function(commands, "fn dozer_internal_task_complete(");

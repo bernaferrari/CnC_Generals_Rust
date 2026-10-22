@@ -194,13 +194,18 @@ fn damage_fx_none_suppresses_every_phase_but_not_crushing_or_completion() {
                 "Start FX must be filtered too"
             );
             let before = owner.host_object(id).unwrap().get_transform_matrix();
-            let mut template = ThingTemplate::new("FilteredCrushVictim");
-            template.add_kind_of(KindOf::Structure).set_health(100.0);
-            owner.templates.insert(template.name.clone(), template);
             let position = glam::Vec3::new(20.0, 0.0, 12.0);
             let victim = owner
                 .create_object_for_player("FilteredCrushVictim", 0, position)
                 .unwrap();
+            let admitted = owner.host_object(victim).unwrap();
+            assert!(admitted.is_kind_of(KindOf::Structure));
+            assert_eq!(admitted.body_initial_health(), 100.0);
+            assert_eq!(admitted.health.current, 100.0);
+            assert_eq!(
+                admitted.thing().template.geometry_info,
+                crate::game_logic::HostGeometryInfo::default()
+            );
             owner
                 .apply_structure_topple_crush_samples(
                     id,

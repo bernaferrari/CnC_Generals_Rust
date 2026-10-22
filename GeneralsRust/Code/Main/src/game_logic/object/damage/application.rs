@@ -18,7 +18,6 @@ pub(in crate::game_logic) struct BridgeBodyCallbacks {
     pub victim: ObjectId,
     pub source: Option<ObjectId>,
     pub input_amount: f32,
-    pub max_health: f32,
     pub old_state: crate::game_logic::host_enum_table_residual::HostBodyDamageType,
     pub health_changed: bool,
     pub damage_type: crate::game_logic::combat::DamageType,
@@ -227,7 +226,8 @@ impl DamageApplication {
         self.finish_standalone(victim, source, &enable_repulsors)
     }
 
-    /// Preserve standalone bridge publication and observe policy after DamageFX.
+    /// Detached Body operations observe policy after DamageFX; world callbacks
+    /// require the receiving GameLogic and never publish ambient work.
     pub(in crate::game_logic) fn finish_standalone(
         mut self,
         victim: &mut Object,
@@ -250,7 +250,6 @@ impl DamageApplication {
         body_fx: &mut BodyStateFxReceiver<'_>,
     ) -> bool {
         self.complete_body_state_callbacks_with_body_fx(victim, source, body_fx);
-        let callbacks = self.bridge_callbacks();
         let lethal = self.killed();
         if lethal {
             // Explicit bounded adapter: no world onDie admission latch. Physics
@@ -258,30 +257,7 @@ impl DamageApplication {
             victim.complete_standalone_die_with_body_fx(source, body_fx);
         }
         let after_fx = self.dispatch_damage_fx_with_body_fx(victim, source, body_fx);
-        let result = after_fx.finish_with_body_fx(victim, source, *repulsor_policy, body_fx);
-        // Standalone adapters have no driving owner. Preserve their existing
-        // deferred boundary while world callers consume callbacks directly.
-        if let Some(callbacks) = callbacks {
-            if callbacks.health_changed {
-                crate::game_logic::host_bridge_behavior::record_mirror(
-                    callbacks.victim,
-                    callbacks.input_amount,
-                    callbacks.max_health,
-                    callbacks.source,
-                    callbacks.damage_type.to_store() as u32,
-                    callbacks.death_type.ordinal() as u32,
-                    if callbacks.damage_type == crate::game_logic::combat::DamageType::Healing {
-                        crate::game_logic::host_bridge_behavior::HostBridgeMirrorKind::Heal
-                    } else {
-                        crate::game_logic::host_bridge_behavior::HostBridgeMirrorKind::Damage
-                    },
-                );
-            }
-            if lethal {
-                crate::game_logic::host_bridge_behavior::record_death_link(callbacks.victim);
-            }
-        }
-        result
+        after_fx.finish_with_body_fx(victim, source, *repulsor_policy, body_fx)
     }
 }
 

@@ -3,18 +3,27 @@ use super::super::*;
 use crate::game_logic::native_lifecycle::NativeLifecycleState;
 
 fn authored(name: &str, modules: &str, frame: u32, position: Vec3) -> (GameLogic, ObjectId) {
-    let mut parser = crate::assets::IniParser::new();
-    parser.parse_ini_content(&format!(
-        "Object {name}\nKindOf = IMMOBILE INERT NO_COLLIDE\nBody = ActiveBody BodyTag\nMaxHealth = 100\nInitialHealth = 100\nEnd\n{modules}\nEnd"
-    ), "native-lifecycle-owner.ini").unwrap();
-    let template = GameLogic::build_template_from_object_definition(
-        name,
-        parser.get_definition(name).unwrap(),
-        None,
+    authored_with_extra(name, modules, frame, position, "")
+}
+
+fn authored_with_extra(
+    name: &str,
+    modules: &str,
+    frame: u32,
+    position: Vec3,
+    extra: &str,
+) -> (GameLogic, ObjectId) {
+    let source = format!(
+        "Object {name}\nKindOf = IMMOBILE INERT NO_COLLIDE\nBody = ActiveBody BodyTag\nMaxHealth = 100\nInitialHealth = 100\nEnd\n{modules}\nEnd\n{extra}"
     );
+    let content = crate::assets::ReceivingObjectContent::from_sources([(
+        "native-lifecycle-owner.ini".to_string(),
+        source,
+    )])
+    .unwrap();
     let mut world = GameLogic::new();
     world.frame = frame;
-    world.templates.insert(name.into(), template);
+    world.admit_receiving_module_content(content).unwrap();
     let id = world.create_object(name, Team::USA, position).unwrap();
     (world, id)
 }
@@ -453,11 +462,12 @@ fn height_particle_cleanup_observes_snap_after_rejected_body_and_only_attachment
 
 #[test]
 fn hulk_override_is_kind_based_constructor_only_and_first_lifetime_range_is_local() {
-    let (mut owner, ordinary) = authored(
+    let (mut owner, _ordinary) = authored_with_extra(
         "HulkSpellingIsNotAKind",
         "Behavior = LifetimeUpdate First\nMinLifetime = 34\nMaxLifetime = 34\nEnd\nBehavior = LifetimeUpdate Second\nMinLifetime = 95\nMaxLifetime = 95\nEnd\nBehavior = DeletionUpdate Delete\nMinLifetime = 200\nMaxLifetime = 200\nEnd",
         30,
         Vec3::ZERO,
+        "ChildObject NeutralDebris HulkSpellingIsNotAKind\nKindOf = IMMOBILE INERT NO_COLLIDE HULK\nEnd",
     );
     owner.native_hulk_max_lifetime_override = 9;
     let named = owner
@@ -476,15 +486,6 @@ fn hulk_override_is_kind_based_constructor_only_and_first_lifetime_range_is_loca
         _ => panic!("expected timer"),
     };
     assert_eq!(deadline(&owner, named, 0), 32);
-    let mut hulk = owner
-        .host_object(ordinary)
-        .unwrap()
-        .thing()
-        .template
-        .clone();
-    hulk.add_kind_of(KindOf::Hulk);
-    hulk.name = "NeutralDebris".to_owned();
-    owner.templates.insert(hulk.name.clone(), hulk);
     let id = owner
         .create_object("NeutralDebris", Team::Neutral, Vec3::ZERO)
         .unwrap();
@@ -515,23 +516,15 @@ fn hulk_override_is_kind_based_constructor_only_and_first_lifetime_range_is_loca
 #[test]
 fn height_structure_query_uses_receiving_geometry_centers_and_strict_3d_range() {
     fn scene(height: f32, x: f32, base_y: f32) -> (GameLogic, ObjectId) {
-        let (mut world, id) = authored(
+        let (mut world, id) = authored_with_extra(
             "NeutralStructureHeightOwner",
             "Behavior = HeightDieUpdate HeightTag\nTargetHeight = 0\nTargetHeightIncludesStructures = Yes\nEnd\nGeometry = SPHERE\nGeometryMajorRadius = 1\nGeometryHeight = 1",
             30,
             Vec3::new(0.0, 10.0, 0.0),
+            &format!(
+                "Object ReceivingStructure\nKindOf = STRUCTURE\nBody = ActiveBody StructureBodyTag\nMaxHealth = 100\nInitialHealth = 100\nEnd\nGeometry = CYLINDER\nGeometryIsSmall = No\nGeometryHeight = {height}\nGeometryMajorRadius = 0\nGeometryMinorRadius = 0\nEnd"
+            ),
         );
-        let mut template = ThingTemplate::new("ReceivingStructure");
-        template.add_kind_of(KindOf::Structure).set_health(100.0);
-        template.geometry_info = crate::game_logic::HostGeometryInfo {
-            geom_type: crate::game_logic::HostGeometryType::Cylinder,
-            is_small: false,
-            height,
-            major_radius: 0.0,
-            minor_radius: 0.0,
-            authored: true,
-        };
-        world.templates.insert(template.name.clone(), template);
         world
             .create_object("ReceivingStructure", Team::USA, Vec3::new(x, base_y, 0.0))
             .unwrap();

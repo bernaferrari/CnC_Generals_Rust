@@ -134,9 +134,9 @@ pub(super) fn validate(
     legacy_tail: &[u8],
 ) -> SaveLoadResult<HashMap<ObjectId, NativeLifecycleRuntime>> {
     for object in objects.values() {
-        if let Some(error) = world
-            .templates
-            .get(&object.template_name)
+        let template = super::receiving_template::resolve(world, &object.template_name)?;
+        if let Some(error) = template
+            .as_deref()
             .and_then(|template| template.native_lifecycle_error.as_ref())
         {
             return Err(corrupted(format!(
@@ -177,9 +177,9 @@ pub(super) fn validate(
     let Some(records) = records else {
         let mut imported = HashMap::new();
         for (id, object) in objects {
-            let bound_empty = world
-                .templates
-                .get(&object.template_name)
+            let template = super::receiving_template::resolve(world, &object.template_name)?;
+            let bound_empty = template
+                .as_deref()
                 .and_then(|template| template.native_lifecycle_definitions.as_deref())
                 .is_some_and(|definitions| definitions.is_empty());
             let old_runtime = envelopes.get(id).is_some_and(|envelope| {
@@ -219,9 +219,9 @@ pub(super) fn validate(
             if !runtime.validate() {
                 return Err(corrupted("invalid module definition or runtime roster"));
             }
-            if world
-                .templates
-                .get(&object.template_name)
+            let template = super::receiving_template::resolve(world, &object.template_name)?;
+            if template
+                .as_deref()
                 .and_then(|template| template.native_lifecycle_definitions.as_deref())
                 .is_some_and(|loaded| loaded != runtime.definitions.as_ref())
             {
@@ -267,9 +267,9 @@ fn validate_legacy_admission(
     world: &GameLogic,
 ) -> SaveLoadResult<()> {
     use crate::game_logic::native_lifecycle_definition::NativeLifecycleKind;
-    let Some(definitions) = world
-        .templates
-        .get(&object.template_name)
+    let template = super::receiving_template::resolve(world, &object.template_name)?;
+    let Some(definitions) = template
+        .as_deref()
         .and_then(|template| template.native_lifecycle_definitions.as_deref())
     else {
         return Ok(());

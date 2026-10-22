@@ -16,20 +16,27 @@ fn parsed_world_with_contain_attributes(
     percent: u32,
     contain_attributes: &str,
 ) -> (GameLogic, ObjectId, ObjectId) {
-    // Real immutable authored OCLs must exist at receiving template bind.
-    // The earlier fixture relied on InstantDeath's guessed OCL-name spawn.
+    let mut owner = GameLogic::new();
+    let ocl_sources = ["OwnedRiderDeathWitness", "OwnedContainerDeathWitness"].map(|name| {
+        format!(
+            "ObjectCreationList {name}\nCreateObject\nObjectNames = {name}\nCount = 1\nEnd\nEnd\n"
+        )
+    });
+    owner.admit_ocl_application_sources(&ocl_sources).unwrap();
+    // The existing native immutable module parser resolves OCL references here.
+    // Register the same parsed products; runtime execution uses this world's
+    // separately admitted definitions, not a guessed OCL-name object spawn.
     for name in ["OwnedRiderDeathWitness", "OwnedContainerDeathWitness"] {
-        let mut list = gamelogic::object_creation_list::store::ObjectCreationList::new();
-        list.add_nugget(std::sync::Arc::new(
-            gamelogic::object_creation_list::GenericObjectCreationNugget {
-                names: vec![name.into()],
-                name_are_objects: true,
-                ..Default::default()
-            },
-        ));
+        let list = owner.object_creation_list_definition(name).unwrap();
         gamelogic::helpers::TheObjectCreationListStore::register_object_creation_list(name, list);
     }
-    let mut parser = crate::assets::IniParser::new();
+    // CaveContain inherits OpenContain's ContainMax; Slots belongs to
+    // TransportContain and is not a valid CaveContain field.
+    let capacity_field = if container_module == "CaveContain" {
+        "ContainMax"
+    } else {
+        "Slots"
+    };
     let input = format!(
         r#"
 Object OwnedContainDeath
@@ -39,7 +46,7 @@ Object OwnedContainDeath
     InitialHealth = 200
   End
   Behavior = {container_module} ContainTag
-    Slots = 5
+    {capacity_field} = 5
     DamagePercentToUnits = {percent}%
     AllowInsideKindOf = INFANTRY
     {contain_attributes}
@@ -60,28 +67,21 @@ Object OwnedContainRider
     OCL = OwnedRiderDeathWitness
   End
 End
+Object OwnedRiderDeathWitness
+End
+Object OwnedContainerDeathWitness
+End
 "#
     );
-    parser
-        .parse_ini_content(&input, "OwnedContainDeath.ini")
-        .unwrap();
-    let mut owner = GameLogic::new();
+    let content = crate::assets::ReceivingObjectContent::from_sources([(
+        "OwnedContainDeath.ini".to_string(),
+        input,
+    )])
+    .unwrap();
+    owner.admit_receiving_module_content(content).unwrap();
     owner.world_min = Vec3::ZERO;
     owner.world_max = Vec3::splat(1000.0);
     owner.add_player(Player::new(1, Team::USA, "ContainOwner", true));
-    for name in ["OwnedRiderDeathWitness", "OwnedContainerDeathWitness"] {
-        owner
-            .templates
-            .insert(name.into(), ThingTemplate::new(name));
-    }
-    for name in ["OwnedContainDeath", "OwnedContainRider"] {
-        let template = GameLogic::build_template_from_object_definition(
-            name,
-            parser.get_definition(name).unwrap(),
-            None,
-        );
-        owner.templates.insert(name.into(), template);
-    }
     let container = owner
         .create_object_for_player("OwnedContainDeath", 1, Vec3::new(50.0, 0.0, 50.0))
         .unwrap();

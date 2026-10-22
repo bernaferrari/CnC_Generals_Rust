@@ -79,11 +79,11 @@ fn world_with_filters(
     weapon: Option<&str>,
     filters: &str,
 ) -> (GameLogic, ObjectId) {
-    let mut parser = crate::assets::IniParser::new();
-    parser
-        .parse_ini_content(
-            &format!(
-                r#"
+    let crushing = weapon.map_or(String::new(), |weapon| {
+        format!("    CrushingWeaponName = {weapon}\n    CrushingFX = FX_OwnToppleCrush\n")
+    });
+    let source = format!(
+        r#"
 Object AuthoredOwnTopple
   KindOf = STRUCTURE SELECTABLE
   Body = ActiveBody ModuleTag_Body
@@ -100,20 +100,31 @@ Object AuthoredOwnTopple
     AngleFX = 0.2 FX_OwnToppleLater
     MinToppleBurstDelay = 34
     MaxToppleBurstDelay = 34
-{filters}
+{crushing}{filters}
+  End
+End
+Object OwnedCrushStructure
+  KindOf = STRUCTURE
+  Body = ActiveBody CrushBody
+    MaxHealth = 100
+    InitialHealth = 100
+  End
+End
+Object FilteredCrushVictim
+  KindOf = STRUCTURE
+  Body = ActiveBody FilteredBody
+    MaxHealth = 100
+    InitialHealth = 100
   End
 End
 "#
-            ),
-            "owned-topple.ini",
-        )
-        .unwrap();
-    let mut template = GameLogic::build_template_from_object_definition(
-        "AuthoredOwnTopple",
-        parser.get_definition("AuthoredOwnTopple").unwrap(),
-        None,
     );
-    let definition = template
+    let content =
+        crate::assets::ReceivingObjectContent::from_sources([("owned-topple.ini".into(), source)])
+            .unwrap();
+    let mut world = GameLogic::new();
+    world.admit_receiving_module_content(content).unwrap();
+    let definition = world.templates["AuthoredOwnTopple"]
         .structure_topple_definition
         .as_ref()
         .unwrap()
@@ -131,12 +142,9 @@ End
         "duration is original ceil(ms * 30/1000)"
     );
     if let Some(weapon) = weapon {
-        let mut definition = definition.as_ref().clone();
-        definition.fx.weapon = weapon.to_owned();
-        definition.fx.fx = "FX_OwnToppleCrush".into();
-        template.structure_topple_definition = Some(Ok(std::sync::Arc::new(definition)));
+        assert_eq!(definition.fx.weapon, weapon);
+        assert_eq!(definition.fx.fx, "FX_OwnToppleCrush");
     }
-    let mut world = GameLogic::new();
     world.add_player(Player::new(local, Team::USA, "Local", true));
     world.add_player(Player::new(8, Team::China, "Enemy", false));
     world.terrain = Some(crate::game_logic::TerrainData::flat(
@@ -148,7 +156,6 @@ End
         shroud.init_shroud_grid(256.0, 256.0);
         shroud.reveal_map_for_player_permanently(local).unwrap();
     }
-    world.templates.insert(template.name.clone(), template);
     let id = world
         .create_object_for_player("AuthoredOwnTopple", 8, glam::Vec3::new(x, 4.0, 12.0))
         .unwrap();
@@ -495,15 +502,6 @@ fn crushing_fires_each_authored_weapon_point_and_includes_structures() {
             kill(&mut owner, source);
             kill(&mut peer, peer_source);
             effects.try_iter().for_each(drop);
-            let mut victim_template = ThingTemplate::new("OwnedCrushStructure");
-            victim_template
-                .add_kind_of(KindOf::Structure)
-                .set_health(100.0);
-            owner
-                .templates
-                .insert(victim_template.name.clone(), victim_template.clone());
-            peer.templates
-                .insert(victim_template.name.clone(), victim_template);
             let position = glam::Vec3::new(20.0, 0.0, 12.0);
             let victim = owner
                 .create_object_for_player("OwnedCrushStructure", 0, position)
@@ -512,6 +510,16 @@ fn crushing_fires_each_authored_weapon_point_and_includes_structures() {
                 .create_object_for_player("OwnedCrushStructure", 7, position)
                 .unwrap();
             assert_eq!(victim, peer_victim);
+            for (world, id) in [(&owner, victim), (&peer, peer_victim)] {
+                let object = world.host_object(id).unwrap();
+                assert!(object.is_kind_of(KindOf::Structure));
+                assert_eq!(object.body_initial_health(), 100.0);
+                assert_eq!(object.health.current, 100.0);
+                assert_eq!(
+                    object.thing().template.geometry_info,
+                    crate::game_logic::HostGeometryInfo::default()
+                );
+            }
             owner
                 .apply_structure_topple_crush_samples(
                     source,

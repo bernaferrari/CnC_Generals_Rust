@@ -7,20 +7,12 @@ fn member_world() -> GameLogic {
     game_engine::common::ini::ini_locomotor::load_locomotors_from_str(
         "Locomotor HqGroupHeightLocomotor\n  Surfaces = GROUND\n  Speed = 30\n  Appearance = TREADS\nEnd\n",
     ).unwrap();
-    let mut parser = crate::assets::IniParser::new();
-    parser.parse_ini_content(
-        "Object HqGroupHeightMember\n  KindOf = VEHICLE SELECTABLE\n  Geometry = CYLINDER\n  GeometryMajorRadius = 1\n  Body = ActiveBody ModuleTag_Body\n    MaxHealth = 100\n  End\n  Behavior = AIUpdateInterface ModuleTag_AI\n  End\n  Locomotor = SET_NORMAL HqGroupHeightLocomotor\nEnd\n",
-        "hq_group_height.ini",
-    ).unwrap();
+    let content = crate::assets::ReceivingObjectContent::from_sources([(
+        "hq_group_height.ini".into(),
+        "Object HqGroupHeightMember\n  KindOf = VEHICLE SELECTABLE\n  Geometry = CYLINDER\n  GeometryMajorRadius = 1\n  Body = ActiveBody ModuleTag_Body\n    MaxHealth = 100\n    InitialHealth = 100\n  End\n  Behavior = AIUpdateInterface ModuleTag_AI\n  End\n  Locomotor = SET_NORMAL HqGroupHeightLocomotor\nEnd\n".into(),
+    )]).unwrap();
     let mut world = GameLogic::new();
-    world.templates.insert(
-        "HqGroupHeightMember".into(),
-        GameLogic::build_template_from_object_definition(
-            "HqGroupHeightMember",
-            parser.get_definition("HqGroupHeightMember").unwrap(),
-            None,
-        ),
-    );
+    world.admit_receiving_module_content(content).unwrap();
     world
 }
 
@@ -77,6 +69,9 @@ fn native_world(
             Vec3::new(140.0, raw_height, 140.0),
         )
         .unwrap();
+    assert_eq!(world.objects[&id].body_initial_health(), 100.0);
+    assert_eq!(world.objects[&id].health.current, 100.0);
+    assert!(world.objects[&id].is_alive());
     assert!(
         crate::game_logic::PathfindingGrid::is_doing_ground_movement(
             world.host_object(id).unwrap()

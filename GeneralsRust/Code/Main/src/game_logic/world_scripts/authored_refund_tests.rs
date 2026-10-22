@@ -57,9 +57,18 @@ End
             .unwrap(),
         2
     );
+    let content = crate::assets::ReceivingObjectContent::from_sources([(
+        "authored_refund.ini".into(),
+        source,
+    )])
+    .unwrap();
+    logic.admit_receiving_module_content(content).unwrap();
     for name in [PRODUCER, UNIT] {
-        let definition = parser.get_definition(name).expect("actual parsed Object");
-        let template = GameLogic::build_template_from_object_definition(name, definition, None);
+        assert!(
+            parser.get_definition(name).is_some(),
+            "actual parsed Object"
+        );
+        let template = &logic.templates[name];
         assert_eq!(template.build_time, 30.0);
         if name == UNIT {
             assert!(template.is_kind_of(KindOf::Infantry));
@@ -70,7 +79,6 @@ End
             assert!(template.is_kind_of(KindOf::Structure));
             assert_eq!(template.max_health, 1000.0);
         }
-        logic.templates.insert(name.to_string(), template);
     }
     assert_eq!(
         gamelogic::control_bar::parsed_unit_build_authorization(PRODUCER, UNIT),

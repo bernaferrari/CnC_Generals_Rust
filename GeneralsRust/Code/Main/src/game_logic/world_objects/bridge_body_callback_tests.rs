@@ -121,8 +121,6 @@ fn tower_mirrors_input_fraction_in_slot_order_before_damage_fx() {
                     },
                 )
                 .unwrap();
-            assert!(crate::game_logic::host_bridge_behavior::drain_mirrors().is_empty());
-            assert!(crate::game_logic::host_bridge_behavior::drain_death_links().is_empty());
         },
     );
 }
@@ -175,7 +173,7 @@ fn full_bridge_scan_resets_every_record_and_preserves_the_frame_query_gate() {
                 world.objects[&a.1].status.on_die_started
                     && world.objects[&a.2].status.on_die_started
             );
-            assert!(crate::game_logic::host_bridge_behavior::drain_death_links().is_empty());
+
             // Crossing a non-rubble threshold still invokes the full terrain scan.
             hit(&mut world, b.0, 80.0, DamageType::Unresistable);
             let terrain = world.world_services.terrain().read().unwrap();
@@ -395,8 +393,6 @@ fn owned_water_damage_completes_linked_bridge_callbacks_before_returning() {
                     .unwrap()
                     .is_bridge_broken(span.0)
             );
-            assert!(crate::game_logic::host_bridge_behavior::drain_mirrors().is_empty());
-            assert!(crate::game_logic::host_bridge_behavior::drain_death_links().is_empty());
         },
     );
 }
@@ -521,8 +517,7 @@ fn payload_radius_bridge_case(amount: f32) {
         assert!(terrain.bridge_damage_states_changed());
         assert!(terrain.is_bridge_broken(own.0.0));
     }
-    assert!(crate::game_logic::host_bridge_behavior::drain_mirrors().is_empty());
-    assert!(crate::game_logic::host_bridge_behavior::drain_death_links().is_empty());
+
     foreign.sync_host_bridge_rubble_and_scaffolds();
     for id in [other.0, other.1, other.2] {
         assert_eq!(
@@ -611,8 +606,361 @@ fn fuel_air_final_phase_finishes_linked_bridge_callbacks_before_returning() {
                     .count(),
                 1
             );
-            assert!(crate::game_logic::host_bridge_behavior::drain_mirrors().is_empty());
-            assert!(crate::game_logic::host_bridge_behavior::drain_death_links().is_empty());
+        },
+    );
+}
+
+// Append to existing world_objects/bridge_body_callback_tests.rs.
+// Reuses actual bridge()/hit()/isolated() owner fixtures; no existing-test edits.
+#[test]
+fn detached_tower_damage_cannot_be_consumed_by_same_id_peer_bridge() {
+    isolated(
+        "detached_tower_damage_cannot_be_consumed_by_same_id_peer_bridge",
+        || {
+            let mut owner = GameLogic::new();
+            let a = bridge(&mut owner, Vec3::new(50.0, 5.0, 50.0));
+            let mut peer = GameLogic::new();
+            let b = bridge(&mut peer, Vec3::new(50.0, 5.0, 50.0));
+            assert_eq!(a, b);
+            let mut detached = owner.objects[&a.1].clone();
+            let mut local_health = crate::game_logic::HostHealthEvents::default();
+            detached.take_damage_from_immediate_typed(
+                25.0,
+                None,
+                DamageType::Unresistable,
+                &mut local_health,
+            );
+            assert_eq!(detached.health.current, 75.0);
+            assert!(!local_health.snapshot_damage().is_empty());
+            // This real production residual used to drain every thread's detached
+            // bridge observation and incorrectly apply it to this same-ID peer.
+            peer.sync_host_bridge_rubble_and_scaffolds();
+            for (world, ids) in [(&owner, a), (&peer, b)] {
+                assert_eq!(world.objects[&ids.0].health.current, 200.0);
+                assert_eq!(world.objects[&ids.1].health.current, 100.0);
+                assert_eq!(world.objects[&ids.2].health.current, 100.0);
+            }
+            peer.reset();
+            owner.sync_host_bridge_rubble_and_scaffolds();
+            assert_eq!(owner.objects[&a.0].health.current, 200.0);
+            assert_eq!(owner.objects[&a.2].health.current, 100.0);
+        },
+    );
+}
+#[test]
+fn detached_span_death_cannot_break_peer_or_restored_receiving_bridge() {
+    isolated(
+        "detached_span_death_cannot_break_peer_or_restored_receiving_bridge",
+        || {
+            let mut owner = GameLogic::new();
+            let a = bridge(&mut owner, Vec3::new(50.0, 5.0, 50.0));
+            let builder = crate::save_load::snapshot::SnapshotBuilder::new();
+            let saved = builder.create_world_snapshot(&owner).unwrap();
+            let bytes = bincode_legacy::serialize(&saved).unwrap();
+            let decoded =
+                crate::save_load::snapshot::decode_bincode_world_snapshot(&bytes).unwrap();
+            let mut receiving = GameLogic::new();
+            receiving.templates = owner.templates.clone();
+            builder
+                .restore_from_snapshot(&decoded, &mut receiving)
+                .unwrap();
+            let mut detached = owner.objects[&a.0].clone();
+            let mut local_health = crate::game_logic::HostHealthEvents::default();
+            assert!(!detached.take_damage_from_immediate_typed(
+                1000.0,
+                None,
+                DamageType::Unresistable,
+                &mut local_health
+            ));
+            receiving.sync_host_bridge_rubble_and_scaffolds();
+            assert_eq!(receiving.objects[&a.0].health.current, 200.0);
+            for tower in [a.1, a.2] {
+                assert_eq!(receiving.objects[&tower].health.current, 100.0);
+                assert!(!receiving.objects[&tower].status.on_die_started);
+            }
+            assert!(
+                !receiving
+                    .world_services
+                    .terrain()
+                    .read()
+                    .unwrap()
+                    .is_bridge_broken(a.0.0)
+            );
+            owner.sync_host_bridge_rubble_and_scaffolds();
+            assert_eq!(owner.objects[&a.0].health.current, 200.0);
+        },
+    );
+}
+#[test]
+fn receiving_bridge_damage_fx_observes_slot_order_and_restore_healing_is_immediate() {
+    isolated(
+        "receiving_bridge_damage_fx_observes_slot_order_and_restore_healing_is_immediate",
+        || {
+            let mut owner = GameLogic::new();
+            let (span, first, second, _) = bridge(&mut owner, Vec3::new(50.0, 5.0, 50.0));
+            let mut observed = false;
+            owner
+                .apply_owned_damage_with_killer_team_and_after_fx(
+                    first,
+                    40.0,
+                    None,
+                    DamageType::Unresistable,
+                    HostDeathType::Normal,
+                    None,
+                    &DamageHitContext::default(),
+                    None,
+                    |world, victim| {
+                        observed = true;
+                        assert_eq!(victim, first);
+                        let targets = world
+                            .health_events
+                            .snapshot_damage()
+                            .iter()
+                            .map(|event| event.target)
+                            .collect::<Vec<_>>();
+                        assert_eq!(targets, [first, second, span]);
+                        assert_eq!(world.objects[&first].health.current, 60.0);
+                        assert_eq!(world.objects[&second].health.current, 60.0);
+                        assert_eq!(world.objects[&span].health.current, 120.0);
+                    },
+                )
+                .unwrap();
+            assert!(observed);
+            owner.apply_owned_healing(first, 10.0, None).unwrap();
+            assert_eq!(owner.objects[&second].health.current, 70.0);
+            assert_eq!(owner.objects[&span].health.current, 140.0);
+            let builder = crate::save_load::snapshot::SnapshotBuilder::new();
+            let saved = builder.create_world_snapshot(&owner).unwrap();
+            let bytes = bincode_legacy::serialize(&saved).unwrap();
+            let decoded =
+                crate::save_load::snapshot::decode_bincode_world_snapshot(&bytes).unwrap();
+            let mut receiving = GameLogic::new();
+            receiving.templates = owner.templates.clone();
+            builder
+                .restore_from_snapshot(&decoded, &mut receiving)
+                .unwrap();
+            assert_eq!(
+                receiving.bridge_behavior.span_id_for(first),
+                Some(span),
+                "restore retains actual linked bridge topology"
+            );
+            receiving.apply_owned_healing(first, 10.0, None).unwrap();
+            // No sync/drain/tick may be required to expose original immediate repair.
+            assert_eq!(receiving.objects[&first].health.current, 80.0);
+            assert_eq!(receiving.objects[&second].health.current, 80.0);
+            assert_eq!(receiving.objects[&span].health.current, 160.0);
+            assert_eq!(owner.objects[&span].health.current, 140.0);
+        },
+    );
+}
+
+// Append to bridge_body_callback_tests.rs. Reuses bridge(), hit(), isolated().
+// Callback-phase fixtures exercise the same synchronous visitor as production;
+// authored module-order admission remains a separate acceptance obligation.
+fn bridge_callback(
+    victim: ObjectId,
+    kind: DamageType,
+) -> crate::game_logic::object::BridgeBodyCallbacks {
+    crate::game_logic::object::BridgeBodyCallbacks {
+        victim,
+        source: None,
+        input_amount: 40.0,
+        old_state: crate::game_logic::host_enum_table_residual::HostBodyDamageType::Pristine,
+        health_changed: true,
+        damage_type: kind,
+        death_type: HostDeathType::Normal,
+    }
+}
+fn live_mirror_delivery_case(kind: DamageType) {
+    let mut owner = GameLogic::new();
+    let (span, origin, first, _) = bridge(&mut owner, Vec3::new(50.0, 5.0, 50.0));
+    let (other_span, _, _, _) = bridge(&mut owner, Vec3::new(150.0, 5.0, 150.0));
+    let old = owner
+        .create_object("OwnerTower", Team::USA, Vec3::ZERO)
+        .unwrap();
+    let replacement = owner
+        .create_object("OwnerTower", Team::USA, Vec3::ZERO)
+        .unwrap();
+    owner
+        .bridge_behavior
+        .bind_towers(span, [origin, first, old, ObjectId(0)]);
+    // This is the actual module callback entry, after an earlier bounded body
+    // callback changed maximum. Fraction must use 200 now, not admission's100.
+    let callbacks = bridge_callback(origin, kind);
+    owner.objects.get_mut(&origin).unwrap().health.maximum = 200.0;
+    for id in [first, old, replacement, span] {
+        let body = owner.objects.get_mut(&id).unwrap();
+        body.health.current = if kind == DamageType::Healing {
+            body.health.maximum * 0.5
+        } else {
+            body.health.maximum
+        };
+    }
+    let mut delivered = Vec::new();
+    owner.visit_owned_bridge_mirror_recipients(callbacks, |world, target, amount| {
+        delivered.push((target, amount));
+        if kind == DamageType::Healing {
+            world
+                .apply_owned_healing(target, amount, Some(origin))
+                .unwrap();
+        } else {
+            world
+                .apply_owned_damage(
+                    target,
+                    amount,
+                    Some(origin),
+                    kind,
+                    HostDeathType::Normal,
+                    None,
+                    &DamageHitContext::default(),
+                )
+                .unwrap();
+        }
+        if target == first {
+            world.objects.get_mut(&origin).unwrap().health.maximum = 400.0;
+            // Change a later real routing slot and its current maximum only
+            // after the preceding real damage/heal delivery has completed.
+            world.objects.get_mut(&replacement).unwrap().health.maximum = 150.0;
+            world.objects.get_mut(&replacement).unwrap().health.current =
+                if kind == DamageType::Healing {
+                    75.0
+                } else {
+                    150.0
+                };
+            world
+                .bridge_behavior
+                .bind_towers(span, [origin, first, replacement, ObjectId(0)]);
+            world
+                .bridge_behavior
+                .bind_towers(other_span, [origin, ObjectId(0), ObjectId(0), ObjectId(0)]);
+        }
+    });
+    assert_eq!(
+        delivered,
+        [(first, 20.0), (replacement, 30.0), (span, 40.0)],
+        "entry fraction is fixed, later slots/maxima live, original span retained"
+    );
+    assert_eq!(owner.bridge_behavior.span_id_for(origin), Some(other_span));
+    if kind == DamageType::Healing {
+        assert_eq!(owner.objects[&first].health.current, 70.0);
+        assert_eq!(owner.objects[&replacement].health.current, 105.0);
+        assert_eq!(owner.objects[&span].health.current, 140.0);
+        assert_eq!(owner.objects[&old].health.current, 50.0);
+    } else {
+        assert_eq!(owner.objects[&first].health.current, 80.0);
+        assert_eq!(owner.objects[&replacement].health.current, 120.0);
+        assert_eq!(owner.objects[&span].health.current, 160.0);
+        assert_eq!(owner.objects[&old].health.current, 100.0);
+    }
+    assert_eq!(owner.objects[&other_span].health.current, 200.0);
+}
+#[test]
+fn bridge_damage_callback_reads_live_slots_maxima_and_captured_span() {
+    isolated(
+        "bridge_damage_callback_reads_live_slots_maxima_and_captured_span",
+        || live_mirror_delivery_case(DamageType::Unresistable),
+    );
+}
+#[test]
+fn bridge_healing_callback_reads_live_slots_maxima_and_captured_span() {
+    isolated(
+        "bridge_healing_callback_reads_live_slots_maxima_and_captured_span",
+        || live_mirror_delivery_case(DamageType::Healing),
+    );
+}
+#[test]
+fn bridge_death_callback_reads_later_slot_after_real_preceding_kill() {
+    isolated(
+        "bridge_death_callback_reads_later_slot_after_real_preceding_kill",
+        || {
+            let mut owner = GameLogic::new();
+            let (span, first, old, _) = bridge(&mut owner, Vec3::new(50.0, 5.0, 50.0));
+            let replacement = owner
+                .create_object("OwnerTower", Team::USA, Vec3::ZERO)
+                .unwrap();
+            // Actual span onDie phase already owns its admission latch. This stops
+            // a killed tower's recursive span request from reentering this phase.
+            owner.objects.get_mut(&span).unwrap().status.on_die_started = true;
+            owner.objects.get_mut(&span).unwrap().health.current = 0.0;
+            let mut delivered = Vec::new();
+            owner.visit_owned_bridge_death_recipients(span, |world, target| {
+                delivered.push(target);
+                let _ = world.apply_owned_kill_with_effects(
+                    target,
+                    DamageType::Unresistable,
+                    HostDeathType::Normal,
+                    &mut crate::game_logic::ScriptPresentationEffects::default(),
+                );
+                if target == first {
+                    world
+                        .bridge_behavior
+                        .bind_towers(span, [first, replacement, ObjectId(0), ObjectId(0)]);
+                }
+            });
+            assert_eq!(delivered, [first, replacement]);
+            assert!(owner.objects[&first].status.on_die_started);
+            assert!(owner.objects[&replacement].status.on_die_started);
+            // The first real kill also runs onDamage, which may already kill
+            // the old tower through the bridge. The outer onDie traversal must
+            // nevertheless resolve the replacement slot before its next kill.
+            assert!(owner.objects[&old].status.on_die_started);
+        },
+    );
+}
+#[test]
+fn actual_residual_damage_finishes_linked_bridge_callbacks_before_return() {
+    isolated(
+        "actual_residual_damage_finishes_linked_bridge_callbacks_before_return",
+        || {
+            let mut owner = GameLogic::new();
+            let a = bridge(&mut owner, Vec3::new(50.0, 5.0, 50.0));
+            let mut peer = GameLogic::new();
+            let b = bridge(&mut peer, Vec3::new(50.0, 5.0, 50.0));
+            assert_eq!(a, b);
+            let mut effects = crate::game_logic::ScriptPresentationEffects::default();
+            assert!(!owner.apply_residual_damage_owned_with_effects(
+                a.1,
+                25.0,
+                None,
+                DamageType::Unresistable,
+                HostDeathType::Normal,
+                None,
+                &mut effects
+            ));
+            assert_eq!(owner.objects[&a.1].health.current, 75.0);
+            assert_eq!(owner.objects[&a.2].health.current, 75.0);
+            assert_eq!(owner.objects[&a.0].health.current, 150.0);
+            assert_eq!(peer.objects[&b.0].health.current, 200.0);
+            assert_eq!(owner.bridge_behavior.mirrors, 1);
+            assert_eq!(peer.bridge_behavior.mirrors, 0);
+            assert!(!owner.apply_residual_damage_owned_with_effects(
+                a.0,
+                1000.0,
+                None,
+                DamageType::Unresistable,
+                HostDeathType::Normal,
+                None,
+                &mut effects
+            ));
+            for id in [a.0, a.1, a.2] {
+                assert!(owner.objects[&id].status.on_die_started);
+            }
+            assert!(owner.bridge_behavior.death_links > 0);
+            assert_eq!(peer.bridge_behavior.death_links, 0);
+            assert!(!owner.apply_residual_damage_owned_with_effects(
+                ObjectId(u32::MAX),
+                1.0,
+                None,
+                DamageType::Unresistable,
+                HostDeathType::Normal,
+                None,
+                &mut effects
+            ));
+            peer.sync_host_bridge_rubble_and_scaffolds();
+            for id in [b.0, b.1, b.2] {
+                assert!(!peer.objects[&id].status.on_die_started);
+            }
+            assert_eq!(peer.objects[&b.0].health.current, 200.0);
         },
     );
 }

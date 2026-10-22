@@ -167,11 +167,12 @@ fn capture_emits_remove_then_add_at_the_actual_logic_boundary() {
     assert_eq!(world.players[&2].radar_count, 1);
 }
 
-fn authored_template(name: &str, modules: &str) -> ThingTemplate {
-    authored_template_with_initial_health(name, modules, None)
+fn authored_template(world: &mut GameLogic, name: &str, modules: &str) -> ThingTemplate {
+    authored_template_with_initial_health(world, name, modules, None)
 }
 
 fn authored_template_with_initial_health(
+    world: &mut GameLogic,
     name: &str,
     modules: &str,
     initial_health: Option<f32>,
@@ -182,15 +183,20 @@ fn authored_template_with_initial_health(
     let source = format!(
         "Object {name}\n KindOf = STRUCTURE COMMANDCENTER FS_TECHNOLOGY SELECTABLE MP_COUNT_FOR_VICTORY\n Body = ActiveBody ModuleTag_Body\n MaxHealth = 500\n{initial} End\n{modules}End\n"
     );
-    let mut parser = crate::assets::IniParser::new();
-    parser
-        .parse_ini_content(&source, "radar_owner_authored.ini")
-        .expect("Object INI");
-    GameLogic::build_template_from_object_definition(
-        name,
-        parser.get_definition(name).unwrap(),
-        None,
-    )
+    world
+        .admit_receiving_module_content(
+            crate::assets::ReceivingObjectContent::from_sources([(
+                "radar_owner_authored.ini".to_owned(),
+                source,
+            )])
+            .expect("paired authored radar definitions"),
+        )
+        .expect("receiving radar module owner");
+    world
+        .templates
+        .get(name)
+        .expect("receiving radar template")
+        .clone()
 }
 
 fn authored_world() -> (GameLogic, ObjectId) {
@@ -208,12 +214,12 @@ fn authored_world_with_initial_health(initial_health: Option<f32>) -> (GameLogic
         0,
         1,
     );
-    let template = authored_template_with_initial_health(
+    let _template = authored_template_with_initial_health(
+        &mut world,
         "ArbitraryRadarFacility",
         " Behavior = RadarUpgrade ModuleTag_Radar\n TriggeredBy = Upgrade_GLARadar\n DisableProof = Yes\n End\n Behavior = RadarUpdate ModuleTag_Update\n RadarExtendTime = 50\n End\n Behavior = GrantUpgradeCreate ModuleTag_Grant\n UpgradeToGrant = Upgrade_GLARadar\n ExemptStatus = UNDER_CONSTRUCTION\n End\n",
         initial_health,
     );
-    world.templates.insert(template.name.clone(), template);
     let id = world
         .create_object_for_player("ArbitraryRadarFacility", 1, glam::Vec3::ZERO)
         .unwrap();
@@ -242,9 +248,37 @@ fn authored_absence_and_invalid_boolean_never_infer_a_provider_from_its_name() {
     ] {
         let mut world = GameLogic::new();
         world.add_player(Player::new(1, Team::USA, "First", true));
-        let template = authored_template("AmericaCommandCenter", modules);
+        if modules.contains("DisableProof = invalid") {
+            // CPP RadarUpgrade uses INI::parseBool: malformed data is rejected
+            // before any provider is admitted. The same source with a valid
+            // boolean must parse, so unrelated fixture failures cannot pass.
+            let source = format!(
+                "Object AmericaCommandCenter\n KindOf = STRUCTURE COMMANDCENTER\n Body = ActiveBody BodyTag\n MaxHealth = 500\n End\n{modules}End\n"
+            );
+            let error = crate::assets::ReceivingObjectContent::from_sources([(
+                "radar_owner_authored.ini".to_owned(),
+                source.clone(),
+            )])
+            .err()
+            .expect("invalid authored radar boolean must be rejected");
+            assert!(
+                error.to_ascii_lowercase().contains("invalid")
+                    || error.to_ascii_lowercase().contains("bool"),
+                "{error}"
+            );
+            assert!(
+                crate::assets::ReceivingObjectContent::from_sources([(
+                    "radar_owner_authored.ini".to_owned(),
+                    source.replace("DisableProof = invalid", "DisableProof = No"),
+                )])
+                .is_ok(),
+                "valid same-source boolean control"
+            );
+            assert_eq!(world.players[&1].radar_count, 0);
+            continue;
+        }
+        let template = authored_template(&mut world, "AmericaCommandCenter", modules);
         assert!(template.radar_upgrade_rules.is_some());
-        world.templates.insert(template.name.clone(), template);
         let id = world
             .create_object_for_player("AmericaCommandCenter", 1, glam::Vec3::ZERO)
             .unwrap();
@@ -330,11 +364,11 @@ fn authored_module_order_preserves_all_conflict_and_removal_observation() {
     for name in ["Upgrade_First", "Upgrade_Second", "Upgrade_Blocked"] {
         crate::game_logic::host_upgrade_rules::register_test_upgrade(&world, name, "OBJECT", 0, 1);
     }
-    let template = authored_template(
+    let _template = authored_template(
+        &mut world,
         "OrderedRadarModules",
         " Behavior = RadarUpgrade ModuleTag_First\n TriggeredBy = Upgrade_First Upgrade_Second\n RequiresAllTriggers = Yes\n ConflictsWith = Upgrade_Blocked\n RemovesUpgrades = Upgrade_First\n End\n Behavior = RadarUpgrade ModuleTag_Second\n TriggeredBy = Upgrade_First\n End\n",
     );
-    world.templates.insert(template.name.clone(), template);
     let id = world
         .create_object_for_player("OrderedRadarModules", 1, glam::Vec3::ZERO)
         .unwrap();
@@ -377,11 +411,11 @@ fn disabled_grant_capture_and_future_callbacks_preserve_exact_contributors() {
         0,
         1,
     );
-    let template = authored_template(
+    let _template = authored_template(
+        &mut world,
         "DisabledGrant",
         " Behavior = RadarUpgrade ModuleTag_Radar\n TriggeredBy = Upgrade_ExplicitRadar\n End\n",
     );
-    world.templates.insert(template.name.clone(), template);
     let id = world
         .create_object_for_player("DisabledGrant", 1, glam::Vec3::ZERO)
         .unwrap();
@@ -434,11 +468,11 @@ fn unknown_authored_upgrade_names_cannot_be_supplied_by_another_world() {
         0,
         1,
     );
-    let template = authored_template(
+    let _template = authored_template(
+        &mut world,
         "UnknownCatalogRadar",
         " Behavior = RadarUpgrade ModuleTag_Radar\n TriggeredBy = Upgrade_PeerOnly\n End\n",
     );
-    world.templates.insert(template.name.clone(), template);
     let id = world
         .create_object_for_player("UnknownCatalogRadar", 1, glam::Vec3::ZERO)
         .unwrap();
