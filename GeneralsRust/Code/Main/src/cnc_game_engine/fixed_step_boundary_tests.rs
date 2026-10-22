@@ -353,6 +353,20 @@ fn production_shadow_boundary_preserves_same_faction_player_radar_ownership_case
         .expect("pending radar snapshot");
     // Recreate the map's prototype admission history on the receiving owner.
     let mut restored = make_world();
+    // The outgoing map foundation really goes offline before replacement.
+    // Snapshot admission must preserve that receiver history without inventing
+    // another online edge while restoring the saved provider.
+    restored
+        .clear_all_objects_with_effects_checked(&mut Default::default())
+        .unwrap();
+    assert!(restored.objects.is_empty());
+    assert_eq!(
+        (
+            restored.host_radar.online_transitions,
+            restored.host_radar.offline_transitions
+        ),
+        (1, 1)
+    );
     let restored_transitions = (
         restored.host_radar.online_transitions,
         restored.host_radar.offline_transitions,
@@ -398,6 +412,20 @@ fn production_shadow_boundary_preserves_same_faction_player_radar_ownership_case
     // observer. Exercise both a fresh owner and its real pending-timer restore.
     let ordinary_source = make_world();
     let mut ordinary_restored = make_world();
+    // The outgoing map foundation really goes offline before replacement.
+    // Snapshot admission must preserve that receiver history without inventing
+    // another online edge while restoring the saved provider.
+    ordinary_restored
+        .clear_all_objects_with_effects_checked(&mut Default::default())
+        .unwrap();
+    assert!(ordinary_restored.objects.is_empty());
+    assert_eq!(
+        (
+            ordinary_restored.host_radar.online_transitions,
+            ordinary_restored.host_radar.offline_transitions
+        ),
+        (1, 1)
+    );
     let ordinary_restored_transitions = (
         ordinary_restored.host_radar.online_transitions,
         ordinary_restored.host_radar.offline_transitions,

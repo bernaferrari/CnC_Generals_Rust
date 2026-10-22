@@ -27,19 +27,14 @@ impl game_client::fx_list::FXNugget for Observe {
     }
 }
 fn world() -> (GameLogic, crate::game_logic::ObjectId) {
-    let mut parser = crate::assets::IniParser::new();
-    parser.parse_ini_content(
-        "Object NativeCompanionDie\nKindOf = INERT IMMOBILE\nBody = ActiveBody Body\nMaxHealth = 100\nInitialHealth = 100\nEnd\nBehavior = FXListDie Shake\nDeathFX = FX_NativeCompanionDie\nEnd\nBehavior = KeepObjectDie Retain\nEnd\nEnd",
-        "native-companion-die.ini",
-    ).unwrap();
-    let template = GameLogic::build_template_from_object_definition(
-        "NativeCompanionDie",
-        parser.get_definition("NativeCompanionDie").unwrap(),
-        None,
-    );
     let mut world = GameLogic::new();
+    world.admit_receiving_module_content(
+        crate::assets::ReceivingObjectContent::from_sources([(
+            "native-companion-die.ini".into(),
+            "Object NativeCompanionDie\nKindOf = INERT IMMOBILE\nBody = ActiveBody Body\nMaxHealth = 100\nInitialHealth = 100\nEnd\nBehavior = FXListDie Shake\nDeathFX = FX_NativeCompanionDie\nEnd\nBehavior = KeepObjectDie Retain\nEnd\nEnd".into(),
+        )]).unwrap(),
+    ).unwrap();
     world.add_player(Player::new(1, Team::USA, "Owner", true));
-    world.templates.insert(template.name.clone(), template);
     let id = world
         .create_object("NativeCompanionDie", Team::USA, Vec3::ZERO)
         .unwrap();

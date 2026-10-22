@@ -304,7 +304,14 @@ fn production_camera_phase_precedes_native_region_and_fast_subset_never_commits_
     assert!(phase.contains("set_native_camera_transform()"));
     assert!(live.contains("advance_receiving_camera_view("));
     let owner = include_str!("../presentation_frame/session_view/camera.rs");
-    assert!(owner.contains("AxisKind::ZoomPitch") && owner.contains("AxisKind::Yaw"));
+    let rotation = include_str!("../presentation_frame/session_view/camera/motion.rs");
+    assert!(
+        owner.contains("AxisKind::ZoomPitch")
+            && owner.contains("motion::step_registered_rotation(")
+            && rotation.contains("step_rotation(")
+            && rotation
+                .contains("step_axis_with_rotation(axis, AxisKind::Yaw, admission, Some(timing))")
+    );
 }
 
 #[test]

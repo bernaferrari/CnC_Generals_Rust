@@ -2256,7 +2256,9 @@ impl CnCGameEngine {
 
     /// Process UI events emitted by UIManager and apply to engine/game state.
     pub(super) fn process_ui_events(&mut self) {
-        while let Some(event) = self.ui_manager.pop_event() {
+        while !self.is_quitting()
+            && let Some(event) = self.ui_manager.pop_event()
+        {
             match event {
                 UIEvent::StartGame {
                     mode,

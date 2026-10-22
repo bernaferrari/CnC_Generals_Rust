@@ -66,6 +66,9 @@ impl CnCGameEngine {
                     GameMode::Shell | GameMode::None
                 );
                 self.clear_receiving_game_data(true);
+                if self.is_quitting() {
+                    return handled;
+                }
                 // The clear already reset the receiving world. Do not reset
                 // again and destroy the source score/shell windows.
                 self.transition_to_state(GameState::Menu);
@@ -81,6 +84,9 @@ impl CnCGameEngine {
                 continue;
             };
             self.host_start_game_from_ui(request);
+            if self.is_quitting() {
+                return handled;
+            }
         }
         handled
     }
@@ -95,6 +101,12 @@ impl ReplayMenuReceiver for CnCGameEngine {
     }
 
     fn playback_file(&mut self, filename: String) {
+        if self
+            .require_native_world_boundary("Recorder playback")
+            .is_err()
+        {
+            return;
+        }
         // Filename survives actual clear/reset; no Recorder/world borrow crosses it.
         let in_game = self.game_logic.game_mode() != GameMode::None;
         let admission = self
@@ -102,7 +114,9 @@ impl ReplayMenuReceiver for CnCGameEngine {
             .replay_pending
             .prepare_playback_owned(filename, in_game);
         if admission.requires_clear() {
-            self.clear_receiving_game_data(true);
+            if !self.clear_receiving_game_data(true) {
+                return;
+            }
         }
         match self
             .game_logic
@@ -125,6 +139,12 @@ impl ReplayMenuReceiver for CnCGameEngine {
     }
 
     fn restart(&mut self) {
+        if self
+            .require_native_world_boundary("Recorder restart")
+            .is_err()
+        {
+            return;
+        }
         game_client::gui::callbacks::quit_menu::destroy_quit_menu();
         let filename = self
             .game_logic
@@ -144,6 +164,9 @@ impl ReplayMenuReceiver for CnCGameEngine {
         // QuitMenu.cpp203 clears without a score screen even for replay.
         // playback_file now observes GAME_NONE and must not clear a second time.
         self.clear_receiving_game_data(false);
+        if self.is_quitting() {
+            return;
+        }
         if self.pending_state == Some(GameState::Exiting) {
             self.pending_state = None;
         }

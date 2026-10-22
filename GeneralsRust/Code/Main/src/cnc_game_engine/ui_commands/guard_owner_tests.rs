@@ -198,6 +198,18 @@ fn guard_controller_and_attitude_keep_save_semantics_separate_from_local_view() 
             let nondefault = builder.create_world_snapshot(&source).unwrap();
             let mut fresh = GameLogic::new();
             fresh.set_ai_definition_base(authored(BASE_A));
+            // Recreate the authored map's prototype admission order before
+            // decoding its complete roster. These definitions are not saved
+            // runtime defaults, and the receiver still starts without players.
+            for (id, name, human) in [
+                (0, "LocalHuman", true),
+                (1, "RemoteHuman", true),
+                (2, "InactiveComputer", false),
+                (1, "OnlyHuman", true),
+            ] {
+                fresh.add_player(Player::new(id, Team::USA, name, human));
+            }
+            fresh.clear_all_players();
             builder
                 .restore_from_snapshot(&nondefault, &mut fresh)
                 .unwrap();

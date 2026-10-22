@@ -310,6 +310,12 @@ impl CnCGameEngine {
         &mut self,
         message: &game_engine::common::message_stream::GameMessage,
     ) -> bool {
+        if self
+            .require_native_world_boundary("prepare source NewGame")
+            .is_err()
+        {
+            return false;
+        }
         let Some(dispatch) = Self::startup_new_game_dispatch_from_message(message) else {
             return false;
         };
@@ -434,6 +440,9 @@ impl CnCGameEngine {
                                 GameMode::None | GameMode::Shell
                             );
                             let reset_performed = self.clear_receiving_game_data(true);
+                            if self.is_quitting() {
+                                return Err("ClearGameData rejected a terminal native owner".into());
+                            }
                             if reset_performed {
                                 interrupted = true;
                                 // The normal match observer is temporarily moved out of self;
@@ -446,6 +455,9 @@ impl CnCGameEngine {
                         }
                         NativeCommandAction::PrepareNewGame(message) => {
                             let prepared = self.prepare_receiving_source_new_game(&message);
+                            if self.is_quitting() {
+                                return Err("NewGame rejected a terminal native owner".into());
+                            }
                             interrupted |= prepared;
                             NativeCommandCompletion::NewGamePrepared { prepared }
                         }

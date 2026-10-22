@@ -507,6 +507,9 @@ impl CnCGameEngine {
         let show_score = self.game_logic.game_mode() != GameMode::Shell
             && self.game_logic.game_mode() != GameMode::None;
         self.clear_receiving_game_data(true);
+        if self.is_quitting() {
+            return true;
+        }
         self.transition_to_state(GameState::Menu);
         if show_score {
             self.set_runtime_host_ui_screen_override(Some("ScoreScreen"));
@@ -517,6 +520,12 @@ impl CnCGameEngine {
     /// C++ `restartMissionMenu` (QuitMenu.cpp:175-226): re-apply MSG_NEW_GAME
     /// mode/difficulty/rank and keep the last Challenge PlayerTemplate.
     pub(super) fn host_restart_mission_from_dispatch(&mut self, dispatch: StartupNewGameDispatch) {
+        if self
+            .require_native_world_boundary("restart mission dispatch")
+            .is_err()
+        {
+            return;
+        }
         self.update_last_new_game_dispatch(dispatch);
         let prepared_map = Self::apply_startup_new_game_dispatch(dispatch);
         let identity = self.last_new_game_identity();

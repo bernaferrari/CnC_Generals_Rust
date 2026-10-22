@@ -101,6 +101,20 @@ pub(crate) fn run() -> anyhow::Result<()> {
     assert_eq!(engine.game_logic.get_frame(), 0);
     assert!(engine.game_logic.object_retirement_error().is_none());
 
+    // Obtain a real parked request while the boundary is healthy. Retain that
+    // source continuation until a later failure makes completion unavailable.
+    assert!(
+        engine.host_start_game_from_command_phase(HostStartRequest::without_player_template(
+            GameMode::Skirmish,
+            "USA".into(),
+            "Lone Eagle".into(),
+            None,
+        ))
+    );
+    let deferred_before_failure = engine
+        .pending_match_start
+        .take()
+        .expect("actual healthy park produced deferred start");
     let mut world = GameLogic::new();
     world.admit_receiving_module_content(crate::assets::ReceivingObjectContent::from_sources([
         ("terminal-load-owner.ini".into(),
@@ -272,5 +286,163 @@ pub(crate) fn run() -> anyhow::Result<()> {
     println!(
         "PASS terminal load: actual UI calibration / retained installed and detached owners / no reset or retry"
     );
+    // Add one actual healthy live actor, independent of the retained failed
+    // same-ID world, so reset/admission cannot erase an empty fixture unnoticed.
+    engine.game_logic.admit_receiving_module_content(
+        crate::assets::ReceivingObjectContent::from_sources([(
+            "retained-boundary-live.ini".into(),
+            "Object BoundaryLiveOwner\nBody = ActiveBody BodyTag\nMaxHealth = 100\nInitialHealth = 100\nEnd\nEnd\n".into(),
+        )]).map_err(anyhow::Error::msg)?
+    ).map_err(anyhow::Error::msg)?;
+    engine
+        .game_logic
+        .add_player(Player::new(1, Team::USA, "BoundaryLive", true));
+    let live_id = engine
+        .game_logic
+        .create_object("BoundaryLiveOwner", Team::USA, glam::Vec3::ZERO)
+        .expect("healthy receiving old world remains independently usable");
+    let live_token =
+        Arc::downgrade(&engine.game_logic.objects[&live_id].visual_draw_identity_token);
+    engine.selected_objects = vec![live_id];
+    engine.runtime_host_ui_screen_override = Some("RetainedOwnerSentinel".into());
+    let seed = engine.game_logic.logic_random.seed_words();
+    let pending = bincode_legacy::serialize(&engine.game_logic.pending_object_removal_snapshot())
+        .map_err(anyhow::Error::msg)?;
+    let windows = game_client::gui::with_window_manager(|manager| manager.window_count());
+    let verify = |engine: &CnCGameEngine| {
+        assert_eq!(engine.current_state, GameState::Exiting);
+        assert_eq!(engine.game_logic.get_frame(), 89);
+        assert_eq!(engine.host_direct_visual_world_epoch, epoch);
+        assert_eq!(engine.game_logic.logic_random.seed_words(), seed);
+        assert_eq!(engine.game_logic.get_objects().len(), 1);
+        assert_eq!(engine.selected_objects, vec![live_id]);
+        assert!(Arc::ptr_eq(
+            &live_token.upgrade().unwrap(),
+            &engine.game_logic.objects[&live_id].visual_draw_identity_token
+        ));
+        assert!(
+            token.upgrade().is_some(),
+            "retained failed pair remains owned"
+        );
+        assert!(engine.rejected_native_worlds.validate_admission().is_err());
+        assert!(engine.game_logic.object_retirement_error().is_none());
+        assert_eq!(
+            bincode_legacy::serialize(&engine.game_logic.pending_object_removal_snapshot())
+                .unwrap(),
+            pending
+        );
+        assert_eq!(
+            engine.runtime_host_ui_screen_override.as_deref(),
+            Some("RetainedOwnerSentinel")
+        );
+        assert!(
+            engine.pending_match_start.is_none(),
+            "no fresh start candidate"
+        );
+        assert_eq!(
+            game_client::gui::with_window_manager(|manager| manager.window_count()),
+            windows,
+            "no score/menu/loading layout admission on rejected InGame boundary"
+        );
+    };
+    // Exercise the actual UI Quit-to-menu request, including its outer event
+    // drain. A queued later event must not run after terminal handling.
+    engine.current_state = GameState::InGame;
+    engine
+        .ui_manager
+        .queue_event(crate::ui::UIEvent::ExitToMenu);
+    engine
+        .ui_manager
+        .queue_event(crate::ui::UIEvent::TogglePause);
+    engine.process_ui_events();
+    verify(&engine);
+    assert!(matches!(
+        engine.ui_manager.pop_event(),
+        Some(crate::ui::UIEvent::TogglePause)
+    ));
+    engine.current_state = GameState::InGame;
+    engine
+        .ui_manager
+        .queue_event(crate::ui::UIEvent::StartGame {
+            mode: GameMode::Skirmish,
+            faction: "USA".into(),
+            map: "Lone Eagle".into(),
+            skirmish: None,
+        });
+    engine.process_ui_events();
+    verify(&engine);
+    // New-match park must reject before load-screen/seed/GUI side effects.
+    engine.current_state = GameState::InGame;
+    assert!(
+        !engine.host_start_game_from_command_phase(HostStartRequest::without_player_template(
+            GameMode::Skirmish,
+            "USA".into(),
+            "Lone Eagle".into(),
+            None,
+        ))
+    );
+    verify(&engine);
+    // A healthy previously parked start must recheck ownership on completion.
+    engine.current_state = GameState::InGame;
+    engine.complete_parked_match_start(deferred_before_failure);
+    verify(&engine);
+    for score in [false, true] {
+        engine.current_state = GameState::InGame;
+        assert!(!engine.clear_receiving_game_data(score));
+        verify(&engine);
+    }
+    // Direct reset wrappers must return typed rejection before any callbacks.
+    engine.current_state = GameState::InGame;
+    assert!(matches!(
+        engine.host_game_engine_reset(),
+        Err(NativeBoundaryFailure::RetainedCandidate(_))
+    ));
+    verify(&engine);
+    engine.current_state = GameState::InGame;
+    assert!(engine.host_reset_for_admitted_replay_start().is_err());
+    verify(&engine);
+    engine.current_state = GameState::InGame;
+    assert!(engine.host_reset_for_clear_game_data().is_err());
+    verify(&engine);
+    engine.current_state = GameState::InGame;
+    assert!(engine.reset_match_state_after_engine_reset().is_err());
+    verify(&engine);
+    engine.current_state = GameState::InGame;
+    assert!(engine.host_reset_game_logic().is_err());
+    verify(&engine);
+    // Actual Recorder ingress must not prepare/open a new file or mutate the
+    // existing reader before rejecting the clear/admission boundary.
+    let replay_file = engine
+        .game_logic
+        .replay_pending
+        .recorder_owned()
+        .get_current_replay_filename()
+        .to_owned();
+    engine.current_state = GameState::InGame;
+    game_client::gui::callbacks::replay_menu::ingress::ReplayMenuReceiver::playback_file(
+        &mut engine,
+        "retained-boundary-must-not-open.rep".into(),
+    );
+    verify(&engine);
+    assert_eq!(
+        engine
+            .game_logic
+            .replay_pending
+            .recorder_owned()
+            .get_current_replay_filename(),
+        replay_file
+    );
+    engine.current_state = GameState::InGame;
+    game_client::gui::callbacks::replay_menu::ingress::ReplayMenuReceiver::restart(&mut engine);
+    verify(&engine);
+    assert_eq!(
+        receiver.calls.len(),
+        2,
+        "no failed native destructor replay at later requests"
+    );
+    println!(
+        "PASS retained candidate: actual Quit/menu/new-match/deferred/clear/reset/Recorder boundaries retain both owners"
+    );
+
     Ok(())
 }

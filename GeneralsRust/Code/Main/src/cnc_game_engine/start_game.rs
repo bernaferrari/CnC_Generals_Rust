@@ -487,6 +487,12 @@ impl CnCGameEngine {
     }
 
     fn park_host_start_request(&mut self, request: HostStartRequest, source_command: bool) -> bool {
+        if self
+            .require_native_world_boundary("park new match")
+            .is_err()
+        {
+            return false;
+        }
         let HostStartRequest {
             mode,
             faction,
@@ -600,6 +606,12 @@ impl CnCGameEngine {
     /// Called from the Loading tick after status has been published. Still
     /// the live `load_map` path (hq-ibnf owns making Lone Eagle return).
     pub(super) fn complete_parked_match_start(&mut self, pending: PendingMatchStart) {
+        if self
+            .require_native_world_boundary("complete parked match")
+            .is_err()
+        {
+            return;
+        }
         let HostStartRequest {
             mode,
             faction,
@@ -629,12 +641,15 @@ impl CnCGameEngine {
             None
         };
 
-        if replay_inputs.is_some() {
-            self.host_reset_for_admitted_replay_start();
+        let reset = if replay_inputs.is_some() {
+            self.host_reset_for_admitted_replay_start()
         } else if mode == GameMode::Shell {
-            self.host_reset_for_clear_game_data();
+            self.host_reset_for_clear_game_data()
         } else {
-            self.host_game_engine_reset();
+            self.host_game_engine_reset()
+        };
+        if reset.is_err() {
+            return;
         }
         self.reset_replay_pacing_for_new_game();
         // Wave 843/844/871: clear prior match residuals until load completes.
@@ -2088,26 +2103,34 @@ impl CnCGameEngine {
     /// C++ `GameEngine::reset` (`GameEngine.cpp:685-711`).
     /// BlankWindow.wnd covers the previous map/UI while subsystems reset;
     /// multiplayer tears down `TheNetwork`.
-    pub(super) fn host_game_engine_reset(&mut self) {
-        self.host_game_engine_reset_with_recorder(true, true);
+    pub(super) fn host_game_engine_reset(
+        &mut self,
+    ) -> std::result::Result<(), NativeBoundaryFailure> {
+        self.host_game_engine_reset_with_recorder(true, true)
     }
 
     /// The admitted file was opened after the old world's actual clear. The
     /// native loading presentation must not close it a second time.
-    pub(super) fn host_reset_for_admitted_replay_start(&mut self) {
-        self.host_game_engine_reset_with_recorder(false, true);
+    pub(super) fn host_reset_for_admitted_replay_start(
+        &mut self,
+    ) -> std::result::Result<(), NativeBoundaryFailure> {
+        self.host_game_engine_reset_with_recorder(false, true)
     }
 
     /// ClearGameData pushes its score layout before reset. C++ GameClient::reset
     /// does not reset Shell; only the next admitted start removes the old stack.
-    pub(super) fn host_reset_for_clear_game_data(&mut self) {
-        self.host_game_engine_reset_with_recorder(true, false);
+    pub(super) fn host_reset_for_clear_game_data(
+        &mut self,
+    ) -> std::result::Result<(), NativeBoundaryFailure> {
+        self.host_game_engine_reset_with_recorder(true, false)
     }
 
-    fn host_game_engine_reset_with_recorder(&mut self, reset_recorder: bool, reset_shell: bool) {
-        self.rejected_native_worlds
-            .validate_admission()
-            .expect("cannot reset after terminal native retirement failure");
+    fn host_game_engine_reset_with_recorder(
+        &mut self,
+        reset_recorder: bool,
+        reset_shell: bool,
+    ) -> std::result::Result<(), NativeBoundaryFailure> {
+        self.require_native_world_boundary("Engine reset")?;
         // Source Client/UI reset captures defaults from outgoing map rules,
         // before GlobalData overrides disappear. GameLogic reset may run again.
         self.game_logic.session_view.camera.settings =
@@ -2193,22 +2216,26 @@ impl CnCGameEngine {
                 manager.destroy_layout(&layout);
             });
         }
+        Ok(())
     }
 
-    pub(super) fn reset_match_state(&mut self) {
+    pub(super) fn reset_match_state(&mut self) -> std::result::Result<(), NativeBoundaryFailure> {
         info!("Resetting gameplay state after match completion");
         // C++ GameLogicDispatch / GameState / PopupSaveLoad call
         // TheGameEngine->reset() before tearing down match state.
-        self.host_game_engine_reset();
-        self.reset_match_state_after_engine_reset();
+        self.host_game_engine_reset()?;
+        self.reset_match_state_after_engine_reset()
     }
 
-    pub(super) fn reset_match_state_after_engine_reset(&mut self) {
+    pub(super) fn reset_match_state_after_engine_reset(
+        &mut self,
+    ) -> std::result::Result<(), NativeBoundaryFailure> {
+        self.require_native_world_boundary("match reset suffix")?;
         self.pending_match_start = None;
         self.destroy_source_new_game_background();
         self.drain_renderer_attachments();
 
-        self.host_reset_game_logic();
+        self.host_reset_game_logic()?;
         self.resource_manager = ResourceManager::new();
 
         // Path grid rebuild is owned by GameLogic on map load/reset.
@@ -2298,10 +2325,13 @@ impl CnCGameEngine {
             log::error!("camera transform: {error}");
         }
         self.rebuild_tactical_projection();
+        Ok(())
     }
 
     pub(super) fn return_to_main_menu_after_match(&mut self) {
-        self.reset_match_state();
+        if self.reset_match_state().is_err() {
+            return;
+        }
         self.transition_to_state(GameState::Menu);
     }
 
@@ -2484,10 +2514,26 @@ End
             body.contains("self.host_game_engine_reset()"),
             "reset_match_state must invoke GameEngine::reset"
         );
+        let start = live
+            .split_once("pub(super) fn complete_parked_match_start(")
+            .expect("actual parked new-game owner")
+            .1;
+        let start = start
+            .split_once("\n    pub(super) fn ")
+            .map_or(start, |(body, _)| body);
+        let reset = start
+            .find("self.host_game_engine_reset()")
+            .expect("ordinary new-game reset");
+        let failure = start[reset..]
+            .find("if reset.is_err()")
+            .expect("failed reset stops admission")
+            + reset;
+        let map = start
+            .find("self.host_load_map_or_default(&map_name)")
+            .expect("actual new map admission");
         assert!(
-            live.contains("TheGameEngine->reset() before startNewGame")
-                && live.contains("self.host_game_engine_reset()"),
-            "new-game start must call GameEngine::reset like GameLogicDispatch.cpp:256"
+            reset < failure && failure < map,
+            "new-game start must complete GameEngine::reset and reject failure before map admission like GameLogicDispatch.cpp:256"
         );
     }
 

@@ -125,6 +125,8 @@ mod presentation_materials;
 mod presentation_terrain_cache;
 #[cfg(feature = "game_client")]
 mod quit_menu_bridge;
+mod retirement_guard;
+use retirement_guard::NativeBoundaryFailure;
 mod run_loop;
 mod runtime;
 mod runtime_host;

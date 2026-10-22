@@ -558,7 +558,7 @@ fn physical_gather_proof_requires_physical_accepted_order_and_real_dropoff() {
         .find("AIState::ReturningResources")
         .expect("ReturningResources deposit branch");
     let credit = deposit[returning..]
-        .find("player.credit_supplies(credited)")
+        .find("player.credit_supplies(credited, economy_events)")
         .map(|offset| returning + offset)
         .expect("concrete player credit");
     let event = deposit[returning..]
@@ -742,9 +742,19 @@ fn configured_skirmish_start_restamps_mode_after_map_clear_before_physical_evide
         .map(|offset| map_load + offset)
         .expect("mode re-stamped after successful map load");
     let ingame = body[successful_mode_stamp..]
-        .find("transition_to_state(GameState::InGame)")
+        .find("self.transition_to_state(if mode == GameMode::Shell")
         .map(|offset| successful_mode_stamp + offset)
         .expect("InGame transition");
+    let transition = &body[ingame..];
+    assert!(
+        transition.starts_with("self.transition_to_state(if mode == GameMode::Shell")
+            && transition
+                .split_once("});")
+                .expect("complete state selection")
+                .0
+                .contains("GameState::InGame"),
+        "ordinary configured Skirmish enters InGame; only Shell selects Menu"
+    );
 
     assert!(
         skirmish_config < map_load

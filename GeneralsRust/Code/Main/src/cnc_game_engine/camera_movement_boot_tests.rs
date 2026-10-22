@@ -82,7 +82,7 @@ fn receiving_tivo_new_game_reset_precedes_saved_native_admission_and_follows_pre
     let reset = begin
         .find("self.reset_replay_pacing_for_new_game();")
         .unwrap();
-    assert!(begin.find("self.host_game_engine_reset();").unwrap() < reset);
+    assert!(begin.find("self.host_game_engine_reset()").unwrap() < reset);
     assert!(reset < begin.find("if mode == GameMode::Skirmish").unwrap());
     assert!(
         reset

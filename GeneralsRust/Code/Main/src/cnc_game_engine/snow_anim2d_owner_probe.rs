@@ -129,7 +129,9 @@ pub(super) fn run() -> anyhow::Result<()> {
 
     // Actual engine reset clears the match stamp, while the client-only clock
     // retains the same lifetime as its client/engine. It must not reset B.
-    first.host_reset_game_logic();
+    first
+        .host_reset_game_logic()
+        .expect("healthy receiving reset");
     assert_eq!(first.host_snow_logic_frame_applied, None);
     first.current_state = GameState::Menu;
     assert_eq!(

@@ -2986,7 +2986,10 @@ mod tests {
             leftover_store_radius_cursor_for_type("OFFENSIVE_SPECIALPOWER"),
             0.0
         );
-        let src = include_str!("ui_commands.rs");
+        let src = include_str!("ui_commands.rs")
+            .split("#[cfg(test)]")
+            .next()
+            .expect("production radius cursor and command arming");
         assert!(
             src.contains("PendingMapCommand::Weapon(_) => \"ATTACK_DAMAGE_AREA\""),
             "FIRE_WEAPON / attack-ground must arm leftover ATTACK_DAMAGE_AREA"

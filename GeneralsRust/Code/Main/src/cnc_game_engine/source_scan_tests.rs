@@ -1057,7 +1057,9 @@ fn patrol_and_sell_hotkey_residual() {
                 include_str!("../game_logic/world_scripts/unit_commands.rs"),
                 "unit_command_patrol"
             )
-            .contains("set_ai_state(AIState::Patrolling)"),
+            .split_whitespace()
+            .collect::<String>()
+            .contains("set_ai_state(AIState::Patrolling,"),
         "execute_patrol must set Patrolling residual"
     );
     let pf = crate::presentation_frame::PRESENTATION_FRAME_SRC;
@@ -1251,8 +1253,15 @@ fn damaged_structure_cycle_residual() {
             && cycle.contains("host_set_selection")
     );
     assert!(
-        cycle.contains("self.game_logic.session_view.target.x = clamped.x")
-            && cycle.contains("self.game_logic.session_view.target.z = clamped.z")
+        cycle.contains("self.host_player_look_at(pos)")
+            && live_function(include_str!("start_game.rs"), "host_player_look_at")
+                .contains("self.host_center_camera_on_impl(world_pos)")
+            && live_function(include_str!("start_game.rs"), "host_center_camera_on_impl")
+                .contains("receiving_look_at_target(")
+            && live_function(include_str!("start_game.rs"), "host_center_camera_on_impl")
+                .contains("self.game_logic.session_view.target = target;")
+            && live_function(include_str!("start_game.rs"), "host_center_camera_on_impl")
+                .contains("self.set_native_camera_transform()")
     );
     assert!(
         !cycle.contains("push_info_message"),

@@ -654,10 +654,10 @@ impl CnCGameEngine {
 
     /// Wave 584: host match reset residual (GameLogic::reset boundary).
     #[inline]
-    pub(super) fn host_reset_game_logic(&mut self) {
-        self.rejected_native_worlds
-            .validate_admission()
-            .expect("cannot reset after terminal native retirement failure");
+    pub(super) fn host_reset_game_logic(
+        &mut self,
+    ) -> std::result::Result<(), NativeBoundaryFailure> {
+        self.require_native_world_boundary("GameLogic reset")?;
         // Wave 584/871/933: host reset residual via session-control authority.
         self.host_game_logic_mut()
             .apply_session_control_op(crate::game_logic::SessionControlOp::Reset);
@@ -675,6 +675,7 @@ impl CnCGameEngine {
         self.selected_objects.clear();
         self.last_presentation_frame = None;
         self.last_ui_state = None;
+        Ok(())
     }
 
     /// Wave 584: host destroy-object residual (debug Shift+Delete path).
