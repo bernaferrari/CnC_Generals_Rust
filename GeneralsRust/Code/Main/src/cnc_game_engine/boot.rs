@@ -293,16 +293,18 @@ impl CnCGameEngine {
         // can reuse the live archive/definition caches immediately.
         info!("🎨 Initializing C&C Asset Manager during engine setup...");
         let asset_timer = Instant::now();
-        crate::assets::manager::init_asset_manager(
+        let receiving_object_sources = crate::assets::manager::init_asset_manager_with_sources(
             graphics_system.device_arc().as_ref(),
             graphics_system.queue_arc().as_ref(),
+            |manager| {
+                super::object_ini_boot::capture_receiving_object_sources(
+                    manager,
+                    &Self::startup_ini_disk_roots(),
+                )
+                .map_err(anyhow::Error::msg)
+            },
         )
-        .await
-        .map_err(|err| {
-            warn!("Asset manager init failed: {err}. Continuing without assets.");
-            err
-        })
-        .ok();
+        .await?;
         let asset_duration = asset_timer.elapsed();
 
         if let Err(err) = crate::assets::archive::init_big_archive_file_reader() {
@@ -531,6 +533,7 @@ impl CnCGameEngine {
             StartupLoadState::Complete
         } else {
             Self::spawn_startup_map_load(
+                receiving_object_sources,
                 start_in_menu,
                 map_to_load,
                 startup_map_requested_from_cli,

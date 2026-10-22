@@ -121,7 +121,15 @@ fn receiving_tivo_new_game_reset_precedes_saved_native_admission_and_follows_pre
     let clear = restore
         .find("self.reset_replay_pacing_for_new_game();")
         .unwrap();
-    assert!(restore.find("runtime_world.preflight_native()?").unwrap() < clear);
+    let preflight = restore
+        .find("let runtime_world = match runtime_world.preflight_native() {")
+        .expect("actual native candidate preflight branch");
+    assert!(preflight < clear);
+    assert!(
+        restore[preflight..clear]
+            .contains("self.reject_receiving_world_candidate(logic, native_map)"),
+        "rejected native preflight retains/cleans its receiving candidate before reset"
+    );
     assert!(
         clear
             < restore

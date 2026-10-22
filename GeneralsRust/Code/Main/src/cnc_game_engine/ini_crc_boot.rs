@@ -51,12 +51,40 @@ pub const GAME_ENGINE_INI_CRC_PATHS: &[&str] = &[
 
 /// Hash the retail init table (plus Object directory after Default/Object.ini).
 pub fn calculate_game_engine_ini_crc(load_text: impl Fn(&str) -> Option<String>) -> u32 {
+    calculate_ini_crc(load_text, None)
+}
+
+/// Production Object CRC uses the same captured stream as strict admission.
+pub(super) fn calculate_game_engine_ini_crc_with_object_sources(
+    load_text: impl Fn(&str) -> Option<String>,
+    object_sources: &[(String, String)],
+) -> u32 {
+    calculate_ini_crc(load_text, Some(object_sources))
+}
+
+fn calculate_ini_crc(
+    load_text: impl Fn(&str) -> Option<String>,
+    object_sources: Option<&[(String, String)]>,
+) -> u32 {
     let inner = XferLoad::new(Cursor::new(Vec::new()), 1);
     let xfer_crc = XferCRC::new(inner);
     let mut ini = INI::new();
     ini.set_xfer(xfer_crc);
 
     for path in GAME_ENGINE_INI_CRC_PATHS {
+        if *path == "Data/INI/Default/Object.ini" {
+            if let Some(sources) = object_sources {
+                for (source_path, text) in sources {
+                    match ini.with_inline_source(text, INI::consume_remaining_lines) {
+                        Ok(()) => debug!("XferCRC captured Object source: {source_path}"),
+                        Err(err) => {
+                            debug!("XferCRC captured Object source failed '{source_path}': {err}")
+                        }
+                    }
+                }
+                continue;
+            }
+        }
         feed_ini_path(&mut ini, path, &load_text);
         if *path == "Data/INI/Default/Object.ini" {
             for object_path in super::object_ini_boot::collect_object_ini_virtual_paths() {

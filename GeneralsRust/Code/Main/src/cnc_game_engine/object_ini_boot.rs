@@ -11,6 +11,104 @@ use std::path::{Path, PathBuf};
 const DEFAULT_OBJECT_INI: &str = "Data/INI/Default/Object.ini";
 const OBJECT_INI_DIR: &str = "Data/INI/Object";
 
+/// Immutable selected sources handed to the worker; no GPU/service handle.
+pub(super) struct ObjectSourceSnapshot {
+    sources: Vec<(String, String)>,
+}
+impl ObjectSourceSnapshot {
+    pub(super) fn sources(&self) -> &[(String, String)] {
+        &self.sources
+    }
+    pub(super) fn admit(
+        &self,
+        sciences: std::sync::Arc<game_engine::common::rts::science::ScienceNameFacts>,
+    ) -> Result<crate::assets::ReceivingObjectContent, String> {
+        crate::assets::ReceivingObjectContent::from_sources_with_sciences(
+            self.sources.iter().cloned(),
+            sciences,
+        )
+    }
+}
+
+/// Called only from the uniquely owned initialized AssetManager, before it is
+/// published or background audio/render tasks start borrowing it.
+pub(super) fn capture_receiving_object_sources(
+    manager: &mut crate::assets::manager::AssetManager,
+    roots: &[&str],
+) -> Result<ObjectSourceSnapshot, String> {
+    use game_engine::common::ascii_string::AsciiString;
+    use game_engine::common::system::file_system::{FilenameList, get_file_system};
+    let filesystem_paths = {
+        let owner = get_file_system();
+        let fs = owner
+            .lock()
+            .map_err(|error| format!("Receiving Object filesystem inventory: {error}"))?;
+        let mut paths = FilenameList::new();
+        fs.get_file_list_in_directory(
+            &AsciiString::from(OBJECT_INI_DIR),
+            &AsciiString::from("*.ini"),
+            &mut paths,
+            true,
+        );
+        paths
+            .into_iter()
+            .map(|path| path.as_str().to_owned())
+            .collect::<Vec<_>>()
+    };
+    capture_receiving_object_sources_with_inventory(manager, roots, filesystem_paths)
+}
+
+fn capture_receiving_object_sources_with_inventory(
+    manager: &mut crate::assets::manager::AssetManager,
+    roots: &[&str],
+    filesystem_paths: Vec<String>,
+) -> Result<ObjectSourceSnapshot, String> {
+    let paths = ordered_object_source_paths(filesystem_paths, manager.list_all_files(), roots);
+    capture_object_sources(&paths, |path| {
+        read_receiving_object_source(path, roots, |path| {
+            manager
+                .read_optional_definition_source(path)
+                .map_err(|error| format!("Receiving Object source '{path}': {error}"))
+        })
+    })
+}
+
+fn ordered_object_source_paths(
+    filesystem_paths: Vec<String>,
+    archive_paths: Vec<String>,
+    roots: &[&str],
+) -> Vec<String> {
+    let mut current = BTreeSet::new();
+    let mut nested = BTreeSet::new();
+    for path in filesystem_paths.into_iter().chain(archive_paths) {
+        classify_object_ini(&path, &mut current, &mut nested);
+    }
+    for root in roots {
+        let dir = Path::new(root).join(OBJECT_INI_DIR);
+        walk_object_ini_dir(&dir, OBJECT_INI_DIR, &mut current, &mut nested);
+    }
+    let mut paths = Vec::new();
+    let mut seen = BTreeSet::new();
+    push_unique(&mut paths, &mut seen, DEFAULT_OBJECT_INI);
+    for path in current.into_iter().chain(nested) {
+        push_unique(&mut paths, &mut seen, &path);
+    }
+    paths
+}
+
+fn capture_object_sources(
+    paths: &[String],
+    mut read: impl FnMut(&str) -> Result<Option<String>, String>,
+) -> Result<ObjectSourceSnapshot, String> {
+    let mut sources = Vec::new();
+    for path in paths {
+        if let Some(text) = read(path)? {
+            sources.push((path.clone(), text));
+        }
+    }
+    Ok(ObjectSourceSnapshot { sources })
+}
+
 /// Virtual paths in C++ ThingFactory order: Default/Object.ini, then
 /// `Data/INI/Object` current-dir files, then nested files.
 pub fn collect_object_ini_virtual_paths() -> Vec<String> {
@@ -492,4 +590,136 @@ mod retail_receiving_content_tests {
         );
     }
     const RETAIL_ORDERED_CRC32: u32 = 0x87d9e029;
+}
+
+#[cfg(test)]
+mod detached_source_tests {
+    use super::*;
+    #[test]
+    fn captured_sources_admit_on_worker_while_original_manager_is_held() {
+        // The exact capture helper runs with the real manager borrowed. All
+        // selected bytes are local; no initialized GPU/audio device is needed.
+        let root = tempfile::tempdir().unwrap();
+        let base = root.path().join("Data/INI/Default");
+        let objects = root.path().join("Data/INI/Object");
+        std::fs::create_dir_all(&base).unwrap();
+        std::fs::create_dir_all(objects.join("Nested")).unwrap();
+        std::fs::write(
+            base.join("Object.ini"),
+            "Object SnapshotDefault\nScale = 2\nEnd\nObject SnapshotOverride\nScale = 2\nEnd",
+        )
+        .unwrap();
+        std::fs::write(
+            objects.join("First.ini"),
+            "Object SnapshotCurrent\nScale = 3\nEnd\nObject SnapshotOverride\nScale = 3\nEnd",
+        )
+        .unwrap();
+        std::fs::write(
+            objects.join("Nested/Last.ini"),
+            "Object SnapshotNested\nScale = 4\nEnd\nObject SnapshotOverride\nScale = 4\nEnd",
+        )
+        .unwrap();
+        let manager = std::sync::Mutex::new(crate::assets::manager::AssetManager::new().unwrap());
+        let mut guard = manager.lock().unwrap();
+        let snapshot = capture_receiving_object_sources_with_inventory(
+            &mut guard,
+            &[root.path().to_str().unwrap()],
+            Vec::new(),
+        )
+        .unwrap();
+        let names = snapshot
+            .sources
+            .iter()
+            .map(|(path, _)| path.clone())
+            .collect::<Vec<_>>();
+        let positions = [
+            DEFAULT_OBJECT_INI,
+            "Data/INI/Object/First.ini",
+            "Data/INI/Object/Nested/Last.ini",
+        ]
+        .map(|path| names.iter().position(|value| value == path).unwrap());
+        assert!(positions[0] < positions[1] && positions[1] < positions[2]);
+        assert!(manager.try_lock().is_err());
+        std::thread::spawn(move || {
+            let content = snapshot
+                .admit(std::sync::Arc::new(
+                    game_engine::common::rts::science::ScienceNameFacts::default(),
+                ))
+                .unwrap();
+            for (name, scale) in [
+                ("SnapshotDefault", 2.0),
+                ("SnapshotCurrent", 3.0),
+                ("SnapshotNested", 4.0),
+                ("SnapshotOverride", 4.0),
+            ] {
+                assert!(content.module_content().admitted_template(name).is_some());
+                assert_eq!(content.projections().get(name).unwrap().scale, scale);
+            }
+        })
+        .join()
+        .unwrap();
+        drop(guard);
+    }
+    #[test]
+    fn explicit_archive_only_inventory_is_captured_in_override_order_without_live_service() {
+        let paths = ordered_object_source_paths(
+            Vec::new(),
+            vec![
+                "Data/INI/Object/Nested/Z.ini".into(),
+                "Data/INI/Object/B.ini".into(),
+                "Data/INI/Object/A.ini".into(),
+            ],
+            &[],
+        );
+        assert_eq!(
+            paths,
+            vec![
+                DEFAULT_OBJECT_INI,
+                "Data/INI/Object/A.ini",
+                "Data/INI/Object/B.ini",
+                "Data/INI/Object/Nested/Z.ini"
+            ]
+        );
+        let snapshot = capture_object_sources(&paths, |path| {
+            let scale = if path == DEFAULT_OBJECT_INI {
+                1
+            } else if path.ends_with("A.ini") {
+                2
+            } else if path.ends_with("B.ini") {
+                3
+            } else {
+                4
+            };
+            Ok(Some(format!(
+                "Object ArchiveOverride\nScale = {scale}\nEnd"
+            )))
+        })
+        .unwrap();
+        let content = snapshot
+            .admit(std::sync::Arc::new(
+                game_engine::common::rts::science::ScienceNameFacts::default(),
+            ))
+            .unwrap();
+        assert_eq!(
+            content.projections().get("ArchiveOverride").unwrap().scale,
+            4.0
+        );
+    }
+    #[test]
+    fn capture_failure_never_produces_partial_snapshot_and_absence_remains_optional() {
+        let paths = vec!["first".into(), "last".into()];
+        assert!(
+            capture_object_sources(&paths, |path| if path == "first" {
+                Ok(Some("Object First\nEnd".into()))
+            } else {
+                Err("present source unreadable".into())
+            })
+            .is_err()
+        );
+        let snapshot = capture_object_sources(&paths, |path| {
+            Ok((path == "first").then(|| "Object First\nEnd".into()))
+        })
+        .unwrap();
+        assert_eq!(snapshot.sources.len(), 1);
+    }
 }

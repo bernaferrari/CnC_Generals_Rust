@@ -163,3 +163,94 @@ fn object_source() -> &'static str {
     // This reduced source preserves that relevant grammar and nested End order.
     "Object TechPadCRCAdmission\n Draw = W3DModelDraw ModuleTag_01\n DefaultConditionState\n Model = Pad\n End\n End\n Draw = W3DModelDraw ModuleTag_02\n DefaultConditionState\n Model = Flag\n End\n End\nEnd\n"
 }
+
+#[test]
+fn captured_object_crc_uses_exact_frozen_order_without_object_reread() {
+    const CHILD: &str = "GENERALS_CAPTURED_OBJECT_CRC_CHILD";
+    const TEST: &str = "cnc_game_engine::ini_crc_boot::ini_crc_owner_tests::captured_object_crc_uses_exact_frozen_order_without_object_reread";
+    if std::env::var_os(CHILD).is_none() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("Data/INI/Default")).unwrap();
+        // A mutable disk replacement must not supersede captured Object bytes.
+        std::fs::write(
+            dir.path().join("Data/INI/Default/Object.ini"),
+            "Object WrongDisk\nScale = 99\nEnd",
+        )
+        .unwrap();
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", TEST, "--nocapture"])
+            .current_dir(dir.path())
+            .env(CHILD, "1")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "stdout={} stderr={}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(String::from_utf8_lossy(&output.stdout).contains("1 passed"));
+        return;
+    }
+    let sources = vec![
+        (
+            "Data/INI/Default/Object.ini".into(),
+            "Object CRCOverride\nScale = 2\nEnd".into(),
+        ),
+        (
+            "Data/INI/Object/A.ini".into(),
+            "Object CRCOverride\nScale = 3\nEnd".into(),
+        ),
+        (
+            "Data/INI/Object/Nested/Z.ini".into(),
+            "Object CRCOverride\nScale = 4\nEnd".into(),
+        ),
+    ];
+    const BEFORE: &str = "GameData\nWindowed = Yes\nEnd";
+    const AFTER: &str = "Upgrade CRCUpgrade\nBuildCost = 17\nEnd";
+    let crc = calculate_game_engine_ini_crc_with_object_sources(
+        |path| {
+            assert!(
+                !path.eq_ignore_ascii_case("Data/INI/Default/Object.ini")
+                    && !path.to_ascii_lowercase().starts_with("data/ini/object/"),
+                "captured Object reread {path}"
+            );
+            match path {
+                "Data/INI/Default/GameData.ini" => Some(BEFORE.into()),
+                "Data/INI/Default/Upgrade.ini" => Some(AFTER.into()),
+                _ => None,
+            }
+        },
+        &sources,
+    );
+    // Independent ordered transfer, not the production path enumerator.
+    let mut ini = INI::new();
+    ini.set_xfer(XferCRC::new(XferLoad::new(Cursor::new(Vec::new()), 1)));
+    for text in [
+        BEFORE,
+        sources[0].1.as_str(),
+        sources[1].1.as_str(),
+        sources[2].1.as_str(),
+        AFTER,
+    ] {
+        ini.with_inline_source(text, INI::consume_remaining_lines)
+            .unwrap();
+    }
+    let mut xfer = ini.take_xfer().unwrap();
+    xfer.close().unwrap();
+    assert_eq!(crc, xfer.get_crc());
+    let mut reversed = sources.clone();
+    reversed.swap(1, 2);
+    let reordered = calculate_game_engine_ini_crc_with_object_sources(
+        |path| match path {
+            "Data/INI/Default/GameData.ini" => Some(BEFORE.into()),
+            "Data/INI/Default/Upgrade.ini" => Some(AFTER.into()),
+            _ => None,
+        },
+        &reversed,
+    );
+    assert_ne!(
+        crc, reordered,
+        "CRC must preserve ordered captured override input"
+    );
+}

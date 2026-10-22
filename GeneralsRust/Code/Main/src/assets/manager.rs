@@ -2376,6 +2376,16 @@ static TEXTURE_PRIME_QUEUE: OnceLock<Sender<String>> = OnceLock::new();
 
 /// Initialize the global asset manager
 pub async fn init_asset_manager(device: &wgpu::Device, queue: &wgpu::Queue) -> Result<()> {
+    init_asset_manager_with_sources(device, queue, |_| Ok(())).await
+}
+
+/// Transfer immutable CPU inputs while initialization still exclusively owns
+/// the actual mounted manager, before render/audio borrowers can race it.
+pub(crate) async fn init_asset_manager_with_sources<T>(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    capture: impl FnOnce(&mut AssetManager) -> Result<T>,
+) -> Result<T> {
     let manager_create_start = SystemTime::now();
     info!("📂 Creating asset manager and loading BIG archives...");
 
@@ -2395,6 +2405,8 @@ pub async fn init_asset_manager(device: &wgpu::Device, queue: &wgpu::Queue) -> R
         wgpu_init_duration.as_secs_f32()
     );
 
+    let sources = capture(&mut manager)?;
+
     ASSET_MANAGER
         .set(Arc::new(Mutex::new(manager)))
         .map_err(|_| anyhow!("Asset manager already initialized"))?;
@@ -2405,7 +2417,7 @@ pub async fn init_asset_manager(device: &wgpu::Device, queue: &wgpu::Queue) -> R
         "Global asset manager initialized (Total: {:.2}s)",
         (manager_create_duration + wgpu_init_duration).as_secs_f32()
     );
-    Ok(())
+    Ok(sources)
 }
 
 fn begin_background_music_startup() {

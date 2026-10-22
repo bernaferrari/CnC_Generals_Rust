@@ -1088,6 +1088,7 @@ impl CnCGameEngine {
     }
 
     pub(super) fn spawn_startup_map_load(
+        receiving_object_sources: super::object_ini_boot::ObjectSourceSnapshot,
         start_in_menu: bool,
         map_to_load: Option<String>,
         map_requested_from_cli: bool,
@@ -1517,32 +1518,20 @@ impl CnCGameEngine {
                     // Parse each actual Object declaration once, preserving the existing
                     // Default/Object + current-directory + nested archive source order.
                     // System.ini is already in this list; no synthetic tracer replay.
-                    let object_ini_paths = super::object_ini_boot::collect_object_ini_virtual_paths();
                     let science_names = {
                         let store = game_engine::common::rts::science::get_science_store()
                             .ok_or("Receiving Object admission requires initialized application Science definitions")?;
                         std::sync::Arc::new(game_engine::common::rts::science::ScienceNameFacts::from_store(&store))
                     };
-                    let receiving_module_content = super::object_ini_boot::load_receiving_object_content_with_sciences(
-                        &object_ini_paths,
-                        |path| super::object_ini_boot::read_receiving_object_source(
-                            path, &Self::startup_ini_disk_roots(), |path| {
-                                let manager_arc = crate::assets::manager::get_asset_manager()
-                                    .ok_or("Receiving Object source requires initialized asset service")?;
-                                let mut manager = manager_arc.try_lock()
-                                    .map_err(|error| format!("Receiving Object source '{path}' asset service unavailable: {error}"))?;
-                                manager.read_optional_definition_source(path)
-                                    .map_err(|error| format!("Receiving Object source '{path}': {error}"))
-                            }),
-                        science_names,
-                    )?;
+                    let receiving_module_content = receiving_object_sources.admit(science_names)?;
                     let total_loaded = receiving_module_content.module_content().admitted_templates().count();
                     let compatibility_view = receiving_module_content.module_content().compatibility_template_view();
                     info!("Bootstrapped {} receiving object templates from ordered archive sources", total_loaded);
 
                     {
-                        let crc = super::ini_crc_boot::calculate_game_engine_ini_crc(
+                        let crc = super::ini_crc_boot::calculate_game_engine_ini_crc_with_object_sources(
                             |path| extract_ini_text_from_archives(path),
+                            receiving_object_sources.sources(),
                         );
                         recorder_inputs.ini_crc = crc;
                         super::ini_crc_boot::publish_ini_crc(crc);
