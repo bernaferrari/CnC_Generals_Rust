@@ -1,6 +1,6 @@
 //! Immutable receiving Die declarations; runtime receipts live on the Object.
 use crate::assets::ini_parser::BehaviorModuleDefinition;
-use crate::game_logic::host_fx_list_die::{fx_list_die_from_behavior_attrs, HostFxListDieData};
+use crate::game_logic::host_fx_list_die::{HostFxListDieData, fx_list_die_from_behavior_attrs};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -111,6 +111,7 @@ pub(crate) enum NativeDieKind {
     Crush,
     Keep,
     Destroy,
+    Minefield,
     Instant {
         config: super::host_instant_death::HostInstantDeathIni,
         creations: Vec<Option<NativeDieCreate>>,
@@ -168,6 +169,7 @@ pub(crate) fn bind(modules: &[BehaviorModuleDefinition]) -> Vec<NativeDieDeclara
                 "crushdie" => NativeDieKind::Crush,
                 "keepobjectdie" => NativeDieKind::Keep,
                 "destroydie" => NativeDieKind::Destroy,
+                "minefieldbehavior" => NativeDieKind::Minefield,
                 "instantdeathbehavior" => {
                     let config =
                         super::host_instant_death::instant_death_ini_from_behavior_attrs(&attrs);

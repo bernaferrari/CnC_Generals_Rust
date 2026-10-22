@@ -189,6 +189,23 @@ pub fn status_bits_ini_modules_for_template(
     else {
         return Vec::new();
     };
+    status_bits_modules_from_definition(&def, upgrade_name)
+}
+
+pub(crate) fn collect_status_bits_for_object(
+    upgrade_name: &str,
+    object: &crate::game_logic::Object,
+) -> Vec<(Vec<String>, Vec<String>)> {
+    if let Some(definition) = &object.thing().template.receiving_object_definition {
+        return status_bits_modules_from_definition(definition, upgrade_name);
+    }
+    collect_status_bits_for_upgrade(upgrade_name, &object.template_name)
+}
+
+fn status_bits_modules_from_definition(
+    def: &crate::assets::ini_parser::ObjectDefinition,
+    upgrade_name: &str,
+) -> Vec<(Vec<String>, Vec<String>)> {
     def.behavior_modules
         .iter()
         .filter(|module| module.class_name.eq_ignore_ascii_case("StatusBitsUpgrade"))

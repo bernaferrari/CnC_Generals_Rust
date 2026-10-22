@@ -1,5 +1,5 @@
 //! Wave 206 residual peels: selection commands call `Object::select`/`deselect`
-//! (via `GameLogic::select_objects` / additive select) so `host_status_log`
+//! (via `GameLogic::select_objects` / additive select) so the receiving owner
 //! drains selected last-writer. Formation dissolve uses `set_formation(0, …)`.
 //! Never flips shell `playable_claim`.
 //!

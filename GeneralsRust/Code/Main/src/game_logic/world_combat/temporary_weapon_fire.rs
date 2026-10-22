@@ -57,19 +57,49 @@ impl GameLogic {
             {
                 break;
             }
-            // Each next DamageModule reads the live Body after the preceding
-            // module's synchronous weapon callbacks, just like Object::onDamage.
-            let plans = self.damaged_reaction_plan_for_module(
+            hits = hits.saturating_add(self.execute_temporary_weapon_damage_slot_with_effects(
                 source,
+                module,
                 actual_damage,
                 damage_type_ordinal,
-                Some(module),
-            );
-            for plan in plans {
-                hits = hits.saturating_add(
-                    self.force_fire_temporary_runtime_with_effects(source, plan, effects),
-                );
+                effects,
+            ));
+        }
+        hits
+    }
+
+    /// One actual authored DamageModule slot; shared by the complete weapon
+    /// walk and the interleaved Minefield/weapon callback walk.
+    pub(in crate::game_logic) fn execute_temporary_weapon_damage_slot_with_effects(
+        &mut self,
+        source: ObjectId,
+        module: u32,
+        actual_damage: f32,
+        damage_type_ordinal: u32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> u32 {
+        let Some(object) = self.objects.get(&source) else {
+            return 0;
+        };
+        let identity = self.live_draw_playback_identity(object);
+        let plans = self.damaged_reaction_plan_for_module(
+            source,
+            actual_damage,
+            damage_type_ordinal,
+            Some(module),
+        );
+        let mut hits = 0u32;
+        for plan in plans {
+            if !self
+                .objects
+                .get(&source)
+                .is_some_and(|object| self.live_draw_playback_identity(object) == identity)
+            {
+                break;
             }
+            hits = hits.saturating_add(
+                self.force_fire_temporary_runtime_with_effects(source, plan, effects),
+            );
         }
         hits
     }

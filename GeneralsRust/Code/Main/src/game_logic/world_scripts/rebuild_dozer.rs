@@ -23,8 +23,8 @@ impl GameLogic {
         source_id: Option<ObjectId>,
     ) -> Vec3 {
         use crate::game_logic::host_repair::{
-            find_good_build_or_repair_position as snap, DozerFindPositionQuery,
-            DOZER_FIND_POSITION_OVERLAP_SPHERE,
+            DOZER_FIND_POSITION_OVERLAP_SPHERE, DozerFindPositionQuery,
+            find_good_build_or_repair_position as snap,
         };
         use gamelogic::ai::pathfind_astar::PathfindCellType;
 
@@ -1976,7 +1976,9 @@ impl GameLogic {
             // later worker and reconstruction spawn chain.
             h.set_team_and_owner(team, owner_player_id, &mut self.ownership_events);
             h.set_orientation(orient);
-            h.set_status_under_construction(false);
+        }
+        self.set_object_under_construction_with_effects(hole_id, false, effects);
+        if let Some(h) = self.objects.get_mut(&hole_id) {
             // Defer percent only when shadow sole-ticks construction; host-only
             // must set percent immediately or rebuild holes stay incomplete forever.
 
@@ -2277,7 +2279,9 @@ impl GameLogic {
             if let Some(o) = self.objects.get_mut(&new_id) {
                 o.set_team_and_owner(team, owner_player_id, &mut self.ownership_events);
                 o.set_orientation(orient);
-                o.set_status_under_construction(true);
+            }
+            self.set_object_under_construction_with_effects(new_id, true, effects);
+            if let Some(o) = self.objects.get_mut(&new_id) {
                 o.set_status_reconstructing(true);
 
                 o.construction_percent = 0.0;

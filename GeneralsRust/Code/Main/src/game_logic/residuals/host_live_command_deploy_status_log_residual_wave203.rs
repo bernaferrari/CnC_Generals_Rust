@@ -1,5 +1,5 @@
 //! Wave 203 residual peels: Deploy toggles `set_deployed` → `set_status_deployed`
-//! so `host_status_log` drains SetCombatStatus.deployed last-writer.
+//! deployed status is observed from the driving owner.
 //! Never flips shell `playable_claim`.
 //!
 //! Orthogonal to Wave 202 cheer/science residual.

@@ -161,10 +161,12 @@ impl GameLogic {
                 object.name = completion.name;
                 object.set_initial_health_percent(completion.health_percent);
                 object.set_script_unsellable(completion.unsellable);
-                object.set_status_under_construction(false);
+            }
+            self.set_object_under_construction_with_effects(structure, false, ui);
+            if let Some(object) = self.host_object_mut(structure) {
                 object.status.reconstructing = false;
             }
-            self.apply_researched_player_upgrades_to_object(structure);
+            self.apply_researched_player_upgrades_to_object_with_effects(structure, ui);
             // Named-object queries resolve the canonical host roster directly;
             // no global cache of a second Object model is published.
             if let Some(engine) = interpreter {

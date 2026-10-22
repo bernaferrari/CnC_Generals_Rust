@@ -291,18 +291,33 @@ mod tests {
         for (name, damage) in [("OwnedMineP", 30), ("OwnedMineS", 40), ("OwnedMineT", 50)] {
             ini.push_str(&format!("Weapon {name}\nPrimaryDamage = {damage}\nAttackRange = 100\nClipSize = 3\nSuspendFXDelay = 1000\nEnd\n"));
         }
+        world
+            .admit_receiving_module_content(
+                crate::assets::ReceivingObjectContent::from_sources([(
+                    "owned-mine-row.ini".to_owned(),
+                    "Object ParsedMineRow\nKindOf = VEHICLE\nBody = ActiveBody BodyTag\nMaxHealth = 100\nInitialHealth = 100\nEnd\nWeaponSet\nConditions = None\nWeapon = PRIMARY OwnedMineP\nWeapon = SECONDARY OwnedMineS\nWeapon = TERTIARY OwnedMineT\nEnd\nWeaponSet\nConditions = MINE_CLEARING_DETAIL\nWeapon = PRIMARY OwnedMineT\nWeapon = SECONDARY OwnedMineP\nWeapon = TERTIARY OwnedMineS\nWeaponLockSharedAcrossSets = Yes\nEnd\nEnd\n".to_owned(),
+                )])
+                .expect("paired Object and WeaponSet content"),
+            )
+            .expect("receiving module owner");
+        let mut definitions = std::collections::HashMap::new();
         assert_eq!(
-            crate::assets::ini_template_loader::register_weapons_from_ini_text(&ini),
+            crate::assets::ini_template_loader::parse_weapon_definitions_ini_into(
+                &mut definitions,
+                &ini,
+                crate::assets::ini_template_loader::WeaponDefinitionLoadType::Normal,
+            ),
             3
         );
-        let mut parser = crate::assets::IniParser::new();
-        parser.parse_ini_content("Object ParsedMineRow\nKindOf = VEHICLE\nWeaponSet\nConditions = None\nWeapon = PRIMARY OwnedMineP\nWeapon = SECONDARY OwnedMineS\nWeapon = TERTIARY OwnedMineT\nEnd\nWeaponSet\nConditions = MINE_CLEARING_DETAIL\nWeapon = PRIMARY OwnedMineT\nWeapon = SECONDARY OwnedMineP\nWeapon = TERTIARY OwnedMineS\nShareWeaponLock = Yes\nEnd\nEnd\n", "owned-mine-row.ini").unwrap();
-        let template = GameLogic::build_template_from_object_definition(
-            "ParsedMineRow",
-            parser.get_definition("ParsedMineRow").unwrap(),
-            None,
-        );
-        world.templates.insert("ParsedMineRow".into(), template);
+        world
+            .admit_weapon_content_snapshot(
+                definitions
+                    .into_values()
+                    .map(|rule| (rule.name.clone(), rule))
+                    .collect(),
+                &[],
+            )
+            .expect("receiving three-weapon catalog");
         let id = world
             .create_object("ParsedMineRow", Team::USA, glam::Vec3::ZERO)
             .unwrap();

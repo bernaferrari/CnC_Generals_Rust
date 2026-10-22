@@ -2004,8 +2004,16 @@ impl GameLogic {
             if let Some(catalog) = &self.armor_definitions {
                 template.armor_definitions = Some(std::sync::Arc::clone(catalog));
             }
-            let mut object =
-                Object::new_with_initial_status(template, id, team, self.frame, initial_status);
+            let temporary_weapons =
+                self.temporary_weapon_runtime_for_template(&template, self.frame);
+            let mut object = Object::new_with_initial_status_and_temporary_weapons(
+                template,
+                id,
+                team,
+                self.frame,
+                initial_status,
+                temporary_weapons,
+            );
             object.bind_native_lifecycle(
                 self.frame,
                 &self.logic_random,
@@ -2171,7 +2179,34 @@ impl GameLogic {
                 self.frame,
                 false,
             ) {
-                object.mine_data = Some(mine_data);
+                // A captured Object's declared modules are authoritative. A
+                // name containing "mine" does not install an unrequested module.
+                let authored = object
+                    .thing()
+                    .template
+                    .receiving_object_definition
+                    .as_ref()
+                    .is_none_or(|definition| {
+                        let class = match mine_data.kind {
+                            crate::game_logic::host_mines::HostMineKind::LandMine => {
+                                "MinefieldBehavior"
+                            }
+                            crate::game_logic::host_mines::HostMineKind::DemoTrap => {
+                                "DemoTrapUpdate"
+                            }
+                            crate::game_logic::host_mines::HostMineKind::TimedDemoCharge
+                            | crate::game_logic::host_mines::HostMineKind::RemoteDemoCharge => {
+                                "StickyBombUpdate"
+                            }
+                        };
+                        definition
+                            .behavior_modules
+                            .iter()
+                            .any(|module| module.class_name.eq_ignore_ascii_case(class))
+                    });
+                if authored {
+                    object.mine_data = Some(mine_data);
+                }
             }
 
             // Host residual: GLA Battle Bus TransportContain Slots=8 + passenger fire.

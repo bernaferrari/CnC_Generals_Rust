@@ -1280,12 +1280,12 @@ impl GameLogic {
             self.player_owner_for_host_object(object)
                 .map(|owner| (owner, object.status.reconstructing))
         });
+        // Complete the inline status callback before model/player/Create callbacks.
+        let now = self.frame.max(1);
+        self.set_object_under_construction_with_effects(structure_id, false, ui);
         let Some(obj) = self.objects.get_mut(&structure_id) else {
             return;
         };
-        // C++ ProductionUpdate CONSTRUCTION_COMPLETE + duration residual.
-        let now = self.frame.max(1);
-        obj.set_status_under_construction(false);
         obj.status.reconstructing = false;
         obj.clear_under_construction_model_conditions();
         obj.construction_percent = 1.0;

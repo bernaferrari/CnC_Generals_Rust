@@ -256,11 +256,15 @@ impl SnapshotBuilder {
             .receiving_module_content
             .as_ref()
             .map(|_| u32::from(template.get_threat_value()));
-        let mut object = Object::new_with_logic_frame(
+        let frame = game_logic.get_current_frame() as u32;
+        let temporary_weapons = game_logic.temporary_weapon_runtime_for_template(&template, frame);
+        let mut object = Object::new_with_initial_status_and_temporary_weapons(
             template,
             snapshot.id,
             snapshot.team,
-            game_logic.get_current_frame() as u32,
+            frame,
+            ObjectStatus::default(),
+            temporary_weapons,
         );
         if let Some(threat) = receiving_partition_threat {
             object.partition_threat_value = threat;

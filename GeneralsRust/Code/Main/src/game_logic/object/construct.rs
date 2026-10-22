@@ -284,11 +284,33 @@ impl Object {
     /// constructor-owned state available before any world onCreate callback;
     /// supplying UNDER_CONSTRUCTION does not imply a dozer's one-HP scaffold.
     pub(crate) fn new_with_initial_status(
+        template: ThingTemplate,
+        id: ObjectId,
+        team: Team,
+        logic_frame: u32,
+        initial_status: ObjectStatus,
+    ) -> Self {
+        let runtime = crate::game_logic::host_temporary_weapon_behavior::
+            TemporaryWeaponRuntimeBundle::from_thing_template(&template, logic_frame);
+        Self::new_with_initial_status_and_temporary_weapons(
+            template,
+            id,
+            team,
+            logic_frame,
+            initial_status,
+            runtime,
+        )
+    }
+
+    /// The receiving session supplies the already constructed private Weapons;
+    /// this constructor never rebinds them or rediscovers their definition owner.
+    pub(crate) fn new_with_initial_status_and_temporary_weapons(
         mut template: ThingTemplate,
         id: ObjectId,
         team: Team,
         logic_frame: u32,
         mut initial_status: ObjectStatus,
+        temporary_weapon_runtime: crate::game_logic::host_temporary_weapon_behavior::TemporaryWeaponRuntimeBundle,
     ) -> Self {
         if template.selected_weapon_sets.is_none() {
             let base = [
@@ -329,8 +351,6 @@ impl Object {
         let crushable_level = template.crushable_level;
         let has_squish_collide =
             crate::game_logic::host_squish_collide::template_has_squish_collide(&template_name);
-        let temporary_weapon_runtime = crate::game_logic::host_temporary_weapon_behavior::
-            TemporaryWeaponRuntimeBundle::from_thing_template(&template, logic_frame);
         // A normal player Enter requires a real Contain module.  Capture its
         // authored capacity before the template moves into `Thing`; do not
         // synthesize slots from the vehicle's footprint or selection radius.

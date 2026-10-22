@@ -29,6 +29,3 @@ pub mod host_radar_log;
 
 #[path = "host_spawn_log.rs"]
 pub mod host_spawn_log;
-
-#[path = "host_status_log.rs"]
-pub mod host_status_log;

@@ -118,6 +118,11 @@ impl GameLogic {
                 // KeepObjectDie::onDie is an applicability-only no-op. It
                 // neither requests deletion nor prevents a later DestroyDie.
                 NativeDieKind::Keep => {}
+                // MinefieldBehavior::onDie requests direct deletion only;
+                // its damage callback already performed any virtual blasts.
+                NativeDieKind::Minefield => {
+                    self.destroy_object_with_effects(id, presentation_effects);
+                }
                 NativeDieKind::Destroy => {
                     self.request_object_destruction_with_effects(id, killer, presentation_effects);
                 }

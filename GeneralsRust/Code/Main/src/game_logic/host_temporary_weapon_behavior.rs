@@ -348,9 +348,8 @@ pub struct TemporaryWeaponRuntimeSpec {
 /// rather than a lookup by template name: temporary behavior state must never
 /// guess these fields from an object or weapon basename.
 ///
-/// The live Main Object does not own this contract yet. A future Object
-/// runtime bridge must obtain these values from the authoritative WeaponStore
-/// before constructing a retained temporary Weapon.
+/// The live Main factory and restore paths obtain these immutable values from
+/// their receiving catalog before constructing retained temporary Weapons.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct TemporaryWeaponConstructionDefaults {
     pub min_target_pitch: f32,
@@ -370,6 +369,22 @@ pub struct TemporaryWeaponConstructionDefaults {
     /// Number of authored scatter target entries used to rebuild the C++
     /// `m_scatterTargetsUnused` index list on reload.
     pub scatter_target_count: u32,
+}
+
+impl TemporaryWeaponConstructionDefaults {
+    /// Identical value extraction for owned and compatibility template lookup.
+    pub(crate) fn from_weapon_template(template: &gamelogic::weapon::WeaponTemplate) -> Self {
+        Self {
+            min_target_pitch: template.min_target_pitch,
+            max_target_pitch: template.max_target_pitch,
+            shots_per_barrel: template.shots_per_barrel,
+            suspend_fx_delay: template.suspend_fx_delay,
+            leech_range_weapon: template.leech_range_weapon,
+            clip_size: template.clip_size.max(0) as u32,
+            clip_reload_frames: template.clip_reload_time.max(0) as u32,
+            scatter_target_count: template.scatter_targets.len() as u32,
+        }
+    }
 }
 
 impl Default for TemporaryWeaponConstructionDefaults {
@@ -887,6 +902,18 @@ impl TemporaryWeaponRuntimeBundle {
         template: &crate::game_logic::ThingTemplate,
         logic_frame: u32,
     ) -> Self {
+        Self::from_thing_template_with_lookup(template, logic_frame, |name| {
+            temporary_weapon_defaults_for_name(name)
+        })
+    }
+
+    /// Construct the same private Weapon payloads with explicit immutable
+    /// definition access. A receiving miss stays absent, without ambient lookup.
+    pub(crate) fn from_thing_template_with_lookup(
+        template: &crate::game_logic::ThingTemplate,
+        logic_frame: u32,
+        mut lookup: impl FnMut(&str) -> Option<TemporaryWeaponConstructionDefaults>,
+    ) -> Self {
         let damaged = template
             .fire_weapon_when_damaged_behaviors
             .iter()
@@ -897,9 +924,7 @@ impl TemporaryWeaponRuntimeBundle {
                     ..Default::default()
                 };
                 for spec in metadata.runtime_specs() {
-                    let Some((defaults, _template_name)) =
-                        temporary_weapon_defaults_for_name(&spec.weapon_template_name)
-                    else {
+                    let Some(defaults) = lookup(&spec.weapon_template_name) else {
                         continue;
                     };
                     let mut state = TemporaryWeaponRuntimeState::from_cxx_constructor(
@@ -1106,25 +1131,14 @@ impl XferData for TemporaryWeaponRuntimeBundle {
 /// Resolve authored construction fields from the authoritative GameLogic
 /// WeaponStore.  The returned name is only a diagnostic identity; all fields
 /// used by construction/reload come from the store record itself.
-fn temporary_weapon_defaults_for_name(
-    name: &str,
-) -> Option<(TemporaryWeaponConstructionDefaults, String)> {
-    let template =
-        gamelogic::weapon::with_weapon_store(|store| store.find_weapon_template(name).cloned())
-            .ok()??;
-    Some((
-        TemporaryWeaponConstructionDefaults {
-            min_target_pitch: template.min_target_pitch,
-            max_target_pitch: template.max_target_pitch,
-            shots_per_barrel: template.shots_per_barrel,
-            suspend_fx_delay: template.suspend_fx_delay,
-            leech_range_weapon: template.leech_range_weapon,
-            clip_size: template.clip_size.max(0) as u32,
-            clip_reload_frames: template.clip_reload_time.max(0) as u32,
-            scatter_target_count: template.scatter_targets.len() as u32,
-        },
-        template.name.clone(),
-    ))
+fn temporary_weapon_defaults_for_name(name: &str) -> Option<TemporaryWeaponConstructionDefaults> {
+    gamelogic::weapon::with_weapon_store(|store| {
+        store
+            .find_weapon_template(name)
+            .map(|template| TemporaryWeaponConstructionDefaults::from_weapon_template(template))
+    })
+    .ok()
+    .flatten()
 }
 
 fn source_tokens(value: &str) -> impl Iterator<Item = &str> {
@@ -1548,6 +1562,29 @@ pub fn parse_fire_weapon_when_dead_metadata(
     })
 }
 
+impl crate::game_logic::GameLogic {
+    /// Resolve constructor facts from this session before Object owns a Weapon.
+    /// Only uncaptured value/tool compatibility may consult the old store.
+    pub(crate) fn temporary_weapon_runtime_for_template(
+        &self,
+        template: &crate::game_logic::ThingTemplate,
+        frame: u32,
+    ) -> TemporaryWeaponRuntimeBundle {
+        if self.receiving_module_content.is_some() || self.weapon_definitions.is_some() {
+            TemporaryWeaponRuntimeBundle::from_thing_template_with_lookup(template, frame, |name| {
+                self.weapon_definitions
+                    .as_ref()
+                    .and_then(|catalog| catalog.get(&name.trim().to_ascii_lowercase()))
+                    .map(|definition| {
+                        TemporaryWeaponConstructionDefaults::from_weapon_template(definition)
+                    })
+            })
+        } else {
+            TemporaryWeaponRuntimeBundle::from_thing_template(template, frame)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1898,3 +1935,7 @@ mod tests {
         assert_eq!(assigned, expected_assigned);
     }
 }
+
+#[cfg(test)]
+#[path = "temporary_weapon_birth_tests.rs"]
+mod birth_owner_tests;

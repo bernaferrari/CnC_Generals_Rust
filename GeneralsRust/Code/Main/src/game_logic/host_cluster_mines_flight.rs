@@ -313,15 +313,40 @@ mod tests {
             cluster_mines_generation_fx_name(),
             "WeaponFX_ClusterMineImpact"
         );
-        let place = include_str!("world_scripts/stealth_mines.rs");
+        // Source wiring only: runtime placement/flight tests cover their own
+        // behavior. This does not establish original GenerationFX phase parity.
+        use crate::game_logic::residuals::harness::last_rust_fn_body;
+        let compact = |source: &str| source.split_whitespace().collect::<String>();
+        let parent = compact(include_str!("world_scripts/stealth_mines.rs"));
+        assert!(parent.contains("modcluster_placement;"));
+        let placement = include_str!("world_scripts/stealth_mines/cluster_placement.rs");
+        let wrapper = last_rust_fn_body(placement, "place_cluster_mines_unvaried")
+            .expect("actual public placement adapter");
         assert!(
-            place.contains("play_cluster_mines_generation_fx"),
-            "leftover GenerationFX must play on place_cluster_mines_unvaried"
+            compact(wrapper).contains("self.place_cluster_mines_unvaried_with_effects("),
+            "the public adapter must reach the receiving placement implementation"
         );
+        let place = last_rust_fn_body(placement, "place_cluster_mines_unvaried_with_effects")
+            .expect("actual receiving placement implementation");
         assert!(
-            place.contains("do_fx_at_position")
-                || place.contains("play_cluster_mines_generation_fx"),
-            "leftover play_fx is TheFXList::do_fx_at_position"
+            compact(place).contains(concat!(
+                "self.dispatch_fx_list_at_host_position_with_effects(",
+                "&crate::game_logic::host_cluster_mines_flight::cluster_mines_generation_fx_name(),",
+                "center,effects,"
+            )),
+            "GenerationFX must use the accepted drop and supplied receiving effects"
+        );
+        let dispatcher = last_rust_fn_body(
+            include_str!("host_fx_list_dispatch.rs"),
+            "dispatch_fx_list_at_host_position_with_effects",
+        )
+        .expect("actual receiving positional FX adapter");
+        assert!(
+            compact(dispatcher).contains(concat!(
+                "self.dispatch_fx_list_at_host_position_oriented_with_effects(",
+                "name,position,None,0.0,0.0,None,effects,"
+            )),
+            "the receiving FX adapter must preserve position and the same effects loan"
         );
     }
 }

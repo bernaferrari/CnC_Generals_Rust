@@ -57,7 +57,7 @@ fn set_combat_status_mutation_channel_updates_shadow_entity() {
 
 #[test]
 fn host_selection_status_log_drives_set_combat_status_channel() {
-    use crate::game_logic::{KindOf, Team, ThingTemplate, host_status_log};
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("SelStatusCh");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -102,7 +102,7 @@ fn host_selection_status_log_drives_set_combat_status_channel() {
 
 #[test]
 fn host_attacking_status_log_drives_set_combat_status_channel() {
-    use crate::game_logic::{KindOf, Team, ThingTemplate, host_status_log};
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("AtkStatusCh");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -152,7 +152,7 @@ fn host_attacking_status_log_drives_set_combat_status_channel() {
 
 #[test]
 fn host_stealth_status_log_drives_set_combat_status_channel() {
-    use crate::game_logic::{KindOf, Team, ThingTemplate, host_status_log};
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("StealthStatusCh");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -201,7 +201,7 @@ fn host_stealth_status_log_drives_set_combat_status_channel() {
 
 #[test]
 fn host_emp_status_log_drives_set_combat_status_channel() {
-    use crate::game_logic::{KindOf, Team, ThingTemplate, host_status_log};
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("EmpStatusCh");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -1091,7 +1091,7 @@ fn host_veterancy_is_canonical_and_shadow_only_observes() {
 
 #[test]
 fn host_force_attack_status_log_drives_set_combat_status_channel() {
-    use crate::game_logic::{KindOf, Team, ThingTemplate, host_status_log};
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("ForceAtkStatusCh");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -1142,7 +1142,7 @@ fn host_force_attack_status_log_drives_set_combat_status_channel() {
 
 #[test]
 fn host_residual_status_log_drives_set_combat_status_channel() {
-    use crate::game_logic::{KindOf, Team, ThingTemplate, host_status_log};
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("ResidualStatusCh");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");

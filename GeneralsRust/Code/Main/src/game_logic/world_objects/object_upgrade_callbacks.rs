@@ -40,11 +40,21 @@ impl GameLogic {
         let mut satellite_hack_activate = None;
         let mut attach_slave_drone = None;
 
+        let Some((identity, status_upgrade_first_give)) =
+            self.objects.get(&object_id).map(|object| {
+                (
+                    self.live_draw_playback_identity(object),
+                    !object.has_upgrade_tag(upgrade),
+                )
+            })
+        else {
+            return Ok(());
+        };
         if let Some(obj) = self.objects.get_mut(&object_id) {
             // C++ UpgradeMux::isAlreadyUpgraded — first give only.
             // C++ wouldUpgrade ConflictsWith: leftover ObjectCreationUpgrade already
             // matches; host objects skip OCL when another drone tag is complete.
-            let first_give = !obj.has_upgrade_tag(upgrade);
+            let first_give = status_upgrade_first_give;
             let drone_conflicts =
                 crate::game_logic::host_slave_drones::slave_drone_conflicts_with_owned(
                     upgrade,
@@ -69,22 +79,40 @@ impl GameLogic {
                     }
                 }
             }
-            // C++ StatusBitsUpgrade::upgradeImplementation — INI StatusToSet/Clear.
+        }
+        let status_pairs = self
+            .objects
+            .get(&object_id)
+            .filter(|_| status_upgrade_first_give)
+            .map(|object| {
+                crate::game_logic::host_status_bits_upgrade::collect_status_bits_for_object(
+                    upgrade, object,
+                )
+            })
+            .unwrap_or_default();
+        for (set, clear) in status_pairs {
+            let set: Vec<_> = set.iter().map(String::as_str).collect();
+            let clear: Vec<_> = clear.iter().map(String::as_str).collect();
+            if let Some((set_count, clear_count)) = self
+                .apply_object_status_bits_upgrade_with_effects(
+                    object_id,
+                    &set,
+                    &clear,
+                    presentation_effects,
+                )
             {
-                let pairs =
-                    crate::game_logic::host_status_bits_upgrade::collect_status_bits_for_upgrade(
-                        upgrade,
-                        &obj.template_name,
-                    );
-                for (set, clear) in &pairs {
-                    let set_refs: Vec<&str> = set.iter().map(String::as_str).collect();
-                    let clear_refs: Vec<&str> = clear.iter().map(String::as_str).collect();
-                    let (set_c, clear_c) =
-                        obj.apply_status_bits_upgrade_masks(&set_refs, &clear_refs);
-                    self.status_bits_upgrade_reg.record_apply(set_c, clear_c);
-                }
+                self.status_bits_upgrade_reg
+                    .record_apply(set_count, clear_count);
             }
-
+        }
+        if !self
+            .objects
+            .get(&object_id)
+            .is_some_and(|object| self.live_draw_playback_identity(object) == identity)
+        {
+            return Ok(());
+        }
+        if let Some(obj) = self.objects.get_mut(&object_id) {
             // C++ SubObjectsUpgrade residual (BombTruck loads / Helix BombWing).
             {
                 let applied =

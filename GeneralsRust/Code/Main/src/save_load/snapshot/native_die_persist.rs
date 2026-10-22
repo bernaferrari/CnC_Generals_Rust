@@ -178,7 +178,16 @@ pub(super) fn validate(
                         .templates
                         .get(&object.template_name)
                         .is_some_and(|template| {
-                            Object::new(template.clone(), *id, object.team).is_inactive_body()
+                            let runtime = world.temporary_weapon_runtime_for_template(template, 0);
+                            Object::new_with_initial_status_and_temporary_weapons(
+                                template.clone(),
+                                *id,
+                                object.team,
+                                0,
+                                Default::default(),
+                                runtime,
+                            )
+                            .is_inactive_body()
                         })
                 },
                 |kind| *kind == crate::game_logic::thing::BodyKind::Inactive,
@@ -233,7 +242,15 @@ pub(super) fn validate(
             if let Some(kind) = body_kinds.get(&id) {
                 template.body_kind = Some(*kind);
             }
-            Object::new(template, id, saved.team)
+            let runtime = world.temporary_weapon_runtime_for_template(&template, 0);
+            Object::new_with_initial_status_and_temporary_weapons(
+                template,
+                id,
+                saved.team,
+                0,
+                Default::default(),
+                runtime,
+            )
         });
         let has_ai = receiving
             .as_ref()

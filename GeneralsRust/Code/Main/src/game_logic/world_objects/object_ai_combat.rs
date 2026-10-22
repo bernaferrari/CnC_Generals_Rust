@@ -733,12 +733,13 @@ impl GameLogic {
         n
     }
 
+    #[cfg(test)]
     pub(in super::super) fn apply_status_bits_upgrade_to_team(
         &mut self,
         team: Team,
         upgrade_name: &str,
     ) -> u32 {
-        use crate::game_logic::host_status_bits_upgrade::collect_status_bits_for_upgrade;
+        use crate::game_logic::host_status_bits_upgrade::collect_status_bits_for_object;
         let ids: Vec<ObjectId> = self
             .objects
             .iter()
@@ -749,24 +750,23 @@ impl GameLogic {
             .collect();
         let mut touched = 0u32;
         for id in ids {
-            let template_name = match self.objects.get(&id) {
-                Some(obj) => obj.template_name.clone(),
-                None => continue,
-            };
-            let pairs = collect_status_bits_for_upgrade(upgrade_name, &template_name);
-            if pairs.is_empty() {
-                continue;
-            }
-            let Some(obj) = self.objects.get_mut(&id) else {
+            let Some(object) = self.objects.get(&id) else {
                 continue;
             };
+            let pairs = collect_status_bits_for_object(upgrade_name, object);
             let mut any = false;
             for (set, clear) in &pairs {
                 let set_refs: Vec<&str> = set.iter().map(String::as_str).collect();
                 let clear_refs: Vec<&str> = clear.iter().map(String::as_str).collect();
-                let (set_c, clear_c) = obj.apply_status_bits_upgrade_masks(&set_refs, &clear_refs);
-                self.status_bits_upgrade_reg.record_apply(set_c, clear_c);
-                any = true;
+                if let Some((set_c, clear_c)) = self.apply_object_status_bits_upgrade_with_effects(
+                    id,
+                    &set_refs,
+                    &clear_refs,
+                    &mut Default::default(),
+                ) {
+                    self.status_bits_upgrade_reg.record_apply(set_c, clear_c);
+                    any = true;
+                }
             }
             if any {
                 touched = touched.saturating_add(1);
@@ -997,8 +997,8 @@ impl GameLogic {
         }
 
         if !object_scoped {
-            // C++ StatusBitsUpgrade::upgradeImplementation residual.
-            let _ = self.apply_status_bits_upgrade_to_team(team, upgrade_name);
+            // StatusBitsUpgrade already ran once on each actual mux owner above.
+            // Replaying a team fan-out would duplicate synchronous status edges.
             // C++ PassengersFireUpgrade::upgradeImplementation residual.
             let _ = self.apply_passengers_fire_upgrade_to_team(team, upgrade_name);
             // C++ ActiveShroudUpgrade::upgradeImplementation residual.

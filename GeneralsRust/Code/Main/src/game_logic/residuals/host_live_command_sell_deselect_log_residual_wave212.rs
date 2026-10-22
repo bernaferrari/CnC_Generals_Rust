@@ -1,5 +1,5 @@
 //! Wave 212 residual peels: `start_sell_object` deselects via `Object::deselect`
-//! so `host_status_log` drains selected=false (no bare `status.selected = false`).
+//! so the receiving owner drains selected=false (no bare `status.selected = false`).
 //! Never flips shell `playable_claim`.
 //!
 //! Orthogonal to Wave 211 host beacon presentation residual.

@@ -190,33 +190,20 @@ impl Object {
         use crate::game_logic::host_status_bits_upgrade::{
             apply_status_bits_upgrade, object_status_mask_from_names, status_bits_has,
         };
+        // Older value fixtures/snapshots may carry only one representation.
+        // Normalize the effective construction status before applying a mask.
+        let uc_before = self.under_construction_status();
+        self.set_status_under_construction(uc_before);
         let before = self.object_status_bits;
-        let uc_before =
-            self.status.under_construction || status_bits_has(before, "UNDER_CONSTRUCTION");
         self.object_status_bits =
             apply_status_bits_upgrade(self.object_status_bits, set_names, clear_names);
-        // Mirror a few high-traffic bits onto ObjectStatus bools.
         if status_bits_has(self.object_status_bits, "DESTROYED") {
             self.status.destroyed = true;
         }
-        if status_bits_has(self.object_status_bits, "UNDER_CONSTRUCTION") {
-            self.status.under_construction = true;
-        } else if set_names
-            .iter()
-            .any(|n| n.eq_ignore_ascii_case("UNDER_CONSTRUCTION"))
-            || clear_names
-                .iter()
-                .any(|n| n.eq_ignore_ascii_case("UNDER_CONSTRUCTION"))
-        {
-            // cleared path
-            if !status_bits_has(self.object_status_bits, "UNDER_CONSTRUCTION") {
-                self.status.under_construction = false;
-            }
-        }
-        let uc_after = self.status.under_construction
-            || status_bits_has(self.object_status_bits, "UNDER_CONSTRUCTION");
-        if uc_before != uc_after {
-            crate::game_logic::host_status_log::request_under_construction_mine_sweep(self.id);
+        let uc_after = status_bits_has(self.object_status_bits, "UNDER_CONSTRUCTION");
+        self.status.under_construction = uc_after;
+        if uc_after && !uc_before {
+            self.construction_power_admitted = false;
         }
         if status_bits_has(self.object_status_bits, "REPULSOR") {
             self.status.repulsor = true;
@@ -615,13 +602,24 @@ impl Object {
     pub fn set_status_deployed(&mut self, v: bool) {
         self.status.deployed = v;
     }
+    pub(crate) fn under_construction_status(&self) -> bool {
+        self.status.under_construction || self.has_object_status_bit("UNDER_CONSTRUCTION")
+    }
+
+    /// Value-only mutation. The GameLogic owner executes synchronous status
+    /// callbacks after releasing this Object borrow.
     pub fn set_status_under_construction(&mut self, v: bool) {
-        if v && !self.status.under_construction {
+        if v && !self.under_construction_status() {
             self.construction_power_admitted = false;
         }
-        if self.status.under_construction != v {
-            crate::game_logic::host_status_log::request_under_construction_mine_sweep(self.id);
-        }
+        let mask = crate::game_logic::host_status_bits_upgrade::object_status_mask_from_names(&[
+            "UNDER_CONSTRUCTION",
+        ]);
+        self.object_status_bits = if v {
+            self.object_status_bits | mask
+        } else {
+            self.object_status_bits & !mask
+        };
         self.status.under_construction = v;
     }
     pub fn set_status_sold(&mut self, v: bool) {

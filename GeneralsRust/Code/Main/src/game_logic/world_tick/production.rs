@@ -139,6 +139,7 @@ impl GameLogic {
         let mut rejected_builders: Vec<ObjectId> = Vec::new();
         let mut arrived_moving: Vec<ObjectId> = Vec::new();
         for &id in object_ids {
+            let mut construction_completed = false;
             if let Some(obj) = self.objects.get_mut(&id) {
                 if obj.status.under_construction {
                     let build_pos = obj.get_position();
@@ -253,19 +254,25 @@ impl GameLogic {
                     }
                     if projected >= 1.0 {
                         obj.construction_percent = 1.0;
-                        obj.set_status_under_construction(false);
-                        obj.clear_under_construction_model_conditions();
-
-                        self.construction_events
-                            .record(id, obj.template_name.clone());
-                        completed_structures.push(id);
-                        stop_build_loops.push(id);
+                        construction_completed = true;
                     }
 
                     if projected < 1.0 && actively_built {
                         start_build_loops.push((id, site_template, build_pos));
                     }
                 }
+            }
+            if construction_completed {
+                self.set_object_under_construction_with_effects(id, false, ui);
+                if let Some(obj) = self.objects.get_mut(&id) {
+                    obj.clear_under_construction_model_conditions();
+                    self.construction_events
+                        .record(id, obj.template_name.clone());
+                    completed_structures.push(id);
+                    stop_build_loops.push(id);
+                }
+            }
+            if let Some(obj) = self.objects.get_mut(&id) {
                 if obj.tick_timers(dt) {
                     // Defer EVA until after borrow ends.
                     ready_superweapons.push(id);
