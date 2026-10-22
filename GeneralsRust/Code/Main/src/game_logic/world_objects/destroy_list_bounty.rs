@@ -434,7 +434,7 @@ impl GameLogic {
 
         if destroyed_structure {
             // Rebuild static path/LOS mask without the destroyed footprint.
-            self.sync_structure_path_blocks_with_effects(presentation_effects);
+            self.sync_structure_path_blocks();
             for (pos, radius) in rubble_stamps {
                 self.pathfinding_system.stamp_rubble_at_world(pos, radius);
             }

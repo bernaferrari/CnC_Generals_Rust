@@ -717,6 +717,7 @@ impl CnCGameEngine {
             presentation_terrain_cache: PresentationTerrainCache::default(),
             last_presentation_frame: None,
             host_direct_visual_world_epoch: 1,
+            rejected_native_worlds: Default::default(),
             host_match_game_mode: None,
             host_match_map_name: None,
             host_match_local_player_id: None,

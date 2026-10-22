@@ -1157,6 +1157,11 @@ impl CnCGameEngine {
     /// match state.
     #[inline]
     pub(super) fn host_load_map_or_default(&mut self, map_name: &str) -> Option<String> {
+        if let Err(reason) = self.rejected_native_worlds.validate_admission() {
+            warn!("Cannot admit map after native failure: {reason}");
+            return None;
+        }
+
         // Wave 579/871/918/922: load_map_or_fallback residual (single authority boundary).
         // A warm residual alone is not proof that a world exists: a previous
         // failed map attempt may have been interrupted between Loading and its
@@ -1167,6 +1172,18 @@ impl CnCGameEngine {
             && self.game_logic.get_current_map_name() == map_name
         {
             return Some(map_name.to_string());
+        }
+        if let Err(error) = self.game_logic.validate_map_replacement_preflight() {
+            warn!("Cannot replace outgoing map: {error}");
+            return None;
+        }
+        // The old engine loan owns outgoing Objects; the new candidate below
+        // owns only its subsequent attempt. Never discard old Client first.
+        if let Err(error) = self.with_native_camera_input_effects(|world, effects, _| {
+            world.destroy_all_objects_immediate_with_effects_checked(effects)
+        }) {
+            warn!("Cannot retire outgoing map Objects: {error}");
+            return None;
         }
         // Clear stale match residuals before map identity changes.
         self.host_clear_match_residuals();
@@ -1276,12 +1293,13 @@ impl CnCGameEngine {
         let loaded = match loaded {
             Ok(loaded) => loaded,
             Err(error) => {
+                // The loader already attempted ordered logical/native cleanup.
+                // Never replay failed destructor callbacks through raw discard.
                 #[cfg(feature = "game_client")]
-                if let Err(cleanup) =
-                    crate::game_logic::NativeMapAdmission::discard_attempt(&mut attempt)
-                {
-                    warn!("Direct native map admission failed: {error}; cleanup: {cleanup}");
-                    return None;
+                drop(attempt);
+                if !native_candidate.retirement_complete() {
+                    self.rejected_native_worlds
+                        .retain(None, native_candidate, error.clone());
                 }
                 warn!("Direct native map admission failed: {error}");
                 return None;
@@ -1340,7 +1358,27 @@ impl CnCGameEngine {
         {
             Ok(audio) => audio,
             Err((error, mut rejected)) => {
-                let cleanup = self.discard_receiving_map_candidate(&mut rejected);
+                let cleanup = (|| -> Result<(), String> {
+                    use crate::game_logic::NativeMapAdmission;
+                    let policy = super::native_view_effects::receiving_native_drawable_policy();
+                    let mut retirement =
+                        game_client::core::game_client::NativeParticleRetirementService;
+                    let mut attempt = rejected.attempt(
+                        self.render_pipeline.borrow_native_draw_services(),
+                        &mut self.graphics_system,
+                        self.current_player_id,
+                        policy,
+                        &mut retirement,
+                    )?;
+                    self.game_logic
+                        .destroy_all_objects_immediate_with_effects_checked(&mut attempt.effects())
+                        .map_err(|error| error.to_string())?;
+                    attempt.discard_attempt()
+                })();
+                if let Err(reason) = &cleanup {
+                    self.rejected_native_worlds
+                        .retain(None, rejected, reason.clone());
+                }
                 warn!("Cannot install direct native map: {error}; cleanup={cleanup:?}");
                 return None;
             }

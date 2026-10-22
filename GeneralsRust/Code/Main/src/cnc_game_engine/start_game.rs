@@ -2105,6 +2105,9 @@ impl CnCGameEngine {
     }
 
     fn host_game_engine_reset_with_recorder(&mut self, reset_recorder: bool, reset_shell: bool) {
+        self.rejected_native_worlds
+            .validate_admission()
+            .expect("cannot reset after terminal native retirement failure");
         // Source Client/UI reset captures defaults from outgoing map rules,
         // before GlobalData overrides disappear. GameLogic reset may run again.
         self.game_logic.session_view.camera.settings =

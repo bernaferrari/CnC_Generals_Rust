@@ -185,6 +185,14 @@ impl SnapshotBuilder {
         objects: &HashMap<ObjectId, ObjectSnapshot>,
         game_logic: &GameLogic,
     ) -> SaveLoadResult<()> {
+        // SnapshotBuilder has no native receiver. Production restores into a
+        // detached candidate; live replacement must explicitly retire through
+        // the receiving engine first, before this method mutates any state.
+        if game_logic.requires_native_drawable_owner() && !game_logic.host_objects().is_empty() {
+            return Err(SaveLoadError::Corrupted(
+                "live native Object roster must retire before snapshot replacement".into(),
+            ));
+        }
         if game_logic.has_pending_object_removals() {
             return Err(SaveLoadError::Corrupted(
                 "receiving Object retirement must finish before restoring a world".into(),

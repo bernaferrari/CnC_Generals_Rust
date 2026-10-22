@@ -236,6 +236,10 @@ impl GameLogic {
     where
         F: FnMut(f32, &str),
     {
+        if !self.objects.is_empty() || self.has_pending_object_removals() {
+            log::error!("Map contents require completed outgoing Object retirement");
+            return false;
+        }
         if self.receiving_module_content.is_some() && self.receiving_template_baseline.is_none() {
             log::error!("Receiving map admission has no accepted host template baseline");
             return false;

@@ -1,8 +1,17 @@
 //! CPU native map state owned by one detached admission operation.
 use super::*;
 
+#[derive(Clone, Copy, Default)]
+enum CandidateRetirement {
+    #[default]
+    Pristine,
+    MayOwnResources,
+    Retired,
+    Failed,
+}
 #[derive(Default)]
 pub(crate) struct NativeMapCandidate {
+    retirement: CandidateRetirement,
     audio: super::native_audio_effects::PendingNativeAudio,
     #[cfg(feature = "game_client")]
     drawables: game_client::core::game_client::NativeDrawableWorld,
@@ -14,6 +23,15 @@ pub(crate) struct NativeMapCandidate {
     visual: Option<game_client::terrain::terrain_visual::TerrainVisualImpl>,
 }
 impl NativeMapCandidate {
+    pub(super) fn retirement_complete(&self) -> bool {
+        matches!(
+            self.retirement,
+            CandidateRetirement::Pristine | CandidateRetirement::Retired
+        )
+    }
+    pub(super) fn retirement_failed(&self) -> bool {
+        matches!(self.retirement, CandidateRetirement::Failed)
+    }
     pub(super) fn with_epoch(epoch: u64) -> Self {
         assert_ne!(epoch, 0, "native candidate epoch must be nonzero");
         Self {
@@ -312,6 +330,7 @@ mod audio_owner_tests {
 /// stored in the detached world.
 #[cfg(feature = "game_client")]
 pub(super) struct NativeMapAttempt<'a> {
+    retirement: &'a mut CandidateRetirement,
     audio: &'a mut super::native_audio_effects::PendingNativeAudio,
     visual: &'a mut Option<game_client::terrain::terrain_visual::TerrainVisualImpl>,
     view: super::native_view_effects::NativeRendererViewEffects<'a>,
@@ -340,6 +359,7 @@ impl NativeMapCandidate {
             retirement,
         );
         Ok(NativeMapAttempt {
+            retirement: &mut self.retirement,
             audio: &mut self.audio,
             visual: &mut self.visual,
             view,
@@ -349,18 +369,31 @@ impl NativeMapCandidate {
 #[cfg(feature = "game_client")]
 impl crate::game_logic::NativeMapAdmission for NativeMapAttempt<'_> {
     fn discard_attempt(&mut self) -> Result<(), String> {
-        self.view.discard_map_attempt()?;
+        if matches!(*self.retirement, CandidateRetirement::Failed) {
+            return Err("native candidate destructor previously failed; retry prohibited".into());
+        }
+        if let Err(error) = self.view.discard_map_attempt() {
+            *self.retirement = CandidateRetirement::Failed;
+            return Err(error);
+        }
         *self.visual = None;
         self.audio.clear();
+        *self.retirement = CandidateRetirement::Retired;
         Ok(())
     }
     fn admit_restored_object_drawables(
         &mut self,
         world: &mut crate::game_logic::GameLogic,
     ) -> Result<(), String> {
+        if !matches!(*self.retirement, CandidateRetirement::Failed) {
+            *self.retirement = CandidateRetirement::MayOwnResources;
+        }
         self.view.admit_restored_object_drawables(world)
     }
     fn on_level_start(&mut self) -> Result<(), String> {
+        if !matches!(*self.retirement, CandidateRetirement::Failed) {
+            *self.retirement = CandidateRetirement::MayOwnResources;
+        }
         self.view.on_level_start()
     }
     fn prepare(
@@ -368,15 +401,24 @@ impl crate::game_logic::NativeMapAdmission for NativeMapAttempt<'_> {
         world: &crate::game_logic::GameLogic,
         metadata: Option<&crate::game_logic::script_loader::MapMetadata>,
     ) -> Result<(), String> {
+        if !matches!(*self.retirement, CandidateRetirement::Failed) {
+            *self.retirement = CandidateRetirement::MayOwnResources;
+        }
         prepare_native_map_visual(self.visual, world, metadata)
     }
     fn admit_restored_heights(
         &mut self,
         world: &crate::game_logic::GameLogic,
     ) -> Result<(), String> {
+        if !matches!(*self.retirement, CandidateRetirement::Failed) {
+            *self.retirement = CandidateRetirement::MayOwnResources;
+        }
         admit_native_map_restored_heights(self.visual, world)
     }
     fn effects(&mut self) -> crate::game_logic::ScriptPresentationEffects<'_> {
+        if !matches!(*self.retirement, CandidateRetirement::Failed) {
+            *self.retirement = CandidateRetirement::MayOwnResources;
+        }
         crate::game_logic::ScriptPresentationEffects {
             audio: Some(self.audio),
             ui: None,
@@ -469,4 +511,225 @@ fn admit_native_map_restored_heights(
         terrain.logic_height_map_border_size(),
         terrain.logic_height_map_bytes(),
     )
+}
+
+/// Terminal failed candidates remain application-owned for diagnostics. No
+/// automatic retry can replay already-completed destructor callbacks.
+#[derive(Default)]
+pub(super) struct RejectedNativeWorlds {
+    rows: Vec<RejectedNativeWorld>,
+}
+struct RejectedNativeWorld {
+    // None means the exact logical owner remains the engine's live GameLogic.
+    logic: Option<Box<crate::game_logic::GameLogic>>,
+    native: NativeMapCandidate,
+    reason: String,
+}
+impl RejectedNativeWorlds {
+    pub(super) fn retain(
+        &mut self,
+        logic: Option<Box<crate::game_logic::GameLogic>>,
+        native: NativeMapCandidate,
+        reason: String,
+    ) {
+        self.rows.push(RejectedNativeWorld {
+            logic,
+            native,
+            reason,
+        });
+    }
+    pub(super) fn validate_admission(&self) -> Result<(), String> {
+        match self.rows.first() {
+            None => Ok(()),
+            Some(row) => Err(format!(
+                "terminal native candidate retirement: {}",
+                row.reason
+            )),
+        }
+    }
+}
+
+#[cfg(test)]
+mod rejected_world_owner_tests {
+    use super::*;
+    use crate::game_logic::{GameLogic, Object, ObjectId, Team, ThingTemplate};
+    #[test]
+    fn rejected_pair_retains_original_roster_and_reserved_native_epoch() {
+        let mut world = GameLogic::new();
+        world.add_object(Object::new(
+            ThingTemplate::new("FailedOwner"),
+            ObjectId(7),
+            Team::USA,
+        ));
+        world.frame = 91;
+        let mut peer = GameLogic::new();
+        peer.add_object(Object::new(
+            ThingTemplate::new("Peer"),
+            ObjectId(7),
+            Team::USA,
+        ));
+        let mut rejected = RejectedNativeWorlds::default();
+        rejected.validate_admission().unwrap();
+        rejected.retain(
+            Some(Box::new(world)),
+            NativeMapCandidate::with_epoch(73),
+            "native callback failed".into(),
+        );
+        assert!(
+            rejected
+                .validate_admission()
+                .unwrap_err()
+                .contains("native callback failed")
+        );
+        assert_eq!(rejected.rows.len(), 1);
+        let row = &rejected.rows[0];
+        assert_eq!(row.native.epoch(), Some(73));
+        assert_eq!(row.logic.as_ref().unwrap().frame, 91);
+        assert!(
+            row.logic
+                .as_ref()
+                .unwrap()
+                .host_object(ObjectId(7))
+                .is_some()
+        );
+        assert!(peer.host_object(ObjectId(7)).is_some());
+        assert_eq!(peer.frame, 0);
+    }
+    #[test]
+    fn retired_candidate_receipt_distinguishes_clean_retry_from_terminal_owner() {
+        let mut candidate = NativeMapCandidate::with_epoch(73);
+        assert!(candidate.retirement_complete());
+        candidate.retirement = CandidateRetirement::MayOwnResources;
+        assert!(!candidate.retirement_complete());
+        candidate.retirement = CandidateRetirement::Retired;
+        assert!(candidate.retirement_complete());
+    }
+}
+
+#[cfg(all(test, feature = "game_client"))]
+mod failed_attempt_native_tests {
+    use super::*;
+    use crate::game_logic::{GameLogic, NativeMapAdmission, Team};
+    struct RejectRetirement {
+        calls: usize,
+    }
+    impl game_client::core::game_client::NativeDrawableRetirement for RejectRetirement {
+        fn retire(
+            &mut self,
+            _: &mut game_client::core::game_client::NativeDrawableOwner<'_>,
+            _: Option<game_client::core::DrawableId>,
+        ) -> game_client::core::GameClientResult<()> {
+            self.calls += 1;
+            Err(game_client::core::GameClientError::SubsystemError(
+                "candidate retirement refused".into(),
+            ))
+        }
+    }
+    #[test]
+    #[ignore = "requires native WGPU; run explicit isolated candidate retirement acceptance"]
+    fn failed_discard_survives_effects_reborrow_without_replaying_native_callback() {
+        ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
+            width: 32,
+            height: 32,
+            ..Default::default()
+        })
+        .unwrap();
+        struct Scope;
+        impl Drop for Scope {
+            fn drop(&mut self) {
+                let _ = ww3d_engine::shutdown();
+            }
+        }
+        let _scope = Scope;
+        let mut graphics = GraphicsSystem::new(
+            ww3d_engine::device().unwrap(),
+            ww3d_engine::queue().unwrap(),
+            ww3d_engine::color_format().unwrap(),
+            ww3d_engine::depth_format().unwrap(),
+        )
+        .unwrap();
+        let mut pipeline = RenderPipeline::initialize(&graphics).unwrap();
+        let mut world = GameLogic::new();
+        world
+            .admit_receiving_module_content(
+                crate::assets::ReceivingObjectContent::from_sources([(
+                    "retained-native.ini".to_owned(),
+                    "Object RetainedNoDraw
+KindOf = VEHICLE
+Body = ActiveBody BodyTag
+MaxHealth = 40
+InitialHealth = 40
+End
+End
+"
+                    .to_owned(),
+                )])
+                .unwrap(),
+            )
+            .unwrap();
+        world.require_native_drawable_owner();
+        let mut candidate = NativeMapCandidate::with_epoch(73);
+        let mut retirement = RejectRetirement { calls: 0 };
+        let mut attempt = candidate
+            .attempt(
+                pipeline.borrow_native_draw_services(),
+                &mut graphics,
+                0,
+                super::super::native_view_effects::receiving_native_drawable_policy(),
+                &mut retirement,
+            )
+            .unwrap();
+        let id = world
+            .create_object_with_script_effects_checked(
+                "RetainedNoDraw",
+                Team::USA,
+                glam::Vec3::ZERO,
+                None,
+                &mut attempt.effects(),
+            )
+            .unwrap()
+            .unwrap();
+        assert!(
+            attempt
+                .discard_attempt()
+                .unwrap_err()
+                .contains("candidate retirement refused")
+        );
+        // Exact failed-staging cleanup shape: loan effects again, then discard.
+        // The first destructor failure must remain absorbing across that loan.
+        drop(attempt.effects());
+        assert!(
+            attempt
+                .discard_attempt()
+                .unwrap_err()
+                .contains("retry prohibited")
+        );
+        drop(attempt);
+        assert_eq!(retirement.calls, 1);
+        assert!(candidate.retirement_failed());
+        assert!(
+            candidate
+                .drawable_owners()
+                .0
+                .binding_key(73, id.0)
+                .is_some()
+        );
+        let mut rejected = RejectedNativeWorlds::default();
+        rejected.retain(
+            Some(Box::new(world)),
+            candidate,
+            "candidate retirement refused".into(),
+        );
+        assert_eq!(rejected.rows.len(), 1);
+        let row = &mut rejected.rows[0];
+        assert!(row.logic.as_ref().unwrap().host_object(id).is_some());
+        assert!(
+            row.native
+                .drawable_owners()
+                .0
+                .binding_key(73, id.0)
+                .is_some()
+        );
+        assert!(rejected.validate_admission().is_err());
+    }
 }

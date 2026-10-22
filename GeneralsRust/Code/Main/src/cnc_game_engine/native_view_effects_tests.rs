@@ -243,9 +243,11 @@ fn actual_view_backend_uses_current_dirty_source_and_rejects_peer_or_unobserved_
         sample(&mut client, &mut pipeline, &mut graphics, &fresh),
         SlaveCameraSample::Unavailable(_)
     ));
-    assert!(pipeline
-        .admit_native_drawable_binding(&fresh.identity, replacement)
-        .is_err());
+    assert!(
+        pipeline
+            .admit_native_drawable_binding(&fresh.identity, replacement)
+            .is_err()
+    );
     // Only an actual new constructor observation may install that lifetime.
     client.destroy_drawable(replacement.drawable_id).unwrap();
     let recreated = frame_source(&mut world);
@@ -303,11 +305,12 @@ impl NativeViewEffects for ActualFactoryProbe<'_, '_> {
         );
         self.runtime
             .admit_factory_drawable(source, birth, content)?;
-        assert!(self
-            .runtime
-            .drawables
-            .binding_key(self.runtime.host_epoch, object)
-            .is_some());
+        assert!(
+            self.runtime
+                .drawables
+                .binding_key(self.runtime.host_epoch, object)
+                .is_some()
+        );
         self.births.push(object);
         Ok(())
     }
@@ -331,8 +334,8 @@ fn receiving_factory_world() -> GameLogic {
 
 #[test]
 #[ignore = "requires native WGPU; run explicit isolated strict-backend acceptance"]
-fn actual_factory_birth_installs_receiving_drawable_before_immediate_query_and_isolates_same_id_peer(
-) {
+fn actual_factory_birth_installs_receiving_drawable_before_immediate_query_and_isolates_same_id_peer()
+ {
     ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
         width: 32,
         height: 32,
@@ -535,10 +538,12 @@ fn actual_factory_birth_installs_receiving_drawable_before_immediate_query_and_i
         },
     );
     assert!(failed.is_err());
-    assert!(failed
-        .unwrap_err()
-        .to_string()
-        .contains("retirement unavailable"));
+    assert!(
+        failed
+            .unwrap_err()
+            .to_string()
+            .contains("retirement unavailable")
+    );
     drop(wrong);
     assert_eq!(runtime.drawables.binding_key(EPOCH, id.0), Some(binding));
     assert_eq!(
@@ -747,8 +752,8 @@ fn birth_physical_retirement_actor(
 
 #[test]
 #[ignore = "requires native WGPU; run explicit isolated physical-retirement acceptance"]
-fn actual_physical_delete_retires_semantic_receiver_only_after_queue_and_rejects_stale_rebirth_including_no_draw(
-) {
+fn actual_physical_delete_retires_semantic_receiver_only_after_queue_and_rejects_stale_rebirth_including_no_draw()
+ {
     ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
         width: 32,
         height: 32,
@@ -864,10 +869,12 @@ fn actual_physical_delete_retires_semantic_receiver_only_after_queue_and_rejects
                 runtime.retire_object_drawable(&old.identity).is_err(),
                 "a foreign world cannot retire the same numeric ID"
             );
-            assert!(runtime
-                .drawables
-                .binding_key(EPOCH + 1, peer_id.0)
-                .is_some());
+            assert!(
+                runtime
+                    .drawables
+                    .binding_key(EPOCH + 1, peer_id.0)
+                    .is_some()
+            );
             assert_eq!(
                 pose(runtime.sample_slave(&peer_source, "CAMERA"))
                     .w_axis
@@ -1032,10 +1039,12 @@ fn actual_physical_delete_retires_semantic_receiver_only_after_queue_and_rejects
                     },
                 )
                 .unwrap();
-            assert!(runtime
-                .drawables
-                .binding_key(EPOCH, no_draw_reborn.0)
-                .is_none());
+            assert!(
+                runtime
+                    .drawables
+                    .binding_key(EPOCH, no_draw_reborn.0)
+                    .is_none()
+            );
         },
     );
     with_physical_retirement_view(
@@ -1140,3 +1149,120 @@ mod native_deletion_phase_tests;
 
 #[path = "native_airfield_sell_tests.rs"]
 mod native_airfield_sell_tests;
+
+#[test]
+#[ignore = "requires native WGPU; run isolated actual bulk receiving-owner acceptance"]
+fn actual_native_bulk_clear_retires_each_owner_without_touching_peer() {
+    ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
+        width: 32,
+        height: 32,
+        ..Default::default()
+    })
+    .unwrap();
+    struct Scope;
+    impl Drop for Scope {
+        fn drop(&mut self) {
+            let _ = ww3d_engine::shutdown();
+        }
+    }
+    let _scope = Scope;
+    let mut graphics = GraphicsSystem::new(
+        ww3d_engine::device().unwrap(),
+        ww3d_engine::queue().unwrap(),
+        ww3d_engine::color_format().unwrap(),
+        ww3d_engine::depth_format().unwrap(),
+    )
+    .unwrap();
+    graphics.cache_model(
+        crate::assets::mesh_asset_resolve::canonical_model_key("CameraModel"),
+        model("CameraModel", 0.),
+    );
+    {
+        let mut pipeline = RenderPipeline::initialize(&graphics).unwrap();
+        let mut peer_pipeline = RenderPipeline::initialize(&graphics).unwrap();
+        let mut client = GameClient::new().unwrap();
+        let mut peer_client = GameClient::new().unwrap();
+        let mut world = physical_retirement_world();
+        let mut peer = physical_retirement_world();
+        let mut ids = Vec::new();
+        for name in [
+            "StrictFactoryOwner",
+            "StrictNoDrawOwner",
+            "StrictFactoryOwner",
+        ] {
+            ids.push(birth_physical_retirement_actor(
+                &mut world,
+                name,
+                Vec3::ZERO,
+                &mut client,
+                &mut pipeline,
+                &mut graphics,
+                EPOCH,
+            ));
+        }
+        let peer_id = birth_physical_retirement_actor(
+            &mut peer,
+            "StrictFactoryOwner",
+            Vec3::new(303., 5., 7.),
+            &mut peer_client,
+            &mut peer_pipeline,
+            &mut graphics,
+            EPOCH + 1,
+        );
+        assert_eq!(ids[0], peer_id);
+        let peer_source = peer.current_native_slave_source(peer_id, 0).unwrap();
+        with_physical_retirement_view(
+            &mut client,
+            &mut pipeline,
+            &mut graphics,
+            EPOCH,
+            |runtime| {
+                for id in &ids {
+                    assert!(runtime.drawables.binding_key(EPOCH, id.0).is_some());
+                    assert!(runtime.poses.has_drawable_lifetime(id.0));
+                }
+                let mut effects = crate::game_logic::ScriptPresentationEffects {
+                    view: Some(&mut *runtime),
+                    ..Default::default()
+                };
+                world
+                    .clear_all_objects_with_effects_checked(&mut effects)
+                    .unwrap();
+                drop(effects);
+                assert!(world.objects.is_empty());
+                assert!(world.pending_object_removal_snapshot().is_empty());
+                for id in &ids {
+                    assert!(runtime.drawables.binding_key(EPOCH, id.0).is_none());
+                    assert!(!runtime.poses.has_drawable_lifetime(id.0));
+                }
+            },
+        );
+        with_physical_retirement_view(
+            &mut peer_client,
+            &mut peer_pipeline,
+            &mut graphics,
+            EPOCH + 1,
+            |runtime| {
+                assert!(
+                    runtime
+                        .drawables
+                        .binding_key(EPOCH + 1, peer_id.0)
+                        .is_some()
+                );
+                assert_eq!(
+                    pose(runtime.sample_slave(&peer_source, "CAMERA"))
+                        .w_axis
+                        .truncate(),
+                    Vec3::new(303., 5., 7.)
+                );
+                peer.clear_all_objects_with_effects_checked(
+                    &mut crate::game_logic::ScriptPresentationEffects {
+                        view: Some(&mut *runtime),
+                        ..Default::default()
+                    },
+                )
+                .unwrap();
+            },
+        );
+    }
+}

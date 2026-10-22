@@ -105,7 +105,11 @@ fn save(m: &mut SaveFileManager, slot: &str, w: &GameLogic) {
     #[cfg(not(feature = "game_client"))]
     m.save_game(slot, w, &info).unwrap();
 }
-fn stage(m: &mut SaveFileManager, slot: &str, w: &GameLogic) -> Result<StagedRestoreWorld, String> {
+fn stage(
+    m: &mut SaveFileManager,
+    slot: &str,
+    w: &GameLogic,
+) -> Result<StagedRestoreWorld, RestoreStagingFailure> {
     CnCGameEngine::stage_saved_world_for_restore(
         m,
         slot,

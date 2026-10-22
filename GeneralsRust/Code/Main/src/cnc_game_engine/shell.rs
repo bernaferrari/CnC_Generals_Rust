@@ -1824,6 +1824,11 @@ impl CnCGameEngine {
         &mut self,
         prepared: StartupPreparedLoadResult,
     ) -> Result<StartupLoadResult> {
+        if let Err(reason) = self.rejected_native_worlds.validate_admission() {
+            // Prepared worker output has no native births yet. Its metadata
+            // owner can drop without replaying failed native destructors.
+            return Err(anyhow::Error::msg(reason));
+        }
         let StartupPreparedLoadResult {
             default_starting_cash,
             mut game_logic,
@@ -1899,17 +1904,16 @@ impl CnCGameEngine {
                     )
                 }));
                 match loaded {
-                    Ok(Ok(true)) => true,
-                    Ok(Ok(false)) => false,
-                    Ok(Err(error)) => return Err(anyhow::Error::msg(error)),
+                    Ok(Ok(true)) => Ok(true),
+                    Ok(Ok(false)) => Ok(false),
+                    Ok(Err(error)) => Err(error),
                     Err(panic) => {
-                        attempt.discard_attempt().map_err(anyhow::Error::msg)?;
                         let detail = panic
                             .downcast_ref::<&str>()
                             .copied()
                             .or_else(|| panic.downcast_ref::<String>().map(String::as_str))
                             .unwrap_or("non-string payload");
-                        return Err(anyhow::anyhow!("startup map load panicked: {detail}"));
+                        Err(format!("startup map load panicked: {detail}"))
                     }
                 }
             };
@@ -1917,6 +1921,23 @@ impl CnCGameEngine {
             let map_loaded: bool = return Err(anyhow::anyhow!(
                 "startup map admission requires the native GameClient owner"
             ));
+            #[cfg(feature = "game_client")]
+            let map_loaded = match map_loaded {
+                Ok(loaded) => loaded,
+                Err(reason) => {
+                    // The attempt loan ended above. A completed cleanup leaves
+                    // no native actors; failed/partial cleanup preserves this
+                    // exact pair, without retrying unwound callbacks.
+                    if !native_map.retirement_complete() {
+                        self.rejected_native_worlds.retain(
+                            Some(Box::new(game_logic)),
+                            native_map,
+                            reason.clone(),
+                        );
+                    }
+                    return Err(anyhow::Error::msg(reason));
+                }
+            };
             if !map_loaded {
                 if replay_startup_requested && !start_in_menu {
                     // This worker owns the failed candidate only. Close its

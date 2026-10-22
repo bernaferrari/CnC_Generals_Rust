@@ -1139,35 +1139,13 @@ impl GameLogic {
     /// Re-apply structure footprints onto the static path/LOS grid.
     /// Call after map object spawn bulk and when a structure dies.
     pub fn sync_structure_path_blocks(&mut self) {
-        self.sync_structure_path_blocks_with_effects(&mut Default::default())
-    }
-
-    pub(crate) fn sync_structure_path_blocks_with_effects(
-        &mut self,
-        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
-        let had_terrain = self.terrain.is_some();
-        if had_terrain {
-            self.seed_pathfinding_from_terrain_with_effects(effects);
-            let wall_height = self.pathfind_ai_rules().wall_height;
-            ({
-                let ground_owner = self.world_services.terrain();
-                let ground_loan = ground_owner
-                    .read()
-                    .unwrap_or_else(|error| error.into_inner());
-                let ground_source = crate::game_logic::pathfinding::PathfindingGround::for_terrain(
-                    &ground_loan,
-                    self.map_loaded,
-                    self.terrain.as_ref(),
-                    self.pathfinding_height_samples.as_ref(),
-                    &self.pathfinding_system.grid,
-                );
-                self.pathfinding_system.apply_structure_static_blocks(
-                    &self.objects,
-                    wall_height,
-                    &ground_source,
-                )
-            });
+        if self.terrain.is_some() {
+            // Reclassification observes admitted bridges. Bridge factories
+            // belong to map/restore admission: rebuilding footprints after
+            // deletion must not resurrect the Object that was just retired.
+            let owner = self.world_services.terrain().clone();
+            let terrain = owner.read().unwrap_or_else(|error| error.into_inner());
+            self.reclassify_pathfinding_from_terrain(&terrain);
         } else {
             self.pathfinding_system.grid.reclassify_ground();
             self.refresh_owned_bridge_pathfinder_states();

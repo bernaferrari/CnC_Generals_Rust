@@ -133,6 +133,12 @@ impl CnCGameEngine {
             self.game_logic.session_view.camera.input_policy,
             &self.game_logic.world_services,
         )
+        .map_err(|failure| {
+            if let Some(world) = failure.retained_logic {
+                self.save_file_manager.retain_rejected_logical_world(world);
+            }
+            failure.reason
+        })
     }
     fn camera_gate_seed_hag(&mut self) -> Result<Value, String> {
         require(
@@ -457,7 +463,7 @@ impl CnCGameEngine {
         std::fs::create_dir(&directory).map_err(|e| format!("fresh runtime directory: {e}"))?;
         let mut temporary = SaveFileManager::with_save_directory(directory.join("Save"));
         temporary.init().map_err(|error| error.to_string())?;
-        let previous_manager = std::mem::replace(&mut self.save_file_manager, temporary);
+        let mut previous_manager = std::mem::replace(&mut self.save_file_manager, temporary);
         // Keep completed evidence even when a later archive/restore phase fails.
         // These are observations from the existing trace, never a second run.
         let mut partial_evidence = json!({});
@@ -615,6 +621,8 @@ impl CnCGameEngine {
                 "window":format!("{:?}",self.window.id()),"window_size":[self.window.inner_size().width,self.window.inner_size().height]}),
             )
         })();
+        self.save_file_manager
+            .transfer_rejected_logical_worlds_to(&mut previous_manager);
         self.save_file_manager = previous_manager;
         self.replay_fast_forward = previous_fast_forward;
         game_engine::common::global_data::write().tivo_fast_mode = previous_foreign_tivo;

@@ -78,3 +78,64 @@ impl GameLogic {
         }
     }
 }
+
+impl GameLogic {
+    /// C++ destroyAllObjectsImmediate: ordinary installed onDelete callbacks,
+    /// then the existing ordered physical-destruction phase. Native resources
+    /// are retired by this operation's explicit receiving presentation loan.
+    pub(crate) fn destroy_all_objects_immediate_with_effects_checked(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
+        if let Some(error) = self.object_retirement_error() {
+            return Err(error);
+        }
+        if self.object_lifecycle_callback_depth != 0 {
+            return Err(gamelogic::GameLogicError::Configuration(
+                "bulk Object retirement cannot replace an active lifecycle callback".into(),
+            ));
+        }
+        if self.requires_native_drawable_owner() && !self.objects.is_empty() {
+            #[cfg(feature = "game_client")]
+            let has_owner = effects.view.is_some();
+            #[cfg(not(feature = "game_client"))]
+            let has_owner = false;
+            if !has_owner {
+                return Err(gamelogic::GameLogicError::Configuration(
+                    "bulk Object retirement requires its native Drawable owner".into(),
+                ));
+            }
+        }
+        // Snapshot original linked-list order. Containment may append child
+        // destruction, but never sort/requeue the existing pending events.
+        let ids = self.objects.ordered_ids().to_vec();
+        for id in ids {
+            self.destroy_object_with_effects(id, effects);
+        }
+        self.process_destroy_list_with_effects_checked(effects)?;
+        if !self.objects.is_empty() || self.has_pending_object_removals() {
+            let remaining: Vec<_> = self
+                .objects
+                .ordered_ids()
+                .iter()
+                .filter_map(|id| self.objects.get(id))
+                .take(8)
+                .map(|object| {
+                    (
+                        object.id,
+                        object.template_name.as_str(),
+                        object.status.destroyed,
+                        object.status.on_die_started,
+                    )
+                })
+                .collect();
+            return Err(gamelogic::GameLogicError::Configuration(format!(
+                "bulk Object retirement left live or pending objects: live={}, pending={}, registered={}, sample={remaining:?}",
+                self.objects.len(),
+                self.objects_to_destroy.len(),
+                self.objects.ordered_ids().len(),
+            )));
+        }
+        Ok(())
+    }
+}

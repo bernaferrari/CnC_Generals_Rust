@@ -640,21 +640,49 @@ fn forced_post_restore_failure_restores_globals_and_tls_effect_queues() {
                 source.session_view.camera.movement_policy,
                 source.session_view.camera.input_policy,
                 &source.world_services,
-                |_snapshot, staged| {
+                |snapshot, staged| {
                     assert!(staged.isInGame(), "failure is injected after map load");
                     assert_eq!(staged.ai_definitions.baseline().resources_poor, 7654);
                     assert_eq!(staged.production_energy_rules().min_speed, 0.5);
                     assert!(gamelogic::runtime_world_transaction::world_runtime_staging_active());
-                    let candidate = staged
-                        .host_objects()
-                        .keys()
-                        .next()
-                        .copied()
-                        .expect("candidate map created actual Objects before forced rollback");
+                    assert!(
+                        staged.host_objects().is_empty(),
+                        "map foundation Objects retire before saved Object admission"
+                    );
+                    assert!(
+                        staged.pending_object_removal_snapshot().is_empty(),
+                        "foundation retirement completes before the real snapshot restore"
+                    );
+                    assert!(staged.object_retirement_error().is_none());
+                    // Use the real production decoder/builder before injecting
+                    // failure; this test previously never restored its snapshot.
+                    crate::save_load::SnapshotBuilder::new()
+                        .restore_from_snapshot(snapshot, staged)
+                        .map_err(|error| error.to_string())?;
+                    let candidate = crate::game_logic::ObjectId(retained_objects[0].0);
+                    let restored = staged
+                        .host_object(candidate)
+                        .expect("saved Object ID was admitted by the actual snapshot builder");
+                    assert_eq!(restored.get_position().to_array(), retained_objects[0].2);
+                    assert_eq!(restored.health.current.to_bits(), retained_objects[0].3);
+                    assert!(
+                        !Arc::ptr_eq(
+                            &restored.visual_draw_identity_token,
+                            &source
+                                .host_object(candidate)
+                                .unwrap()
+                                .visual_draw_identity_token
+                        ),
+                        "restored same-ID Object has a distinct receiving lifetime"
+                    );
                     staged
                         .host_object_mut(candidate)
                         .unwrap()
                         .set_position(glam::Vec3::new(91.0, 92.0, 93.0));
+                    assert_eq!(
+                        staged.host_object(candidate).unwrap().get_position(),
+                        glam::Vec3::new(91.0, 92.0, 93.0)
+                    );
                     // Deliberately collide with the live world's numeric ID.
                     assert_ne!(staged.movement_events.session(), &retained_move_session);
                     staged
@@ -669,7 +697,14 @@ fn forced_post_restore_failure_restores_globals_and_tls_effect_queues() {
                 }
                 Err(err) => err,
             };
-            assert!(err.contains("forced failure after staged snapshot restore"));
+            assert!(
+                err.contains("forced failure after staged snapshot restore"),
+                "{err}"
+            );
+            assert!(
+                err.retained_logic.is_none(),
+                "healthy rollback fully retires the genuinely restored candidate roster"
+            );
             assert_eq!(source.movement_events.session(), &retained_move_session);
             assert_eq!(
                 source.movement_events.snapshot_pending(),
@@ -1594,6 +1629,167 @@ End
                     saved_game_mode,
                     ..
                 } = saves.load_game_snapshot("owned_services").unwrap();
+                #[cfg(feature = "game_client")]
+                {
+                    use crate::game_logic::NativeMapAdmission;
+                    // Exercise the real saved-stage producer after actual map
+                    // factory births. The initial empty discard succeeds; the
+                    // first Object destructor's selected native callback fails.
+                    struct RejectSelected {
+                        selected: Vec<game_client::core::DrawableId>,
+                        empty_discards: usize,
+                        service: game_client::core::game_client::NativeParticleRetirementService,
+                    }
+                    impl game_client::core::game_client::NativeDrawableRetirement for RejectSelected {
+                        fn retire(
+                            &mut self,
+                            owner: &mut game_client::core::game_client::NativeDrawableOwner<'_>,
+                            selected: Option<game_client::core::DrawableId>,
+                        ) -> game_client::core::GameClientResult<()> {
+                            if let Some(id) = selected {
+                                self.selected.push(id);
+                                return Err(game_client::core::GameClientError::SubsystemError(
+                                    "saved-stage selected retirement witness".into(),
+                                ));
+                            }
+                            self.empty_discards += 1;
+                            game_client::core::game_client::NativeDrawableRetirement::retire(
+                                &mut self.service,
+                                owner,
+                                None,
+                            )
+                        }
+                    }
+                    let source_count = source.get_objects().len();
+                    let source_rng = source.logic_random.seed_words();
+                    let source_player_count = source.get_players().len();
+                    let mut terminal_native =
+                        super::super::map_native_admission::NativeMapCandidate::with_epoch(900);
+                    let mut terminal_retirement = RejectSelected {
+                        selected: Vec::new(),
+                        empty_discards: 0,
+                        service: game_client::core::game_client::NativeParticleRetirementService,
+                    };
+                    let mut attempt = terminal_native
+                        .attempt(
+                            native_pipeline.borrow_native_draw_services(),
+                            &mut native_graphics,
+                            0,
+                            super::super::native_view_effects::receiving_native_drawable_policy(),
+                            &mut terminal_retirement,
+                        )
+                        .unwrap();
+                    let restore_called = std::cell::Cell::new(false);
+                    let failure = CnCGameEngine::stage_decoded_saved_world_for_restore_with_native(
+                        &snapshot,
+                        save_info("terminal-owned-services", map_name.clone()),
+                        saved_game_mode,
+                        None,
+                        None,
+                        "terminal-owned-services",
+                        GameMode::Skirmish,
+                        RestoreTemplateCatalog::from_world(&source),
+                        &source.weapon_definition_base,
+                        &source.projectile_definitions,
+                        &source.ocl_application_definitions(),
+                        source.ai_definitions.baseline(),
+                        source.production_energy_baseline(),
+                        source.physics_rules_baseline(),
+                        source.effective_terrain_definitions(),
+                        source.current_armor_definitions(),
+                        source.session_view.camera.settings,
+                        source.session_view.camera.clip_policy,
+                        source.session_view.camera.shake_policy,
+                        source.session_view.camera.movement_policy,
+                        source.session_view.camera.input_policy,
+                        &source.world_services,
+                        |_, _| {
+                            restore_called.set(true);
+                            Err("snapshot callback must follow foundation retirement".into())
+                        },
+                        Some(&mut attempt),
+                    );
+                    drop(attempt);
+                    let mut failure = match failure {
+                        Err(failure) => failure,
+                        Ok(_) => panic!("selected native retirement must reject real saved stage"),
+                    };
+                    assert!(
+                        !restore_called.get(),
+                        "native foundation retirement precedes snapshot replacement"
+                    );
+                    assert!(
+                        failure
+                            .to_string()
+                            .contains("saved-map foundation retirement"),
+                        "{failure}"
+                    );
+                    assert!(
+                        failure.to_string().contains("selected retirement witness"),
+                        "{failure}"
+                    );
+                    assert_eq!(
+                        terminal_retirement.empty_discards, 1,
+                        "only initial pristine discard is admitted"
+                    );
+                    assert_eq!(
+                        terminal_retirement.selected.len(),
+                        1,
+                        "staged error cleanup cannot replay the failed destructor"
+                    );
+                    let failed_world = failure.retained_logic.take()
+                        .expect("actual failed stage returns the original logical owner, not only a message");
+                    assert!(failed_world.object_retirement_error().is_some());
+                    let failed_object = failed_world
+                        .objects
+                        .failed_retirement_object()
+                        .expect("physical native failure keeps exact Object outside lookup");
+                    let failed_id = failed_object.id;
+                    assert!(!failed_world.get_objects().contains_key(&failed_id));
+                    let failed_binding = terminal_native.drawable_owners().0.binding_key(900, failed_id.0)
+                        .expect("failed original native actor stays associated with its matching logical owner");
+                    assert_eq!(failed_binding.host_epoch, 900);
+                    assert_eq!(failed_binding.object_id, failed_id.0);
+                    assert_eq!(failed_binding.drawable_id, terminal_retirement.selected[0]);
+                    assert_ne!(failed_binding.binding_generation, 0);
+                    assert_ne!(failed_object.visual_object_generation, 0);
+                    let retained_token = Arc::downgrade(&failed_object.visual_draw_identity_token);
+                    let peer_object = source
+                        .host_object(failed_id)
+                        .expect("same-ID source peer remains live");
+                    assert!(
+                        !Arc::ptr_eq(
+                            &peer_object.visual_draw_identity_token,
+                            &failed_object.visual_draw_identity_token
+                        ),
+                        "same IDs never select another world's Object lifetime"
+                    );
+                    assert!(!terminal_native.retirement_complete());
+                    assert_eq!(source.get_objects().len(), source_count);
+                    assert_eq!(source.get_players().len(), source_player_count);
+                    assert_eq!(source.logic_random.seed_words(), source_rng);
+                    assert!(Arc::ptr_eq(source.world_services.terrain(), &live_terrain));
+                    assert!(Arc::ptr_eq(
+                        &gamelogic::system::engine_stores::active(),
+                        &foreign
+                    ));
+                    let retained_services = Arc::downgrade(&failed_world.world_services);
+                    let mut rejected =
+                        super::super::map_native_admission::RejectedNativeWorlds::default();
+                    rejected.retain(Some(failed_world), terminal_native, failure.to_string());
+                    drop(failure);
+                    assert!(
+                        retained_services.upgrade().is_some(),
+                        "error message disposal does not dispose the failed world"
+                    );
+                    assert!(
+                        retained_token.upgrade().is_some(),
+                        "exact failed Object lifetime token remains owned"
+                    );
+                    assert!(rejected.validate_admission().is_err());
+                    // The terminal pair stays owned until fixture/application
+                    // teardown. No attempted second native destruction here.
+                }
                 let mut failed_native =
                     super::super::map_native_admission::NativeMapCandidate::with_epoch(901);
                 #[cfg(feature = "game_client")]
@@ -1657,14 +1853,24 @@ End
                     "requested late rollback callback was not reached: {:?}",
                     failure.as_ref().err()
                 );
+                assert!(
+                    failure.as_ref().err().unwrap().retained_logic.is_none(),
+                    "a healthy rejected stage retires its roster rather than retaining a terminal world"
+                );
                 #[cfg(feature = "game_client")]
                 drop(failed_attempt);
                 #[cfg(feature = "game_client")]
                 assert_eq!(
                     failed_native.raw_height_for_test(1, 1),
-                    Some(40),
-                    "rejected native candidate is detached from receiving saved raw7"
+                    None,
+                    "successful rejected-stage cleanup retires the candidate terrain too"
                 );
+                #[cfg(feature = "game_client")]
+                assert!(
+                    failed_native.retirement_complete(),
+                    "clean rejection admits the existing fresh-candidate retry below"
+                );
+
                 #[cfg(feature = "game_client")]
                 discard_staged_native_fixture(
                     &mut failed_native,
@@ -1706,7 +1912,7 @@ End
                     Some(integration_count)
                 );
                 let mut accepted_native =
-                    super::super::map_native_admission::NativeMapCandidate::with_epoch(902);
+                    super::super::map_native_admission::NativeMapCandidate::with_epoch(901);
                 #[cfg(feature = "game_client")]
                 let mut accepted_retirement =
                     game_client::core::game_client::NativeParticleRetirementService;
@@ -1757,6 +1963,11 @@ End
                 #[cfg(feature = "game_client")]
                 {
                     staged.native_map = accepted_native;
+                    assert_eq!(
+                        staged.native_map.epoch(),
+                        failed_native.epoch(),
+                        "clean failure did not consume the reserved native world epoch"
+                    );
                 }
                 assert!(staged.logic.isInGame());
                 assert_eq!(
@@ -2019,12 +2230,14 @@ End
                     source.session_view.camera.input_policy,
                     &source.world_services,
                     |snapshot, candidate| {
-                        let placed = candidate
-                            .get_objects()
-                            .values()
-                            .find(|object| object.template_name == "ContainmentStageContainer")
-                            .expect("map factory ran before snapshot restore");
-                        assert_eq!(placed.contained_units().len(), 1);
+                        // Map factory effects remain in the detached native
+                        // audio owner, but its foundation Objects must retire
+                        // before the saved roster can replace their IDs.
+                        assert!(
+                            candidate.get_objects().is_empty(),
+                            "snapshot callback follows foundation retirement"
+                        );
+                        assert!(!candidate.has_pending_object_removals());
                         assert_service_empty();
                         builder
                             .restore_from_snapshot(snapshot, candidate)

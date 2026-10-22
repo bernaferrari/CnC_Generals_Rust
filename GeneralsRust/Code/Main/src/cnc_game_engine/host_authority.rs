@@ -1,6 +1,45 @@
 #![allow(unused_imports, unused_variables, dead_code, non_snake_case)]
 use super::*;
 
+/// Private staging error preserves the actual failed logical owner. Public
+/// SaveLoadError remains unchanged only AFTER the receiving owner retains it.
+struct RestoreStagingFailure {
+    reason: String,
+    retained_logic: Option<Box<crate::game_logic::GameLogic>>,
+}
+impl From<String> for RestoreStagingFailure {
+    fn from(reason: String) -> Self {
+        Self {
+            reason,
+            retained_logic: None,
+        }
+    }
+}
+impl From<&str> for RestoreStagingFailure {
+    fn from(reason: &str) -> Self {
+        reason.to_owned().into()
+    }
+}
+impl std::fmt::Display for RestoreStagingFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(&self.reason, f)
+    }
+}
+impl std::fmt::Debug for RestoreStagingFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RestoreStagingFailure")
+            .field("reason", &self.reason)
+            .field("retains_logic", &self.retained_logic.is_some())
+            .finish()
+    }
+}
+impl std::ops::Deref for RestoreStagingFailure {
+    type Target = str;
+    fn deref(&self) -> &str {
+        &self.reason
+    }
+}
+
 /// A decoded save restored into a private host `GameLogic` plus the exact
 /// process-global runtime bundle that map loading touched while staging it.
 /// The bundle stays opaque until the single combined commit boundary below.
@@ -134,11 +173,15 @@ impl CnCGameEngine {
         self.native_display.reset_world(epoch);
     }
     #[cfg(feature = "game_client")]
-    pub(super) fn discard_receiving_map_candidate(
+    pub(super) fn discard_receiving_world_candidate(
         &mut self,
+        world: &mut crate::game_logic::GameLogic,
         candidate: &mut super::map_native_admission::NativeMapCandidate,
     ) -> Result<(), String> {
         use crate::game_logic::NativeMapAdmission;
+        if candidate.retirement_failed() {
+            return Err("native candidate destructor previously failed; retry prohibited".into());
+        }
         let policy = super::native_view_effects::receiving_native_drawable_policy();
         let mut retirement = game_client::core::game_client::NativeParticleRetirementService;
         let mut attempt = candidate.attempt(
@@ -148,7 +191,70 @@ impl CnCGameEngine {
             policy,
             &mut retirement,
         )?;
+        world
+            .destroy_all_objects_immediate_with_effects_checked(&mut attempt.effects())
+            .map_err(|error| error.to_string())?;
         attempt.discard_attempt()
+    }
+
+    #[cfg(not(feature = "game_client"))]
+    pub(super) fn discard_receiving_world_candidate(
+        &mut self,
+        world: &mut crate::game_logic::GameLogic,
+        candidate: &mut super::map_native_admission::NativeMapCandidate,
+    ) -> Result<(), String> {
+        world
+            .destroy_all_objects_immediate_with_effects_checked(&mut Default::default())
+            .map_err(|error| error.to_string())?;
+        // This build owns only the detached CPU/audio payload, no Drawable.
+        *candidate = Default::default();
+        Ok(())
+    }
+
+    fn reject_logical_restore_candidate(
+        manager: &mut SaveFileManager,
+        mut world: crate::game_logic::GameLogic,
+        reason: String,
+    ) -> String {
+        match world.destroy_all_objects_immediate_with_effects_checked(&mut Default::default()) {
+            Ok(()) => reason,
+            Err(failure) => {
+                manager.retain_rejected_logical_world(Box::new(world));
+                format!("{reason}; logical candidate cleanup: {failure}")
+            }
+        }
+    }
+    fn reject_receiving_world_candidate(
+        &mut self,
+        mut world: crate::game_logic::GameLogic,
+        mut candidate: super::map_native_admission::NativeMapCandidate,
+    ) -> Result<(), String> {
+        match self.discard_receiving_world_candidate(&mut world, &mut candidate) {
+            Ok(()) => Ok(()),
+            Err(reason) => {
+                self.rejected_native_worlds.retain(
+                    Some(Box::new(world)),
+                    candidate,
+                    reason.clone(),
+                );
+                Err(reason)
+            }
+        }
+    }
+    fn retain_staging_failure(
+        &mut self,
+        failure: RestoreStagingFailure,
+        candidate: super::map_native_admission::NativeMapCandidate,
+    ) -> String {
+        let RestoreStagingFailure {
+            reason,
+            retained_logic,
+        } = failure;
+        if retained_logic.is_some() {
+            self.rejected_native_worlds
+                .retain(retained_logic, candidate, reason.clone());
+        }
+        reason
     }
 
     /// Begin a new transient direct-visual world identity.
@@ -549,6 +655,9 @@ impl CnCGameEngine {
     /// Wave 584: host match reset residual (GameLogic::reset boundary).
     #[inline]
     pub(super) fn host_reset_game_logic(&mut self) {
+        self.rejected_native_worlds
+            .validate_admission()
+            .expect("cannot reset after terminal native retirement failure");
         // Wave 584/871/933: host reset residual via session-control authority.
         self.host_game_logic_mut()
             .apply_session_control_op(crate::game_logic::SessionControlOp::Reset);
@@ -1291,6 +1400,11 @@ impl CnCGameEngine {
         mut logic: crate::game_logic::GameLogic,
         mut native_map: super::map_native_admission::NativeMapCandidate,
     ) -> Result<(), String> {
+        if let Err(reason) = self.rejected_native_worlds.validate_admission() {
+            self.rejected_native_worlds
+                .retain(Some(Box::new(logic)), native_map, reason.clone());
+            return Err(reason);
+        }
         #[cfg(feature = "game_client")]
         let epoch = match native_map
             .epoch()
@@ -1298,12 +1412,30 @@ impl CnCGameEngine {
         {
             Some(epoch) => epoch,
             None => {
-                let cleanup = self.discard_receiving_map_candidate(&mut native_map);
+                let cleanup = self.reject_receiving_world_candidate(logic, native_map);
                 return Err(format!(
                     "accepted native map epoch missing/stale; cleanup={cleanup:?}"
                 ));
             }
         };
+        if let Err(error) = self.with_native_camera_input_effects(|world, effects, _| {
+            world.destroy_all_objects_immediate_with_effects_checked(effects)
+        }) {
+            #[cfg(feature = "game_client")]
+            {
+                let cleanup = self.reject_receiving_world_candidate(logic, native_map);
+                return Err(format!(
+                    "outgoing Object retirement failed: {error}; candidate cleanup={cleanup:?}"
+                ));
+            }
+            #[cfg(not(feature = "game_client"))]
+            {
+                let cleanup = self.reject_receiving_world_candidate(logic, native_map);
+                return Err(format!(
+                    "outgoing Object retirement failed: {error}; candidate cleanup={cleanup:?}"
+                ));
+            }
+        }
         // Retire old Client while old GameLogic and visual handle still exist.
         #[cfg(feature = "game_client")]
         let pending_map_audio = match native_map
@@ -1311,7 +1443,7 @@ impl CnCGameEngine {
         {
             Ok(audio) => audio,
             Err((error, mut rejected)) => {
-                let cleanup = self.discard_receiving_map_candidate(&mut rejected);
+                let cleanup = self.reject_receiving_world_candidate(logic, rejected);
                 return Err(match cleanup {
                     Ok(()) => error,
                     Err(cleanup) => format!("{error}; rejected candidate cleanup: {cleanup}"),
@@ -1412,6 +1544,14 @@ impl CnCGameEngine {
     ) -> Result<(), String> {
         // Reject unexplained Core callbacks before invalidating the old UI,
         // replacing its world, or admitting the candidate camera continuation.
+        if let Err(reason) = self.rejected_native_worlds.validate_admission() {
+            self.rejected_native_worlds.retain(
+                Some(Box::new(staged.logic)),
+                staged.native_map,
+                reason.clone(),
+            );
+            return Err(reason);
+        }
         let StagedRestoreWorld {
             mut native_map,
             mut logic,
@@ -1433,13 +1573,18 @@ impl CnCGameEngine {
             Err(error) => {
                 #[cfg(feature = "game_client")]
                 {
-                    let cleanup = self.discard_receiving_map_candidate(&mut native_map);
+                    let cleanup = self.reject_receiving_world_candidate(logic, native_map);
                     return Err(format!(
                         "{error}; rejecting saved native preflight: {cleanup:?}"
                     ));
                 }
                 #[cfg(not(feature = "game_client"))]
-                return Err(error);
+                {
+                    let cleanup = self.reject_receiving_world_candidate(logic, native_map);
+                    return Err(format!(
+                        "{error}; rejecting saved logical preflight: {cleanup:?}"
+                    ));
+                }
             }
         };
         #[cfg(feature = "game_client")]
@@ -1449,7 +1594,7 @@ impl CnCGameEngine {
         {
             Some(epoch) => epoch,
             None => {
-                let cleanup = self.discard_receiving_map_candidate(&mut native_map);
+                let cleanup = self.reject_receiving_world_candidate(logic, native_map);
                 return Err(format!(
                     "saved native candidate epoch missing/stale; cleanup={cleanup:?}"
                 ));
@@ -1479,6 +1624,24 @@ impl CnCGameEngine {
         #[cfg(feature = "game_client")]
         self.host_invalidate_active_popup_for_world_boundary();
 
+        if let Err(error) = self.with_native_camera_input_effects(|world, effects, _| {
+            world.destroy_all_objects_immediate_with_effects_checked(effects)
+        }) {
+            #[cfg(feature = "game_client")]
+            {
+                let cleanup = self.reject_receiving_world_candidate(logic, native_map);
+                return Err(format!(
+                    "outgoing saved-world retirement failed: {error}; candidate cleanup={cleanup:?}"
+                ));
+            }
+            #[cfg(not(feature = "game_client"))]
+            {
+                let cleanup = self.reject_receiving_world_candidate(logic, native_map);
+                return Err(format!(
+                    "outgoing saved-world retirement failed: {error}; candidate cleanup={cleanup:?}"
+                ));
+            }
+        }
         // Destroy the previous client's Drawables while its own world and the
         // C++-style ambient module callbacks still refer to that old world.
         // Some DrawModule destructors consult TheGameClient during teardown.
@@ -1488,7 +1651,7 @@ impl CnCGameEngine {
         {
             Ok(audio) => audio,
             Err((error, mut rejected)) => {
-                let cleanup = self.discard_receiving_map_candidate(&mut rejected);
+                let cleanup = self.reject_receiving_world_candidate(logic, rejected);
                 return Err(match cleanup {
                     Ok(()) => error,
                     Err(cleanup) => format!("{error}; rejected candidate cleanup: {cleanup}"),
@@ -1906,7 +2069,7 @@ impl CnCGameEngine {
         camera_movement_policy: crate::presentation_frame::camera::movement_rules::CameraMovementPolicy,
         camera_input_policy: crate::presentation_frame::camera::input_rules::CameraInputPolicy,
         live_services: &Arc<gamelogic::system::engine_stores::WorldServices>,
-    ) -> Result<StagedRestoreWorld, String> {
+    ) -> Result<StagedRestoreWorld, RestoreStagingFailure> {
         Self::stage_saved_world_for_restore_with_native(
             save_file_manager,
             slot,
@@ -1954,7 +2117,7 @@ impl CnCGameEngine {
         camera_input_policy: crate::presentation_frame::camera::input_rules::CameraInputPolicy,
         live_services: &Arc<gamelogic::system::engine_stores::WorldServices>,
         native: Option<&mut dyn crate::game_logic::NativeMapAdmission>,
-    ) -> Result<StagedRestoreWorld, String> {
+    ) -> Result<StagedRestoreWorld, RestoreStagingFailure> {
         let crate::save_load::DecodedGameSave {
             snapshot,
             save_info,
@@ -2007,7 +2170,7 @@ impl CnCGameEngine {
     /// Direct logical save admission uses the same exact-map candidate kernel
     /// as the native Engine, but has no native renderer/client receiver.
     pub(crate) fn restore_decoded_logical_save(
-        manager: &SaveFileManager,
+        manager: &mut SaveFileManager,
         slot: &str,
         decoded: crate::save_load::DecodedGameSave,
         live: &mut crate::game_logic::GameLogic,
@@ -2018,6 +2181,13 @@ impl CnCGameEngine {
         ),
         String,
     > {
+        manager.validate_logical_restore_admission()?;
+        if let Some(error) = live.object_retirement_error() {
+            return Err(error.to_string());
+        }
+        if live.requires_native_drawable_owner() && !live.host_objects().is_empty() {
+            return Err("logical-only restore cannot retire a live native Object owner".into());
+        }
         if crate::game_logic::script_loader::find_map_file(&decoded.save_info.map_name).is_none() {
             return Self::restore_mapless_logical_save(manager, decoded, live);
         }
@@ -2061,7 +2231,13 @@ impl CnCGameEngine {
                     .restore_game_snapshot(snapshot, candidate)
                     .map_err(|error| error.to_string())
             },
-        )?;
+        )
+        .map_err(|failure| {
+            if let Some(world) = failure.retained_logic {
+                manager.retain_rejected_logical_world(world);
+            }
+            failure.reason
+        })?;
         let StagedRestoreWorld {
             mut logic,
             info,
@@ -2070,16 +2246,36 @@ impl CnCGameEngine {
             owns_session_camera,
             ..
         } = staged;
-        let checked = runtime_world.preflight_native()?;
+        if let Err(reason) = logic.finish_saved_snapshot_admission() {
+            return Err(Self::reject_logical_restore_candidate(
+                manager, logic, reason,
+            ));
+        }
+        let checked = match runtime_world.preflight_native() {
+            Ok(checked) => checked,
+            Err(reason) => {
+                return Err(Self::reject_logical_restore_candidate(
+                    manager, logic, reason,
+                ));
+            }
+        };
         // Nothing can fail beyond this boundary. No native effects are applied
         // by this logical-only API; caller owns the returned optional payload.
+        if let Err(error) =
+            live.destroy_all_objects_immediate_with_effects_checked(&mut Default::default())
+        {
+            return Err(Self::reject_logical_restore_candidate(
+                manager,
+                logic,
+                format!("outgoing logical Object retirement: {error}"),
+            ));
+        }
         let committed = checked.install_globals();
         admit_staged_session_view(
             &mut live.session_view,
             &mut logic.session_view,
             owns_session_camera,
         );
-        logic.finish_saved_snapshot_admission()?;
         let previous = std::mem::replace(live, logic);
         drop(previous);
         committed.finish_after_logic_commit();
@@ -2089,7 +2285,7 @@ impl CnCGameEngine {
     /// Existing logical-only archives may have no authored map. Their checked
     /// saved grid is legitimate logical data, not a guessed native water map.
     fn restore_mapless_logical_save(
-        manager: &SaveFileManager,
+        manager: &mut SaveFileManager,
         decoded: crate::save_load::DecodedGameSave,
         live: &mut crate::game_logic::GameLogic,
     ) -> Result<
@@ -2119,82 +2315,111 @@ impl CnCGameEngine {
             &live.world_services,
         );
         let mut candidate = crate::game_logic::GameLogic::new();
-        candidate.start_new_game_for_restore(live.game_mode());
-        candidate.begin_saved_snapshot_admission()?;
-        // The receiving loaded catalog owns name/mask allocation order; the
-        // snapshot carries purchased/pending state, not UpgradeTemplate INI.
-        // Clone the value-owned catalog before admitting that runtime state.
-        let upgrade_definitions = live
-            .world_services
-            .upgrade_center()
-            .read()
-            .unwrap_or_else(|error| error.into_inner())
-            .clone();
-        *candidate
-            .world_services
-            .upgrade_center()
-            .write()
-            .unwrap_or_else(|error| error.into_inner()) = upgrade_definitions;
-        candidate.receiving_module_content = live.receiving_module_content.clone();
-        candidate.receiving_object_definitions = live.receiving_object_definitions.clone();
-        candidate.receiving_template_baseline = live.receiving_template_baseline.clone();
-        candidate.templates.extend(live.templates.clone());
-        candidate.weapon_definition_base = live.weapon_definition_base.clone();
-        candidate.weapon_definitions = live.weapon_definition_base.clone();
-        candidate.projectile_definitions = live.projectile_definitions.clone();
-        candidate.seed_ocl_application_definitions(live.ocl_application_definitions());
-        candidate.set_ai_definition_base(live.ai_definitions.baseline().clone());
-        candidate.admit_production_energy_base(live.production_energy_baseline());
-        candidate.admit_physics_rules_base(live.physics_rules_baseline())?;
-        candidate.admit_terrain_definitions(Arc::clone(live.effective_terrain_definitions()))?;
-        if let Some(catalog) = live.current_armor_definitions() {
-            candidate.admit_armor_definitions(Arc::clone(catalog));
-        }
-        candidate.session_view.camera.settings = live.session_view.camera.settings.reset_seed();
-        candidate.session_view.camera.clip_policy =
-            live.session_view.camera.clip_policy.reset_seed();
-        candidate.session_view.camera.shake_policy =
-            live.session_view.camera.shake_policy.reset_seed();
-        candidate.session_view.camera.movement_policy =
-            live.session_view.camera.movement_policy.reset_seed();
-        candidate.session_view.camera.input_policy =
-            live.session_view.camera.input_policy.reset_seed();
-        // Definitions only: IDs/order/controllers retained, mutable script
-        // caches and Team instances never shared with the running factory.
-        drop(
+        let preparation = (|| -> Result<_, String> {
+            candidate.start_new_game_for_restore(live.game_mode());
+            candidate.begin_saved_snapshot_admission()?;
+            // The receiving loaded catalog owns name/mask allocation order; the
+            // snapshot carries purchased/pending state, not UpgradeTemplate INI.
+            // Clone the value-owned catalog before admitting that runtime state.
+            let upgrade_definitions = live
+                .world_services
+                .upgrade_center()
+                .read()
+                .unwrap_or_else(|error| error.into_inner())
+                .clone();
+            *candidate
+                .world_services
+                .upgrade_center()
+                .write()
+                .unwrap_or_else(|error| error.into_inner()) = upgrade_definitions;
+            candidate.receiving_module_content = live.receiving_module_content.clone();
+            candidate.receiving_object_definitions = live.receiving_object_definitions.clone();
+            candidate.receiving_template_baseline = live.receiving_template_baseline.clone();
+            candidate.templates.extend(live.templates.clone());
+            candidate.weapon_definition_base = live.weapon_definition_base.clone();
+            candidate.weapon_definitions = live.weapon_definition_base.clone();
+            candidate.projectile_definitions = live.projectile_definitions.clone();
+            candidate.seed_ocl_application_definitions(live.ocl_application_definitions());
+            candidate.set_ai_definition_base(live.ai_definitions.baseline().clone());
+            candidate.admit_production_energy_base(live.production_energy_baseline());
+            candidate.admit_physics_rules_base(live.physics_rules_baseline())?;
             candidate
-                .team_factory
-                .replace_for_world_boundary(definitions),
-        );
-        let builder = crate::save_load::SnapshotBuilder::new();
-        builder
-            .prepare_logical_terrain_for_restore(&decoded.snapshot, &mut candidate)
-            .map_err(|error| error.to_string())?;
-        let terrain = crate::save_load::snapshot::prepare_receiving_terrain_visual(
-            &candidate,
-            decoded.terrain_visual_xfer.as_deref(),
-        )
-        .map_err(|error| error.to_string())?;
-        // Validate the complete paired payload before object/script restore.
-        manager
-            .restore_game_snapshot(&decoded.snapshot, &mut candidate)
-            .map_err(|error| error.to_string())?;
-        if let Some(terrain) = &terrain {
-            crate::save_load::snapshot::admit_receiving_terrain_visual(&mut candidate, terrain)
+                .admit_terrain_definitions(Arc::clone(live.effective_terrain_definitions()))?;
+            if let Some(catalog) = live.current_armor_definitions() {
+                candidate.admit_armor_definitions(Arc::clone(catalog));
+            }
+            candidate.session_view.camera.settings = live.session_view.camera.settings.reset_seed();
+            candidate.session_view.camera.clip_policy =
+                live.session_view.camera.clip_policy.reset_seed();
+            candidate.session_view.camera.shake_policy =
+                live.session_view.camera.shake_policy.reset_seed();
+            candidate.session_view.camera.movement_policy =
+                live.session_view.camera.movement_policy.reset_seed();
+            candidate.session_view.camera.input_policy =
+                live.session_view.camera.input_policy.reset_seed();
+            // Definitions only: IDs/order/controllers retained, mutable script
+            // caches and Team instances never shared with the running factory.
+            drop(
+                candidate
+                    .team_factory
+                    .replace_for_world_boundary(definitions),
+            );
+            let builder = crate::save_load::SnapshotBuilder::new();
+            builder
+                .prepare_logical_terrain_for_restore(&decoded.snapshot, &mut candidate)
                 .map_err(|error| error.to_string())?;
-        }
-        let owns_camera =
-            crate::save_load::snapshot::read_owned_session_camera(&decoded.snapshot.lifecycle_tail)
+            let terrain = crate::save_load::snapshot::prepare_receiving_terrain_visual(
+                &candidate,
+                decoded.terrain_visual_xfer.as_deref(),
+            )
+            .map_err(|error| error.to_string())?;
+            // Validate the complete paired payload before object/script restore.
+            manager
+                .restore_game_snapshot(&decoded.snapshot, &mut candidate)
                 .map_err(|error| error.to_string())?;
+            if let Some(terrain) = &terrain {
+                crate::save_load::snapshot::admit_receiving_terrain_visual(&mut candidate, terrain)
+                    .map_err(|error| error.to_string())?;
+            }
+            let owns_camera = crate::save_load::snapshot::read_owned_session_camera(
+                &decoded.snapshot.lifecycle_tail,
+            )
+            .map_err(|error| error.to_string())?;
+            candidate.finish_saved_snapshot_admission()?;
+            Ok((terrain, owns_camera))
+        })();
+        let (terrain, owns_camera) = match preparation {
+            Ok(prepared) => prepared,
+            Err(reason) => {
+                return Err(Self::reject_logical_restore_candidate(
+                    manager, candidate, reason,
+                ));
+            }
+        };
         let staged = transaction.finish_and_restore_live(&candidate.world_services);
-        let checked = staged.preflight_native()?;
+        let checked = match staged.preflight_native() {
+            Ok(checked) => checked,
+            Err(reason) => {
+                return Err(Self::reject_logical_restore_candidate(
+                    manager, candidate, reason,
+                ));
+            }
+        };
+        if let Err(error) =
+            live.destroy_all_objects_immediate_with_effects_checked(&mut Default::default())
+        {
+            return Err(Self::reject_logical_restore_candidate(
+                manager,
+                candidate,
+                format!("outgoing logical Object retirement: {error}"),
+            ));
+        }
         let committed = checked.install_globals();
         admit_staged_session_view(
             &mut live.session_view,
             &mut candidate.session_view,
             owns_camera,
         );
-        candidate.finish_saved_snapshot_admission()?;
         let previous = std::mem::replace(live, candidate);
         drop(previous);
         committed.finish_after_logic_commit();
@@ -2229,7 +2454,7 @@ impl CnCGameEngine {
         camera_input_policy: crate::presentation_frame::camera::input_rules::CameraInputPolicy,
         live_services: &Arc<gamelogic::system::engine_stores::WorldServices>,
         restore_snapshot: F,
-    ) -> Result<StagedRestoreWorld, String>
+    ) -> Result<StagedRestoreWorld, RestoreStagingFailure>
     where
         F: FnOnce(
             &crate::save_load::WorldSnapshot,
@@ -2293,7 +2518,7 @@ impl CnCGameEngine {
         live_services: &Arc<gamelogic::system::engine_stores::WorldServices>,
         restore_snapshot: F,
         mut native: Option<&mut dyn crate::game_logic::NativeMapAdmission>,
-    ) -> Result<StagedRestoreWorld, String>
+    ) -> Result<StagedRestoreWorld, RestoreStagingFailure>
     where
         F: FnOnce(
             &crate::save_load::WorldSnapshot,
@@ -2346,7 +2571,8 @@ impl CnCGameEngine {
             return Err(format!(
                 "save '{slot}' has no usable saved map identity ({:?})",
                 save_info.map_name
-            ));
+            )
+            .into());
         }
 
         // Resolve before touching a staging GameLogic.  `load_map` permits a
@@ -2407,59 +2633,95 @@ impl CnCGameEngine {
         // prior resolution above only proves that this exact identity maps to
         // a real on-disk retail file rather than to a development fallback.
         let definition_source = save_info.pristine_map_name.as_deref().unwrap_or(saved_map);
-        let mut map_water_configuration = None;
-        let mut capture_map_water = |state: &gamelogic::terrain_water::WaterGridState| {
-            map_water_configuration = Some(state.clone());
+        let preparation = (|| -> Result<_, String> {
+            let mut map_water_configuration = None;
+            let mut capture_map_water = |state: &gamelogic::terrain_water::WaterGridState| {
+                map_water_configuration = Some(state.clone());
+            };
+            if !staged.load_map_with_definition_source_and_water_delivery_and_native_checked(
+                saved_map,
+                definition_source,
+                Some(&mut capture_map_water),
+                native
+                    .as_mut()
+                    .map(|native| &mut **native as &mut dyn crate::game_logic::NativeMapAdmission),
+            )? {
+                return Err(format!(
+                    "failed to load saved map '{saved_map}' from '{resolved_map_name}'"
+                ));
+            }
+            if !staged.isInGame() || staged.get_current_map_name() != saved_map {
+                return Err(format!(
+                    "saved map '{saved_map}' did not become the active staged map"
+                ));
+            }
+
+            // Validate the companion against actual map water layout before the
+            // logical snapshot can replace it. No native state is touched here.
+            let terrain_visual = crate::save_load::snapshot::prepare_receiving_terrain_visual(
+                &staged,
+                terrain_visual_xfer_bytes.as_deref(),
+            )
+            .map_err(|error| error.to_string())?;
+            // The saved-map foundation already owns native constructor outputs.
+            // Retire those exact Objects through the candidate loan before the
+            // detached snapshot can replace frame/players/teams and saved IDs.
+            if let Some(native) = native.as_mut() {
+                staged
+                    .destroy_all_objects_immediate_with_effects_checked(&mut native.effects())
+                    .map_err(|error| format!("saved-map foundation retirement: {error}"))?;
+            } else {
+                staged
+                    .destroy_all_objects_immediate_with_effects_checked(&mut Default::default())
+                    .map_err(|error| format!("saved-map foundation retirement: {error}"))?;
+            }
+            restore_snapshot(snapshot, &mut staged)?;
+            if let Some(native) = native.as_mut() {
+                native.admit_restored_object_drawables(&mut staged)?;
+            }
+            if let Some(prepared) = &terrain_visual {
+                crate::save_load::snapshot::admit_receiving_terrain_visual(&mut staged, prepared)
+                    .map_err(|error| error.to_string())?;
+            }
+
+            // Snapshot/companion admission may replace canonical raw heights after
+            // map factories ran. Finish that SAME detached native owner now; saved
+            // water and the optional scorch tail still apply at native commit.
+            if let Some(native) = native.as_mut() {
+                native.admit_restored_heights(&staged)?;
+            }
+
+            // Snapshot restoration must not turn a successful map load into a
+            // false in-game claim.  It currently restores terrain/objects but not
+            // GameMode/map identity, so these checks also guard future changes.
+            if !staged.isInGame() || staged.get_current_map_name() != saved_map {
+                return Err(format!(
+                    "saved map '{saved_map}' was lost while restoring the snapshot"
+                ));
+            }
+
+            Ok((terrain_visual, map_water_configuration))
+        })();
+        let (terrain_visual, map_water_configuration) = match preparation {
+            Ok(prepared) => prepared,
+            Err(error) => {
+                let cleanup = if let Some(native) = native.as_mut() {
+                    staged
+                        .destroy_all_objects_immediate_with_effects_checked(&mut native.effects())
+                        .map_err(|failure| failure.to_string())
+                        .and_then(|()| native.discard_attempt())
+                } else {
+                    staged
+                        .destroy_all_objects_immediate_with_effects_checked(&mut Default::default())
+                        .map_err(|failure| failure.to_string())
+                };
+                let reason = format!("{error}; staged Object cleanup={cleanup:?}");
+                return Err(RestoreStagingFailure {
+                    reason,
+                    retained_logic: cleanup.is_err().then(|| Box::new(staged)),
+                });
+            }
         };
-        if !staged.load_map_with_definition_source_and_water_delivery_and_native_checked(
-            saved_map,
-            definition_source,
-            Some(&mut capture_map_water),
-            native
-                .as_mut()
-                .map(|native| &mut **native as &mut dyn crate::game_logic::NativeMapAdmission),
-        )? {
-            return Err(format!(
-                "failed to load saved map '{saved_map}' from '{resolved_map_name}'"
-            ));
-        }
-        if !staged.isInGame() || staged.get_current_map_name() != saved_map {
-            return Err(format!(
-                "saved map '{saved_map}' did not become the active staged map"
-            ));
-        }
-
-        // Validate the companion against actual map water layout before the
-        // logical snapshot can replace it. No native state is touched here.
-        let terrain_visual = crate::save_load::snapshot::prepare_receiving_terrain_visual(
-            &staged,
-            terrain_visual_xfer_bytes.as_deref(),
-        )
-        .map_err(|error| error.to_string())?;
-        restore_snapshot(snapshot, &mut staged)?;
-        if let Some(native) = native.as_mut() {
-            native.admit_restored_object_drawables(&mut staged)?;
-        }
-        if let Some(prepared) = &terrain_visual {
-            crate::save_load::snapshot::admit_receiving_terrain_visual(&mut staged, prepared)
-                .map_err(|error| error.to_string())?;
-        }
-
-        // Snapshot/companion admission may replace canonical raw heights after
-        // map factories ran. Finish that SAME detached native owner now; saved
-        // water and the optional scorch tail still apply at native commit.
-        if let Some(native) = native.as_mut() {
-            native.admit_restored_heights(&staged)?;
-        }
-
-        // Snapshot restoration must not turn a successful map load into a
-        // false in-game claim.  It currently restores terrain/objects but not
-        // GameMode/map identity, so these checks also guard future changes.
-        if !staged.isInGame() || staged.get_current_map_name() != saved_map {
-            return Err(format!(
-                "saved map '{saved_map}' was lost while restoring the snapshot"
-            ));
-        }
 
         // Restore the active singleton/TLS state before exposing the candidate
         // to the caller.  The returned opaque bundle is installed only by the
@@ -2519,6 +2781,9 @@ impl CnCGameEngine {
         // CHUNK_Campaign is stashed during decode; apply only after commit so
         // a failed load cannot leave half-applied campaign on the live match
         // (C++ GameState.cpp:695-712 clearGameData).
+        self.rejected_native_worlds
+            .validate_admission()
+            .map_err(HostLoadFailure::Staging)?;
         let prior_campaign = crate::save_load::capture_live_campaign_state();
         let active_mode = self.game_logic.game_mode();
         let template_catalog = self.game_logic.templates.clone();
@@ -2564,15 +2829,13 @@ impl CnCGameEngine {
                 &self.game_logic.world_services,
                 Some(&mut attempt),
             );
-            if let Err(error) = &result {
-                if let Err(cleanup) = attempt.discard_attempt() {
-                    return Err(format!(
-                        "{error}; rejecting saved native candidate: {cleanup}"
-                    ));
-                }
-            }
+            // Staging errors retire/discard before their logical owner drops;
+            // do not replay an already failed candidate destructor here.
             drop(attempt);
-            let mut staged = result?;
+            let mut staged = match result {
+                Ok(staged) => staged,
+                Err(failure) => return Err(self.retain_staging_failure(failure, candidate)),
+            };
             staged.native_map = candidate;
             Ok(staged)
         })();
@@ -2602,7 +2865,8 @@ impl CnCGameEngine {
             self.game_logic.session_view.camera.input_policy,
             &self.game_logic.world_services,
             None,
-        );
+        )
+        .map_err(|failure| self.retain_staging_failure(failure, Default::default()));
         let staged = match staged_result {
             Ok(staged) => staged,
             Err(err) => {
@@ -2613,8 +2877,9 @@ impl CnCGameEngine {
 
         let mut staged = staged;
         if let Err(failure) = Self::validate_staged_native_fade(&staged.logic) {
-            #[cfg(feature = "game_client")]
-            if let Err(cleanup) = self.discard_receiving_map_candidate(&mut staged.native_map) {
+            if let Err(cleanup) =
+                self.reject_receiving_world_candidate(staged.logic, staged.native_map)
+            {
                 crate::save_load::rollback_campaign_after_failed_load(prior_campaign);
                 return Err(HostLoadFailure::Staging(format!(
                     "{failure:?}; rejecting saved native candidate: {cleanup}"

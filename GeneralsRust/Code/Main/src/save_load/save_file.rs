@@ -748,9 +748,26 @@ pub struct SaveFileManager {
     auto_save_interval: std::time::Duration,
     max_save_files: usize,
     last_auto_save: SystemTime,
+    rejected_logical_worlds: Vec<Box<GameLogic>>,
 }
 
 impl SaveFileManager {
+    pub(crate) fn retain_rejected_logical_world(&mut self, world: Box<GameLogic>) {
+        self.rejected_logical_worlds.push(world);
+    }
+    pub(crate) fn transfer_rejected_logical_worlds_to(&mut self, receiving: &mut Self) {
+        receiving
+            .rejected_logical_worlds
+            .append(&mut self.rejected_logical_worlds);
+    }
+    pub(crate) fn validate_logical_restore_admission(&self) -> Result<(), String> {
+        if self.rejected_logical_worlds.is_empty() {
+            Ok(())
+        } else {
+            Err("terminal logical restore candidate retirement".into())
+        }
+    }
+
     pub fn new() -> Self {
         let save_dir = SaveLoadManager::default_save_directory();
         Self::with_save_directory(save_dir)
@@ -767,6 +784,7 @@ impl SaveFileManager {
             auto_save_interval: std::time::Duration::from_secs(300), // 5 minutes
             max_save_files: MAX_SAVE_SLOTS,
             last_auto_save: SystemTime::now(),
+            rejected_logical_worlds: Vec::new(),
         }
     }
 
@@ -1072,6 +1090,8 @@ impl SaveFileManager {
         filename: &str,
         game_logic: &mut GameLogic,
     ) -> SaveLoadResult<(SaveGameInfo, Option<PreparedTerrainVisual>)> {
+        self.validate_logical_restore_admission()
+            .map_err(SaveLoadError::Serialization)?;
         let prior_campaign = capture_live_campaign_state();
         let decoded = match self.load_game_snapshot(filename) {
             Ok(decoded) => decoded,
@@ -1936,3 +1956,42 @@ pub fn init_save_file_system() -> SaveLoadResult<()> {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod rejected_logical_candidate_tests {
+    use super::*;
+    use crate::game_logic::{Object, ObjectId, Team, ThingTemplate};
+    #[test]
+    fn terminal_logical_candidate_is_retained_and_blocks_load_before_decode() {
+        let mut manager = SaveFileManager::with_save_directory("unused-terminal-candidate");
+        let mut failed = GameLogic::new();
+        failed.add_object(Object::new(
+            ThingTemplate::new("FailedOwner"),
+            ObjectId(7),
+            Team::USA,
+        ));
+        failed.frame = 91;
+        let mut peer = GameLogic::new();
+        peer.add_object(Object::new(
+            ThingTemplate::new("Peer"),
+            ObjectId(7),
+            Team::USA,
+        ));
+        manager.retain_rejected_logical_world(Box::new(failed));
+        let error = manager.load_game("not-decoded", &mut peer).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("terminal logical restore candidate")
+        );
+        assert_eq!(manager.rejected_logical_worlds.len(), 1);
+        assert_eq!(manager.rejected_logical_worlds[0].frame, 91);
+        assert!(
+            manager.rejected_logical_worlds[0]
+                .host_object(ObjectId(7))
+                .is_some()
+        );
+        assert!(peer.host_object(ObjectId(7)).is_some());
+        assert_eq!(peer.frame, 0);
+    }
+}

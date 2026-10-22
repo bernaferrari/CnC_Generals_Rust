@@ -432,6 +432,14 @@ impl SnapshotBuilder {
         let player_team_chunks = super::super::player_team_chunks::chunks_from_world(snapshot)?;
         super::super::player_team_chunks::validate_roster(snapshot, &player_team_chunks)?;
         super::super::player_team_chunks::validate_definitions(game_logic, &player_team_chunks)?;
+        // Retire outgoing callbacks while their original frame/players/teams
+        // still exist. Later object restoration may only reset an empty roster;
+        // it must not run old destructors against newly restored owners.
+        game_logic
+            .destroy_all_objects_immediate_with_effects_checked(&mut Default::default())
+            .map_err(|error| {
+                SaveLoadError::Corrupted(format!("outgoing Object retirement: {error}"))
+            })?;
         // This direct API mutates the receiver below and may subsequently fail.
         // Its transient result must not describe the previous world after a
         // partial restore. Production loading isolates this work in a candidate.

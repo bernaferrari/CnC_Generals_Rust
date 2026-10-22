@@ -229,7 +229,7 @@ fn isolated(name: &str) -> bool {
     true
 }
 
-fn authored_world(goal: Vec3) -> (GameLogic, ObjectId, ObjectId) {
+fn admitted_aircraft_world() -> GameLogic {
     use game_engine::common::ini::ini_locomotor::load_locomotors_from_str;
     load_locomotors_from_str(
         r#"
@@ -246,10 +246,9 @@ End
 "#,
     )
     .expect("authored flight locomotors");
-    let mut parser = crate::assets::IniParser::new();
-    parser
-        .parse_ini_content(
-            r#"
+    let content = crate::assets::ReceivingObjectContent::from_sources([(
+        "hq_awym_aircraft.ini".into(),
+        r#"
 Object AmericaVehicleComanche
   KindOf = VEHICLE AIRCRAFT PRODUCED_AT_HELIPAD
   Geometry = CYLINDER
@@ -277,21 +276,26 @@ Object HqAwymWingAircraft
   End
   Locomotor = SET_NORMAL HqAwymWings
 End
-"#,
-            "hq_awym_aircraft.ini",
-        )
-        .expect("authored aircraft definitions");
+"#
+        .into(),
+    )])
+    .expect("paired authored aircraft definitions");
     let mut world = GameLogic::new();
+    world
+        .admit_receiving_module_content(content)
+        .expect("receiving aircraft module and host definitions");
     for name in ["AmericaVehicleComanche", "HqAwymWingAircraft"] {
-        world.templates.insert(
-            name.to_owned(),
-            GameLogic::build_template_from_object_definition(
-                name,
-                parser.get_definition(name).unwrap(),
-                None,
-            ),
+        assert_eq!(
+            world.templates[name].authored_ai_update_interface(),
+            Some(true)
         );
+        assert!(world.templates[name].receiving_object_definition.is_some());
     }
+    world
+}
+
+fn authored_world(goal: Vec3) -> (GameLogic, ObjectId, ObjectId) {
+    let mut world = admitted_aircraft_world();
     let hover = world
         .create_object("AmericaVehicleComanche", Team::USA, goal)
         .unwrap();
@@ -472,8 +476,7 @@ fn authored_aircraft_save_load_continues_owned_goal_changes() {
     } = manager
         .load_game_snapshot("quicksave")
         .expect("actual save decoder");
-    let mut restored = GameLogic::new();
-    restored.templates = source.templates.clone();
+    let mut restored = admitted_aircraft_world();
     // Common saves transfer runtime into an already prepared map candidate.
     // This synthetic open map has the same known extent on both instances.
     restored.override_world_size(600.0, 600.0);

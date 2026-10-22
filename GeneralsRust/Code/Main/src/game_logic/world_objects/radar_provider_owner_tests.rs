@@ -521,3 +521,89 @@ fn actual_emp_field_admits_radar_before_impact_presentation_and_next_operation()
         assert!(world.queued_audio_events.iter().any(|event| event.event_type == crate::game_logic::host_radar::RADAR_OFFLINE_AUDIO));
     });
 }
+
+#[cfg(test)]
+mod bulk_retirement_order_tests {
+    use super::*;
+    use crate::save_load::snapshot::SnapshotBuilder;
+
+    fn admitted_map_player(display_name: &str) -> Player {
+        use game_engine::common::{dict::Dict, well_known_keys::key_player_name};
+        let mut player = Player::new(1, Team::GLA, display_name, true);
+        let mut side = Dict::new();
+        side.set_ascii_string(key_player_name(), "RadarRestoreSlot");
+        // The same admitted map side owns both continuations. Display names
+        // are mutable save state, not new map Team prototype definitions.
+        player.apply_map_side_dict(
+            &side,
+            false,
+            &mut crate::game_logic::host_economy_log::EconomyEvents::default(),
+        );
+        player
+    }
+
+    #[test]
+    fn full_restore_retires_outgoing_radar_against_old_owner_and_frame_before_incoming_state() {
+        let mut incoming = GameLogic::new();
+        incoming.frame = 111;
+        let mut player = admitted_map_player("incoming");
+        player.radar_count = 1;
+        player.disable_proof_radar_count = 1;
+        incoming.add_player(player);
+        let builder = SnapshotBuilder::new();
+        let saved = builder.create_world_snapshot(&incoming).unwrap();
+        let encoded = bincode_legacy::serialize(&saved).unwrap();
+        let saved = crate::save_load::snapshot::decode_bincode_world_snapshot(&encoded).unwrap();
+        let mut outgoing = GameLogic::new();
+        outgoing.frame = 0;
+        outgoing.host_logic_step_active = true;
+        outgoing.add_player(admitted_map_player("outgoing"));
+        let incoming_prototypes = incoming.team_factory.lock().unwrap().prototype_names();
+        let outgoing_prototypes = outgoing.team_factory.lock().unwrap().prototype_names();
+        assert_eq!(incoming_prototypes, ["teamRadarRestoreSlot"]);
+        assert_eq!(outgoing_prototypes, incoming_prototypes);
+        outgoing
+            .victory_conditions
+            .set_victory_conditions(crate::game_logic::victory_conditions::VictoryType::empty());
+        let mut template = ThingTemplate::new("GLAVehicleRadarVan");
+        template.set_health(200.);
+        outgoing
+            .templates
+            .insert(template.name.clone(), template.clone());
+        let id = ObjectId(41);
+        let mut object = Object::new(template, id, Team::GLA);
+        object.construction_percent = 1.;
+        object.owner_player_id = Some(1);
+        outgoing.add_object(object);
+        outgoing.host_radar_add_object(id);
+        assert_eq!(outgoing.get_player(1).unwrap().radar_count, 1);
+        assert!(
+            outgoing.queued_audio_events.is_empty(),
+            "frame-zero outgoing lifecycle is silent"
+        );
+        builder
+            .restore_from_snapshot(&saved, &mut outgoing)
+            .unwrap();
+        assert_eq!(outgoing.frame, 111);
+        assert!(outgoing.host_objects().is_empty());
+        assert_eq!(outgoing.get_player(1).unwrap().name, "incoming");
+        assert_eq!(
+            outgoing.get_player(1).unwrap().map_side.map_player_name,
+            "RadarRestoreSlot"
+        );
+        assert_eq!(
+            outgoing.team_factory.lock().unwrap().prototype_names(),
+            incoming_prototypes
+        );
+        assert_eq!(
+            outgoing.get_player(1).unwrap().radar_count,
+            1,
+            "outgoing onDelete cannot decrement restored Player state"
+        );
+        assert_eq!(outgoing.get_player(1).unwrap().disable_proof_radar_count, 1);
+        assert!(
+            outgoing.queued_audio_events.is_empty(),
+            "outgoing callback cannot observe incoming nonzero frame and emit offline sound"
+        );
+    }
+}

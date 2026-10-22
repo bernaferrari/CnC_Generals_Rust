@@ -1433,8 +1433,18 @@ impl GameLogic {
             .set_current_frame(self.frame);
     }
 
-    /// Clear all objects (for snapshot restoration)
+    /// Compatibility for detached/headless restore tools. A live native world
+    /// must pass its actual receiver to the checked operation instead.
     pub fn clear_all_objects(&mut self) {
+        self.clear_all_objects_with_effects_checked(&mut Default::default())
+            .expect("bulk Object retirement must finish before roster reset");
+    }
+
+    pub(crate) fn clear_all_objects_with_effects_checked(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
+        self.destroy_all_objects_immediate_with_effects_checked(effects)?;
         let ghost_parents: Vec<_> = self
             .w3d_ghosts
             .used()
@@ -1460,6 +1470,7 @@ impl GameLogic {
         self.ambient_sound_retries.clear();
         self.next_object_id = ObjectId(1);
         self.next_formation_id = 1;
+        Ok(())
     }
 
     /// Read the next object ID counter for the snapshot (C++
