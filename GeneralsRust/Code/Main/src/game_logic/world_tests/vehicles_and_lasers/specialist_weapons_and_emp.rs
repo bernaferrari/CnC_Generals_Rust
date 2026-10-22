@@ -272,8 +272,8 @@ fn nuclear_tanks_residual_speed_death_and_radiation() {
     }
 
     // Host residual upgrade complete path (same as QueueUpgrade research finish).
-    let affected =
-        game_logic.apply_nuclear_tanks_unlock_to_team(Team::China, UPGRADE_CHINA_NUCLEAR_TANKS);
+    let affected = game_logic
+        .apply_nuclear_tanks_unlock_to_team(Team::China.into(), UPGRADE_CHINA_NUCLEAR_TANKS);
     assert!(affected >= 1, "Nuclear Tanks must affect battlemaster");
     let frame = game_logic.frame;
     game_logic
@@ -381,7 +381,7 @@ fn rebel_booby_trap_plant_and_capture_detonate_residual() {
 
     // Host residual BoobyTrap upgrade unlock path.
     let affected =
-        game_logic.apply_booby_trap_unlock_to_team(Team::GLA, UPGRADE_GLA_REBEL_BOOBY_TRAP);
+        game_logic.apply_booby_trap_unlock_to_team(Team::GLA.into(), UPGRADE_GLA_REBEL_BOOBY_TRAP);
     assert!(affected >= 1, "BoobyTrap upgrade must tag rebel");
     let frame = game_logic.frame;
     game_logic.host_upgrades_mut().record_complete(
@@ -524,8 +524,10 @@ fn booby_trap_detonates_enemy_and_refuses_replace() {
     let building_id = game_logic
         .create_object("TestBuilding", Team::Neutral, Vec3::new(0.0, 0.0, 0.0))
         .expect("bldg");
-    let _ = game_logic.apply_booby_trap_unlock_to_team(Team::GLA, UPGRADE_GLA_REBEL_BOOBY_TRAP);
-    let _ = game_logic.apply_booby_trap_unlock_to_team(Team::USA, UPGRADE_GLA_REBEL_BOOBY_TRAP);
+    let _ =
+        game_logic.apply_booby_trap_unlock_to_team(Team::GLA.into(), UPGRADE_GLA_REBEL_BOOBY_TRAP);
+    let _ =
+        game_logic.apply_booby_trap_unlock_to_team(Team::USA.into(), UPGRADE_GLA_REBEL_BOOBY_TRAP);
     if let Some(enemy) = game_logic.host_object_mut(enemy_id) {
         enemy.apply_upgrade_tag(UPGRADE_GLA_REBEL_BOOBY_TRAP);
         enemy.health.current = 5_000.0;

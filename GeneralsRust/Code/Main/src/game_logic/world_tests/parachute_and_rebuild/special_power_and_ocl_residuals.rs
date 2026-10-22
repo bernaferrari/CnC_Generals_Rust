@@ -622,7 +622,7 @@ fn host_upgrade_complete_helix_nuke_bomb_tags_helix() {
         .create_object("ChinaHelix", Team::China, glam::Vec3::new(0.0, 0.0, 0.0))
         .expect("helix");
     let n = logic.apply_helix_bomb_upgrade_to_team(
-        Team::China,
+        Team::China.into(),
         "Nuke_Upgrade_HelixNukeBomb",
         UPGRADE_HELIX_NUKE_BOMB,
     );
@@ -1271,7 +1271,7 @@ fn host_upgrade_complete_fanaticism_does_not_map_to_nationalism() {
             glam::Vec3::new(0.0, 0.0, 0.0),
         )
         .expect("rg");
-    let n = logic.apply_fanaticism_to_team(Team::China, UPGRADE_FANATICISM);
+    let n = logic.apply_fanaticism_to_team(Team::China.into(), UPGRADE_FANATICISM);
     assert!(n >= 1, "fanaticism tag residual n={n}");
     let obj = logic.host_object(id).unwrap();
     assert!(obj.has_upgrade_tag(UPGRADE_FANATICISM));
@@ -1805,7 +1805,7 @@ fn host_upgrade_complete_cash_bounty_sets_player_percent() {
         .players
         .insert(0, Player::new(0, Team::GLA, "GLA", true));
 
-    let n = logic.apply_cash_bounty_upgrade_to_team(Team::GLA, "Upgrade_CashBounty");
+    let n = logic.apply_cash_bounty_upgrade_to_team(Team::GLA.into(), "Upgrade_CashBounty");
     assert_eq!(n, 1);
     let p = logic.players.get(&0).unwrap();
     assert!((p.cash_bounty_percent - 0.0).abs() < 0.001);
@@ -1857,7 +1857,7 @@ fn host_upgrade_complete_cash_bounty_sets_player_percent() {
         (logic.players.get(&0).unwrap().cash_bounty_percent - CASH_BOUNTY1_PERCENT).abs() < 0.001
     );
 
-    let n3 = logic.apply_cash_bounty_upgrade_to_team(Team::GLA, "SCIENCE_CashBounty3");
+    let n3 = logic.apply_cash_bounty_upgrade_to_team(Team::GLA.into(), "SCIENCE_CashBounty3");
     assert_eq!(n3, 1);
     let p = logic.players.get(&0).unwrap();
     assert!((p.cash_bounty_percent - CASH_BOUNTY3_PERCENT).abs() < 0.001);
@@ -1900,7 +1900,7 @@ fn host_upgrade_complete_slave_drone_attaches_to_humvee() {
         )
         .expect("humvee");
 
-    let n = logic.apply_slave_drone_upgrade_to_team(Team::USA, UPGRADE_AMERICA_SCOUT_DRONE);
+    let n = logic.apply_slave_drone_upgrade_to_team(Team::USA.into(), UPGRADE_AMERICA_SCOUT_DRONE);
     assert_eq!(n, 1);
     assert!(
         logic
@@ -1928,7 +1928,8 @@ fn host_upgrade_complete_slave_drone_attaches_to_humvee() {
             glam::Vec3::new(40.0, 0.0, 0.0),
         )
         .expect("humvee2");
-    let n2 = logic.apply_slave_drone_upgrade_to_team(Team::USA, UPGRADE_AMERICA_BATTLE_DRONE);
+    let n2 =
+        logic.apply_slave_drone_upgrade_to_team(Team::USA.into(), UPGRADE_AMERICA_BATTLE_DRONE);
     assert!(n2 >= 1);
     assert!(
         logic
@@ -1966,7 +1967,7 @@ fn host_upgrade_complete_chemical_suits_reduces_poison() {
         let o = logic.host_object(id).unwrap();
         apply_residual_armor(o, DamageType::Toxin, 100.0)
     };
-    let n = logic.apply_chemical_suits_to_team(Team::USA, UPGRADE_AMERICA_CHEMICAL_SUITS);
+    let n = logic.apply_chemical_suits_to_team(Team::USA.into(), UPGRADE_AMERICA_CHEMICAL_SUITS);
     assert!(n >= 1);
     let after = {
         let o = logic.host_object(id).unwrap();
@@ -1994,7 +1995,11 @@ fn host_upgrade_complete_moab_and_satellite_hack_unlock() {
         .players
         .insert(1, Player::new(1, Team::China, "China", true));
     assert_eq!(
-        logic.apply_player_unlock_upgrade(Team::USA, UPGRADE_AMERICA_MOAB, UPGRADE_AMERICA_MOAB),
+        logic.apply_player_unlock_upgrade(
+            Team::USA.into(),
+            UPGRADE_AMERICA_MOAB,
+            UPGRADE_AMERICA_MOAB
+        ),
         1
     );
     assert!(
@@ -2005,7 +2010,10 @@ fn host_upgrade_complete_moab_and_satellite_hack_unlock() {
             .unlocked_sciences
             .contains(UPGRADE_AMERICA_MOAB)
     );
-    assert!(logic.apply_satellite_hack_to_team(Team::China, UPGRADE_CHINA_SATELLITE_HACK_TWO) >= 1);
+    assert!(
+        logic.apply_satellite_hack_to_team(Team::China.into(), UPGRADE_CHINA_SATELLITE_HACK_TWO)
+            >= 1
+    );
     assert!(
         logic
             .players
@@ -2033,8 +2041,11 @@ fn host_upgrade_complete_mines_radar_fortified() {
         .players
         .insert(2, Player::new(2, Team::USA, "USA", true));
 
-    let n_m =
-        logic.apply_player_unlock_upgrade(Team::China, UPGRADE_CHINA_MINES, UPGRADE_CHINA_MINES);
+    let n_m = logic.apply_player_unlock_upgrade(
+        Team::China.into(),
+        UPGRADE_CHINA_MINES,
+        UPGRADE_CHINA_MINES,
+    );
     assert_eq!(n_m, 1);
     assert!(
         logic
@@ -2052,7 +2063,8 @@ fn host_upgrade_complete_mines_radar_fortified() {
         .create_object("GLABlackMarket", Team::GLA, glam::Vec3::new(0.0, 0.0, 0.0))
         .expect("bm");
     let before = logic.host_object(bid).unwrap().max_health;
-    let n_f = logic.apply_fortified_structure_to_team(Team::GLA, UPGRADE_GLA_FORTIFIED_STRUCTURE);
+    let n_f =
+        logic.apply_fortified_structure_to_team(Team::GLA.into(), UPGRADE_GLA_FORTIFIED_STRUCTURE);
     assert_eq!(n_f, 1);
     let after = logic.host_object(bid).unwrap().max_health;
     assert!((after - before - FORTIFIED_STRUCTURE_ADD_MAX_HEALTH).abs() < 0.1);
@@ -2119,7 +2131,7 @@ fn host_upgrade_complete_drone_and_aircraft_armor() {
         )
         .expect("drone");
     let before = logic.host_object(did).unwrap().max_health;
-    let n_d = logic.apply_drone_armor_to_team(Team::USA, UPGRADE_AMERICA_DRONE_ARMOR);
+    let n_d = logic.apply_drone_armor_to_team(Team::USA.into(), UPGRADE_AMERICA_DRONE_ARMOR);
     assert_eq!(n_d, 1);
     let after = logic.host_object(did).unwrap().max_health;
     assert!((after - before - drone_armor_add_max_health(SlaveDroneKind::Battle)).abs() < 0.1);
@@ -2128,7 +2140,7 @@ fn host_upgrade_complete_drone_and_aircraft_armor() {
         .create_object("ChinaJetMIG", Team::China, glam::Vec3::new(20.0, 0.0, 0.0))
         .expect("mig");
     let mb = logic.host_object(mid).unwrap().max_health;
-    let n_a = logic.apply_aircraft_armor_to_team(Team::China, UPGRADE_CHINA_AIRCRAFT_ARMOR);
+    let n_a = logic.apply_aircraft_armor_to_team(Team::China.into(), UPGRADE_CHINA_AIRCRAFT_ARMOR);
     assert_eq!(n_a, 1);
     let ma = logic.host_object(mid).unwrap().max_health;
     assert!((ma - mb - MIG_AIRCRAFT_ARMOR_ADD_MAX_HEALTH).abs() < 0.1);
@@ -2172,7 +2184,8 @@ fn host_upgrade_complete_advanced_training_and_tactical_nuke_mig() {
         )
         .expect("mig");
 
-    let n_at = logic.apply_advanced_training_to_team(Team::USA, UPGRADE_AMERICA_ADVANCED_TRAINING);
+    let n_at =
+        logic.apply_advanced_training_to_team(Team::USA.into(), UPGRADE_AMERICA_ADVANCED_TRAINING);
     assert!(n_at >= 1);
     assert!(
         logic
@@ -2191,7 +2204,8 @@ fn host_upgrade_complete_advanced_training_and_tactical_nuke_mig() {
     // Honesty: XP scalar residual path.
     assert!((residual_xp_gain_with_advanced_training(50.0, true) - 100.0).abs() < 0.01);
 
-    let n_nuke = logic.apply_tactical_nuke_mig_to_team(Team::China, "Upgrade_ChinaTacticalNukeMig");
+    let n_nuke =
+        logic.apply_tactical_nuke_mig_to_team(Team::China.into(), "Upgrade_ChinaTacticalNukeMig");
     assert_eq!(n_nuke, 1);
     assert!(
         logic

@@ -511,62 +511,31 @@ impl Player {
         );
     }
 
-    /// C++ ProductionUpdate.cpp:874-879 / 931 — purchased research complete.
-    /// AcademyStats::recordUpgrade(upgrade, FALSE) + ScoreKeeper::addMoneySpent.
-    pub(crate) fn record_upgrade_production_complete(
-        &self,
+    /// C++ ProductionUpdate.cpp:878: score the completed research before
+    /// notifying scripts. Withdrawal alone is not completed production spend.
+    pub(crate) fn record_upgrade_production_spending(
+        &mut self,
         definition: &gamelogic::upgrade::UpgradeTemplate,
     ) {
-        self.sync_leftover_upgrade_production_complete(definition);
+        // Upgrade.cpp150-156 currently returns authored cost for every player.
+        self.record_resources_spent(definition.get_cost().max(0) as u32);
     }
 
-    fn leftover_player_arc_for_sync(
-        &self,
-    ) -> Option<std::sync::Arc<std::sync::RwLock<gamelogic::player::Player>>> {
-        let named = format!("player{}", self.id);
-        let Ok(list) = gamelogic::player::player_list().read() else {
-            return None;
-        };
-        let by_name = [
-            self.name.as_str(),
-            self.map_side.map_player_name.as_str(),
-            named.as_str(),
-        ]
-        .into_iter()
-        .find_map(|n| {
-            if n.is_empty() {
-                None
-            } else {
-                list.find_player_by_name(n)
-            }
-        });
-        by_name
-            .or_else(|| list.get_player(self.id as i32).cloned())
-            .or_else(|| {
-                list.iter().find_map(|arc| {
-                    arc.read()
-                        .ok()
-                        .is_some_and(|guard| guard.get_player_index() as u32 == self.id)
-                        .then(|| std::sync::Arc::clone(arc))
-                })
-            })
-    }
-
-    fn sync_leftover_upgrade_production_complete(
-        &self,
-        template: &gamelogic::upgrade::UpgradeTemplate,
+    /// C++ ProductionUpdate.cpp:931: observe the completed upgrade only after
+    /// player addUpgrade / object giveUpgrade and their synchronous callbacks.
+    pub(crate) fn record_upgrade_production_academy(
+        &mut self,
+        definition: &gamelogic::upgrade::UpgradeTemplate,
+        frame: u32,
     ) {
-        let Some(arc) = self.leftover_player_arc_for_sync() else {
-            return;
+        use game_engine::common::rts::academy_stats::AcademyClassificationType;
+        let classification = match definition.get_academy_classification() {
+            1 => AcademyClassificationType::UpgradeRadar,
+            2 => AcademyClassificationType::Superpower,
+            _ => AcademyClassificationType::None,
         };
-        let Ok(mut guard) = arc.write() else {
-            return;
-        };
-        let cost = template.calc_cost_to_build(&guard).max(0) as u32;
-        guard
-            .get_academy_stats_mut()
-            .record_upgrade(template, false);
-        guard.get_score_keeper_mut().add_money_spent(cost);
+        self.academy_stats
+            .record_upgrade_at(classification, false, frame);
     }
 
     /// Leftover `Player::addUpgrade` already xfers `m_upgradesCompleted`.
@@ -2125,74 +2094,70 @@ mod map_side_dict_tests {
     }
 
     #[test]
-    fn upgrade_complete_records_leftover_academy_and_score_spent() {
-        isolated_at(
-            module_path!(),
-            "upgrade_complete_records_leftover_academy_and_score_spent",
-            || {
-                // C++ ProductionUpdate.cpp:874-879 / 931.
-                struct LeftoverGuard;
-                impl Drop for LeftoverGuard {
-                    fn drop(&mut self) {
-                        if let Ok(mut list) = gamelogic::player::ThePlayerList().write() {
-                            list.clear();
-                        }
-                    }
-                }
-                let _guard = LeftoverGuard;
-                let leftover = gamelogic::player::Player::new(0);
-                let leftover = std::sync::Arc::new(std::sync::RwLock::new(leftover));
-                {
-                    let mut list = gamelogic::player::ThePlayerList()
-                        .write()
-                        .unwrap_or_else(|e| e.into_inner());
-                    list.clear();
-                    list.add_player(std::sync::Arc::clone(&leftover));
-                }
-                const NAME: &str = "Upgrade_W4106AcademyRadar";
-                gamelogic::upgrade::center::with_upgrade_center_mut(|center| {
-                    let mut ini = game_engine::common::ini::INI::new();
-                    let source = format!(
-                        "Upgrade {NAME}\nBuildCost = 800\nAcademyClassify = ACT_UPGRADE_RADAR\nEnd\n"
-                    );
-                    ini.with_inline_source(&source, |ini| {
-                        // parse_upgrade_definition expects the upgrade-name line
-                        // already staged in the tokenizer buffer (INI::get_next_token
-                        // reads from the current line, see the sibling registration
-                        // helper in object_ai_combat.rs::register_upgrade_completion_sounds).
-                        ini.read_line()?;
-                        center
-                            .parse_upgrade_definition(ini)
-                            .map_err(|_| game_engine::common::ini::INIError::InvalidData)
-                    })
-                    .expect("register leftover upgrade");
-                });
-                let mut player = Player::new(0, Team::USA, "USA", true);
-                let definition = gamelogic::upgrade::center::with_upgrade_center(|center| {
-                    center.find_upgrade(NAME)
-                })
-                .expect("authored fixture upgrade");
-                player.complete_researched_upgrade_with_definition(
-                    NAME,
-                    gamelogic::upgrade::UpgradeType::Player,
-                    Some(definition.as_ref()),
-                );
-                let leftover_guard = leftover.read().expect("leftover player");
-                assert!(
-                    leftover_guard.get_academy_stats().has_researched_radar(),
-                    "purchased ACT_UPGRADE_RADAR must set leftover researched_radar"
-                );
-                assert_eq!(
-                    leftover_guard.get_academy_stats().get_upgrades_purchased(),
-                    1,
-                    "purchased (not granted) upgrade increments leftover upgrades_purchased"
-                );
-                assert_eq!(
-                    leftover_guard.get_score_keeper().get_total_money_spent(),
-                    800,
-                    "complete must add leftover ScoreKeeper money spent"
-                );
+    fn research_payment_completion_and_academy_are_distinct_owned_phases() {
+        let mut definition = gamelogic::upgrade::UpgradeTemplate::new("ReceivingRadar".into());
+        let mut ini = game_engine::common::ini::INI::new();
+        ini.with_inline_source(
+            "ReceivingRadar\nBuildCost=800\nAcademyClassify=ACT_UPGRADE_RADAR\nEnd\n",
+            |ini| {
+                ini.read_line()?;
+                definition.parse_from_ini(ini)
             },
-        );
+        )
+        .unwrap();
+        let mut owner = Player::new(0, Team::USA, "same", true);
+        let peer = Player::new(0, Team::USA, "same", true);
+        owner.resources.supplies = 1000;
+        let mut economy = Default::default();
+        assert!(owner.queue_upgrade(
+            "ReceivingRadar",
+            &Resources {
+                supplies: 800,
+                power: 0
+            },
+            gamelogic::upgrade::UpgradeType::Player,
+            &mut economy
+        ));
+        assert_eq!(owner.resources.supplies, 200);
+        assert_eq!(owner.statistics.resources_spent, 0);
+        assert_eq!(owner.academy_stats.get_upgrades_purchased(), 0);
+        owner.record_upgrade_production_spending(&definition);
+        assert_eq!(owner.statistics.resources_spent, 800);
+        assert!(!owner.has_unlocked_upgrade("ReceivingRadar"));
+        assert_eq!(owner.academy_stats.get_upgrades_purchased(), 0);
+        owner
+            .complete_researched_upgrade("ReceivingRadar", gamelogic::upgrade::UpgradeType::Player);
+        assert!(owner.has_unlocked_upgrade("ReceivingRadar"));
+        assert_eq!(owner.academy_stats.get_upgrades_purchased(), 0);
+        owner.record_upgrade_production_academy(&definition, 73);
+        assert_eq!(owner.academy_stats.get_upgrades_purchased(), 1);
+        assert!(owner.academy_stats.has_researched_radar());
+        assert_eq!(owner.statistics.resources_spent, 800);
+        assert_eq!(peer.statistics.resources_spent, 0);
+        assert_eq!(peer.academy_stats.get_upgrades_purchased(), 0);
+        assert!(!peer.academy_stats.has_researched_radar());
+    }
+
+    #[test]
+    fn cancelled_research_refunds_without_completed_spending_or_academy() {
+        let mut owner = Player::new(0, Team::USA, "owner", true);
+        owner.resources.supplies = 1000;
+        let mut economy = Default::default();
+        let cost = Resources {
+            supplies: 800,
+            power: 0,
+        };
+        assert!(owner.queue_upgrade(
+            "Cancelled",
+            &cost,
+            gamelogic::upgrade::UpgradeType::Player,
+            &mut economy
+        ));
+        assert!(owner.cancel_queued_upgrade("Cancelled", &cost, &mut economy));
+        assert_eq!(owner.resources.supplies, 1000);
+        assert_eq!(owner.statistics.resources_spent, 0);
+        assert_eq!(owner.academy_stats.get_upgrades_purchased(), 0);
+        assert!(!owner.cancel_queued_upgrade("Cancelled", &cost, &mut economy));
+        assert_eq!(owner.resources.supplies, 1000);
     }
 }

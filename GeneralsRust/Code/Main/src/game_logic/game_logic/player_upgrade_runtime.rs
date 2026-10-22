@@ -41,7 +41,9 @@ impl Player {
         {
             return false;
         }
-        if !self.spend_resources(cost, economy_events) {
+        // Money::withdraw is not ScoreKeeper::addMoneySpent. Research
+        // is scored at completion, and a cancelled order is never completed spend.
+        if !self.pay_resources(cost, false, economy_events) {
             return false;
         }
         self.queued_upgrades.insert(upgrade_name.to_string());
@@ -80,10 +82,6 @@ impl Player {
     ) {
         if let Some(queued) = self.find_queued_upgrade_name(upgrade_name) {
             self.queued_upgrades.remove(&queued);
-        }
-        // C++ ProductionUpdate.cpp:874-879 / 931 — purchased, not granted.
-        if let Some(definition) = definition {
-            self.record_upgrade_production_complete(definition);
         }
         if upgrade_type == gamelogic::upgrade::UpgradeType::Object {
             return;

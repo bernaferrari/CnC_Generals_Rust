@@ -1515,7 +1515,7 @@ fn humvee_tow_missile_projectile_flies_and_impacts() {
         // Ensure secondary slot available via weapon set residual path.
         h.apply_upgrade_tag("Upgrade_AmericaTOWMissile");
     }
-    logic.apply_tow_unlock_to_team(Team::USA, UPGRADE_AMERICA_TOW);
+    logic.apply_tow_unlock_to_team(Team::USA.into(), UPGRADE_AMERICA_TOW);
 
     let enemy = logic
         .create_object("TestTank", Team::GLA, glam::Vec3::new(120.0, 0.0, 0.0))

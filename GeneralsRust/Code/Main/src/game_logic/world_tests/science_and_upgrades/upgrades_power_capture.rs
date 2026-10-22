@@ -278,7 +278,7 @@ fn host_upgrade_complete_chain_guns_includes_gattling_tank() {
             glam::Vec3::new(0.0, 0.0, 0.0),
         )
         .expect("gattling");
-    let n = logic.apply_chain_guns_to_team(Team::China, UPGRADE_CHINA_CHAIN_GUNS);
+    let n = logic.apply_chain_guns_to_team(Team::China.into(), UPGRADE_CHINA_CHAIN_GUNS);
     assert_eq!(n, 1);
     assert!(
         logic
@@ -322,7 +322,7 @@ fn host_upgrade_complete_anthrax_beta_and_toxin_shells() {
         )
         .expect("scud");
 
-    let n_a = logic.apply_anthrax_beta_to_team(Team::GLA, UPGRADE_GLA_ANTHRAX_BETA);
+    let n_a = logic.apply_anthrax_beta_to_team(Team::GLA.into(), UPGRADE_GLA_ANTHRAX_BETA);
     assert!(n_a >= 2);
     assert!(
         logic
@@ -345,7 +345,7 @@ fn host_upgrade_complete_anthrax_beta_and_toxin_shells() {
             glam::Vec3::new(40.0, 0.0, 0.0),
         )
         .expect("scud2");
-    let n_t = logic.apply_toxin_shells_to_team(Team::GLA, UPGRADE_GLA_TOXIN_SHELLS);
+    let n_t = logic.apply_toxin_shells_to_team(Team::GLA.into(), UPGRADE_GLA_TOXIN_SHELLS);
     assert!(n_t >= 1);
     assert!(
         logic
@@ -407,7 +407,7 @@ fn host_upgrade_complete_ap_bullets_and_ap_rockets_team() {
         )
         .expect("rpg");
 
-    let n_b = logic.apply_ap_bullets_to_team(Team::GLA, UPGRADE_GLA_AP_BULLETS);
+    let n_b = logic.apply_ap_bullets_to_team(Team::GLA.into(), UPGRADE_GLA_AP_BULLETS);
     assert!(n_b >= 2, "rebel+kell");
     assert!(
         logic
@@ -422,7 +422,7 @@ fn host_upgrade_complete_ap_bullets_and_ap_rockets_team() {
             .has_upgrade_tag(UPGRADE_GLA_AP_BULLETS)
     );
 
-    let n_r = logic.apply_ap_rockets_to_team(Team::GLA, UPGRADE_GLA_AP_ROCKETS);
+    let n_r = logic.apply_ap_rockets_to_team(Team::GLA.into(), UPGRADE_GLA_AP_ROCKETS);
     assert!(n_r >= 2, "scorp+rpg");
     assert!(
         logic
@@ -467,13 +467,13 @@ fn host_upgrade_complete_uranium_and_black_napalm() {
         .create_object("ChinaJetMIG", Team::China, glam::Vec3::new(20.0, 0.0, 0.0))
         .expect("mig");
 
-    let n_u = logic.apply_uranium_shells_to_team(Team::China, UPGRADE_CHINA_URANIUM_SHELLS);
+    let n_u = logic.apply_uranium_shells_to_team(Team::China.into(), UPGRADE_CHINA_URANIUM_SHELLS);
     assert!(n_u >= 1);
     assert!(has_uranium_shells_upgrade(
         &logic.host_object(bid).unwrap().applied_upgrades
     ));
 
-    let n_b = logic.apply_black_napalm_to_team(Team::China, "Upgrade_ChinaBlackNapalm");
+    let n_b = logic.apply_black_napalm_to_team(Team::China.into(), "Upgrade_ChinaBlackNapalm");
     assert!(n_b >= 1);
     assert!(
         logic
@@ -516,13 +516,13 @@ fn host_upgrade_complete_scorpion_rocket_and_laser_missiles() {
         )
         .expect("raptor");
 
-    let n_s = logic.apply_scorpion_rocket_to_team(Team::GLA, UPGRADE_GLA_SCORPION_ROCKET);
+    let n_s = logic.apply_scorpion_rocket_to_team(Team::GLA.into(), UPGRADE_GLA_SCORPION_ROCKET);
     assert_eq!(n_s, 1);
     let s = logic.host_object(sid).unwrap();
     assert!(has_scorpion_rocket_upgrade(&s.applied_upgrades));
     assert!(s.secondary_weapon.is_some());
 
-    let n_r = logic.apply_laser_missiles_to_team(Team::USA, UPGRADE_AMERICA_LASER_MISSILES);
+    let n_r = logic.apply_laser_missiles_to_team(Team::USA.into(), UPGRADE_AMERICA_LASER_MISSILES);
     assert_eq!(n_r, 1);
     assert!(is_raptor_template(
         &logic.host_object(rid).unwrap().template_name
@@ -553,7 +553,7 @@ fn host_upgrade_complete_nationalism_tags_red_guard() {
             glam::Vec3::new(0.0, 0.0, 0.0),
         )
         .expect("rg");
-    let n = logic.apply_nationalism_to_team(Team::China, UPGRADE_NATIONALISM);
+    let n = logic.apply_nationalism_to_team(Team::China.into(), UPGRADE_NATIONALISM);
     assert!(n >= 1);
     assert!(
         logic
@@ -591,8 +591,8 @@ fn subliminal_messaging_tags_propaganda_towers() {
             glam::Vec3::new(0.0, 0.0, 0.0),
         )
         .expect("tower");
-    let n =
-        logic.apply_subliminal_messaging_to_team(Team::China, UPGRADE_CHINA_SUBLIMINAL_MESSAGING);
+    let n = logic
+        .apply_subliminal_messaging_to_team(Team::China.into(), UPGRADE_CHINA_SUBLIMINAL_MESSAGING);
     assert_eq!(n, 1);
     assert!(logic.subliminal_messaging_upgrades > 0);
     let t = logic.host_object(id).unwrap();
@@ -657,8 +657,10 @@ fn advanced_control_rods_boosts_america_power_plant_energy() {
         o.set_status_under_construction(false);
     }
 
-    let n =
-        logic.apply_advanced_control_rods_to_team(Team::USA, UPGRADE_AMERICA_ADVANCED_CONTROL_RODS);
+    let n = logic.apply_advanced_control_rods_to_team(
+        Team::USA.into(),
+        UPGRADE_AMERICA_ADVANCED_CONTROL_RODS,
+    );
     assert_eq!(n, 1);
     assert!(logic.control_rods_upgrades > 0);
     let usa = logic.host_object(aid).unwrap();
@@ -873,7 +875,7 @@ End
                 ),
                 (
                     "overcharge-defaults.ini".to_owned(),
-                    defaults_source.to_owned() + "Object ChinaPowerPlantNamedOnly\n KindOf = STRUCTURE FS_POWER\n Body = ActiveBody NamedOnlyBody\n MaxHealth = 1500\n InitialHealth = 1500\n End\nEnd\n",
+                    defaults_source.to_owned() + "Object ChinaPowerPlantNamedOnly\n KindOf = STRUCTURE FS_POWER\n EnergyProduction = 10\n Body = ActiveBody NamedOnlyBody\n MaxHealth = 1500\n InitialHealth = 1500\n End\nEnd\n",
                 ),
             ])
             .expect("paired retail and zero-bonus Object definitions"),
@@ -897,10 +899,10 @@ End
         .create_object_for_player("ChinaPowerPlant", 0, glam::Vec3::ZERO)
         .expect("retail plant");
     let name_only_id = logic
-        .create_object_for_player("ChinaPowerPlantNamedOnly", 0, glam::Vec3::X * 30.0)
+        .create_object_for_player("ChinaPowerPlantNamedOnly", 0, glam::Vec3::X * 300.0)
         .expect("named-only plant");
     let zero_bonus_id = logic
-        .create_object_for_player("MetadataOnlyOvercharger", 0, glam::Vec3::X * 60.0)
+        .create_object_for_player("MetadataOnlyOvercharger", 0, glam::Vec3::X * 600.0)
         .expect("zero-bonus behavior object");
     for id in [plant_id, name_only_id, zero_bonus_id] {
         let object = logic.host_object_mut(id).expect("created plant");
@@ -1096,6 +1098,9 @@ End
         "ordinary deletion must consume the reactor"
     );
 
+    // Keep the independent providers outside the retail reactor death blast.
+    assert!(logic.host_object(name_only_id).unwrap().is_alive());
+    assert!(logic.host_object(zero_bonus_id).unwrap().is_alive());
     logic.update_player_resources(0.0);
     assert_eq!(
         logic.get_player(0).expect("owner").power_produced,

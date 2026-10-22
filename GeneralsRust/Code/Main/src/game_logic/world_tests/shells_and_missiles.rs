@@ -919,7 +919,8 @@ fn camouflage_residual_attack_breaks_and_idle_recloaks() {
         .expect("enemy");
 
     // Live unlock path (StealthUpgrade TriggeredBy = Upgrade_GLACamouflage).
-    let affected = game_logic.apply_camouflage_unlock_to_team(Team::GLA, UPGRADE_GLA_CAMOUFLAGE);
+    let affected =
+        game_logic.apply_camouflage_unlock_to_team(Team::GLA.into(), UPGRADE_GLA_CAMOUFLAGE);
     assert!(affected > 0, "camouflage unlock must affect rebel");
     {
         let _ = game_logic.host_object_mut(rebel_id).expect("rebel");

@@ -433,7 +433,10 @@ fn parsed_upgrade_ledger_cancel_refunds_once() {
             economy_events,
         ));
         assert!(player.has_queued_upgrade("Upgrade_AuthoredRefundLedger"));
-        assert_eq!(player.statistics.resources_spent, spent_before + 321);
+        assert_eq!(
+            player.statistics.resources_spent, spent_before,
+            "uncompleted research withdrawal is not ScoreKeeper completed spend"
+        );
         // Observe the completed enqueue operation separately. Cancellation
         // must publish one refund, not erase its preceding withdrawal receipt.
         economy_events.complete_boundary();
@@ -459,6 +462,10 @@ fn parsed_upgrade_ledger_cancel_refunds_once() {
             economy_events
         ));
         assert!(!player.has_queued_upgrade("Upgrade_AuthoredRefundLedger"));
+        assert_eq!(
+            player.statistics.resources_spent, spent_before,
+            "cancelled research never completed"
+        );
         assert_eq!(
             player.statistics.resources_collected, income_before,
             "refund must not acquire supply-income semantics as an accounting shortcut"

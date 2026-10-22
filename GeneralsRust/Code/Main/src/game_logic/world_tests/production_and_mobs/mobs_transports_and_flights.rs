@@ -186,12 +186,6 @@ fn grant_upgrade_create_branches_player_vs_object_type() {
 
     let mut player_tpl = ThingTemplate::new("PlayerGrantBuilding");
     player_tpl.add_kind_of(KindOf::Structure).set_health(1000.0);
-    player_tpl
-        .grant_upgrade_creates
-        .push(GrantUpgradeCreateMetadata {
-            upgrade_name: "Upgrade_AmericaSupplyLines".into(),
-            exempt_under_construction: true,
-        });
     logic
         .templates
         .insert("PlayerGrantBuilding".into(), player_tpl);
@@ -202,6 +196,20 @@ fn grant_upgrade_create_branches_player_vs_object_type() {
     let pid = logic
         .create_object("PlayerGrantBuilding", Team::USA, Vec3::new(20.0, 0.0, 0.0))
         .expect("player grant");
+
+    // Observe the actual GrantUpgradeCreate callback before factory-wide
+    // player-mask refresh stamps derived tags. has_upgrade_tag is a combined
+    // observation cache, not C++ m_objectUpgradesCompleted authority.
+    logic
+        .host_object_mut(pid)
+        .unwrap()
+        .template_mut()
+        .grant_upgrade_creates
+        .push(GrantUpgradeCreateMetadata {
+            upgrade_name: "Upgrade_AmericaSupplyLines".into(),
+            exempt_under_construction: true,
+        });
+    logic.apply_grant_upgrade_create_on_create(pid);
 
     let obj = logic.host_object(oid).expect("oid");
     assert!(obj.has_upgrade_tag("Upgrade_AmericaRadar"));
@@ -215,6 +223,15 @@ fn grant_upgrade_create_branches_player_vs_object_type() {
             .contains("Upgrade_AmericaSupplyLines")
     );
     assert!(!player.completed_upgrades.contains("Upgrade_AmericaRadar"));
+    // A later ordinary player-upgrade refresh may publish the combined tag;
+    // this does not route GrantUpgradeCreate through object giveUpgrade.
+    logic.apply_researched_player_upgrades_to_object(pid);
+    assert!(
+        logic
+            .host_object(pid)
+            .unwrap()
+            .has_upgrade_tag("Upgrade_AmericaSupplyLines")
+    );
 }
 
 #[test]
@@ -1977,7 +1994,8 @@ fn passengers_fire_upgrade_helix_battle_bunker() {
         o.is_helix_transport = true;
         o.passengers_allowed_to_fire = false;
     }
-    let n = logic.apply_passengers_fire_upgrade_to_team(Team::China, UPGRADE_HELIX_BATTLE_BUNKER);
+    let n = logic
+        .apply_passengers_fire_upgrade_to_team(Team::China.into(), UPGRADE_HELIX_BATTLE_BUNKER);
     assert!(n >= 1);
     assert!(logic.host_object(id).unwrap().passengers_allowed_to_fire);
     assert!(logic.passengers_fire_upgrade_reg.applies >= 1);
@@ -2366,7 +2384,7 @@ fn status_bits_upgrade_booby_trap_sets_bit() {
             .has_object_status_bit("BOOBY_TRAPPED")
     );
 
-    let n = logic.apply_status_bits_upgrade_to_team(Team::GLA, "Upgrade_GLABoobyTrap");
+    let n = logic.apply_status_bits_upgrade_to_team(Team::GLA.into(), "Upgrade_GLABoobyTrap");
     assert!(n >= 1);
     assert!(
         logic

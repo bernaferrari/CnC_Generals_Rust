@@ -1124,22 +1124,26 @@ impl GameLogic {
                     .get(&pid)
                     .map(|p| p.has_unlocked_upgrade(&upgrade_name))
                     .unwrap_or(false);
+                let upgrade_type = self.upgrade_type(&upgrade_name);
+                let definition = self.upgrade_template(&upgrade_name);
+                // CPP ProductionUpdate.cpp878: score before script notification.
+                if let (Some(player), Some(definition)) =
+                    (self.players.get_mut(&pid), definition.as_deref())
+                {
+                    player.record_upgrade_production_spending(definition);
+                }
                 // CPP ProductionUpdate.cpp879-925: edge precedes addUpgrade /
                 // giveUpgrade, including an already-recorded completion.
                 interpreter
                     .or(self.owned_script_engine.as_ref())
                     .expect("research completion requires its driving interpreter")
                     .notify_of_completed_upgrade(pid as usize, &upgrade_name, producer_id.0);
-                let upgrade_type = self.upgrade_type(&upgrade_name);
-                let definition = self.upgrade_template(&upgrade_name);
                 if let Some(player) = self.players.get_mut(&pid) {
                     player.complete_researched_upgrade_with_definition(
                         &upgrade_name,
                         upgrade_type,
                         definition.as_deref(),
                     );
-                    // record_upgrade_production_complete: leftover AcademyStats::recordUpgrade
-                    // (FALSE) + ScoreKeeper::addMoneySpent (ProductionUpdate.cpp:874-879 / 931).
                 }
                 if !already {
                     self.apply_host_upgrade_complete_with_effects(
@@ -1148,6 +1152,11 @@ impl GameLogic {
                         &upgrade_name,
                         effects,
                     );
+                }
+                if let (Some(player), Some(definition)) =
+                    (self.players.get_mut(&pid), definition.as_deref())
+                {
+                    player.record_upgrade_production_academy(definition, self.frame);
                 }
             }
         }
@@ -2276,3 +2285,7 @@ fn resolve_production_build_variation(template: &str) -> String {
 #[cfg(test)]
 #[path = "allied_construction_tests.rs"]
 mod allied_construction_tests;
+
+#[cfg(test)]
+#[path = "upgrade_accounting_tests.rs"]
+mod upgrade_accounting_tests;

@@ -389,17 +389,36 @@ pub(in crate::game_logic) fn install_slave_fixture(
     kind: crate::game_logic::host_slave_drones::SlaveDroneKind,
 ) {
     use crate::game_logic::host_slave_drones::SlaveDroneKind;
-    let (rate, primary, vision) = match kind {
-        SlaveDroneKind::Battle => (10, "BattleDroneMachineGun", 150),
-        SlaveDroneKind::Hellfire => (0, "HellfireMissileWeapon", 100),
-        SlaveDroneKind::Scout => (0, "", 150),
-    };
     let name = kind.template_name();
-    let upgrade = kind.upgrade_name();
-    let text = format!(
-        r#"
+    let primary = match kind {
+        SlaveDroneKind::Battle => "BattleDroneMachineGun",
+        SlaveDroneKind::Hellfire => "HellfireMissileWeapon",
+        SlaveDroneKind::Scout => "",
+    };
+    // The actual authored Object needs its originating module namespace. Admit
+    // every kind once: callers may request Scout then Battle before spawning.
+    let text = [
+        SlaveDroneKind::Scout,
+        SlaveDroneKind::Battle,
+        SlaveDroneKind::Hellfire,
+    ]
+    .into_iter()
+    .map(|kind| {
+        let (rate, vision) = match kind {
+            SlaveDroneKind::Battle => (10, 150),
+            SlaveDroneKind::Hellfire => (0, 100),
+            SlaveDroneKind::Scout => (0, 150),
+        };
+        let name = kind.template_name();
+        let upgrade = kind.upgrade_name();
+        format!(
+            r#"
 Object {name}
  KindOf = VEHICLE SELECTABLE
+ Body = ActiveBody FixtureSlaveBody
+  MaxHealth = 100
+  InitialHealth = 100
+ End
  VisionRange = {vision}
  Locomotor = SET_NORMAL ComancheLocomotor
  Behavior = AIUpdateInterface FixtureSlaveAI
@@ -427,7 +446,10 @@ Object {name}
  End
 End
 "#
-    );
+        )
+    })
+    .collect::<Vec<_>>()
+    .join("\n");
     let mut parser = crate::assets::IniParser::new();
     parser
         .parse_ini_content(&text, "containing-slave-owner.ini")
@@ -538,6 +560,62 @@ End
         .into_values()
         .map(|rule| (rule.name.clone(), rule))
         .collect();
+    if game.receiving_module_content.is_none() {
+        // These are the genuinely referenced masters/targets of the containing
+        // fixtures. Individual tests retain their explicit local health/weapons
+        // after admission; no production namespace fallback is enabled.
+        let receiving = format!(
+            "{text}\n{}",
+            r#"
+Object AmericaVehicleHumvee
+ KindOf = VEHICLE SELECTABLE
+ Body = ActiveBody FixtureMasterBody
+  MaxHealth = 200
+  InitialHealth = 200
+ End
+End
+Object Humvee
+ KindOf = VEHICLE SELECTABLE
+ Body = ActiveBody FixtureMasterBody
+  MaxHealth = 200
+  InitialHealth = 200
+ End
+End
+Object TestTank
+ KindOf = VEHICLE SELECTABLE SCORE
+ Body = ActiveBody FixtureTargetBody
+  MaxHealth = 250
+  InitialHealth = 250
+ End
+End
+Object TestInfantry
+ KindOf = INFANTRY SELECTABLE SCORE
+ Body = ActiveBody FixtureTargetBody
+  MaxHealth = 80
+  InitialHealth = 80
+ End
+End
+Object MissileDefenderMissile
+ KindOf = PROJECTILE SMALL_MISSILE
+ Behavior = MissileAIUpdate FixtureMissile
+  TryToFollowTarget = Yes
+  FuelLifetime = 3000
+  InitialVelocity = 150
+  IgnitionDelay = 0
+  DistanceToTravelBeforeTurning = 3
+ End
+End
+"#
+        );
+        game.admit_receiving_module_content(
+            crate::assets::ReceivingObjectContent::from_sources([(
+                "containing-slave-owner.ini".into(),
+                receiving,
+            )])
+            .unwrap(),
+        )
+        .unwrap();
+    }
     game.admit_weapon_content_snapshot(weapons, &definitions)
         .unwrap();
     for name in ["AmericaVehicleHumvee", "Humvee"] {

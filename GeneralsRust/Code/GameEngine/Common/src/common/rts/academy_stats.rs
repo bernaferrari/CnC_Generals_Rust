@@ -569,6 +569,14 @@ impl AcademyStats {
         }
     }
 
+    pub fn has_researched_radar(&self) -> bool {
+        self.researched_radar
+    }
+
+    pub fn get_upgrades_purchased(&self) -> u32 {
+        self.upgrades_purchased
+    }
+
     /// Record that an upgrade was purchased
     /// Based on C++ AcademyStats.cpp:444-457
     ///
@@ -580,7 +588,17 @@ impl AcademyStats {
         classification_type: AcademyClassificationType,
         granted: bool,
     ) {
-        self.mark_event();
+        self.record_upgrade_at(classification_type, granted, time::frame());
+    }
+
+    /// Receiving-session equivalent of recordUpgrade, with an explicit event frame.
+    pub fn record_upgrade_at(
+        &mut self,
+        classification_type: AcademyClassificationType,
+        granted: bool,
+        frame: u32,
+    ) {
+        self.last_event_frame = frame;
 
         // C++ lines 446-450: Check if this is a radar upgrade
         if classification_type == AcademyClassificationType::UpgradeRadar {
