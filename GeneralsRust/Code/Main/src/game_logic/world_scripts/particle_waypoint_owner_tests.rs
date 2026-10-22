@@ -132,7 +132,35 @@ fn actual_scripted_particle_start_and_arrival_use_current_receiving_waypoints() 
                 admit(&mut a, false, (100., 25.));
                 a.frame += 40;
                 a.update_particle_beam_fields();
+                // ParticleUplinkCannonUpdate.cpp:532–578 converts authored
+                // speed to one logic step. A frame-label jump is one update,
+                // never forty unexecuted simulation steps.
+                let jumped = &a.special_power_strikes.beam_fields()[0];
+                assert_eq!(jumped.next_dest_waypoint_id, 3);
+                assert_eq!(jumped.override_destination, Vec3::new(50., 0., 0.));
+                assert_eq!(jumped.manual_drive_applications, 2);
+                assert!((jumped.current_target_position.x - (1. + 40. / 30.)).abs() < 0.00001);
+                let after_jump = jumped.current_target_position;
+                a.update_particle_beam_fields();
+                assert_eq!(
+                    a.special_power_strikes.beam_fields()[0].current_target_position,
+                    after_jump,
+                    "observing the same frame cannot apply another movement step"
+                );
+                // Execute the remaining real steps to the first arrival,
+                // retaining the old-vector/new-destination observation below.
+                for step in 1..=36 {
+                    a.frame += 1;
+                    a.update_particle_beam_fields();
+                    if step < 36 {
+                        assert_eq!(
+                            a.special_power_strikes.beam_fields()[0].next_dest_waypoint_id,
+                            3
+                        );
+                    }
+                }
                 let af = &a.special_power_strikes.beam_fields()[0];
+                assert_eq!(af.manual_drive_applications, 38);
                 assert_eq!(af.next_dest_waypoint_id, 4);
                 assert_eq!(af.override_destination, Vec3::new(100., 0., 25.));
                 assert_eq!(af.current_target_position, Vec3::new(50., 0., 0.));
