@@ -218,6 +218,13 @@ fn admitted_visual_generation_survives_first_accepted_weapon_discharge() {
         admitted_generation
     );
     let cloned = logic.host_object(source).unwrap().clone();
+    assert!(logic.try_add_object(cloned.clone()).is_err());
+    assert_eq!(
+        logic.host_object(source).unwrap().visual_object_generation,
+        admitted_generation
+    );
+    logic.destroy_object(source);
+    logic.process_destroy_list();
     logic.add_object(cloned);
     let replacement_generation = logic.host_object(source).unwrap().visual_object_generation;
     assert_ne!(replacement_generation, admitted_generation);

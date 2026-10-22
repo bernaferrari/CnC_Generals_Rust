@@ -40,6 +40,7 @@ impl GameLogic {
             return Err(gamelogic::GameLogicError::Configuration(reason));
         }
         self.unlink_retiring_team_host_member(id, object.team_instance_id);
+        self.cancel_retiring_dock_reservation(&object);
         Ok(Some(object))
     }
 

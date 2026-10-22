@@ -446,6 +446,25 @@ impl GameLogic {
             .cancel_docker(docker_id);
     }
 
+    /// Object::~Object deletes AI modules after native destruction/team unlink.
+    /// The docker has left lookup, so use its still-owned preferred/target facts
+    /// in addition to tracked approach slots and surviving dock holders.
+    pub(in crate::game_logic) fn cancel_retiring_dock_reservation(&mut self, object: &Object) {
+        self.cancel_dock_reservation(object.id);
+        let mut docks = Vec::new();
+        if let Some(dock) = object.preferred_dock_id {
+            docks.push(dock);
+        }
+        if let Some(dock) = object.target {
+            if !docks.contains(&dock) {
+                docks.push(dock);
+            }
+        }
+        for dock in docks {
+            self.clear_dock_holder_without_reconcile(dock, object.id);
+        }
+    }
+
     /// C++ `RepairDockUpdate::isRallyPointAfterDockType` + `AIDockMoveToRallyState`.
     pub(super) fn send_to_rally_after_repair_dock(
         &mut self,

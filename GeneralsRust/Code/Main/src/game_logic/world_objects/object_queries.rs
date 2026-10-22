@@ -3393,7 +3393,7 @@ mod dock_approach_owner_tests {
     }
 
     #[test]
-    fn query_clone_is_inert_and_same_id_object_readmission_retires_old_reservation() {
+    fn query_clone_is_inert_and_readmission_requires_completed_retirement() {
         let (mut world, dock, docker_ids) = world_with_warehouse_and_workers();
         let owner_id = docker_ids[0];
         let waiter_id = docker_ids[9];
@@ -3424,10 +3424,21 @@ mod dock_approach_owner_tests {
             "mutating a detached query clone cannot cancel the live Object's slot"
         );
 
-        // An actual new admission may reuse the same ObjectId, unlike
-        // temporary map extraction/reinsertion. It must retire the old
-        // lifetime's reservation before inserting the replacement.
-        world.admit_host_object(replacement);
+        // A live lifetime cannot be silently replaced. Rejection preserves
+        // its dock slot until normal onDelete/physical retirement.
+        assert!(world.try_admit_host_object(replacement.clone()).is_err());
+        assert_eq!(
+            world.find_nearest_harvestable_supply_within(
+                Team::USA,
+                glam::Vec3::new(700.0, 0.0, 0.0),
+                None,
+                waiter_id,
+            ),
+            None
+        );
+        world.destroy_object(owner_id);
+        world.process_destroy_list();
+        world.try_admit_host_object(replacement).unwrap();
         assert_eq!(
             world.find_nearest_harvestable_supply_within(
                 Team::USA,

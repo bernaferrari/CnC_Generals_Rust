@@ -586,6 +586,13 @@ fn warehouses_keep_script_values_and_heal_clocks_per_world() {
     assert_ne!(first_clock, second_clock);
     first.queue_warehouse_set_value_request("MapWarehouse", 3000);
     let replacement = first.host_object(first_id).unwrap().clone();
+    assert!(first.try_add_object(replacement.clone()).is_err());
+    assert_eq!(
+        first.snapshot_warehouse_crippling_states()[0].1,
+        first_clock
+    );
+    first.destroy_object(first_id);
+    first.process_destroy_list();
     first.add_object(replacement);
     assert!(
         first.snapshot_warehouse_crippling_states().is_empty(),

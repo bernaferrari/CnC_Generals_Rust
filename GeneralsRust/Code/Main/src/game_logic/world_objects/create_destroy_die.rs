@@ -1971,6 +1971,7 @@ impl GameLogic {
             let is_structure = template.is_kind_of(KindOf::Structure);
             let counts_as_unit = Self::template_counts_as_unit(&template);
             let id = self.allocate_object_id();
+            self.validate_host_object_admission(id)?;
             // Instantiate the receiving immutable WeaponSet once, before
             // onCreate. Never replace an admitted local row with an ambient
             // catalog lookup; ordinary unbound templates still resolve here.
@@ -2722,7 +2723,7 @@ impl GameLogic {
                 // so detectors do not IR-ping / scan in lockstep on the spawn frame.
                 object.apply_stealth_detector_ctor_stagger(self.frame);
             }
-            self.admit_host_object(object);
+            self.try_admit_host_object(object)?;
             // C++ Object.cpp onCreate residual: inherit team prototype attitude + attack priority.
             self.inherit_team_ai_defaults(id);
             // C++ GameLogic map/create: team->setActive() once the team has members.

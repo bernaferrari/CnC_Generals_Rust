@@ -1,7 +1,7 @@
 //! Actual residual hit producers preserve the live source-player score phase.
 use super::*;
 use crate::game_logic::kill_credit::KillScorePhase;
-use crate::game_logic::{GameLogic, ObjectId, Player, Team};
+use crate::game_logic::{GameLogic, Object, ObjectId, Player, Team};
 use glam::Vec3;
 fn setup() -> (GameLogic, ObjectId, ObjectId) {
     let source = "Object AttributionSource\nKindOf = VEHICLE SCORE\nIsTrainable = Yes\nBody = ActiveBody SourceBody\nMaxHealth = 100\nInitialHealth = 100\nEnd\nBehavior = DestroyDie SourceDie\nEnd\nEnd\nObject AttributionVictim\nKindOf = VEHICLE SCORE\nBuildCost = 500\nExperienceValue = 25 25 25 25\nSkillPointValue = 25 25 25 25\nBody = ActiveBody VictimBody\nMaxHealth = 2\nInitialHealth = 2\nEnd\nBehavior = DestroyDie VictimDie\nEnd\nEnd\n";
@@ -309,6 +309,43 @@ fn encoded_pre_drain_save_retains_admitted_credit_and_ordered_removals() {
         KillScorePhase::Complete
     );
     credited(&restored, source, 0);
+    let (peer, peer_source, peer_victim) = setup();
+    assert_eq!((source, victim), (peer_source, peer_victim));
+    let before_queue =
+        bincode_legacy::serialize(&restored.pending_object_removal_snapshot()).unwrap();
+    let before_bounty = bincode_legacy::serialize(&restored.cash_bounty).unwrap();
+    let before_health = restored.health_events.snapshot_ordered();
+    let before_economy = format!("{:?}", restored.economy_events);
+    let before_audio = restored.queued_audio_events.len();
+    let before_generation = restored.objects[&victim].visual_object_generation;
+    let replacement = Object::new(
+        restored.templates["AttributionVictim"].clone(),
+        victim,
+        Team::GLA,
+    );
+    let error = restored.try_add_object(replacement).unwrap_err();
+    assert!(error.to_string().contains("awaiting physical retirement"));
+    assert_eq!(
+        restored.objects[&victim].visual_object_generation,
+        before_generation
+    );
+    assert_eq!(
+        restored.objects[&victim].kill_score_phase,
+        KillScorePhase::Complete
+    );
+    assert!(restored.objects[&victim].kill_experience_awarded);
+    assert_eq!(
+        bincode_legacy::serialize(&restored.pending_object_removal_snapshot()).unwrap(),
+        before_queue
+    );
+    assert_eq!(
+        bincode_legacy::serialize(&restored.cash_bounty).unwrap(),
+        before_bounty
+    );
+    assert_eq!(restored.health_events.snapshot_ordered(), before_health);
+    assert_eq!(format!("{:?}", restored.economy_events), before_economy);
+    assert_eq!(restored.queued_audio_events.len(), before_audio);
+    credited(&restored, source, 0);
     // Both real saved and uninterrupted owners complete the identical drain.
     for world in [&mut source_world, &mut restored] {
         world.process_destroy_list();
@@ -316,5 +353,62 @@ fn encoded_pre_drain_save_retains_admitted_credit_and_ordered_removals() {
         assert!(!world.objects.contains_key(&source));
         assert!(!world.objects.contains_key(&victim));
         credited(world, source, 0);
+        let mut new_source = Object::new(
+            world.templates["AttributionSource"].clone(),
+            source,
+            Team::USA,
+        );
+        new_source.owner_player_id = Some(0);
+        new_source.set_position(Vec3::new(-1000., 0., 0.));
+        let mut new_victim = Object::new(
+            world.templates["AttributionVictim"].clone(),
+            victim,
+            Team::GLA,
+        );
+        new_victim.owner_player_id = Some(2);
+        new_victim.set_position(Vec3::ZERO);
+        world.try_add_object(new_source).unwrap();
+        world.try_add_object(new_victim).unwrap();
+        assert_eq!(
+            world.objects[&source].experience.current, 0.,
+            "constructor begins a new source lifetime"
+        );
+        assert_eq!(
+            world.objects[&victim].kill_score_phase,
+            KillScorePhase::Ready
+        );
+        assert!(!world.objects[&victim].kill_experience_awarded);
+        assert_eq!(
+            world.apply_comanche_rocket_pod_area_at(Vec3::ZERO, Some(source)),
+            (1, true)
+        );
+        for repeat in 0..2 {
+            assert_eq!(world.players[&0].statistics.units_destroyed, 2);
+            assert_eq!(world.players[&2].statistics.units_lost, 2);
+            assert_eq!(world.players[&0].statistics.money_earned, 200);
+            assert_eq!(world.players[&0].resources.supplies, 1200);
+            assert_eq!(world.players[&0].skill_points, 50);
+            assert_eq!(world.objects[&source].experience.current, 25.);
+            assert_eq!(
+                world.objects[&victim].kill_score_phase,
+                KillScorePhase::Complete
+            );
+            assert!(world.objects[&victim].kill_experience_awarded);
+            world.mark_object_for_destruction(victim, Some(Team::USA));
+            if repeat == 0 {
+                world.update_scud_poison_zones();
+            }
+        }
+        world.process_destroy_list();
+        world.process_destroy_list();
+        assert!(world.objects.get(&victim).is_none());
+        assert!(world.objects.get(&source).is_some());
+        assert_eq!(world.players[&0].statistics.units_destroyed, 2);
+        assert_eq!(world.players[&0].statistics.money_earned, 200);
+        assert_eq!(world.objects[&source].experience.current, 25.);
     }
+    uncredited(&peer);
+    assert_eq!(peer.objects[&peer_source].experience.current, 0.);
+    assert_eq!(peer.objects[&peer_victim].health.current, 2.);
+    assert!(peer.pending_object_removal_snapshot().is_empty());
 }

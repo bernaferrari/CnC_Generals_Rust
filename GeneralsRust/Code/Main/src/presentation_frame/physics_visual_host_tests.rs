@@ -397,6 +397,13 @@ fn completed_inputs_are_inert_and_actual_admission_restore_reset_reject_stale_fr
     );
     assert_eq!(world.host_physics_visuals.borrow().loco_state(id), first);
     let cloned = world.host_object(id).unwrap().clone();
+    assert!(world.try_add_object(cloned.clone()).is_err());
+    assert_eq!(
+        world.host_object(id).unwrap().visual_object_generation,
+        original_generation
+    );
+    world.destroy_object(id);
+    world.process_destroy_list();
     world.add_object(cloned);
     let replacement_generation = world.host_object(id).unwrap().visual_object_generation;
     assert_ne!(replacement_generation, original_generation);

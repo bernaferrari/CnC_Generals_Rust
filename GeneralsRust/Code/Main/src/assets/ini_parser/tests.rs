@@ -657,7 +657,11 @@ End
         .visual_object_generation;
     let replacement =
         crate::game_logic::Object::new(ThingTemplate::new("TransitionPlayProbe"), id_b, Team::USA);
-    world_b.admit_host_object(replacement);
+    // A new lifetime follows ordinary old-Object retirement; it never replaces
+    // a still-installed object or drops pending callbacks by numeric ID.
+    world_b.destroy_object(id_b);
+    world_b.process_destroy_list();
+    world_b.try_admit_host_object(replacement).unwrap();
     let new_identity = identity_for(&world_b, id_b);
     assert_ne!(old_generation, new_identity.object_generation());
     playback

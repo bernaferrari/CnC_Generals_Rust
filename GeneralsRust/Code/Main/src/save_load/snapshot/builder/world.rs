@@ -336,6 +336,7 @@ impl SnapshotBuilder {
         game_logic: &mut GameLogic,
     ) -> SaveLoadResult<()> {
         validate_direct_world_snapshot_version(snapshot.version)?;
+        self.validate_object_restore_admission(&snapshot.objects, game_logic)?;
         if game_logic.object_lifecycle_callback_depth != 0
             || game_logic.host_objects().values().any(|object| {
                 object.kill_score_phase == crate::game_logic::kill_credit::KillScorePhase::Running

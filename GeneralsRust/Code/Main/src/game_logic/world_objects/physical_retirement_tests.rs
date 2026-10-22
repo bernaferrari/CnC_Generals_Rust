@@ -177,6 +177,38 @@ fn failed_owned_retirement_is_not_live_or_retried_and_cannot_advance_save_create
                     std::ptr::from_ref(owner.objects.failed_retirement_object().unwrap()),
                     retained
                 );
+                let before_generation = owner.next_visual_object_generation;
+                let before_pending =
+                    bincode_legacy::serialize(&owner.pending_object_removal_snapshot()).unwrap();
+                let template = owner
+                    .objects
+                    .failed_retirement_object()
+                    .unwrap()
+                    .thing()
+                    .template
+                    .clone();
+                let admission = owner
+                    .try_add_object(Object::new(template, id, Team::USA))
+                    .unwrap_err()
+                    .to_string();
+                assert_eq!(
+                    admission, first,
+                    "admission must retain the terminal native error"
+                );
+                assert!(owner.objects.get(&id).is_none());
+                assert_eq!(owner.next_visual_object_generation, before_generation);
+                assert_eq!(
+                    bincode_legacy::serialize(&owner.pending_object_removal_snapshot()).unwrap(),
+                    before_pending
+                );
+                assert_eq!(
+                    probe.calls, 1,
+                    "rejected new lifetime cannot retry native destruction"
+                );
+                assert_eq!(
+                    std::ptr::from_ref(owner.objects.failed_retirement_object().unwrap()),
+                    retained
+                );
                 let old_frame = owner.frame;
                 let old_time = owner.sim_time_seconds;
                 let old_carry = owner.accumulated_time;
@@ -238,4 +270,56 @@ fn failed_owned_retirement_is_not_live_or_retried_and_cannot_advance_save_create
             }
         },
     );
+}
+
+#[test]
+fn colliding_admission_preserves_pending_old_lifetime_until_one_native_retirement() {
+    for death in [false, true] {
+        let (mut owner, id) = world();
+        let (peer, peer_id) = world();
+        assert_eq!(id, peer_id);
+        let mut probe = Observe::new(&owner, id, false);
+        queue(&mut owner, id, death);
+        let old = owner.objects[&id].clone();
+        let old_generation = old.visual_object_generation;
+        let old_order = owner.objects.ordered_ids().to_vec();
+        let pending = owner.pending_object_removal_snapshot();
+        let error = owner
+            .try_admit_host_object(Object::new(old.thing().template.clone(), id, Team::China))
+            .unwrap_err();
+        assert!(error.to_string().contains("awaiting physical retirement"));
+        assert_eq!(owner.objects[&id].visual_object_generation, old_generation);
+        assert_eq!(owner.objects[&id].kill_score_phase, old.kill_score_phase);
+        assert_eq!(
+            owner.objects[&id].kill_experience_awarded,
+            old.kill_experience_awarded
+        );
+        assert_eq!(
+            bincode_legacy::serialize(&owner.objects[&id].native_die_runtime).unwrap(),
+            bincode_legacy::serialize(&old.native_die_runtime).unwrap()
+        );
+        assert_eq!(owner.objects.ordered_ids(), old_order);
+        assert_eq!(owner.pending_object_removal_snapshot().len(), pending.len());
+        assert_eq!(probe.calls, 0);
+        owner
+            .process_destroy_list_with_effects_checked(&mut ScriptPresentationEffects {
+                view: Some(&mut probe),
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(probe.calls, 1);
+        assert!(owner.objects.get(&id).is_none());
+        owner
+            .try_admit_host_object(Object::new(old.thing().template.clone(), id, Team::China))
+            .unwrap();
+        assert_ne!(owner.objects[&id].visual_object_generation, old_generation);
+        assert_eq!(
+            owner.objects[&id].kill_score_phase,
+            crate::game_logic::kill_credit::KillScorePhase::Ready
+        );
+        assert!(!owner.objects[&id].kill_experience_awarded);
+        owner.process_destroy_list();
+        assert!(owner.objects.get(&id).is_some());
+        assert!(!peer.objects[&peer_id].status.destroyed);
+    }
 }

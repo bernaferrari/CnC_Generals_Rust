@@ -15,15 +15,61 @@ impl GameLogic {
         object: Object,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> ObjectId {
-        let id = object.id;
-        self.admit_host_object(object);
-        self.host_radar_add_object_with_effects(id, effects);
-        id
+        self.try_add_object_with_effects(object, effects)
+            .expect("Object admission requires an unoccupied, fully retired ID")
     }
 
-    /// A new admission receives fresh runtime identity, even when the incoming
-    /// object was cloned. Temporary extraction/reinsertion uses the live map.
-    pub(crate) fn admit_host_object(&mut self, mut object: Object) {
+    /// Checked public ingress for external tools that may supply an occupied ID.
+    pub fn try_add_object(&mut self, object: Object) -> gamelogic::GameLogicResult<ObjectId> {
+        self.try_add_object_with_effects(object, &mut Default::default())
+    }
+
+    pub(crate) fn try_add_object_with_effects(
+        &mut self,
+        object: Object,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<ObjectId> {
+        let id = object.id;
+        self.try_admit_host_object(object)?;
+        self.host_radar_add_object_with_effects(id, effects);
+        Ok(id)
+    }
+
+    /// Compatibility ingress: duplicate IDs are a caller error, never an
+    /// implicit replacement or acknowledgement of native retirement.
+    pub(crate) fn admit_host_object(&mut self, object: Object) {
+        self.try_admit_host_object(object)
+            .expect("Object admission requires an unoccupied, fully retired ID");
+    }
+
+    pub(crate) fn validate_host_object_admission(
+        &self,
+        id: ObjectId,
+    ) -> gamelogic::GameLogicResult<()> {
+        if let Some(error) = self.object_retirement_error() {
+            return Err(error);
+        }
+        if id.0 == 0
+            || self.objects.contains_key(&id)
+            || self.objects_to_destroy.iter().any(|event| event.id == id)
+        {
+            return Err(gamelogic::GameLogicError::Configuration(format!(
+                "Object admission ID {} is invalid, occupied, or awaiting physical retirement",
+                id.0
+            )));
+        }
+        Ok(())
+    }
+
+    /// Admit a distinct lifetime only after the old identity has completed its
+    /// ordinary callbacks and physical removal. Detached/query clone state is
+    /// not a birth constructor; preserve its scalars, including score receipts.
+    pub(crate) fn try_admit_host_object(
+        &mut self,
+        mut object: Object,
+    ) -> gamelogic::GameLogicResult<()> {
+        // Validate before touching old reservations, identities or callback state.
+        self.validate_host_object_admission(object.id)?;
         // Every admission, including detached clones, receives this world's
         // immutable runtime rules. Preserve resolved module/snapshot scalars.
         object.physics_rules = self.physics_definitions.effective;
@@ -33,26 +79,6 @@ impl GameLogic {
         // Object-local C++ behavior state starts with the new admitted
         // lifetime. Retire the host mirror even when a replacement reuses ID.
         self.warehouse_crippling_states.remove(&object.id);
-        // Replacing an Object with the same ID is a new object lifetime. Retire
-        // any old docker/dock reservations while the old object is still
-        // available to the C++-ordered cancel path.
-        if self.objects.contains_key(&object.id) {
-            self.detach_host_fog_ghost(object.id);
-            let (tracked_docker, owns_dock_queue) = {
-                let queues = self.host_dock_approach_queues.borrow();
-                (queues.tracks_docker(object.id), queues.has_dock(object.id))
-            };
-            let previous_has_live_dock_session =
-                self.objects.get(&object.id).is_some_and(|previous| {
-                    crate::game_logic::host_supply_gather::is_live_dock_ai_state(&previous.ai_state)
-                });
-            if tracked_docker || previous_has_live_dock_session {
-                self.cancel_dock_reservation(object.id);
-            }
-            if owns_dock_queue {
-                self.remove_host_dock_approach_queue(object.id);
-            }
-        }
         // A cloned Object may still hold a weak handle to its source world's
         // trigger owner. Rebind it on admission without touching pose/flags;
         // load restoration and the C++ cell no-op depend on preserving those.
@@ -63,6 +89,7 @@ impl GameLogic {
         let id = object.id;
         self.objects.admit(id, object);
         self.attach_host_fog_ghost(id);
+        Ok(())
     }
 
     /// Runtime visual identity belongs to an admission, including replacing a
@@ -1828,3 +1855,49 @@ mod map_script_difficulty_tests {
 #[cfg(test)]
 #[path = "successful_script_owner_tests.rs"]
 mod successful_script_owner_tests;
+
+#[cfg(test)]
+mod admission_lifetime_tests {
+    use super::*;
+
+    #[test]
+    fn checked_public_admission_rejects_live_collision_without_resetting_query_or_score_state() {
+        let mut owner = GameLogic::new();
+        let mut peer = GameLogic::new();
+        let id = ObjectId(777);
+        let mut original = Object::new(ThingTemplate::new("AdmissionOwner"), id, Team::USA);
+        original.kill_score_phase = crate::game_logic::kill_credit::KillScorePhase::Complete;
+        original.kill_experience_awarded = true;
+        owner.try_add_object(original).unwrap();
+        let query = owner.objects[&id].clone();
+        let generation = owner.objects[&id].visual_object_generation;
+        let next_generation = owner.next_visual_object_generation;
+        let roster = owner.objects.ordered_ids().to_vec();
+        let error = owner
+            .try_add_object(Object::new(
+                ThingTemplate::new("RejectedReplacement"),
+                id,
+                Team::China,
+            ))
+            .unwrap_err();
+        assert!(error.to_string().contains("occupied"));
+        assert_eq!(owner.objects[&id].template_name, "AdmissionOwner");
+        assert_eq!(owner.objects[&id].visual_object_generation, generation);
+        assert_eq!(owner.next_visual_object_generation, next_generation);
+        assert_eq!(owner.objects.ordered_ids(), roster);
+        assert_eq!(
+            owner.objects[&id].kill_score_phase,
+            crate::game_logic::kill_credit::KillScorePhase::Complete
+        );
+        assert!(owner.objects[&id].kill_experience_awarded);
+        // Query/continuation clones are not implicitly reset into fresh births.
+        peer.try_add_object(query).unwrap();
+        assert_eq!(
+            peer.objects[&id].kill_score_phase,
+            crate::game_logic::kill_credit::KillScorePhase::Complete
+        );
+        assert!(peer.objects[&id].kill_experience_awarded);
+        assert!(owner.pending_object_removal_snapshot().is_empty());
+        assert!(peer.pending_object_removal_snapshot().is_empty());
+    }
+}

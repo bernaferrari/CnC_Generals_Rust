@@ -50,6 +50,11 @@ fn unit_ai_runtime_fresh_object_reusing_id_has_no_old_deadline_or_anchor() {
     let id = ObjectId(934201);
     world.add_object(object(id));
     seed_runtime(&mut world, id);
+    let previous = runtime(&world, id);
+    assert!(world.try_add_object(object(id)).is_err());
+    assert_eq!(runtime(&world, id), previous);
+    world.destroy_object(id);
+    world.process_destroy_list();
     world.add_object(object(id));
     assert_eq!(runtime(&world, id), (None, None, None, None));
 }

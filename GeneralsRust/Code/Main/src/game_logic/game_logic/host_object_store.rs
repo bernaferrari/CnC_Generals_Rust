@@ -36,9 +36,12 @@ impl HostObjectStore {
         &self.registration_order
     }
 
-    /// Admit a new object lifetime, even when replacing a reused ID.
+    /// Admit a new object lifetime after its ID becomes unoccupied.
     pub fn admit(&mut self, id: ObjectId, object: Object) -> Option<Object> {
-        self.registration_order.retain(|existing| *existing != id);
+        assert!(
+            !self.map.contains_key(&id),
+            "new Object admission cannot replace a live lifetime"
+        );
         self.registration_order.insert(0, id);
         self.map.insert(id, object)
     }
@@ -196,6 +199,15 @@ mod tests {
             store.ordered_ids(),
             &[ObjectId(2), ObjectId(90), ObjectId(500)]
         );
+        let rejected = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            store.admit(ObjectId(500), object(500));
+        }));
+        assert!(rejected.is_err());
+        assert_eq!(
+            store.ordered_ids(),
+            &[ObjectId(2), ObjectId(90), ObjectId(500)]
+        );
+        store.remove(&ObjectId(500)).unwrap();
         store.admit(ObjectId(500), object(500));
         assert_eq!(
             store.ordered_ids(),

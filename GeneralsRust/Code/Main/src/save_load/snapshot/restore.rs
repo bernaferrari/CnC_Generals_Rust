@@ -78,6 +78,7 @@ impl SnapshotBuilder {
         saved_order: Option<&[ObjectId]>,
         game_logic: &mut GameLogic,
     ) -> SaveLoadResult<()> {
+        self.validate_object_restore_admission(objects, game_logic)?;
         super::object_order_persist::validate(saved_order, objects)?;
         self.validate_receiving_object_templates(objects, game_logic)?;
         let ids: Vec<ObjectId> = match saved_order {
@@ -179,6 +180,26 @@ impl SnapshotBuilder {
         self.restore_object_with_body_kind(snapshot, None, None, game_logic)
     }
 
+    pub(super) fn validate_object_restore_admission(
+        &self,
+        objects: &HashMap<ObjectId, ObjectSnapshot>,
+        game_logic: &GameLogic,
+    ) -> SaveLoadResult<()> {
+        if game_logic.has_pending_object_removals() {
+            return Err(SaveLoadError::Corrupted(
+                "receiving Object retirement must finish before restoring a world".into(),
+            ));
+        }
+        for (id, object) in objects {
+            if id.0 == 0 || *id != object.id {
+                return Err(SaveLoadError::Corrupted(
+                    "saved Object roster key must equal its nonzero identity".into(),
+                ));
+            }
+        }
+        Ok(())
+    }
+
     fn restore_object_with_body_kind(
         &self,
         snapshot: &ObjectSnapshot,
@@ -186,6 +207,11 @@ impl SnapshotBuilder {
         native_lifecycle: Option<&crate::game_logic::native_lifecycle::NativeLifecycleRuntime>,
         game_logic: &mut GameLogic,
     ) -> SaveLoadResult<()> {
+        game_logic
+            .validate_host_object_admission(snapshot.id)
+            .map_err(|error| {
+                SaveLoadError::Corrupted(format!("saved Object admission: {error}"))
+            })?;
         // Prefer catalog templates when present. Map-spawned objects often have a
         // matching entry after load_map, but mid-match loads into a fresh GameLogic
         // may not have the full INI catalog — synthesize a minimal template so
@@ -470,7 +496,9 @@ impl SnapshotBuilder {
         // that boundary, without reentering states or computing paths.
         let id = object.id;
         let saved_runtime = std::mem::take(&mut object.unit_ai_runtime);
-        game_logic.admit_host_object(object);
+        game_logic.try_admit_host_object(object).map_err(|error| {
+            SaveLoadError::Corrupted(format!("saved Object admission: {error}"))
+        })?;
         game_logic
             .host_object_mut(id)
             .expect("admitted saved object")
@@ -1639,5 +1667,92 @@ impl SnapshotBuilder {
                 Self::rebuild_garrisoned_units_from_occupants(object);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod admission_lifetime_tests {
+    use super::*;
+
+    fn world() -> (GameLogic, ObjectId) {
+        let mut world = GameLogic::new();
+        let mut template = ThingTemplate::new("RestoreAdmissionOwner");
+        template.set_health(100.);
+        world
+            .templates
+            .insert(template.name.clone(), template.clone());
+        let id = ObjectId(717);
+        world.add_object(Object::new(template, id, Team::USA));
+        (world, id)
+    }
+
+    #[test]
+    fn whole_restore_rejects_pending_receiver_before_clearing_any_old_lifetime() {
+        let (source, id) = world();
+        let builder = SnapshotBuilder::new();
+        let snapshot = builder.create_world_snapshot(&source).unwrap();
+        let (mut receiver, _) = world();
+        let (peer, _) = world();
+        receiver.frame = 919;
+        receiver.destroy_object(id);
+        let before_queue =
+            bincode_legacy::serialize(&receiver.pending_object_removal_snapshot()).unwrap();
+        let before_generation = receiver.host_object(id).unwrap().visual_object_generation;
+        let before_order = receiver.objects.ordered_ids().to_vec();
+        let before_audio = receiver.queued_audio_events.len();
+        let error = builder
+            .restore_from_snapshot(&snapshot, &mut receiver)
+            .unwrap_err();
+        assert!(error.to_string().contains("retirement must finish"));
+        assert_eq!(receiver.frame, 919);
+        assert_eq!(receiver.objects.ordered_ids(), before_order);
+        assert_eq!(
+            receiver.host_object(id).unwrap().visual_object_generation,
+            before_generation
+        );
+        assert!(receiver.host_object(id).unwrap().status.destroyed);
+        assert_eq!(receiver.queued_audio_events.len(), before_audio);
+        assert_eq!(
+            bincode_legacy::serialize(&receiver.pending_object_removal_snapshot()).unwrap(),
+            before_queue
+        );
+        assert!(!peer.host_object(id).unwrap().status.destroyed);
+        receiver.process_destroy_list();
+        builder
+            .restore_from_snapshot(&snapshot, &mut receiver)
+            .unwrap();
+        assert!(receiver.host_object(id).is_some());
+    }
+
+    #[test]
+    fn malformed_roster_identity_and_direct_row_collision_reject_before_admission_effects() {
+        let (source, id) = world();
+        let builder = SnapshotBuilder::new();
+        let mut snapshot = builder.create_world_snapshot(&source).unwrap();
+        let (mut receiver, _) = world();
+        receiver.frame = 421;
+        let before_generation = receiver.host_object(id).unwrap().visual_object_generation;
+        let before_audio = receiver.queued_audio_events.len();
+        let mut before_templates: Vec<_> = receiver.templates.keys().cloned().collect();
+        before_templates.sort();
+        let mut row = snapshot.objects[&id].clone();
+        row.template_name = "MissingTemplateShouldNotBeAdmitted".into();
+        let error = builder.restore_object(&row, &mut receiver).unwrap_err();
+        assert!(error.to_string().contains("occupied"));
+        snapshot.objects.get_mut(&id).unwrap().id = ObjectId(999);
+        let error = builder
+            .restore_from_snapshot(&snapshot, &mut receiver)
+            .unwrap_err();
+        assert!(error.to_string().contains("roster key"));
+        assert_eq!(receiver.frame, 421);
+        assert_eq!(
+            receiver.host_object(id).unwrap().visual_object_generation,
+            before_generation
+        );
+        assert_eq!(receiver.queued_audio_events.len(), before_audio);
+        let mut after_templates: Vec<_> = receiver.templates.keys().cloned().collect();
+        after_templates.sort();
+        assert_eq!(before_templates, after_templates);
+        assert!(receiver.pending_object_removal_snapshot().is_empty());
     }
 }

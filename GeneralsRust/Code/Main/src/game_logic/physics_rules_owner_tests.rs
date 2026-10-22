@@ -223,6 +223,16 @@ fn cloned_and_replaced_actor_admission_rebinds_rules_without_rewriting_resolved_
     );
     detached.min_fall_speed_for_damage = 17.0;
     detached.movement.velocity = Vec3::new(3.25, -7.5, 1.0);
+    let previous_generation = receiver.objects[&id].visual_object_generation;
+    let previous_velocity = receiver.objects[&id].movement.velocity;
+    assert!(receiver.try_add_object(detached.clone()).is_err());
+    assert_eq!(
+        receiver.objects[&id].visual_object_generation,
+        previous_generation
+    );
+    assert_eq!(receiver.objects[&id].movement.velocity, previous_velocity);
+    receiver.destroy_object(id);
+    receiver.process_destroy_list();
     receiver.add_object(detached);
     assert_eq!(
         &receiver.objects[&id].physics_rules,
