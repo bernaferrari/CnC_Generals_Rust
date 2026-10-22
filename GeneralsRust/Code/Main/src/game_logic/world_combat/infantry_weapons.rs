@@ -2485,34 +2485,19 @@ impl GameLogic {
             let mut total_damage = 0.0_f32;
             let mut applications = 0_u32;
             let mut destroyed = 0_u32;
-            let mut destroy_ids: Vec<(ObjectId, Team)> = Vec::new();
-
             for hit in &plan.hits {
-                if let Some(target) = self.objects.get_mut(&hit.target_id) {
-                    if !target.is_alive() {
-                        continue;
-                    }
-                    let killed = target.take_radiation_field_tick_with_repulsor_policy(
-                        hit.damage,
-                        Some(plan.source_object),
-                        &mut self.health_events,
-                        &self.enable_repulsors,
-                    );
-                    total_damage += hit.damage;
-                    applications += 1;
-                    if killed {
-                        destroyed += 1;
-                        destroy_ids.push((hit.target_id, plan.source_team));
-                    }
-                }
-            }
-
-            for (id, killer_team) in destroy_ids {
-                self.mark_object_for_destruction_with_effects(
-                    id,
-                    Some(killer_team),
+                let Some(killed) = self.apply_owned_radiation_field_tick(
+                    hit.target_id,
+                    hit.damage,
+                    plan.source_object,
+                    plan.source_team,
                     presentation_effects,
-                );
+                ) else {
+                    continue;
+                };
+                total_damage += hit.damage;
+                applications += 1;
+                destroyed += u32::from(killed);
             }
 
             self.nuke_cannon_residual.record_tick_complete(

@@ -21,9 +21,6 @@ pub mod host_a10_strike_drop_log;
 pub mod host_damage_log;
 pub use host_damage_log::HostDamageEvent;
 
-#[path = "host_voice_fear_log.rs"]
-pub mod host_voice_fear_log;
-
 #[path = "host_attack_log.rs"]
 pub mod host_attack_log;
 

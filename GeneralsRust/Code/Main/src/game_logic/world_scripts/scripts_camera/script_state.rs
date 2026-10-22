@@ -105,14 +105,6 @@ impl GameLogic {
     /// presentation residual is not delayed one tick.
     pub(crate) fn process_audio_events(&mut self) {
         self.refresh_live_audio_locality();
-        for ev in crate::game_logic::host_voice_fear_log::drain() {
-            self.queued_audio_events.push(
-                AudioEventRequest::new(&ev.event_name)
-                    .with_object(ev.victim)
-                    .with_position(ev.position)
-                    .with_priority(150),
-            );
-        }
         for ev in crate::game_logic::host_unit_training::drain_promote_audio() {
             self.queued_audio_events.push(
                 AudioEventRequest::new(&ev.event_name)

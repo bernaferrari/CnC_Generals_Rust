@@ -76,8 +76,7 @@ fn spawned(field: Field, inactive: bool) -> (GameLogic, ObjectId, u32) {
     spawned_at(field, inactive, 11)
 }
 
-fn spawned_at(field: Field, inactive: bool, frame: u32) -> (GameLogic, ObjectId, u32) {
-    let mut parser = crate::assets::IniParser::new();
+fn admit_field_definition(world: &mut GameLogic, field: Field, inactive: bool) {
     let body = if inactive {
         "InactiveBody"
     } else {
@@ -94,17 +93,24 @@ fn spawned_at(field: Field, inactive: bool, frame: u32) -> (GameLogic, ObjectId,
         Field::Radiation => ("LifetimeUpdate", 30000),
     };
     let name = field.name();
-    parser.parse_ini_content(&format!(
+    let source = format!(
         "Object {name}\nKindOf = IMMOBILE INERT NO_COLLIDE\nBody = {body} BodyTag\n{health}\nEnd\nBehavior = {module} ExpiryTag\nMinLifetime = {duration}\nMaxLifetime = {duration}\nEnd\nBehavior = InstantDeathBehavior DeathWitness\nDeathTypes = ALL -LASERED -DETONATED\nFX = OwnedFieldExpiryWitness\nEnd\nEnd"
-    ), "field-lifetime-owner.ini").unwrap();
-    let template = GameLogic::build_template_from_object_definition(
-        name,
-        parser.get_definition(name).unwrap(),
-        None,
     );
+    world
+        .admit_receiving_module_content(
+            crate::assets::ReceivingObjectContent::from_sources([(
+                "field-lifetime-owner.ini".into(),
+                source,
+            )])
+            .unwrap(),
+        )
+        .unwrap();
+}
+
+fn spawned_at(field: Field, inactive: bool, frame: u32) -> (GameLogic, ObjectId, u32) {
     let mut world = GameLogic::new();
     world.frame = frame;
-    world.templates.insert(name.into(), template);
+    admit_field_definition(&mut world, field, inactive);
     let id = match field {
         Field::Fire => world
             .spawn_inferno_fire_field_object(1, Vec3::ZERO, false, Team::USA)
@@ -295,7 +301,7 @@ fn rejected_kill_stays_asleep(field: Field) {
     let mut fresh = GameLogic::new();
     // This fixture supplied custom immutable field authoring before creation.
     // A receiving factory must admit those same definitions before strict load.
-    fresh.templates = world.templates.clone();
+    admit_field_definition(&mut fresh, field, false);
     builder.restore_from_snapshot(&decoded, &mut fresh).unwrap();
     builder.restore_from_snapshot(&decoded, &mut world).unwrap();
     for receiving in [&mut fresh, &mut world] {
@@ -335,7 +341,7 @@ fn field_creation_binds_one_receiving_lifetime_and_preserves_deadline_on_load() 
         let builder = crate::save_load::SnapshotBuilder::new();
         let snapshot = builder.create_world_snapshot(&world).unwrap();
         let mut receiving = GameLogic::new();
-        receiving.templates = world.templates.clone();
+        admit_field_definition(&mut receiving, field, false);
         builder
             .restore_from_snapshot(&snapshot, &mut receiving)
             .unwrap();

@@ -300,7 +300,7 @@ impl Object {
         health_events: &mut crate::game_logic::HostHealthEvents,
         repulsor_policy: &bool,
     ) -> bool {
-        if self.status.airborne_target || self.is_significantly_above_terrain() {
+        if self.is_significantly_above_terrain() {
             return false;
         }
         self.take_damage_from_immediate_typed_death_with_repulsor_policy(

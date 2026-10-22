@@ -91,6 +91,37 @@ impl GameLogic {
         }
     }
 
+    /// Weapon.cpp:1351/1470 excludes airborne victims, then completes each
+    /// attemptDamage (including onDie) before advancing the victim iterator.
+    pub(in crate::game_logic) fn apply_owned_radiation_field_tick(
+        &mut self,
+        victim_id: ObjectId,
+        amount: f32,
+        source_id: ObjectId,
+        source_team: Team,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> Option<bool> {
+        let victim = self.objects.get(&victim_id)?;
+        if !victim.is_alive() {
+            return None;
+        }
+        if victim.is_significantly_above_terrain() {
+            return Some(false);
+        }
+        self.apply_owned_damage_with_killer_team_with_effects(
+            victim_id,
+            amount,
+            Some(source_id),
+            crate::game_logic::combat::DamageType::Radiation,
+            crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+            None,
+            &DamageHitContext::default(),
+            Some(source_team),
+            effects,
+        )
+        .map(|result| result.destroyed())
+    }
+
     /// Residual callers retain their original batched death dispatch, but Body
     /// and Player mutations execute immediately on this receiving session.
     pub(in crate::game_logic) fn apply_residual_damage_owned(
@@ -203,7 +234,15 @@ impl GameLogic {
                             .flatten()
                             .find(|pose| Some(ObjectId(pose.id)) == secondary_id);
                         Self::execute_body_state_fx_with_view(
-                            object, effect, source, secondary, player, shroud, particles, frame,
+                            object,
+                            effect,
+                            source,
+                            secondary,
+                            player,
+                            shroud,
+                            particles,
+                            &mut self.queued_audio_events,
+                            frame,
                             view,
                         );
                     };
@@ -238,7 +277,15 @@ impl GameLogic {
                 .objects
                 .get_mut(&victim_id)
                 .expect("validated receiving victim");
-            let application = victim.begin_damage_with_context_and_player_effects(
+            let audio = &mut self.queued_audio_events;
+            let mut body_fx = |object: &mut Object,
+                               effect,
+                               source: Option<
+                &crate::game_logic::host_transition_damage_fx::HostDamageFxVictim,
+            >| {
+                Self::execute_body_state_fx_without_view(object, effect, source, audio);
+            };
+            let application = victim.begin_damage_with_context_and_effects(
                 amount,
                 source_id,
                 damage_type,
@@ -251,8 +298,14 @@ impl GameLogic {
                 |effect| {
                     Self::apply_body_player_effect(players, frame, &source_players, effect);
                 },
+                &mut body_fx,
             );
-            application.finish_standalone(victim, None, &self.enable_repulsors)
+            application.finish_standalone_with_body_fx(
+                victim,
+                None,
+                &self.enable_repulsors,
+                &mut body_fx,
+            )
         }
     }
 
@@ -576,6 +629,7 @@ impl GameLogic {
                             begin_player,
                             self.world_services.shroud(),
                             &mut self.combat_particles,
+                            &mut self.queued_audio_events,
                             frame,
                             view,
                         );
@@ -588,7 +642,7 @@ impl GameLogic {
             let players = &mut self.players;
             self.objects
                 .get_mut(&victim_id)?
-                .begin_damage_with_context_and_player_effects(
+                .begin_damage_with_context_and_effects(
                     damage,
                     source_id,
                     damage_type,
@@ -600,6 +654,14 @@ impl GameLogic {
                     Some(&mut self.ownership_events),
                     |effect| {
                         Self::apply_body_player_effect(players, frame, &source_players, effect)
+                    },
+                    &mut |object, effect, source| {
+                        Self::execute_body_state_fx_without_view(
+                            object,
+                            effect,
+                            source,
+                            &mut self.queued_audio_events,
+                        )
                     },
                 )
         };
@@ -623,7 +685,9 @@ impl GameLogic {
             .get(&victim_id)
             .is_some_and(|object| !object.temporary_weapon_runtime.damaged.is_empty());
         let healing = damage_type == crate::game_logic::combat::DamageType::Healing;
-        let authored_callbacks = if hp_lost > 0.0 || (healing && hp_gained > 0.0) {
+        // ActiveBody.cpp:824 admits onHealing only for a real health increase;
+        // clamping an already over-maximum Body downward is not onDamage.
+        let authored_callbacks = if (!healing && hp_lost > 0.0) || (healing && hp_gained > 0.0) {
             self.run_authored_mine_and_weapon_damage_callbacks(
                 victim_id,
                 application.actual_damage_dealt().unwrap_or(hp_lost),
@@ -639,8 +703,10 @@ impl GameLogic {
             reaction_callback_ran = ran;
             // Captured callbacks own the actual source-order walk. Do not
             // replay the single-weapon compatibility latch afterward.
-            if let Some(object) = self.objects.get_mut(&victim_id) {
-                let _ = object.take_pending_fire_when_damaged_weapon();
+            if !healing {
+                if let Some(object) = self.objects.get_mut(&victim_id) {
+                    let _ = object.take_pending_fire_when_damaged_weapon();
+                }
             }
         } else {
             if hp_lost > 0.0 && damage_type != crate::game_logic::combat::DamageType::Healing {
@@ -725,6 +791,7 @@ impl GameLogic {
                                 callback_player,
                                 self.world_services.shroud(),
                                 &mut self.combat_particles,
+                                &mut self.queued_audio_events,
                                 self.frame,
                                 view,
                             );
@@ -735,7 +802,18 @@ impl GameLogic {
         );
         #[cfg(not(feature = "game_client"))]
         if let Some(victim) = self.objects.get_mut(&victim_id) {
-            application.complete_body_state_callbacks(victim, callback_source.as_ref());
+            application.complete_body_state_callbacks_with_body_fx(
+                victim,
+                callback_source.as_ref(),
+                &mut |object, effect, source| {
+                    Self::execute_body_state_fx_without_view(
+                        object,
+                        effect,
+                        source,
+                        &mut self.queued_audio_events,
+                    )
+                },
+            );
         }
         // Original ActiveBody rereads live health after synchronous callbacks.
         let killed = if (bridge_callbacks.is_some() || reaction_callback_ran)
@@ -821,6 +899,7 @@ impl GameLogic {
                             armor_player,
                             self.world_services.shroud(),
                             &mut self.combat_particles,
+                            &mut self.queued_audio_events,
                             self.frame,
                             view,
                         )
@@ -834,7 +913,18 @@ impl GameLogic {
                 .objects
                 .get_mut(&victim_id)
                 .expect("damage victim remains installed until destroy-list cleanup");
-            application.dispatch_damage_fx(victim, source.as_ref())
+            application.dispatch_damage_fx_with_body_fx(
+                victim,
+                source.as_ref(),
+                &mut |object, effect, source| {
+                    Self::execute_body_state_fx_without_view(
+                        object,
+                        effect,
+                        source,
+                        &mut self.queued_audio_events,
+                    )
+                },
+            )
         };
         self.admit_object_drawable_deselection(victim_id);
         self.admit_host_radar_disabled_edges(victim_id);
@@ -873,6 +963,7 @@ impl GameLogic {
                             finish_player,
                             self.world_services.shroud(),
                             &mut self.combat_particles,
+                            &mut self.queued_audio_events,
                             self.frame,
                             view,
                         )
@@ -886,7 +977,19 @@ impl GameLogic {
                 .objects
                 .get_mut(&victim_id)
                 .expect("post-FX victim remains installed until destroy-list cleanup");
-            after_fx.finish(victim, source.as_ref(), enable_repulsors)
+            after_fx.finish_with_body_fx(
+                victim,
+                source.as_ref(),
+                enable_repulsors,
+                &mut |object, effect, source| {
+                    Self::execute_body_state_fx_without_view(
+                        object,
+                        effect,
+                        source,
+                        &mut self.queued_audio_events,
+                    )
+                },
+            )
         };
         self.admit_object_drawable_deselection(victim_id);
         self.admit_host_radar_disabled_edges(victim_id);

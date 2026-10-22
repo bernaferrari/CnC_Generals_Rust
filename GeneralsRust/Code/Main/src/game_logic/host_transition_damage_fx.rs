@@ -1377,53 +1377,6 @@ pub fn take_dispatched_armor_damage_fx() -> Vec<String> {
     DISPATCHED_ARMOR_DAMAGE_FX.with(|v| std::mem::take(&mut *v.borrow_mut()))
 }
 
-/// Queue C++ VoiceFear when health crosses yellow (ActiveBody.cpp:624-637).
-///
-/// C++ copies `*getTemplate()->getVoiceFear()`, `setPosition(obj->getPosition())`,
-/// `setPlayerIndex(controlling player)`. Missing VoiceFear is an empty
-/// AudioEventRTS (silent) — never `{template}VoiceFear`.
-pub fn queue_voice_fear_event(
-    pending: &mut Vec<HostTransitionDamageFxEvent>,
-    template_name: &str,
-    old_state: HostBodyDamageType,
-    new_state: HostBodyDamageType,
-    prev_health: f32,
-    current_health: f32,
-    max_health: f32,
-    victim: ObjectId,
-    position: glam::Vec3,
-    player_id: Option<u32>,
-) {
-    if !voice_fear_should_play(
-        prev_health,
-        current_health,
-        max_health,
-        take_voice_fear_roll(),
-    ) {
-        return;
-    }
-    let Some(fear) = lookup_template_damage_audio(template_name)
-        .voice_fear
-        .filter(|name| !name.is_empty())
-    else {
-        return;
-    };
-    crate::game_logic::host_voice_fear_log::record(victim, position, player_id, fear.clone());
-    pending.push(HostTransitionDamageFxEvent {
-        old_state: old_state.ordinal(),
-        new_state: new_state.ordinal(),
-        fx_name: None,
-        audio_name: Some(fear),
-        extra_fx_names: Vec::new(),
-        ocl_names: Vec::new(),
-        particles: Vec::new(),
-        fx_locs: Vec::new(),
-        ocl_locs: Vec::new(),
-
-        clear_old_state: None,
-    });
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

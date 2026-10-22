@@ -34,3 +34,6 @@ mod construction_command_ui_tests;
 
 #[cfg(test)]
 mod cold_grid_owner_tests;
+
+#[cfg(test)]
+mod voice_fear_owner_tests;

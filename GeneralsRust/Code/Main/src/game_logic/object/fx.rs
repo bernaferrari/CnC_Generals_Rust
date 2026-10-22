@@ -5,6 +5,7 @@ use crate::game_logic::host_transition_damage_fx::HostTransitionDamageFxEvent;
 /// synchronous operation data, never a stored world queue or saved mirror.
 pub(in crate::game_logic) enum BodyStateFx {
     Transition(HostTransitionDamageFxEvent),
+    VoiceFear(crate::game_logic::AudioEventRequest),
     FxListDie,
     FxListDieSlot(crate::game_logic::host_fx_list_die::HostFxListDieData),
     ArmorDamage {
@@ -25,12 +26,48 @@ pub(in crate::game_logic) type BodyStateFxReceiver<'a> = dyn FnMut(
     ) + 'a;
 
 impl Object {
+    /// The original fear gate executes after body callbacks. Only a qualifying
+    /// live crossing consumes a chance draw, including a silent definition.
+    pub(in crate::game_logic) fn voice_fear_request(
+        &self,
+        draw: impl FnOnce() -> i32,
+    ) -> Option<crate::game_logic::AudioEventRequest> {
+        use crate::game_logic::host_transition_damage_fx::voice_fear_should_play;
+        if !voice_fear_should_play(
+            self.previous_health,
+            self.health.current,
+            self.health.maximum,
+            0,
+        ) {
+            return None;
+        }
+        if draw() >= 25 {
+            return None;
+        }
+        let name = self
+            .thing()
+            .template
+            .voice_fear
+            .as_deref()
+            .filter(|name| !name.is_empty())?;
+        // ActiveBody sets position and controlling player, not ObjectID.
+        let mut request = crate::game_logic::AudioEventRequest::new(name)
+            .with_position(self.get_position())
+            .with_priority(150);
+        request.player_index = self.owner_player_id.map(|id| id as i32);
+        Some(request)
+    }
+
     pub(super) fn standalone_body_fx(
         object: &mut Object,
         effect: BodyStateFx,
         source: Option<&crate::game_logic::host_transition_damage_fx::HostDamageFxVictim>,
     ) {
         match effect {
+            // Detached Object fixtures have no AudioManager owner. A caller
+            // observing presentation supplies its BodyStateFxReceiver; admitted
+            // objects use the receiving session operations below.
+            BodyStateFx::VoiceFear(_) => {}
             BodyStateFx::Transition(event) => {
                 object.queue_transition_damage_fx_event_with_source(event, source)
             }
@@ -186,6 +223,18 @@ impl crate::game_logic::GameLogic {
         }
     }
 
+    pub(in crate::game_logic) fn execute_body_state_fx_without_view(
+        object: &mut Object,
+        effect: BodyStateFx,
+        source: Option<&crate::game_logic::host_transition_damage_fx::HostDamageFxVictim>,
+        audio: &mut Vec<crate::game_logic::AudioEventRequest>,
+    ) {
+        match effect {
+            BodyStateFx::VoiceFear(request) => audio.push(request),
+            effect => Object::standalone_body_fx(object, effect, source),
+        }
+    }
+
     #[cfg(feature = "game_client")]
     pub(crate) fn execute_body_state_fx_with_view(
         object: &mut Object,
@@ -195,10 +244,12 @@ impl crate::game_logic::GameLogic {
         player: Option<u32>,
         shroud: &std::sync::Arc<std::sync::Mutex<gamelogic::system::shroud_manager::ShroudManager>>,
         particles: &mut crate::game_logic::combat_particles::CombatParticleRegistry,
+        audio: &mut Vec<crate::game_logic::AudioEventRequest>,
         frame: u32,
         view: &mut game_client::fx_list::FxViewServices<'_>,
     ) {
         match effect {
+            BodyStateFx::VoiceFear(request) => audio.push(request),
             BodyStateFx::Transition(event) => Self::execute_transition_damage_fx_with_view(
                 object, event, source, particles, frame, view,
             ),

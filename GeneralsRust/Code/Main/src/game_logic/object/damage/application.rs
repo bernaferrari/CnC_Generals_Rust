@@ -164,21 +164,11 @@ impl DamageApplication {
             body_fx,
         );
         if fear {
-            let id = victim.id;
-            let position = victim.get_position();
-            let player = victim.owner_player_id;
-            crate::game_logic::host_transition_damage_fx::queue_voice_fear_event(
-                &mut victim.pending_transition_damage_fx,
-                &victim.template_name,
-                old_body_state,
-                victim.body_damage_state,
-                victim.previous_health,
-                victim.health.current,
-                victim.health.maximum,
-                id,
-                position,
-                player,
-            );
+            if let Some(request) = victim.voice_fear_request(
+                crate::game_logic::host_transition_damage_fx::take_voice_fear_roll,
+            ) {
+                body_fx(victim, BodyStateFx::VoiceFear(request), source);
+            }
         }
     }
 

@@ -114,12 +114,16 @@ fn explosion_detonation_damage_source_authority_source() {
             && owner.contains("amount,source_id,damage_type,death_type,fx_override,frame,")
     );
     assert!(
-        owner.contains("victim.begin_damage_with_context_and_player_effects("),
-        "all typed families must enter the outer Body admission kernel"
+        owner
+            .matches("victim.begin_damage_with_context_and_effects(")
+            .count()
+            == 2,
+        "both native and no-client routes must enter the effects-bearing Body kernel"
     );
     assert!(
-        owner.contains("victim.begin_damage_with_context_and_effects("),
-        "native route retains synchronous Body FX callbacks"
+        owner.contains("Self::execute_body_state_fx_without_view(object,effect,source,audio)")
+            && owner.contains("letaudio=&mutself.queued_audio_events;"),
+        "no-client route retains the explicit receiving audio owner"
     );
     assert!(
         owner.contains("Self::apply_body_player_effect(players,frame,&source_players,effect);"),

@@ -1644,7 +1644,25 @@ mod tests {
         );
 
         let mut jet = vehicle("RadJet", 48, 100.0);
+        jet.thing.template.armor_definitions = Some(coeff_armor(
+            "GroundedAircraftRadiationArmor",
+            gamelogic::damage::DamageType::Radiation,
+            1.0,
+        ));
+        jet.thing.template.armor_sets = vec![crate::game_logic::HostArmorSet {
+            conditions: 0,
+            armor: Some("GroundedAircraftRadiationArmor".into()),
+            damage_fx: None,
+        }];
         jet.status.airborne_target = true;
+        // Weapon.cpp:1351 tests real height, not aircraft/target classification.
+        assert!(!jet.take_radiation_field_tick(25.0, None, &mut health_events));
+        assert_eq!(
+            jet.health.current, 75.0,
+            "grounded aircraft flags do not prevent radiation"
+        );
+        jet.health.current = 100.0;
+        jet.set_position(glam::Vec3::new(0.0, 100.0, 0.0));
         assert!(!jet.take_radiation_field_tick(25.0, None, &mut health_events));
         assert!(
             (jet.health.current - 100.0).abs() < 1e-3,
@@ -1762,56 +1780,60 @@ mod tests {
     }
 
     #[test]
-    fn take_damage_queues_template_voice_fear() {
+    fn take_damage_emits_template_voice_fear_to_supplied_receiver() {
+        use crate::game_logic::host_transition_damage_fx::set_test_voice_fear_roll;
         let mut health_events = crate::game_logic::HostHealthEvents::default();
-
-        // C++ ActiveBody.cpp:574 setAttackedBy, :624-637 VoiceFear.
-        use crate::game_logic::host_transition_damage_fx::{
-            TemplateDamageAudio, set_test_template_audio, set_test_voice_fear_roll,
-        };
-        crate::game_logic::host_transition_damage_fx::clear_test_template_audio();
-        crate::game_logic::host_voice_fear_log::clear();
-        set_test_template_audio(
-            "FearRanger",
-            TemplateDamageAudio {
-                sound_on_damaged: Some("RangerSoundOnDamaged".into()),
-                sound_on_really_damaged: Some("RangerSoundOnReallyDamaged".into()),
-                voice_fear: Some("RangerVoiceFear".into()),
-            },
-        );
-        set_test_voice_fear_roll(Some(0));
-        let mut tmpl = ThingTemplate::new("FearRanger");
-        tmpl.set_health(100.0);
-        tmpl.add_kind_of(KindOf::Infantry);
-        let mut ranger = Object::new(tmpl, ObjectId(62), Team::USA);
+        let mut template = ThingTemplate::new("FearRanger");
+        template.set_health(100.0).add_kind_of(KindOf::Infantry);
+        template.voice_fear = Some("RangerVoiceFear".into());
+        let mut ranger = Object::new(template, ObjectId(62), Team::USA);
         ranger.health.current = 40.0;
-        ranger.health.maximum = 100.0;
         ranger.owner_player_id = Some(1);
-        ranger.template_name = "FearRanger".into();
         ranger.set_position(glam::Vec3::new(120.0, 4.0, 80.0));
-        assert!(!ranger.take_damage_from_typed(
+        set_test_voice_fear_roll(Some(0));
+        let mut audio = Vec::new();
+        let mut receiver = |object: &mut Object,
+                            effect,
+                            source: Option<
+            &crate::game_logic::host_transition_damage_fx::HostDamageFxVictim,
+        >| {
+            match effect {
+                BodyStateFx::VoiceFear(request) => audio.push(request),
+                effect => Object::standalone_body_fx(object, effect, source),
+            }
+        };
+        let application = ranger.begin_damage_with_context_and_effects(
             20.0,
             Some(ObjectId(77)),
             DamageType::Unresistable,
-            &mut health_events
-        ));
-        assert!((ranger.health.current - 20.0).abs() < 1e-3);
-        let pending = ranger.take_pending_transition_damage_fx();
-        assert!(
-            pending
-                .iter()
-                .any(|e| e.audio_name.as_deref() == Some("RangerVoiceFear")),
-            "VoiceFear must queue on yellow cross, got {pending:?}"
+            crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+            None,
+            0,
+            &DamageHitContext::default(),
+            &mut health_events,
+            None,
+            |_| {},
+            &mut receiver,
         );
-        let fear = crate::game_logic::host_voice_fear_log::drain();
-        assert_eq!(fear.len(), 1);
-        assert_eq!(fear[0].event_name, "RangerVoiceFear");
-        assert_eq!(fear[0].victim, ObjectId(62));
-        assert_eq!(fear[0].position, glam::Vec3::new(120.0, 4.0, 80.0));
-        assert_eq!(fear[0].player_id, Some(1));
-        assert_ne!(fear[0].event_name, "FearRangerVoiceFear");
+        assert!(!application.finish_standalone_with_body_fx(
+            &mut ranger,
+            None,
+            &false,
+            &mut receiver
+        ));
         set_test_voice_fear_roll(None);
-        crate::game_logic::host_transition_damage_fx::clear_test_template_audio();
+        assert_eq!(ranger.health.current, 20.0);
+        assert_eq!(audio.len(), 1);
+        assert_eq!(audio[0].event_type, "RangerVoiceFear");
+        assert_eq!(audio[0].object_id, None);
+        assert_eq!(audio[0].position, Some(glam::Vec3::new(120.0, 4.0, 80.0)));
+        assert_eq!(audio[0].player_index, Some(1));
+        assert!(
+            ranger
+                .take_pending_transition_damage_fx()
+                .iter()
+                .all(|event| event.audio_name.as_deref() != Some("RangerVoiceFear"))
+        );
     }
 
     #[test]

@@ -785,6 +785,7 @@ impl GameLogic {
             self.combat_particles.can_clear(),
             "GameLogic reset requires its live receiving particle manager"
         );
+        self.queued_audio_events.clear();
         self.native_hulk_max_lifetime_override = -1;
         self.weapon_definitions = self.weapon_definition_base.clone();
         if let Some(baseline) = &self.receiving_template_baseline {

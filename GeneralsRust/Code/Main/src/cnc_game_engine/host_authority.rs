@@ -2365,9 +2365,8 @@ impl CnCGameEngine {
         // players, teams, scripts and named/area trackers). Terrain, shroud,
         // visuals and Main AI belong to their world and are not swapped.
         // Move shared metadata out before constructing the candidate so
-        // failure cannot poison the still-playable host match.  Main's TLS
-        // logs/shadow bind path need the matching take/restore scope around
-        // the same work.
+        // failure cannot poison the still-playable host match. Core/native
+        // transaction state is restored before installing the candidate.
         let runtime_stage =
             gamelogic::runtime_world_transaction::HostRuntimeWorldStage::begin(live_services);
         let mut staged = crate::game_logic::GameLogic::new();

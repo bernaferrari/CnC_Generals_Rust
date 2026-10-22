@@ -5,6 +5,15 @@ use crate::game_logic::host_usa_pilot::HostDeathType;
 use crate::game_logic::object::{DamageHitContext, MaxHealthChange};
 use crate::game_logic::{GameLogic, ObjectId, Team, ThingTemplate};
 
+fn definition_source(name: &str, inactive: bool) -> String {
+    let body = if inactive {
+        "Body = InactiveBody BodyTag\nEnd"
+    } else {
+        "Body = ActiveBody BodyTag\nMaxHealth = 100\nInitialHealth = 100\nEnd"
+    };
+    format!("Object {name}\nKindOf = STRUCTURE\n{body}\nEnd")
+}
+
 fn template(name: &str, inactive: bool) -> ThingTemplate {
     let body = if inactive {
         "Body = InactiveBody BodyTag\nEnd"
@@ -25,11 +34,21 @@ fn template(name: &str, inactive: bool) -> ThingTemplate {
     )
 }
 
+fn admit_definition(world: &mut GameLogic, name: &str, inactive: bool) {
+    world
+        .admit_receiving_module_content(
+            crate::assets::ReceivingObjectContent::from_sources([(
+                "receiving-inactive-body.ini".into(),
+                definition_source(name, inactive),
+            )])
+            .unwrap(),
+        )
+        .unwrap();
+}
+
 fn world(name: &str, inactive: bool) -> (GameLogic, ObjectId) {
     let mut world = GameLogic::new();
-    world
-        .templates
-        .insert(name.into(), template(name, inactive));
+    admit_definition(&mut world, name, inactive);
     let id = world
         .create_object(name, Team::USA, glam::Vec3::ZERO)
         .unwrap();
@@ -81,7 +100,16 @@ fn authored_body_class_overrides_names_and_foreign_same_id_owners() {
     assert!(clone.is_inactive_body());
     assert_inactive(&owner, id);
     owner.reset();
-    owner.templates.insert(name.into(), template(name, false));
+    assert!(owner.host_objects().is_empty());
+    let reset_id = owner
+        .create_object(name, Team::USA, glam::Vec3::ZERO)
+        .unwrap();
+    assert_inactive(&owner, reset_id);
+    assert!(clone.is_inactive_body());
+    // Reset retains the receiving catalog. Different content belongs to a
+    // fresh session, while already captured Objects keep their Body class.
+    let mut owner = GameLogic::new();
+    admit_definition(&mut owner, name, false);
     let replacement = owner
         .create_object(name, Team::USA, glam::Vec3::ZERO)
         .unwrap();
@@ -170,7 +198,8 @@ fn encoded_body_kind_restores_with_and_without_receiving_definitions() {
     assert!(
         error
             .to_string()
-            .contains("receiving Die declarations differ")
+            .contains("receiving Die declarations differ"),
+        "{error}"
     );
     assert_eq!(
         missing_catalog.frame, 99,
@@ -179,15 +208,13 @@ fn encoded_body_kind_restores_with_and_without_receiving_definitions() {
     assert!(missing_catalog.host_objects().is_empty());
     for loaded_definition in [false, true] {
         let mut receiving = GameLogic::new();
-        let mut receiving_definition = template(name, true);
+        admit_definition(&mut receiving, name, true);
+        let receiving_definition = receiving.templates.get_mut(name).unwrap();
         assert!(receiving_definition.native_die_declarations.is_some());
         if !loaded_definition {
             receiving_definition.body_kind = None;
         }
         assert_eq!(receiving_definition.body_kind.is_some(), loaded_definition);
-        receiving
-            .templates
-            .insert(name.into(), receiving_definition);
         builder
             .restore_from_snapshot(&decoded, &mut receiving)
             .unwrap();
@@ -222,12 +249,29 @@ fn inactive_die_does_not_run_active_body_score_the_kill() {
         victim_player.alliance_team = 2;
         owner.add_player(source_player);
         owner.add_player(victim_player);
-        let mut source = template("BodyScoreSource", false);
-        source.is_trainable = true;
-        owner.templates.insert(source.name.clone(), source);
-        let mut victim = template("BodyScoreInactive", inactive);
-        victim.experience_value = 100.0;
-        owner.templates.insert(victim.name.clone(), victim);
+        owner
+            .admit_receiving_module_content(
+                crate::assets::ReceivingObjectContent::from_sources([(
+                    "body-score-owner.ini".into(),
+                    format!(
+                        "{}\n{}",
+                        definition_source("BodyScoreSource", false),
+                        definition_source("BodyScoreInactive", inactive)
+                    ),
+                )])
+                .unwrap(),
+            )
+            .unwrap();
+        owner
+            .templates
+            .get_mut("BodyScoreSource")
+            .unwrap()
+            .is_trainable = true;
+        owner
+            .templates
+            .get_mut("BodyScoreInactive")
+            .unwrap()
+            .experience_value = 100.0;
         let source = owner
             .create_object_for_player("BodyScoreSource", 0, glam::Vec3::ZERO)
             .unwrap();
@@ -311,11 +355,20 @@ fn exercise_native_field_body(spawner: usize) {
     for inactive in [true, false] {
         let mut owner = GameLogic::new();
         owner.frame = 11;
-        for name in names {
-            owner
-                .templates
-                .insert(name.into(), template(name, inactive));
-        }
+        let source = names
+            .iter()
+            .map(|name| definition_source(name, inactive))
+            .collect::<Vec<_>>()
+            .join("\n");
+        owner
+            .admit_receiving_module_content(
+                crate::assets::ReceivingObjectContent::from_sources([(
+                    "native-field-body.ini".into(),
+                    source.clone(),
+                )])
+                .unwrap(),
+            )
+            .unwrap();
         let fire = owner
             .spawn_inferno_fire_field_object(3, glam::Vec3::ZERO, false, Team::USA)
             .unwrap();
@@ -370,10 +423,17 @@ fn exercise_native_field_body(spawner: usize) {
         let mut restored = GameLogic::new();
         // Re-admit the actual authored Object definitions, including empty
         // authored Die catalogs, independently of the saved runtime records.
+        restored
+            .admit_receiving_module_content(
+                crate::assets::ReceivingObjectContent::from_sources([(
+                    "native-field-body.ini".into(),
+                    source,
+                )])
+                .unwrap(),
+            )
+            .unwrap();
         for name in names {
-            let receiving_definition = template(name, inactive);
-            assert!(receiving_definition.native_die_declarations.is_some());
-            restored.templates.insert(name.into(), receiving_definition);
+            assert!(restored.templates[name].native_die_declarations.is_some());
         }
         builder
             .restore_from_snapshot(&decoded, &mut restored)

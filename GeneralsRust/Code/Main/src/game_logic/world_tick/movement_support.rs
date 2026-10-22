@@ -2881,56 +2881,6 @@ impl GameLogic {
         }
     }
 
-    pub(in super::super) fn physics_damage_source_players(
-        &self,
-        victim_id: ObjectId,
-    ) -> crate::game_logic::object::PhysicsDamageSources {
-        let previous = self
-            .objects
-            .get(&victim_id)
-            .and_then(|object| object.last_damage_source);
-        self.physics_damage_sources([Some(victim_id), previous])
-    }
-
-    pub(in super::super) fn physics_damage_sources(
-        &self,
-        ids: [Option<ObjectId>; 2],
-    ) -> crate::game_logic::object::PhysicsDamageSources {
-        crate::game_logic::object::PhysicsDamageSources {
-            players: ids.map(|source| {
-                source.and_then(|id| {
-                    self.objects
-                        .get(&id)
-                        .and_then(|object| object.owner_player_id.map(|player| (id, player)))
-                })
-            }),
-            effects: ids.map(|id| {
-                id.and_then(|id| self.objects.get(&id))
-                    .map(crate::game_logic::host_transition_damage_fx::snapshot_damage_fx_source)
-            }),
-            #[cfg(feature = "game_client")]
-            poses: ids.map(|id| {
-                id.and_then(|id| self.objects.get(&id)).map(|object| {
-                    Self::observe_host_fx_object(
-                        object,
-                        self.local_player_id(),
-                        self.world_services.shroud(),
-                    )
-                })
-            }),
-            observations: ids.map(|source| {
-                source.map(|id| {
-                    (
-                        id,
-                        crate::game_logic::object::LastDamageSourceObservation::observe(
-                            self.objects.get(&id),
-                        ),
-                    )
-                })
-            }),
-        }
-    }
-
     /// C++ AIExitState::update polls isExitBusy / getAiFreeToExit every frame
     /// with no hull-stop requirement. move-to-and-evacuate still waits for
     /// arrival (`pending_stream_exit` stays false until the first dump).

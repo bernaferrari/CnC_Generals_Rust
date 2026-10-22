@@ -497,3 +497,32 @@ fn dead_bridge_rejects_damage_healing_and_accepts_direct_healing() {
     assert!(!object.status.destroyed);
     assert!(!object.status.on_die_started);
 }
+
+#[test]
+fn receiving_positive_healing_preserves_prior_damage_reaction_without_firing_it() {
+    let mut world = GameLogic::new();
+    let mut object = body();
+    assert_eq!(object.health.current, 20.0);
+    object.pending_fire_when_damaged_weapon = Some("PriorDamageReactionWitness".into());
+    let id = object.id;
+    world.objects.insert(id, object);
+    let result = world
+        .apply_owned_damage(
+            id,
+            10.0,
+            None,
+            DamageType::Healing,
+            HostDeathType::Normal,
+            None,
+            &DamageHitContext::default(),
+        )
+        .unwrap();
+    assert!(!result.destroyed());
+    let object = world.host_object(id).unwrap();
+    assert_eq!(object.health.current, 30.0);
+    assert_eq!(
+        object.pending_fire_when_damaged_weapon.as_deref(),
+        Some("PriorDamageReactionWitness")
+    );
+    assert!(!object.status.on_die_started);
+}
