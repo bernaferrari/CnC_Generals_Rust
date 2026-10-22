@@ -1141,8 +1141,8 @@ fn presentation_unit_pass_records_zero_live_identity_reads() {
         .split_once("let mut unit_inputs: Vec<crate::presentation_frame::UnitRenderInput>")
         .expect("typed frozen inputs")
         .1
-        .split_once("self.native_draw_world.live_draw_playback.retain")
-        .expect("input admission boundary")
+        .split_once(".retain(|key, _| key.is_alive());")
+        .expect("input admission ends before native playback lifetime pruning")
         .0;
     assert!(
         inputs.contains("if let Some(ref pres) = presentation")

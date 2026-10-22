@@ -106,6 +106,31 @@ impl NativeInstalledPoseLoan<'_> {
                         || state.native_client_binding != Some(key))
             })
         {
+            // Diagnose the first anonymous/stale module without mutating the owner.
+            let mut invalid = self
+                .drawable_visual_states
+                .iter()
+                .filter(|((object, _), state)| {
+                    *object == identity.object_id()
+                        && (state.native_host_identity.as_ref() != Some(identity)
+                            || state.native_client_binding != Some(key))
+                })
+                .collect::<Vec<_>>();
+            invalid.sort_by_key(|((_, module), _)| *module);
+            for ((object, module), state) in invalid.into_iter().take(8) {
+                log::error!(
+                    "native retirement module mismatch object={} module={} template={} host_identity_present={} host_identity_matches={} binding={:?} expected_binding={:?} pending_model={} selected_model={}",
+                    object,
+                    module,
+                    state.native_source_template,
+                    state.native_host_identity.is_some(),
+                    state.native_host_identity.as_ref() == Some(identity),
+                    state.native_client_binding,
+                    key,
+                    state.native_pending_condition.is_some(),
+                    state.native_selected_condition.is_some()
+                );
+            }
             return Err("native physical retirement module identity/binding mismatch");
         }
         Ok(())

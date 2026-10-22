@@ -88,10 +88,14 @@ fn staged_load_error_branch_preserves_live_world_contract() {
     assert!(HostLoadFailure::Committed("bad drawable".into()).requires_match_reset());
     let source = include_str!("../host_authority.rs");
     let start = source
-        .find("pub(super) fn host_load_game_from_ui")
+        .find("fn host_handle_load_failure")
         .expect("load UI authority");
-    let body = &source[start..];
-    let error = &body[body.find("Err(failure) =>").expect("load error branch")..];
+    let body = &source[start
+        ..source[start..]
+            .find("pub(super) fn host_load_game_from_ui")
+            .map(|end| start + end)
+            .expect("handler precedes caller")];
+    let error = body;
     let error = &error[..error
         .find("\n            }\n        }\n    }\n}")
         .unwrap_or(error.len())];
@@ -114,7 +118,7 @@ fn load_failure_surfaces_gui_error_loading_game() {
     assert!(body.contains("GUI:ErrorLoadingGame") || body.contains("format_error_loading_game"));
     assert!(body.contains("message_box_ok"));
     let ui = source
-        .find("pub(super) fn host_load_game_from_ui")
+        .find("fn host_handle_load_failure")
         .expect("load UI boundary");
     let ui_body = &source[ui..];
     let reset = ui_body

@@ -627,7 +627,7 @@ fn detached_no_client_chunk_snapshot_rebuild_removes_absent_actor_and_rejects_ol
     let old = world.current_native_slave_source(retained, 0).unwrap();
     // The archive comes from a distinct, valid logical save owner containing
     // only the retained actor. Its real factory maintains matching team roster;
-    // the receiving native foundation intentionally still has both Drawables.
+    // the outgoing native foundation initially still has both Drawables.
     // A logical-only archive writer has no native renderer requirement.
     let mut saved_source = GameLogic::new();
     saved_source.admit_receiving_module_content(
@@ -648,6 +648,27 @@ fn detached_no_client_chunk_snapshot_rebuild_removes_absent_actor_and_rejects_ol
     );
     let builder = crate::save_load::SnapshotBuilder::new();
     let snapshot = builder.create_world_snapshot(&saved_source).unwrap();
+    // Saved replacement retires the outgoing logical/native foundation through
+    // its actual receiver before decoding incoming objects with reused IDs.
+    world
+        .clear_all_objects_with_effects_checked(&mut attempt.effects())
+        .unwrap();
+    assert!(world.objects.is_empty());
+    assert!(world.pending_object_removal_snapshot().is_empty());
+    {
+        let mut effects = attempt.effects();
+        assert!(
+            matches!(
+                effects
+                    .view
+                    .as_deref_mut()
+                    .unwrap()
+                    .sample_slave(&old, "CAMERA"),
+                SlaveCameraSample::MissingDrawable
+            ),
+            "old constructor must already be retired before snapshot restoration"
+        );
+    }
     world.begin_saved_snapshot_admission().unwrap();
     builder
         .restore_from_snapshot(&snapshot, &mut world)
@@ -686,6 +707,11 @@ fn detached_no_client_chunk_snapshot_rebuild_removes_absent_actor_and_rejects_ol
             &mut retirement,
         )
         .unwrap();
+    world
+        .clear_all_objects_with_effects_checked(&mut attempt.effects())
+        .unwrap();
+    assert!(world.objects.is_empty());
+    assert!(world.pending_object_removal_snapshot().is_empty());
     attempt.discard_attempt().unwrap();
 }
 
@@ -1235,6 +1261,159 @@ fn actual_native_bulk_clear_retires_each_owner_without_touching_peer() {
                     assert!(runtime.drawables.binding_key(EPOCH, id.0).is_none());
                     assert!(!runtime.poses.has_drawable_lifetime(id.0));
                 }
+            },
+        );
+        with_physical_retirement_view(
+            &mut peer_client,
+            &mut peer_pipeline,
+            &mut graphics,
+            EPOCH + 1,
+            |runtime| {
+                assert!(
+                    runtime
+                        .drawables
+                        .binding_key(EPOCH + 1, peer_id.0)
+                        .is_some()
+                );
+                assert_eq!(
+                    pose(runtime.sample_slave(&peer_source, "CAMERA"))
+                        .w_axis
+                        .truncate(),
+                    Vec3::new(303., 5., 7.)
+                );
+                peer.clear_all_objects_with_effects_checked(
+                    &mut crate::game_logic::ScriptPresentationEffects {
+                        view: Some(&mut *runtime),
+                        ..Default::default()
+                    },
+                )
+                .unwrap();
+            },
+        );
+    }
+}
+
+#[test]
+#[ignore = "requires native WGPU; actual Tree/Prop collection and physical retirement"]
+fn actual_tree_prop_render_collection_preserves_constructor_retirement_and_peer() {
+    ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
+        width: 32,
+        height: 32,
+        ..Default::default()
+    })
+    .unwrap();
+    struct Scope;
+    impl Drop for Scope {
+        fn drop(&mut self) {
+            let _ = ww3d_engine::shutdown();
+        }
+    }
+    let _scope = Scope;
+    let mut graphics = GraphicsSystem::new(
+        ww3d_engine::device().unwrap(),
+        ww3d_engine::queue().unwrap(),
+        ww3d_engine::color_format().unwrap(),
+        ww3d_engine::depth_format().unwrap(),
+    )
+    .unwrap();
+    graphics.cache_model(
+        crate::assets::mesh_asset_resolve::canonical_model_key("CameraModel"),
+        model("CameraModel", 0.),
+    );
+    for class in ["W3DTreeDraw", "W3DPropDraw"] {
+        let name = format!("Retirement{class}");
+        let text = format!(
+            "Object {name}\nKindOf = VEHICLE\nBody = ActiveBody BodyTag\nMaxHealth = 40\nInitialHealth = 40\nEnd\nDraw = {class} DrawTag\nModelName = CameraModel\nEnd\nEnd\n"
+        );
+        let mut world = GameLogic::new();
+        world
+            .admit_receiving_module_content(
+                crate::assets::ReceivingObjectContent::from_sources([(
+                    "non-camera-retirement.ini".to_owned(),
+                    text,
+                )])
+                .unwrap(),
+            )
+            .unwrap();
+        world.require_native_drawable_owner();
+        let mut peer = physical_retirement_world();
+        let mut pipeline = RenderPipeline::initialize(&graphics).unwrap();
+        let mut peer_pipeline = RenderPipeline::initialize(&graphics).unwrap();
+        let mut client = GameClient::new().unwrap();
+        let mut peer_client = GameClient::new().unwrap();
+        let id = birth_physical_retirement_actor(
+            &mut world,
+            &name,
+            Vec3::ZERO,
+            &mut client,
+            &mut pipeline,
+            &mut graphics,
+            EPOCH,
+        );
+        let peer_id = birth_physical_retirement_actor(
+            &mut peer,
+            "StrictFactoryOwner",
+            Vec3::new(303., 5., 7.),
+            &mut peer_client,
+            &mut peer_pipeline,
+            &mut graphics,
+            EPOCH + 1,
+        );
+        assert_eq!(id, peer_id);
+        let source = world.current_native_slave_source(id, 0).unwrap();
+        let peer_source = peer.current_native_slave_source(peer_id, 0).unwrap();
+        assert!(
+            source
+                .receiving_draw_models
+                .first_object_draw(0)
+                .unwrap()
+                .is_none(),
+            "native lifetime admission must not invent a camera ObjectDrawInterface"
+        );
+        with_physical_retirement_view(
+            &mut client,
+            &mut pipeline,
+            &mut graphics,
+            EPOCH,
+            |runtime| {
+                assert!(!matches!(
+                    runtime.sample_slave(&source, "CAMERA"),
+                    SlaveCameraSample::Pose(_)
+                ));
+            },
+        );
+        let mut frame = PresentationFrame::build_from_logic(&mut world, 0);
+        frame.fow_shell_bypass = true;
+        pipeline.set_presentation_frame(Some(std::rc::Rc::new(frame)));
+        assert!(
+            pipeline.collect_native_retirement_acceptance_frame(&mut graphics, id.0) > 0,
+            "actual visible collection must install/advance a render module before retirement"
+        );
+        with_physical_retirement_view(
+            &mut client,
+            &mut pipeline,
+            &mut graphics,
+            EPOCH,
+            |runtime| {
+                assert!(!matches!(
+                    runtime.sample_slave(&source, "CAMERA"),
+                    SlaveCameraSample::Pose(_)
+                ));
+                let key = runtime.drawables.binding_key(EPOCH, id.0).unwrap();
+                let mut effects = crate::game_logic::ScriptPresentationEffects {
+                    view: Some(&mut *runtime),
+                    ..Default::default()
+                };
+                world.destroy_object_with_effects(id, &mut effects);
+                world
+                    .process_destroy_list_with_effects_checked(&mut effects)
+                    .unwrap();
+                drop(effects);
+                assert!(!world.objects.contains_key(&id));
+                assert!(world.pending_object_removal_snapshot().is_empty());
+                assert!(runtime.drawables.binding_key(EPOCH, id.0).is_none());
+                assert!(!runtime.poses.has_drawable_lifetime(id.0));
+                assert_eq!(key.object_id, id.0);
             },
         );
         with_physical_retirement_view(

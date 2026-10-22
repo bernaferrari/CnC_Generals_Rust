@@ -2501,3 +2501,36 @@ mod failed_model_resolution_cache_tests {
 #[cfg(test)]
 #[path = "draw_model_collection_tests.rs"]
 mod owned_draw_model_collection_tests;
+
+#[cfg(all(test, feature = "game_client"))]
+impl RenderPipeline {
+    /// Test loan to the actual collection operation; no state or lifecycle is synthesized.
+    pub(crate) fn collect_native_retirement_acceptance_frame(
+        &mut self,
+        graphics: &mut GraphicsSystem,
+        object: u32,
+    ) -> usize {
+        let eye = Vec3::new(0., 30., 60.);
+        let view = Mat4::look_at_rh(eye, Vec3::ZERO, Vec3::Y);
+        let projection = Mat4::perspective_rh(1.2, 1., 0.1, 1000.);
+        let mut budget = usize::MAX;
+        let mut candidates = Vec::new();
+        self.collect_render_items(
+            graphics,
+            &view,
+            &projection,
+            eye,
+            true,
+            &mut budget,
+            1. / 30.,
+            &mut candidates,
+            None,
+        )
+        .unwrap();
+        self.native_draw_world
+            .drawable_visual_states
+            .iter()
+            .filter(|((id, _), state)| *id == object && state.identity.is_some())
+            .count()
+    }
+}

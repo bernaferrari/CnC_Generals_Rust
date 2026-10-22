@@ -55,6 +55,18 @@ impl ReceivingDrawModels {
         crate::assets::ObjectDefinition::select_object_draws_from_modules(&self.modules, bits)
     }
 
+    /// Complete receiving render-state roster; camera interfaces remain separate.
+    pub(crate) fn native_render_draws(
+        &self,
+        bits: u128,
+    ) -> std::result::Result<Vec<crate::assets::AuthoredDrawModel>, ()> {
+        crate::assets::ObjectDefinition::select_native_render_draws_from_modules(
+            &self.modules,
+            bits,
+            self.base_model.as_deref(),
+        )
+    }
+
     pub(crate) fn first_object_draw(
         &self,
         bits: u128,

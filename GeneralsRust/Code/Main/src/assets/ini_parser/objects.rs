@@ -393,6 +393,44 @@ impl ObjectDefinition {
         found_selectable_module.then_some(selected)
     }
 
+    /// Constructor/condition ownership for the same selectable render modules
+    /// as `select_draw_models_from_modules`, retaining Model=None owners.
+    /// This is deliberately independent of ObjectDrawInterface camera queries.
+    pub(crate) fn select_native_render_draws_from_modules(
+        modules: &[DrawModuleDefinition],
+        condition_bits: u128,
+        base_model: Option<&str>,
+    ) -> std::result::Result<Vec<AuthoredDrawModel>, ()> {
+        let mut found_selectable = false;
+        let mut selected = Vec::new();
+        for (index, module) in modules.iter().enumerate() {
+            if !module.has_selectable_condition_states() {
+                continue;
+            }
+            found_selectable = true;
+            let (state_index, state) = module
+                .selected_condition_state_for_conditions(condition_bits)?
+                .ok_or(())?;
+            selected.push(module.authored_draw_model(
+                u32::try_from(index).map_err(|_| ())?,
+                u32::try_from(state_index).map_err(|_| ())?,
+                state,
+            ));
+        }
+        if !found_selectable {
+            if let Some(model) = base_model.filter(|model| !model.trim().is_empty()) {
+                // The separately admitted template model is the existing
+                // render path's explicit module-zero fallback, not a camera.
+                selected.push(AuthoredDrawModel {
+                    module_index: 0,
+                    model_key: model.to_owned(),
+                    ..Default::default()
+                });
+            }
+        }
+        Ok(selected)
+    }
+
     /// C++ `setModelState` + `findTransitionForSig`: given each module's
     /// previous selected index and whether its Once clip finished, play a
     /// `TransitionState` before the destination `ConditionState`.
@@ -1044,5 +1082,85 @@ impl ObjectDefinition {
             mask |= 1u128.checked_shl(shift)?;
         }
         Some(mask)
+    }
+}
+
+#[cfg(test)]
+mod native_render_roster_tests {
+    use super::*;
+    fn module(class: &str, model: &str) -> DrawModuleDefinition {
+        let mut module = DrawModuleDefinition::new(format!("{class} Tag"));
+        let mut state = DrawConditionStateDefinition::default_state();
+        state.set_model(model);
+        module.condition_states.push(state);
+        module
+    }
+    #[test]
+    fn native_render_roster_preserves_non_camera_modules_empty_models_and_authored_indices() {
+        let modules = [
+            DrawModuleDefinition::new("W3DLaserDraw LaserTag".into()),
+            module("W3DTreeDraw", "Tree"),
+            module("W3DPropDraw", "NONE"),
+            module("W3DModelDraw", "Tank"),
+        ];
+        let owned = ObjectDefinition::select_native_render_draws_from_modules(
+            &modules,
+            0,
+            Some("WrongFallback"),
+        )
+        .unwrap();
+        assert_eq!(
+            owned
+                .iter()
+                .map(|model| model.module_index)
+                .collect::<Vec<_>>(),
+            vec![1, 2, 3]
+        );
+        assert_eq!(owned[0].model_key, "Tree");
+        assert!(owned[1].model_key.is_empty());
+        assert_eq!(owned[2].model_key, "Tank");
+        let camera = ObjectDefinition::select_object_draws_from_modules(&modules, 0).unwrap();
+        assert_eq!(camera.len(), 1);
+        assert_eq!(camera[0].module_index, 3);
+        let visible = ObjectDefinition::select_draw_models_from_modules(&modules, 0).unwrap();
+        assert_eq!(
+            visible
+                .iter()
+                .map(|model| model.module_index)
+                .collect::<Vec<_>>(),
+            vec![1, 3]
+        );
+    }
+    #[test]
+    fn native_render_roster_uses_only_explicit_no_selectable_state_template_fallback() {
+        let modules = [DrawModuleDefinition::new("W3DLaserDraw LaserTag".into())];
+        assert!(
+            ObjectDefinition::select_native_render_draws_from_modules(&modules, 0, None)
+                .unwrap()
+                .is_empty()
+        );
+        let owned = ObjectDefinition::select_native_render_draws_from_modules(
+            &modules,
+            0,
+            Some("AuthoredBase"),
+        )
+        .unwrap();
+        assert_eq!(owned.len(), 1);
+        assert_eq!(owned[0].module_index, 0);
+        assert_eq!(owned[0].model_key, "AuthoredBase");
+        let none = [module("W3DPropDraw", "NONE")];
+        let owned = ObjectDefinition::select_native_render_draws_from_modules(
+            &none,
+            0,
+            Some("MustNotReplaceNone"),
+        )
+        .unwrap();
+        assert_eq!(owned.len(), 1);
+        assert!(owned[0].model_key.is_empty());
+        assert!(
+            ObjectDefinition::select_object_draws_from_modules(&modules, 0)
+                .unwrap()
+                .is_empty()
+        );
     }
 }

@@ -213,3 +213,35 @@ impl ObjectDefinition {
             .collect()
     }
 }
+
+#[cfg(test)]
+mod native_constructor_roster_diagnostic_tests {
+    use super::*;
+    #[test]
+    fn non_camera_render_modules_are_not_object_draw_interfaces() {
+        for class in ["W3DTreeDraw", "W3DPropDraw"] {
+            let mut module = DrawModuleDefinition::new(format!("{class} DrawTag"));
+            let mut state = DrawConditionStateDefinition::default_state();
+            state.set_model("DiagnosticTree");
+            module.condition_states.push(state);
+            let modules = [module];
+            assert!(
+                !modules[0].has_object_draw_interface(),
+                "camera interface stays narrow"
+            );
+            let rendering = ObjectDefinition::select_draw_models_from_modules(&modules, 0).unwrap();
+            assert_eq!(
+                rendering.len(),
+                1,
+                "actual render selection owns a non-camera Draw"
+            );
+            assert_eq!(rendering[0].module_index, 0);
+            assert!(
+                ObjectDefinition::select_object_draws_from_modules(&modules, 0)
+                    .unwrap()
+                    .is_empty(),
+                "this camera-only projection cannot be used as complete native constructor roster"
+            );
+        }
+    }
+}

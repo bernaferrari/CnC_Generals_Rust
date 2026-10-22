@@ -3184,6 +3184,49 @@ impl CnCGameEngine {
         }
     }
 
+    // Shared by the actual UI load path and its native main-thread regression.
+    fn host_handle_load_failure(
+        &mut self,
+        slot: &str,
+        prior_state: GameState,
+        failure: HostLoadFailure,
+    ) -> Result<(), String> {
+        let committed = failure.requires_match_reset();
+        let err = failure.into_message();
+        warn!("Load failed for '{}': {}", slot, err);
+        if let Some(retirement) = self.game_logic.object_retirement_error() {
+            // Retain the failed outgoing session/native owner pair. Earlier
+            // destructor callbacks may already have completed; no reset/retry.
+            error!("Load left an unrecoverable native owner: {retirement}");
+            self.transition_to_state(GameState::Exiting);
+            return Err(err);
+        }
+        if committed && self.rejected_native_worlds.validate_admission().is_err() {
+            // Detached failed owners prohibit subsystem reset too. A staging
+            // rejection may preserve its healthy old world; after committed
+            // failure that rollback is no longer guaranteed.
+            error!("Load cannot reset while a failed native candidate remains retained");
+            self.transition_to_state(GameState::Exiting);
+            return Err(err);
+        }
+        if committed {
+            // C++ GameState::loadGame clears GameLogic data and resets
+            // GameEngine on a post-process failure. The staged Rust
+            // path can preserve an old match before commit, but once
+            // a nested Drawable Xfer fails it must not expose the
+            // partly installed world as a playable InGame state.
+            self.return_to_main_menu_after_match();
+        } else {
+            self.transition_to_state(Self::staged_load_failure_return_state(prior_state));
+        }
+        // C++ GameState.cpp:695-712 resets the engine before showing
+        // GUI:ErrorLoadingGame. A committed failure's menu teardown
+        // would otherwise destroy a dialog created beforehand.
+        let save_path = self.save_file_manager.get_save_path(slot);
+        Self::surface_load_game_ui_feedback(&save_path);
+        Err(err)
+    }
+
     pub(super) fn host_load_game_from_ui(&mut self, slot: &str) -> Result<(), String> {
         // Wave 611: host residual helper.
         let slot = slot.trim();
@@ -3274,27 +3317,7 @@ impl CnCGameEngine {
                 self.transition_to_state(GameState::InGame);
                 Ok(())
             }
-            Err(failure) => {
-                let committed = failure.requires_match_reset();
-                let err = failure.into_message();
-                warn!("Load failed for '{}': {}", slot, err);
-                if committed {
-                    // C++ GameState::loadGame clears GameLogic data and resets
-                    // GameEngine on a post-process failure. The staged Rust
-                    // path can preserve an old match before commit, but once
-                    // a nested Drawable Xfer fails it must not expose the
-                    // partly installed world as a playable InGame state.
-                    self.return_to_main_menu_after_match();
-                } else {
-                    self.transition_to_state(Self::staged_load_failure_return_state(prior_state));
-                }
-                // C++ GameState.cpp:695-712 resets the engine before showing
-                // GUI:ErrorLoadingGame. A committed failure's menu teardown
-                // would otherwise destroy a dialog created beforehand.
-                let save_path = self.save_file_manager.get_save_path(slot);
-                Self::surface_load_game_ui_feedback(&save_path);
-                Err(err)
-            }
+            Err(failure) => self.host_handle_load_failure(slot, prior_state, failure),
         }
     }
 }
@@ -3339,3 +3362,11 @@ mod saved_mode_owner_tests;
 #[cfg(test)]
 #[path = "host_authority/native_fade_owner_tests.rs"]
 mod native_fade_owner_tests;
+
+#[cfg(all(
+    feature = "internal",
+    feature = "game_client",
+    not(target_arch = "wasm32")
+))]
+#[path = "host_authority/terminal_load_owner_probe.rs"]
+pub(super) mod terminal_load_owner_probe;

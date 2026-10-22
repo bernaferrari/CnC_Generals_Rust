@@ -81,13 +81,13 @@ impl super::native_pose_loan::NativeInstalledPoseLoan<'_> {
             PresentationDrawableMutation::Creating { .. } => Some(
                 source
                     .receiving_draw_models
-                    .object_draws(0)
+                    .native_render_draws(0)
                     .map_err(|_| "invalid receiving default Draw selection")?,
             ),
             PresentationDrawableMutation::ConditionsMarked { bits, .. } => {
                 source
                     .receiving_draw_models
-                    .object_draws(*bits)
+                    .native_render_draws(*bits)
                     .map_err(|_| "invalid receiving current Draw selection")?;
                 None
             }
@@ -188,7 +188,7 @@ impl super::native_pose_loan::NativeInstalledPoseLoan<'_> {
                 let Some(receiving) = source.receiving else {
                     return;
                 };
-                let Ok(models) = receiving.object_draws(0) else {
+                let Ok(models) = receiving.native_render_draws(0) else {
                     return;
                 };
                 let world = Mat4::from_cols_array_2d(&initial_transform.elements).transpose();
@@ -225,7 +225,7 @@ impl super::native_pose_loan::NativeInstalledPoseLoan<'_> {
                 let Some(receiving) = source.receiving else {
                     return;
                 };
-                let Ok(models) = receiving.object_draws(bits) else {
+                let Ok(models) = receiving.native_render_draws(bits) else {
                     // A malformed sibling cannot leave an earlier module's
                     // previous condition looking like a successful admission.
                     for ((object, _), state) in &mut *self.drawable_visual_states {

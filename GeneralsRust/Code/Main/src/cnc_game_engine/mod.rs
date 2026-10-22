@@ -267,3 +267,12 @@ pub use replay_probe_paths::prepare_replay_probe_private_paths;
 
 mod map_native_admission;
 mod native_audio_effects;
+
+#[cfg(all(
+    feature = "internal",
+    feature = "game_client",
+    not(target_arch = "wasm32")
+))]
+pub fn run_terminal_load_owner_probe() -> anyhow::Result<()> {
+    host_authority::terminal_load_owner_probe::run()
+}
