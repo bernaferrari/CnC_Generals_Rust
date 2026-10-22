@@ -1161,7 +1161,7 @@ fn presentation_frame_observes_combat_kill_particle_systems() {
         a.attack_target(
             victim,
             attack_events,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
     }
     {
@@ -1250,6 +1250,25 @@ fn presentation_frame_freezes_floating_text_and_world_anim() {
     use glam::Vec3;
 
     let mut logic = GameLogic::new();
+    // Actual private Anim2D parser admission. The CPU fixture owns the image
+    // metadata name that resolves this frame; no global collection is installed.
+    let image_names = ["FixtureMoneyPickUpFrame"];
+    let definitions = crate::game_logic::promotion_definitions::PromotionDefinitions::from_ordered_sources(
+        &[], &[],
+        &[("fixture-money-animation.ini", "Animation MoneyPickUp\nNumberImages = 1\nImage = FixtureMoneyPickUpFrame\nAnimationMode = LOOP\nAnimationDelay = 1\nEnd\n".to_string())],
+        &|name| image_names.contains(&name),
+    ).expect("parsed receiving MoneyPickUp template");
+    assert_eq!(
+        definitions
+            .animation_templates()
+            .find(MONEY_PICKUP_ANIM_TEMPLATE)
+            .expect("resolved receiving template")
+            .get_num_frames(),
+        1
+    );
+    logic
+        .admit_promotion_definitions(definitions)
+        .expect("inert definition admission");
     let cfg = golden_skirmish_config("FloatPres");
     apply_skirmish_config(&mut logic, &cfg).expect("config");
 
@@ -2374,7 +2393,7 @@ fn leftover_wnd_stamps_single_use_subdued_and_unsellable() {
         o.set_disabled_subdued(
             true,
             health_events,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         o.set_script_unsellable(true);
     }
@@ -2456,7 +2475,7 @@ fn leftover_strip_subdued_restricts_sell_and_evacuate() {
         o.set_disabled_subdued(
             true,
             health_events,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
     }
     if let Some(p) = logic.get_player_mut(0) {
@@ -2496,7 +2515,7 @@ fn leftover_strip_subdued_restricts_sell_and_evacuate() {
         o.set_disabled_subdued(
             true,
             health_events,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         o.occupants = vec![ObjectId(9001), ObjectId(9002)];
     }

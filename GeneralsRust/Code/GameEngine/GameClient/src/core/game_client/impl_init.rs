@@ -32,6 +32,8 @@ impl GameClient {
     pub fn new() -> GameClientResult<Self> {
         let client = Self {
             frame: 0,
+            owned_world_animations: OwnedWorldAnimations::default(),
+            receiving_draw_icon_ui: true,
             snow: crate::snow::SnowManager::new(),
             snow_definition: crate::snow::WeatherSetting::default(),
             snow_base_definition: crate::snow::WeatherSetting::default(),
@@ -169,6 +171,15 @@ impl GameClient {
     }
 
     fn try_invalidate_presentation_drawable_world(&mut self) -> GameClientResult<()> {
+        // Do not retire the live native world if its transport cannot be
+        // cleared. Release the UI loan before native particle callbacks.
+        if let Some(ui) = &self.subsystem_manager.in_game_ui {
+            drop(ui.lock().map_err(|_| {
+                GameClientError::SubsystemError(
+                    "UI lock poisoned before world-animation retirement".into(),
+                )
+            })?);
+        }
         self.retire_native_drawable_particles(None)?;
         self.drawables.finish_native_retirement();
         self.invalidate_presentation_shell();
@@ -184,6 +195,29 @@ impl GameClient {
         self.drawables.text_bearing_drawables.clear();
         self.shadow_map.clear();
         self.rendered_object_count = 0;
+        // Particle/native retirement has succeeded; clear both playback and
+        // transport now, before another world can be installed or rendered.
+        self.clear_world_animation_runtime_after_retirement()?;
+        Ok(())
+    }
+
+    fn clear_world_animation_runtime_after_retirement(&mut self) -> GameClientResult<()> {
+        let ui = self
+            .subsystem_manager
+            .in_game_ui
+            .as_ref()
+            .map(|ui| {
+                ui.lock().map_err(|_| {
+                    GameClientError::SubsystemError(
+                        "UI lock poisoned after world-animation retirement".into(),
+                    )
+                })
+            })
+            .transpose()?;
+        self.owned_world_animations.clear_runtime();
+        if let Some(mut ui) = ui {
+            ui.replace_world_anims_from_presentation(&[]);
+        }
         Ok(())
     }
 
@@ -204,6 +238,7 @@ impl GameClient {
 
     /// Resets the game client for a new game
     pub fn reset(&mut self) -> GameClientResult<()> {
+        self.receiving_draw_icon_ui = true;
         reset_script_action_runtime_state();
         Self::reset_global_video_player_streams();
         self.startup_sizzle_pending = false;

@@ -9,6 +9,15 @@ use super::script_camera::*;
 use super::*;
 
 impl GameLogic {
+    /// Instance value; ordinary reads never select the standalone Core world.
+    pub(crate) fn get_draw_icon_ui(&self) -> bool {
+        self.draw_icon_ui
+    }
+
+    pub(crate) fn set_draw_icon_ui(&mut self, enabled: bool) {
+        self.draw_icon_ui = enabled;
+    }
+
     pub(in crate::game_logic) fn drain_warehouse_set_value_requests(&self) -> Vec<(String, i32)> {
         self.mission_scripts.drain_warehouse_set_values()
     }
@@ -104,6 +113,7 @@ impl GameLogic {
             next_object_id: ObjectId(1), // Start at 1, 0 is invalid
             next_formation_id: 1,
             frame: 0,
+            draw_icon_ui: true,
             replay_pending: crate::command_system::ReplayPendingState::default(),
             frame_objects_changed_trigger_areas: std::cell::Cell::new(0),
             host_guard_area_occupancy: Default::default(),
@@ -545,6 +555,7 @@ impl GameLogic {
             // Inert default; match/replay setup admits its selected seed.
             // Construction never consumes or adopts another world's stream.
             native_hulk_max_lifetime_override: -1,
+            promotion_definitions: Default::default(),
             session_view: crate::presentation_frame::SessionView::default(),
             logic_random: game_engine::common::random_value::SessionRandom::default(),
             logic_base_seed: 0,
@@ -786,7 +797,9 @@ impl GameLogic {
             "GameLogic reset requires its live receiving particle manager"
         );
         self.queued_audio_events.clear();
+        self.session_view.world_animations.clear();
         self.native_hulk_max_lifetime_override = -1;
+        self.draw_icon_ui = true;
         self.weapon_definitions = self.weapon_definition_base.clone();
         if let Some(baseline) = &self.receiving_template_baseline {
             self.templates = baseline.clone();

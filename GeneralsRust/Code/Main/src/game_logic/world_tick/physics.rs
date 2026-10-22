@@ -1278,7 +1278,7 @@ impl GameLogic {
             u.set_status_force_attack(false);
             u.set_ai_state(
                 AIState::FacingObject,
-                &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
         }
         {}
@@ -1309,7 +1309,7 @@ impl GameLogic {
             u.set_status_force_attack(false);
             u.set_ai_state(
                 AIState::FacingPosition,
-                &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
         }
         {}
@@ -1326,7 +1326,7 @@ impl GameLogic {
         }
 
         if let Some(u) = self.objects.get_mut(&unit_id) {
-            u.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+            u.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                 &mut self.queued_audio_events,
             ));
             u.set_status_attacking(false);
@@ -1338,7 +1338,7 @@ impl GameLogic {
             if u.ai_state != AIState::Idle {
                 u.set_ai_state(
                     AIState::Idle,
-                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
             }
         }

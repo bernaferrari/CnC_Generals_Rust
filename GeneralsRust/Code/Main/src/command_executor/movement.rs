@@ -1460,7 +1460,7 @@ impl<'a> CommandExecutor<'a> {
                     unit.movement.target_position = Some(goal);
                     unit.set_ai_state(
                         AIState::Moving,
-                        &mut crate::game_logic::MovementAudio::queue(
+                        &mut crate::game_logic::ObjectAudio::queue(
                             &mut self.game_logic.queued_audio_events,
                         ),
                     );

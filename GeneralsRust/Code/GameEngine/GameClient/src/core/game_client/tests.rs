@@ -1753,18 +1753,28 @@ mod tests {
         let mut client = GameClient::new().unwrap();
         client.subsystem_manager.in_game_ui =
             Some(Arc::new(Mutex::new(InGameUISubsystem::default())));
-        client.apply_presentation_world_anims(&[(
-            "MoneyPickUp".to_string(),
-            [12.0, 0.0, 8.0],
-            4.0,
-            15.0,
-            true,
-            0,
-        )]);
+        client.apply_presentation_world_anims(
+            7,
+            3,
+            false,
+            &[
+                game_engine::common::world_animation::WorldAnimationPresentation {
+                    identity: 19,
+                    template: "MoneyPickUp".to_string(),
+                    position: [12.0, 0.0, 8.0],
+                    duration: 4.0,
+                    rise: 15.0,
+                    fades: true,
+                    spawn_frame: 0,
+                    initial_frame: 2,
+                },
+            ],
+        );
         let ui = client.subsystem_manager.in_game_ui.as_ref().unwrap();
         let guard = ui.lock().unwrap();
         assert_eq!(guard.presentation_world_anims().len(), 1);
-        assert_eq!(guard.presentation_world_anims()[0].0, "MoneyPickUp");
+        assert_eq!(guard.presentation_world_anims()[0].template, "MoneyPickUp");
+        assert_eq!(guard.presentation_world_anims()[0].initial_frame, 2);
     }
 
     #[test]

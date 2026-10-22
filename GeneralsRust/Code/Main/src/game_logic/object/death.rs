@@ -50,7 +50,7 @@ impl Object {
     pub fn begin_structure_collapse(
         &mut self,
         current_frame: u32,
-        audio: &mut crate::game_logic::MovementAudio<'_>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) -> bool {
         self.begin_structure_collapse_with_fx(current_frame, &mut Self::standalone_object_fx, audio)
     }
@@ -59,7 +59,7 @@ impl Object {
         &mut self,
         current_frame: u32,
         fx: &mut dyn FnMut(&str, &Object, bool),
-        audio: &mut crate::game_logic::MovementAudio<'_>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) -> bool {
         if !self.is_kind_of(crate::game_logic::KindOf::Structure) {
             return false;
@@ -177,7 +177,7 @@ impl Object {
         &mut self,
         current_frame: u32,
         attacker_pos: Option<(f32, f32)>,
-        audio: &mut crate::game_logic::MovementAudio<'_>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) -> bool {
         let override_direction = if self.name.is_empty() {
             None
@@ -202,7 +202,7 @@ impl Object {
         current_frame: u32,
         attacker_pos: Option<(f32, f32)>,
         override_direction: Option<(f32, f32)>,
-        audio: &mut crate::game_logic::MovementAudio<'_>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) -> bool {
         let prepared = self.prepare_structure_topple_with_direction(
             current_frame,
@@ -225,7 +225,7 @@ impl Object {
         override_direction: Option<(f32, f32)>,
         delay: u32,
         burst_location: Option<glam::Vec3>,
-        audio: &mut crate::game_logic::MovementAudio<'_>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) -> bool {
         if !self.is_kind_of(crate::game_logic::KindOf::Structure) {
             return false;
@@ -394,7 +394,7 @@ impl Object {
     pub fn begin_keep_object_die(
         &mut self,
         current_frame: u32,
-        audio: &mut crate::game_logic::MovementAudio<'_>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) -> bool {
         let is_struct = self.is_kind_of(crate::game_logic::KindOf::Structure);
         if !crate::game_logic::host_keep_object_die::wants_keep_object_die(
@@ -458,7 +458,7 @@ impl Object {
     pub fn begin_slow_death(
         &mut self,
         current_frame: u32,
-        audio: &mut crate::game_logic::MovementAudio<'_>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) -> bool {
         let ini = match &self.thing.template.authored_slow_death {
             Some(modules) => modules.first().cloned(),
@@ -481,7 +481,7 @@ impl Object {
         &mut self,
         current_frame: u32,
         ini: &crate::game_logic::host_slow_death::HostSlowDeathIni,
-        audio: &mut crate::game_logic::MovementAudio<'_>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) -> bool {
         self.begin_slow_death_from_ini_with_removal(current_frame, ini, false, audio)
     }
@@ -491,7 +491,7 @@ impl Object {
         current_frame: u32,
         ini: &crate::game_logic::host_slow_death::HostSlowDeathIni,
         deletion_queued: bool,
-        audio: &mut crate::game_logic::MovementAudio<'_>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) -> bool {
         if self
             .slow_death
@@ -909,14 +909,14 @@ impl Object {
     }
 
     /// C++ InstantDeathBehavior::onDie residual — queues FX/OCL/Weapon.
-    pub fn fire_instant_death(&mut self, audio: &mut crate::game_logic::MovementAudio<'_>) -> bool {
+    pub fn fire_instant_death(&mut self, audio: &mut crate::game_logic::ObjectAudio<'_>) -> bool {
         self.fire_instant_death_for(self.status.death_type, audio)
     }
 
     pub(crate) fn fire_instant_death_for(
         &mut self,
         death_type: crate::game_logic::host_usa_pilot::HostDeathType,
-        audio: &mut crate::game_logic::MovementAudio<'_>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) -> bool {
         let ini = match &self.thing.template.authored_instant_death {
             Some(modules) => modules

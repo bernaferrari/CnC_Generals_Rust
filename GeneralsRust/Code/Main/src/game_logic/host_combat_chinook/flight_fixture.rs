@@ -123,7 +123,7 @@ End
     passenger_object.set_contained_by(Some(transport));
     passenger_object.set_ai_state(
         AIState::Docked,
-        &mut crate::game_logic::MovementAudio::queue(audio_events),
+        &mut crate::game_logic::ObjectAudio::queue(audio_events),
     );
     (logic, transport, passenger)
 }

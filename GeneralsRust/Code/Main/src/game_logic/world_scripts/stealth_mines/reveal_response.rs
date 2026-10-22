@@ -90,7 +90,7 @@ impl GameLogic {
                 enemy.set_target(
                     Some(victim_id),
                     &mut self.attack_events,
-                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
                 {}
                 self.camo_netting_order_idle_enemies_count =

@@ -130,7 +130,7 @@ pub fn simulate_live_command_deploy_status_log_honesty() -> bool {
     if let Some((unit, audio_events)) = logic.host_object_and_audio_events_mut(uid) {
         unit.set_deployed(
             true,
-            &mut crate::game_logic::MovementAudio::queue(audio_events),
+            &mut crate::game_logic::ObjectAudio::queue(audio_events),
         );
         if !unit.is_deployed() {
             return false;

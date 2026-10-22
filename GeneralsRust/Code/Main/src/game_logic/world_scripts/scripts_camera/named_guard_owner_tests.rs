@@ -88,18 +88,18 @@ fn guard_reentry_replaces_previous_object_area_and_route() {
     let (unit, attack_events) = world.host_object_and_attack_events_mut(id).unwrap();
     unit.set_guard_target(
         Some(target),
-        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
     );
     unit.guard_area_trigger = Some("PreviousArea".into());
     unit.set_guard_mode(GuardMode::FlyingUnitsOnly);
     unit.set_target(
         Some(target),
         attack_events,
-        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
     );
     unit.set_target_location(
         Some(Vec3::splat(400.0)),
-        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
     );
     unit.set_force_attack(true);
     unit.pending_move = Some(Vec3::splat(300.0));
@@ -213,7 +213,7 @@ fn guard_does_not_idle_passengers() {
         object.set_target(
             Some(target),
             attack_events,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
     };
     world.host_object_mut(id).unwrap().occupants.push(passenger);
@@ -278,12 +278,12 @@ fn guard_exits_old_hunt_and_attack_submachine() {
     let (unit, attack_events) = world.host_object_and_attack_events_mut(id).unwrap();
     unit.set_ai_state(
         AIState::Attacking,
-        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
     );
     unit.set_target(
         Some(target),
         attack_events,
-        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
     );
     unit.status.is_firing_weapon = true;
     unit.status.is_aiming_weapon = true;

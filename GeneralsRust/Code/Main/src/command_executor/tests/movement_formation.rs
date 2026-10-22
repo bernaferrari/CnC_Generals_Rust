@@ -1911,7 +1911,7 @@ fn group_idle_busy_dead_queries() {
     }
     logic.host_object_mut(a).unwrap().set_ai_state(
         AIState::Moving,
-        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
     );
     {
         let exec = CommandExecutor::new(&mut logic, 0);
@@ -1921,7 +1921,7 @@ fn group_idle_busy_dead_queries() {
     }
     logic.host_object_mut(b).unwrap().set_ai_state(
         AIState::Moving,
-        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
     );
     {
         let exec = CommandExecutor::new(&mut logic, 0);

@@ -233,11 +233,11 @@ fn construction_percent_cpp_scale_and_exclusive_dozer() {
         d.set_target(
             Some(sid),
             attack_events,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         d.set_ai_state(
             AIState::Constructing,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
     }
     let _ = logic.update_with_dt(1.0);
@@ -290,11 +290,11 @@ fn exclusive_dozer_does_not_stack_build_rate() {
         d.set_target(
             Some(sid),
             attack_events,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         d.set_ai_state(
             AIState::Constructing,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
     }
     assert_eq!(

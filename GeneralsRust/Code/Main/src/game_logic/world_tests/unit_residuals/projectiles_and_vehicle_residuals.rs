@@ -177,7 +177,7 @@ fn dragon_tank_residual_flame_and_black_napalm() {
         d.attack_target(
             enemy,
             attack_events,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         if let Some(w) = d.weapon.as_mut() {
             w.last_fire_time = -10.0;
@@ -360,7 +360,7 @@ fn gattling_tank_residual_ramp_fire_rate_and_aa() {
             g.attack_target(
                 enemy,
                 attack_events,
-                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
             );
             if let Some(w) = g.weapon.as_mut() {
                 w.last_fire_time = -10.0;
@@ -423,7 +423,7 @@ fn gattling_tank_residual_ramp_fire_rate_and_aa() {
         g.attack_target(
             aircraft_id,
             attack_events,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         g.active_weapon_slot = 1;
         if let Some(w) = g.secondary_weapon.as_mut() {
@@ -568,7 +568,7 @@ fn combat_cycle_residual_rider_weapon_switch() {
         b.attack_target(
             enemy,
             attack_events,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         if let Some(w) = b.weapon.as_mut() {
             w.last_fire_time = -10.0;
@@ -790,7 +790,7 @@ fn avenger_residual_designator_paint_and_rof() {
         a.target = Some(enemy_id);
         a.set_ai_state(
             AIState::Attacking,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         if let Some(w) = a.weapon.as_mut() {
             w.last_fire_time = -10.0;
@@ -831,7 +831,7 @@ fn avenger_residual_designator_paint_and_rof() {
         ally.target = Some(enemy_id);
         ally.set_ai_state(
             AIState::Attacking,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         if let Some(w) = ally.weapon.as_mut() {
             w.damage = 10.0;
@@ -919,7 +919,7 @@ fn avenger_residual_air_laser_damages_aircraft() {
         a.target = Some(jet_id);
         a.set_ai_state(
             AIState::Attacking,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         a.status.airborne_target = false;
         if let Some(w) = a.secondary_weapon.as_mut() {
@@ -1034,7 +1034,7 @@ fn lazr_tank_residual_laser_guns() {
         c.target = Some(enemy_id);
         c.set_ai_state(
             AIState::Attacking,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         if let Some(w) = c.weapon.as_mut() {
             w.last_fire_time = -10.0;
@@ -1368,7 +1368,7 @@ fn crusader_residual_tank_gun_and_composite_armor() {
         c.target = Some(enemy_id);
         c.set_ai_state(
             AIState::Attacking,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         if let Some(w) = c.weapon.as_mut() {
             w.last_fire_time = -10.0;
@@ -1635,7 +1635,7 @@ fn humvee_residual_transport_and_air_tow() {
         unit.target = Some(humvee_id);
         unit.set_ai_state(
             AIState::Entering,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
     }
     game_logic.update_ai(&[r1, humvee_id], 1.0 / 30.0);
@@ -1682,7 +1682,7 @@ fn humvee_residual_transport_and_air_tow() {
         h.target = Some(jet_id);
         h.set_ai_state(
             AIState::Attacking,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         if let Some(w) = h.secondary_weapon.as_mut() {
             w.last_fire_time = -10.0;
@@ -1861,7 +1861,7 @@ fn minigunner_residual_gun_ramp_aa_horde_and_chain_guns() {
             mg.attack_target(
                 enemy,
                 attack_events,
-                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
             );
             if let Some(w) = mg.weapon.as_mut() {
                 w.last_fire_time = -10.0;
@@ -1920,7 +1920,7 @@ fn minigunner_residual_gun_ramp_aa_horde_and_chain_guns() {
         mg.attack_target(
             aircraft_id,
             attack_events,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         mg.active_weapon_slot = 1;
         if let Some(w) = mg.secondary_weapon.as_mut() {

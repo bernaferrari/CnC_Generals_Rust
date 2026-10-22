@@ -255,7 +255,7 @@ fn seed_combat(logic: &mut GameLogic, id: ObjectId, target: ObjectId, worker: bo
         } else {
             AIState::Attacking
         },
-        &mut generals_main::game_logic::MovementAudio::queue(&mut logic.queued_audio_events),
+        &mut generals_main::game_logic::ObjectAudio::queue(&mut logic.queued_audio_events),
     );
 }
 

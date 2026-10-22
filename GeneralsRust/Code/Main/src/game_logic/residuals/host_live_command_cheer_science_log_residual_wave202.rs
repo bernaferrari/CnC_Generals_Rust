@@ -100,7 +100,7 @@ pub fn simulate_live_command_cheer_science_log_honesty() -> bool {
         unit.begin_cheer(
             3.0,
             Some(0),
-            &mut crate::game_logic::MovementAudio::queue(audio_events),
+            &mut crate::game_logic::ObjectAudio::queue(audio_events),
         );
         (unit.cheer_timer - 3.0).abs() < 1e-5 && unit.model_condition_bits & 1 != 0
     } else {

@@ -119,6 +119,7 @@ pub const PRESENTATION_FRAME_SRC: &str = concat!(
 
 mod session_view;
 pub(crate) use session_view::receiving_look_at_target;
+pub(crate) use session_view::world_animations::WorldAnimations;
 pub(crate) use session_view::{
     SessionView, SessionViewImpulse, SessionViewState, camera, follow, scripted, waypoint,
 };

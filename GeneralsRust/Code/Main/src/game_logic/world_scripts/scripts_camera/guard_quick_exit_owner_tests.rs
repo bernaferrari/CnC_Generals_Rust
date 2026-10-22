@@ -96,7 +96,7 @@ fn overlay(owner: &mut GameLogic, id: ObjectId, until: u32, distance: f32) -> Ve
     unit.unit_ai_runtime.set_quick_exit_deadline(Some(until));
     unit.set_ai_state(
         AIState::Moving,
-        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
     );
     unit.set_status_moving(true);
     unit.refresh_follow_path_extra_distance();
@@ -462,7 +462,7 @@ fn actual_tunnel_sally_installs_and_suspends_owned_guard_overlay() {
     owner.host_object_mut(id).unwrap().close_enough_dist = Some(1.0);
     assert!(owner.unit_command_guard_object(id, tunnel));
     let unit = owner.host_object_mut(id).unwrap();
-    unit.stop_moving(&mut crate::game_logic::MovementAudio::queue(&mut Vec::new()));
+    unit.stop_moving(&mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()));
     unit.unit_ai_runtime.set_guard_phase(Some(GuardPhase::Idle));
     unit.unit_ai_runtime.set_guard_scan_deadline(Some(500));
     unit.unit_ai_runtime

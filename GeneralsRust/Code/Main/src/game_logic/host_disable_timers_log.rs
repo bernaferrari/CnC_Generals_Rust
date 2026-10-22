@@ -44,17 +44,17 @@ mod owned_audio_tests {
             object.apply_disabled_emp(
                 10,
                 outputs,
-                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
             );
             object.apply_disabled_emp(
                 11,
                 outputs,
-                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
             ); // refresh is not another power edge
             object.apply_disabled_hacked(
                 20,
                 outputs,
-                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
             );
             object.set_position(Vec3::new(8.0, 9.0, 10.0));
             object.tick_disabled_emp(11, outputs); // another power disable remains
@@ -107,7 +107,7 @@ mod owned_audio_tests {
         object.apply_disabled_emp(
             100,
             outputs,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         let _ = PresentationFrame::build_from_logic(&mut peer, 0);
         assert_eq!(
@@ -133,21 +133,21 @@ mod owned_audio_tests {
             object.apply_subdual_damage(
                 200.0,
                 outputs,
-                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
             );
             assert!(object.status.disabled_subdued);
             object.tick_subdual_damage(
                 outputs,
-                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
             );
             object.tick_subdual_damage(
                 outputs,
-                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
             );
             assert!(!object.status.disabled_subdued);
             object.apply_kill_pilot_unmanned(
                 outputs,
-                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
             );
             assert!(object.is_unmanned());
         }
@@ -168,7 +168,7 @@ mod owned_audio_tests {
         let (object, outputs) = drone.host_object_and_health_events_mut(id).unwrap();
         object.apply_kill_pilot_unmanned(
             outputs,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         assert!(object.is_unmanned());
         assert!(
@@ -185,7 +185,7 @@ mod owned_audio_tests {
         object.apply_disabled_emp(
             30,
             outputs,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         let builder = crate::save_load::SnapshotBuilder::new();
         let snapshot = builder.create_world_snapshot(&owner).unwrap();
@@ -194,7 +194,7 @@ mod owned_audio_tests {
         object.apply_disabled_hacked(
             99,
             outputs,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         builder.restore_from_snapshot(&snapshot, &mut peer).unwrap();
         assert!(

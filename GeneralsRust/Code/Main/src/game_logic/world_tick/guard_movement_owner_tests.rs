@@ -38,14 +38,14 @@ fn guard_return_movement_receipts_stay_with_same_id_owner() {
                 object.guard_position = Some(anchor);
                 object.set_ai_state(
                     AIState::GuardingArea,
-                    &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+                    &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
                 );
                 object.begin_guard_retaliate(
                     ObjectId(49_211),
                     Some(anchor),
                     None,
                     &mut world.attack_events,
-                    &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+                    &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
                 );
                 world.objects.insert(id, object);
                 id

@@ -399,7 +399,7 @@ impl GameLogic {
             if let Some(o) = self.objects.get_mut(&object_id) {
                 o.set_ai_state(
                     state,
-                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
             }
             return;
@@ -421,7 +421,7 @@ impl GameLogic {
         if let Some(o) = self.objects.get_mut(&object_id) {
             o.set_ai_state(
                 state,
-                &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
             o.unit_ai_runtime.enter_guard_return(goal, deadline);
         }
@@ -689,7 +689,7 @@ impl GameLogic {
         self.apply_arrival_goal_snap(id, Some(goal));
         let deadline = self.guard_initial_scan_deadline(false);
         let unit = self.objects.get_mut(&id).unwrap();
-        unit.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+        unit.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
             &mut self.queued_audio_events,
         ));
         unit.set_locomotor_goal_none();
@@ -739,7 +739,7 @@ impl GameLogic {
                 o.target = Some(target_id);
                 o.set_ai_state(
                     AIState::SpecialAbility,
-                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
             }
             self.queue_pending_special_ability_with_effects(
@@ -762,11 +762,11 @@ impl GameLogic {
                 o.set_order_target(
                     Some(target_id),
                     &mut self.attack_events,
-                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
                 o.set_ai_state(
                     AIState::Entering,
-                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
                 // C++ AIEnterState::onEnter ignoreObstacle(goalObject).
                 o.ignored_obstacle_id = Some(target_id);

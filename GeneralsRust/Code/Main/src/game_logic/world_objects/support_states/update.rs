@@ -24,7 +24,7 @@ impl GameLogic {
 
     fn release_dozer_repair_order(&mut self, object_id: ObjectId) {
         if let Some(obj) = self.objects.get_mut(&object_id) {
-            obj.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+            obj.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                 &mut self.queued_audio_events,
             ));
             obj.ignored_obstacle_id = None;
@@ -44,17 +44,17 @@ impl GameLogic {
     fn release_rejected_special(&mut self, object_id: ObjectId) {
         self.pending_special_abilities.remove(&object_id);
         if let Some(obj) = self.objects.get_mut(&object_id) {
-            obj.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+            obj.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                 &mut self.queued_audio_events,
             ));
             obj.ignored_obstacle_id = None;
-            obj.clear_target(&mut crate::game_logic::MovementAudio::queue(
+            obj.clear_target(&mut crate::game_logic::ObjectAudio::queue(
                 &mut self.queued_audio_events,
             ));
             if obj.ai_state != AIState::Idle {
                 obj.set_ai_state(
                     AIState::Idle,
-                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
             }
         }
@@ -371,18 +371,18 @@ impl GameLogic {
                             matches!(obj.ai_state, AIState::Moving | AIState::AttackMoving)
                         });
                         if let Some(obj) = self.objects.get_mut(&object_id) {
-                            obj.clear_order_target(&mut crate::game_logic::MovementAudio::queue(
+                            obj.clear_order_target(&mut crate::game_logic::ObjectAudio::queue(
                                 &mut self.queued_audio_events,
                             ));
                             if !rallied {
-                                obj.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+                                obj.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                                     &mut self.queued_audio_events,
                                 ));
                                 obj.ignored_obstacle_id = None;
                                 if obj.ai_state != AIState::Idle {
                                     obj.set_ai_state(
                                         AIState::Idle,
-                                        &mut crate::game_logic::MovementAudio::queue(
+                                        &mut crate::game_logic::ObjectAudio::queue(
                                             &mut self.queued_audio_events,
                                         ),
                                     );
@@ -394,17 +394,17 @@ impl GameLogic {
 
                     let Some(support_target_id) = target_id else {
                         if let Some(obj) = self.objects.get_mut(&object_id) {
-                            obj.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+                            obj.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                                 &mut self.queued_audio_events,
                             ));
                             obj.ignored_obstacle_id = None;
-                            obj.clear_target(&mut crate::game_logic::MovementAudio::queue(
+                            obj.clear_target(&mut crate::game_logic::ObjectAudio::queue(
                                 &mut self.queued_audio_events,
                             ));
                             if obj.ai_state != AIState::Idle {
                                 obj.set_ai_state(
                                     AIState::Idle,
-                                    &mut crate::game_logic::MovementAudio::queue(
+                                    &mut crate::game_logic::ObjectAudio::queue(
                                         &mut self.queued_audio_events,
                                     ),
                                 );
@@ -443,17 +443,17 @@ impl GameLogic {
                     })
                     else {
                         if let Some(obj) = self.objects.get_mut(&object_id) {
-                            obj.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+                            obj.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                                 &mut self.queued_audio_events,
                             ));
                             obj.ignored_obstacle_id = None;
-                            obj.clear_target(&mut crate::game_logic::MovementAudio::queue(
+                            obj.clear_target(&mut crate::game_logic::ObjectAudio::queue(
                                 &mut self.queued_audio_events,
                             ));
                             if obj.ai_state != AIState::Idle {
                                 obj.set_ai_state(
                                     AIState::Idle,
-                                    &mut crate::game_logic::MovementAudio::queue(
+                                    &mut crate::game_logic::ObjectAudio::queue(
                                         &mut self.queued_audio_events,
                                     ),
                                 );
@@ -474,17 +474,17 @@ impl GameLogic {
                         || !self.service_relationship_is_allies(object_id, support_target_id)
                     {
                         if let Some(obj) = self.objects.get_mut(&object_id) {
-                            obj.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+                            obj.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                                 &mut self.queued_audio_events,
                             ));
                             obj.ignored_obstacle_id = None;
-                            obj.clear_target(&mut crate::game_logic::MovementAudio::queue(
+                            obj.clear_target(&mut crate::game_logic::ObjectAudio::queue(
                                 &mut self.queued_audio_events,
                             ));
                             if obj.ai_state != AIState::Idle {
                                 obj.set_ai_state(
                                     AIState::Idle,
-                                    &mut crate::game_logic::MovementAudio::queue(
+                                    &mut crate::game_logic::ObjectAudio::queue(
                                         &mut self.queued_audio_events,
                                     ),
                                 );
@@ -527,17 +527,17 @@ impl GameLogic {
                         .unwrap_or(false);
                     if !source_can_use_support {
                         if let Some(obj) = self.objects.get_mut(&object_id) {
-                            obj.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+                            obj.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                                 &mut self.queued_audio_events,
                             ));
                             obj.ignored_obstacle_id = None;
-                            obj.clear_target(&mut crate::game_logic::MovementAudio::queue(
+                            obj.clear_target(&mut crate::game_logic::ObjectAudio::queue(
                                 &mut self.queued_audio_events,
                             ));
                             if obj.ai_state != AIState::Idle {
                                 obj.set_ai_state(
                                     AIState::Idle,
-                                    &mut crate::game_logic::MovementAudio::queue(
+                                    &mut crate::game_logic::ObjectAudio::queue(
                                         &mut self.queued_audio_events,
                                     ),
                                 );
@@ -629,13 +629,13 @@ impl GameLogic {
                         if (seeking_repair && !repair_continues)
                             || (!seeking_repair && obj.health.current >= obj.health.maximum - 0.01)
                         {
-                            obj.clear_order_target(&mut crate::game_logic::MovementAudio::queue(
+                            obj.clear_order_target(&mut crate::game_logic::ObjectAudio::queue(
                                 &mut self.queued_audio_events,
                             ));
                         } else if !seeking_repair {
                             obj.set_ai_state(
                                 state,
-                                &mut crate::game_logic::MovementAudio::queue(
+                                &mut crate::game_logic::ObjectAudio::queue(
                                     &mut self.queued_audio_events,
                                 ),
                             );
@@ -659,14 +659,14 @@ impl GameLogic {
                         });
                         if !rallied {
                             if let Some(obj) = self.objects.get_mut(&object_id) {
-                                obj.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+                                obj.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                                     &mut self.queued_audio_events,
                                 ));
                                 obj.ignored_obstacle_id = None;
                                 if obj.ai_state != AIState::Idle {
                                     obj.set_ai_state(
                                         AIState::Idle,
-                                        &mut crate::game_logic::MovementAudio::queue(
+                                        &mut crate::game_logic::ObjectAudio::queue(
                                             &mut self.queued_audio_events,
                                         ),
                                     );
@@ -685,10 +685,10 @@ impl GameLogic {
                 state @ (AIState::Entering | AIState::Docking) => {
                     let Some(container_id) = target_id else {
                         if let Some(obj) = self.objects.get_mut(&object_id) {
-                            obj.clear_target(&mut crate::game_logic::MovementAudio::queue(
+                            obj.clear_target(&mut crate::game_logic::ObjectAudio::queue(
                                 &mut self.queued_audio_events,
                             ));
-                            obj.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+                            obj.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                                 &mut self.queued_audio_events,
                             ));
                         }
@@ -742,19 +742,19 @@ impl GameLogic {
                                     continue;
                                 }
                                 let transferred = self
-                                    .objects
-                                    .get_mut(&container_id)
-                                    .map(|v| {
-                                        v.apply_pilot_recrew(
-                                            pilot_team,
-                                            pilot_owner_player_id,
-                                            pilot_level,
-                                            &mut self.ownership_events,
-                                            &mut crate::game_logic::MovementAudio::queue(
-                                                &mut self.queued_audio_events,
-                                            ),
-                                        )
-                                    })
+                                    .with_object_recrew_feedback(
+                                        container_id,
+                                        |vehicle, ownership, audio, feedback| {
+                                            vehicle.apply_pilot_recrew(
+                                                pilot_team,
+                                                pilot_owner_player_id,
+                                                pilot_level,
+                                                ownership,
+                                                audio,
+                                                feedback,
+                                            )
+                                        },
+                                    )
                                     .unwrap_or(false);
                                 self.usa_pilot.record_recrew(transferred);
                                 self.queue_audio_event(
@@ -821,14 +821,14 @@ impl GameLogic {
                                     veh.status.unmanned_owner_player_id = None;
                                     veh.set_status_disabled_hacked(false);
                                     veh.status.disabled_hacked_until_frame = 0;
-                                    veh.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+                                    veh.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                                         &mut self.queued_audio_events,
                                     ));
                                     veh.target = None;
                                     if veh.ai_state != AIState::Idle {
                                         veh.set_ai_state(
                                             AIState::Idle,
-                                            &mut crate::game_logic::MovementAudio::queue(
+                                            &mut crate::game_logic::ObjectAudio::queue(
                                                 &mut self.queued_audio_events,
                                             ),
                                         );
@@ -879,10 +879,10 @@ impl GameLogic {
                         && !self.can_unit_enter_normal_target(object_id, requested_container_id)
                     {
                         if let Some(obj) = self.objects.get_mut(&object_id) {
-                            obj.clear_target(&mut crate::game_logic::MovementAudio::queue(
+                            obj.clear_target(&mut crate::game_logic::ObjectAudio::queue(
                                 &mut self.queued_audio_events,
                             ));
-                            obj.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+                            obj.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                                 &mut self.queued_audio_events,
                             ));
                         }
@@ -948,10 +948,10 @@ impl GameLogic {
                     })
                     else {
                         if let Some(obj) = self.objects.get_mut(&object_id) {
-                            obj.clear_target(&mut crate::game_logic::MovementAudio::queue(
+                            obj.clear_target(&mut crate::game_logic::ObjectAudio::queue(
                                 &mut self.queued_audio_events,
                             ));
-                            obj.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+                            obj.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                                 &mut self.queued_audio_events,
                             ));
                         }
@@ -985,10 +985,10 @@ impl GameLogic {
                         // TunnelContain residual: reject aircraft only.
                         if unit_is_aircraft {
                             if let Some(obj) = self.objects.get_mut(&object_id) {
-                                obj.clear_target(&mut crate::game_logic::MovementAudio::queue(
+                                obj.clear_target(&mut crate::game_logic::ObjectAudio::queue(
                                     &mut self.queued_audio_events,
                                 ));
-                                obj.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+                                obj.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                                     &mut self.queued_audio_events,
                                 ));
                             }
@@ -1005,10 +1005,10 @@ impl GameLogic {
                         && !unit_can_garrison_structure
                     {
                         if let Some(obj) = self.objects.get_mut(&object_id) {
-                            obj.clear_target(&mut crate::game_logic::MovementAudio::queue(
+                            obj.clear_target(&mut crate::game_logic::ObjectAudio::queue(
                                 &mut self.queued_audio_events,
                             ));
-                            obj.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+                            obj.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                                 &mut self.queued_audio_events,
                             ));
                         }
@@ -1020,10 +1020,10 @@ impl GameLogic {
                         && (unit_is_aircraft || unit_is_huge_vehicle)
                     {
                         if let Some(obj) = self.objects.get_mut(&object_id) {
-                            obj.clear_target(&mut crate::game_logic::MovementAudio::queue(
+                            obj.clear_target(&mut crate::game_logic::ObjectAudio::queue(
                                 &mut self.queued_audio_events,
                             ));
-                            obj.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+                            obj.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                                 &mut self.queued_audio_events,
                             ));
                         }
@@ -1043,10 +1043,10 @@ impl GameLogic {
                         || !container_can_contain
                     {
                         if let Some(obj) = self.objects.get_mut(&object_id) {
-                            obj.clear_target(&mut crate::game_logic::MovementAudio::queue(
+                            obj.clear_target(&mut crate::game_logic::ObjectAudio::queue(
                                 &mut self.queued_audio_events,
                             ));
-                            obj.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+                            obj.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                                 &mut self.queued_audio_events,
                             ));
                         }
@@ -1061,10 +1061,10 @@ impl GameLogic {
                         )
                     {
                         if let Some(obj) = self.objects.get_mut(&object_id) {
-                            obj.clear_target(&mut crate::game_logic::MovementAudio::queue(
+                            obj.clear_target(&mut crate::game_logic::ObjectAudio::queue(
                                 &mut self.queued_audio_events,
                             ));
-                            obj.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+                            obj.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                                 &mut self.queued_audio_events,
                             ));
                         }
@@ -1080,10 +1080,10 @@ impl GameLogic {
                                 .is_some_and(|c| self.stealth_garrison_occupant_counts(c).1 > 0))
                     {
                         if let Some(obj) = self.objects.get_mut(&object_id) {
-                            obj.clear_target(&mut crate::game_logic::MovementAudio::queue(
+                            obj.clear_target(&mut crate::game_logic::ObjectAudio::queue(
                                 &mut self.queued_audio_events,
                             ));
-                            obj.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+                            obj.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                                 &mut self.queued_audio_events,
                             ));
                         }
@@ -1126,10 +1126,10 @@ impl GameLogic {
                             effects,
                         ) {
                             if let Some(obj) = self.objects.get_mut(&object_id) {
-                                obj.clear_target(&mut crate::game_logic::MovementAudio::queue(
+                                obj.clear_target(&mut crate::game_logic::ObjectAudio::queue(
                                     &mut self.queued_audio_events,
                                 ));
-                                obj.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+                                obj.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                                     &mut self.queued_audio_events,
                                 ));
                             }
@@ -1173,10 +1173,10 @@ impl GameLogic {
                         || space_after_kick;
                     if !can_enter {
                         if let Some(obj) = self.objects.get_mut(&object_id) {
-                            obj.clear_target(&mut crate::game_logic::MovementAudio::queue(
+                            obj.clear_target(&mut crate::game_logic::ObjectAudio::queue(
                                 &mut self.queued_audio_events,
                             ));
-                            obj.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+                            obj.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                                 &mut self.queued_audio_events,
                             ));
                         }
@@ -1213,10 +1213,10 @@ impl GameLogic {
                         )
                     {
                         if let Some(obj) = self.objects.get_mut(&object_id) {
-                            obj.clear_target(&mut crate::game_logic::MovementAudio::queue(
+                            obj.clear_target(&mut crate::game_logic::ObjectAudio::queue(
                                 &mut self.queued_audio_events,
                             ));
-                            obj.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+                            obj.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                                 &mut self.queued_audio_events,
                             ));
                         }
@@ -1246,10 +1246,10 @@ impl GameLogic {
                                 container.remove_occupant(object_id, &mut self.ownership_events);
                             }
                             if let Some(obj) = self.objects.get_mut(&object_id) {
-                                obj.clear_target(&mut crate::game_logic::MovementAudio::queue(
+                                obj.clear_target(&mut crate::game_logic::ObjectAudio::queue(
                                     &mut self.queued_audio_events,
                                 ));
-                                obj.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+                                obj.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                                     &mut self.queued_audio_events,
                                 ));
                             }
@@ -1270,10 +1270,10 @@ impl GameLogic {
                                 container.remove_occupant(object_id, &mut self.ownership_events);
                             }
                             if let Some(obj) = self.objects.get_mut(&object_id) {
-                                obj.clear_target(&mut crate::game_logic::MovementAudio::queue(
+                                obj.clear_target(&mut crate::game_logic::ObjectAudio::queue(
                                     &mut self.queued_audio_events,
                                 ));
-                                obj.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+                                obj.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                                     &mut self.queued_audio_events,
                                 ));
                             }
@@ -1300,7 +1300,7 @@ impl GameLogic {
                     let occupant_owner =
                         self.objects.get(&object_id).and_then(|o| o.owner_player_id);
                     if let Some(obj) = self.objects.get_mut(&object_id) {
-                        obj.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+                        obj.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                             &mut self.queued_audio_events,
                         ));
                         obj.set_status_attacking(false);
@@ -1328,7 +1328,7 @@ impl GameLogic {
                         {}
                         obj.set_ai_state(
                             __ai_st,
-                            &mut crate::game_logic::MovementAudio::queue(
+                            &mut crate::game_logic::ObjectAudio::queue(
                                 &mut self.queued_audio_events,
                             ),
                         );
@@ -1527,7 +1527,7 @@ impl GameLogic {
                                 {
                                     obj.set_ai_state(
                                         AIState::Capturing,
-                                        &mut crate::game_logic::MovementAudio::queue(
+                                        &mut crate::game_logic::ObjectAudio::queue(
                                             &mut self.queued_audio_events,
                                         ),
                                     );
@@ -1735,7 +1735,7 @@ impl GameLogic {
                     // a completed capture is not reported as immediately idle.
                     if let Some(object) = self.objects.get_mut(&object_id) {
                         if object.is_alive() {
-                            object.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+                            object.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                                 &mut self.queued_audio_events,
                             ));
                             object.set_status_using_ability(false);
@@ -1755,7 +1755,7 @@ impl GameLogic {
 
                             object.set_ai_state(
                                 AIState::Capturing,
-                                &mut crate::game_logic::MovementAudio::queue(
+                                &mut crate::game_logic::ObjectAudio::queue(
                                     &mut self.queued_audio_events,
                                 ),
                             );
@@ -1818,13 +1818,13 @@ impl GameLogic {
                             self.hero_abilities.leftover_channel(object_id).is_some();
                         if !has_live_leftover {
                             if let Some(obj) = self.objects.get_mut(&object_id) {
-                                obj.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+                                obj.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                                     &mut self.queued_audio_events,
                                 ));
                                 obj.ignored_obstacle_id = None;
                                 obj.hacker_disable_channel = None;
                                 obj.set_status_using_ability(false);
-                                obj.clear_target(&mut crate::game_logic::MovementAudio::queue(
+                                obj.clear_target(&mut crate::game_logic::ObjectAudio::queue(
                                     &mut self.queued_audio_events,
                                 ));
                             }
@@ -2079,7 +2079,7 @@ impl GameLogic {
                         if !plant_ok {
                             self.pending_special_abilities.remove(&object_id);
                             if let Some(obj) = self.objects.get_mut(&object_id) {
-                                obj.clear_target(&mut crate::game_logic::MovementAudio::queue(
+                                obj.clear_target(&mut crate::game_logic::ObjectAudio::queue(
                                     &mut self.queued_audio_events,
                                 ));
                             }
@@ -2105,7 +2105,7 @@ impl GameLogic {
                         if !target_is_structure || !is_cash_gen {
                             self.pending_special_abilities.remove(&object_id);
                             if let Some(obj) = self.objects.get_mut(&object_id) {
-                                obj.clear_target(&mut crate::game_logic::MovementAudio::queue(
+                                obj.clear_target(&mut crate::game_logic::ObjectAudio::queue(
                                     &mut self.queued_audio_events,
                                 ));
                             }
@@ -2133,7 +2133,7 @@ impl GameLogic {
                         {
                             self.pending_special_abilities.remove(&object_id);
                             if let Some(obj) = self.objects.get_mut(&object_id) {
-                                obj.clear_target(&mut crate::game_logic::MovementAudio::queue(
+                                obj.clear_target(&mut crate::game_logic::ObjectAudio::queue(
                                     &mut self.queued_audio_events,
                                 ));
                             }
@@ -2176,7 +2176,7 @@ impl GameLogic {
                             if let Some(target) = self.objects.get_mut(&special_target_id) {
                                 target.apply_hijacked_from(
                                     donor_snap.as_ref(),
-                                    &mut crate::game_logic::MovementAudio::queue(
+                                    &mut crate::game_logic::ObjectAudio::queue(
                                         &mut self.queued_audio_events,
                                     ),
                                 );
@@ -2234,7 +2234,7 @@ impl GameLogic {
                                 if let Some(h) = self.objects.get_mut(&object_id) {
                                     h.begin_hijacker_in_vehicle(
                                         special_target_id,
-                                        &mut crate::game_logic::MovementAudio::queue(
+                                        &mut crate::game_logic::ObjectAudio::queue(
                                             &mut self.queued_audio_events,
                                         ),
                                     );
@@ -2367,7 +2367,10 @@ impl GameLogic {
                                                     target.apply_disabled_hacked(
                                                         until,
                                                         &mut self.health_events,
-                                                     &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events));
+                                                        &mut crate::game_logic::ObjectAudio::queue(
+                                                            &mut self.queued_audio_events,
+                                                        ),
+                                                    );
                                                 }
                                             }
                                         }
@@ -2477,19 +2480,19 @@ impl GameLogic {
                                     self.saboteur.record_consumed();
                                 } else if let Some(obj) = self.objects.get_mut(&object_id) {
                                     // Fail-closed: non-matching structure — cancel residual.
-                                    obj.clear_target(&mut crate::game_logic::MovementAudio::queue(
+                                    obj.clear_target(&mut crate::game_logic::ObjectAudio::queue(
                                         &mut self.queued_audio_events,
                                     ));
-                                    obj.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+                                    obj.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                                         &mut self.queued_audio_events,
                                     ));
                                 }
                             } else if let Some(obj) = self.objects.get_mut(&object_id) {
                                 // Fail-closed: non-saboteur cannot complete residual.
-                                obj.clear_target(&mut crate::game_logic::MovementAudio::queue(
+                                obj.clear_target(&mut crate::game_logic::ObjectAudio::queue(
                                     &mut self.queued_audio_events,
                                 ));
-                                obj.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+                                obj.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                                     &mut self.queued_audio_events,
                                 ));
                             }
@@ -2511,7 +2514,7 @@ impl GameLogic {
                             } else if let Some(target) = self.objects.get_mut(&special_target_id) {
                                 target.apply_kill_pilot_unmanned(
                                     &mut self.health_events,
-                                    &mut crate::game_logic::MovementAudio::queue(
+                                    &mut crate::game_logic::ObjectAudio::queue(
                                         &mut self.queued_audio_events,
                                     ),
                                 );
@@ -2544,10 +2547,10 @@ impl GameLogic {
                             );
                             self.queue_radar_message_for_team(team, msg);
                             if let Some(obj) = self.objects.get_mut(&object_id) {
-                                obj.clear_target(&mut crate::game_logic::MovementAudio::queue(
+                                obj.clear_target(&mut crate::game_logic::ObjectAudio::queue(
                                     &mut self.queued_audio_events,
                                 ));
-                                obj.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+                                obj.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                                     &mut self.queued_audio_events,
                                 ));
                             }
@@ -2618,10 +2621,10 @@ impl GameLogic {
                                 self.queue_radar_message_for_team(team, msg);
                             }
                             if let Some(obj) = self.objects.get_mut(&object_id) {
-                                obj.clear_target(&mut crate::game_logic::MovementAudio::queue(
+                                obj.clear_target(&mut crate::game_logic::ObjectAudio::queue(
                                     &mut self.queued_audio_events,
                                 ));
-                                obj.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+                                obj.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                                     &mut self.queued_audio_events,
                                 ));
                             }
@@ -2654,10 +2657,10 @@ impl GameLogic {
                                 self.queue_radar_message_for_team(team, msg);
                             }
                             if let Some(obj) = self.objects.get_mut(&object_id) {
-                                obj.clear_target(&mut crate::game_logic::MovementAudio::queue(
+                                obj.clear_target(&mut crate::game_logic::ObjectAudio::queue(
                                     &mut self.queued_audio_events,
                                 ));
-                                obj.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+                                obj.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                                     &mut self.queued_audio_events,
                                 ));
                             }
@@ -2712,10 +2715,10 @@ impl GameLogic {
                                 self.queue_radar_message_for_team(team, msg);
                             }
                             if let Some(obj) = self.objects.get_mut(&object_id) {
-                                obj.clear_target(&mut crate::game_logic::MovementAudio::queue(
+                                obj.clear_target(&mut crate::game_logic::ObjectAudio::queue(
                                     &mut self.queued_audio_events,
                                 ));
-                                obj.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+                                obj.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                                     &mut self.queued_audio_events,
                                 ));
                             }
@@ -2780,14 +2783,16 @@ impl GameLogic {
                             }
                             // Snapshot donor residual (vision/vet) before consume.
                             let donor_snap = self.objects.get(&object_id).cloned();
-                            if let Some(target) = self.objects.get_mut(&special_target_id) {
-                                target.apply_convert_to_car_bomb_from(
-                                    donor_snap.as_ref(),
-                                    &mut crate::game_logic::MovementAudio::queue(
-                                        &mut self.queued_audio_events,
-                                    ),
-                                );
-                            }
+                            self.with_object_veterancy_feedback(
+                                special_target_id,
+                                |target, audio, feedback| {
+                                    target.apply_convert_to_car_bomb_from(
+                                        donor_snap.as_ref(),
+                                        audio,
+                                        feedback,
+                                    );
+                                },
+                            );
                             match owner_player_id {
                                 Some(player_id) => {
                                     let _ = self.transfer_object_to_player_with_effects(
@@ -2857,7 +2862,7 @@ impl GameLogic {
                                 target.apply_disabled_hacked(
                                     until,
                                     &mut self.health_events,
-                                    &mut crate::game_logic::MovementAudio::queue(
+                                    &mut crate::game_logic::ObjectAudio::queue(
                                         &mut self.queued_audio_events,
                                     ),
                                 );
@@ -2889,11 +2894,11 @@ impl GameLogic {
                             );
                             self.queue_radar_message_for_team(team, msg);
                             if let Some(obj) = self.objects.get_mut(&object_id) {
-                                obj.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+                                obj.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                                     &mut self.queued_audio_events,
                                 ));
                                 obj.ignored_obstacle_id = None;
-                                obj.clear_target(&mut crate::game_logic::MovementAudio::queue(
+                                obj.clear_target(&mut crate::game_logic::ObjectAudio::queue(
                                     &mut self.queued_audio_events,
                                 ));
                             }
@@ -2929,17 +2934,17 @@ impl GameLogic {
                                 });
                             if let Some(obj) = self.objects.get_mut(&object_id) {
                                 obj.apply_disguise(&tpl, as_team);
-                                obj.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+                                obj.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                                     &mut self.queued_audio_events,
                                 ));
                                 obj.ignored_obstacle_id = None;
                                 {
-                                    obj.clear_target(&mut crate::game_logic::MovementAudio::queue(
+                                    obj.clear_target(&mut crate::game_logic::ObjectAudio::queue(
                                         &mut self.queued_audio_events,
                                     ));
                                     obj.set_ai_state(
                                         AIState::Idle,
-                                        &mut crate::game_logic::MovementAudio::queue(
+                                        &mut crate::game_logic::ObjectAudio::queue(
                                             &mut self.queued_audio_events,
                                         ),
                                     );
@@ -2990,11 +2995,11 @@ impl GameLogic {
                             if still_trapped {
                                 self.pending_special_abilities.remove(&object_id);
                                 if let Some(obj) = self.objects.get_mut(&object_id) {
-                                    obj.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+                                    obj.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                                         &mut self.queued_audio_events,
                                     ));
                                     obj.ignored_obstacle_id = None;
-                                    obj.clear_target(&mut crate::game_logic::MovementAudio::queue(
+                                    obj.clear_target(&mut crate::game_logic::ObjectAudio::queue(
                                         &mut self.queued_audio_events,
                                     ));
                                 }
@@ -3054,10 +3059,10 @@ impl GameLogic {
                                 self.queue_radar_message_for_team(team, msg);
                             }
                             if let Some(obj) = self.objects.get_mut(&object_id) {
-                                obj.clear_target(&mut crate::game_logic::MovementAudio::queue(
+                                obj.clear_target(&mut crate::game_logic::ObjectAudio::queue(
                                     &mut self.queued_audio_events,
                                 ));
-                                obj.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+                                obj.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                                     &mut self.queued_audio_events,
                                 ));
                             }
@@ -3744,7 +3749,7 @@ impl GameLogic {
                                     obj.set_order_target(
                                         Some(next),
                                         &mut self.attack_events,
-                                        &mut crate::game_logic::MovementAudio::queue(
+                                        &mut crate::game_logic::ObjectAudio::queue(
                                             &mut self.queued_audio_events,
                                         ),
                                     );
@@ -3814,7 +3819,7 @@ impl GameLogic {
                     let Some(container_id) = container_id else {
                         if let Some(obj) = self.objects.get_mut(&object_id) {
                             obj.set_contained_by(None);
-                            obj.clear_target(&mut crate::game_logic::MovementAudio::queue(
+                            obj.clear_target(&mut crate::game_logic::ObjectAudio::queue(
                                 &mut self.queued_audio_events,
                             ));
                         }
@@ -3862,7 +3867,7 @@ impl GameLogic {
                     else {
                         if let Some(obj) = self.objects.get_mut(&object_id) {
                             obj.set_contained_by(None);
-                            obj.clear_target(&mut crate::game_logic::MovementAudio::queue(
+                            obj.clear_target(&mut crate::game_logic::ObjectAudio::queue(
                                 &mut self.queued_audio_events,
                             ));
                         }
@@ -3872,7 +3877,7 @@ impl GameLogic {
                     if !container_alive || !container_has_unit {
                         if let Some(obj) = self.objects.get_mut(&object_id) {
                             obj.set_contained_by(None);
-                            obj.clear_target(&mut crate::game_logic::MovementAudio::queue(
+                            obj.clear_target(&mut crate::game_logic::ObjectAudio::queue(
                                 &mut self.queued_audio_events,
                             ));
                         }
@@ -3884,7 +3889,7 @@ impl GameLogic {
                         obj.set_contained_by_enclosing(Some(container_id), enclosing);
                         obj.set_position_with_effects(pin_pos, tree_move_frame, effects);
                         {}
-                        obj.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+                        obj.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                             &mut self.queued_audio_events,
                         ));
                         obj.set_status_moving(false);

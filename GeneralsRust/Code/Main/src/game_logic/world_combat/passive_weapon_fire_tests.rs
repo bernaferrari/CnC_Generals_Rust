@@ -115,7 +115,7 @@ fn actual_passive_windup_emits_nothing_until_deadline_and_keeps_prior_pending_sh
         30,
         &mut game.combat_system,
         &mut game.attack_events,
-        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
     ));
     let pending =
         crate::game_logic::combat::pending_projectile_queue_len_for_test(&game.combat_system);

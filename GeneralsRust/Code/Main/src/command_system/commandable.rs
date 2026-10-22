@@ -18,25 +18,25 @@ pub trait CommandableObject {
         &mut self,
         target: Option<ObjectId>,
         attack_events: &mut crate::game_logic::host_attack_log::AttackEvents,
-        audio: &mut crate::game_logic::MovementAudio<'_>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
     );
     fn set_target_location(
         &mut self,
         location: Option<Vec3>,
-        audio: &mut crate::game_logic::MovementAudio<'_>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
     );
     fn set_guard_position(
         &mut self,
         position: Option<Vec3>,
-        audio: &mut crate::game_logic::MovementAudio<'_>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
     );
     fn set_guard_target(
         &mut self,
         target: Option<ObjectId>,
-        audio: &mut crate::game_logic::MovementAudio<'_>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
     );
     fn set_force_attack(&mut self, force: bool);
-    fn stop(&mut self, audio: &mut crate::game_logic::MovementAudio<'_>);
+    fn stop(&mut self, audio: &mut crate::game_logic::ObjectAudio<'_>);
 }
 
 impl CommandableObject for Object {
@@ -107,7 +107,7 @@ impl CommandableObject for Object {
         &mut self,
         target: Option<ObjectId>,
         attack_events: &mut crate::game_logic::host_attack_log::AttackEvents,
-        audio: &mut crate::game_logic::MovementAudio<'_>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
         Object::set_target(self, target, attack_events, audio);
     }
@@ -115,7 +115,7 @@ impl CommandableObject for Object {
     fn set_target_location(
         &mut self,
         location: Option<Vec3>,
-        audio: &mut crate::game_logic::MovementAudio<'_>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
         Object::set_target_location(self, location, audio);
     }
@@ -123,7 +123,7 @@ impl CommandableObject for Object {
     fn set_guard_position(
         &mut self,
         position: Option<Vec3>,
-        audio: &mut crate::game_logic::MovementAudio<'_>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
         Object::set_guard_position(self, position, audio);
     }
@@ -131,7 +131,7 @@ impl CommandableObject for Object {
     fn set_guard_target(
         &mut self,
         target: Option<ObjectId>,
-        audio: &mut crate::game_logic::MovementAudio<'_>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
         Object::set_guard_target(self, target, audio);
     }
@@ -140,7 +140,7 @@ impl CommandableObject for Object {
         Object::set_force_attack(self, force);
     }
 
-    fn stop(&mut self, audio: &mut crate::game_logic::MovementAudio<'_>) {
+    fn stop(&mut self, audio: &mut crate::game_logic::ObjectAudio<'_>) {
         Object::stop(self, audio);
     }
 }

@@ -232,7 +232,7 @@ fn stamp_clears_freefall_before_resting_request_and_rereads_effective_death_for_
     let ContactStep::Damage { request, .. } = object.step_stamp_contact(
         StampContact::Start(0.),
         false,
-        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
     ) else {
         panic!("resting kill must yield at actual Body boundary");
     };

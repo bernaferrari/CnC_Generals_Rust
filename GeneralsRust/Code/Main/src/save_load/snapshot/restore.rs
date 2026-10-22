@@ -448,22 +448,18 @@ impl SnapshotBuilder {
             if object.thing().template.hacker_disable_building.is_some() && object.is_alive() {
                 object.set_ai_state(
                     AIState::SpecialAbility,
-                    &mut crate::game_logic::MovementAudio::queue(
-                        &mut game_logic.queued_audio_events,
-                    ),
+                    &mut crate::game_logic::ObjectAudio::queue(&mut game_logic.queued_audio_events),
                 );
                 object.restore_order_target(
                     Some(channel.target_id),
-                    &mut crate::game_logic::MovementAudio::queue(
-                        &mut game_logic.queued_audio_events,
-                    ),
+                    &mut crate::game_logic::ObjectAudio::queue(&mut game_logic.queued_audio_events),
                 );
             } else {
                 // A malformed/current save must not revive a guessed hacker
                 // channel.  Clear it before the object becomes live.
                 object.hacker_disable_channel = None;
                 object.set_status_using_ability(false);
-                object.clear_target(&mut crate::game_logic::MovementAudio::queue(
+                object.clear_target(&mut crate::game_logic::ObjectAudio::queue(
                     &mut game_logic.queued_audio_events,
                 ));
             }
@@ -969,11 +965,11 @@ impl SnapshotBuilder {
             {
                 source.hacker_disable_channel = None;
                 source.set_status_using_ability(false);
-                source.clear_target(&mut crate::game_logic::MovementAudio::queue(audio));
+                source.clear_target(&mut crate::game_logic::ObjectAudio::queue(audio));
                 if source.ai_state == AIState::SpecialAbility {
                     source.set_ai_state(
                         AIState::Idle,
-                        &mut crate::game_logic::MovementAudio::queue(audio),
+                        &mut crate::game_logic::ObjectAudio::queue(audio),
                     );
                 }
             }

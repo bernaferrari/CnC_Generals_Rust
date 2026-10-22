@@ -44,7 +44,7 @@ fn fire_at_records_fire_intent_residual() {
             logic.frame,
             &mut logic.combat_system,
             &mut logic.attack_events,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         assert!(fired, "close-range fire_at should discharge");
         // The shot commits its durable fields before any observer refresh.
@@ -87,7 +87,7 @@ fn fire_at_records_fire_intent_residual() {
             logic.frame,
             &mut logic.combat_system,
             &mut logic.attack_events,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         assert!(fired);
         assert_eq!(o.last_fire_victim_host, vid.0);
@@ -179,7 +179,7 @@ fn private_idle_decision_authority() {
         o.status.attacking = true;
         o.set_ai_state(
             AIState::Attacking,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
     }
     assert!(logic.private_idle_for_test(oid));
@@ -247,31 +247,31 @@ fn residual_ai_state_paths_use_owned_state_writers() {
     for (header, write) in [
         (
             "fn try_return_to_base_rearm_with_effects(",
-            "jet.set_ai_state(AIState::Moving,&mutcrate::game_logic::MovementAudio::queue(&mutself.queued_audio_events),);",
+            "jet.set_ai_state(AIState::Moving,&mutcrate::game_logic::ObjectAudio::queue(&mutself.queued_audio_events),);",
         ),
         (
             "fn try_min_range_backup_between(",
-            "a.set_ai_state(AIState::Attacking,&mutcrate::game_logic::MovementAudio::queue(&mutself.queued_audio_events),);",
+            "a.set_ai_state(AIState::Attacking,&mutcrate::game_logic::ObjectAudio::queue(&mutself.queued_audio_events),);",
         ),
         (
             "fn append_unit_waypoint(",
-            "unit.set_ai_state(AIState::Moving,&mutcrate::game_logic::MovementAudio::queue(&mutself.queued_audio_events),);",
+            "unit.set_ai_state(AIState::Moving,&mutcrate::game_logic::ObjectAudio::queue(&mutself.queued_audio_events),);",
         ),
         (
             "fn attack_aim_at_target_enter(",
-            "u.set_ai_state(AIState::Attacking,&mutcrate::game_logic::MovementAudio::queue(&mutself.queued_audio_events),);",
+            "u.set_ai_state(AIState::Attacking,&mutcrate::game_logic::ObjectAudio::queue(&mutself.queued_audio_events),);",
         ),
         (
             "fn attack_fire_weapon_enter(",
-            "u.set_ai_state(AIState::Attacking,&mutcrate::game_logic::MovementAudio::queue(&mutself.queued_audio_events),);",
+            "u.set_ai_state(AIState::Attacking,&mutcrate::game_logic::ObjectAudio::queue(&mutself.queued_audio_events),);",
         ),
         (
             "fn try_idle_crate_pickup(",
-            "u.set_ai_state(parent_state,&mutcrate::game_logic::MovementAudio::queue(&mutself.queued_audio_events),);",
+            "u.set_ai_state(parent_state,&mutcrate::game_logic::ObjectAudio::queue(&mutself.queued_audio_events),);",
         ),
         (
             "fn on_selling_container_residual_with_effects(",
-            "unit.set_ai_state(AIState::Idle,&mutcrate::game_logic::MovementAudio::queue(&mutself.queued_audio_events),);",
+            "unit.set_ai_state(AIState::Idle,&mutcrate::game_logic::ObjectAudio::queue(&mutself.queued_audio_events),);",
         ),
     ] {
         assert!(
@@ -487,7 +487,7 @@ fn special_power_tick_updates_receiving_owner_timer() {
         o.set_special_power_ready(false);
         let became = o.tick_timers(
             1.0,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         let _ = became;
     }

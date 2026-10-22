@@ -192,13 +192,13 @@ impl GameLogic {
 
     pub(super) fn abort_capture_channel(&mut self, object_id: ObjectId) {
         if let Some(object) = self.objects.get_mut(&object_id) {
-            object.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+            object.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                 &mut self.queued_audio_events,
             ));
             object.ignored_obstacle_id = None;
             object.capture_channel = None;
             object.set_status_using_ability(false);
-            object.clear_target(&mut crate::game_logic::MovementAudio::queue(
+            object.clear_target(&mut crate::game_logic::ObjectAudio::queue(
                 &mut self.queued_audio_events,
             ));
             clear_raising_flag_model(object);
@@ -215,13 +215,13 @@ impl GameLogic {
     /// preparation, but the source remains busy until PackTime has elapsed.
     pub(super) fn finish_capture_channel(&mut self, object_id: ObjectId) {
         if let Some(object) = self.objects.get_mut(&object_id) {
-            object.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+            object.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                 &mut self.queued_audio_events,
             ));
             object.ignored_obstacle_id = None;
             object.capture_channel = None;
             object.set_status_using_ability(false);
-            object.clear_target(&mut crate::game_logic::MovementAudio::queue(
+            object.clear_target(&mut crate::game_logic::ObjectAudio::queue(
                 &mut self.queued_audio_events,
             ));
             clear_raising_flag_model(object);
@@ -700,7 +700,7 @@ impl GameLogic {
             // locomotor goal (AIStates.cpp:1361). Clearing only the path
             // leaves isMoving true and aborts capture on the next update.
             object.set_locomotor_goal_none();
-            object.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+            object.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                 &mut self.queued_audio_events,
             ));
         }
@@ -987,7 +987,7 @@ impl GameLogic {
         }
         if let Some(obj) = self.objects.get_mut(&object_id) {
             obj.set_status_using_ability(true);
-            obj.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+            obj.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                 &mut self.queued_audio_events,
             ));
         }
@@ -1000,7 +1000,7 @@ impl GameLogic {
             if dropped {
                 obj.set_ai_state(
                     AIState::Idle,
-                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
             }
         }
@@ -1061,12 +1061,12 @@ impl GameLogic {
     /// C++ `startFacing`: idle, reset physics, face the target.
     fn leftover_start_facing(&mut self, object_id: ObjectId, target_id: ObjectId) {
         if let Some(obj) = self.objects.get_mut(&object_id) {
-            obj.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+            obj.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                 &mut self.queued_audio_events,
             ));
             obj.set_ai_state(
                 AIState::SpecialAbility,
-                &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
         }
         let _ = self.private_face_object(object_id, target_id);
@@ -1597,7 +1597,7 @@ impl GameLogic {
             }
             object.set_ai_state(
                 AIState::SpecialAbility,
-                &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
             object.set_status_using_ability(true);
         } else {
@@ -1884,16 +1884,16 @@ impl GameLogic {
                     self.pending_special_abilities.remove(&object_id);
                     self.leftover_sa_set_pack_model(object_id, false, false, false);
                     if let Some(obj) = self.objects.get_mut(&object_id) {
-                        obj.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+                        obj.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                             &mut self.queued_audio_events,
                         ));
                         obj.set_status_using_ability(false);
-                        obj.clear_target(&mut crate::game_logic::MovementAudio::queue(
+                        obj.clear_target(&mut crate::game_logic::ObjectAudio::queue(
                             &mut self.queued_audio_events,
                         ));
                         obj.set_ai_state(
                             AIState::Idle,
-                            &mut crate::game_logic::MovementAudio::queue(
+                            &mut crate::game_logic::ObjectAudio::queue(
                                 &mut self.queued_audio_events,
                             ),
                         );
@@ -1936,28 +1936,28 @@ impl GameLogic {
             self.pending_special_abilities.remove(&object_id);
             self.leftover_sa_set_pack_model(object_id, false, false, false);
             if let Some(obj) = self.objects.get_mut(&object_id) {
-                obj.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+                obj.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                     &mut self.queued_audio_events,
                 ));
                 obj.set_status_using_ability(false);
-                obj.clear_target(&mut crate::game_logic::MovementAudio::queue(
+                obj.clear_target(&mut crate::game_logic::ObjectAudio::queue(
                     &mut self.queued_audio_events,
                 ));
                 obj.set_ai_state(
                     AIState::Idle,
-                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
             }
             return;
         }
         if let Some(obj) = self.objects.get_mut(&object_id) {
-            obj.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+            obj.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                 &mut self.queued_audio_events,
             ));
             obj.set_status_using_ability(false);
             obj.set_ai_state(
                 AIState::SpecialAbility,
-                &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
         }
         self.leftover_sa_set_pack_model(object_id, false, true, false);
@@ -2236,7 +2236,7 @@ impl GameLogic {
         // the arrival state without disturbing veterancy or rider effects.
         if plan.previous_rider == Some(rider_id) {
             if let Some(rider) = self.objects.get_mut(&rider_id) {
-                rider.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+                rider.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                     &mut self.queued_audio_events,
                 ));
                 rider.target = Some(container_id);
@@ -2244,7 +2244,7 @@ impl GameLogic {
                 rider.set_position_with_effects(plan.container_position, tree_move_frame, effects);
                 rider.set_ai_state(
                     AIState::Docked,
-                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
                 rider.set_status_moving(false);
                 rider.set_status_attacking(false);
@@ -2293,7 +2293,7 @@ impl GameLogic {
                 return false;
             }
             if let Some(previous) = self.objects.get_mut(&previous_rider_id) {
-                previous.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+                previous.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                     &mut self.queued_audio_events,
                 ));
                 // C++ delegates the exact exit-door/path placement to
@@ -2307,12 +2307,12 @@ impl GameLogic {
                     effects,
                 );
                 previous.set_contained_by(None);
-                previous.clear_target(&mut crate::game_logic::MovementAudio::queue(
+                previous.clear_target(&mut crate::game_logic::ObjectAudio::queue(
                     &mut self.queued_audio_events,
                 ));
                 previous.set_ai_state(
                     AIState::Idle,
-                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
                 previous.set_status_moving(false);
                 previous.set_status_attacking(false);
@@ -2363,7 +2363,7 @@ impl GameLogic {
                 .objects
                 .get_mut(&rider_id)
                 .expect("RiderChange preflight incoming rider disappeared");
-            rider.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+            rider.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                 &mut self.queued_audio_events,
             ));
             rider.set_status_attacking(false);
@@ -2374,7 +2374,7 @@ impl GameLogic {
             rider.set_position_with_effects(plan.container_position, tree_move_frame, effects);
             rider.set_ai_state(
                 AIState::Docked,
-                &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
             rider.set_status_moving(false);
             rider.set_rider_change_veterancy_level(VeterancyLevel::Rookie);
@@ -2488,17 +2488,17 @@ impl GameLogic {
         }
 
         if let Some(rider) = self.objects.get_mut(&rider_id) {
-            rider.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+            rider.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                 &mut self.queued_audio_events,
             ));
             rider.set_position_with_effects(position, tree_move_frame, effects);
             rider.set_contained_by(None);
-            rider.clear_target(&mut crate::game_logic::MovementAudio::queue(
+            rider.clear_target(&mut crate::game_logic::ObjectAudio::queue(
                 &mut self.queued_audio_events,
             ));
             rider.set_ai_state(
                 AIState::Idle,
-                &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
             rider.set_status_moving(false);
             rider.set_status_attacking(false);
@@ -2743,12 +2743,12 @@ impl GameLogic {
         // C++ startPreparation calls aiIdle too (SpecialAbilityUpdate.cpp:1070).
         // A zero UnpackTime skips startFacing/unpacking, so clear its goal here.
         object.set_locomotor_goal_none();
-        object.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+        object.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
             &mut self.queued_audio_events,
         ));
         object.set_ai_state(
             AIState::Capturing,
-            &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+            &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
         );
         object.capture_channel = Some(crate::game_logic::CaptureChannelState::new(
             crate::game_logic::CaptureChannelPhase::Preparing,
@@ -2814,18 +2814,18 @@ impl GameLogic {
         self.leftover_kill_special_objects_with_effects(object_id, effects);
         self.pending_special_abilities.remove(&object_id);
         if let Some(object) = self.objects.get_mut(&object_id) {
-            object.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+            object.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                 &mut self.queued_audio_events,
             ));
             object.ignored_obstacle_id = None;
             object.hacker_disable_channel = None;
             object.set_status_using_ability(false);
-            object.clear_target(&mut crate::game_logic::MovementAudio::queue(
+            object.clear_target(&mut crate::game_logic::ObjectAudio::queue(
                 &mut self.queued_audio_events,
             ));
             object.set_ai_state(
                 AIState::Idle,
-                &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
         }
     }
@@ -2873,7 +2873,7 @@ impl GameLogic {
             if !object.is_alive() {
                 finish_now = true;
             } else {
-                object.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+                object.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                     &mut self.queued_audio_events,
                 ));
                 object.hacker_disable_channel =
@@ -2885,7 +2885,7 @@ impl GameLogic {
                 object.set_status_using_ability(false);
                 object.set_ai_state(
                     AIState::SpecialAbility,
-                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
             }
         } else {
@@ -3085,7 +3085,7 @@ impl GameLogic {
         let Some(object) = self.objects.get_mut(&object_id) else {
             return false;
         };
-        object.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+        object.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
             &mut self.queued_audio_events,
         ));
         object.hacker_disable_channel = Some(crate::game_logic::HackerDisableChannelState::new(
@@ -3096,7 +3096,7 @@ impl GameLogic {
         object.set_status_using_ability(true);
         object.set_ai_state(
             AIState::SpecialAbility,
-            &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+            &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
         );
         true
     }
@@ -3132,7 +3132,7 @@ impl GameLogic {
             target.apply_disabled_hacked(
                 until,
                 &mut self.health_events,
-                &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
         } else {
             self.begin_hacker_disable_building_packing_with_effects(
@@ -3190,7 +3190,7 @@ impl GameLogic {
             object.set_status_using_ability(true);
             object.set_ai_state(
                 AIState::SpecialAbility,
-                &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
         }
     }
@@ -3364,7 +3364,7 @@ impl GameLogic {
                             metadata.pack_unpack_variation_factor,
                         );
                         if let Some(object) = self.objects.get_mut(&object_id) {
-                            object.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+                            object.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                                 &mut self.queued_audio_events,
                             ));
                             object.hacker_disable_channel =
@@ -3376,7 +3376,7 @@ impl GameLogic {
                             object.set_status_using_ability(false);
                             object.set_ai_state(
                                 AIState::SpecialAbility,
-                                &mut crate::game_logic::MovementAudio::queue(
+                                &mut crate::game_logic::ObjectAudio::queue(
                                     &mut self.queued_audio_events,
                                 ),
                             );

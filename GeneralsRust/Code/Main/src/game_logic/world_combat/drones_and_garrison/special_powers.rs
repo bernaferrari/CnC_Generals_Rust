@@ -350,7 +350,7 @@ impl GameLogic {
             target.apply_disabled_emp(
                 until,
                 &mut self.health_events,
-                &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
             self.admit_host_radar_disabled_edges(id);
             disables = disables.saturating_add(1);
@@ -682,7 +682,7 @@ impl GameLogic {
                 o.note_attack_target(
                     tid,
                     &mut self.attack_events,
-                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
                 o.turret_mood_target = true;
                 o.turret_idle_scanning = false;
@@ -696,7 +696,7 @@ impl GameLogic {
                 if entered_attack {
                     o.set_ai_state(
                         AIState::Attacking,
-                        &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                        &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                     );
                 }
             }
@@ -809,7 +809,7 @@ impl GameLogic {
                         if matches!(o.ai_state, AIState::Attacking) {
                             o.set_ai_state(
                                 AIState::Idle,
-                                &mut crate::game_logic::MovementAudio::queue(
+                                &mut crate::game_logic::ObjectAudio::queue(
                                     &mut self.queued_audio_events,
                                 ),
                             );
@@ -827,7 +827,7 @@ impl GameLogic {
                         if entered_attack {
                             o.set_ai_state(
                                 AIState::Attacking,
-                                &mut crate::game_logic::MovementAudio::queue(
+                                &mut crate::game_logic::ObjectAudio::queue(
                                     &mut self.queued_audio_events,
                                 ),
                             );

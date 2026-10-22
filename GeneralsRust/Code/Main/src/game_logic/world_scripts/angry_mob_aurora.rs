@@ -1565,7 +1565,7 @@ impl GameLogic {
                     o.set_destination(
                         pos,
                         &mut self.movement_events.writer(self.frame),
-                        &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                        &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                     );
                 }
             }
@@ -1902,7 +1902,7 @@ impl GameLogic {
                         }
                         mob.set_ai_state(
                             AIState::Attacking,
-                            &mut crate::game_logic::MovementAudio::queue(
+                            &mut crate::game_logic::ObjectAudio::queue(
                                 &mut self.queued_audio_events,
                             ),
                         );
@@ -2594,7 +2594,7 @@ mod spawn_behavior_parity {
             n.set_destination(
                 glam::Vec3::new(80.0, 0.0, 0.0),
                 &mut logic.movement_events.writer(logic.frame),
-                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
             );
         }
         assert_eq!(

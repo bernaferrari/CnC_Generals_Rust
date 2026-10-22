@@ -1143,3 +1143,30 @@ End
         );
     }
 }
+
+/// Immutable mapped-image definitions captured once at application admission.
+/// Runtime lookup never consults the process collection or name-key registry.
+#[derive(Debug, Clone, Default)]
+pub struct OwnedMappedImages {
+    images: BTreeMap<String, Image>,
+}
+impl OwnedMappedImages {
+    pub fn from_collection(collection: &ImageCollection) -> Self {
+        let images = collection
+            .get_image_names()
+            .into_iter()
+            .filter_map(|name| {
+                collection
+                    .find_image_by_name(name)
+                    .map(|image| (name.to_ascii_lowercase(), image.clone()))
+            })
+            .collect();
+        Self { images }
+    }
+    pub fn find(&self, name: &str) -> Option<&Image> {
+        self.images.get(&name.to_ascii_lowercase())
+    }
+    pub fn iter(&self) -> impl Iterator<Item = &Image> {
+        self.images.values()
+    }
+}

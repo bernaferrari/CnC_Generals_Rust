@@ -47,10 +47,6 @@ fn player_argb_for_index(index: Option<i32>) -> u32 {
         .unwrap_or(0)
 }
 
-fn host_draw_icon_ui() -> bool {
-    gamelogic::helpers::TheGameLogic::get_draw_icon_ui()
-}
-
 pub const RADIUS_DECAL_LOGIC_FPS: f32 = 30.0;
 
 /// Retail SCUD storm OCL delivery decal radius.
@@ -254,7 +250,7 @@ impl HostRadiusDecal {
     }
 
     /// C++ RadiusDecal::update — sine of the driving frame, gated by getDrawIconUI.
-    pub fn update(&mut self, frame: u32) {
+    pub fn update(&mut self, frame: u32, draw_icon_ui: bool) {
         if self.is_empty() {
             return;
         }
@@ -265,7 +261,7 @@ impl HostRadiusDecal {
         let period = tmpl.throb_frames.max(1);
         let theta = 2.0 * std::f32::consts::PI * ((now % period) as f32) / (period as f32);
         let percent = 0.5 * (theta.sin() + 1.0);
-        self.opacity = if host_draw_icon_ui() {
+        self.opacity = if draw_icon_ui {
             tmpl.opacity_min + percent * (tmpl.opacity_max - tmpl.opacity_min)
         } else {
             0.0
@@ -357,7 +353,7 @@ impl HostRadiusDecalUpdateData {
 
     /// One frame residual. `is_attacking` maps OBJECT_STATUS_IS_ATTACKING.
     /// Returns true if decal was killed this frame.
-    pub fn tick(&mut self, frame: u32, is_attacking: bool) -> bool {
+    pub fn tick(&mut self, frame: u32, is_attacking: bool, draw_icon_ui: bool) -> bool {
         if !self.awake {
             return false;
         }
@@ -365,7 +361,7 @@ impl HostRadiusDecalUpdateData {
             self.kill_radius_decal();
             return true;
         }
-        self.delivery_decal.update(frame);
+        self.delivery_decal.update(frame, draw_icon_ui);
         false
     }
 }
@@ -487,9 +483,9 @@ mod tests {
         d.set_kill_when_no_longer_attacking(true);
         assert!(!d.delivery_decal.is_empty());
         assert!(d.awake);
-        d.tick(5, true);
+        d.tick(5, true, true);
         assert!((d.delivery_decal.opacity - DELIVERY_DECAL_OPACITY_MIN).abs() < 0.3);
-        let killed = d.tick(10, false);
+        let killed = d.tick(10, false, true);
         assert!(killed);
         assert!(d.delivery_decal.is_empty());
     }
@@ -520,7 +516,7 @@ mod tests {
             }),
             "forward_render collect_render_items must see host delivery ring"
         );
-        d.tick(5, true);
+        d.tick(5, true, true);
         let items = game_client::radius_decal::get_projected_shadow_manager()
             .read()
             .collect_render_items();
@@ -531,7 +527,7 @@ mod tests {
         assert!(ring.unwrap().color[3] > 0.0);
 
         d.set_kill_when_no_longer_attacking(true);
-        assert!(d.tick(10, false));
+        assert!(d.tick(10, false, true));
         assert!(!d.delivery_decal.has_projected_shadow());
         let items = game_client::radius_decal::get_projected_shadow_manager()
             .read()
@@ -555,7 +551,7 @@ mod tests {
             Vec3::ZERO,
             100,
         );
-        decal.update(0);
+        decal.update(0, true);
         let period = DELIVERY_DECAL_THROB_FRAMES.max(1);
         let theta = 2.0 * std::f32::consts::PI * (0.0 / period as f32);
         let percent = 0.5 * (theta.sin() + 1.0);

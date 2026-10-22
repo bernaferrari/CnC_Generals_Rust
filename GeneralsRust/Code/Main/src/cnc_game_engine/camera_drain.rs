@@ -1530,6 +1530,7 @@ impl CnCGameEngine {
         self.game_logic.owned_script_engine.as_ref().ok_or(
             "Cannot freeze native camera fade: receiving interpreter is unavailable or lent",
         )?;
+        self.game_logic.advance_world_animations_for_presentation();
         // Wave 926: single host→shadow sync + presentation build boundary.
         if let Some(ref mut shadow) = self.gameworld_shadow {
             shadow.sync_from_host(&self.game_logic);
@@ -2411,6 +2412,8 @@ impl CnCGameEngine {
             log::error!("Native Client prefix rejected: {error}");
             return;
         }
+        self.game_client
+            .admit_draw_icon_ui(self.game_logic.get_draw_icon_ui());
         // C++ GameLogic::update setFrame(TheGameLogic->getFrame()) before client update.
         // Extra presents with the same host frame freeze drawable/FX time.
         // The actual client frame is admitted before each logic step, including catch-up.
@@ -2516,23 +2519,17 @@ impl CnCGameEngine {
                 .collect();
             self.game_client
                 .apply_presentation_floating_texts(&floating);
-            let world_anims: Vec<(String, [f32; 3], f32, f32, bool, u32)> = pres
+            let world_anims = pres
                 .world_anims
                 .iter()
-                .filter(|a| a.is_active_at(pres.frame.0))
-                .map(|a| {
-                    (
-                        a.template.clone(),
-                        [a.position.x, a.position.y, a.position.z],
-                        a.display_time_seconds,
-                        a.z_rise_per_second,
-                        a.fades,
-                        a.spawn_frame,
-                    )
-                })
-                .collect();
-            self.game_client
-                .apply_presentation_world_anims(&world_anims);
+                .map(|animation| animation.native())
+                .collect::<Vec<_>>();
+            self.game_client.apply_presentation_world_anims(
+                self.host_direct_visual_world_epoch,
+                pres.frame.0,
+                self.game_logic.is_paused(),
+                &world_anims,
+            );
             let sw_timers: Vec<(String, String, bool)> = if !pres.superweapon_display_enabled {
                 Vec::new()
             } else {

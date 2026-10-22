@@ -626,15 +626,20 @@ impl Object {
     /// - endow vision + shroudClearing from converter
     /// - copy converter veterancy level
     /// Binds SuicideCarBomb residual weapon and marks IS_CARBOMB.
-    pub fn apply_convert_to_car_bomb(&mut self, audio: &mut crate::game_logic::MovementAudio<'_>) {
-        self.apply_convert_to_car_bomb_from(None, audio);
+    pub fn apply_convert_to_car_bomb(
+        &mut self,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
+        feedback: &mut crate::game_logic::VeterancyFeedback<'_>,
+    ) {
+        self.apply_convert_to_car_bomb_from(None, audio, feedback);
     }
 
     /// Convert with optional donor (terrorist) residual endowments.
     pub fn apply_convert_to_car_bomb_from(
         &mut self,
         donor: Option<&Object>,
-        audio: &mut crate::game_logic::MovementAudio<'_>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
+        feedback: &mut crate::game_logic::VeterancyFeedback<'_>,
     ) {
         self.set_status_is_carbomb(true);
         let _ = self.set_weapon_set_flag(2, true);
@@ -681,7 +686,7 @@ impl Object {
                     self.experience.current = need;
                 }
                 if prev != donor_level {
-                    self.apply_veterancy_bonuses(prev, donor_level);
+                    self.apply_veterancy_bonuses(prev, donor_level, audio, feedback);
                 }
             }
         }
@@ -694,7 +699,7 @@ impl Object {
     pub fn begin_hijacker_in_vehicle(
         &mut self,
         vehicle_id: ObjectId,
-        audio: &mut crate::game_logic::MovementAudio<'_>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
         self.hijack_vehicle_id = Some(vehicle_id);
         self.hijacker_in_vehicle = true;
@@ -718,7 +723,7 @@ impl Object {
         &mut self,
         eject_pos: glam::Vec3,
         was_airborne: bool,
-        audio: &mut crate::game_logic::MovementAudio<'_>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
         self.end_hijacker_in_vehicle_with_effects(
             eject_pos,
@@ -735,7 +740,7 @@ impl Object {
         was_airborne: bool,
         frame: u32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-        audio: &mut crate::game_logic::MovementAudio<'_>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
         self.hijack_vehicle_id = None;
         self.hijacker_in_vehicle = false;
@@ -815,11 +820,11 @@ impl Object {
             if self.experience.current < need.max(vehicle_xp) {
                 self.experience.current = need.max(vehicle_xp);
             }
-            self.apply_veterancy_bonuses_with_feedback(prev, highest, false);
+            self.apply_veterancy_bonuses_quiet(prev, highest);
         }
     }
 
-    pub fn apply_hijacked(&mut self, audio: &mut crate::game_logic::MovementAudio<'_>) {
+    pub fn apply_hijacked(&mut self, audio: &mut crate::game_logic::ObjectAudio<'_>) {
         self.apply_hijacked_from(None, audio);
     }
 
@@ -835,7 +840,7 @@ impl Object {
     pub fn apply_hijacked_from(
         &mut self,
         donor: Option<&Object>,
-        audio: &mut crate::game_logic::MovementAudio<'_>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
         self.set_status_hijacked(true);
         self.set_status_disabled_unmanned(false);
@@ -892,7 +897,7 @@ impl Object {
                 if self.experience.current < need {
                     self.experience.current = need;
                 }
-                self.apply_veterancy_bonuses_with_feedback(prev, highest, false);
+                self.apply_veterancy_bonuses_quiet(prev, highest);
             }
         }
     }
@@ -912,7 +917,7 @@ impl Object {
     /// Returns the airfield id that was left (if any).
     pub fn takeoff_from_airfield_parking(
         &mut self,
-        audio: &mut crate::game_logic::MovementAudio<'_>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) -> Option<ObjectId> {
         if !(self.is_kind_of(KindOf::Aircraft) || self.object_type == ObjectType::Aircraft) {
             return None;

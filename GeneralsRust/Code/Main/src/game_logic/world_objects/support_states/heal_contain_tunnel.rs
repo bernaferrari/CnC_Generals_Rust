@@ -412,7 +412,7 @@ impl GameLogic {
                         .set_quick_exit_deadline(Some(self.frame.wrapping_add(300)));
                     unit.set_ai_state(
                         AIState::Moving,
-                        &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                        &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                     );
                     unit.set_status_moving(true);
                     {}
@@ -468,11 +468,11 @@ impl GameLogic {
                 o.set_order_target(
                     Some(best),
                     &mut self.attack_events,
-                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
                 o.set_ai_state(
                     AIState::Entering,
-                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
                 o.ignored_obstacle_id = Some(best);
             }
@@ -659,7 +659,7 @@ impl GameLogic {
                         obj.set_order_target(
                             Some(next),
                             &mut self.attack_events,
-                            &mut crate::game_logic::MovementAudio::queue(
+                            &mut crate::game_logic::ObjectAudio::queue(
                                 &mut self.queued_audio_events,
                             ),
                         );

@@ -1841,7 +1841,7 @@ fn tighten_scatter_include_stunned_members() {
         u.shock_stun_frames = 40;
         u.set_ai_state(
             AIState::Idle,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
     }
     {

@@ -40,7 +40,7 @@ fn passive_exact_slot_returns_only_its_shot_and_preserves_contained_ai_and_peer(
         30,
         &mut combat,
         &mut attacks,
-        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
     ));
     let count = crate::game_logic::combat::pending_projectile_queue_len_for_test(&combat);
     let origin = Vec3::new(13.0, 47.0, 29.0);
@@ -56,7 +56,7 @@ fn passive_exact_slot_returns_only_its_shot_and_preserves_contained_ai_and_peer(
             &mut combat.fire_sound_loop_events,
             &mut attacks,
             None,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         )
         .unwrap();
     assert_eq!(slot, 1);
@@ -98,7 +98,7 @@ fn passive_windup_and_rejection_keep_ammo_and_never_enter_attack_state() {
                 &mut sounds,
                 &mut attacks,
                 None,
-                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
             )
             .is_none()
     );
@@ -117,7 +117,7 @@ fn passive_windup_and_rejection_keep_ammo_and_never_enter_attack_state() {
                 &mut sounds,
                 &mut attacks,
                 None,
-                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
             )
             .is_some()
     );
@@ -137,7 +137,7 @@ fn passive_windup_and_rejection_keep_ammo_and_never_enter_attack_state() {
                 &mut sounds,
                 &mut attacks,
                 None,
-                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
             )
             .is_none()
     );
@@ -156,7 +156,7 @@ fn passive_windup_and_rejection_keep_ammo_and_never_enter_attack_state() {
                 &mut sounds,
                 &mut attacks,
                 None,
-                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
             )
             .is_none()
     );

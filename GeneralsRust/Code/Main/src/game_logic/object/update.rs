@@ -44,7 +44,7 @@ impl Object {
 
     pub(crate) fn finish_locomotor_path_leg(
         &mut self,
-        audio: &mut crate::game_logic::MovementAudio<'_>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
         if self.needs_internal_move_arrival_observation() {
             self.movement.target_position = None;
@@ -56,11 +56,7 @@ impl Object {
         }
     }
 
-    pub fn tick_timers(
-        &mut self,
-        dt: f32,
-        audio: &mut crate::game_logic::MovementAudio<'_>,
-    ) -> bool {
+    pub fn tick_timers(&mut self, dt: f32, audio: &mut crate::game_logic::ObjectAudio<'_>) -> bool {
         if self.cheer_timer > 0.0 {
             self.cheer_timer -= dt;
             if self.cheer_timer <= 0.0 && self.ai_state == AIState::SpecialAbility {
@@ -373,7 +369,7 @@ impl Object {
         }
         extra
     }
-    pub fn update_movement(&mut self, dt: f32, audio: &mut crate::game_logic::MovementAudio<'_>) {
+    pub fn update_movement(&mut self, dt: f32, audio: &mut crate::game_logic::ObjectAudio<'_>) {
         // C++ AIUpdate::doLocomotor returns immediately for KINDOF_IMMOBILE.
         if self.is_kind_of(KindOf::Immobile) {
             return;
@@ -884,7 +880,11 @@ impl Object {
     }
 
     /// C++ SalvageCrateCollide::doLevelGain residual.
-    pub fn apply_salvage_level_gain(&mut self) {
+    pub fn apply_salvage_level_gain(
+        &mut self,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
+        feedback: &mut crate::game_logic::VeterancyFeedback<'_>,
+    ) {
         use crate::game_logic::VeterancyLevel;
         let cur = self.experience.level;
         if matches!(cur, VeterancyLevel::Heroic) {
@@ -897,14 +897,20 @@ impl Object {
             VeterancyLevel::Heroic => return,
         };
         let add = (need - self.experience.current).max(1.0);
-        self.gain_experience(add);
+        self.gain_experience(add, audio, feedback);
     }
 
     /// C++ ExperienceTracker::gainExpForLevel residual.
     ///
     /// Grants just enough XP to gain `levels` veterancy ranks (clamped to Heroic).
     /// `can_level_up` false skips (non-trainable residual).
-    pub fn gain_exp_for_level(&mut self, levels: u8, can_level_up: bool) -> u8 {
+    pub fn gain_exp_for_level(
+        &mut self,
+        levels: u8,
+        can_level_up: bool,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
+        feedback: &mut crate::game_logic::VeterancyFeedback<'_>,
+    ) -> u8 {
         if levels == 0 || !can_level_up {
             return 0;
         }
@@ -914,7 +920,7 @@ impl Object {
             if matches!(self.experience.level, VeterancyLevel::Heroic) {
                 break;
             }
-            self.apply_salvage_level_gain();
+            self.apply_salvage_level_gain(audio, feedback);
             gained += 1;
         }
         gained
@@ -984,7 +990,12 @@ impl Object {
         }
     }
 
-    pub fn gain_experience(&mut self, amount: f32) {
+    pub fn gain_experience(
+        &mut self,
+        amount: f32,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
+        feedback: &mut crate::game_logic::VeterancyFeedback<'_>,
+    ) {
         // C++ addExperiencePoints: untrainable objects keep no XP (sink
         // forwarding is handled by GameLogic::award_experience).
         if !self.is_trainable() {
@@ -1024,7 +1035,7 @@ impl Object {
         if new_level != previous_level {
             self.experience.level = new_level;
             // Apply veterancy bonuses
-            self.apply_veterancy_bonuses(previous_level, new_level);
+            self.apply_veterancy_bonuses(previous_level, new_level, audio, feedback);
         }
     }
 
@@ -1108,28 +1119,33 @@ impl Object {
         &mut self,
         previous_level: VeterancyLevel,
         new_level: VeterancyLevel,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
+        feedback: &mut crate::game_logic::VeterancyFeedback<'_>,
     ) {
-        self.apply_veterancy_bonuses_with_feedback(previous_level, new_level, true);
+        self.apply_veterancy_bonuses_impl(previous_level, new_level, Some((audio, feedback)));
     }
 
-    pub(crate) fn apply_veterancy_bonuses_with_feedback(
+    /// Rider/hijack transfers retain all Body/weapon state changes without
+    /// authoring promotion audio or UI output (`provideFeedback = false`).
+    pub(crate) fn apply_veterancy_bonuses_quiet(
         &mut self,
         previous_level: VeterancyLevel,
         new_level: VeterancyLevel,
-        provide_feedback: bool,
+    ) {
+        self.apply_veterancy_bonuses_impl(previous_level, new_level, None);
+    }
+
+    fn apply_veterancy_bonuses_impl(
+        &mut self,
+        previous_level: VeterancyLevel,
+        new_level: VeterancyLevel,
+        mut outputs: Option<(
+            &mut crate::game_logic::ObjectAudio<'_>,
+            &mut crate::game_logic::VeterancyFeedback<'_>,
+        )>,
     ) {
         let (_, old_damage_bonus, old_rof_bonus) = Self::veterancy_bonuses(previous_level);
         let (_, damage_bonus, rof_bonus) = Self::veterancy_bonuses(new_level);
-
-        // C++ Object::onVeterancyLevelChanged: exclusive WEAPONSET + WEAPONBONUSCONDITION.
-        self.set_veterancy_weapon_set_and_bonus_flags(new_level);
-        if let Some(condition) =
-            crate::game_logic::host_unit_training::veterancy_weapon_set_condition(new_level)
-        {
-            self.adopt_weapon_set_lock_share_for_condition(condition);
-        }
-        self.release_weapon_lock_on_set_change();
-        let rebound_authored = self.try_bind_authored_veterancy_weapon_set(new_level);
 
         // C++ updateUpgradeModules + giveUpgrade(findVeterancyUpgrade(newLevel)).
         if let Some(name) = crate::game_logic::host_unit_training::veterancy_upgrade_name(new_level)
@@ -1140,9 +1156,27 @@ impl Object {
             );
         }
 
+        if let Some((audio, feedback)) = outputs.as_mut() {
+            feedback.body_sound(self, previous_level, new_level, audio);
+        }
+
         // C++ ActiveBody::setMaxHealth(m_maxHealth * (newBonus/oldBonus), PRESERVE_RATIO).
         // Scale the *current* body max so Composite Armor / difficulty HP survive rank-up.
         self.apply_veterancy_max_health_scale(previous_level, new_level);
+
+        self.set_body_max_health(self.health.maximum.max(1.0));
+        self.set_veterancy_armor_set_flags(new_level);
+        self.validate_armor_and_damage_fx();
+
+        // C++ Object::onVeterancyLevelChanged: exclusive WEAPONSET + WEAPONBONUSCONDITION.
+        self.set_veterancy_weapon_set_and_bonus_flags(new_level);
+        if let Some(condition) =
+            crate::game_logic::host_unit_training::veterancy_weapon_set_condition(new_level)
+        {
+            self.adopt_weapon_set_lock_share_for_condition(condition);
+        }
+        self.release_weapon_lock_on_set_change();
+        let rebound_authored = self.try_bind_authored_veterancy_weapon_set(new_level);
 
         // In-place damage/ROF scale is the host residual for units that keep
         // the rookie WeaponSet. Authored VETERAN/ELITE/HERO sets already
@@ -1163,49 +1197,8 @@ impl Object {
             }
         }
 
-        self.set_body_max_health(self.health.maximum.max(1.0));
-        self.set_veterancy_armor_set_flags(new_level);
-        self.validate_armor_and_damage_fx();
-
-        // C++ ActiveBody SoundPromoted* + Object LevelGain Anim2D + MiscAudio UnitPromoted.
-        self.queue_veterancy_promote_fx(previous_level, new_level, provide_feedback);
-    }
-
-    fn queue_veterancy_promote_fx(
-        &self,
-        previous_level: VeterancyLevel,
-        new_level: VeterancyLevel,
-        provide_feedback: bool,
-    ) {
-        use crate::game_logic::host_unit_training::{
-            hide_promote_fx_for_stealth, record_promote_fx, should_queue_promote_fx,
-        };
-        let hide = hide_promote_fx_for_stealth(
-            self.is_locally_controlled_for_promote_fx(),
-            self.status.stealthed,
-            self.status.detected,
-            self.status.disguised,
-        );
-        if !should_queue_promote_fx(
-            previous_level,
-            new_level,
-            self.is_kind_of(crate::game_logic::KindOf::IgnoredInGui),
-            hide,
-            gamelogic::helpers::TheGameLogic::get_draw_icon_ui(),
-            provide_feedback,
-        ) {
-            return;
-        }
-        let pos = self.get_health_box_position();
-        record_promote_fx(self.id, pos, 0, new_level);
-    }
-
-    /// C++ `Object::isLocallyControlled` residual for promote FX.
-    /// Unset owner (unit tests) is local; player 0 is the live local slot.
-    fn is_locally_controlled_for_promote_fx(&self) -> bool {
-        match self.owner_player_id {
-            None => true,
-            Some(id) => id == 0,
+        if let Some((audio, feedback)) = outputs.as_mut() {
+            feedback.object_effects(self, previous_level, new_level, audio);
         }
     }
 
@@ -1213,7 +1206,12 @@ impl Object {
     ///
     /// Never lowers rank. Seeds residual XP so gain_experience does not demote.
     /// Applies health / weapon bonuses when promoting.
-    pub fn set_min_veterancy_level(&mut self, level: VeterancyLevel) -> bool {
+    pub fn set_min_veterancy_level(
+        &mut self,
+        level: VeterancyLevel,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
+        feedback: &mut crate::game_logic::VeterancyFeedback<'_>,
+    ) -> bool {
         fn rank(level: VeterancyLevel) -> u8 {
             match level {
                 VeterancyLevel::Rookie => 0,
@@ -1244,7 +1242,7 @@ impl Object {
         self.experience.level = level;
         let seed = xp_seed(level, thresholds);
         self.experience.current = self.experience.current.max(seed);
-        self.apply_veterancy_bonuses(previous, level);
+        self.apply_veterancy_bonuses(previous, level, audio, feedback);
         true
     }
 
@@ -1264,7 +1262,7 @@ impl Object {
         self.experience.level = level;
         self.experience.current = threshold.max(0.0);
         if previous != level {
-            self.apply_veterancy_bonuses_with_feedback(previous, level, false);
+            self.apply_veterancy_bonuses_quiet(previous, level);
         } else {
         }
     }

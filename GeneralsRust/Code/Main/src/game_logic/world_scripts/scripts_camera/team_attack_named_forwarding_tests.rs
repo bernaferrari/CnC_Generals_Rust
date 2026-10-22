@@ -132,7 +132,7 @@ fn team_attack_named_forwards_owned_passengers_then_locked_hive_in_near_to_far_o
         owner
             .host_object_mut(*passenger)
             .unwrap()
-            .clear_target(&mut crate::game_logic::MovementAudio::queue(&mut Vec::new()));
+            .clear_target(&mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()));
     }
     execute(
         &mut owner,

@@ -506,7 +506,7 @@ impl Object {
                         );
                         self.set_ai_state(
                             AIState::Idle,
-                            &mut crate::game_logic::MovementAudio::callback(
+                            &mut crate::game_logic::ObjectAudio::callback(
                                 &mut |object, request| {
                                     body_fx(object, BodyStateFx::MovementStop(request), None)
                                 },
@@ -590,7 +590,7 @@ impl Object {
                 }
                 self.apply_kill_pilot_unmanned(
                     health_events,
-                    &mut crate::game_logic::MovementAudio::callback(&mut |object, request| {
+                    &mut crate::game_logic::ObjectAudio::callback(&mut |object, request| {
                         body_fx(object, BodyStateFx::MovementStop(request), None)
                     }),
                 );
@@ -650,7 +650,7 @@ impl Object {
             self.apply_subdual_damage(
                 typed,
                 health_events,
-                &mut crate::game_logic::MovementAudio::callback(&mut |object, request| {
+                &mut crate::game_logic::ObjectAudio::callback(&mut |object, request| {
                     body_fx(object, BodyStateFx::MovementStop(request), None)
                 }),
             );
@@ -920,7 +920,7 @@ impl Object {
                 self.status.death_type = death_type;
                 self.set_ai_state(
                     AIState::Idle,
-                    &mut crate::game_logic::MovementAudio::callback(&mut |object, request| {
+                    &mut crate::game_logic::ObjectAudio::callback(&mut |object, request| {
                         body_fx(object, BodyStateFx::MovementStop(request), None)
                     }),
                 );

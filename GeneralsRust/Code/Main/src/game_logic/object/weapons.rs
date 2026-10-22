@@ -1491,7 +1491,7 @@ impl Object {
         frame: u32,
         events: &mut crate::game_logic::host_fire_sound_loop_log::FireSoundLoopEvents,
         health_events: &mut crate::game_logic::HostHealthEvents,
-        audio: &mut crate::game_logic::MovementAudio<'_>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
         self.tick_fire_sound_loop(frame, events);
         let _ = frame;

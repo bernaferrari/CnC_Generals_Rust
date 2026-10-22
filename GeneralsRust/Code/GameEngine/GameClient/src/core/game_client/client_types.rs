@@ -24,6 +24,9 @@ pub const TRANSLATOR_ID_INVALID: TranslatorId = 0;
 pub struct GameClient {
     // Core state
     frame: u32,
+    owned_world_animations: OwnedWorldAnimations,
+    /// DrawIconUI admitted from the driving Main session before native draw.
+    receiving_draw_icon_ui: bool,
     snow: crate::snow::SnowManager,
     snow_definition: crate::snow::WeatherSetting,
     snow_base_definition: crate::snow::WeatherSetting,

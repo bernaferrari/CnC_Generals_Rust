@@ -250,14 +250,14 @@ impl GameLogic {
         if let Some(object) = self.objects.get_mut(&id) {
             object.handle_partition_cell_maintenance();
             if object.has_ai_update_interface() {
-                object.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+                object.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                     &mut self.queued_audio_events,
                 ));
                 object.set_status_moving(false);
                 object.set_status_attacking(false);
                 object.set_ai_state(
                     AIState::Idle,
-                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
             }
         }

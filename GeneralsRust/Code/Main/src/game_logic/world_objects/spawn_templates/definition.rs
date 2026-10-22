@@ -374,6 +374,20 @@ impl GameLogic {
             .and_then(|value| value.split_whitespace().next())
             .filter(|name| !name.eq_ignore_ascii_case("NoSound"))
             .map(str::to_owned);
+        template.sound_promoted = [
+            "SoundPromotedVeteran",
+            "SoundPromotedElite",
+            "SoundPromotedHero",
+        ]
+        .map(|slot| {
+            definition
+                .attributes
+                .iter()
+                .find_map(|(key, value)| key.eq_ignore_ascii_case(slot).then_some(value.as_str()))
+                .and_then(|value| value.split_whitespace().next())
+                .filter(|name| !name.eq_ignore_ascii_case("NoSound") && !name.is_empty())
+                .map(str::to_owned)
+        });
         match crate::game_logic::native_lifecycle_definition::parse_native_lifecycle_definitions(
             &definition.behavior_modules,
         ) {

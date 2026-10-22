@@ -234,12 +234,12 @@ fn team_guard_reentry_exits_hunt_and_clears_previous_goal_immediately() {
     unit.set_target(
         Some(target),
         attack_events,
-        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
     );
     unit.pending_move = Some(Vec3::splat(300.0));
     unit.set_guard_target(
         Some(target),
-        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
     );
     unit.guard_area_trigger = Some("OldGuardArea".into());
     let post = unit.get_position();

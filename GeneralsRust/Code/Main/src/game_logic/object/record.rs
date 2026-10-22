@@ -130,7 +130,7 @@ impl Object {
         &mut self,
         duration_secs: f32,
         cheer_bit: Option<usize>,
-        audio: &mut crate::game_logic::MovementAudio<'_>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
         self.set_ai_state(AIState::SpecialAbility, audio);
         self.cheer_timer = duration_secs.max(0.0);
@@ -213,11 +213,7 @@ impl Object {
     }
 
     /// C++ AICMD_GO_PRONE residual — infantry hit the dirt briefly.
-    pub fn go_prone(
-        &mut self,
-        duration_secs: f32,
-        audio: &mut crate::game_logic::MovementAudio<'_>,
-    ) {
+    pub fn go_prone(&mut self, duration_secs: f32, audio: &mut crate::game_logic::ObjectAudio<'_>) {
         self.clear_target(audio);
         self.set_force_attack(false);
         self.stop_moving(audio);

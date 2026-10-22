@@ -909,7 +909,7 @@ impl GameLogic {
             };
             if !obj.fire_instant_death_for(
                 death_type,
-                &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             ) {
                 false
             } else {
@@ -1000,7 +1000,7 @@ impl GameLogic {
         }
         if !obj.begin_keep_object_die(
             frame,
-            &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+            &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
         ) {
             return false;
         }
@@ -1097,7 +1097,7 @@ impl GameLogic {
             {
                 return true;
             }
-            let deferred = obj.begin_jet_slow_death(&mut crate::game_logic::MovementAudio::queue(
+            let deferred = obj.begin_jet_slow_death(&mut crate::game_logic::ObjectAudio::queue(
                 &mut self.queued_audio_events,
             ));
             return deferred;
@@ -1119,7 +1119,7 @@ impl GameLogic {
         {
             return true;
         }
-        if obj.begin_helicopter_slow_death(&mut crate::game_logic::MovementAudio::queue(
+        if obj.begin_helicopter_slow_death(&mut crate::game_logic::ObjectAudio::queue(
             &mut self.queued_audio_events,
         )) {
             return true;
@@ -1144,7 +1144,7 @@ impl GameLogic {
         }
         if obj.begin_slow_death(
             frame,
-            &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+            &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
         ) {
             return true;
         }
@@ -1775,7 +1775,7 @@ impl GameLogic {
                             view,
                         );
                     },
-                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 )
             },
         );
@@ -1841,7 +1841,7 @@ impl GameLogic {
                 direction,
                 delay,
                 Some(burst),
-                &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             )
         });
         if prepared {

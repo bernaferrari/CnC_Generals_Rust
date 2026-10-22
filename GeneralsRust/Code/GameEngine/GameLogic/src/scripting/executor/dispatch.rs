@@ -217,6 +217,13 @@ impl ScriptActionDispatcher<'_> {
         driver: &mut dyn crate::scripting::engine::ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let action_type = action.get_action_type();
+        if action_type == ScriptActionType::OptionsSetDrawiconUiMode {
+            let mode = self.get_int_param(action, 0)?;
+            if let Some(result) = driver.set_draw_icon_ui(mode != 0) {
+                result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
+                return Ok(ScriptActionResult::Success);
+            }
+        }
         // Immutable operation metadata comes from the driving session. A
         // missing exact reference never consults a foreign factory by ID.
         let selected = self

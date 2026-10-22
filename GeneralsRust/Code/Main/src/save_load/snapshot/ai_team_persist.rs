@@ -1382,7 +1382,7 @@ mod tests {
             obj.is_attack_path = true;
             obj.set_ai_state(
                 AIState::AttackMoving,
-                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
             );
             obj.set_status_moving(true);
         }
@@ -1442,7 +1442,7 @@ mod tests {
             obj.requested_destination = Some(dest);
             obj.set_ai_state(
                 AIState::Moving,
-                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
             );
             obj.set_status_moving(true);
         }

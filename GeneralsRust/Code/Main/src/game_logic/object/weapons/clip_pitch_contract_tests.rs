@@ -56,7 +56,7 @@ fn shorter_clip_deadline_stays_ready_across_refresh_and_actual_object_acceptance
         88,
         &mut combat,
         &mut _attack_output,
-        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
     ));
     assert_eq!(attacker.last_fire_frame, 88);
     assert_eq!(attacker.weapon.as_ref().unwrap().ammo, Some(1));

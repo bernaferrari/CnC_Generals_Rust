@@ -2811,7 +2811,7 @@ mod tests {
         obj.contained_by = Some(ObjectId(99));
         obj.set_ai_state(
             AIState::Garrisoned,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         obj.status.masked = true;
         obj.hijacker_in_vehicle = true;
@@ -2826,7 +2826,7 @@ mod tests {
         );
         obj.set_ai_state(
             AIState::Docked,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         obj.status.unselectable = false;
         assert!(obj.is_selectable());

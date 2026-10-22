@@ -77,7 +77,7 @@ fn microwave_tank_residual_disables_enemy_structure() {
         m.attack_target(
             barracks_id,
             attack_events,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
     }
     {
@@ -134,7 +134,7 @@ fn microwave_tank_residual_disables_enemy_structure() {
         m.attack_target(
             ally_id,
             attack_events,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
     }
     game_logic.frame = 2;
@@ -188,7 +188,7 @@ fn microwave_tank_residual_skips_non_microwave() {
         t.attack_target(
             barracks_id,
             attack_events,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
     }
 
@@ -630,7 +630,7 @@ fn comanche_rocket_pods_primary_does_not_area_attack() {
         c.attack_target(
             infantry_id,
             attack_events,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
     }
 
@@ -689,11 +689,11 @@ fn comanche_rocket_pods_ground_fire_area_residual() {
         c.set_force_attack(true);
         c.set_target_location(
             Some(Vec3::new(100.0, 0.0, 0.0)),
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         c.set_ai_state(
             AIState::AttackingGround,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         c.set_status_attacking(true);
         if let Some(w) = c.tertiary_weapon.as_mut() {
@@ -796,7 +796,7 @@ fn rocket_buggy_residual_long_range_splash() {
         b.attack_target(
             tank_id,
             attack_events,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         if let Some(w) = b.weapon.as_mut() {
             w.last_fire_time = -10.0;
@@ -1027,7 +1027,7 @@ fn quad_cannon_residual_anti_air_and_multi_barrel() {
         q.attack_target(
             aircraft_id,
             attack_events,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         if let Some(w) = q.secondary_weapon.as_mut() {
             w.last_fire_time = -10.0;
@@ -1068,7 +1068,7 @@ fn quad_cannon_residual_anti_air_and_multi_barrel() {
         q.attack_target(
             ground_tank,
             attack_events,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         if let Some(w) = q.weapon.as_mut() {
             w.last_fire_time = -10.0;
@@ -1170,7 +1170,7 @@ fn scud_launcher_residual_area_and_toxin() {
         s.attack_target(
             tank_id,
             attack_events,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         s.active_weapon_slot = 0;
         if let Some(w) = s.weapon.as_mut() {
@@ -1242,7 +1242,7 @@ fn scud_launcher_residual_area_and_toxin() {
         s.attack_target(
             toxin_inf,
             attack_events,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         if let Some(w) = s.secondary_weapon.as_mut() {
             w.last_fire_time = -10.0;

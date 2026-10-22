@@ -313,7 +313,7 @@ impl GameLogic {
                 jet.set_position_with_effects(pos, pose_frame, effects);
                 jet.set_ai_state(
                     AIState::Idle,
-                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
                 jet.status.airborne_target = false;
                 if metadata.landing_deck_height_offset != 0.0 {
@@ -448,11 +448,11 @@ impl GameLogic {
             jet.set_destination(
                 stall.position,
                 &mut movement_events,
-                &mut crate::game_logic::MovementAudio::queue(audio_events),
+                &mut crate::game_logic::ObjectAudio::queue(audio_events),
             );
             jet.set_ai_state(
                 AIState::Moving,
-                &mut crate::game_logic::MovementAudio::queue(audio_events),
+                &mut crate::game_logic::ObjectAudio::queue(audio_events),
             );
             jet.status.airborne_target = false;
             if deck_offset != 0.0 {
@@ -545,11 +545,11 @@ impl GameLogic {
                 jet.set_destination(
                     dest,
                     &mut movement_events,
-                    &mut crate::game_logic::MovementAudio::queue(audio_events),
+                    &mut crate::game_logic::ObjectAudio::queue(audio_events),
                 );
                 jet.set_ai_state(
                     AIState::Moving,
-                    &mut crate::game_logic::MovementAudio::queue(audio_events),
+                    &mut crate::game_logic::ObjectAudio::queue(audio_events),
                 );
             }
         }
@@ -964,11 +964,11 @@ impl GameLogic {
                 jet.status.airborne_target = true;
                 jet.set_guard_position(
                     Some(position),
-                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
                 jet.set_ai_state(
                     AIState::GuardingArea,
-                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
             }
             HostFlightDeckCommand::AttackPosition => {
@@ -976,7 +976,7 @@ impl GameLogic {
                 jet.target_location = Some(position);
                 jet.set_ai_state(
                     AIState::AttackingGround,
-                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
             }
             HostFlightDeckCommand::ForceAttackObject | HostFlightDeckCommand::AttackObject => {
@@ -986,7 +986,7 @@ impl GameLogic {
                     jet.attack_target(
                         target_id,
                         attack_events,
-                        &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                        &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                     );
                 }
             }
@@ -995,22 +995,22 @@ impl GameLogic {
                 jet.set_destination(
                     position,
                     &mut movement_events,
-                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
                 jet.set_ai_state(
                     AIState::AttackMoving,
-                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
             }
             HostFlightDeckCommand::Idle => {
                 jet.set_destination(
                     stall_pos.unwrap_or(position),
                     &mut movement_events,
-                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
                 jet.set_ai_state(
                     AIState::Entering,
-                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
                 jet.status.airborne_target = false;
                 // Entering must pass the carrier. Do not keep the building
@@ -1431,7 +1431,7 @@ mod tests {
             jet.status.airborne_target = true;
             jet.set_ai_state(
                 AIState::Attacking,
-                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
             );
         }
         logic.frame = 2;

@@ -308,6 +308,8 @@ fn weaponset_change_unlocks_unless_shared_across_sets() {
     attacker.apply_veterancy_bonuses(
         crate::game_logic::VeterancyLevel::Rookie,
         crate::game_logic::VeterancyLevel::Veteran,
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::VeterancyFeedback::standalone(),
     );
     assert!(!attacker.is_weapon_locked());
     assert_eq!(attacker.active_weapon_slot, 0);
@@ -317,6 +319,8 @@ fn weaponset_change_unlocks_unless_shared_across_sets() {
     attacker.apply_veterancy_bonuses(
         crate::game_logic::VeterancyLevel::Veteran,
         crate::game_logic::VeterancyLevel::Elite,
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::VeterancyFeedback::standalone(),
     );
     assert!(attacker.is_weapon_locked());
     assert_eq!(attacker.weapon_lock_slot, 1);

@@ -275,7 +275,7 @@ impl GameLogic {
             if let Some(obj) = self.objects.get_mut(&id) {
                 if obj.tick_timers(
                     dt,
-                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 ) {
                     // Defer EVA until after borrow ends.
                     ready_superweapons.push(id);
@@ -323,7 +323,7 @@ impl GameLogic {
                     dozer.target = None;
                     dozer.set_ai_state(
                         AIState::Idle,
-                        &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                        &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                     );
                 }
             }
@@ -387,13 +387,13 @@ impl GameLogic {
                             ),
                         ));
                     } else {
-                        obj.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+                        obj.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                             &mut self.queued_audio_events,
                         ));
                         if obj.ai_state != AIState::Idle {
                             obj.set_ai_state(
                                 AIState::Idle,
-                                &mut crate::game_logic::MovementAudio::queue(
+                                &mut crate::game_logic::ObjectAudio::queue(
                                     &mut self.queued_audio_events,
                                 ),
                             );
@@ -424,7 +424,7 @@ impl GameLogic {
                             obj.set_status_force_attack(false);
                             obj.set_status_attacking(false);
                         }
-                        obj.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+                        obj.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                             &mut self.queued_audio_events,
                         ));
                     }

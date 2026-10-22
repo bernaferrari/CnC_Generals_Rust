@@ -1721,7 +1721,7 @@ impl GameLogic {
             LeftoverHordeScanUnit, counts_toward_battlemaster_horde,
             evaluate_leftover_horde_blob_scan, is_battlemaster_template,
             is_china_vehicle_horde_unit, leftover_horde_bounding_sphere_radius,
-            leftover_horde_draw_icon_ui, leftover_horde_take_wake, same_vehicle_horde_family,
+            leftover_horde_take_wake, same_vehicle_horde_family,
         };
 
         let snapshot: Vec<(ObjectId, Team, Option<u32>, LeftoverHordeScanUnit, String)> = self
@@ -1778,7 +1778,7 @@ impl GameLogic {
 
         let mut grants = 0u32;
         let mut to_refresh: Vec<ObjectId> = Vec::new();
-        let draw_icon = leftover_horde_draw_icon_ui();
+        let draw_icon = self.get_draw_icon_ui();
         let frame = self.frame;
 
         for (idx, (id, _team, _owner, _scan, name)) in snapshot.iter().enumerate() {

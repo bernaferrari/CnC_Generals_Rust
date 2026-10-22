@@ -364,12 +364,14 @@ pub struct HostMoneyCrateRegistry {
     pub building_pickups: u32,
     /// SupplyLines boost cash portion observed.
     pub supply_lines_boost_cash_total: u32,
-    /// MoneyPickUp Anim2D residual descriptors spawned this session.
+    /// Bounded diagnostic history. Runtime UI animation state belongs to SessionView.
     #[serde(default)]
-    pub money_pickup_anims: Vec<HostMoneyPickUpAnim>,
+    #[serde(rename = "money_pickup_anims")]
+    pub money_pickup_animation_history: Vec<HostMoneyPickUpAnim>,
     /// MoneyPickUp residual spawn count (honesty).
     #[serde(default)]
-    pub money_pickup_anims_total: u32,
+    #[serde(rename = "money_pickup_anims_total")]
+    pub money_pickup_animation_history_total: u32,
     /// Floating cash text residual descriptors spawned this session.
     #[serde(default)]
     pub money_floating_texts: Vec<HostMoneyFloatingText>,
@@ -878,12 +880,13 @@ impl HostMoneyCrateRegistry {
 
     /// Record residual MoneyPickUp Anim2D presentation after a successful pickup.
     pub fn record_money_pickup_anim(&mut self, anim: HostMoneyPickUpAnim) {
-        self.money_pickup_anims_total = self.money_pickup_anims_total.saturating_add(1);
-        self.money_pickup_anims.push(anim);
+        self.money_pickup_animation_history_total =
+            self.money_pickup_animation_history_total.saturating_add(1);
+        self.money_pickup_animation_history.push(anim);
         // Keep a small residual window for presentation consumers / tests.
-        if self.money_pickup_anims.len() > 32 {
-            let drain = self.money_pickup_anims.len() - 32;
-            self.money_pickup_anims.drain(0..drain);
+        if self.money_pickup_animation_history.len() > 32 {
+            let drain = self.money_pickup_animation_history.len() - 32;
+            self.money_pickup_animation_history.drain(0..drain);
         }
     }
 
@@ -932,9 +935,9 @@ impl HostMoneyCrateRegistry {
     }
 
     pub fn honesty_money_pickup_anim_ok(&self) -> bool {
-        self.money_pickup_anims_total > 0
+        self.money_pickup_animation_history_total > 0
             && self
-                .money_pickup_anims
+                .money_pickup_animation_history
                 .iter()
                 .any(|a| a.template == MONEY_PICKUP_ANIM_TEMPLATE)
     }
@@ -1191,7 +1194,7 @@ mod tests {
             HostMoneyCrateRegistry::money_pickup_anim(ObjectId(3), ObjectId(4), Vec3::ZERO, 5);
         reg.record_money_pickup_anim(anim);
         assert!(reg.honesty_money_pickup_anim_ok());
-        assert_eq!(reg.money_pickup_anims_total, 1);
+        assert_eq!(reg.money_pickup_animation_history_total, 1);
         let ft = HostMoneyCrateRegistry::money_floating_text(
             ObjectId(3),
             ObjectId(4),

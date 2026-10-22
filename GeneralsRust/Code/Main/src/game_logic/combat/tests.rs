@@ -2880,7 +2880,7 @@ pub(in crate::game_logic) mod tests {
             3,
             &mut combat,
             &mut _attack_output,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
         ));
         let mut objects = crate::game_logic::HostObjectStore::new();
         objects.insert(

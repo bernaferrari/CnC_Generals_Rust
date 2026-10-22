@@ -832,11 +832,12 @@ mod tests {
         let id = logic
             .create_object_for_player("CivCar", 1, Vec3::new(1.0, 0.0, 1.0))
             .expect("spawn");
-        if let Some(obj) = logic.host_object_mut(id) {
-            obj.apply_convert_to_car_bomb(&mut crate::game_logic::MovementAudio::queue(
-                &mut Vec::new(),
-            ));
-        }
+        let _ = logic.host_object_mut(id);
+        logic
+            .with_object_veterancy_feedback(id, |obj, audio, feedback| {
+                obj.apply_convert_to_car_bomb(audio, feedback);
+            })
+            .expect("actual radar car owner");
         logic.host_radar_add_object(id);
         let radar = logic.radar();
         let blip = radar

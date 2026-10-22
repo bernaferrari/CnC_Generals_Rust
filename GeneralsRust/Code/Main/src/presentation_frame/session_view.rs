@@ -3,6 +3,7 @@
 pub(crate) mod camera;
 pub(crate) mod follow;
 mod look_at;
+pub(crate) mod world_animations;
 pub(crate) use look_at::receiving_look_at_target;
 mod motion;
 pub(crate) mod scripted;
@@ -16,6 +17,7 @@ use glam::Vec3;
 
 #[derive(Debug, Default)]
 pub(crate) struct SessionView {
+    pub(crate) world_animations: world_animations::WorldAnimations,
     pub(crate) camera: camera::SessionCamera,
     pub(crate) scripted: scripted::ScriptCameraState,
     pub(crate) target: Vec3,
@@ -76,6 +78,7 @@ impl SessionView {
         {
             return Err("invalid session view state".into());
         }
+        self.world_animations.clear();
         self.pending_letterbox_visibility.clear();
         self.letterbox_visibility_delivered_since_present = false;
         self.target = state.target;

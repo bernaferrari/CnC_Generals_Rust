@@ -147,7 +147,7 @@ fn try_idle_repulse_flees_flagged_repulsor() {
     civ.vision_range = 200.0;
     civ.set_ai_state(
         AIState::Idle,
-        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
     );
     // Ensure can_move
     civ.movement.max_speed = 5.0;
@@ -1031,7 +1031,7 @@ fn try_mood_auto_acquire_enters_attack() {
         o.set_orientation(0.0);
         o.set_ai_state(
             AIState::Idle,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         o.ai_attitude = 2; // Aggressive
         o.vision_range = 200.0;
@@ -1092,7 +1092,7 @@ fn transfer_attack_retargets_attackers() {
         o.target = Some(from);
         o.set_ai_state(
             AIState::Attacking,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         o.turret_enabled = true;
         o.turret_target_id = Some(from);
@@ -1347,7 +1347,7 @@ fn player_attack_command_uses_weaponset_target_legality_before_stamping_target()
     // SECONDARY's ground capability just to obtain a targeting cursor; once
     // unlocked the same object may use SECONDARY normally.
     let attacker = logic.objects.get_mut(&attacker_id).unwrap();
-    attacker.clear_target(&mut crate::game_logic::MovementAudio::queue(&mut Vec::new()));
+    attacker.clear_target(&mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()));
     attacker.weapon.as_mut().unwrap().can_target_ground = false;
     attacker.weapon.as_mut().unwrap().can_target_air = true;
     attacker.secondary_weapon = Some(Weapon {
@@ -2103,7 +2103,7 @@ fn private_idle_clears_state() {
         let mut o = Object::new(t, id, Team::USA);
         o.set_ai_state(
             AIState::Attacking,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         o.set_status_attacking(true);
         o.target = Some(ObjectId(1));
@@ -2483,7 +2483,7 @@ fn downhill_only_blocks_uphill() {
     let p0 = o.get_position();
     o.update_movement(
         1.0 / 30.0,
-        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
     );
     // Should not advance toward uphill goal.
     assert!((o.get_position() - p0).length() < 1e-3);
@@ -2532,7 +2532,7 @@ fn group_speed_factor_scales_desired() {
     o.movement.target_position = Some(Vec3::new(100.0, 0.0, 0.0));
     o.update_movement(
         1.0 / 30.0,
-        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
     );
     // With half group speed, shouldn't hit full 40 quickly.
     assert!(o.movement.velocity.length() < 35.0);
@@ -2685,7 +2685,7 @@ fn wheels_cap_speed_while_turning() {
     o.movement.target_position = Some(Vec3::new(0.0, 0.0, 100.0));
     o.update_movement(
         1.0 / 30.0,
-        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
     );
     // Hard turn: wheels should not instantly reach 60.
     assert!(o.movement.velocity.length() < 40.0);
@@ -2741,7 +2741,7 @@ fn maintain_position_scrubs_ground_velocity() {
     o.movement.target_position = None;
     o.update_movement(
         1.0 / 30.0,
-        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
     );
     assert!(o.maintain_pos_valid);
     assert!(
@@ -2853,7 +2853,7 @@ fn loco_turn_modulates_speed() {
     let yaw0 = o.get_orientation();
     o.update_movement(
         1.0 / 30.0,
-        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
     );
     // 90° goal: treads residual clamps goal_speed via angleCoeff → near-zero thrust
     // while turning; orientation should advance toward +Z.

@@ -26,7 +26,7 @@ fn capturing_state_does_not_transfer_under_construction_building() {
         captor.target = Some(building_id);
         captor.set_ai_state(
             AIState::Capturing,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
     }
 
@@ -1711,7 +1711,7 @@ fn special_ability_state_without_pending_order_resets_to_idle() {
         actor.target = Some(target_id);
         actor.set_ai_state(
             AIState::SpecialAbility,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
     }
 
@@ -1942,7 +1942,7 @@ fn hijack_rejects_already_hijacked_vehicle() {
         let target = game_logic
             .host_object_mut(target_id)
             .expect("target should exist");
-        target.apply_hijacked(&mut crate::game_logic::MovementAudio::queue(&mut Vec::new()));
+        target.apply_hijacked(&mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()));
     }
 
     game_logic.queue_command(crate::command_system::GameCommand {
@@ -2033,7 +2033,7 @@ fn hijack_command_applies_only_after_unit_reaches_target() {
         hijacker.set_position(Vec3::new(2.0, 0.0, 0.0));
         hijacker.set_ai_state(
             AIState::SpecialAbility,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         hijacker.target = Some(target_id);
     }
@@ -2095,7 +2095,7 @@ fn sabotage_command_applies_only_after_unit_reaches_target() {
         saboteur.set_position(Vec3::new(2.0, 0.0, 0.0));
         saboteur.set_ai_state(
             AIState::SpecialAbility,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         saboteur.target = Some(target_id);
     }
@@ -2179,7 +2179,7 @@ fn saboteur_military_factory_residual_disables_production() {
         s.set_position(Vec3::new(1.0, 0.0, 0.0));
         s.set_ai_state(
             AIState::SpecialAbility,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         s.target = Some(target_id);
     }
@@ -2287,7 +2287,7 @@ fn snipe_vehicle_command_applies_only_after_unit_reaches_target() {
         sniper.set_position(Vec3::new(200.0, 0.0, 0.0));
         sniper.set_ai_state(
             AIState::SpecialAbility,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         sniper.target = Some(target_id);
     }
@@ -2436,7 +2436,7 @@ fn retail_pilot_metadata_drives_starting_veteran_and_same_owner_recrew() {
         };
         t.apply_kill_pilot_unmanned(
             health_events,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         t.set_team(Team::Neutral, ownership_events);
         t.experience.level = VeterancyLevel::Rookie;
@@ -2484,7 +2484,7 @@ fn retail_pilot_metadata_drives_starting_veteran_and_same_owner_recrew() {
         };
         t.apply_kill_pilot_unmanned(
             health_events,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         t.set_team(Team::Neutral, ownership_events);
         t.experience.level = VeterancyLevel::Rookie;
@@ -2795,7 +2795,7 @@ fn live_set_stopping_distance_drains_and_arrives_at_scripted_band() {
     if let Some(o) = logic.host_object_mut(id) {
         o.update_movement(
             1.0 / 30.0,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         assert!(
             o.movement.target_position.is_none(),
@@ -2949,7 +2949,7 @@ fn live_named_enter_and_exit_all_drain_ai_enter_evacuate() {
         infantry.set_contained_by(Some(transport));
         infantry.set_ai_state(
             AIState::Idle,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         infantry.target = None;
     }

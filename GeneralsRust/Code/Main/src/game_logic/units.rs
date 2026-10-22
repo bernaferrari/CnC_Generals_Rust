@@ -350,7 +350,7 @@ impl UnitBehavior {
         objects: &mut HashMap<ObjectId, Object>,
         _dt: f32,
         movement_events: &mut crate::game_logic::movement_events::MovementEventWriter<'_>,
-        audio: &mut crate::game_logic::MovementAudio<'_>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
         if let Some(leader) = objects.get(&leader_id) {
             let leader_pos = leader.get_position();
@@ -393,7 +393,7 @@ impl UnitBehavior {
         dt: f32,
         movement_events: &mut crate::game_logic::movement_events::MovementEventWriter<'_>,
         attack_events: &mut crate::game_logic::host_attack_log::AttackEvents,
-        audio: &mut crate::game_logic::MovementAudio<'_>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
         let ai_state = {
             if let Some(obj) = objects.get(&object_id) {
@@ -424,7 +424,7 @@ impl UnitBehavior {
         object_id: ObjectId,
         objects: &mut HashMap<ObjectId, Object>,
         attack_events: &mut crate::game_logic::host_attack_log::AttackEvents,
-        audio: &mut crate::game_logic::MovementAudio<'_>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
         let (position, team, sight_range) = {
             if let Some(obj) = objects.get(&object_id) {
@@ -465,7 +465,7 @@ impl UnitBehavior {
         objects: &mut HashMap<ObjectId, Object>,
         _dt: f32,
         movement_events: &mut crate::game_logic::movement_events::MovementEventWriter<'_>,
-        audio: &mut crate::game_logic::MovementAudio<'_>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
         // Simplified patrol - move between waypoints
         // In a full implementation, this would cycle through patrol points
@@ -494,7 +494,7 @@ impl UnitBehavior {
         objects: &mut HashMap<ObjectId, Object>,
         _dt: f32,
         attack_events: &mut crate::game_logic::host_attack_log::AttackEvents,
-        audio: &mut crate::game_logic::MovementAudio<'_>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
         // Guard behavior - stay near guard position and attack enemies
         Self::find_and_attack_enemies(object_id, objects, attack_events, audio);

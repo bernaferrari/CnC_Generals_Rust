@@ -691,14 +691,11 @@ impl GameLogic {
                 was_horde,
                 grant,
             } => {
+                let draw_icon_ui = self.get_draw_icon_ui();
                 if let Some(obj) = self.host_objects_mut().get_mut(&id) {
                     let was = obj.weapon_bonus_horde;
                     obj.weapon_bonus_horde = now_horde;
-                    obj.apply_horde_terrain_decal(
-                        was,
-                        now_horde,
-                        crate::game_logic::host_battlemaster::leftover_horde_draw_icon_ui(),
-                    );
+                    obj.apply_horde_terrain_decal(was, now_horde, draw_icon_ui);
 
                     if now_horde && !was {
                         match grant {
@@ -1158,7 +1155,7 @@ impl GameLogic {
         object.move_to(
             position,
             &mut movement_events,
-            &mut crate::game_logic::MovementAudio::queue(audio_events),
+            &mut crate::game_logic::ObjectAudio::queue(audio_events),
         );
         true
     }
@@ -1257,7 +1254,7 @@ impl GameLogic {
                     obj_mut.attack_target(
                         target_id,
                         &mut self.attack_events,
-                        &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                        &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                     );
                 }
                 // Host residual: path toward target, then ensure the unit is inside
@@ -1302,7 +1299,7 @@ impl GameLogic {
                                         a.attack_target(
                                             target_id,
                                             &mut self.attack_events,
-                                            &mut crate::game_logic::MovementAudio::queue(
+                                            &mut crate::game_logic::ObjectAudio::queue(
                                                 &mut self.queued_audio_events,
                                             ),
                                         );
@@ -1310,7 +1307,7 @@ impl GameLogic {
                                         // path when movement auth is off).
                                         a.set_ai_state(
                                             AIState::Attacking,
-                                            &mut crate::game_logic::MovementAudio::queue(
+                                            &mut crate::game_logic::ObjectAudio::queue(
                                                 &mut self.queued_audio_events,
                                             ),
                                         );
@@ -1767,7 +1764,7 @@ mod select_object_cpp_parity_tests {
             o.set_status_unselectable(false);
             o.set_ai_state(
                 crate::game_logic::AIState::Garrisoned,
-                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
             );
             o.status.masked = true;
         }

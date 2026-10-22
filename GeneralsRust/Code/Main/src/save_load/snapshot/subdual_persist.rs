@@ -158,7 +158,7 @@ mod tests {
             factory.set_disabled_subdued(
                 true,
                 health_events,
-                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
             );
             assert!(factory.is_subdued_disabled());
         }

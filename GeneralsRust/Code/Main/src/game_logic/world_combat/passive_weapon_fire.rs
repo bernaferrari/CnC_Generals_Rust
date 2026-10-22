@@ -47,7 +47,7 @@ impl GameLogic {
             self.weapon_definitions
                 .as_ref()
                 .map(|_| &self.projectile_definitions),
-            &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+            &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
         ) else {
             return false;
         };

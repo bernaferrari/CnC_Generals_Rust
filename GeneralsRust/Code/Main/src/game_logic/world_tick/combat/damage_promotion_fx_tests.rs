@@ -116,8 +116,22 @@ impl Drop for RestoreDamageFx {
     }
 }
 
-fn eligible_world() -> GameLogic {
+fn eligible_world(objects: &[(&str, u32, u32, bool)]) -> GameLogic {
     let mut world = GameLogic::new();
+    let source = objects
+        .iter()
+        .map(|&(name, health, xp, armed)| authored_source(name, health, xp, armed))
+        .collect::<Vec<_>>()
+        .join("\n");
+    world
+        .admit_receiving_module_content(
+            crate::assets::ReceivingObjectContent::from_sources([(
+                "damage_promotion_order.ini".to_owned(),
+                source,
+            )])
+            .expect("paired receiving Body and WeaponSet definitions"),
+        )
+        .expect("receiving promotion-order object content");
     let mut rows = HashMap::new();
     assert_eq!(
         crate::assets::ini_template_loader::parse_weapon_definitions_ini_into(
@@ -165,24 +179,16 @@ End
     world
 }
 
-fn authored(
-    world: &mut GameLogic,
-    name: &str,
-    health: u32,
-    xp: u32,
-    armed: bool,
-    team: Team,
-    position: Vec3,
-) -> ObjectId {
+fn authored_source(name: &str, health: u32, xp: u32, armed: bool) -> String {
     let weapon = if armed {
         "WeaponSet\n  Conditions = None\n  Weapon = PRIMARY DamagePromotionOrderWeapon\nEnd"
     } else {
         ""
     };
-    let text = format!(
+    format!(
         r#"
 Object {name}
-  KindOf = INFANTRY SELECTABLE ATTACKABLE
+  KindOf = INFANTRY SELECTABLE
   IsTrainable = Yes
   ExperienceRequired = 0 10 100 1000
   ExperienceValue = {xp} {xp} {xp} {xp}
@@ -197,23 +203,28 @@ Object {name}
   {weapon}
 End
 "#
-    );
-    let mut parser = crate::assets::IniParser::new();
-    assert_eq!(
-        parser
-            .parse_ini_content(&text, "damage_promotion_order.ini")
-            .unwrap(),
-        1
-    );
-    let definition = parser.get_definition(name).unwrap();
-    let template = GameLogic::build_template_from_object_definition(name, definition, None);
+    )
+}
+
+fn authored(
+    world: &mut GameLogic,
+    name: &str,
+    health: u32,
+    xp: u32,
+    armed: bool,
+    team: Team,
+    position: Vec3,
+) -> ObjectId {
+    let template = world
+        .templates
+        .get(name)
+        .expect("paired receiving template");
     assert_eq!(template.max_health, health as f32);
     assert_eq!(template.veterancy_xp_thresholds, [10.0, 100.0, 1000.0]);
     assert!(template.is_trainable);
     assert_eq!(template.experience_values, [xp as f32; 4]);
     assert_eq!(template.armor_sets.len(), 1);
     assert_eq!(template.armor_sets[0].damage_fx.as_deref(), Some(ROWS));
-    world.templates.insert(name.into(), template);
     let player_id = if team == Team::USA { 0 } else { 1 };
     let id = world
         .create_object_for_player(name, player_id, position)
@@ -251,7 +262,7 @@ fn ordinary_hit(world: &mut GameLogic, source: ObjectId, victim: ObjectId) {
     world.objects.get_mut(&source).unwrap().set_target(
         Some(victim),
         &mut world.attack_events,
-        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
     );
     assert_eq!(world.objects[&source].target, Some(victim));
     assert_eq!(world.objects[&source].ai_state, AIState::Attacking);
@@ -298,7 +309,10 @@ fn normal_eligible_kill_promotion_is_visible_to_damage_fx() {
         "normal_eligible_kill_promotion_is_visible_to_damage_fx",
         || {
             let _restore = RestoreDamageFx::install();
-            let mut world = eligible_world();
+            let mut world = eligible_world(&[
+                ("PromotionOrderShooter", 100, 0, true),
+                ("PromotionOrderVictim", 100, 10, false),
+            ]);
             let source = authored(
                 &mut world,
                 "PromotionOrderShooter",
@@ -336,7 +350,10 @@ fn normal_eligible_kill_without_promotion_keeps_regular_damage_fx() {
         "normal_eligible_kill_without_promotion_keeps_regular_damage_fx",
         || {
             let _restore = RestoreDamageFx::install();
-            let mut world = eligible_world();
+            let mut world = eligible_world(&[
+                ("NoPromotionOrderShooter", 100, 0, true),
+                ("NoPromotionOrderVictim", 100, 5, false),
+            ]);
             let source = authored(
                 &mut world,
                 "NoPromotionOrderShooter",
@@ -373,7 +390,10 @@ fn normal_nonlethal_hit_neither_awards_xp_nor_promotes_damage_fx() {
         "normal_nonlethal_hit_neither_awards_xp_nor_promotes_damage_fx",
         || {
             let _restore = RestoreDamageFx::install();
-            let mut world = eligible_world();
+            let mut world = eligible_world(&[
+                ("NonlethalOrderShooter", 100, 0, true),
+                ("NonlethalOrderVictim", 150, 10, false),
+            ]);
             let source = authored(
                 &mut world,
                 "NonlethalOrderShooter",
@@ -411,7 +431,11 @@ fn normal_kill_sink_promotion_does_not_change_actual_source_fx_row() {
         "normal_kill_sink_promotion_does_not_change_actual_source_fx_row",
         || {
             let _restore = RestoreDamageFx::install();
-            let mut world = eligible_world();
+            let mut world = eligible_world(&[
+                ("SinkOrderShooter", 100, 0, true),
+                ("SinkOrderVictim", 100, 10, false),
+                ("SinkOrderRecipient", 100, 0, false),
+            ]);
             let source = authored(
                 &mut world,
                 "SinkOrderShooter",
@@ -471,7 +495,10 @@ fn normal_ground_kill_promotion_is_visible_to_damage_fx() {
         "normal_ground_kill_promotion_is_visible_to_damage_fx",
         || {
             let _restore = RestoreDamageFx::install();
-            let mut world = eligible_world();
+            let mut world = eligible_world(&[
+                ("GroundPromotionOrderShooter", 100, 0, true),
+                ("GroundPromotionOrderVictim", 100, 10, false),
+            ]);
             let source = authored(
                 &mut world,
                 "GroundPromotionOrderShooter",
@@ -496,7 +523,7 @@ fn normal_ground_kill_promotion_is_visible_to_damage_fx() {
                 let shooter = world.objects.get_mut(&source).unwrap();
                 shooter.set_target_location(
                     Some(impact),
-                    &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+                    &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
                 );
                 shooter.set_force_attack(true);
                 assert_eq!(shooter.target, None);
@@ -546,7 +573,10 @@ fn normal_forced_allied_kill_does_not_promote_damage_fx() {
         "normal_forced_allied_kill_does_not_promote_damage_fx",
         || {
             let _restore = RestoreDamageFx::install();
-            let mut world = eligible_world();
+            let mut world = eligible_world(&[
+                ("AlliedPromotionOrderShooter", 100, 0, true),
+                ("AlliedPromotionOrderVictim", 100, 10, false),
+            ]);
             world.players.get_mut(&1).unwrap().alliance_team = 0;
             assert_eq!(
                 world.player_relationship(0, 1),
@@ -599,7 +629,7 @@ fn normal_ground_without_victim_commits_exactly_one_discharge() {
         "normal_ground_without_victim_commits_exactly_one_discharge",
         || {
             let _restore = RestoreDamageFx::install();
-            let mut world = eligible_world();
+            let mut world = eligible_world(&[("EmptyGroundOrderShooter", 100, 0, true)]);
             let source = authored(
                 &mut world,
                 "EmptyGroundOrderShooter",
@@ -616,7 +646,7 @@ fn normal_ground_without_victim_commits_exactly_one_discharge() {
                 let shooter = world.objects.get_mut(&source).unwrap();
                 shooter.set_target_location(
                     Some(impact),
-                    &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+                    &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
                 );
                 shooter.set_force_attack(true);
                 assert!(shooter.is_within_attack_range_pos_for_slot(0, impact));

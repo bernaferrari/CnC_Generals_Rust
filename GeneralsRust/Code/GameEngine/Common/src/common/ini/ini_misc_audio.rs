@@ -588,14 +588,16 @@ pub const FIELD_PARSE_TABLE: &[FieldParser] = &[
     },
 ];
 
-fn parse_audio_event_from_args(args: &[&str]) -> INIResult<AudioEventRTS> {
+fn parse_audio_event_from_args(args: &[&str]) -> INIResult<Option<AudioEventRTS>> {
     let token = args.first().ok_or(INIError::InvalidData)?;
     let event_name = INI::parse_ascii_string(token)?;
+    // CPP INI::parseAudioEventRTS preserves the existing event on NoSound.
+    // This differs from parseDynamicAudioEventRTS used by Object audio slots.
     if event_name.eq_ignore_ascii_case("NoSound") {
-        return Ok(AudioEventRTS::new());
+        return Ok(None);
     }
 
-    Ok(AudioEventRTS::from_event_name(event_name))
+    Ok(Some(AudioEventRTS::from_event_name(event_name)))
 }
 
 macro_rules! audio_event_parser {
@@ -605,8 +607,9 @@ macro_rules! audio_event_parser {
             misc_audio: &mut MiscAudio,
             args: &[&str],
         ) -> INIResult<()> {
-            let audio_event = parse_audio_event_from_args(args)?;
-            misc_audio.$field = audio_event;
+            if let Some(audio_event) = parse_audio_event_from_args(args)? {
+                misc_audio.$field = audio_event;
+            }
             Ok(())
         }
     };
@@ -881,5 +884,60 @@ mod tests {
         // This should not panic and should print to console
         misc_audio.play_audio_event("GUIClickSound");
         misc_audio.play_audio_event("NonexistentSound");
+    }
+}
+
+impl MiscAudio {
+    /// Parse the same field table into caller-owned startup definitions only.
+    pub fn overlay_ini_text_owned(mut self, text: &str) -> Result<Self, String> {
+        let mut ini = INI::new();
+        ini.with_inline_source(text, |ini| {
+            loop {
+                ini.read_line()?;
+                if ini.is_eof() {
+                    break;
+                }
+                if ini
+                    .get_next_token_or_null()
+                    .is_some_and(|key| key.eq_ignore_ascii_case("MiscAudio"))
+                {
+                    ini.init_from_ini_with_fields(&mut self, FIELD_PARSE_TABLE)?;
+                }
+            }
+            Ok(())
+        })
+        .map_err(|error| error.to_string())?;
+        Ok(self)
+    }
+}
+
+#[cfg(test)]
+mod owned_misc_no_sound_tests {
+    use super::*;
+    #[test]
+    fn initial_no_sound_preserves_the_empty_misc_slot() {
+        let owned = MiscAudio::default()
+            .overlay_ini_text_owned("MiscAudio\nUnitPromoted = NoSound\nEnd\n")
+            .unwrap();
+        assert!(owned.unit_promoted.event_name.is_empty());
+    }
+    #[test]
+    fn ordered_no_sound_preserves_existing_configured_promotion_cue() {
+        let first = MiscAudio::default()
+            .overlay_ini_text_owned("MiscAudio\nUnitPromoted = FirstAuthoredCue\nEnd\n")
+            .unwrap();
+        let overlaid = first
+            .overlay_ini_text_owned("MiscAudio\nUnitPromoted = nOsOuNd\nEnd\n")
+            .unwrap();
+        assert_eq!(overlaid.unit_promoted.event_name, "FirstAuthoredCue");
+        let replaced = overlaid
+            .overlay_ini_text_owned("MiscAudio\nUnitPromoted = LaterAuthoredCue\nEnd\n")
+            .unwrap();
+        assert_eq!(replaced.unit_promoted.event_name, "LaterAuthoredCue");
+    }
+    #[test]
+    fn repeated_fields_and_blocks_use_the_same_original_no_op_policy() {
+        let owned=MiscAudio::default().overlay_ini_text_owned("MiscAudio\nUnitPromoted = AuthoredCue\nUnitPromoted = NoSound\nEnd\nMiscAudio\nUnitPromoted = NoSound\nEnd\n").unwrap();
+        assert_eq!(owned.unit_promoted.event_name, "AuthoredCue");
     }
 }

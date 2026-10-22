@@ -153,7 +153,7 @@ impl GameLogic {
             if object.hunting || matches!(object.ai_state, AIState::Patrolling) {
                 object.release_weapon_lock(WeaponLockType::LockedTemporarily);
             }
-            object.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+            object.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                 &mut self.queued_audio_events,
             ));
             object.last_command_source =
@@ -165,7 +165,7 @@ impl GameLogic {
         if let Some(object) = self.objects.get_mut(&id) {
             object.set_ai_state(
                 AIState::Moving,
-                &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
             object.last_command_source =
                 crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT;

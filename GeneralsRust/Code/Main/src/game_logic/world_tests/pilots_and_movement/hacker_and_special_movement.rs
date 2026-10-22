@@ -62,7 +62,7 @@ fn internet_center_subdual_idles_occupant_hackers_and_resumes() {
         obj.set_contained_by(Some(ic));
         obj.set_ai_state(
             AIState::Docked,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
     }
 
@@ -77,7 +77,7 @@ fn internet_center_subdual_idles_occupant_hackers_and_resumes() {
         obj.set_disabled_subdued(
             true,
             health_events,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
     }
     logic.update_hacker_income();
@@ -110,7 +110,7 @@ fn internet_center_subdual_idles_occupant_hackers_and_resumes() {
         obj.set_disabled_subdued(
             false,
             health_events,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
     }
     logic.update_hacker_income();
@@ -667,7 +667,7 @@ fn steal_cash_hack_command_transfers_cash_after_reach() {
         lotus.set_position(Vec3::new(100.0, 0.0, 0.0));
         lotus.set_ai_state(
             AIState::SpecialAbility,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         lotus.target = Some(target_id);
     }
@@ -757,7 +757,7 @@ fn steal_cash_hack_awards_lotus_award_xp_for_triggering() {
         lotus.set_position(Vec3::new(100.0, 0.0, 0.0));
         lotus.set_ai_state(
             AIState::SpecialAbility,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         lotus.target = Some(target_id);
     }
@@ -904,7 +904,7 @@ fn steal_cash_hack_uses_controlling_players_not_faction_slot() {
         lotus.set_position(Vec3::new(100.0, 0.0, 0.0));
         lotus.set_ai_state(
             AIState::SpecialAbility,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         lotus.target = Some(target_id);
     }
@@ -987,7 +987,7 @@ fn leftover_lotus_prep_aborts_when_target_stealthed() {
         lotus.set_position(Vec3::new(100.0, 0.0, 0.0));
         lotus.set_ai_state(
             AIState::SpecialAbility,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         lotus.target = Some(target_id);
     }
@@ -1063,7 +1063,7 @@ fn leftover_lotus_unpack_sets_model_and_unpack_sound() {
         lotus.set_position(Vec3::new(100.0, 0.0, 0.0));
         lotus.set_ai_state(
             AIState::SpecialAbility,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         lotus.target = Some(target_id);
     }
@@ -1133,7 +1133,7 @@ fn leftover_sa_trigger_queues_ini_trigger_sound() {
         lotus.set_position(Vec3::new(100.0, 0.0, 0.0));
         lotus.set_ai_state(
             AIState::SpecialAbility,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         lotus.target = Some(target_id);
     }
@@ -1212,7 +1212,7 @@ fn leftover_sa_hot_swap_aborts_in_flight_channel() {
         lotus.set_position(Vec3::new(100.0, 0.0, 0.0));
         lotus.set_ai_state(
             AIState::SpecialAbility,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         lotus.target = Some(supply_id);
     }
@@ -1246,7 +1246,7 @@ fn leftover_sa_hot_swap_aborts_in_flight_channel() {
         lotus.set_position(Vec3::new(10.0, 0.0, 0.0));
         lotus.set_ai_state(
             AIState::SpecialAbility,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         lotus.target = Some(tank_id);
     }
@@ -1309,7 +1309,7 @@ fn leftover_burton_flips_180_after_unpack() {
     if let Some(burton) = game_logic.host_object_mut(burton_id) {
         burton.set_ai_state(
             AIState::SpecialAbility,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         burton.target = Some(target_id);
     }
@@ -1381,7 +1381,7 @@ fn plant_start_range_requires_approach_los() {
         unit.target = Some(target_id);
         unit.set_ai_state(
             AIState::SpecialAbility,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
     }
     if let Some(target) = blocked.host_object_mut(target_id) {
@@ -1427,7 +1427,7 @@ fn plant_start_range_requires_approach_los() {
         unit.target = Some(target_id);
         unit.set_ai_state(
             AIState::SpecialAbility,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
     }
     if let Some(target) = clear.host_object_mut(target_id) {
@@ -1561,7 +1561,7 @@ fn burton_and_tnt_plant_reject_bridges() {
     if let Some(burton) = game_logic.host_object_mut(burton_id) {
         burton.set_ai_state(
             AIState::SpecialAbility,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         burton.target = Some(bridge_id);
     }
@@ -1580,7 +1580,7 @@ fn burton_and_tnt_plant_reject_bridges() {
     if let Some(hunter) = game_logic.host_object_mut(hunter_id) {
         hunter.set_ai_state(
             AIState::SpecialAbility,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         hunter.target = Some(bridge_id);
     }
@@ -1785,7 +1785,7 @@ fn disable_vehicle_hack_command_disables_after_reach() {
         lotus.set_position(Vec3::new(100.0, 0.0, 0.0));
         lotus.set_ai_state(
             AIState::SpecialAbility,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         lotus.target = Some(target_id);
     }
@@ -1939,10 +1939,10 @@ fn black_lotus_capture_building_without_upgrade() {
         // The out-of-range tick above installed an approach leg; the fixture
         // teleport must settle it (C++ SpecialAbilityUpdate.cpp:209-220
         // aborts unpack/prep while the capturer is still moving).
-        lotus.stop_moving(&mut crate::game_logic::MovementAudio::queue(&mut Vec::new()));
+        lotus.stop_moving(&mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()));
         lotus.set_ai_state(
             AIState::Capturing,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         lotus.target = Some(building_id);
     }
@@ -2257,7 +2257,7 @@ fn ecm_jam_residual_jams_enemy_weapons_in_radius() {
         enemy.target = Some(ecm_id);
         enemy.set_ai_state(
             AIState::Attacking,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         enemy.set_status_attacking(true);
     }
@@ -2840,7 +2840,7 @@ fn active_special_ability_channel_still_cancels_on_replacement_order() {
         object.model_condition_bits |= unpacking;
         object.set_ai_state(
             AIState::Moving,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         object.set_status_using_ability(true);
     }

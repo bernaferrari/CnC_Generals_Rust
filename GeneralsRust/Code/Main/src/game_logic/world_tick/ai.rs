@@ -106,7 +106,7 @@ impl GameLogic {
                     obj.target_location = Some(glam::Vec3::new(tx, 0.0, tz));
                     obj.set_ai_state(
                         crate::game_logic::AIState::Attacking,
-                        &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                        &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                     );
                     if let Some(req) = obj.fire_weapon_power.as_mut() {
                         req.shots_remaining = req.shots_remaining.saturating_sub(1);
@@ -208,7 +208,7 @@ impl GameLogic {
                         self.frame,
                         &mut self.combat_system.fire_sound_loop_events,
                         &mut self.health_events,
-                        &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                        &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                     );
                     obj.tick_repulsor_status(self.frame);
                 }
@@ -751,7 +751,7 @@ impl GameLogic {
                 {
                     obj.set_ai_state(
                         AIState::Patrolling,
-                        &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                        &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                     );
                 }
             }
@@ -987,7 +987,7 @@ impl GameLogic {
                     child.apply_disabled_hacked(
                         until,
                         &mut self.health_events,
-                        &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                        &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                     );
                 }
                 self.admit_host_radar_disabled_edges(child_id);

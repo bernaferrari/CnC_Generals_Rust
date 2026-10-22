@@ -919,14 +919,14 @@ impl GameLogic {
                         p.set_destination(
                             end,
                             &mut self.movement_events.writer(self.frame),
-                            &mut crate::game_logic::MovementAudio::queue(
+                            &mut crate::game_logic::ObjectAudio::queue(
                                 &mut self.queued_audio_events,
                             ),
                         );
                     }
                     p.set_ai_state(
                         AIState::Moving,
-                        &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                        &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                     );
                     p.status.moving = true;
                 } else {
@@ -962,11 +962,11 @@ impl GameLogic {
                     p.set_destination(
                         end,
                         &mut self.movement_events.writer(self.frame),
-                        &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                        &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                     );
                     p.set_ai_state(
                         AIState::Moving,
-                        &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                        &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                     );
                     p.status.moving = true;
                 }
@@ -1167,7 +1167,7 @@ impl GameLogic {
             p.begin_rappel(dest_y, target_is_bldg, drop_target);
             p.set_ai_state(
                 AIState::Moving,
-                &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
             p.status.moving = true;
         }
@@ -1274,7 +1274,7 @@ impl GameLogic {
             obj.status.rappel_dest_y = dest_y;
             if arrived {
                 obj.clear_rappel();
-                obj.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+                obj.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                     &mut self.queued_audio_events,
                 ));
             }
@@ -1455,7 +1455,7 @@ impl GameLogic {
             .map(|c| c.is_enclosing_garrison_container())
             .unwrap_or(true);
         if let Some(obj) = self.objects.get_mut(&pid) {
-            obj.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+            obj.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                 &mut self.queued_audio_events,
             ));
             obj.set_contained_by(Some(bldg_id));
@@ -1465,7 +1465,7 @@ impl GameLogic {
             }
             obj.set_ai_state(
                 AIState::Garrisoned,
-                &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
             obj.set_status_moving(false);
             obj.deselect();
@@ -1515,7 +1515,7 @@ impl GameLogic {
             obj.refresh_follow_path_extra_distance();
             obj.set_ai_state(
                 AIState::Moving,
-                &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
             obj.status.moving = true;
         }

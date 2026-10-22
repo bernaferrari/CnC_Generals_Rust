@@ -33,7 +33,6 @@
 use super::{ObjectId, VeterancyLevel};
 use glam::Vec3;
 use serde::{Deserialize, Serialize};
-use std::cell::RefCell;
 
 /// Retail China Red Guard training science (StartingLevel = VETERAN).
 pub const SCIENCE_RED_GUARD_TRAINING: &str = "SCIENCE_RedGuardTraining";
@@ -542,44 +541,11 @@ pub fn veterancy_upgrade_name(level: VeterancyLevel) -> Option<&'static str> {
     }
 }
 
-/// C++ ActiveBody SoundPromotedVeteran/Elite/Hero template events.
-pub fn sound_promoted_event(level: VeterancyLevel) -> Option<&'static str> {
-    match level {
-        VeterancyLevel::Veteran => Some("SoundPromotedVeteran"),
-        VeterancyLevel::Elite => Some("SoundPromotedElite"),
-        VeterancyLevel::Heroic => Some("SoundPromotedHero"),
-        VeterancyLevel::Rookie => None,
-    }
-}
-
 /// C++ ActiveBody::onVeterancyLevelChanged PRESERVE_RATIO scale.
 pub fn veterancy_health_scale(old_level: VeterancyLevel, new_level: VeterancyLevel) -> f32 {
     let (old_h, _, _) = veterancy_bonus_multipliers(old_level);
     let (new_h, _, _) = veterancy_bonus_multipliers(new_level);
     if old_h > 0.0 { new_h / old_h } else { 1.0 }
-}
-
-/// Queued UnitPromoted / SoundPromoted* residual.
-#[derive(Debug, Clone, PartialEq)]
-pub struct HostVeterancyPromoteAudio {
-    pub object: ObjectId,
-    pub position: Vec3,
-    pub event_name: String,
-}
-
-/// Queued LevelGain Anim2D residual (InGameUI::addWorldAnimation).
-#[derive(Debug, Clone, PartialEq)]
-pub struct HostVeterancyPromoteAnim {
-    pub object: ObjectId,
-    pub position: Vec3,
-    pub spawn_frame: u32,
-}
-
-thread_local! {
-    static PROMOTE_AUDIO: RefCell<Vec<HostVeterancyPromoteAudio>> =
-        const { RefCell::new(Vec::new()) };
-    static PROMOTE_ANIMS: RefCell<Vec<HostVeterancyPromoteAnim>> =
-        const { RefCell::new(Vec::new()) };
 }
 
 /// C++ `Object::onVeterancyLevelChanged` stealth hide
@@ -607,50 +573,6 @@ pub fn should_queue_promote_fx(
         && !hide_for_stealth
         && !ignored_in_gui
         && veterancy_rank(new_level) > veterancy_rank(previous_level)
-}
-
-/// C++ Object::onVeterancyLevelChanged provideFeedback + getDrawIconUI path.
-pub fn record_promote_fx(
-    object: ObjectId,
-    position: Vec3,
-    spawn_frame: u32,
-    new_level: VeterancyLevel,
-) {
-    PROMOTE_AUDIO.with(|log| {
-        let mut log = log.borrow_mut();
-        log.push(HostVeterancyPromoteAudio {
-            object,
-            position,
-            event_name: UNIT_PROMOTED_AUDIO.to_string(),
-        });
-        if let Some(sound) = sound_promoted_event(new_level) {
-            log.push(HostVeterancyPromoteAudio {
-                object,
-                position,
-                event_name: sound.to_string(),
-            });
-        }
-    });
-    PROMOTE_ANIMS.with(|log| {
-        log.borrow_mut().push(HostVeterancyPromoteAnim {
-            object,
-            position,
-            spawn_frame,
-        });
-    });
-}
-
-pub fn drain_promote_audio() -> Vec<HostVeterancyPromoteAudio> {
-    PROMOTE_AUDIO.with(|log| std::mem::take(&mut *log.borrow_mut()))
-}
-
-pub fn promote_anims_snapshot() -> Vec<HostVeterancyPromoteAnim> {
-    PROMOTE_ANIMS.with(|log| log.borrow().clone())
-}
-
-pub fn clear_promote_fx() {
-    PROMOTE_AUDIO.with(|log| log.borrow_mut().clear());
-    PROMOTE_ANIMS.with(|log| log.borrow_mut().clear());
 }
 
 /// Apply AdvancedTraining ExperienceScalar residual to a base XP gain.

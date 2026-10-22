@@ -278,10 +278,10 @@ impl HostSpectreGunshipUpdateData {
         }
     }
 
-    fn update_engagement_decals(&mut self, frame: u32) {
+    fn update_engagement_decals(&mut self, frame: u32, draw_icon_ui: bool) {
         self.ensure_engagement_decals(frame);
-        self.attack_area_decal.update(frame);
-        self.targeting_reticle_decal.update(frame);
+        self.attack_area_decal.update(frame, draw_icon_ui);
+        self.targeting_reticle_decal.update(frame, draw_icon_ui);
     }
 
     fn place_engagement_decals(&mut self) {
@@ -297,7 +297,13 @@ impl HostSpectreGunshipUpdateData {
     }
 
     /// C++ `SpectreGunshipUpdate::update` insertion / orbit / depart slice.
-    pub fn tick(&mut self, pos: Vec3, facing: f32, frame: u32) -> SpectreGunshipTick {
+    pub fn tick(
+        &mut self,
+        pos: Vec3,
+        facing: f32,
+        frame: u32,
+        draw_icon_ui: bool,
+    ) -> SpectreGunshipTick {
         let (min_x, min_z, max_x, max_z) = default_map_extents();
         match self.status {
             HostGunshipStatus::Idle => {
@@ -313,7 +319,7 @@ impl HostSpectreGunshipUpdateData {
             }
             HostGunshipStatus::Inserting | HostGunshipStatus::Orbiting => {
                 self.satellite_position = self.compute_satellite(pos);
-                self.update_engagement_decals(frame);
+                self.update_engagement_decals(frame, draw_icon_ui);
                 self.constrain_override();
                 self.place_engagement_decals();
                 let (new_pos, vel) =
@@ -341,8 +347,8 @@ impl HostSpectreGunshipUpdateData {
                 }
             }
             HostGunshipStatus::Departing => {
-                self.attack_area_decal.update(frame);
-                self.targeting_reticle_decal.update(frame);
+                self.attack_area_decal.update(frame, draw_icon_ui);
+                self.targeting_reticle_decal.update(frame, draw_icon_ui);
                 if self.exit_point.length_squared() < 1.0 {
                     self.exit_point = Self::facing_exit(pos, facing, self.preferred_elevation);
                 }
@@ -392,7 +398,7 @@ pub fn honesty_spectre_gunship_update_residual_ok() -> bool {
                 && created
                 && {
                     let start = Vec3::new(-250.0, 120.0, -250.0);
-                    let tick = d.tick(start, std::f32::consts::FRAC_PI_4, 0);
+                    let tick = d.tick(start, std::f32::consts::FRAC_PI_4, 0, true);
                     let moved =
                         (tick.pos.x - start.x).abs() > 1.0 || (tick.pos.z - start.z).abs() > 1.0;
                     let placed = (d.attack_area_decal.position - d.initial_target).length() < 0.01
@@ -552,3 +558,25 @@ mod override_clamp_tests {
 #[cfg(test)]
 #[path = "spectre_impact_owner_tests.rs"]
 mod spectre_impact_owner_tests;
+
+#[cfg(test)]
+mod draw_icon_policy_tests {
+    use super::*;
+
+    #[test]
+    fn spectre_decals_use_the_supplied_icon_flag_without_changing_flight() {
+        let target = Vec3::new(250.0, 0.0, 250.0);
+        let mut visible = HostSpectreGunshipUpdateData::initiate_at(target);
+        let mut hidden = HostSpectreGunshipUpdateData::initiate_at(target);
+        let start = Vec3::new(-250.0, 120.0, -250.0);
+        let show = visible.tick(start, std::f32::consts::FRAC_PI_4, 3, true);
+        let hide = hidden.tick(start, std::f32::consts::FRAC_PI_4, 3, false);
+        assert_eq!(show.pos, hide.pos);
+        assert_eq!(show.vel, hide.vel);
+        assert_eq!(show.destroy, hide.destroy);
+        assert!(visible.attack_area_decal.opacity > 0.0);
+        assert!(visible.targeting_reticle_decal.opacity > 0.0);
+        assert_eq!(hidden.attack_area_decal.opacity, 0.0);
+        assert_eq!(hidden.targeting_reticle_decal.opacity, 0.0);
+    }
+}

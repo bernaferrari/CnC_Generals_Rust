@@ -465,7 +465,7 @@ fn host_upgrade_capture_mid_flight_save_load_completes_unlock() {
         captor.target = None;
         captor.set_ai_state(
             AIState::Idle,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
     }
     let captor = restored

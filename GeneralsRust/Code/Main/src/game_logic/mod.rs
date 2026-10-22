@@ -102,9 +102,11 @@ pub use host_mods_structures::host_sub_objects_upgrade;
 
 pub mod locomotor_bootstrap;
 pub mod mission_scripts;
-mod movement_audio;
+mod object_audio;
+pub(crate) mod promotion_definitions;
+mod veterancy_feedback;
+pub use veterancy_feedback::VeterancyFeedback;
 pub mod object;
-pub use movement_audio::MovementAudio;
 pub use object::{
     AttackSubState, DEFAULT_AERO_FRICTION_RESIDUAL, DEFAULT_FORWARD_FRICTION_RESIDUAL,
     DEFAULT_LATERAL_FRICTION_RESIDUAL, DEFAULT_Z_FRICTION_RESIDUAL, LocomotorAppearance,
@@ -113,6 +115,7 @@ pub use object::{
     PATHFIND_CELL_SIZE_F_RESIDUAL, PhysicsTurningType, calc_slow_down_dist,
     is_same_position_residual,
 };
+pub use object_audio::ObjectAudio;
 pub(crate) mod ai_definitions;
 pub mod host_radar;
 pub mod partition_coi;

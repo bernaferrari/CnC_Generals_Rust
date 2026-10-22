@@ -182,7 +182,7 @@ impl GameLogic {
             collector.set_target(
                 Some(source_id),
                 attack_events,
-                &mut crate::game_logic::MovementAudio::queue(audio_events),
+                &mut crate::game_logic::ObjectAudio::queue(audio_events),
             );
             // Keep a concrete one-shot latch/state mirror alongside the
             // host AIState.  The latter still owns path following; the former
@@ -195,7 +195,7 @@ impl GameLogic {
             // normal Gathering update proceeds to this acquired warehouse.
             collector.set_ai_state(
                 AIState::Gathering,
-                &mut crate::game_logic::MovementAudio::queue(audio_events),
+                &mut crate::game_logic::ObjectAudio::queue(audio_events),
             );
         }
         true
@@ -1161,15 +1161,17 @@ impl GameLogic {
             high = next;
         }
         if high != parent_level {
-            if let Some(parent) = self.host_object_mut(parent_id) {
-                parent.set_min_veterancy_level(high);
-            }
+            let _ = self.host_object_mut(parent_id);
+            self.with_object_veterancy_feedback(parent_id, |parent, audio, feedback| {
+                parent.set_min_veterancy_level(high, audio, feedback)
+            });
         }
         for (id, level) in children {
             if level != high {
-                if let Some(child) = self.host_object_mut(id) {
-                    child.set_min_veterancy_level(high);
-                }
+                let _ = self.host_object_mut(id);
+                self.with_object_veterancy_feedback(id, |child, audio, feedback| {
+                    child.set_min_veterancy_level(high, audio, feedback)
+                });
             }
         }
     }
@@ -2660,7 +2662,9 @@ impl GameLogic {
                 .and_then(|metadata| metadata.pilot_starting_level())
             {
                 if object.is_trainable() {
-                    let _ = object.set_min_veterancy_level(target);
+                    self.with_veterancy_feedback(&mut object, |object, audio, feedback| {
+                        object.set_min_veterancy_level(target, audio, feedback)
+                    });
                 }
             }
 
@@ -2702,7 +2706,9 @@ impl GameLogic {
             // Auto-fire residual runs from update_combat when idle.
 
             if let Some(level) = player_template_veterancy {
-                let _ = object.set_min_veterancy_level(level);
+                self.with_veterancy_feedback(&mut object, |object, audio, feedback| {
+                    object.set_min_veterancy_level(level, audio, feedback)
+                });
             }
 
             object.ensure_fire_weapon_when_damaged();
@@ -2768,34 +2774,40 @@ impl GameLogic {
                     .and_then(|player_id| self.players.get(&player_id))
                     .map(|player| player.unlocked_sciences.iter().cloned().collect())
                     .unwrap_or_default();
-                if let Some(obj) = self.objects.get_mut(&id) {
-                    let mut ini_level = None;
-                    for module in &obj.thing().template.veterancy_gain_creates {
-                        let science_ok = match &module.science_required {
-                            None => true,
-                            Some(sci) => sciences
-                                .iter()
-                                .any(|s| normalize_identity(s) == normalize_identity(sci)),
-                        };
-                        if science_ok && obj.is_trainable() {
-                            let lvl = module.starting_level;
-                            if ini_level
-                                .map(|best| veterancy_rank(lvl) > veterancy_rank(best))
-                                .unwrap_or(true)
-                            {
-                                ini_level = Some(lvl);
+                let grant = self
+                    .with_object_veterancy_feedback(id, |obj, audio, feedback| {
+                        let mut ini_level = None;
+                        for module in &obj.thing().template.veterancy_gain_creates {
+                            let science_ok = match &module.science_required {
+                                None => true,
+                                Some(sci) => sciences
+                                    .iter()
+                                    .any(|s| normalize_identity(s) == normalize_identity(sci)),
+                            };
+                            if science_ok && obj.is_trainable() {
+                                let lvl = module.starting_level;
+                                if ini_level
+                                    .map(|best| veterancy_rank(lvl) > veterancy_rank(best))
+                                    .unwrap_or(true)
+                                {
+                                    ini_level = Some(lvl);
+                                }
                             }
                         }
-                    }
-                    if let Some(level) = ini_level {
-                        let _ = obj.set_min_veterancy_level(level);
-                    } else if let Some((kind, level)) =
-                        unit_training_level_for_template(template_name, &sciences)
-                    {
-                        if obj.set_min_veterancy_level(level) {
-                            self.unit_training.record_grant(kind);
+                        if let Some(level) = ini_level {
+                            let _ = obj.set_min_veterancy_level(level, audio, feedback);
+                        } else if let Some((kind, level)) =
+                            unit_training_level_for_template(template_name, &sciences)
+                        {
+                            if obj.set_min_veterancy_level(level, audio, feedback) {
+                                return Some(kind);
+                            }
                         }
-                    }
+                        None
+                    })
+                    .flatten();
+                if let Some(kind) = grant {
+                    self.unit_training.record_grant(kind);
                 }
             }
 

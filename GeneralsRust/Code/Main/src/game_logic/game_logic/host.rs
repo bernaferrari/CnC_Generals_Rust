@@ -12,6 +12,8 @@ use super::*;
 pub struct GameLogic {
     /// Single logical camera target and native impulse, shared by client input
     /// and synchronous FX. Construction never publishes this session state.
+    pub(crate) promotion_definitions:
+        crate::game_logic::promotion_definitions::PromotionDefinitions,
     pub(crate) session_view: crate::presentation_frame::SessionView,
     /// C++ W3D fog memory belongs to this session, including live host links.
     pub(crate) w3d_ghosts: gamelogic::object::w3d_ghost_object::W3DGhostObjectManager,
@@ -125,6 +127,9 @@ pub struct GameLogic {
     pub(super) next_object_id: ObjectId,
     /// C++ TheAI next formation id residual (starts at 1; 0 = none).
     pub(super) next_formation_id: u32,
+
+    /// C++ GameLogic::m_drawIconUI, owned by this match.
+    pub(crate) draw_icon_ui: bool,
 
     /// Simulation frame counter
     pub(crate) frame: u32,

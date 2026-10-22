@@ -49,7 +49,7 @@ impl GameLogic {
             .expect("admitted Hunt unit");
         Self::clear_owned_named_ai_goal(
             unit,
-            &mut crate::game_logic::MovementAudio::queue(audio_events),
+            &mut crate::game_logic::ObjectAudio::queue(audio_events),
         );
         unit.last_command_source =
             crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT;
@@ -57,7 +57,7 @@ impl GameLogic {
         unit.hunting = true;
         unit.set_ai_state(
             AIState::Patrolling,
-            &mut crate::game_logic::MovementAudio::queue(audio_events),
+            &mut crate::game_logic::ObjectAudio::queue(audio_events),
         );
         unit.mark_jet_command_for_reload_interrupt(true);
         unit.set_status_moving(false);
@@ -87,7 +87,7 @@ impl GameLogic {
     /// AI machine. It borrows only the canonical object, with no registry lookup.
     pub(super) fn clear_owned_named_ai_goal(
         unit: &mut Object,
-        audio: &mut crate::game_logic::MovementAudio<'_>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
         if unit.hunting || matches!(unit.ai_state, AIState::Patrolling) {
             unit.release_weapon_lock(WeaponLockType::LockedTemporarily);
@@ -181,16 +181,16 @@ impl GameLogic {
             .expect("admitted Idle unit");
         Self::clear_owned_named_ai_goal(
             unit,
-            &mut crate::game_logic::MovementAudio::queue(audio_events),
+            &mut crate::game_logic::ObjectAudio::queue(audio_events),
         );
-        unit.stop(&mut crate::game_logic::MovementAudio::queue(audio_events));
+        unit.stop(&mut crate::game_logic::ObjectAudio::queue(audio_events));
         unit.clear_guard_chase();
         unit.unit_ai_runtime.clear_guard();
         unit.unit_ai_runtime.clear_hunt();
         unit.hunting = false;
         unit.set_ai_state(
             AIState::Idle,
-            &mut crate::game_logic::MovementAudio::queue(audio_events),
+            &mut crate::game_logic::ObjectAudio::queue(audio_events),
         );
         unit.last_command_source = source;
         unit.mark_jet_command_for_reload_interrupt(true);
@@ -241,7 +241,7 @@ impl GameLogic {
             .expect("admitted Guard unit");
         Self::clear_owned_named_ai_goal(
             unit,
-            &mut crate::game_logic::MovementAudio::queue(audio_events),
+            &mut crate::game_logic::ObjectAudio::queue(audio_events),
         );
         unit.clear_guard_chase();
         unit.unit_ai_runtime.clear_guard();
@@ -250,7 +250,7 @@ impl GameLogic {
         unit.set_guard_mode(GuardMode::Normal);
         unit.set_guard_position(
             Some(position),
-            &mut crate::game_logic::MovementAudio::queue(audio_events),
+            &mut crate::game_logic::ObjectAudio::queue(audio_events),
         );
         unit.last_command_source =
             crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT;
@@ -287,18 +287,18 @@ impl GameLogic {
                 .expect("resolved passenger");
             Self::clear_owned_named_ai_goal(
                 object,
-                &mut crate::game_logic::MovementAudio::queue(audio_events),
+                &mut crate::game_logic::ObjectAudio::queue(audio_events),
             );
             object.set_target(
                 Some(container_id),
                 attack_events,
-                &mut crate::game_logic::MovementAudio::queue(audio_events),
+                &mut crate::game_logic::ObjectAudio::queue(audio_events),
             );
             object.last_command_source =
                 crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT;
             object.set_ai_state(
                 AIState::Exiting,
-                &mut crate::game_logic::MovementAudio::queue(audio_events),
+                &mut crate::game_logic::ObjectAudio::queue(audio_events),
             );
             // ChinookAIUpdate::onObjectWantsToEnterOrExit makes idle flight
             // seek a landing place. No passenger is removed by this command.
@@ -435,7 +435,7 @@ impl GameLogic {
                         object.ignored_obstacle_id = Some(target);
                         object.set_ai_state(
                             AIState::Entering,
-                            &mut crate::game_logic::MovementAudio::queue(audio_events),
+                            &mut crate::game_logic::ObjectAudio::queue(audio_events),
                         );
                     }
                 }

@@ -2465,7 +2465,7 @@ mod tests {
             Some((0.6, 0.8)),
             7,
             None,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         ));
         object.script_targetable = true;
         object.status.masked = true;
@@ -2559,7 +2559,7 @@ mod tests {
                 .begin_structure_topple(
                     0,
                     None,
-                    &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
+                    &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
                 )
         );
         receiving.host_object_mut(id).unwrap().script_targetable = true;

@@ -109,10 +109,7 @@ pub const JET_WHEEL_SCREECH_Z_SLOP: f32 = 0.25;
 impl Object {
     /// C++ JetSlowDeathBehavior residual begin.
     /// Returns true when air crash should defer destroy.
-    pub fn begin_jet_slow_death(
-        &mut self,
-        audio: &mut crate::game_logic::MovementAudio<'_>,
-    ) -> bool {
+    pub fn begin_jet_slow_death(&mut self, audio: &mut crate::game_logic::ObjectAudio<'_>) -> bool {
         if !crate::game_logic::host_jet_slow_death::is_jet_slow_death_template(&self.template_name)
         {
             return false;
@@ -129,7 +126,7 @@ impl Object {
         fx: crate::game_logic::host_jet_slow_death::HostJetSlowDeathFx,
         grounded: bool,
         deletion_queued: bool,
-        audio: &mut crate::game_logic::MovementAudio<'_>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) -> bool {
         if self
             .jet_slow_death
@@ -228,7 +225,7 @@ impl Object {
     /// C++ HelicopterSlowDeathBehavior residual begin.
     pub fn begin_helicopter_slow_death(
         &mut self,
-        audio: &mut crate::game_logic::MovementAudio<'_>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) -> bool {
         if !crate::game_logic::host_helicopter_slow_death::is_helicopter_slow_death_template(
             &self.template_name,
@@ -245,7 +242,7 @@ impl Object {
         &mut self,
         fx: crate::game_logic::host_helicopter_slow_death::HostHelicopterSlowDeathFx,
         deletion_queued: bool,
-        audio: &mut crate::game_logic::MovementAudio<'_>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) -> bool {
         if self
             .helicopter_slow_death
@@ -391,7 +388,7 @@ impl Object {
     pub fn enter_circling_dead_airfield(
         &mut self,
         now: u32,
-        audio: &mut crate::game_logic::MovementAudio<'_>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) -> bool {
         if self.jet_circling_dead_airfield {
             return false;
@@ -987,7 +984,7 @@ impl Object {
         pending
     }
 
-    pub fn apply_pending_jet_resume(&mut self, audio: &mut crate::game_logic::MovementAudio<'_>) {
+    pub fn apply_pending_jet_resume(&mut self, audio: &mut crate::game_logic::ObjectAudio<'_>) {
         let resume = self.jet_ai.pending_resume;
         self.jet_ai.has_pending_command = false;
         self.jet_ai.pending_resume = HostJetPendingResume::None;

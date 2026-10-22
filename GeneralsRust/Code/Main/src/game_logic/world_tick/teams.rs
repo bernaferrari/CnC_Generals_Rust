@@ -804,7 +804,7 @@ impl GameLogic {
                     Some(anchor),
                     None,
                     &mut self.attack_events,
-                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
                 n += 1;
             }
@@ -899,7 +899,7 @@ impl GameLogic {
                         false,
                         None,
                         &mut self.movement_events.writer(self.frame),
-                        &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                        &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                     );
                 }
                 // C++ AIGuardRetaliate Inner/Aggressor onExit:
@@ -986,7 +986,7 @@ impl GameLogic {
                     alive,
                     vpos,
                     &mut self.movement_events.writer(self.frame),
-                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
             }
         }
@@ -1579,7 +1579,7 @@ impl GameLogic {
                     obj.ignored_obstacle_id = Some(target_id);
                     obj.set_ai_state(
                         AIState::Entering,
-                        &mut crate::game_logic::MovementAudio::queue(audio_events),
+                        &mut crate::game_logic::ObjectAudio::queue(audio_events),
                     );
                 }
             }
@@ -1637,7 +1637,7 @@ impl GameLogic {
                     obj.ignored_obstacle_id = Some(trans);
                     obj.set_ai_state(
                         AIState::Entering,
-                        &mut crate::game_logic::MovementAudio::queue(audio_events),
+                        &mut crate::game_logic::ObjectAudio::queue(audio_events),
                     );
                 }
             }
@@ -1986,7 +1986,7 @@ impl GameLogic {
                 if keep_parent_state && u.ai_state != parent_state {
                     u.set_ai_state(
                         parent_state,
-                        &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                        &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                     );
                 }
             }
@@ -2112,7 +2112,7 @@ mod tests {
             obj.status.moving = false;
             obj.set_ai_state(
                 AIState::Idle,
-                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
             );
         }
         logic.test_tick_host_wander_in_place();
@@ -2271,7 +2271,7 @@ mod tests {
         if let Some(obj) = logic.host_object_mut(id) {
             obj.set_ai_state(
                 AIState::Moving,
-                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
             );
             obj.status.moving = true;
             obj.movement.target_position = Some(hop);
@@ -2315,7 +2315,7 @@ mod tests {
         if let Some(obj) = logic.host_object_mut(id) {
             obj.set_ai_state(
                 AIState::Moving,
-                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
             );
             obj.status.moving = true;
         }
@@ -2718,7 +2718,7 @@ mod tests {
                 Some(glam::Vec3::ZERO),
                 None,
                 &mut logic.attack_events,
-                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
             );
         }
         w25_spawn_fighter(

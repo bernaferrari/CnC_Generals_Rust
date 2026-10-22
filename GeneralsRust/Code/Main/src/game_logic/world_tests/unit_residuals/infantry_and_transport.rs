@@ -74,7 +74,7 @@ fn ranger_residual_rifle_and_flashbang_splash() {
         ranger.attack_target(
             vehicle,
             attack_events,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         if let Some(w) = ranger.weapon.as_mut() {
             w.last_fire_time = -10.0;
@@ -131,7 +131,7 @@ fn ranger_residual_rifle_and_flashbang_splash() {
         ranger.attack_target(
             enemy,
             attack_events,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         // Prefer secondary vs infantry (PreferredAgainst residual).
         if let Some(w) = ranger.weapon.as_mut() {
@@ -677,7 +677,7 @@ fn rpg_trooper_residual_rocket_and_ap_rockets() {
         rpg.attack_target(
             enemy,
             attack_events,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         if let Some(w) = rpg.weapon.as_mut() {
             w.last_fire_time = -10.0;
@@ -823,7 +823,7 @@ fn terrorist_residual_suicide_dynamite_pack() {
         t.attack_target(
             near,
             attack_events,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         if let Some(w) = t.weapon.as_mut() {
             w.last_fire_time = -10.0;
@@ -939,7 +939,7 @@ fn missile_defender_residual_missile_and_laser_guided() {
         md.attack_target(
             enemy,
             attack_events,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         if let Some(w) = md.weapon.as_mut() {
             w.last_fire_time = -10.0;
@@ -1307,7 +1307,7 @@ fn troop_crawler_residual_transport_load_unload() {
             unit.target = Some(crawler_id);
             unit.set_ai_state(
                 AIState::Entering,
-                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
             );
         }
         game_logic.update_ai(&[unit_id, crawler_id], 1.0 / 30.0);
@@ -1469,7 +1469,7 @@ fn structure_topple_crush_sweep_kills_nearby_infantry() {
         assert!(b.begin_structure_topple(
             0,
             Some((-10.0, 0.0)),
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
         ));
         if let Some(st) = b.structure_topple_data.as_mut() {
             st.state = HostStructureToppleState::Toppling;
@@ -1545,7 +1545,7 @@ fn structure_topple_height_from_geometry_not_maxhp() {
         assert!(b.begin_structure_topple(
             0,
             Some((-10.0, 0.0)),
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
         ));
         let st = b.structure_topple_data.as_ref().unwrap();
         assert!(
@@ -2266,7 +2266,7 @@ fn slow_death_defers_infantry_destruction() {
             o.begin_slow_death_from_ini(
                 logic.frame,
                 &HostSlowDeathIni::infantry_retail(),
-                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
+                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
             ),
             "SlowDeathBehavior residual must start from authored INI"
         );
@@ -2561,7 +2561,7 @@ fn troop_crawler_residual_assault_deploy_unloads_and_attacks() {
         c.attack_target(
             enemy,
             attack_events,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         if let Some(w) = c.weapon.as_mut() {
             w.last_fire_time = -10.0;
@@ -2725,7 +2725,7 @@ fn troop_crawler_assault_keeps_wounded_and_retrieves_outside() {
         h.set_contained_by(Some(crawler_id));
         h.set_ai_state(
             AIState::Idle,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         h.health.current = 100.0;
     }
@@ -3089,7 +3089,7 @@ fn troop_crawler_assault_walks_enter_and_exit() {
         h.set_contained_by(Some(crawler_id));
         h.set_ai_state(
             AIState::Idle,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         h.health.current = 100.0;
     }
@@ -3143,7 +3143,7 @@ fn troop_crawler_residual_rejects_vehicle_enter() {
         unit.target = Some(crawler_id);
         unit.set_ai_state(
             AIState::Entering,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
     }
     game_logic.update_ai(&[tank_id, crawler_id], 1.0 / 30.0);

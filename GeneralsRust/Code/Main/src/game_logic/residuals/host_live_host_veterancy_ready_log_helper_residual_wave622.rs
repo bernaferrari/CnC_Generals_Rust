@@ -98,7 +98,8 @@ pub fn honesty_host_veterancy_ready_log_helper_method_names_residual_wave622() -
 
 pub fn honesty_host_veterancy_ready_log_helper_source_markers_residual_wave622() -> bool {
     let ok = ready_log_source().contains("pub fn gain_experience")
-        && ready_log_source().contains("self.apply_veterancy_bonuses(previous_level, new_level)")
+        && ready_log_source()
+            .contains("self.apply_veterancy_bonuses(previous_level, new_level, audio, feedback)")
         && !shadow_source().contains("pub fn writeback_experience_to_host")
         && !gl_source().contains("pub fn host_apply_veterancy_ready_completions");
     residual_action_store(ResidualHostVeterancyReadyLogHelperAction::SourceMarkers);

@@ -252,16 +252,16 @@ impl GameLogic {
                 }
 
                 if let Some(obj) = self.objects.get_mut(&object_id) {
-                    obj.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+                    obj.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                         &mut self.queued_audio_events,
                     ));
-                    obj.stop_attack(&mut crate::game_logic::MovementAudio::queue(
+                    obj.stop_attack(&mut crate::game_logic::ObjectAudio::queue(
                         &mut self.queued_audio_events,
                     ));
                     if obj.ai_state != AIState::Idle {
                         obj.set_ai_state(
                             AIState::Idle,
-                            &mut crate::game_logic::MovementAudio::queue(
+                            &mut crate::game_logic::ObjectAudio::queue(
                                 &mut self.queued_audio_events,
                             ),
                         );
@@ -313,7 +313,7 @@ impl GameLogic {
                 if is_mobile {
                     if can_attack {
                         if let Some(obj) = self.objects.get_mut(&object_id) {
-                            obj.stop_attack(&mut crate::game_logic::MovementAudio::queue(
+                            obj.stop_attack(&mut crate::game_logic::ObjectAudio::queue(
                                 &mut self.queued_audio_events,
                             ));
                         }
@@ -334,7 +334,7 @@ impl GameLogic {
                             obj.requested_destination = Some(target_position);
                             obj.set_ai_state(
                                 AIState::AttackMoving,
-                                &mut crate::game_logic::MovementAudio::queue(
+                                &mut crate::game_logic::ObjectAudio::queue(
                                     &mut self.queued_audio_events,
                                 ),
                             );
@@ -346,7 +346,7 @@ impl GameLogic {
                             if obj.ai_state != AIState::Idle {
                                 obj.set_ai_state(
                                     AIState::Idle,
-                                    &mut crate::game_logic::MovementAudio::queue(
+                                    &mut crate::game_logic::ObjectAudio::queue(
                                         &mut self.queued_audio_events,
                                     ),
                                 );
@@ -1366,7 +1366,7 @@ impl GameLogic {
         }
         for id in ids {
             if let Some(obj) = self.objects.get_mut(&id) {
-                obj.stop_attack(&mut crate::game_logic::MovementAudio::queue(
+                obj.stop_attack(&mut crate::game_logic::ObjectAudio::queue(
                     &mut self.queued_audio_events,
                 ));
                 obj.target = None;
@@ -1374,7 +1374,7 @@ impl GameLogic {
                 obj.set_status_force_attack(false);
                 // Halt workers/dozers mid-rebuild so paused AI does not finish distant CCs.
                 if obj.is_kind_of(KindOf::Worker) || obj.template_name.contains("Dozer") {
-                    obj.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+                    obj.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                         &mut self.queued_audio_events,
                     ));
                     obj.movement.target_position = None;
@@ -1385,7 +1385,7 @@ impl GameLogic {
                         if obj.ai_state != AIState::Idle {
                             obj.set_ai_state(
                                 AIState::Idle,
-                                &mut crate::game_logic::MovementAudio::queue(
+                                &mut crate::game_logic::ObjectAudio::queue(
                                     &mut self.queued_audio_events,
                                 ),
                             );
@@ -1398,7 +1398,7 @@ impl GameLogic {
                 ) {
                     obj.set_ai_state(
                         AIState::Idle,
-                        &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                        &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                     );
                 }
             }

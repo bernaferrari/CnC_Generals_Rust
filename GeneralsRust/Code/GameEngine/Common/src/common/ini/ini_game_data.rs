@@ -2626,3 +2626,41 @@ pub use camera_movement_rules::CameraMovementRules;
 
 #[cfg(any(debug_assertions, feature = "internal"))]
 mod debug_fields;
+
+/// Private startup GameData projection; never installs writable global data.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct PromotionContentRules {
+    pub animation_name: String,
+    pub display_seconds: f32,
+    pub rise_per_second: f32,
+}
+impl PromotionContentRules {
+    pub fn overlay_ini_text(self, text: &str) -> Result<Self, String> {
+        let mut draft = GlobalData::new();
+        draft.level_gain_animation_name = self.animation_name;
+        draft.level_gain_animation_display_time_in_seconds = self.display_seconds;
+        draft.level_gain_animation_z_rise_per_second = self.rise_per_second;
+        let mut ini = INI::new();
+        ini.with_inline_source(text, |ini| {
+            loop {
+                ini.read_line()?;
+                if ini.is_eof() {
+                    break;
+                }
+                if ini
+                    .get_next_token_or_null()
+                    .is_some_and(|key| key.eq_ignore_ascii_case("GameData"))
+                {
+                    parse_game_data_block(ini, &mut draft)?;
+                }
+            }
+            Ok(())
+        })
+        .map_err(|error| error.to_string())?;
+        Ok(Self {
+            animation_name: draft.level_gain_animation_name,
+            display_seconds: draft.level_gain_animation_display_time_in_seconds,
+            rise_per_second: draft.level_gain_animation_z_rise_per_second,
+        })
+    }
+}

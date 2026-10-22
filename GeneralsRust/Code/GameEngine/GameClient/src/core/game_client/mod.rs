@@ -173,6 +173,7 @@ include!("message.rs");
 include!("dispatcher.rs");
 include!("impl_init.rs");
 include!("impl_update.rs");
+include!("owned_world_animations.rs");
 include!("impl_draw.rs");
 include!("native_particle_draw.rs");
 include!("native_view_draw.rs");
@@ -248,3 +249,6 @@ mod native_draw_lifecycle_observer_tests;
 
 #[cfg(test)]
 mod global_boundary_fixture;
+
+#[cfg(test)]
+mod native_draw_icon_policy_tests;

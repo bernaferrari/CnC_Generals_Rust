@@ -827,7 +827,7 @@ mod integration_tests {
             attacker.attack_target(
                 target,
                 &mut _attack_output,
-                &mut generals_main::game_logic::MovementAudio::queue(&mut Vec::new()),
+                &mut generals_main::game_logic::ObjectAudio::queue(&mut Vec::new()),
             );
         }
 

@@ -792,7 +792,7 @@ fn collide_immobile_is_kindof_immobile_not_can_move() {
     let deployed = spawn_other(&mut logic, 94, "DeployedTomahawk", |o| {
         o.set_deployed(
             true,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
     });
     let garrisoned = spawn_other(&mut logic, 95, "GarrisonedHusk", |o| {
@@ -1628,7 +1628,7 @@ fn instant_combat_scatter_can_miss_intended_target() {
         o.target = Some(inf);
         o.set_ai_state(
             AIState::Attacking,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         o.set_status_attacking(true);
     }
@@ -1664,7 +1664,7 @@ fn instant_combat_scatter_can_miss_intended_target() {
             o.target = Some(inf);
             o.set_ai_state(
                 AIState::Attacking,
-                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
             );
         }
         logic.update_combat(&[gun, inf], 1.0 / 30.0);
@@ -1736,7 +1736,7 @@ fn minimum_attack_range_too_close_backs_away() {
         o.target = Some(tgt);
         o.set_ai_state(
             AIState::Attacking,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         o.set_status_attacking(true);
     }
@@ -1766,7 +1766,7 @@ fn minimum_attack_range_too_close_backs_away() {
         o.target = Some(tgt);
         o.set_ai_state(
             AIState::Attacking,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         if let Some(w) = o.weapon.as_mut() {
             w.last_fire_time = -100.0;
@@ -1793,7 +1793,7 @@ fn minimum_attack_range_too_close_backs_away() {
         o.target = Some(tgt);
         o.set_ai_state(
             AIState::Attacking,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         if let Some(w) = o.weapon.as_mut() {
             w.last_fire_time = -100.0;
@@ -1931,7 +1931,7 @@ fn airfield_runway_reservation_limits_parallel_takeoff() {
             o.object_type = ObjectType::Aircraft;
             o.set_ai_state(
                 AIState::Docked,
-                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
             );
             o.set_contained_by(Some(af));
             o.status.airborne_target = false;
@@ -2199,7 +2199,7 @@ fn airfield_takeoff_releases_parking_slot() {
         jet.attack_target(
             ObjectId(777),
             &mut logic.attack_events,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
     }
     assert!(logic.release_jet_from_airfield_parking(jet_id));
@@ -2250,7 +2250,7 @@ fn helipad_takeoff_is_two_point_climb_not_altitude_pop() {
                 heli.set_contained_by(Some(pad_id));
                 heli.set_ai_state(
                     AIState::Docked,
-                    &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+                    &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
                 );
                 heli.status.airborne_target = false;
                 heli.return_to_base_requested = false;
@@ -2311,7 +2311,7 @@ fn repaired_helipad_aircraft_auto_takeoff() {
         heli.target = None;
         heli.set_ai_state(
             AIState::Docked,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
     }
     let pad_y = logic.objects.get(&heli_id).unwrap().get_position().y;
@@ -2438,7 +2438,7 @@ fn target_pitch_gate_blocks_strategy_center_out_of_loft() {
         o.target = Some(tgt);
         o.set_ai_state(
             AIState::Attacking,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         o.set_status_attacking(true);
     }
@@ -2479,7 +2479,7 @@ fn target_pitch_gate_blocks_strategy_center_out_of_loft() {
         o.target = Some(tgt);
         o.set_ai_state(
             AIState::Attacking,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         o.set_status_attacking(true);
     }

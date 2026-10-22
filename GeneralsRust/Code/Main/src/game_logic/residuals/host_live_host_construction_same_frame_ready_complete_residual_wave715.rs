@@ -216,11 +216,11 @@ mod tests {
         builder.set_target(
             Some(id),
             attack_events,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         builder.set_ai_state(
             AIState::Constructing,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         builder.movement.path.clear();
         builder.waiting_for_path = false;

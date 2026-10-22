@@ -47,7 +47,7 @@ fn strategy_center_turret_mood_matrix_sleep_passive_residual() {
         sc.target = None;
         sc.set_ai_state(
             AIState::Idle,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         sc.set_status_attacking(false);
         sc.turret_mood_target = false;
@@ -80,7 +80,7 @@ fn strategy_center_turret_mood_matrix_sleep_passive_residual() {
         sc.target = None;
         sc.set_ai_state(
             AIState::Idle,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         sc.set_status_attacking(false);
     }
@@ -104,7 +104,7 @@ fn strategy_center_turret_mood_matrix_sleep_passive_residual() {
         sc.target = None;
         sc.set_ai_state(
             AIState::Idle,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         sc.set_status_attacking(false);
     }
@@ -474,7 +474,7 @@ fn strategy_center_bombardment_turret_fire_residual() {
         }
         sc.set_ai_state(
             AIState::Idle,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
     }
     // Natural angles before fire residual.
@@ -554,7 +554,7 @@ fn strategy_center_bombardment_turret_fire_residual() {
         sc.target = None;
         sc.set_ai_state(
             AIState::Idle,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         sc.set_status_attacking(false);
         sc.turret_angle_deg = STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG;
@@ -1181,7 +1181,7 @@ fn strategy_center_delayed_set_battle_plan_and_turret_recenter_residual() {
         let sc = game_logic.host_object_mut(sc_id).expect("sc");
         sc.set_ai_state(
             AIState::Attacking,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         sc.set_status_attacking(true);
         sc.target = Some(ally_id);
@@ -1723,7 +1723,7 @@ fn gps_scrambler_residual_grants_stealth_to_ally_units() {
         ally.target = Some(enemy_id);
         ally.set_ai_state(
             AIState::Attacking,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         ally.set_status_attacking(true);
         ally.set_position(Vec3::new(10.0, 0.0, 0.0));

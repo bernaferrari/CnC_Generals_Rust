@@ -279,7 +279,7 @@ impl GameLogic {
             attacker.note_attack_target(
                 target_id,
                 &mut self.attack_events,
-                &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
             let entered_attack = !matches!(
                 attacker.ai_state,
@@ -288,7 +288,7 @@ impl GameLogic {
             if entered_attack {
                 attacker.set_ai_state(
                     AIState::Attacking,
-                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
             }
             {}
@@ -662,7 +662,7 @@ impl GameLogic {
             attacker.note_attack_target(
                 target_id,
                 &mut self.attack_events,
-                &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
             let entered_attack = !matches!(
                 attacker.ai_state,
@@ -671,7 +671,7 @@ impl GameLogic {
             if entered_attack {
                 attacker.set_ai_state(
                     AIState::Attacking,
-                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
             }
             {}
@@ -1136,7 +1136,7 @@ impl GameLogic {
                 asst.note_attack_target(
                     clip.victim_id,
                     &mut self.attack_events,
-                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
                 let entered_attack = !matches!(
                     asst.ai_state,
@@ -1145,7 +1145,7 @@ impl GameLogic {
                 if entered_attack {
                     asst.set_ai_state(
                         AIState::Attacking,
-                        &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                        &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                     );
                 }
                 {}
@@ -1372,7 +1372,7 @@ impl GameLogic {
                     v.apply_disabled_emp(
                         until,
                         &mut self.health_events,
-                        &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                        &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                     );
                     any = true;
                     spark_ids.push(vid);
@@ -1406,7 +1406,7 @@ impl GameLogic {
                         v.apply_disabled_emp(
                             until,
                             &mut self.health_events,
-                            &mut crate::game_logic::MovementAudio::queue(
+                            &mut crate::game_logic::ObjectAudio::queue(
                                 &mut self.queued_audio_events,
                             ),
                         );

@@ -27,6 +27,11 @@ impl LiveInGameHudDrawCounts {
 }
 
 impl GameClient {
+    /// One receiving frame admission, independent of the standalone Core world.
+    pub fn admit_draw_icon_ui(&mut self, enabled: bool) {
+        self.receiving_draw_icon_ui = enabled;
+    }
+
     pub fn draw_display(&mut self) -> GameClientResult<()> {
         let snow = self.snow_render_state();
         if let Some(display) = &self.subsystem_manager.display {
@@ -55,7 +60,14 @@ impl GameClient {
         let mut text_ids = Vec::new();
         for (id, drawable) in self.drawables.drawable_map.iter_mut() {
             if drawable.is_visible() {
-                drawable.draw_icon_ui();
+                if let Some(basic) = drawable
+                    .as_any_mut()
+                    .downcast_mut::<crate::drawable::drawable::BasicDrawable>()
+                {
+                    basic.draw_icon_ui_with_policy(self.receiving_draw_icon_ui);
+                } else {
+                    drawable.draw_icon_ui();
+                }
                 if let Some(basic) =
                     drawable.downcast_ref::<crate::drawable::drawable::BasicDrawable>()
                 {
@@ -100,7 +112,7 @@ impl GameClient {
         Option<String>,
         Vec<(String, String, bool)>,
         Vec<(String, [f32; 3], (u8, u8, u8, u8), u32, u32)>,
-        Vec<(String, [f32; 3], f32, f32, bool, u32)>,
+        Vec<game_engine::common::world_animation::WorldAnimationPresentation>,
     ) {
         let Some(ui) = &self.subsystem_manager.in_game_ui else {
             return (Vec::new(), None, Vec::new(), Vec::new(), Vec::new());
@@ -141,7 +153,7 @@ impl GameClient {
         (messages, subtitle, timers, floating, world_anims)
     }
 
-    fn draw_ingame_post_draw_hud(&self, counts: &mut LiveInGameHudDrawCounts) {
+    fn draw_ingame_post_draw_hud(&mut self, counts: &mut LiveInGameHudDrawCounts) {
         use crate::display::view::{Point3, with_tactical_view_ref};
         use crate::gui::ui_globals::with_ui_renderer_mut;
         use glam::Vec2;
@@ -279,29 +291,24 @@ impl GameClient {
             }
 
             // C++ InGameUI::updateAndDrawWorldAnimations (InGameUI.cpp:5323-5418).
-            for (template, pos, display, z_rise, fades, spawn_frame) in &world_anims {
-                let expire = crate::gui::ingame_ui::InGameUI::world_anim_expire_frame(
-                    *spawn_frame,
-                    *display,
-                );
-                if self.frame >= expire {
+            let animation_logic_frame = self.owned_world_animations.logic_frame;
+            for animation in &world_anims {
+                let Some(pos) = self
+                    .owned_world_animations
+                    .prepare_draw(animation, animation_logic_frame)
+                else {
                     continue;
-                }
-                let age = self.frame.saturating_sub(*spawn_frame);
-                let lift = crate::gui::ingame_ui::InGameUI::world_anim_z_lift(age, *z_rise);
-                let world = Point3::new(pos[0], pos[1], pos[2] + lift);
-                let coord = crate::system::Coord3D::new(pos[0], pos[1], pos[2] + lift);
+                };
+                let world = Point3::new(pos[0], pos[1], pos[2]);
+                let coord = crate::system::Coord3D::new(pos[0], pos[1], pos[2]);
                 if self.get_shroud_status_for_player(self.local_player_id, &coord)
                     != ShroudStatus::Clear
                 {
                     continue;
                 }
-                let frames_till = expire.saturating_sub(self.frame);
-                let alpha =
-                    crate::gui::ingame_ui::InGameUI::world_anim_fade_alpha(frames_till, *fades);
-                if alpha <= 0.0 {
-                    continue;
-                }
+                let alpha = self
+                    .owned_world_animations
+                    .visible_alpha(animation, animation_logic_frame);
                 let Some(screen) = with_tactical_view_ref(|view| view.world_to_screen(&world))
                 else {
                     continue;
@@ -314,13 +321,13 @@ impl GameClient {
                         1.0
                     }
                 });
-                draw_money_pickup_anim2d(
-                    template,
+                self.owned_world_animations.draw(
+                    animation,
                     screen.x as f32,
                     screen.y as f32,
                     zoom_scale,
                     alpha,
-                    age,
+                    animation_logic_frame,
                     renderer,
                 );
             }
@@ -725,52 +732,6 @@ fn draw_overlay_anim2d_icons(overlay: &crate::drawable::drawable::DrawableOverla
 }
 
 /// C++ `Anim2D::draw` for InGameUI world animations (`MoneyPickUp` SCPDollar loop).
-fn draw_money_pickup_anim2d(
-    template: &str,
-    screen_x: f32,
-    screen_y: f32,
-    zoom_scale: f32,
-    alpha: f32,
-    age_frames: u32,
-    renderer: &mut crate::gui::ui_renderer::UIRenderer,
-) {
-    use crate::system::Anim2D;
-    use game_engine::common::ascii_string::AsciiString;
-    use game_engine::common::ini::get_anim2d_collection;
-    use glam::Vec2;
-
-    if let Some(collection) = get_anim2d_collection() {
-        if let Some(tmpl) = collection
-            .read()
-            .find_template(&AsciiString::from(template))
-        {
-            let num_frames = tmpl.read().get_num_frames().max(1);
-            let anim = Anim2D::new(tmpl, None);
-            let mut guard = anim.lock();
-            let frame = (age_frames % u32::from(num_frames)) as u16;
-            guard.set_current_frame(frame);
-            guard.set_alpha(alpha);
-            let width = guard.get_current_frame_width() as f32 * zoom_scale;
-            let height = guard.get_current_frame_height() as f32 * zoom_scale;
-            if width > 0.0 && height > 0.0 {
-                guard.draw_sized(
-                    (screen_x - width * 0.5) as i32,
-                    (screen_y - height * 0.5) as i32,
-                    width as i32,
-                    height as i32,
-                );
-                return;
-            }
-        }
-    }
-    let size = (24.0 * zoom_scale).max(8.0);
-    let _ = renderer.draw_text_simple(
-        "$",
-        Vec2::new(screen_x - size * 0.25, screen_y - size * 0.5),
-        size,
-        [0.2, 0.85, 0.25, alpha],
-    );
-}
 
 /// C++ `Drawable::drawCaption` (Drawable.cpp:3737-3768).
 fn draw_cpp_drawable_caption(

@@ -55,7 +55,7 @@ impl GameLogic {
             if let Some(obj) = logic.objects.get_mut(&object_id) {
                 obj.set_ai_state(
                     state,
-                    &mut crate::game_logic::MovementAudio::queue(&mut logic.queued_audio_events),
+                    &mut crate::game_logic::ObjectAudio::queue(&mut logic.queued_audio_events),
                 );
             }
         };
@@ -1453,7 +1453,7 @@ impl GameLogic {
                                 if obj.needs_internal_move_arrival_observation() {
                                     plant_goal = obj.movement.path.last().copied();
                                     obj.finish_locomotor_path_leg(
-                                        &mut crate::game_logic::MovementAudio::queue(
+                                        &mut crate::game_logic::ObjectAudio::queue(
                                             &mut self.queued_audio_events,
                                         ),
                                     );
@@ -1510,7 +1510,7 @@ impl GameLogic {
                                         obj.ignored_obstacle_id = None;
                                         obj.queue_for_path_frames = 0;
                                         obj.stop_moving(
-                                            &mut crate::game_logic::MovementAudio::queue(
+                                            &mut crate::game_logic::ObjectAudio::queue(
                                                 &mut self.queued_audio_events,
                                             ),
                                         );
@@ -1896,7 +1896,7 @@ impl GameLogic {
                                     {
                                         if obj.needs_internal_move_arrival_observation() {
                                             obj.finish_locomotor_path_leg(
-                                                &mut crate::game_logic::MovementAudio::queue(
+                                                &mut crate::game_logic::ObjectAudio::queue(
                                                     &mut self.queued_audio_events,
                                                 ),
                                             );
@@ -1954,7 +1954,7 @@ impl GameLogic {
                                                 obj.ignored_obstacle_id = None;
                                                 obj.queue_for_path_frames = 0;
                                                 obj.stop_moving(
-                                                    &mut crate::game_logic::MovementAudio::queue(
+                                                    &mut crate::game_logic::ObjectAudio::queue(
                                                         &mut self.queued_audio_events,
                                                     ),
                                                 );
@@ -2393,7 +2393,7 @@ impl GameLogic {
                                     if obj.needs_internal_move_arrival_observation() {
                                         plant_goal = obj.movement.path.last().copied();
                                         obj.finish_locomotor_path_leg(
-                                            &mut crate::game_logic::MovementAudio::queue(
+                                            &mut crate::game_logic::ObjectAudio::queue(
                                                 &mut self.queued_audio_events,
                                             ),
                                         );
@@ -2404,7 +2404,7 @@ impl GameLogic {
                                         }
                                     } else if obj.holds_air_position_when_idle() {
                                         obj.end_temporary_move_overlay(
-                                            &mut crate::game_logic::MovementAudio::queue(
+                                            &mut crate::game_logic::ObjectAudio::queue(
                                                 &mut self.queued_audio_events,
                                             ),
                                         );
@@ -2421,7 +2421,7 @@ impl GameLogic {
                                     {
                                         plant_goal = Some(obj.get_position());
                                         obj.end_temporary_move_overlay(
-                                            &mut crate::game_logic::MovementAudio::queue(
+                                            &mut crate::game_logic::ObjectAudio::queue(
                                                 &mut self.queued_audio_events,
                                             ),
                                         );
@@ -2460,7 +2460,7 @@ impl GameLogic {
                                             obj.ignored_obstacle_id = None;
                                             obj.queue_for_path_frames = 0;
                                             obj.stop_moving(
-                                                &mut crate::game_logic::MovementAudio::queue(
+                                                &mut crate::game_logic::ObjectAudio::queue(
                                                     &mut self.queued_audio_events,
                                                 ),
                                             );
@@ -2540,7 +2540,7 @@ impl GameLogic {
                             {
                                 if obj.holds_air_position_when_idle() {
                                     obj.end_temporary_move_overlay(
-                                        &mut crate::game_logic::MovementAudio::queue(
+                                        &mut crate::game_logic::ObjectAudio::queue(
                                             &mut self.queued_audio_events,
                                         ),
                                     );
@@ -2553,7 +2553,7 @@ impl GameLogic {
                                 {
                                     plant_goal = Some(obj.get_position());
                                     obj.end_temporary_move_overlay(
-                                        &mut crate::game_logic::MovementAudio::queue(
+                                        &mut crate::game_logic::ObjectAudio::queue(
                                             &mut self.queued_audio_events,
                                         ),
                                     );
@@ -2591,7 +2591,7 @@ impl GameLogic {
                                         obj.ignored_obstacle_id = None;
                                         obj.queue_for_path_frames = 0;
                                         obj.stop_moving(
-                                            &mut crate::game_logic::MovementAudio::queue(
+                                            &mut crate::game_logic::ObjectAudio::queue(
                                                 &mut self.queued_audio_events,
                                             ),
                                         );

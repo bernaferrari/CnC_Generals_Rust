@@ -1342,7 +1342,7 @@ pub struct InGameUISubsystem {
     /// Wave 1060: presentation floating cash/text residual.
     presentation_floating_texts: Vec<(String, [f32; 3], (u8, u8, u8, u8), u32, u32)>,
     /// Presentation MoneyPickUp / world Anim2D residual (template, pos, time, z-rise, fades, spawn).
-    presentation_world_anims: Vec<(String, [f32; 3], f32, f32, bool, u32)>,
+    presentation_world_anims: Vec<game_engine::common::world_animation::WorldAnimationPresentation>,
     /// Presentation PublicTimer residual (name + READY/mm:ss).
     presentation_superweapon_timers: Vec<PresentationSuperweaponTimerResidual>,
     tooltips_disabled_until: u32,
@@ -1575,12 +1575,14 @@ impl InGameUISubsystem {
 
     pub fn replace_world_anims_from_presentation(
         &mut self,
-        entries: &[(String, [f32; 3], f32, f32, bool, u32)],
+        entries: &[game_engine::common::world_animation::WorldAnimationPresentation],
     ) {
         self.presentation_world_anims = entries.to_vec();
     }
 
-    pub fn presentation_world_anims(&self) -> &[(String, [f32; 3], f32, f32, bool, u32)] {
+    pub fn presentation_world_anims(
+        &self,
+    ) -> &[game_engine::common::world_animation::WorldAnimationPresentation] {
         &self.presentation_world_anims
     }
     pub fn hud_messages(&self) -> &VecDeque<MessageText> {

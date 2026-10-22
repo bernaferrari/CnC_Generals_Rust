@@ -155,7 +155,7 @@ impl Object {
         &mut self,
         amount: f32,
         health_events: &mut crate::game_logic::HostHealthEvents,
-        audio: &mut crate::game_logic::MovementAudio<'_>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
         if amount <= 0.0 || !amount.is_finite() {
             return;
@@ -181,7 +181,7 @@ impl Object {
     pub fn tick_subdual_damage(
         &mut self,
         health_events: &mut crate::game_logic::HostHealthEvents,
-        audio: &mut crate::game_logic::MovementAudio<'_>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
         if self.subdual_damage <= 0.0 {
             if self.status.disabled_subdued && !self.is_emp_disabled() {
@@ -210,7 +210,7 @@ impl Object {
         &mut self,
         subdued: bool,
         health_events: &mut crate::game_logic::HostHealthEvents,
-        audio: &mut crate::game_logic::MovementAudio<'_>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
         if subdued {
             let already_power = self.is_power_style_disabled();
@@ -265,7 +265,7 @@ impl Object {
     pub fn apply_kill_pilot_unmanned(
         &mut self,
         health_events: &mut crate::game_logic::HostHealthEvents,
-        audio: &mut crate::game_logic::MovementAudio<'_>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
         // Preserve original controller for same-player PartitionFilter residual.
         // Only snapshot on the edge into unmanned (refresh would overwrite Neutral).
@@ -314,7 +314,8 @@ impl Object {
         pilot_owner_player_id: Option<u32>,
         pilot_level: crate::game_logic::VeterancyLevel,
         ownership_events: &mut crate::game_logic::host_owner_log::OwnershipEvents,
-        audio: &mut crate::game_logic::MovementAudio<'_>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
+        feedback: &mut crate::game_logic::VeterancyFeedback<'_>,
     ) -> bool {
         use crate::game_logic::host_usa_pilot::{merged_recrew_veterancy, veterancy_rank};
 
@@ -346,7 +347,7 @@ impl Object {
         let merged = merged_recrew_veterancy(previous, pilot_level);
         let transferred = veterancy_rank(merged) > veterancy_rank(previous);
         if transferred {
-            let _ = self.set_min_veterancy_level(merged);
+            let _ = self.set_min_veterancy_level(merged, audio, feedback);
         }
         transferred
     }
@@ -361,11 +362,7 @@ impl Object {
     }
 
     /// Toggle DeployStyle residual (artillery / missile humvee / etc.).
-    pub fn set_deployed(
-        &mut self,
-        deployed: bool,
-        audio: &mut crate::game_logic::MovementAudio<'_>,
-    ) {
+    pub fn set_deployed(&mut self, deployed: bool, audio: &mut crate::game_logic::ObjectAudio<'_>) {
         // The installed object owns its deployed status.
         self.set_status_deployed(deployed);
         if deployed {
@@ -681,7 +678,7 @@ impl Object {
         &mut self,
         mode: crate::game_logic::host_command_button_hunt::HostCommandButtonHuntMode,
         current_frame: u32,
-        audio: &mut crate::game_logic::MovementAudio<'_>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
         self.command_button_hunt = Some(
             crate::game_logic::host_command_button_hunt::HostCommandButtonHuntData::new(
@@ -733,7 +730,7 @@ impl Object {
         &mut self,
         until_frame: u32,
         health_events: &mut crate::game_logic::HostHealthEvents,
-        audio: &mut crate::game_logic::MovementAudio<'_>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
         let becoming = !self.is_disabled();
         let already_power = self.is_power_style_disabled();
@@ -792,7 +789,7 @@ impl Object {
         &mut self,
         until_frame: u32,
         health_events: &mut crate::game_logic::HostHealthEvents,
-        audio: &mut crate::game_logic::MovementAudio<'_>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
         let becoming = !self.is_disabled();
         let already_power = self.is_power_style_disabled();
@@ -844,7 +841,7 @@ impl Object {
     pub fn apply_disabled_paralyzed(
         &mut self,
         until_frame: u32,
-        audio: &mut crate::game_logic::MovementAudio<'_>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
         let becoming = !self.is_disabled();
         self.set_status_disabled_paralyzed(true);

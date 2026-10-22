@@ -1441,7 +1441,7 @@ impl Object {
     }
 
     /// Returns true the frame the delay hits zero while a path is still waiting.
-    pub fn tick_path_queue(&mut self, audio: &mut crate::game_logic::MovementAudio<'_>) -> bool {
+    pub fn tick_path_queue(&mut self, audio: &mut crate::game_logic::ObjectAudio<'_>) -> bool {
         let expired = if self.queue_for_path_frames == 0 {
             false
         } else {

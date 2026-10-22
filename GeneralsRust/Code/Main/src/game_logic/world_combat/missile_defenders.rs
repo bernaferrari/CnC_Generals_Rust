@@ -244,11 +244,11 @@ impl GameLogic {
                 obj.set_order_target(
                     Some(target_id),
                     &mut self.attack_events,
-                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
                 obj.set_ai_state(
                     AIState::SpecialAbility,
-                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
             }
             self.path_approach_with_state_ignoring(
@@ -304,12 +304,12 @@ impl GameLogic {
 
         let timings = leftover_sa_timings(LeftoverSaKind::LaserGuided);
         if let Some(obj) = self.objects.get_mut(&object_id) {
-            obj.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+            obj.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                 &mut self.queued_audio_events,
             ));
             obj.set_ai_state(
                 AIState::SpecialAbility,
-                &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
             obj.set_status_using_ability(true);
         }
@@ -1809,7 +1809,7 @@ impl GameLogic {
             attacker.note_attack_target(
                 target_id,
                 &mut self.attack_events,
-                &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
             let entered_attack = !matches!(
                 attacker.ai_state,
@@ -1818,7 +1818,7 @@ impl GameLogic {
             if entered_attack {
                 attacker.set_ai_state(
                     AIState::Attacking,
-                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
             }
             {}
@@ -1940,14 +1940,14 @@ impl GameLogic {
         let (sync_master, sync_drone) =
             crate::game_logic::host_slave_drones::synced_spawn_veterancy(master_level, drone_level);
         if sync_master != master_level {
-            if let Some(master) = self.objects.get_mut(&master_id) {
-                master.set_min_veterancy_level(sync_master);
-            }
+            self.with_object_veterancy_feedback(master_id, |master, audio, feedback| {
+                master.set_min_veterancy_level(sync_master, audio, feedback)
+            });
         }
         if sync_drone != drone_level {
-            if let Some(drone) = self.objects.get_mut(&drone_id) {
-                drone.set_min_veterancy_level(sync_drone);
-            }
+            self.with_object_veterancy_feedback(drone_id, |drone, audio, feedback| {
+                drone.set_min_veterancy_level(sync_drone, audio, feedback)
+            });
         }
 
         if let Some(master) = self.objects.get_mut(&master_id) {
@@ -2105,7 +2105,7 @@ impl GameLogic {
             occ.set_contained_by(None);
             occ.set_ai_state(
                 AIState::Idle,
-                &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
             {}
             ejected.push(occ_id);
@@ -2407,7 +2407,7 @@ impl GameLogic {
             occ.set_contained_by(None);
             occ.set_ai_state(
                 AIState::Idle,
-                &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
             {}
             if let Some(aid) = attacker_id {

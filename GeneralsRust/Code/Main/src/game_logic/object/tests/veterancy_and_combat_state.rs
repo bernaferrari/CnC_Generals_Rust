@@ -4,11 +4,19 @@ use super::*;
 #[test]
 fn veterancy_increases_weapon_damage() {
     let mut object = make_test_object();
-    object.gain_experience(60.0); // Veteran → +10% dmg
+    object.gain_experience(
+        60.0,
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::VeterancyFeedback::standalone(),
+    ); // Veteran → +10% dmg
     let veteran_damage = object.weapon.as_ref().map(|w| w.damage).unwrap_or_default();
     assert!((veteran_damage - 110.0).abs() < 0.01);
 
-    object.gain_experience(90.0); // Elite → +20% dmg (total)
+    object.gain_experience(
+        90.0,
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::VeterancyFeedback::standalone(),
+    ); // Elite → +20% dmg (total)
     let elite_damage = object.weapon.as_ref().map(|w| w.damage).unwrap_or_default();
     assert!((elite_damage - 120.0).abs() < 0.01);
 }
@@ -16,19 +24,31 @@ fn veterancy_increases_weapon_damage() {
 fn level_up_sets_weaponset_and_weaponbonus_flags() {
     let mut object = make_test_object();
     assert!(!object.weapon_set_veteran && !object.weapon_bonus_veteran);
-    object.gain_experience(60.0);
+    object.gain_experience(
+        60.0,
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::VeterancyFeedback::standalone(),
+    );
     assert!(object.weapon_set_veteran);
     assert!(object.weapon_bonus_veteran);
     assert!(!object.weapon_set_elite && !object.weapon_set_hero);
     assert!(!object.weapon_bonus_elite && !object.weapon_bonus_hero);
 
-    object.gain_experience(90.0); // 150 total → Elite
+    object.gain_experience(
+        90.0,
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::VeterancyFeedback::standalone(),
+    ); // 150 total → Elite
     assert!(!object.weapon_set_veteran && !object.weapon_bonus_veteran);
     assert!(object.weapon_set_elite);
     assert!(object.weapon_bonus_elite);
     assert!(!object.weapon_set_hero && !object.weapon_bonus_hero);
 
-    object.gain_experience(150.0); // 300 total → Heroic
+    object.gain_experience(
+        150.0,
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::VeterancyFeedback::standalone(),
+    ); // 300 total → Heroic
     assert!(!object.weapon_set_veteran && !object.weapon_set_elite);
     assert!(object.weapon_set_hero);
     assert!(object.weapon_bonus_hero);
@@ -69,7 +89,11 @@ fn veterancy_preserves_health_ratio_when_max_health_changes() {
     object.health.current = 50.0;
     object.health.maximum = 100.0;
 
-    object.gain_experience(60.0); // Veteran → +20% HP
+    object.gain_experience(
+        60.0,
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::VeterancyFeedback::standalone(),
+    ); // Veteran → +20% HP
     assert!((object.health.maximum - 120.0).abs() < 0.01);
     assert!((object.health.current - 60.0).abs() < 0.01);
 }
@@ -82,8 +106,11 @@ fn level_up_scales_current_max_health_not_template() {
     object.health.maximum = 250.0;
     object.health.current = 250.0;
     object.max_health = 250.0;
-    crate::game_logic::host_unit_training::clear_promote_fx();
-    object.gain_experience(60.0);
+    object.gain_experience(
+        60.0,
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::VeterancyFeedback::standalone(),
+    );
     assert!(
         (object.health.maximum - 300.0).abs() < 0.01,
         "expected 250 * 1.2, got {}",
@@ -96,97 +123,144 @@ fn level_up_scales_current_max_health_not_template() {
     );
 }
 
-#[test]
-fn level_up_gives_veterancy_upgrade_and_promote_fx() {
-    use crate::game_logic::host_unit_training::{
-        UNIT_PROMOTED_AUDIO, UPGRADE_VETERANCY_VETERAN, clear_promote_fx, drain_promote_audio,
-        promote_anims_snapshot,
-    };
-    let mut object = make_test_object();
-    clear_promote_fx();
-    object.gain_experience(60.0);
-    assert!(object.has_upgrade_tag(UPGRADE_VETERANCY_VETERAN));
-    let audio = drain_promote_audio();
+fn promotion_world() -> crate::game_logic::GameLogic {
+    use crate::game_logic::promotion_definitions::PromotionDefinitions;
+    let mut world = crate::game_logic::GameLogic::new();
+    let mut definitions = PromotionDefinitions::from_ordered_sources(
+        &[],
+        &[("fixture-misc.ini", "MiscAudio\nUnitPromoted = UnitPromoted\nEnd\n".to_string())],
+        &[("fixture-anims.ini", "Animation LevelGain\nNumberImages = 1\nImage = LevelGainImage\nAnimationMode = LOOP\nEnd\n".to_string())],
+        &|name| name == "LevelGainImage",
+    ).unwrap();
+    definitions.rules.animation_name = "LevelGain".into();
+    definitions.rules.display_seconds = 2.0;
+    definitions.rules.rise_per_second = 15.0;
+    world.admit_promotion_definitions(definitions).unwrap();
+    world.add_player(crate::game_logic::Player::new(
+        0,
+        Team::USA,
+        "Receiving",
+        true,
+    ));
+    world
+}
+fn assert_promotion_present(world: &crate::game_logic::GameLogic) {
     assert!(
-        audio.iter().any(|e| e.event_name == UNIT_PROMOTED_AUDIO),
-        "UnitPromoted must queue on rank-up"
+        world
+            .queued_audio_events
+            .iter()
+            .any(|event| event.event_type == "UnitPromoted"),
+        "receiving UnitPromoted must queue on rank-up"
     );
     assert!(
-        !promote_anims_snapshot().is_empty(),
-        "LevelGain Anim2D must queue on rank-up"
+        world
+            .session_view
+            .world_animations
+            .births()
+            .next()
+            .is_some(),
+        "receiving LevelGain must queue on rank-up"
     );
 }
-
+#[test]
+fn level_up_gives_veterancy_upgrade_and_promote_fx() {
+    let mut owner = promotion_world();
+    let object = make_test_object();
+    let id = object.id;
+    owner.objects.insert(id, object);
+    owner.award_experience(id, 60.0);
+    assert!(
+        owner.objects[&id]
+            .has_upgrade_tag(crate::game_logic::host_unit_training::UPGRADE_VETERANCY_VETERAN)
+    );
+    assert_promotion_present(&owner);
+}
 #[test]
 fn queue_veterancy_promote_fx_plays_for_local_visible_rank_up() {
-    use crate::game_logic::host_unit_training::{
-        UNIT_PROMOTED_AUDIO, clear_promote_fx, drain_promote_audio, promote_anims_snapshot,
-    };
+    let mut owner = promotion_world();
     let mut object = make_test_object();
     object.owner_player_id = Some(0);
     object.status.stealthed = false;
-    clear_promote_fx();
-    object.gain_experience(60.0);
-    let audio = drain_promote_audio();
-    assert!(
-        audio.iter().any(|e| e.event_name == UNIT_PROMOTED_AUDIO),
-        "local visible rank-up must queue UnitPromoted"
-    );
-    assert!(
-        !promote_anims_snapshot().is_empty(),
-        "local visible rank-up must queue LevelGain"
-    );
+    let id = object.id;
+    owner.objects.insert(id, object);
+    owner.award_experience(id, 60.0);
+    assert_promotion_present(&owner);
 }
-
 #[test]
 fn queue_veterancy_promote_fx_hides_undetected_stealthed_enemy() {
-    use crate::game_logic::host_unit_training::{
-        clear_promote_fx, drain_promote_audio, promote_anims_snapshot,
-    };
+    let mut owner = promotion_world();
     let mut object = make_test_object();
     object.owner_player_id = Some(1);
     object.status.stealthed = true;
     object.status.detected = false;
     object.status.disguised = false;
-    clear_promote_fx();
-    object.gain_experience(60.0);
+    let id = object.id;
+    owner.objects.insert(id, object);
+    owner.award_experience(id, 60.0);
     assert!(
-        drain_promote_audio().is_empty(),
-        "undetected stealthed enemy must not leak UnitPromoted"
+        owner.queued_audio_events.is_empty(),
+        "undetected enemy must not leak UnitPromoted"
     );
     assert!(
-        promote_anims_snapshot().is_empty(),
-        "undetected stealthed enemy must not leak LevelGain"
+        owner
+            .session_view
+            .world_animations
+            .births()
+            .next()
+            .is_none(),
+        "undetected enemy must not leak LevelGain"
     );
 }
-
 #[test]
 fn queue_veterancy_promote_fx_skips_rider_swap_and_hijack_without_feedback() {
-    use crate::game_logic::host_unit_training::{
-        clear_promote_fx, drain_promote_audio, promote_anims_snapshot,
-    };
+    let mut owner = promotion_world();
     let mut bike = make_test_object();
-    clear_promote_fx();
     bike.set_rider_change_veterancy_level(VeterancyLevel::Veteran);
-    assert!(
-        drain_promote_audio().is_empty() && promote_anims_snapshot().is_empty(),
-        "RiderChangeContain provideFeedback=FALSE queues nothing"
-    );
     assert_eq!(bike.experience.level, VeterancyLevel::Veteran);
-
     let mut vehicle = make_test_object();
     let mut hijacker = make_test_object();
     hijacker.experience.level = VeterancyLevel::Elite;
-    clear_promote_fx();
-    vehicle.apply_hijacked_from(
-        Some(&hijacker),
-        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+    owner.with_veterancy_feedback(&mut vehicle, |object, audio, _feedback| {
+        object.apply_hijacked_from(Some(&hijacker), audio);
+    });
+    assert_eq!(vehicle.experience.level, VeterancyLevel::Elite);
+    assert!(
+        owner.queued_audio_events.is_empty(),
+        "quiet transfer queues no audio"
     );
     assert!(
-        drain_promote_audio().is_empty() && promote_anims_snapshot().is_empty(),
-        "hijack setVeterancyLevel(..., FALSE) queues nothing"
+        owner
+            .session_view
+            .world_animations
+            .births()
+            .next()
+            .is_none(),
+        "quiet transfer queues no animation"
     );
-    assert_eq!(vehicle.experience.level, VeterancyLevel::Elite);
+}
+#[test]
+fn receiving_promotion_output_survives_peer_reset_with_same_object_id() {
+    let mut owner = promotion_world();
+    let mut peer = promotion_world();
+    let object = make_test_object();
+    let id = object.id;
+    owner.objects.insert(id, object);
+    peer.objects.insert(id, make_test_object());
+    owner.frame = 17;
+    owner.award_experience(id, 60.0);
+    let before = owner.queued_audio_events.len();
+    assert_promotion_present(&owner);
+    peer.award_experience(id, 300.0);
+    peer.reset();
+    assert_eq!(owner.queued_audio_events.len(), before);
+    let births = owner
+        .session_view
+        .world_animations
+        .births()
+        .collect::<Vec<_>>();
+    assert_eq!(births.len(), 1);
+    assert_eq!(births[0].spawn_frame, 17);
+    assert_eq!(owner.objects[&id].experience.level, VeterancyLevel::Veteran);
 }
 
 #[test]
@@ -224,7 +298,8 @@ fn pilot_recrew_adds_pilot_levels_not_max() {
         Some(0),
         VeterancyLevel::Veteran,
         &mut _ownership_output,
-        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::VeterancyFeedback::standalone(),
     ));
     assert_eq!(vehicle.experience.level, VeterancyLevel::Heroic);
 }
@@ -277,7 +352,7 @@ fn paralyzed_rejects_move_orders() {
     let mut obj = make_test_object();
     obj.apply_disabled_paralyzed(
         30,
-        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
     );
     assert!(obj.is_disabled());
     assert!(!obj.can_move(), "C++ isMobile is false while paralyzed");
@@ -300,7 +375,7 @@ fn sold_and_under_construction_cannot_attack_or_fire() {
         0,
         &mut shot_combat,
         &mut _attack_output,
-        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
     ));
 
     obj.status.under_construction = true;
@@ -313,7 +388,7 @@ fn sold_and_under_construction_cannot_attack_or_fire() {
             0,
             &mut shot_combat,
             &mut _attack_output,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
         ),
         "UC fire_at must fail"
     );
@@ -330,7 +405,7 @@ fn sold_and_under_construction_cannot_attack_or_fire() {
             0,
             &mut shot_combat,
             &mut _attack_output,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
         ),
         "sold fire_at must fail"
     );
@@ -354,7 +429,7 @@ fn unmanned_enter_wipes_veterancy_and_auto_heal() {
     );
     vehicle.apply_kill_pilot_unmanned(
         &mut _body_output,
-        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
     );
     assert_eq!(vehicle.experience.level, VeterancyLevel::Rookie);
     assert_eq!(vehicle.experience.current, 0.0);
@@ -369,7 +444,8 @@ fn unmanned_enter_wipes_veterancy_and_auto_heal() {
         Some(0),
         VeterancyLevel::Veteran,
         &mut _ownership_output,
-        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::VeterancyFeedback::standalone(),
     ));
     assert_eq!(vehicle.experience.level, VeterancyLevel::Veteran);
 }
@@ -400,7 +476,7 @@ fn hacked_spawn_site_idles_residual_slaves() {
     site.apply_disabled_hacked(
         60,
         &mut _body_output,
-        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
     );
     assert!(site.is_hacked_disabled());
     assert!(site.hive_slaves.iter().all(|s| !s.ai_attacking));
@@ -414,15 +490,15 @@ fn stop_attack_clears_force_attack_and_targets() {
     object.set_target(
         Some(ObjectId(99)),
         &mut _attack_output,
-        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
     );
     object.set_force_attack(true);
     object.set_target_location(
         Some(Vec3::new(1.0, 0.0, 2.0)),
-        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
     );
     assert!(object.set_weapon_lock(0, WeaponLockType::LockedTemporarily));
-    object.stop_attack(&mut crate::game_logic::MovementAudio::queue(&mut Vec::new()));
+    object.stop_attack(&mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()));
 
     assert!(object.target.is_none());
     assert!(object.target_location.is_none());
@@ -455,7 +531,7 @@ fn temporary_tertiary_lock_releases_after_its_auto_clip_reloads() {
         0,
         &mut shot_combat,
         &mut _attack_output,
-        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
     ));
 
     assert_eq!(object.last_fire_slot, 2);
@@ -482,11 +558,11 @@ fn setting_target_location_clears_object_target() {
     object.set_target(
         Some(ObjectId(77)),
         &mut _attack_output,
-        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
     );
     object.set_target_location(
         Some(Vec3::new(10.0, 0.0, 10.0)),
-        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
     );
 
     assert!(object.target.is_none());
@@ -551,7 +627,7 @@ fn fire_at_breaks_stealth_when_forbidden_while_attacking() {
         0,
         &mut shot_combat,
         &mut _attack_output,
-        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
     ));
     assert!(!object.status.stealthed);
     assert!(!object.status.detected);
@@ -675,7 +751,7 @@ fn pre_attack_delay_blocks_first_shot() {
         0,
         &mut shot_combat,
         &mut _attack_output,
-        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
     ));
     assert_eq!(atk.pre_attack_target, Some(tgt_id));
     assert!((atk.pre_attack_ready_at - 11.0).abs() < 1e-4);
@@ -688,7 +764,7 @@ fn pre_attack_delay_blocks_first_shot() {
         0,
         &mut shot_combat,
         &mut _attack_output,
-        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
     ));
     assert_eq!(atk.weapon.as_ref().unwrap().ammo, Some(5));
 
@@ -699,7 +775,7 @@ fn pre_attack_delay_blocks_first_shot() {
         0,
         &mut shot_combat,
         &mut _attack_output,
-        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
     ));
     assert_eq!(atk.weapon.as_ref().unwrap().ammo, Some(4));
 }
@@ -728,7 +804,7 @@ fn pre_attack_resets_on_new_target() {
         0,
         &mut shot_combat,
         &mut _attack_output,
-        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
     ));
     assert!((atk.pre_attack_ready_at - 7.0).abs() < 1e-4);
     // Switch target restarts delay.
@@ -738,7 +814,7 @@ fn pre_attack_resets_on_new_target() {
         0,
         &mut shot_combat,
         &mut _attack_output,
-        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
     ));
     assert_eq!(atk.pre_attack_target, Some(ObjectId(11)));
     assert!((atk.pre_attack_ready_at - 8.0).abs() < 1e-4);
@@ -860,7 +936,7 @@ fn garrison_range_bonus_extends_is_within_attack_range() {
     atk.contained_by = Some(ObjectId(99));
     atk.set_ai_state(
         AIState::Docked,
-        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
     );
     assert!(
         !atk.is_within_attack_range(&vic),
@@ -868,7 +944,7 @@ fn garrison_range_bonus_extends_is_within_attack_range() {
     );
     atk.set_ai_state(
         AIState::Garrisoned,
-        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
     );
     assert!(
         atk.is_within_attack_range(&vic),
@@ -914,7 +990,7 @@ fn fire_at_scales_secondary_damage_with_damage_bonus() {
         30,
         &mut shot_combat,
         &mut attack_output,
-        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
     ));
     assert_eq!(
         crate::game_logic::combat::pending_projectile_queue_len_for_test(&shot_combat),
@@ -1615,7 +1691,7 @@ fn keep_object_die_leaves_rubble() {
     o.health.current = 0.0;
     assert!(o.begin_keep_object_die(
         10,
-        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
     ));
     assert!(o.status.keep_as_rubble);
     assert!(o.status.effectively_dead);
@@ -1699,7 +1775,7 @@ fn jet_slow_death_begins_for_raptor() {
     let mut o = Object::new(t, ObjectId(3), Team::USA);
     o.health.current = 0.0;
     o.set_position(glam::Vec3::new(0.0, 80.0, 0.0));
-    assert!(o.begin_jet_slow_death(&mut crate::game_logic::MovementAudio::queue(&mut Vec::new())));
+    assert!(o.begin_jet_slow_death(&mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())));
     assert!(o.jet_slow_death.as_ref().unwrap().is_active());
 }
 
@@ -1712,9 +1788,7 @@ fn helicopter_slow_death_begins() {
     let mut o = Object::new(t, ObjectId(2), Team::USA);
     o.health.current = 0.0;
     assert!(
-        o.begin_helicopter_slow_death(
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
-        )
+        o.begin_helicopter_slow_death(&mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()))
     );
     assert!(o.helicopter_slow_death.as_ref().unwrap().is_active());
 }
@@ -1733,7 +1807,7 @@ fn slow_death_infantry_defers_and_sinks() {
     assert!(o.begin_slow_death_from_ini(
         0,
         &HostSlowDeathIni::infantry_retail(),
-        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
     ));
     assert!(!o.status.destroyed);
     assert!(o.slow_death.as_ref().unwrap().is_active());
@@ -1876,7 +1950,7 @@ fn instant_death_under_construction_building() {
     t.add_kind_of(KindOf::Structure);
     let mut o = Object::new(t, ObjectId(5), Team::USA);
     o.status.under_construction = true;
-    assert!(o.fire_instant_death(&mut crate::game_logic::MovementAudio::queue(&mut Vec::new())));
+    assert!(o.fire_instant_death(&mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())));
     let (fx, _) = o.take_pending_death_fx_audio();
     assert_eq!(fx.as_deref(), Some("FX_StructureMediumDeath"));
 }
@@ -1992,7 +2066,7 @@ fn structure_collapse_on_lethal() {
     b.health.current = 100.0;
     assert!(b.begin_structure_collapse(
         5,
-        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
     ));
     assert!(b.structure_collapse_data.as_ref().unwrap().is_active());
     let mut done = false;
@@ -2033,7 +2107,7 @@ fn structure_collapse_binds_and_plays_phase_fx() {
     let mut b = Object::new(t, ObjectId(1), Team::Neutral);
     assert!(b.begin_structure_collapse(
         0,
-        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
     ));
     {
         let sc = b.structure_collapse_data.as_ref().unwrap();
@@ -2085,7 +2159,7 @@ fn structure_topple_on_lethal_damage() {
     assert!(b.begin_structure_topple(
         10,
         Some((0.0, 0.0)),
-        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
     ));
     assert!(
         b.structure_topple_data.as_ref().unwrap().is_active()
@@ -2487,7 +2561,7 @@ fn most_percent_ready_between_shots_progresses() {
         0,
         &mut shot_combat,
         &mut _attack_output,
-        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
     ));
     assert_eq!(o.weapon_fire_status, WeaponFireStatus::BetweenFiringShots);
     let mid = o.get_most_percent_ready_to_fire_any_weapon(1.5);
@@ -2562,7 +2636,7 @@ fn weapon_status_sets_between_firing_model_condition() {
         0,
         &mut shot_combat,
         &mut _attack_output,
-        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
     ));
     assert_eq!(atk.weapon_fire_status, WeaponFireStatus::BetweenFiringShots);
     assert_ne!(
@@ -2601,7 +2675,7 @@ fn weapon_fire_status_between_shots_after_fire() {
         0,
         &mut shot_combat,
         &mut _attack_output,
-        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
     ));
     assert_eq!(atk.weapon_fire_status, WeaponFireStatus::BetweenFiringShots);
     atk.refresh_weapon_fire_status(2.0);
@@ -2669,7 +2743,7 @@ fn max_shots_to_fire_blocks_after_budget() {
         0,
         &mut shot_combat,
         &mut _attack_output,
-        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
     ));
     assert_eq!(atk.max_shots_to_fire, 1);
     assert!(atk.fire_at(
@@ -2678,7 +2752,7 @@ fn max_shots_to_fire_blocks_after_budget() {
         0,
         &mut shot_combat,
         &mut _attack_output,
-        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
     ));
     assert_eq!(atk.max_shots_to_fire, 0);
     assert!(!atk.fire_at(
@@ -2687,7 +2761,7 @@ fn max_shots_to_fire_blocks_after_budget() {
         0,
         &mut shot_combat,
         &mut _attack_output,
-        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
     ));
     atk.set_max_shots_to_fire(-1);
     assert!(atk.fire_at(
@@ -2696,7 +2770,7 @@ fn max_shots_to_fire_blocks_after_budget() {
         0,
         &mut shot_combat,
         &mut _attack_output,
-        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
     ));
     assert_eq!(atk.max_shots_to_fire, -1);
 }
@@ -2803,7 +2877,7 @@ fn continuous_fire_coasts_down_after_idle() {
             109,
             &mut loop_events,
             health_events,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         assert_eq!(a.continuous_fire_level, 1);
         // C++ FiringTracker.cpp:189: strict `now > m_frameToStartCooldown` —
@@ -2812,14 +2886,14 @@ fn continuous_fire_coasts_down_after_idle() {
             110,
             &mut loop_events,
             health_events,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         assert_eq!(a.continuous_fire_level, 1);
         a.tick_continuous_fire_coast(
             111,
             &mut loop_events,
             health_events,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         assert_eq!(a.continuous_fire_level, 0);
         assert_eq!(a.consecutive_shots_at_target, 0);
@@ -3035,7 +3109,7 @@ fn fire_at_ex_faerie_fire_speeds_reload() {
             logic.frame,
             &mut logic.combat_system,
             &mut logic.attack_events,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         ));
         // Without faerie, not ready at 0.7 (needs full 1.0s)
         assert!(!a.fire_at_ex(
@@ -3046,7 +3120,7 @@ fn fire_at_ex_faerie_fire_speeds_reload() {
             logic.frame,
             &mut logic.combat_system,
             &mut logic.attack_events,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         ));
         // With faerie ROF 150%, ready at 0.7 (effective reload ~0.667)
         assert!(
@@ -3058,7 +3132,7 @@ fn fire_at_ex_faerie_fire_speeds_reload() {
                 logic.frame,
                 &mut logic.combat_system,
                 &mut logic.attack_events,
-                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
             ),
             "TARGET_FAERIE_FIRE should ready at ~0.667s reload"
         );
@@ -3297,7 +3371,7 @@ fn leech_range_waives_max_range_after_activate() {
     assert!(atk.can_target_with_slot(&tgt, atk.weapon.as_ref().unwrap(), Some(0)));
 
     // stop_attack clears.
-    atk.stop_attack(&mut crate::game_logic::MovementAudio::queue(&mut Vec::new()));
+    atk.stop_attack(&mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()));
     assert!(!atk.leech_range_active_primary);
     assert!(!atk.can_target_with_slot(&tgt, atk.weapon.as_ref().unwrap(), Some(0)));
 }
@@ -3379,7 +3453,7 @@ fn pre_attack_type_per_shot_delays_every_discharge() {
         0,
         &mut shot_combat,
         &mut _attack_output,
-        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
     ));
     assert!((atk.pre_attack_ready_at - 10.5).abs() < 1e-4);
     // Still winding
@@ -3389,7 +3463,7 @@ fn pre_attack_type_per_shot_delays_every_discharge() {
         0,
         &mut shot_combat,
         &mut _attack_output,
-        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
     ));
     // Fire after delay
     assert!(atk.fire_at(
@@ -3398,7 +3472,7 @@ fn pre_attack_type_per_shot_delays_every_discharge() {
         0,
         &mut shot_combat,
         &mut _attack_output,
-        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
     ));
     assert_eq!(atk.consecutive_shots_at_target, 1);
     // PER_SHOT: next shot needs a new delay even vs same target
@@ -3408,7 +3482,7 @@ fn pre_attack_type_per_shot_delays_every_discharge() {
         0,
         &mut shot_combat,
         &mut _attack_output,
-        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
     ));
     assert!(atk.pre_attack_ready_at > 10.5);
     assert!(!atk.fire_at(
@@ -3417,7 +3491,7 @@ fn pre_attack_type_per_shot_delays_every_discharge() {
         0,
         &mut shot_combat,
         &mut _attack_output,
-        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
     ));
     assert!(atk.fire_at(
         tgt,
@@ -3425,7 +3499,7 @@ fn pre_attack_type_per_shot_delays_every_discharge() {
         0,
         &mut shot_combat,
         &mut _attack_output,
-        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
     ));
     assert_eq!(atk.consecutive_shots_at_target, 2);
 }
@@ -3460,7 +3534,7 @@ fn pre_attack_type_per_attack_delays_once_per_target() {
         0,
         &mut shot_combat,
         &mut _attack_output,
-        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
     )); // wind-up
     assert!(atk.fire_at(
         tgt,
@@ -3468,7 +3542,7 @@ fn pre_attack_type_per_attack_delays_once_per_target() {
         0,
         &mut shot_combat,
         &mut _attack_output,
-        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
     )); // fire
     // Same target: no second wind-up
     assert!(atk.fire_at(
@@ -3477,7 +3551,7 @@ fn pre_attack_type_per_attack_delays_once_per_target() {
         0,
         &mut shot_combat,
         &mut _attack_output,
-        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
     ));
     assert_eq!(atk.consecutive_shots_at_target, 2);
     // New target: delay again
@@ -3488,7 +3562,7 @@ fn pre_attack_type_per_attack_delays_once_per_target() {
         0,
         &mut shot_combat,
         &mut _attack_output,
-        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
     ));
     assert!(atk.fire_at(
         tgt2,
@@ -3496,7 +3570,7 @@ fn pre_attack_type_per_attack_delays_once_per_target() {
         0,
         &mut shot_combat,
         &mut _attack_output,
-        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
     ));
 }
 
@@ -3537,7 +3611,7 @@ fn pre_attack_type_per_clip_delays_on_full_clip_only() {
         0,
         &mut shot_combat,
         &mut _attack_output,
-        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
     ));
     assert!(atk.fire_at(
         tgt,
@@ -3545,7 +3619,7 @@ fn pre_attack_type_per_clip_delays_on_full_clip_only() {
         0,
         &mut shot_combat,
         &mut _attack_output,
-        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
     ));
     assert_eq!(atk.weapon.as_ref().unwrap().ammo, Some(2));
     // Mid-clip → no delay
@@ -3555,7 +3629,7 @@ fn pre_attack_type_per_clip_delays_on_full_clip_only() {
         0,
         &mut shot_combat,
         &mut _attack_output,
-        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
     ));
     assert_eq!(atk.weapon.as_ref().unwrap().ammo, Some(1));
     assert!(atk.fire_at(
@@ -3564,7 +3638,7 @@ fn pre_attack_type_per_clip_delays_on_full_clip_only() {
         0,
         &mut shot_combat,
         &mut _attack_output,
-        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
     ));
     assert_eq!(atk.weapon.as_ref().unwrap().ammo, Some(0));
 }
@@ -3574,18 +3648,247 @@ fn successive_experience_awards_are_owned_before_promotion_callbacks() {
     let mut first = make_test_object();
     let mut peer = make_test_object();
     assert_eq!(first.id, peer.id);
-    first.gain_experience(60.0);
+    first.gain_experience(
+        60.0,
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::VeterancyFeedback::standalone(),
+    );
     assert_eq!(first.experience.current, 60.0);
     assert_eq!(first.experience.level, VeterancyLevel::Veteran);
     let first_health = first.health.clone();
-    peer.gain_experience(300.0);
+    peer.gain_experience(
+        300.0,
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::VeterancyFeedback::standalone(),
+    );
     assert_eq!(peer.experience.current, 300.0);
     assert_eq!(peer.experience.level, VeterancyLevel::Heroic);
     assert_eq!(first.experience.current, 60.0);
     assert_eq!(first.health.current, first_health.current);
-    first.gain_experience(90.0);
+    first.gain_experience(
+        90.0,
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::VeterancyFeedback::standalone(),
+    );
     assert_eq!(first.experience.current, 150.0);
     assert_eq!(first.experience.level, VeterancyLevel::Elite);
     assert_eq!(peer.experience.current, 300.0);
     assert_eq!(first.weapon.as_ref().unwrap().damage, 120.0);
+}
+
+// Append to the proposed veterancy_and_combat_state.rs; uses promotion_world().
+#[test]
+fn authored_body_promotion_precedes_bonus_updates_and_ignores_ui_hide() {
+    let mut owner = promotion_world();
+    owner.set_draw_icon_ui(false);
+    let mut object = make_test_object();
+    let id = object.id;
+    object.health.maximum = 250.0;
+    object.health.current = 125.0;
+    object.max_health = 250.0;
+    object.thing.template.sound_promoted[0] = Some("AuthoredVeteran".into());
+    owner.objects.insert(id, object);
+    let mut observed = Vec::new();
+    owner
+        .with_object_veterancy_feedback(id, |object, _queue, feedback| {
+            let mut emit = |object: &mut Object, request: crate::game_logic::AudioEventRequest| {
+                observed.push((
+                    request.event_type,
+                    object.health.maximum,
+                    object.health.current,
+                    object.armor_set_veteran,
+                    object.experience.level,
+                ));
+            };
+            object.gain_experience(
+                60.0,
+                &mut crate::game_logic::ObjectAudio::callback(&mut emit),
+                feedback,
+            );
+        })
+        .unwrap();
+    assert_eq!(
+        observed.len(),
+        1,
+        "hidden UI still emits authored Body cue, not MiscAudio"
+    );
+    assert_eq!(observed[0].0, "AuthoredVeteran");
+    assert_eq!((observed[0].1, observed[0].2), (250.0, 125.0));
+    assert!(
+        !observed[0].3,
+        "Body sound callback observes old armor bonus"
+    );
+    assert_eq!(
+        observed[0].4,
+        VeterancyLevel::Veteran,
+        "XP level changes before callback"
+    );
+    assert!((owner.objects[&id].health.maximum - 300.0).abs() < 0.01);
+    assert!(owner.objects[&id].armor_set_veteran);
+    assert!(
+        owner
+            .session_view
+            .world_animations
+            .births()
+            .next()
+            .is_none()
+    );
+}
+#[test]
+fn local_player_two_stealth_visibility_does_not_assume_player_zero() {
+    let mut owner = promotion_world();
+    owner.get_player_mut(0).unwrap().is_local = false;
+    owner.add_player(crate::game_logic::Player::new(
+        2,
+        Team::USA,
+        "ActualLocal",
+        true,
+    ));
+    let mut object = make_test_object();
+    let id = object.id;
+    object.owner_player_id = Some(2);
+    object.status.stealthed = true;
+    object.status.detected = false;
+    object.status.disguised = false;
+    owner.objects.insert(id, object);
+    owner.award_experience(id, 60.0);
+    assert_promotion_present(&owner);
+    let mut enemy = make_test_object();
+    enemy.id = ObjectId(2);
+    enemy.owner_player_id = Some(0);
+    enemy.status.stealthed = true;
+    enemy.status.detected = false;
+    enemy.status.disguised = false;
+    owner.objects.insert(enemy.id, enemy);
+    let before = owner.queued_audio_events.len();
+    owner.award_experience(ObjectId(2), 60.0);
+    assert_eq!(owner.queued_audio_events.len(), before);
+    assert_eq!(owner.session_view.world_animations.births().count(), 1);
+}
+#[test]
+fn missing_animation_does_not_suppress_receiving_misc_audio() {
+    let mut owner = promotion_world();
+    owner.promotion_definitions.rules.animation_name = "NotAdmitted".into();
+    let object = make_test_object();
+    let id = object.id;
+    owner.objects.insert(id, object);
+    owner.award_experience(id, 60.0);
+    assert_eq!(
+        owner
+            .queued_audio_events
+            .iter()
+            .filter(|event| event.event_type == "UnitPromoted")
+            .count(),
+        1
+    );
+    assert!(
+        owner
+            .session_view
+            .world_animations
+            .births()
+            .next()
+            .is_none()
+    );
+}
+#[test]
+fn zero_frame_animation_expires_only_in_unpaused_receiving_ui_phase() {
+    let mut owner = promotion_world();
+    owner.promotion_definitions.rules.display_seconds = 0.01;
+    let object = make_test_object();
+    let id = object.id;
+    owner.objects.insert(id, object);
+    owner.award_experience(id, 60.0);
+    assert_eq!(owner.frame, 0);
+    owner.set_paused(true);
+    owner.advance_world_animations_for_presentation();
+    let first = owner.session_view.world_animations.births().next().unwrap();
+    assert_eq!(
+        first.spawn_frame, 0,
+        "birth zero is an actual captured frame"
+    );
+    assert_eq!(owner.session_view.world_animations.births().count(), 1);
+    let mut peer = promotion_world();
+    peer.frame = 500;
+    peer.advance_world_animations_for_presentation();
+    peer.reset();
+    assert_eq!(owner.session_view.world_animations.births().count(), 1);
+    owner.set_paused(false);
+    owner.advance_world_animations_for_presentation();
+    assert_eq!(owner.session_view.world_animations.births().count(), 0);
+    owner.award_experience(id, 90.0);
+    assert_eq!(owner.session_view.world_animations.births().count(), 1);
+    owner.reset();
+    assert_eq!(owner.session_view.world_animations.births().count(), 0);
+}
+
+// Append to object/tests/veterancy_and_combat_state.rs; uses promotion_world().
+#[test]
+fn repeated_real_presentation_freezes_preserve_zero_birth_identity_and_audio_once() {
+    use crate::presentation_frame::PresentationFrame;
+    let mut owner = promotion_world();
+    let mut peer = promotion_world();
+    let mut object = make_test_object();
+    let id = object.id;
+    object.owner_player_id = Some(0);
+    object.thing.template.sound_promoted[1] = Some("DetachedEliteBodyCue".into());
+    owner.objects.insert(id, object);
+    peer.objects.insert(id, make_test_object());
+    owner.award_experience(id, 60.0);
+    assert_eq!(owner.queued_audio_events.len(), 1);
+    assert_eq!(owner.queued_audio_events[0].event_type, "UnitPromoted");
+    let first = PresentationFrame::build_from_logic(&mut owner, 0);
+    assert_eq!(first.world_anims.len(), 1);
+    let identity = first.world_anims[0].identity;
+    let initial_frame = first.world_anims[0].initial_frame;
+    assert_ne!(
+        identity, 0,
+        "actual owned animation admission assigns identity"
+    );
+    assert_eq!(first.world_anims[0].spawn_frame, 0);
+    // Snapshot reads cannot age an actual frame-zero birth to the query frame.
+    // Deliberately do not invoke the separate UI expiration phase here.
+    owner.frame = 10;
+    for _ in 0..3 {
+        let repeated = PresentationFrame::build_from_logic(&mut owner, 0);
+        assert_eq!(repeated.world_anims.len(), 1);
+        assert_eq!(repeated.world_anims[0].spawn_frame, 0);
+        assert_eq!(repeated.world_anims[0].identity, identity);
+        assert_eq!(repeated.world_anims[0].initial_frame, initial_frame);
+        assert_eq!(
+            owner.queued_audio_events.len(),
+            1,
+            "snapshot emits no duplicate audio"
+        );
+    }
+    let mut detached = owner.objects[&id].clone();
+    let mut detached_output = Vec::new();
+    detached.gain_experience(
+        90.0,
+        &mut crate::game_logic::ObjectAudio::queue(&mut detached_output),
+        &mut crate::game_logic::VeterancyFeedback::standalone(),
+    );
+    assert_eq!(
+        detached_output.len(),
+        1,
+        "explicit local collector receives authored Body cue"
+    );
+    assert_eq!(detached_output[0].event_type, "DetachedEliteBodyCue");
+    assert_eq!(
+        owner.queued_audio_events.len(),
+        1,
+        "clone has no implicit owner writer"
+    );
+    peer.award_experience(id, 300.0);
+    peer.reset();
+    let after_peer = PresentationFrame::build_from_logic(&mut owner, 0);
+    assert_eq!(after_peer.world_anims.len(), 1);
+    assert_eq!(after_peer.world_anims[0].spawn_frame, 0);
+    assert_eq!(after_peer.world_anims[0].identity, identity);
+    assert_eq!(after_peer.world_anims[0].initial_frame, initial_frame);
+    assert_eq!(owner.queued_audio_events.len(), 1);
+    assert_eq!(owner.objects[&id].experience.level, VeterancyLevel::Veteran);
+    assert_eq!(
+        first.world_anims[0].spawn_frame, 0,
+        "old snapshot remains frozen"
+    );
 }

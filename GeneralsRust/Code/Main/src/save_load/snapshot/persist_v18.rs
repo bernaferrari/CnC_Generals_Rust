@@ -446,7 +446,7 @@ fn capture_persist_v18_impl(
 
     persist.rank_level_limit = game_logic.rank_level_limit();
     persist.show_behind_building_markers = TheGameLogic::get_show_behind_building_markers();
-    persist.draw_icon_ui = TheGameLogic::get_draw_icon_ui();
+    persist.draw_icon_ui = game_logic.get_draw_icon_ui();
     persist.show_dynamic_lod = TheGameLogic::get_show_dynamic_lod();
     persist.script_hulk_max_lifetime_override = TheGameLogic::get_hulk_max_lifetime_override();
     persist.rank_points_to_add_at_game_start = TheGameLogic::get_rank_points_to_add_at_game_start();
@@ -773,7 +773,7 @@ pub(super) fn restore_persist_v18_with_scale_encoding(
     }
     game_logic.set_rank_level_limit(persist.rank_level_limit);
     TheGameLogic::set_show_behind_building_markers(persist.show_behind_building_markers);
-    TheGameLogic::set_draw_icon_ui(persist.draw_icon_ui);
+    game_logic.set_draw_icon_ui(persist.draw_icon_ui);
     TheGameLogic::set_show_dynamic_lod(persist.show_dynamic_lod);
     TheGameLogic::set_hulk_max_lifetime_override(persist.script_hulk_max_lifetime_override);
     TheGameLogic::set_rank_points_to_add_at_game_start(persist.rank_points_to_add_at_game_start);

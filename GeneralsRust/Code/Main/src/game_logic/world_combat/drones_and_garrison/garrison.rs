@@ -321,13 +321,13 @@ impl GameLogic {
             if let Some(occupant) = self.objects.get_mut(&occupant_id) {
                 occupant.set_contained_by(Some(container_id));
                 occupant.set_position_with_effects(position, self.frame, ui);
-                occupant.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+                occupant.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                     &mut self.queued_audio_events,
                 ));
                 occupant.set_status_moving(false);
                 occupant.set_ai_state(
                     AIState::Garrisoned,
-                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
             }
             self.admit_object_drawable_deselection(occupant_id);
@@ -877,7 +877,7 @@ impl GameLogic {
                     unit.set_destination(
                         dest,
                         &mut self.movement_events.writer(self.frame),
-                        &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                        &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                     );
                     unit.allow_to_fall = previous_allow_to_fall;
                     let mut path = vec![start, door_end, door_end];
@@ -891,7 +891,7 @@ impl GameLogic {
                     unit.set_destination(
                         dest,
                         &mut self.movement_events.writer(self.frame),
-                        &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                        &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                     );
                     unit.movement.path = vec![start, door_end];
                     unit.movement.current_path_index = 1;
@@ -899,7 +899,7 @@ impl GameLogic {
                 }
                 unit.set_ai_state(
                     AIState::Moving,
-                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
                 unit.last_command_source =
                     crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_AI;

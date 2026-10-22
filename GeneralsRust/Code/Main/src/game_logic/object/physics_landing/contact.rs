@@ -70,7 +70,7 @@ impl Object {
             &mut Object,
             S,
             bool,
-            &mut crate::game_logic::MovementAudio<'_>,
+            &mut crate::game_logic::ObjectAudio<'_>,
         ) -> ContactStep<S, T>,
     ) -> T {
         let mut killed = false;
@@ -79,7 +79,7 @@ impl Object {
                 self,
                 state,
                 killed,
-                &mut crate::game_logic::MovementAudio::callback(&mut |object, request| {
+                &mut crate::game_logic::ObjectAudio::callback(&mut |object, request| {
                     (services.body_fx)(
                         object,
                         super::super::fx::BodyStateFx::MovementStop(request),
@@ -185,7 +185,7 @@ impl Object {
     pub(super) fn finish_stun_kill(
         &mut self,
         killed: bool,
-        audio: &mut crate::game_logic::MovementAudio<'_>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
         if killed {
             self.set_ai_state(AIState::Idle, audio);
@@ -205,7 +205,7 @@ impl Object {
         &mut self,
         state: StampContact,
         killed: bool,
-        audio: &mut crate::game_logic::MovementAudio<'_>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) -> ContactStep<StampContact, ()> {
         self.step_stamp_contact_with_effects(state, killed, 0, &mut Default::default(), audio)
     }
@@ -215,7 +215,7 @@ impl Object {
         _killed: bool,
         frame: u32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-        audio: &mut crate::game_logic::MovementAudio<'_>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) -> ContactStep<StampContact, ()> {
         match state {
             StampContact::Start(ground_y) => {
@@ -301,7 +301,7 @@ impl Object {
         &mut self,
         state: MotionContact,
         killed: bool,
-        audio: &mut crate::game_logic::MovementAudio<'_>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) -> ContactStep<MotionContact, bool> {
         self.step_motion_contact_with_effects(state, killed, 0, &mut Default::default(), audio)
     }
@@ -311,7 +311,7 @@ impl Object {
         killed: bool,
         frame: u32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-        audio: &mut crate::game_logic::MovementAudio<'_>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) -> ContactStep<MotionContact, bool> {
         match state {
             MotionContact::Start(ground_y) => {
@@ -510,7 +510,7 @@ impl Object {
         &mut self,
         state: StunContact,
         killed: bool,
-        audio: &mut crate::game_logic::MovementAudio<'_>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) -> ContactStep<StunContact, ()> {
         self.step_stun_contact_with_effects(state, killed, 0, &mut Default::default(), audio)
     }
@@ -520,7 +520,7 @@ impl Object {
         killed: bool,
         frame: u32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-        audio: &mut crate::game_logic::MovementAudio<'_>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) -> ContactStep<StunContact, ()> {
         match state {
             StunContact::Start => {
@@ -740,7 +740,7 @@ impl crate::game_logic::GameLogic {
             bool,
             u32,
             &mut crate::game_logic::ScriptPresentationEffects<'_>,
-            &mut crate::game_logic::MovementAudio<'_>,
+            &mut crate::game_logic::ObjectAudio<'_>,
         ) -> ContactStep<S, T>,
     ) -> Option<T> {
         self.drive_owned_contact_with_effects(
@@ -761,7 +761,7 @@ impl crate::game_logic::GameLogic {
             bool,
             u32,
             &mut crate::game_logic::ScriptPresentationEffects<'_>,
-            &mut crate::game_logic::MovementAudio<'_>,
+            &mut crate::game_logic::ObjectAudio<'_>,
         ) -> ContactStep<S, T>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> Option<T> {
@@ -774,7 +774,7 @@ impl crate::game_logic::GameLogic {
                 killed,
                 frame,
                 presentation_effects,
-                &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
             match next {
                 ContactStep::Complete(value) => return Some(value),

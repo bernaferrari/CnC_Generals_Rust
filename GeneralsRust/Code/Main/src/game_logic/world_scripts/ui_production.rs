@@ -1395,7 +1395,7 @@ impl GameLogic {
                 obj.set_destination(
                     dest,
                     &mut self.movement_events.writer(self.frame),
-                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
             }
         }

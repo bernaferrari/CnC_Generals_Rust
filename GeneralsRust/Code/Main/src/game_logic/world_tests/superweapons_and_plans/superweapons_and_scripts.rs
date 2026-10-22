@@ -653,7 +653,7 @@ fn carbomb_command_converts_vehicle_after_reach() {
         bomber.set_position(Vec3::new(2.0, 0.0, 0.0));
         bomber.set_ai_state(
             AIState::SpecialAbility,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         bomber.target = Some(target_id);
     }
@@ -779,7 +779,7 @@ fn carbomb_command_allows_neutral_targets() {
         bomber.set_position(Vec3::new(2.0, 0.0, 0.0));
         bomber.set_ai_state(
             AIState::SpecialAbility,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         bomber.target = Some(target_id);
     }
@@ -817,15 +817,17 @@ fn carbomb_attack_structure_detonates_with_observable_damage() {
         .create_object("TestBuilding", Team::USA, Vec3::new(3.0, 0.0, 0.0))
         .expect("structure should be created");
 
+    game_logic
+        .with_object_veterancy_feedback(car_id, |car, audio, feedback| {
+            car.apply_convert_to_car_bomb(audio, feedback);
+        })
+        .expect("actual car-bomb owner");
     {
         let car = game_logic
             .objects
             .get_mut(&car_id)
             .expect("car should exist");
         let attack_events = &mut game_logic.attack_events;
-        car.apply_convert_to_car_bomb(
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
-        );
         car.set_team(Team::GLA, &mut game_logic.ownership_events);
         // Ensure weapon is ready to fire immediately.
         if let Some(w) = car.weapon.as_mut() {
@@ -835,7 +837,7 @@ fn carbomb_attack_structure_detonates_with_observable_damage() {
         car.attack_target(
             structure_id,
             attack_events,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
     }
     game_logic.car_bomb.record_conversion();
@@ -926,7 +928,7 @@ fn attack_order_chases_target_when_out_of_range() {
         attacker.attack_target(
             target_id,
             attack_events,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         let weapon = attacker.weapon.as_mut().expect("authored current weapon");
         weapon.range = 50.0;
@@ -981,7 +983,7 @@ fn attack_order_clears_dead_target() {
         attacker.attack_target(
             target_id,
             attack_events,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
     }
     {
@@ -2141,7 +2143,7 @@ fn can_make_aircraft_blocked_when_airfield_parking_full() {
             jet.set_contained_by(Some(af));
             jet.set_ai_state(
                 AIState::Docked,
-                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
             );
             jet.producer_id = Some(af);
             jet.airfield_parking_space_index = Some(i);
@@ -2634,7 +2636,7 @@ fn script_idle_all_units_and_resume_supply_write_live() {
     if let Some(obj) = logic.host_object_mut(truck) {
         obj.set_ai_state(
             AIState::Idle,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         obj.supply_truck_force_pending = false;
     }

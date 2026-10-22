@@ -307,6 +307,11 @@ pub struct ScriptSelectionStatus {
 }
 
 pub trait ScriptExecutionDriver {
+    /// Main intercepts the owned flag; standalone Core retains its original owner.
+    fn set_draw_icon_ui(&mut self, _enabled: bool) -> Option<GameLogicResult<()>> {
+        None
+    }
+
     /// CPP4793/4814: missing objects or AI do not start the sequential timer.
     fn named_frame_command(
         &mut self,

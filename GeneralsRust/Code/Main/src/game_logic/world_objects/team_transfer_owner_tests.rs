@@ -21,7 +21,7 @@ fn same_faction_player_transfer_moves_roster_before_capture_once_and_isolates_pe
     let destination = game.host_default_team_id(1).unwrap();
     game.objects.get_mut(&object).unwrap().set_ai_state(
         AIState::Moving,
-        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
     );
     assert!(game.transfer_object_to_player(object, 1));
     assert_eq!(game.objects[&object].team_instance_id, Some(destination));
@@ -58,7 +58,7 @@ fn exact_team_no_op_keeps_order_orders_and_capture_score() {
     let identity = game.objects[&object].team_instance_id.unwrap();
     game.objects.get_mut(&object).unwrap().set_ai_state(
         AIState::Moving,
-        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
     );
     assert!(game.set_host_object_team(object, identity));
     assert_eq!(game.objects[&object].ai_state, AIState::Moving);
@@ -169,7 +169,7 @@ fn admitted_ai_presence_is_local_and_no_ai_capture_preserves_non_ai_orders() {
     assert!(peer.objects[&peer_object].has_ai_update_interface());
     game.objects.get_mut(&object).unwrap().set_ai_state(
         AIState::Moving,
-        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
     );
     assert!(game.transfer_object_to_player(object, 1));
     assert_eq!(

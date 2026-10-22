@@ -345,7 +345,7 @@ impl GameLogic {
             target.apply_disabled_hacked(
                 until_frame,
                 &mut self.health_events,
-                &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
             target.apply_spy_vision_disabled_until(until_frame);
         }
@@ -357,7 +357,7 @@ impl GameLogic {
                 h.apply_disabled_hacked(
                     until_frame,
                     &mut self.health_events,
-                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
                 hackers = hackers.saturating_add(1);
             }
@@ -490,7 +490,7 @@ impl GameLogic {
             r.set_contained_by(None);
             r.set_ai_state(
                 AIState::Idle,
-                &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
             {}
             r.set_position_with_effects(eject_pos, self.frame, presentation_effects);
@@ -808,7 +808,7 @@ impl GameLogic {
                     HostBattlePlan::Bombardment => {
                         let _ = center.replace_weapon_set_slot(0, None);
                         let _ = center.replace_weapon_set_slot(1, None);
-                        center.stop_attack(&mut crate::game_logic::MovementAudio::queue(
+                        center.stop_attack(&mut crate::game_logic::ObjectAudio::queue(
                             &mut self.queued_audio_events,
                         ));
                         // C++ enableTurret(false) when leaving Bombardment.
@@ -880,7 +880,7 @@ impl GameLogic {
                         if target.is_alive() {
                             target.apply_disabled_paralyzed(
                                 paralyze_until,
-                                &mut crate::game_logic::MovementAudio::queue(
+                                &mut crate::game_logic::ObjectAudio::queue(
                                     &mut self.queued_audio_events,
                                 ),
                             );

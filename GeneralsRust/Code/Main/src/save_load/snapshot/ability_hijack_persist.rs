@@ -226,7 +226,7 @@ fn apply_payload(game_logic: &mut GameLogic, payload: AbilityHijackPersistPayloa
             if let Some(vehicle_id) = vehicle_id.filter(|_| vehicle_alive) {
                 object.begin_hijacker_in_vehicle(
                     vehicle_id,
-                    &mut crate::game_logic::MovementAudio::queue(audio),
+                    &mut crate::game_logic::ObjectAudio::queue(audio),
                 );
                 object.hijacker_update_active = entry.hijacker_update_active;
                 object.hijacker_was_airborne = entry.hijacker_was_airborne;
@@ -324,7 +324,7 @@ mod tests {
             });
             ranger.set_ai_state(
                 AIState::Capturing,
-                &mut crate::game_logic::MovementAudio::queue(audio),
+                &mut crate::game_logic::ObjectAudio::queue(audio),
             );
             ranger.set_status_using_ability(true);
             ranger.target = Some(barracks_id);
@@ -336,7 +336,7 @@ mod tests {
             burton.charge_plant_unpack_remaining_seconds = Some(2.2);
             burton.set_ai_state(
                 AIState::SpecialAbility,
-                &mut crate::game_logic::MovementAudio::queue(audio),
+                &mut crate::game_logic::ObjectAudio::queue(audio),
             );
             burton.set_status_using_ability(true);
             burton.target = Some(barracks_id);
@@ -434,16 +434,14 @@ mod tests {
             .expect("tank");
         {
             let (tank, audio) = source.host_object_and_audio_events_mut(vid).expect("tank");
-            tank.apply_hijacked(&mut crate::game_logic::MovementAudio::queue(audio));
+            tank.apply_hijacked(&mut crate::game_logic::ObjectAudio::queue(audio));
         }
         {
             let (hijacker, audio) = source
                 .host_object_and_audio_events_mut(hid)
                 .expect("hijacker");
-            hijacker.begin_hijacker_in_vehicle(
-                vid,
-                &mut crate::game_logic::MovementAudio::queue(audio),
-            );
+            hijacker
+                .begin_hijacker_in_vehicle(vid, &mut crate::game_logic::ObjectAudio::queue(audio));
         }
         {
             let rider = source.host_object_mut(hid).expect("hijacker");

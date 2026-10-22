@@ -102,16 +102,16 @@ pub fn simulate_live_command_non_attack_order_target_honesty() -> bool {
     if let Some((unit, attack_events, audio_events)) = logic.host_object_attack_audio_mut(u) {
         unit.set_ai_state(
             AIState::Idle,
-            &mut crate::game_logic::MovementAudio::queue(audio_events),
+            &mut crate::game_logic::ObjectAudio::queue(audio_events),
         );
         unit.set_order_target(
             Some(pad),
             attack_events,
-            &mut crate::game_logic::MovementAudio::queue(audio_events),
+            &mut crate::game_logic::ObjectAudio::queue(audio_events),
         );
         unit.set_ai_state(
             AIState::Docking,
-            &mut crate::game_logic::MovementAudio::queue(audio_events),
+            &mut crate::game_logic::ObjectAudio::queue(audio_events),
         );
         if unit.target != Some(pad) {
             return false;

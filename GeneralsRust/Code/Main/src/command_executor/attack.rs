@@ -277,7 +277,7 @@ impl<'a> CommandExecutor<'a> {
                 u.set_target(
                     Some(target_id),
                     &mut self.game_logic.attack_events,
-                    &mut crate::game_logic::MovementAudio::queue(
+                    &mut crate::game_logic::ObjectAudio::queue(
                         &mut self.game_logic.queued_audio_events,
                     ),
                 );
@@ -1010,12 +1010,12 @@ impl crate::game_logic::GameLogic {
                 // faction or retain an obsolete victim after the team empties.
                 let _ = self.host_object_mut(id);
                 if let Some(unit) = self.objects.get_mut(&id) {
-                    unit.clear_target(&mut crate::game_logic::MovementAudio::queue(
+                    unit.clear_target(&mut crate::game_logic::ObjectAudio::queue(
                         &mut self.queued_audio_events,
                     ));
                     unit.set_ai_state(
                         AIState::Idle,
-                        &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                        &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                     );
                     unit.attack_priority_set = None;
                 }

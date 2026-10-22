@@ -152,7 +152,7 @@ impl Object {
         new_y: f32,
         ground_y: f32,
         health_events: &mut crate::game_logic::HostHealthEvents,
-        audio: &mut crate::game_logic::MovementAudio<'_>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) -> f32 {
         let mut ignored = |_| {};
         let repulsors = false;
@@ -174,7 +174,7 @@ impl Object {
         new_y: f32,
         ground_y: f32,
         services: &mut super::PhysicsDamageServices<'_>,
-        audio: &mut crate::game_logic::MovementAudio<'_>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) -> f32 {
         let (bounce, request) = self.begin_contact_bounce(old_y, new_y, ground_y);
         if let Some(request) = request {
@@ -193,7 +193,7 @@ impl Object {
         &mut self,
         frame: u32,
         health_events: &mut crate::game_logic::HostHealthEvents,
-        audio: &mut crate::game_logic::MovementAudio<'_>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) -> bool {
         let mut ignored = |_| {};
         let repulsors = false;
@@ -212,7 +212,7 @@ impl Object {
     pub(in crate::game_logic) fn test_stunned_unit_for_destruction_with_services(
         &mut self,
         services: &mut super::PhysicsDamageServices<'_>,
-        audio: &mut crate::game_logic::MovementAudio<'_>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) -> bool {
         let Some(request) = self.prepare_stun_kill() else {
             return false;

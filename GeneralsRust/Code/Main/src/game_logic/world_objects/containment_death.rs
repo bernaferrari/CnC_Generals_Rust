@@ -81,7 +81,7 @@ fn apply_transport_death_scatter(
     bounding_radius: f32,
     frame: u32,
     effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    audio: &mut crate::game_logic::MovementAudio<'_>,
+    audio: &mut crate::game_logic::ObjectAudio<'_>,
 ) -> glam::Vec3 {
     let leftover = gamelogic::object::contain::open_contain::leftover_scatter_to_nearby_position(
         container_pos.x,
@@ -334,7 +334,7 @@ impl GameLogic {
                 radius,
                 self.frame,
                 effects,
-                &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             )
         };
         self.path_approach_with_state_ignoring(

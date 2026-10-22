@@ -410,6 +410,10 @@ impl SnapshotBuilder {
         game_logic.initial_skirmish_admission = initial_skirmish;
         game_logic.clear_victory_observation();
         game_logic.queued_audio_events.clear();
+        // These are transient UI births, not snapshot state. Clear for every
+        // replacement, including legacy saves lacking a camera continuation.
+        // Production prepares this direct mutating restore on a detached candidate.
+        game_logic.session_view.world_animations.clear();
         game_logic.health_events.clear();
         game_logic.ownership_events.clear();
         game_logic.economy_events.clear();

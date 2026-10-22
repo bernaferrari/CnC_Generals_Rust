@@ -77,7 +77,7 @@ fn technical_residual_transport_and_salvage_weapon() {
         unit.target = Some(tech_id);
         unit.set_ai_state(
             AIState::Entering,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
     }
     game_logic.update_ai(&[infantry_id, tech_id], 1.0 / 30.0);
@@ -108,7 +108,7 @@ fn technical_residual_transport_and_salvage_weapon() {
         t.attack_target(
             enemy,
             attack_events,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         if let Some(w) = t.weapon.as_mut() {
             w.last_fire_time = -10.0;
@@ -357,7 +357,7 @@ fn toxin_tractor_residual_stream_spray_and_death_field() {
         t.attack_target(
             enemy,
             attack_events,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         if let Some(w) = t.weapon.as_mut() {
             w.last_fire_time = -10.0;
@@ -425,7 +425,7 @@ fn toxin_tractor_residual_stream_spray_and_death_field() {
         t.attack_target(
             spray_victim,
             attack_events,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         if let Some(w) = t.secondary_weapon.as_mut() {
             w.last_fire_time = -10.0;
@@ -850,7 +850,7 @@ fn sentry_drone_residual_detect_and_auto_fire() {
         let s = game_logic.host_object_mut(sentry_id).unwrap();
         s.set_ai_state(
             AIState::Idle,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         s.target = None;
         s.target_location = None;
@@ -962,7 +962,7 @@ fn sentry_drone_uncloaks_while_moving_and_recloaks_after_fire_delay() {
         let s = game_logic.host_object_mut(sentry_id).unwrap();
         s.set_ai_state(
             AIState::Moving,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         s.status.moving = true;
     }
@@ -978,7 +978,7 @@ fn sentry_drone_uncloaks_while_moving_and_recloaks_after_fire_delay() {
         let s = game_logic.host_object_mut(sentry_id).unwrap();
         s.set_ai_state(
             AIState::Idle,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         s.status.moving = false;
         s.set_status_attacking(false);
@@ -1021,7 +1021,7 @@ fn sentry_drone_uncloaks_while_moving_and_recloaks_after_fire_delay() {
         let s = game_logic.host_object_mut(sentry_id).unwrap();
         s.set_ai_state(
             AIState::Idle,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         s.set_status_attacking(false);
         s.set_status_firing_weapon(false);
@@ -1068,7 +1068,7 @@ fn sentry_drone_residual_skips_non_sentry_units() {
         }
         t.set_ai_state(
             AIState::Idle,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         t.target = None;
     }
@@ -1179,7 +1179,7 @@ fn pathfinder_residual_detect_stealth_and_sniper() {
         let p = game_logic.host_object_mut(pf_id).unwrap();
         p.set_ai_state(
             AIState::Attacking,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         p.target = Some(stealth_id);
         p.set_status_stealthed(true);
@@ -1224,7 +1224,7 @@ fn pathfinder_residual_detect_stealth_and_sniper() {
         let p = game_logic.host_object_mut(pf_id).unwrap();
         p.set_ai_state(
             AIState::Moving,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         p.set_status_moving(true);
         p.set_status_stealthed(true);
@@ -1243,7 +1243,7 @@ fn pathfinder_residual_detect_stealth_and_sniper() {
         let p = game_logic.host_object_mut(pf_id).unwrap();
         p.set_ai_state(
             AIState::Idle,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         p.set_status_moving(false);
         p.movement.velocity = Vec3::ZERO;
@@ -1418,7 +1418,7 @@ fn scout_and_hellfire_drone_residual_attach_detect_and_fire() {
         let h = game_logic.host_object_mut(hf_id).unwrap();
         h.set_ai_state(
             AIState::Idle,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         h.target = None;
         h.target_location = None;
@@ -1638,7 +1638,7 @@ fn hellfire_scatter_misses_infantry_residual() {
     if let Some(h) = logic.objects.get_mut(&hf) {
         h.set_ai_state(
             AIState::Idle,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         h.target = None;
         if let Some(w) = h.weapon.as_mut() {

@@ -634,9 +634,9 @@ impl GameLogic {
         }
         // C++ awards XP to the hacker, not to a fixed retail template.  The
         // shadow event carries its exact parsed `XpPerCashUpdate` value.
-        if let Some(hacker) = self.objects.get_mut(&ev.id) {
-            hacker.gain_experience(ev.xp_per_cash_update);
-        }
+        self.with_object_veterancy_feedback(ev.id, |hacker, audio, feedback| {
+            hacker.gain_experience(ev.xp_per_cash_update, audio, feedback);
+        });
         let is_local = owner_player_id
             .map(|pid| self.is_local_player(pid))
             .unwrap_or(false);
@@ -705,7 +705,7 @@ impl GameLogic {
                     occ.target_location = None;
                     occ.set_ai_state(
                         AIState::Idle,
-                        &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                        &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                     );
                 }
                 // C++ `aiIdle` leaves HACK_INTERNET (`aiDoCommand` PACKING).
@@ -939,9 +939,9 @@ impl GameLogic {
                 }
             }
             // Residual XpPerCashUpdate.
-            if let Some(obj) = self.objects.get_mut(&h.id) {
-                obj.gain_experience(h.metadata.xp_per_cash_update);
-            }
+            self.with_object_veterancy_feedback(h.id, |object, audio, feedback| {
+                object.gain_experience(h.metadata.xp_per_cash_update, audio, feedback);
+            });
             // STEALTHED local display gate residual (owner + containedBy).
             let owner_local = owner_player_id
                 .map(|pid| self.is_local_player(pid))
@@ -1024,13 +1024,13 @@ impl GameLogic {
         );
         if let Some(obj) = self.objects.get_mut(&hacker_id) {
             obj.set_status_moving(false);
-            obj.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+            obj.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                 &mut self.queued_audio_events,
             ));
             if obj.ai_state != AIState::Idle {
                 obj.set_ai_state(
                     AIState::Idle,
-                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
             }
         }
@@ -1075,12 +1075,12 @@ impl GameLogic {
                 }
                 PendingHackerCommand::Stop => {
                     if let Some(unit) = self.objects.get_mut(&id) {
-                        unit.stop(&mut crate::game_logic::MovementAudio::queue(
+                        unit.stop(&mut crate::game_logic::ObjectAudio::queue(
                             &mut self.queued_audio_events,
                         ));
                         unit.set_ai_state(
                             AIState::Idle,
-                            &mut crate::game_logic::MovementAudio::queue(
+                            &mut crate::game_logic::ObjectAudio::queue(
                                 &mut self.queued_audio_events,
                             ),
                         );

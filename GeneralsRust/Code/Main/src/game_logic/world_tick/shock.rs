@@ -46,7 +46,7 @@ impl GameLogic {
         for (id, o) in self.objects.iter_mut() {
             o.clear_blocked_frame_state();
             o.tick_move_away_state();
-            if o.tick_path_queue(&mut crate::game_logic::MovementAudio::queue(
+            if o.tick_path_queue(&mut crate::game_logic::ObjectAudio::queue(
                 &mut self.queued_audio_events,
             )) {
                 expired_paths.push(*id);
@@ -990,7 +990,7 @@ impl GameLogic {
             if entered_attack {
                 a.set_ai_state(
                     AIState::Attacking,
-                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
             }
             a.set_status_attacking(true);
@@ -1210,7 +1210,7 @@ impl GameLogic {
             attacker.target = Some(next_id);
             attacker.set_ai_state(
                 AIState::Attacking,
-                &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
             attacker.set_status_attacking(true);
             true
@@ -1270,9 +1270,9 @@ impl GameLogic {
         } else {
             (recipient_id, amount)
         };
-        if let Some(dest_obj) = self.objects.get_mut(&dest_id) {
-            dest_obj.gain_experience(forwarded);
-        }
+        self.with_object_veterancy_feedback(dest_id, |object, audio, feedback| {
+            object.gain_experience(forwarded, audio, feedback);
+        });
     }
 
     /// C++ Object::scoreTheKill unit XP for residual apply / capture paths.

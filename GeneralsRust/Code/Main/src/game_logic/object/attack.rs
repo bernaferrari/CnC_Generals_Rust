@@ -15,7 +15,7 @@ impl Object {
         logic_frame: u32,
         combat: &mut super::combat::CombatSystem,
         attack_events: &mut crate::game_logic::host_attack_log::AttackEvents,
-        audio: &mut crate::game_logic::MovementAudio<'_>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) -> bool {
         self.fire_at_ex(
             target_id,
@@ -40,7 +40,7 @@ impl Object {
         logic_frame: u32,
         combat: &mut super::combat::CombatSystem,
         attack_events: &mut crate::game_logic::host_attack_log::AttackEvents,
-        audio: &mut crate::game_logic::MovementAudio<'_>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) -> bool {
         let Some(slot) = self.fire_at_ex_defer_weapon_barrel_advance(
             target_id,
@@ -78,7 +78,7 @@ impl Object {
         logic_frame: u32,
         combat: &mut super::combat::CombatSystem,
         attack_events: &mut crate::game_logic::host_attack_log::AttackEvents,
-        audio: &mut crate::game_logic::MovementAudio<'_>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) -> Option<u8> {
         let (slot, pending) = self.prepare_weapon_shot(
             WeaponShotRoute::Autonomous,
@@ -111,7 +111,7 @@ impl Object {
         sound_events: &mut crate::game_logic::host_fire_sound_loop_log::FireSoundLoopEvents,
         attack_events: &mut crate::game_logic::host_attack_log::AttackEvents,
         content: Option<&crate::game_logic::projectile_definitions::ProjectileDefinitions>,
-        audio: &mut crate::game_logic::MovementAudio<'_>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) -> Option<(u8, super::combat::PendingProjectile)> {
         self.prepare_weapon_shot(
             WeaponShotRoute::Passive {
@@ -140,7 +140,7 @@ impl Object {
         sound: &mut crate::game_logic::host_fire_sound_loop_log::FireSoundLoopEvents,
         attacks: &mut crate::game_logic::host_attack_log::AttackEvents,
         content: Option<&crate::game_logic::projectile_definitions::ProjectileDefinitions>,
-        audio: &mut crate::game_logic::MovementAudio<'_>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) -> Option<(u8, super::combat::PendingProjectile)> {
         self.prepare_weapon_shot(
             WeaponShotRoute::Autonomous,
@@ -194,7 +194,7 @@ impl Object {
         sound_events: &mut crate::game_logic::host_fire_sound_loop_log::FireSoundLoopEvents,
         attack_events: &mut crate::game_logic::host_attack_log::AttackEvents,
         content: Option<&crate::game_logic::projectile_definitions::ProjectileDefinitions>,
-        audio: &mut crate::game_logic::MovementAudio<'_>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) -> Option<(u8, super::combat::PendingProjectile)> {
         let autonomous = matches!(route, WeaponShotRoute::Autonomous);
         // C++ Weapon::getMaxShotCount residual — AI burst / scatter limits.
@@ -836,7 +836,7 @@ impl Object {
         &mut self,
         position: Vec3,
         movement_events: &mut crate::game_logic::movement_events::MovementEventWriter<'_>,
-        audio: &mut crate::game_logic::MovementAudio<'_>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
         if self.is_mobile() && self.is_alive() {
             self.movement_goal_object = None;
@@ -847,7 +847,7 @@ impl Object {
         }
     }
     /// Drop a `setTemporaryState` move without `onExit` of the underlying state.
-    pub fn end_temporary_move_overlay(&mut self, audio: &mut crate::game_logic::MovementAudio<'_>) {
+    pub fn end_temporary_move_overlay(&mut self, audio: &mut crate::game_logic::ObjectAudio<'_>) {
         self.temporary_move_frames = 0;
         audio.stop_loop(self);
         self.movement.velocity = glam::Vec3::ZERO;
@@ -871,7 +871,7 @@ impl Object {
         self.movement_goal_object = goal;
     }
 
-    pub fn stop_moving(&mut self, audio: &mut crate::game_logic::MovementAudio<'_>) {
+    pub fn stop_moving(&mut self, audio: &mut crate::game_logic::ObjectAudio<'_>) {
         self.movement_goal_object = None;
         let overlay = self.temporary_move_frames > 0;
         self.end_temporary_move_overlay(audio);
@@ -909,7 +909,7 @@ impl Object {
         &mut self,
         target_id: ObjectId,
         attack_events: &mut crate::game_logic::host_attack_log::AttackEvents,
-        audio: &mut crate::game_logic::MovementAudio<'_>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
         if !self.is_alive() {
             return;
@@ -1028,7 +1028,7 @@ impl Object {
         self.leech_range_active_secondary = false;
     }
 
-    pub fn stop_attack(&mut self, audio: &mut crate::game_logic::MovementAudio<'_>) {
+    pub fn stop_attack(&mut self, audio: &mut crate::game_logic::ObjectAudio<'_>) {
         // C++ WeaponSet::releaseWeaponLock: any non-special player order and
         // an exited attack state release a temporary special-weapon lock.
         // Permanent user locks remain intact.
@@ -1249,7 +1249,7 @@ mod tests {
             0,
             &mut shot_combat,
             &mut _attack_output,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
         ));
         assert_eq!(attacker.last_fire_slot, 2);
         assert!((attacker.last_fire_damage - 37.0).abs() < f32::EPSILON);
@@ -1289,7 +1289,7 @@ mod tests {
             0,
             &mut shot_combat,
             &mut _attack_output,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
         ));
         assert!(!unit.status.stealthed);
         assert!(
@@ -1327,7 +1327,7 @@ mod tests {
             0,
             &mut shot_combat,
             &mut _attack_output,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
         ));
         unit.status.under_construction = false;
         unit.status.sold = true;
@@ -1337,7 +1337,7 @@ mod tests {
             0,
             &mut shot_combat,
             &mut _attack_output,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
         ));
         unit.status.sold = false;
         assert!(unit.fire_at(
@@ -1346,7 +1346,7 @@ mod tests {
             0,
             &mut shot_combat,
             &mut _attack_output,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
         ));
     }
 }

@@ -68,7 +68,7 @@ fn host_march_closes_range_without_teleport() {
             ObjectId(1),
             &mut objects,
             1.0 / 30.0,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
     }
     let end = objects[&ObjectId(1)].get_position();
@@ -1871,7 +1871,7 @@ fn blocked_route_does_not_walk_the_click() {
         });
         unit.set_deployed(
             true,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
     }
     assert!(logic.unit_command_move_to_moving(packed, near));

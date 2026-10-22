@@ -21357,6 +21357,11 @@
             {
               "cargo_reachable": true,
               "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/native_draw_icon_policy_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
               "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/native_draw_lifecycle_observer_tests.rs"
             },
             {
@@ -21418,6 +21423,11 @@
               "cargo_reachable": true,
               "classification": "test",
               "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/owned_snow_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/owned_world_animations.rs"
             },
             {
               "cargo_reachable": true,
@@ -189997,7 +190007,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "3939a74648f060e7b894e9388909b59406ddd7038ef64213d2b577a43a9dafee",
+  "provenance_input_digest": "73025c9ab6e94f640aca02e2ebc0e1e8c5a49fef38b365b1b17ec5e085963a8e",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,

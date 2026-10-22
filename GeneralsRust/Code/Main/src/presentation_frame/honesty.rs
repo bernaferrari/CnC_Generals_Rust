@@ -136,9 +136,11 @@ impl PresentationFrame {
             return true;
         }
         self.world_anims.iter().all(|a| {
-            a.template == crate::game_logic::host_money_crate::MONEY_PICKUP_ANIM_TEMPLATE
+            !a.template.is_empty()
+                && a.position.is_finite()
+                && a.display_time_seconds.is_finite()
                 && a.display_time_seconds > 0.0
-                && a.z_rise_per_second > 0.0
+                && a.z_rise_per_second.is_finite()
         })
     }
 

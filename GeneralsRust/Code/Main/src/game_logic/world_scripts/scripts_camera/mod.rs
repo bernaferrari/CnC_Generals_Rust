@@ -409,3 +409,6 @@ mod debug_freeze;
 
 #[cfg(all(test, feature = "game_client"))]
 mod camera_fade_owner_tests;
+
+#[cfg(test)]
+mod draw_icon_ui_owner_tests;

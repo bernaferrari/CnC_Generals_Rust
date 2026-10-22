@@ -1508,7 +1508,7 @@ impl PathfindingSystem {
         object_id: ObjectId,
         objects: &mut HashMap<ObjectId, Object>,
         dt: f32,
-        audio: &mut crate::game_logic::MovementAudio<'_>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) -> bool {
         if let Some(unit) = objects.get_mut(&object_id) {
             if unit.movement.path.is_empty()

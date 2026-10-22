@@ -127,12 +127,12 @@ impl GameLogic {
                 drone.status.unselectable = false;
                 drone.set_status_disabled_held(false);
                 drone.set_status_disabled_unmanned(true);
-                drone.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+                drone.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                     &mut self.queued_audio_events,
                 ));
                 drone.set_ai_state(
                     AIState::Idle,
-                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
             }
             self.admit_host_radar_disabled_edges(id);

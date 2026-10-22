@@ -69,7 +69,7 @@ impl GameLogic {
                                             self.weapon_definitions
                                                 .as_ref()
                                                 .map(|_| &self.projectile_definitions),
-                                            &mut crate::game_logic::MovementAudio::queue(
+                                            &mut crate::game_logic::ObjectAudio::queue(
                                                 &mut self.queued_audio_events,
                                             ),
                                         );
@@ -373,7 +373,7 @@ impl GameLogic {
                         attacker.set_force_attack(false);
                         attacker.set_ai_state(
                             AIState::Idle,
-                            &mut crate::game_logic::MovementAudio::queue(
+                            &mut crate::game_logic::ObjectAudio::queue(
                                 &mut self.queued_audio_events,
                             ),
                         );
@@ -1387,7 +1387,7 @@ mod live_upgrade_mux_tests {
             obj.apply_disabled_emp(
                 100,
                 health_events,
-                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
             );
         }
         logic.update_player_radar();
@@ -1430,7 +1430,7 @@ mod live_upgrade_mux_tests {
             obj.apply_disabled_hacked(
                 80,
                 health_events,
-                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
             );
         }
         logic.update_player_radar();

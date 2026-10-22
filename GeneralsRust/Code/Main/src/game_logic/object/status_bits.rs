@@ -796,7 +796,7 @@ impl Object {
     pub fn set_surrendered(
         &mut self,
         surrendered: bool,
-        audio: &mut crate::game_logic::MovementAudio<'_>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
         self.is_surrendered = surrendered;
         if surrendered {
@@ -892,11 +892,7 @@ impl Object {
     /// Does not re-log host_ai_state (state already last-written). Syncs
     /// moving/attacking status bits from the authoritative ordinal.
 
-    pub fn set_ai_state(
-        &mut self,
-        state: AIState,
-        audio: &mut crate::game_logic::MovementAudio<'_>,
-    ) {
+    pub fn set_ai_state(&mut self, state: AIState, audio: &mut crate::game_logic::ObjectAudio<'_>) {
         if !matches!(state, AIState::Moving) && self.temporary_move_frames == 0 {
             self.movement_goal_object = None;
         }

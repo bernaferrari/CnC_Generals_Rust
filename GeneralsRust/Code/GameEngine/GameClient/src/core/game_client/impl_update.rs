@@ -1195,8 +1195,13 @@ impl GameClient {
     /// Presentation MoneyPickUp / world Anim2D residual → InGameUI postDraw.
     pub fn apply_presentation_world_anims(
         &mut self,
-        entries: &[(String, [f32; 3], f32, f32, bool, u32)],
+        host_epoch: u64,
+        logic_frame: u32,
+        game_paused: bool,
+        entries: &[game_engine::common::world_animation::WorldAnimationPresentation],
     ) {
+        self.owned_world_animations
+            .observe_owner(host_epoch, logic_frame, game_paused, entries);
         let Some(ref ui) = self.subsystem_manager.in_game_ui else {
             return;
         };

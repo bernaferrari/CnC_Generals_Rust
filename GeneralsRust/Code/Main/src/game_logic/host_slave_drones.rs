@@ -1019,7 +1019,11 @@ mod tests {
         assert!(applied);
         let d = ((sc.x - aim.x).powi(2) + (sc.z - aim.z).powi(2)).sqrt();
         assert!(d > 0.01 && d <= HELLFIRE_SCATTER_VS_INFANTRY + 0.01);
-        assert!(hellfire_scatter_misses_infantry(true, 31, 0.5));
+        assert_eq!(
+            hellfire_scatter_misses_infantry(true, 31, 0.5),
+            d > 0.5_f32.max(1.0),
+            "wrapper classification follows actual sampled geometry, not an obsolete RNG sequence"
+        );
         assert!(!hellfire_scatter_misses_infantry(true, 31, 100.0));
         assert!(!hellfire_scatter_misses_infantry(false, 31, 0.5));
     }
@@ -1150,18 +1154,88 @@ mod tests {
         assert_eq!(s, VeterancyLevel::Elite);
     }
 
-    fn veteran_humvee() -> (crate::game_logic::GameLogic, crate::game_logic::ObjectId) {
-        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, VeterancyLevel};
+    fn receiving_drone_world() -> (crate::game_logic::GameLogic, crate::game_logic::ObjectId) {
+        use crate::game_logic::Team;
         let mut logic = crate::game_logic::GameLogic::new();
-        let mid = ObjectId(7100);
-        let mut mt = ThingTemplate::new("AmericaVehicleHumvee");
-        mt.add_kind_of(KindOf::Vehicle);
-        logic.objects.insert(mid, {
-            let mut o = Object::new(mt, mid, Team::USA);
-            o.set_position(glam::Vec3::ZERO);
-            let _ = o.set_min_veterancy_level(VeterancyLevel::Veteran);
-            o
-        });
+        let mut text = String::from(
+            r#"Object AmericaVehicleHumvee
+KindOf = VEHICLE SELECTABLE
+IsTrainable = Yes
+Body = ActiveBody MasterBody
+MaxHealth = 100
+InitialHealth = 100
+End
+End
+"#,
+        );
+        for name in [
+            SCOUT_DRONE_TEMPLATE,
+            BATTLE_DRONE_TEMPLATE,
+            HELLFIRE_DRONE_TEMPLATE,
+        ] {
+            text.push_str(&format!(
+                r#"Object {name}
+KindOf = VEHICLE SELECTABLE
+IsTrainable = Yes
+Body = ActiveBody DroneBody
+MaxHealth = 100
+InitialHealth = 100
+End
+Locomotor = SET_NORMAL ComancheLocomotor
+Behavior = AIUpdateInterface DroneAI
+AutoAcquireEnemiesWhenIdle = Yes
+End
+Behavior = SlavedUpdate DroneSlave
+GuardMaxRange = 35
+GuardWanderRange = 15
+AttackRange = 100
+AttackWanderRange = 10
+ScoutRange = 100
+ScoutWanderRange = 10
+RepairMinReadyTime = 0
+RepairMaxReadyTime = 0
+RepairMinWeldTime = 0
+RepairMaxWeldTime = 0
+End
+End
+"#
+            ));
+        }
+        logic
+            .admit_receiving_module_content(
+                crate::assets::ReceivingObjectContent::from_sources([(
+                    "owned-slave-drone-fixture.ini".to_owned(),
+                    text,
+                )])
+                .expect("paired master and three SlavedUpdate definitions"),
+            )
+            .expect("actual receiving drone roster");
+        for name in [
+            SCOUT_DRONE_TEMPLATE,
+            BATTLE_DRONE_TEMPLATE,
+            HELLFIRE_DRONE_TEMPLATE,
+        ] {
+            assert!(
+                logic.templates[name].slaved_update_metadata.is_some(),
+                "{name} has actual authored SlavedUpdate"
+            );
+        }
+        let mid = logic
+            .create_object("AmericaVehicleHumvee", Team::USA, glam::Vec3::ZERO)
+            .expect("actual receiving master factory");
+        (logic, mid)
+    }
+    fn veteran_humvee() -> (crate::game_logic::GameLogic, crate::game_logic::ObjectId) {
+        let (mut logic, mid) = receiving_drone_world();
+        logic
+            .with_object_veterancy_feedback(mid, |object, audio, feedback| {
+                object.set_min_veterancy_level(
+                    crate::game_logic::VeterancyLevel::Veteran,
+                    audio,
+                    feedback,
+                )
+            })
+            .expect("actual receiving master");
         (logic, mid)
     }
 
@@ -1187,17 +1261,9 @@ mod tests {
     }
 
     #[test]
-    fn slave_drone_elite_promotes_master_on_host_tick() {
-        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, VeterancyLevel};
-        let mut logic = crate::game_logic::GameLogic::new();
-        let mid = ObjectId(7200);
-        let mut mt = ThingTemplate::new("AmericaVehicleHumvee");
-        mt.add_kind_of(KindOf::Vehicle);
-        logic.objects.insert(mid, {
-            let mut o = Object::new(mt, mid, Team::USA);
-            o.set_position(glam::Vec3::ZERO);
-            o
-        });
+    fn slave_drone_rank_does_not_promote_master_without_spawn_behavior() {
+        use crate::game_logic::VeterancyLevel;
+        let (mut logic, mid) = receiving_drone_world();
         let drone = logic
             .residual_attach_slave_drone(mid, SlaveDroneKind::Scout)
             .expect("scout attach");
@@ -1205,16 +1271,22 @@ mod tests {
             logic.objects[&drone].experience.level,
             VeterancyLevel::Rookie
         );
-        let _ = logic
-            .objects
-            .get_mut(&drone)
-            .expect("drone")
-            .set_min_veterancy_level(VeterancyLevel::Elite);
+        logic
+            .with_object_veterancy_feedback(drone, |object, audio, feedback| {
+                object.set_min_veterancy_level(VeterancyLevel::Elite, audio, feedback)
+            })
+            .expect("actual attached drone owner");
+        // CPP SlavedUpdate has no XP/veterancy operation. SpawnBehavior.cpp:839
+        // gates rank synchronization on m_aggregateHealth, absent from this roster.
         logic.update_with_dt(1.0 / 30.0);
         assert_eq!(
+            logic.objects[&drone].experience.level,
+            VeterancyLevel::Elite
+        );
+        assert_eq!(
             logic.objects[&mid].experience.level,
-            VeterancyLevel::Elite,
-            "drone elite must promote master on live host tick"
+            VeterancyLevel::Rookie,
+            "SlavedUpdate has no XP synchronization; SpawnBehavior aggregateHealth owns it"
         );
     }
 }

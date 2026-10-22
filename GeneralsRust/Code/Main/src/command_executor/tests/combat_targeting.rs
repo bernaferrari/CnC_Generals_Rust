@@ -147,12 +147,12 @@ fn do_command_button_dispatches_stop() {
         let (u, attack_events) = logic.host_object_and_attack_events_mut(id).unwrap();
         u.set_ai_state(
             AIState::Moving,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         u.set_target(
             Some(id),
             attack_events,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
     }
     {
@@ -493,7 +493,7 @@ fn do_weapon_uses_the_real_tertiary_slot_without_secondary_aliasing() {
         logic.frame,
         &mut logic.combat_system,
         &mut logic.attack_events,
-        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
     ));
     assert_eq!(unit.last_fire_slot, 2);
     assert!((unit.last_fire_damage - 73.0).abs() < f32::EPSILON);
@@ -822,7 +822,7 @@ fn move_to_and_evacuate_sets_pending_flag() {
         p.set_contained_by(Some(transport));
         p.set_ai_state(
             crate::game_logic::AIState::Docked,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
     }
     assert!(
@@ -876,7 +876,7 @@ fn move_to_and_evacuate_unloads_when_path_completes() {
         p.set_contained_by(Some(transport));
         p.set_ai_state(
             crate::game_logic::AIState::Docked,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
     }
     {
@@ -1291,7 +1291,7 @@ fn execute_stop_clears_guard_residual() {
             .collect::<String>()
             .contains("set_guard_position(None,")
             && gbody.contains("end_guard_retaliate")
-            && gbody.contains("clear_target(&mut crate::game_logic::MovementAudio::queue("),
+            && gbody.contains("clear_target(&mut crate::game_logic::ObjectAudio::queue("),
         "unit_command_stop must clear guard anchors/targets"
     );
     let mood = command_source_method(
@@ -1336,7 +1336,7 @@ fn stop_delays_mood_for_unstealthed_stealth_unit() {
         u.next_mood_check_time = 0;
         u.set_ai_state(
             AIState::Moving,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
     }
     let mut exec = CommandExecutor::new(&mut logic, 0);
@@ -1551,11 +1551,11 @@ fn add_waypoint_breaks_off_attack() {
         u.set_target(
             Some(v),
             attack_events,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         u.set_guard_target(
             Some(v),
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
     }
     let mut exec = CommandExecutor::new(&mut logic, 0);
@@ -1949,7 +1949,7 @@ End
         ferry.movement.current_path_index = 1;
         ferry.set_ai_state(
             AIState::Idle,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
     }
     {
@@ -1957,7 +1957,7 @@ End
         passenger.set_contained_by(Some(carrier));
         passenger.set_ai_state(
             AIState::Docked,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
     }
 
@@ -2173,7 +2173,7 @@ fn attack_team_persist_never_bleeds_into_same_faction_team() {
         unit.target = Some(first);
         unit.set_ai_state(
             AIState::Attacking,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         unit.attack_priority_set = Some("AIGroup.AttackTeam.GLA_TargetSquad".into());
         unit.auto_acquire_when_idle = true;

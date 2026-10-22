@@ -1109,7 +1109,7 @@ impl GameLogic {
         anim: crate::game_logic::host_money_crate::HostMoneyPickUpAnim,
         text: crate::game_logic::host_money_crate::HostMoneyFloatingText,
     ) {
-        self.host_money_crates.record_money_pickup_anim(anim);
+        self.admit_money_pickup_animation(anim);
         self.host_money_crates.record_money_floating_text(text);
     }
 
@@ -1125,8 +1125,11 @@ impl GameLogic {
         self.cash_bounty.floating_texts_total = 0;
         self.host_money_crates.money_floating_texts.clear();
         self.host_money_crates.money_floating_texts_total = 0;
-        self.host_money_crates.money_pickup_anims.clear();
-        self.host_money_crates.money_pickup_anims_total = 0;
+        self.session_view.world_animations.clear();
+        self.host_money_crates
+            .money_pickup_animation_history
+            .clear();
+        self.host_money_crates.money_pickup_animation_history_total = 0;
     }
 
     /// Residual honesty: StealthDetectorUpdate DetectionRate residual scan fired.

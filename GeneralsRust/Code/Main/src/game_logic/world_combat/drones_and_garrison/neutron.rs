@@ -384,7 +384,7 @@ impl GameLogic {
                     } else {
                         obj.apply_kill_pilot_unmanned(
                             &mut self.health_events,
-                            &mut crate::game_logic::MovementAudio::queue(
+                            &mut crate::game_logic::ObjectAudio::queue(
                                 &mut self.queued_audio_events,
                             ),
                         );
@@ -393,7 +393,7 @@ impl GameLogic {
                         //   TheGameLogic->deselectObject(obj, PLAYERMASK_ALL, TRUE);
                         obj.set_ai_state(
                             AIState::Idle,
-                            &mut crate::game_logic::MovementAudio::queue(
+                            &mut crate::game_logic::ObjectAudio::queue(
                                 &mut self.queued_audio_events,
                             ),
                         );
@@ -444,7 +444,7 @@ impl GameLogic {
                 occ.set_contained_by(None);
                 occ.set_ai_state(
                     AIState::Idle,
-                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
                 let receiving_damage_id = occ.id;
                 let receiving_damage_argument_1 = occ.health.current.max(1.0) * 10.0;

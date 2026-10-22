@@ -193,6 +193,10 @@ impl PresentationFloatingText {
 /// Fail-closed: not full Anim2DCollection GPU / WORLD_ANIM_FADE_ON_EXPIRE draw.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PresentationWorldAnim {
+    #[serde(default)]
+    pub identity: u64,
+    #[serde(default)]
+    pub initial_frame: u16,
     pub template: String,
     pub position: Vec3,
     pub display_time_seconds: f32,
@@ -204,10 +208,28 @@ pub struct PresentationWorldAnim {
 }
 
 impl PresentationWorldAnim {
+    pub(crate) fn native(
+        &self,
+    ) -> game_engine::common::world_animation::WorldAnimationPresentation {
+        game_engine::common::world_animation::WorldAnimationPresentation {
+            identity: self.identity,
+            template: self.template.clone(),
+            // Main is Y-up; native UI, shroud and tactical projection are Z-up.
+            position: [self.position.x, self.position.z, self.position.y],
+            duration: self.display_time_seconds,
+            rise: self.z_rise_per_second,
+            fades: self.fades,
+            spawn_frame: self.spawn_frame,
+            initial_frame: self.initial_frame,
+        }
+    }
+
     pub fn from_money_pickup(
         anim: &crate::game_logic::host_money_crate::HostMoneyPickUpAnim,
     ) -> Self {
         Self {
+            identity: 0,
+            initial_frame: 0,
             template: anim.template.clone(),
             position: anim.position,
             display_time_seconds: anim.display_time_seconds,
@@ -222,6 +244,8 @@ impl PresentationWorldAnim {
     /// Synthetic MoneyPickUp residual for host-testable world-anim pack honesty.
     pub fn synthetic_money_pickup(spawn_frame: u32) -> Self {
         Self {
+            identity: 0,
+            initial_frame: 0,
             template: crate::game_logic::host_money_crate::MONEY_PICKUP_ANIM_TEMPLATE.to_string(),
             position: Vec3::new(12.0, 0.0, 8.0),
             display_time_seconds:
@@ -235,68 +259,60 @@ impl PresentationWorldAnim {
         }
     }
 
-    /// Display duration residual in logic frames (30 Hz).
+    /// Unpaused C++ UI lifetime; conversion occurs after the floating addition.
     pub fn display_frames(&self) -> u32 {
-        (self.display_time_seconds * PRESENTATION_LOGIC_FPS)
-            .ceil()
-            .max(1.0) as u32
+        (self.display_time_seconds * PRESENTATION_LOGIC_FPS) as u32
     }
-
     pub fn is_active_at(&self, logic_frame: u32) -> bool {
-        logic_frame < self.spawn_frame.saturating_add(self.display_frames())
+        game_engine::common::world_animation::expiry_frame(
+            self.spawn_frame,
+            self.display_time_seconds,
+        )
+        .is_some_and(|expiry| logic_frame < expiry)
     }
-
-    /// Age in seconds at `logic_frame` (0 at spawn).
     pub fn age_seconds_at(&self, logic_frame: u32) -> f32 {
         logic_frame.saturating_sub(self.spawn_frame) as f32 / PRESENTATION_LOGIC_FPS
     }
-
-    /// WORLD_ANIM_FADE_ON_EXPIRE residual alpha at `logic_frame`.
-    ///
-    /// - age < display → 1.0
-    /// - age ≥ display and fades → clamp(1 - past/fade_window, 0..1)
-    /// - age ≥ display and !fades → 0.0
+    /// WORLD_ANIM_FADE_ON_EXPIRE fades during the final second, before expiry.
     pub fn fade_alpha_at(&self, logic_frame: u32) -> f32 {
-        let age = self.age_seconds_at(logic_frame);
-        if age < self.display_time_seconds {
-            1.0
-        } else if self.fades {
-            let past = age - self.display_time_seconds;
-            (1.0 - past / PRESENTATION_WORLD_ANIM_FADE_WINDOW_SECONDS).clamp(0.0, 1.0)
+        let Some(expiry) = game_engine::common::world_animation::expiry_frame(
+            self.spawn_frame,
+            self.display_time_seconds,
+        ) else {
+            return 0.0;
+        };
+        if logic_frame >= expiry {
+            return 0.0;
+        }
+        let remaining = expiry - logic_frame;
+        if self.fades && remaining < 30 {
+            remaining as f32 / 30.0
         } else {
-            0.0
+            1.0
         }
     }
-
-    /// Honesty: MoneyPickUp fade presentation residual fields.
-    pub fn honesty_fade_residual_ok(&self) -> bool {
-        (PRESENTATION_WORLD_ANIM_FADE_WINDOW_SECONDS - 1.0).abs() < 0.01
-            && self.display_time_seconds > 0.0
-            && {
-                // Sample fade curve residual around display boundary.
-                let mid = self
-                    .spawn_frame
-                    .saturating_add((self.display_time_seconds * PRESENTATION_LOGIC_FPS) as u32);
-                let before = mid.saturating_sub(1);
-                let half = mid.saturating_add((PRESENTATION_LOGIC_FPS * 0.5) as u32);
-                let end = mid.saturating_add(PRESENTATION_LOGIC_FPS as u32);
-                (self.fade_alpha_at(before) - 1.0).abs() < 0.05
-                    && if self.fades {
-                        (self.fade_alpha_at(half) - 0.5).abs() < 0.1
-                            && (self.fade_alpha_at(end) - 0.0).abs() < 0.05
-                    } else {
-                        self.fade_alpha_at(half) <= 0.0
-                    }
-            }
+    /// Check the retail MoneyPickUp defaults against the C++ pre-expiry fade.
+    pub fn honesty_money_pickup_fade_params_ok() -> bool {
+        let animation = Self::synthetic_money_pickup(0);
+        animation.fades
+            && (animation.display_time_seconds - 4.0).abs() < 0.01
+            && (animation.z_rise_per_second - 15.0).abs() < 0.01
+            && animation.honesty_fade_residual_ok()
     }
 
-    /// Static honesty for retail MoneyPickUp fade residual defaults.
-    pub fn honesty_money_pickup_fade_params_ok() -> bool {
-        let a = Self::synthetic_money_pickup(0);
-        a.fades
-            && (a.display_time_seconds - 4.0).abs() < 0.01
-            && (a.z_rise_per_second - 15.0).abs() < 0.01
-            && a.honesty_fade_residual_ok()
+    pub fn honesty_fade_residual_ok(&self) -> bool {
+        let Some(expiry) = game_engine::common::world_animation::expiry_frame(
+            self.spawn_frame,
+            self.display_time_seconds,
+        ) else {
+            return false;
+        };
+        self.fade_alpha_at(expiry) == 0.0
+            && if self.fades && expiry > 0 {
+                (self.fade_alpha_at(expiry - 1) - (1.0 / 30.0)).abs() < 0.0001
+            } else {
+                true
+            }
     }
 }
 
@@ -378,38 +394,14 @@ pub(crate) fn collect_presentation_floating_texts(
 }
 
 pub(crate) fn collect_presentation_world_anims(logic: &GameLogic) -> Vec<PresentationWorldAnim> {
-    let mut out: Vec<PresentationWorldAnim> = logic
-        .host_money_crates()
-        .money_pickup_anims
-        .iter()
-        .map(PresentationWorldAnim::from_money_pickup)
-        .collect();
-    for anim in crate::game_logic::host_unit_training::promote_anims_snapshot() {
-        let spawn_frame = if anim.spawn_frame == 0 {
-            logic.frame
-        } else {
-            anim.spawn_frame
-        };
-        out.push(PresentationWorldAnim {
-            template: crate::game_logic::host_unit_training::LEVEL_GAIN_ANIM_TEMPLATE.to_string(),
-            position: anim.position,
-            display_time_seconds:
-                crate::game_logic::host_unit_training::LEVEL_GAIN_ANIM_DISPLAY_TIME_SECONDS,
-            z_rise_per_second:
-                crate::game_logic::host_unit_training::LEVEL_GAIN_ANIM_Z_RISE_PER_SECOND,
-            fades: true,
-            spawn_frame,
-            crate_id: anim.object,
-            picker_id: anim.object,
-        });
-    }
-    out.sort_by(|a, b| {
-        a.spawn_frame
-            .cmp(&b.spawn_frame)
-            .then(a.crate_id.0.cmp(&b.crate_id.0))
-            .then(a.picker_id.0.cmp(&b.picker_id.0))
-    });
-    out
+    // Birth order is the original UI prepend order, including equal-frame
+    // money and promotion admissions. Reading never drains or re-ages it.
+    logic
+        .session_view
+        .world_animations
+        .births()
+        .cloned()
+        .collect()
 }
 
 #[cfg(test)]

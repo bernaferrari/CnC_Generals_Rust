@@ -69,14 +69,16 @@ End
                 assert!(object.begin_slow_death_from_ini(
                     frame,
                     &ini,
-                    &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
+                    &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
                 ));
             }
-            DeathKind::Jet => assert!(object.begin_jet_slow_death(
-                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
-            )),
+            DeathKind::Jet => assert!(
+                object.begin_jet_slow_death(&mut crate::game_logic::ObjectAudio::queue(
+                    &mut Vec::new()
+                ))
+            ),
             DeathKind::Helicopter => assert!(object.begin_helicopter_slow_death(
-                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new())
+                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
             )),
         }
     }

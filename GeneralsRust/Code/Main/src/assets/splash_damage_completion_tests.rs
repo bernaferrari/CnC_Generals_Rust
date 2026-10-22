@@ -472,7 +472,7 @@ fn target_update(kind: Splash) {
     world.objects.get_mut(&source).unwrap().set_target(
         Some(anchor),
         &mut _attack_output,
-        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
     );
     world.update();
     let shooter = &world.objects[&source];

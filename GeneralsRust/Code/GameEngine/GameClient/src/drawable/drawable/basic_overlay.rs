@@ -228,10 +228,7 @@ impl BasicDrawable {
             let Ok(obj_guard) = obj_arc.read() else {
                 return;
             };
-            if obj_guard
-                .with_experience_tracker(|_| ())
-                .is_some()
-            {
+            if obj_guard.with_experience_tracker(|_| ()).is_some() {
                 self.overlay_data.veterancy_level = obj_guard.get_veterancy_level() as u8;
             }
         }
@@ -331,9 +328,9 @@ impl BasicDrawable {
             .unwrap_or(false)
     }
 
-    fn icon_ui_allowed(&self) -> bool {
+    fn icon_ui_allowed(&self, draw_icon_ui: bool) -> bool {
         // C++ Drawable::drawIconUI (`Drawable.cpp:2740`).
-        if !TheGameLogic::get_draw_icon_ui() {
+        if !draw_icon_ui {
             return false;
         }
         let fade = get_script_engine()
@@ -869,6 +866,12 @@ impl BasicDrawable {
     }
 
     pub fn draw_icon_ui(&mut self) {
+        self.draw_icon_ui_with_policy(TheGameLogic::get_draw_icon_ui());
+    }
+
+    /// Native Main supplies the driving session flag; standalone callers keep
+    /// the explicit Core wrapper above. This does not publish a second flag.
+    pub fn draw_icon_ui_with_policy(&mut self, draw_icon_ui: bool) {
         // C++ `setStealthLook` is independent of drawIconUI. Friendly cloak
         // stays VisibleFriendly (translucent); only Invisible hides.
         if dual_world_registry_unavailable() {
@@ -883,7 +886,7 @@ impl BasicDrawable {
         }
 
         // C++ Drawable::drawIconUI (`Drawable.cpp:2738-2788`).
-        if !self.icon_ui_allowed() {
+        if !self.icon_ui_allowed(draw_icon_ui) {
             self.clear_icon_ui_overlay();
             return;
         }

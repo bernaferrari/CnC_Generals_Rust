@@ -1925,7 +1925,7 @@ mod tests {
         );
         ground.update_movement(
             1.0 / 30.0,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         assert!(
             ground.movement.target_position.is_none(),
@@ -1944,7 +1944,7 @@ mod tests {
         assert!(d3 > 9.0, "flag uses 3D hypotenuse, got {d3}");
         dive.update_movement(
             1.0 / 30.0,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         assert!(
             dive.movement.target_position.is_some(),

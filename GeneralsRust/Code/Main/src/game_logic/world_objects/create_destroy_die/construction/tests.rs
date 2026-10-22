@@ -202,7 +202,7 @@ fn ordinary_player_completion_reaches_owned_ai_script_and_power_before_modules()
     world.dozer_new_task_build(builder, id);
     world.host_object_mut(builder).unwrap().set_ai_state(
         AIState::Constructing,
-        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
     );
     let object = world.host_object_mut(id).unwrap();
     assert_eq!(object.health.maximum, 900.0);

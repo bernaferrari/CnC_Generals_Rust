@@ -634,8 +634,7 @@ impl GameLogic {
     pub fn update_china_infantry_horde_status(&mut self) {
         use crate::game_logic::host_battlemaster::{
             LeftoverHordeScanUnit, evaluate_leftover_horde_blob_scan,
-            leftover_horde_bounding_sphere_radius, leftover_horde_draw_icon_ui,
-            leftover_horde_take_wake,
+            leftover_horde_bounding_sphere_radius, leftover_horde_take_wake,
         };
         use crate::game_logic::host_minigunner::is_minigunner_template;
         use crate::game_logic::host_red_guard::{
@@ -704,7 +703,7 @@ impl GameLogic {
         let mut to_refresh_red: Vec<ObjectId> = Vec::new();
         let mut to_refresh_th: Vec<ObjectId> = Vec::new();
         let mut to_refresh_mg: Vec<ObjectId> = Vec::new();
-        let draw_icon = leftover_horde_draw_icon_ui();
+        let draw_icon = self.get_draw_icon_ui();
         let frame = self.frame;
 
         for (idx, (id, _team, _owner, _scan, name)) in horde_units.iter().enumerate() {

@@ -46,3 +46,6 @@ pub mod version;
 pub mod well_known_keys;
 
 pub mod view_impulse;
+
+/// Frozen world-animation admission and safe original numeric timing.
+pub mod world_animation;

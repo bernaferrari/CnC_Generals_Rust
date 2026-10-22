@@ -665,11 +665,11 @@ mod tests {
             o.set_target(
                 Some(af),
                 attack_events,
-                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
             );
             o.set_ai_state(
                 AIState::SeekingRepair,
-                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
             );
         }
         logic.update_support_states_for_test(&[id], 1.0);
@@ -712,11 +712,11 @@ mod tests {
             o.set_target(
                 Some(pad_id),
                 attack_events,
-                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
             );
             o.set_ai_state(
                 AIState::SeekingRepair,
-                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
             );
         }
         {
@@ -764,11 +764,11 @@ mod tests {
             o.set_target(
                 Some(dock),
                 attack_events,
-                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
             );
             o.set_ai_state(
                 AIState::Gathering,
-                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
             );
         }
         assert!(logic.try_claim_dock_for_test(dock, wid));

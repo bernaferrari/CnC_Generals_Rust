@@ -1,6 +1,26 @@
 #![allow(unused_imports, unused_variables, dead_code, non_snake_case)]
 use super::*;
 impl CnCGameEngine {
+    /// Called after this application's mapped images have been admitted.
+    /// GameData texts are the already captured default/retail/debug startup order.
+    pub(super) async fn load_promotion_definitions(
+        game_data: &[(&str, String)],
+        image_exists: &dyn Fn(&str) -> bool,
+    ) -> Result<crate::game_logic::promotion_definitions::PromotionDefinitions, String> {
+        // Original GameAudio::init loads MiscAudio.ini; Anim2DCollection::init
+        // loads Animation2D.ini. No runtime global collection is consulted.
+        let misc = Self::load_startup_ini_texts(&["Data/INI/MiscAudio.ini"]).await?;
+        #[cfg(feature = "game_client")]
+        let animations = Self::load_startup_ini_texts(&["Data/INI/Animation2D.ini"]).await?;
+        #[cfg(not(feature = "game_client"))]
+        let animations = Vec::new(); // No native Anim2D collection in this configuration.
+        crate::game_logic::promotion_definitions::PromotionDefinitions::from_ordered_sources(
+            game_data,
+            &misc,
+            &animations,
+            image_exists,
+        )
+    }
     /// One application-boundary loose-file/archive resolver; constructors
     /// consume private parsed content and never select ambient game data.
     async fn load_startup_game_data_texts() -> Result<Vec<(&'static str, String)>, String> {
@@ -357,7 +377,7 @@ impl CnCGameEngine {
             camera_input_base,
             camera_options_path,
             replay_fast_forward,
-        ) = Self::load_camera_rules_baseline(startup_sources, application_paths.root())
+        ) = Self::load_camera_rules_baseline(startup_sources.clone(), application_paths.root())
             .map_err(anyhow::Error::msg)?;
         // C++ GameEngine.cpp339 then357: application INI before CLI.
         // Reuse the actual ordered CLI decoder; never copy late GlobalData.
@@ -944,6 +964,31 @@ impl CnCGameEngine {
             engine.game_client.mark_initialized();
             info!("GameClient: all subsystems initialized");
         }
+
+        // Application admission freezes actual parsed animation/image definitions
+        // for this Client and this session. Runtime promotion never selects globals.
+        let promotion_images =
+            game_engine::common::ini::ini_mapped_image::get_mapped_image_collection()
+                .map(|collection| {
+                    game_engine::common::ini::ini_mapped_image::OwnedMappedImages::from_collection(
+                        &collection.read(),
+                    )
+                })
+                .unwrap_or_default();
+        let promotion_definitions = Self::load_promotion_definitions(&startup_sources, &|name| {
+            promotion_images.find(name).is_some()
+        })
+        .await
+        .map_err(anyhow::Error::msg)?;
+        #[cfg(feature = "game_client")]
+        engine.game_client.admit_owned_world_animations(
+            promotion_definitions.animation_templates(),
+            &promotion_images,
+        );
+        engine
+            .game_logic
+            .admit_promotion_definitions(promotion_definitions)
+            .map_err(anyhow::Error::msg)?;
 
         if let Some(subsystem_manager) = get_subsystem_manager() {
             let mut manager = subsystem_manager.lock();

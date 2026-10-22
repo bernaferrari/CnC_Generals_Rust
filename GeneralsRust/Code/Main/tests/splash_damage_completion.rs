@@ -198,7 +198,7 @@ End
     world.objects.get_mut(&shooter).unwrap().set_target(
         Some(anchor),
         &mut attack_output,
-        &mut generals_main::game_logic::MovementAudio::queue(&mut world.queued_audio_events),
+        &mut generals_main::game_logic::ObjectAudio::queue(&mut world.queued_audio_events),
     );
     world.update();
     assert_eq!(world.get_current_frame(), 101);

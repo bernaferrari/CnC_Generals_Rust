@@ -154,7 +154,7 @@ fn resume_repair_if_idle(
     object.target = Some(tid);
     object.set_ai_state(
         AIState::Repairing,
-        &mut crate::game_logic::MovementAudio::queue(audio),
+        &mut crate::game_logic::ObjectAudio::queue(audio),
     );
     object.idle_since_frame = 0;
 }
@@ -227,7 +227,7 @@ mod tests {
             unit.dozer_dock_action = Some(Vec3::new(16.0, 0.0, 0.0));
             unit.set_ai_state(
                 AIState::Idle,
-                &mut crate::game_logic::MovementAudio::queue(audio),
+                &mut crate::game_logic::ObjectAudio::queue(audio),
             );
         }
 

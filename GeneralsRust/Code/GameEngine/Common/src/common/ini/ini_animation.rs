@@ -361,3 +361,96 @@ mod tests {
         assert_eq!(found.read().get_name().as_str(), "First");
     }
 }
+
+/// Actual parsed templates owned by a presentation/content admission. No global
+/// collection, publication, reference counting or mutable lock is created here.
+#[derive(Debug, Default)]
+pub struct OwnedAnim2DTemplates {
+    templates: std::collections::BTreeMap<String, Anim2DTemplate>,
+}
+impl OwnedAnim2DTemplates {
+    pub fn find(&self, name: &str) -> Option<&Anim2DTemplate> {
+        self.templates.get(name)
+    }
+    pub fn iter(&self) -> impl Iterator<Item = (&str, &Anim2DTemplate)> {
+        self.templates
+            .iter()
+            .map(|(name, template)| (name.as_str(), template))
+    }
+    /// Image resolution is supplied from this admission's actual image content.
+    /// Preserve scalar field parsers and original image/sequence error policy.
+    pub fn overlay_ini_text(
+        mut self,
+        text: &str,
+        image_exists: &dyn Fn(&str) -> bool,
+    ) -> Result<Self, String> {
+        let mut ini = INI::new();
+        ini.with_inline_source(text, |ini| {
+            loop {
+                ini.read_line()?;
+                if ini.is_eof() {
+                    break;
+                }
+                let tokens = ini.get_line_tokens();
+                if !tokens
+                    .first()
+                    .is_some_and(|key| key.eq_ignore_ascii_case("Animation"))
+                {
+                    continue;
+                }
+                let name = INI::parse_ascii_string(tokens.get(1).ok_or(INIError::InvalidData)?)?;
+                if self.templates.contains_key(&name) {
+                    return Err(INIError::InvalidData);
+                }
+                let mut template = Anim2DTemplate::new(AsciiString::from(name.as_str()));
+                loop {
+                    ini.read_line()?;
+                    if ini.is_eof() {
+                        return Err(INIError::EndOfFile);
+                    }
+                    let mut tokens = Vec::new();
+                    while let Some(token) = ini.get_next_token_or_null() {
+                        tokens.push(token);
+                    }
+                    let Some(key) = tokens.first() else {
+                        continue;
+                    };
+                    if key.eq_ignore_ascii_case("End") {
+                        break;
+                    }
+                    let args = tokens[1..].iter().map(String::as_str).collect::<Vec<_>>();
+                    if key.eq_ignore_ascii_case("Image") {
+                        let name =
+                            INI::parse_ascii_string(args.first().ok_or(INIError::InvalidData)?)?;
+                        if image_exists(&name) {
+                            template.store_image_name(Some(name))?;
+                        }
+                    } else if key.eq_ignore_ascii_case("ImageSequence") {
+                        if template.num_frames == 0 {
+                            return Err(INIError::InvalidData);
+                        }
+                        let base =
+                            INI::parse_ascii_string(args.first().ok_or(INIError::InvalidData)?)?;
+                        for frame in 0..template.num_frames {
+                            let name = format!("{}{:03}", base, frame);
+                            if !image_exists(&name) {
+                                return Err(INIError::InvalidData);
+                            }
+                            template.store_image_name(Some(name))?;
+                        }
+                    } else {
+                        let field = ANIM_2D_FIELD_PARSE_TABLE
+                            .iter()
+                            .find(|field| field.token.eq_ignore_ascii_case(key))
+                            .ok_or(INIError::InvalidData)?;
+                        (field.parse)(ini, &mut template, &args)?;
+                    }
+                }
+                self.templates.insert(name, template);
+            }
+            Ok(())
+        })
+        .map_err(|error| error.to_string())?;
+        Ok(self)
+    }
+}

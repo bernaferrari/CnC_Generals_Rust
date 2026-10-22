@@ -129,7 +129,7 @@ impl GameLogic {
         unit.set_ultra_accurate(true);
         unit.set_ai_state(
             AIState::Moving,
-            &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+            &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
         );
         unit.set_status_moving(true);
         true
@@ -381,7 +381,7 @@ mod tests {
             ferry.movement.path.clear();
             ferry.set_ai_state(
                 AIState::Idle,
-                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
             );
         }
         logic.update_railed_transports();

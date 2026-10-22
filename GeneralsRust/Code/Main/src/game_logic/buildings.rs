@@ -1089,7 +1089,7 @@ impl BuildingBehavior {
         unit_id: ObjectId,
         objects: &mut HashMap<ObjectId, Object>,
         ownership_events: &mut crate::game_logic::host_owner_log::OwnershipEvents,
-        audio: &mut crate::game_logic::MovementAudio<'_>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) -> bool {
         let occupant_snap = objects.get(&unit_id).map(|unit| {
             (
@@ -1235,7 +1235,7 @@ impl BuildingBehavior {
         object_id: ObjectId,
         objects: &mut HashMap<ObjectId, Object>,
         attack_events: &mut crate::game_logic::host_attack_log::AttackEvents,
-        audio: &mut crate::game_logic::MovementAudio<'_>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
         let (position, team, range) = {
             if let Some(building) = objects.get(&object_id) {

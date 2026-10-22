@@ -164,7 +164,7 @@ impl GameLogic {
         let Some(unit) = self.objects.get_mut(&id) else {
             return;
         };
-        crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events).stop_loop(unit);
+        crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events).stop_loop(unit);
     }
 
     /// C++ `Drawable::startAmbientSound` (enabled, current body state).
@@ -377,7 +377,7 @@ mod tests {
         );
         {
             let unit = logic.objects.get_mut(&id).expect("actual playing unit");
-            unit.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+            unit.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                 &mut logic.queued_audio_events,
             ));
         }

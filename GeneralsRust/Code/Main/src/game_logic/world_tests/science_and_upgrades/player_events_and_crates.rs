@@ -1201,7 +1201,7 @@ fn internet_center_sabotage_disables_spy_vision_and_hackers() {
         h.set_contained_by(Some(c1));
         h.set_ai_state(
             AIState::Garrisoned,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
     }
 
@@ -1441,14 +1441,14 @@ fn america_parachute_land_releases_hijacker() {
     });
     {
         let v = logic.objects.get_mut(&vid).unwrap();
-        v.apply_hijacked(&mut crate::game_logic::MovementAudio::queue(&mut Vec::new()));
+        v.apply_hijacked(&mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()));
         v.set_team(Team::GLA, &mut logic.ownership_events);
     }
     {
         let h = logic.objects.get_mut(&hid).unwrap();
         h.begin_hijacker_in_vehicle(
             vid,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
     }
     logic.tick_hijacker_updates();
@@ -1833,7 +1833,7 @@ fn hijack_takes_max_veterancy_and_marks_status() {
         o.experience.current = 80.0;
         o.set_ai_state(
             AIState::Constructing,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         o
     });
@@ -1842,7 +1842,7 @@ fn hijack_takes_max_veterancy_and_marks_status() {
         let v = logic.objects.get_mut(&vid).unwrap();
         v.apply_hijacked_from(
             donor.as_ref(),
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         v.set_team(Team::GLA, &mut logic.ownership_events);
     }
@@ -1913,14 +1913,16 @@ fn car_bomb_convert_endows_vision_and_veterancy() {
         o
     });
     let donor = logic.objects.get(&tid).cloned();
-    {
-        let car = logic.objects.get_mut(&vid).unwrap();
-        car.apply_convert_to_car_bomb_from(
-            donor.as_ref(),
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
-        );
-        car.set_team(Team::GLA, &mut logic.ownership_events);
-    }
+    logic
+        .with_object_veterancy_feedback(vid, |car, audio, feedback| {
+            car.apply_convert_to_car_bomb_from(donor.as_ref(), audio, feedback);
+        })
+        .expect("actual converted car owner");
+    logic
+        .objects
+        .get_mut(&vid)
+        .unwrap()
+        .set_team(Team::GLA, &mut logic.ownership_events);
     let car = &logic.objects[&vid];
     assert!(car.status.is_carbomb);
     assert_eq!(car.team, Team::GLA);
@@ -2293,7 +2295,11 @@ fn slave_drone_attach_inherits_master_rank() {
     logic.objects.insert(mid, {
         let mut o = Object::new(mt, mid, Team::USA);
         o.set_position(glam::Vec3::ZERO);
-        let _ = o.set_min_veterancy_level(VeterancyLevel::Elite);
+        let _ = o.set_min_veterancy_level(
+            VeterancyLevel::Elite,
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::VeterancyFeedback::standalone(),
+        );
         o
     });
     let drone = logic
@@ -2801,7 +2807,7 @@ fn try_idle_crate_pickup_moves_to_money_crate() {
     let unit = logic.objects.get_mut(&uid).unwrap();
     unit.set_ai_state(
         AIState::Idle,
-        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
     );
     unit.movement.max_speed = 8.0;
 
@@ -2837,7 +2843,7 @@ fn hunt_and_guard_pick_up_created_crates() {
     let mut unit = Object::new(ut, uid, Team::China);
     unit.set_ai_state(
         AIState::Patrolling,
-        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
     );
     unit.hunting = true;
     unit.movement.max_speed = 8.0;
@@ -2878,7 +2884,7 @@ fn guard_retaliate_returns_to_guard_not_idle() {
     o.guard_position = Some(glam::Vec3::ZERO);
     o.set_ai_state(
         AIState::GuardingArea,
-        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
     );
     logic.objects.insert(id, o);
     let vid = ObjectId(4521);
@@ -2894,7 +2900,7 @@ fn guard_retaliate_returns_to_guard_not_idle() {
         Some(glam::Vec3::ZERO),
         None,
         &mut logic.attack_events,
-        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
     );
     if let Some(e) = logic.objects.get_mut(&vid) {
         e.status.destroyed = true;
@@ -2939,7 +2945,7 @@ fn guarding_interrupts_to_last_attacker() {
     });
     g.set_ai_state(
         AIState::GuardingArea,
-        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
     );
     logic.objects.insert(gid, g);
 
@@ -2975,7 +2981,7 @@ fn attack_move_picks_up_created_crate() {
     let mut unit = Object::new(ut, uid, Team::China);
     unit.set_ai_state(
         AIState::AttackMoving,
-        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
     );
     unit.movement.max_speed = 8.0;
     unit.set_position(glam::Vec3::ZERO);

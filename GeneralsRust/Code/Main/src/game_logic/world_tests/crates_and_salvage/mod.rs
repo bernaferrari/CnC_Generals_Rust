@@ -52,7 +52,7 @@ fn dock_helipad_comanche(logic: &mut GameLogic) -> (ObjectId, ObjectId) {
         heli.set_contained_by(Some(pad_id));
         heli.set_ai_state(
             AIState::Docked,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         heli.status.airborne_target = false;
         heli.producer_id = Some(pad_id);

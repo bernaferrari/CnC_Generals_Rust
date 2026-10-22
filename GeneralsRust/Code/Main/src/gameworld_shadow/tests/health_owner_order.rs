@@ -296,7 +296,7 @@ fn health_admission_preserves_max_health_and_experience_neighbors() {
         object.health.maximum = 60.0;
         object.max_health = 60.0;
         object.health.current = 60.0;
-        logic.host_object_mut(id).unwrap().gain_experience(12.0);
+        logic.award_experience(id, 12.0);
 
         if eager {
             observe_completed_owner(&mut shadow, &mut logic);
@@ -490,7 +490,7 @@ fn eager_receipt_does_not_claim_unmapped_health_or_experience_was_applied() {
     perform_owner_health(&mut logic, mapped, 80.0);
     perform_owner_damage(&mut logic, new_id, 10.0, None);
     perform_owner_damage(&mut logic, mapped, 10.0, None);
-    logic.host_object_mut(new_id).unwrap().gain_experience(12.0);
+    logic.award_experience(new_id, 12.0);
 
     observe_completed_owner(&mut shadow, &mut logic);
     let _ = observe_completed_owner(&mut shadow, &mut logic);

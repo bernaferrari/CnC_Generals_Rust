@@ -582,6 +582,7 @@ impl GameLogic {
             HostLocomotorSetKind, apply_choose_locomotor_set,
         };
         let frame = self.frame as u32;
+        let draw_icon_ui = self.get_draw_icon_ui();
         let ids: Vec<ObjectId> = self
             .objects
             .iter()
@@ -609,7 +610,7 @@ impl GameLogic {
                 continue;
             };
             let was_ab = data.afterburners_on;
-            let tick = data.tick(pos, facing, frame);
+            let tick = data.tick(pos, facing, frame, draw_icon_ui);
             o.set_position_with_effects(tick.pos, self.frame, presentation_effects);
             o.movement.velocity = tick.vel;
             if tick.vel.length_squared() > 1.0e-6 {
@@ -861,7 +862,7 @@ impl GameLogic {
             o.target_location = Some(location);
             o.set_ai_state(
                 crate::game_logic::AIState::Attacking,
-                &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
             let shots = o
                 .fire_weapon_power
@@ -907,7 +908,7 @@ impl GameLogic {
             o.set_target(
                 Some(target_id),
                 &mut self.attack_events,
-                &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
             let shots = o
                 .fire_weapon_power
@@ -1742,6 +1743,7 @@ impl GameLogic {
 
     pub(in super::super) fn update_radius_decal_update(&mut self) {
         let frame = self.frame as u32;
+        let draw_icon_ui = self.get_draw_icon_ui();
         let ids: Vec<ObjectId> = self
             .objects
             .iter()
@@ -1761,7 +1763,7 @@ impl GameLogic {
                 continue;
             }
             self.radius_decal_update_reg.record_update();
-            if rd.tick(frame, attacking) {
+            if rd.tick(frame, attacking, draw_icon_ui) {
                 self.radius_decal_update_reg.record_kill(true);
             }
         }

@@ -56,7 +56,7 @@ impl GameLogic {
                     u.set_precise_z_pos(false);
                     u.set_ai_state(
                         state,
-                        &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                        &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                     );
                 }
                 if let Some(gid) = guard_target {

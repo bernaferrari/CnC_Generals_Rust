@@ -1020,7 +1020,7 @@ mod tests {
             obj.set_contained_by(Some(ic));
             obj.set_ai_state(
                 crate::game_logic::AIState::Docked,
-                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
             );
         }
 

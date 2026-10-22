@@ -51,7 +51,7 @@ impl Object {
         &mut self,
         destination: Vec3,
         movement_events: &mut crate::game_logic::movement_events::MovementEventWriter<'_>,
-        audio: &mut crate::game_logic::MovementAudio<'_>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
         let _ = self.takeoff_from_airfield_parking(audio);
         // C++ DeployStyle: ordered move packs up (undeploy) residual.
@@ -61,7 +61,7 @@ impl Object {
         self.move_to(destination, movement_events, audio);
     }
 
-    pub fn clear_target(&mut self, audio: &mut crate::game_logic::MovementAudio<'_>) {
+    pub fn clear_target(&mut self, audio: &mut crate::game_logic::ObjectAudio<'_>) {
         self.set_target_state(None, audio);
     }
 
@@ -69,7 +69,7 @@ impl Object {
         &mut self,
         target: Option<ObjectId>,
         attack_events: &mut crate::game_logic::host_attack_log::AttackEvents,
-        audio: &mut crate::game_logic::MovementAudio<'_>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
         self.set_target_state(target, audio);
         if let Some(target) = target {
@@ -80,7 +80,7 @@ impl Object {
     fn set_target_state(
         &mut self,
         target: Option<ObjectId>,
-        audio: &mut crate::game_logic::MovementAudio<'_>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
         if target.is_some() {
             let _ = self.takeoff_from_airfield_parking(audio);
@@ -107,7 +107,7 @@ impl Object {
         &mut self,
         target: ObjectId,
         attack_events: &mut crate::game_logic::host_attack_log::AttackEvents,
-        audio: &mut crate::game_logic::MovementAudio<'_>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
         let _ = self.takeoff_from_airfield_parking(audio);
         if self.target != Some(target) {
@@ -123,7 +123,7 @@ impl Object {
     /// Used by capture/hijack/gather/special-ability pathing where
     /// `path_to_goal_with_state` owns the AI state residual.
     /// Records the positive targeting observation after the canonical write.
-    pub fn clear_order_target(&mut self, audio: &mut crate::game_logic::MovementAudio<'_>) {
+    pub fn clear_order_target(&mut self, audio: &mut crate::game_logic::ObjectAudio<'_>) {
         self.set_order_target_state(None, audio);
     }
 
@@ -131,7 +131,7 @@ impl Object {
         &mut self,
         target: Option<ObjectId>,
         attack_events: &mut crate::game_logic::host_attack_log::AttackEvents,
-        audio: &mut crate::game_logic::MovementAudio<'_>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
         self.set_order_target_state(target, audio);
         if let Some(target) = target {
@@ -144,7 +144,7 @@ impl Object {
     pub(crate) fn restore_order_target(
         &mut self,
         target: Option<ObjectId>,
-        audio: &mut crate::game_logic::MovementAudio<'_>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
         self.set_order_target_state(target, audio);
     }
@@ -152,7 +152,7 @@ impl Object {
     fn set_order_target_state(
         &mut self,
         target: Option<ObjectId>,
-        audio: &mut crate::game_logic::MovementAudio<'_>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
         if target.is_some() {
             let _ = self.takeoff_from_airfield_parking(audio);
@@ -528,7 +528,7 @@ impl Object {
     pub fn consume_special_power_charge(
         &mut self,
         power: &SpecialPowerType,
-        audio: &mut crate::game_logic::MovementAudio<'_>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
         if !self.is_special_power_ready(power) {
             return;
@@ -639,7 +639,7 @@ impl Object {
     pub fn set_target_location(
         &mut self,
         location: Option<Vec3>,
-        audio: &mut crate::game_logic::MovementAudio<'_>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
         self.target_location = location;
         if location.is_some() {
@@ -655,7 +655,7 @@ impl Object {
         self.set_status_force_attack(force);
     }
 
-    pub fn stop(&mut self, audio: &mut crate::game_logic::MovementAudio<'_>) {
+    pub fn stop(&mut self, audio: &mut crate::game_logic::ObjectAudio<'_>) {
         // A held move must not resume after Stop. pending_move is not a
         // locomotor goal, so stop_moving does not clear it.
         self.pending_move = None;
@@ -666,7 +666,7 @@ impl Object {
     pub fn set_guard_position(
         &mut self,
         position: Option<Vec3>,
-        audio: &mut crate::game_logic::MovementAudio<'_>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
         self.guard_position = position;
         // A fresh position guard is not a polygon area unless a caller stamps
@@ -684,7 +684,7 @@ impl Object {
     pub fn set_guard_target(
         &mut self,
         target: Option<ObjectId>,
-        audio: &mut crate::game_logic::MovementAudio<'_>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
         self.guard_target = target;
         self.guard_area_trigger = None;
@@ -724,7 +724,7 @@ impl Object {
         anchor: Option<glam::Vec3>,
         max_shots: Option<i32>,
         attack_events: &mut crate::game_logic::host_attack_log::AttackEvents,
-        audio: &mut crate::game_logic::MovementAudio<'_>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
         if !self.is_alive() || self.status.destroyed {
             return;
@@ -758,7 +758,7 @@ impl Object {
     }
 
     /// Clear GuardRetaliate residual and return to guard/idle.
-    pub fn end_guard_retaliate(&mut self, audio: &mut crate::game_logic::MovementAudio<'_>) {
+    pub fn end_guard_retaliate(&mut self, audio: &mut crate::game_logic::ObjectAudio<'_>) {
         self.guard_retaliate_victim = None;
         self.guard_retaliate_anchor = None;
         self.target = None;
@@ -781,7 +781,7 @@ impl Object {
         victim_alive: bool,
         victim_pos: Option<glam::Vec3>,
         movement_events: &mut crate::game_logic::movement_events::MovementEventWriter<'_>,
-        audio: &mut crate::game_logic::MovementAudio<'_>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
         if !matches!(self.ai_state, AIState::GuardRetaliating) {
             return;

@@ -537,7 +537,7 @@ impl GameLogic {
                     enemy.set_target(
                         Some(rid),
                         &mut self.attack_events,
-                        &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                        &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                     );
                     {}
                     self.camo_netting_order_idle_enemies_count =
@@ -3108,7 +3108,7 @@ impl GameLogic {
                 {
                     obj.set_ai_state(
                         AIState::Moving,
-                        &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                        &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                     );
                     {}
                     obj.movement.target_position = Some(mine_pos);
@@ -3369,7 +3369,7 @@ impl GameLogic {
             if matches!(clearer.ai_state, AIState::Attacking | AIState::Moving) {
                 clearer.set_ai_state(
                     AIState::Idle,
-                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
                 {}
                 clearer.movement.target_position = None;

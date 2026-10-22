@@ -1588,7 +1588,7 @@ impl GameLogic {
         if let Some(obj) = self.objects.get_mut(&dozer_id) {
             let dropped = if cancel_build { build_id } else { repair_id };
             if obj.target.is_some() && obj.target == dropped {
-                obj.clear_order_target(&mut crate::game_logic::MovementAudio::queue(
+                obj.clear_order_target(&mut crate::game_logic::ObjectAudio::queue(
                     &mut self.queued_audio_events,
                 ));
             }

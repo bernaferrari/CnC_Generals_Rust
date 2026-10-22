@@ -198,30 +198,28 @@ impl GameLogic {
                 ) else {
                     continue;
                 };
-                let inherit_name = {
-                    let Some(object) = self.objects.get_mut(&created_id) else {
-                        continue;
-                    };
-
-                    object.producer_id = source_id;
-                    if generic.disposition.has(DebrisDisposition::LIKE_EXISTING) {
-                        object.set_orientation(source_orientation);
-                    }
-                    if generic.disposition.has(DebrisDisposition::INHERIT_VELOCITY) {
-                        // The host's movement/physics state is the concrete
-                        // equivalent of C++ PhysicsBehavior::applyForce for this
-                        // disposition.  It also preserves DragonTank FireWall
-                        // segment direction without inspecting an OCL name.
-                        object.movement.velocity = source_velocity;
-                    }
-                    // C++ ObjectCreationList.cpp:996-1006 — inherit rank and
-                    // transferObjectName only when the created tracker isTrainable.
-                    let inherit_name = generic.inherit_veterancy && object.is_trainable();
-                    if inherit_name {
-                        object.set_min_veterancy_level(source_veterancy);
-                    }
-                    inherit_name
-                };
+                let inherit_name = self
+                    .with_object_veterancy_feedback(created_id, |object, audio, feedback| {
+                        object.producer_id = source_id;
+                        if generic.disposition.has(DebrisDisposition::LIKE_EXISTING) {
+                            object.set_orientation(source_orientation);
+                        }
+                        if generic.disposition.has(DebrisDisposition::INHERIT_VELOCITY) {
+                            // The host's movement/physics state is the concrete
+                            // equivalent of C++ PhysicsBehavior::applyForce for this
+                            // disposition.  It also preserves DragonTank FireWall
+                            // segment direction without inspecting an OCL name.
+                            object.movement.velocity = source_velocity;
+                        }
+                        // C++ ObjectCreationList.cpp:996-1006 — inherit rank and
+                        // transferObjectName only when the created tracker isTrainable.
+                        let inherit_name = generic.inherit_veterancy && object.is_trainable();
+                        if inherit_name {
+                            object.set_min_veterancy_level(source_veterancy, audio, feedback);
+                        }
+                        inherit_name
+                    })
+                    .unwrap_or(false);
                 let Some(object) = self.objects.get_mut(&created_id) else {
                     continue;
                 };
@@ -2723,10 +2721,10 @@ mod tests {
             .expect("configured retail ObjectCreationList.ini must be readable");
         let text = std::str::from_utf8(&bytes)
             .expect("retail ObjectCreationList.ini must contain valid UTF-8");
-        gamelogic::object_creation_list::store::load_object_creation_lists_from_str(text)
-            .expect("retail ObjectCreationList.ini must parse");
-
         let mut logic = GameLogic::new();
+        logic
+            .apply_receiving_ocl_overrides(&[text.to_owned()])
+            .expect("retail ObjectCreationList.ini must parse");
         logic.templates.insert(
             "__OclBridgeSource".into(),
             ThingTemplate::new("__OclBridgeSource"),
@@ -2777,10 +2775,10 @@ ObjectCreationList OCL_HostMixedParity
   End
 End
 "#;
-        gamelogic::object_creation_list::store::load_object_creation_lists_from_str(ini)
-            .expect("mixed OCL must parse");
-
         let mut logic = GameLogic::new();
+        logic
+            .apply_receiving_ocl_overrides(&[ini.to_owned()])
+            .expect("mixed OCL must parse");
         logic.templates.insert(
             "__OclBridgeSource".into(),
             ThingTemplate::new("__OclBridgeSource"),
@@ -2821,10 +2819,10 @@ ObjectCreationList OCL_HostOwnerParity
   End
 End
 "#;
-        gamelogic::object_creation_list::store::load_object_creation_lists_from_str(ini)
-            .expect("owner OCL must parse");
-
         let mut logic = GameLogic::new();
+        logic
+            .apply_receiving_ocl_overrides(&[ini.to_owned()])
+            .expect("owner OCL must parse");
         logic.add_player(Player::new(3, Team::China, "ChinaA", true));
         logic.add_player(Player::new(7, Team::China, "ChinaB", false));
         assert_eq!(logic.unique_player_id_for_team(Team::China), None);
@@ -2883,10 +2881,10 @@ ObjectCreationList OCL_HostInheritFieldParity
   End
 End
 "#;
-        gamelogic::object_creation_list::store::load_object_creation_lists_from_str(ini)
-            .expect("inherit OCL must parse");
-
         let mut logic = GameLogic::new();
+        logic
+            .apply_receiving_ocl_overrides(&[ini.to_owned()])
+            .expect("inherit OCL must parse");
         let mut source_tpl = ThingTemplate::new("__OclVetSource");
         source_tpl.is_trainable = true;
         logic.templates.insert("__OclVetSource".into(), source_tpl);
@@ -2902,11 +2900,12 @@ End
         let source = logic
             .create_object("__OclVetSource", Team::USA, Vec3::new(2.0, 0.0, 4.0))
             .expect("source");
-        {
-            let src = logic.objects.get_mut(&source).expect("source mut");
-            src.name = "PilotOne".into();
-            src.set_min_veterancy_level(VeterancyLevel::Elite);
-        }
+        logic
+            .with_object_veterancy_feedback(source, |src, audio, feedback| {
+                src.name = "PilotOne".into();
+                src.set_min_veterancy_level(VeterancyLevel::Elite, audio, feedback);
+            })
+            .expect("actual OCL source owner");
 
         let created = logic.execute_parsed_weapon_ocl_at(
             "OCL_HostInheritVetParity",
@@ -2931,11 +2930,12 @@ End
         let field_src = logic
             .create_object("__OclVetSource", Team::USA, Vec3::new(8.0, 0.0, 4.0))
             .expect("field source");
-        {
-            let src = logic.objects.get_mut(&field_src).expect("field src mut");
-            src.name = "FieldSrc".into();
-            src.set_min_veterancy_level(VeterancyLevel::Elite);
-        }
+        logic
+            .with_object_veterancy_feedback(field_src, |src, audio, feedback| {
+                src.name = "FieldSrc".into();
+                src.set_min_veterancy_level(VeterancyLevel::Elite, audio, feedback);
+            })
+            .expect("actual OCL source owner");
         let created_field = logic.execute_parsed_weapon_ocl_at(
             "OCL_HostInheritFieldParity",
             Some(field_src),
@@ -2986,7 +2986,7 @@ End
             o.install_overlord_gattling_addon();
             o.set_ai_state(
                 AIState::Idle,
-                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
             );
             o.target = None;
             if let Some(w) = o.weapon_slot_mut(1) {
@@ -3023,10 +3023,10 @@ ObjectCreationList OCL_HostFadeInParity
   End
 End
 "#;
-        gamelogic::object_creation_list::store::load_object_creation_lists_from_str(ini)
-            .expect("fade OCL must parse");
-
         let mut logic = GameLogic::new();
+        logic
+            .apply_receiving_ocl_overrides(&[ini.to_owned()])
+            .expect("fade OCL must parse");
         logic.frame = 40;
         logic.templates.insert(
             "__OclBridgeSource".into(),

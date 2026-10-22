@@ -284,7 +284,7 @@ impl AIPlayer {
                     unit.move_to(
                         enemy_base,
                         &mut game_logic.movement_events.writer(game_logic.frame),
-                        &mut crate::game_logic::MovementAudio::queue(
+                        &mut crate::game_logic::ObjectAudio::queue(
                             &mut game_logic.queued_audio_events,
                         ),
                     );

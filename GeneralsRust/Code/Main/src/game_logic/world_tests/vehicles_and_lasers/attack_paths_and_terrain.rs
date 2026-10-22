@@ -188,7 +188,7 @@ fn host_attack_los_gates_fire_through_building() {
                 o.target = Some(tgt);
                 o.set_ai_state(
                     AIState::Attacking,
-                    &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+                    &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
                 );
                 o.set_status_attacking(true);
             }
@@ -271,7 +271,7 @@ fn host_attack_los_allows_fire_in_open() {
         o.target = Some(tgt);
         o.set_ai_state(
             AIState::Attacking,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         o.set_status_attacking(true);
     }
@@ -342,7 +342,7 @@ fn generic_object_fire_uses_weapon_ini_damage_type() {
         o.target = Some(tgt);
         o.set_ai_state(
             AIState::Attacking,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         o.set_status_attacking(true);
     }
@@ -441,7 +441,7 @@ fn find_attack_path_picks_los_cell_not_target_footprint() {
         o.target = Some(tgt);
         o.set_ai_state(
             AIState::Attacking,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
     }
     assert!(
@@ -552,7 +552,7 @@ fn structure_footprint_blocks_attack_los() {
                 o.target = Some(tgt);
                 o.set_ai_state(
                     AIState::Attacking,
-                    &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+                    &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
                 );
                 o.set_status_attacking(true);
             }

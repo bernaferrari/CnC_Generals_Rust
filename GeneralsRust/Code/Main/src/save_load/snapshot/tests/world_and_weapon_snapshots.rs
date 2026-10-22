@@ -117,7 +117,7 @@ fn object_status_bits_survive_snapshot_restore() {
         object.set_status_unselectable(true);
         object.set_deployed(
             true,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         object.set_script_disabled(true);
         object.set_script_underpowered(true);
@@ -598,7 +598,11 @@ fn snapshot_restore_preserves_explicit_zero_over_tracker_summary() {
         .expect("failed to create tank");
     {
         let tank = source.host_object_mut(tank_id).expect("tank should exist");
-        tank.gain_experience(180.0);
+        tank.gain_experience(
+            180.0,
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::VeterancyFeedback::standalone(),
+        );
         assert_eq!(tank.experience.level, VeterancyLevel::Elite);
     }
 
@@ -609,7 +613,11 @@ fn snapshot_restore_preserves_explicit_zero_over_tracker_summary() {
         let truck = source
             .host_object_mut(truck_id)
             .expect("truck should exist");
-        truck.gain_experience(180.0);
+        truck.gain_experience(
+            180.0,
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::VeterancyFeedback::standalone(),
+        );
         // C++ ExperienceTracker::addExperiencePoints: untrainable, so no XP and no level.
         assert_eq!(truck.experience.level, VeterancyLevel::Rookie);
         assert_eq!(truck.experience.current, 0.0);

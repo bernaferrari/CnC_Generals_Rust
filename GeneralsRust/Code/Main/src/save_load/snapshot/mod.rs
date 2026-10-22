@@ -213,3 +213,6 @@ mod native_lifecycle_persist;
 mod object_order_persist;
 mod original_disabled_persist;
 mod repair_dock_persist;
+
+#[cfg(test)]
+mod promotion_owner_tests;

@@ -106,7 +106,7 @@ impl GameLogic {
                 if let Some(u) = self.objects.get_mut(&object_id) {
                     u.set_ai_state(
                         AIState::Idle,
-                        &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                        &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                     );
                 }
                 {}
@@ -551,7 +551,7 @@ impl GameLogic {
         // Log under decision authority for GameWorld last-write parity.
         self.drop_jet_targeters_on_attack_exit(unit_id);
         if let Some(obj) = self.objects.get_mut(&unit_id) {
-            obj.stop_attack(&mut crate::game_logic::MovementAudio::queue(
+            obj.stop_attack(&mut crate::game_logic::ObjectAudio::queue(
                 &mut self.queued_audio_events,
             ));
         }
@@ -567,7 +567,7 @@ impl GameLogic {
         // call set_target(None) directly without this helper.
         self.remove_self_as_jet_targeter_from_current_victim(unit_id);
         if let Some(obj) = self.objects.get_mut(&unit_id) {
-            obj.clear_target(&mut crate::game_logic::MovementAudio::queue(
+            obj.clear_target(&mut crate::game_logic::ObjectAudio::queue(
                 &mut self.queued_audio_events,
             ));
         }
@@ -667,7 +667,7 @@ impl GameLogic {
             source.note_attack_target(
                 target_id,
                 &mut self.attack_events,
-                &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
         }
 
@@ -716,7 +716,7 @@ impl GameLogic {
         if let Some(u) = self.objects.get_mut(&unit_id) {
             u.set_ai_state(
                 state,
-                &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
         }
         {}
@@ -866,12 +866,12 @@ impl GameLogic {
             u.set_order_target(
                 Some(target_id),
                 &mut self.attack_events,
-                &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
             if !matches!(u.ai_state, AIState::Patrolling | AIState::AttackMoving) {
                 u.set_ai_state(
                     AIState::Attacking,
-                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
             }
             u.set_status_attacking(true);
@@ -937,7 +937,7 @@ impl GameLogic {
             obj.attack_target(
                 target_id,
                 &mut self.attack_events,
-                &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
         }
         {}
@@ -1126,7 +1126,7 @@ mod hq_m6gcj_tests {
         hunter.hunting = true;
         hunter.set_ai_state(
             AIState::Patrolling,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         logic.add_object(hunter);
         logic
@@ -1163,7 +1163,7 @@ mod hq_m6gcj_tests {
         worker.hunting = true;
         worker.set_ai_state(
             AIState::Patrolling,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         logic.objects.insert(worker.id, worker);
         logic
@@ -1203,7 +1203,7 @@ mod hq_m6gcj_tests {
         hunter.hunting = true;
         hunter.set_ai_state(
             AIState::Patrolling,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         logic.objects.insert(hunter.id, hunter);
         logic
@@ -1248,7 +1248,7 @@ mod hq_m6gcj_tests {
         jet.template_mut().primary_weapon_name = Some("RaptorMissileWeapon".to_string());
         jet.set_ai_state(
             AIState::AttackMoving,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         jet.is_attack_path = true;
         logic.objects.insert(jet.id, jet);
@@ -1286,7 +1286,7 @@ mod hq_m6gcj_tests {
         idle.auto_acquire_when_idle = false;
         idle.set_ai_state(
             AIState::Idle,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         idle.weapon = Some(Weapon {
             range: 200.0,
@@ -1336,14 +1336,14 @@ mod hq_m6gcj_tests {
         let mut unit = Object::new(ThingTemplate::new("Crusader"), ObjectId(1), Team::USA);
         unit.set_ai_state(
             AIState::AttackMoving,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         unit.is_attack_path = true;
         unit.requested_destination = Some(dest);
         unit.movement.target_position = Some(dest);
         unit.target = Some(ObjectId(2));
         unit.status.attacking = true;
-        unit.stop_attack(&mut crate::game_logic::MovementAudio::queue(&mut Vec::new()));
+        unit.stop_attack(&mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()));
         assert_eq!(unit.ai_state, AIState::AttackMoving);
         assert!(unit.target.is_none());
         assert_eq!(unit.requested_destination, Some(dest));
@@ -1363,7 +1363,7 @@ mod hq_m6gcj_tests {
         });
         tank.set_ai_state(
             AIState::AttackMoving,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         tank.is_attack_path = true;
         tank.requested_destination = Some(dest);
@@ -1420,7 +1420,7 @@ mod hq_m6gcj_tests {
         unit.set_position(Vec3::ZERO);
         unit.set_ai_state(
             AIState::AttackMoving,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         unit.is_attack_path = true;
         unit.requested_destination = Some(dest);
@@ -1637,7 +1637,7 @@ mod hq_m6gcj_tests {
         hunter.hunting = true;
         hunter.set_ai_state(
             AIState::Patrolling,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         hunter.set_position(Vec3::ZERO);
 
@@ -1692,7 +1692,7 @@ mod hq_m6gcj_tests {
         hunter.hunting = true;
         hunter.set_ai_state(
             AIState::Patrolling,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         hunter.set_position(Vec3::ZERO);
         hunter.weapon = Some(Weapon {
@@ -1739,7 +1739,7 @@ mod hq_m6gcj_tests {
         due.hunting = true;
         due.set_ai_state(
             AIState::Patrolling,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         due.set_position(Vec3::ZERO);
         due.weapon = Some(Weapon {
@@ -1752,7 +1752,7 @@ mod hq_m6gcj_tests {
         waiting.hunting = true;
         waiting.set_ai_state(
             AIState::Patrolling,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         waiting.set_position(Vec3::new(5.0, 0.0, 0.0));
         waiting.weapon = Some(Weapon {

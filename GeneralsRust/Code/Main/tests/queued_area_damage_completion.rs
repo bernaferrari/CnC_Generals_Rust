@@ -2,35 +2,17 @@
 //! Real AttackObject admission, Weapon/DamageFX parsers, due frames, XP and FX.
 use game_engine::common::ini::INI;
 use game_engine::common::ini::ini_damage_fx::init_global_damage_fx_store;
-use game_engine::common::ini::ini_fx_list::{
-    DispatchedFxNugget, FxListObjRuntime, clear_fx_list_obj_runtime, register_fx_list_obj_runtime,
-    take_dispatched_fx_nuggets,
-};
+#[path = "common/queued_damage_fx.rs"]
+mod queued_damage_fx;
 use generals_main::assets::ini_template_loader::register_weapons_from_ini_text;
 use generals_main::command_system::{CommandType, GameCommand, ModifierKeys};
 use generals_main::game_logic::{
     GameLogic, KindOf, ObjectId, Player, Team, ThingTemplate, VeterancyLevel,
 };
 use glam::Vec3;
-use std::sync::{Arc, Mutex};
+use queued_damage_fx::Observation;
+use std::sync::mpsc::Receiver;
 use std::time::{Duration, UNIX_EPOCH};
-
-static SERIAL: Mutex<()> = Mutex::new(());
-#[derive(Default)]
-struct Observer(Mutex<Vec<(String, Option<u32>, Option<u32>)>>);
-impl FxListObjRuntime for Observer {
-    fn do_fx_obj(&self, name: &str, victim: Option<u32>, source: Option<u32>) -> bool {
-        self.0.lock().unwrap().push((name.into(), victim, source));
-        false
-    }
-}
-struct ClearObserver;
-impl Drop for ClearObserver {
-    fn drop(&mut self) {
-        clear_fx_list_obj_runtime();
-        let _ = take_dispatched_fx_nuggets();
-    }
-}
 
 struct Fixture {
     world: GameLogic,
@@ -39,6 +21,7 @@ struct Fixture {
     intended: ObjectId,
     sink: Option<ObjectId>,
     rows: String,
+    fx: Receiver<Observation>,
 }
 fn fixture(
     label: &str,
@@ -140,6 +123,7 @@ End
             |ini| ini.parse_current_file(),
         )
         .unwrap();
+    let fx = queued_damage_fx::install(&rows);
     let mut world = GameLogic::new();
     for (id, team) in [(0, Team::USA), (1, Team::China)] {
         let mut player = Player::new(id, team, label, id == 0);
@@ -249,6 +233,7 @@ End
         intended,
         sink,
         rows,
+        fx,
     }
 }
 impl Fixture {
@@ -294,24 +279,34 @@ impl Fixture {
             .map(|o| o.experience.current)
             .sum()
     }
-    fn expect_fx(&self, observer: &Observer, level: &str, source: Option<ObjectId>) {
+    fn take_fx(&self) -> Vec<Observation> {
+        self.fx.try_iter().collect()
+    }
+    fn expect_fx(&self, level: &str, source: Option<ObjectId>) {
+        let observed = self.take_fx();
         assert_eq!(
-            observer.0.lock().unwrap().drain(..).collect::<Vec<_>>(),
+            observed
+                .iter()
+                .map(|event| (event.list.clone(), event.victim, event.source))
+                .collect::<Vec<_>>(),
             vec![(
                 format!("FX_{}_{level}", self.rows),
                 Some(self.victim.0),
                 source.map(|id| id.0)
             )]
         );
+        // The actual native list ran before this report. These are the Sound
+        // names from its compiled nuggets, not a Common dispatch log or a
+        // claim that an audio device played the sound.
         assert_eq!(
-            take_dispatched_fx_nuggets(),
-            vec![DispatchedFxNugget::Sound(format!(
-                "Sound_{}_{level}",
-                self.rows
-            ))]
+            observed
+                .into_iter()
+                .flat_map(|event| event.sounds)
+                .collect::<Vec<_>>(),
+            vec![format!("Sound_{}_{level}", self.rows)]
         );
     }
-    fn no_repeat(&mut self, observer: &Observer) {
+    fn no_repeat(&mut self) {
         let xp = self.xp();
         let sink_xp = self
             .sink
@@ -323,21 +318,10 @@ impl Fixture {
                 .map(|id| self.world.objects[&id].experience.current),
             sink_xp
         );
-        assert!(observer.0.lock().unwrap().is_empty());
-        assert!(take_dispatched_fx_nuggets().is_empty());
+        assert!(self.take_fx().is_empty());
     }
 }
-fn observe() -> Arc<Observer> {
-    clear_fx_list_obj_runtime();
-    let _ = take_dispatched_fx_nuggets();
-    let observer = Arc::new(Observer::default());
-    register_fx_list_obj_runtime(observer.clone());
-    observer
-}
 fn instant(label: &str, health: f32, sink: bool) {
-    let _guard = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
-    let _clear = ClearObserver;
-    let observer = observe();
     let mut f = fixture(label, health, sink, 30000000, 1, 10.0);
     f.accept();
     let lethal = health <= 100.0;
@@ -367,11 +351,10 @@ fn instant(label: &str, health: f32, sink: bool) {
         );
     }
     f.expect_fx(
-        &observer,
         if xp > 0.0 { "Veteran" } else { "Regular" },
         Some(f.shooters[0]),
     );
-    f.no_repeat(&observer);
+    f.no_repeat();
 }
 #[test]
 fn ordinary_library_queued_area_lethal_completes_before_fx() {
@@ -386,17 +369,15 @@ fn ordinary_library_queued_area_sink_keeps_source_rookie_fx() {
     instant("Sink", 100.0, true);
 }
 fn delayed(label: &str, remove_source: bool) {
-    let _guard = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
-    let _clear = ClearObserver;
-    let observer = observe();
     let mut f = fixture(label, 100.0, false, 30, 1, 10.0);
     let source = f.shooters[0];
     if remove_source {
-        f.world
-            .objects
-            .get_mut(&source)
-            .unwrap()
-            .gain_experience(10.0);
+        // Setup-only promotion: explicit local audio, no receiving UI admission.
+        f.world.objects.get_mut(&source).unwrap().gain_experience(
+            10.0,
+            &mut generals_main::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut generals_main::game_logic::VeterancyFeedback::standalone(),
+        );
         assert_eq!(
             f.world.objects[&source].experience.level,
             VeterancyLevel::Veteran
@@ -415,8 +396,7 @@ fn delayed(label: &str, remove_source: bool) {
             "no early hit before frame110"
         );
         assert_eq!(f.xp(), 0.0);
-        assert!(observer.0.lock().unwrap().is_empty());
-        assert!(take_dispatched_fx_nuggets().is_empty());
+        assert!(f.take_fx().is_empty());
         f.world.update();
         if frame < 110 {
             assert!(f.world.objects.contains_key(&f.victim));
@@ -425,11 +405,10 @@ fn delayed(label: &str, remove_source: bool) {
     assert!(!f.world.objects.contains_key(&f.victim));
     assert_eq!(f.xp(), if remove_source { 0.0 } else { 10.0 });
     f.expect_fx(
-        &observer,
         if remove_source { "Regular" } else { "Veteran" },
         (!remove_source).then_some(source),
     );
-    f.no_repeat(&observer);
+    f.no_repeat();
 }
 #[test]
 fn ordinary_library_queued_area_finite_speed_due_frame() {
@@ -441,9 +420,6 @@ fn ordinary_library_queued_area_missing_source_at_arrival() {
 }
 #[test]
 fn ordinary_library_queued_area_two_accepted_hits_credit_once() {
-    let _guard = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
-    let _clear = ClearObserver;
-    let observer = observe();
     let mut f = fixture("TwoHits", 100.0, false, 30000000, 2, 10.0);
     f.accept();
     assert!(!f.world.objects.contains_key(&f.victim));
@@ -453,14 +429,11 @@ fn ordinary_library_queued_area_two_accepted_hits_credit_once() {
         .iter()
         .find(|id| f.world.objects[id].experience.current == 10.0)
         .unwrap();
-    f.expect_fx(&observer, "Veteran", Some(killer));
-    f.no_repeat(&observer);
+    f.expect_fx("Veteran", Some(killer));
+    f.no_repeat();
 }
 #[test]
 fn ordinary_library_queued_area_interleaved_worlds() {
-    let _guard = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
-    let _clear = ClearObserver;
-    let observer = observe();
     let mut a = fixture("WorldA", 100.0, false, 30, 1, 10.0);
     a.accept();
     let mut b = fixture("WorldB", 100.0, false, 30, 1, 50.0);
@@ -476,13 +449,15 @@ fn ordinary_library_queued_area_interleaved_worlds() {
         b.world.update();
         assert_eq!(a.xp(), 0.0);
         assert_eq!(b.xp(), 0.0);
-        assert!(take_dispatched_fx_nuggets().is_empty());
+        assert!(a.take_fx().is_empty());
+        assert!(b.take_fx().is_empty());
     }
     a.world.update();
     assert_eq!(a.xp(), 10.0);
     assert_eq!(b.xp(), 0.0);
     assert_eq!(b.world.objects[&b.victim].health.current, 100.0);
-    a.expect_fx(&observer, "Veteran", Some(a.shooters[0]));
+    a.expect_fx("Veteran", Some(a.shooters[0]));
+    assert!(b.take_fx().is_empty());
     b.world.update();
     assert_eq!(b.xp(), 10.0);
     assert_eq!(
@@ -493,16 +468,16 @@ fn ordinary_library_queued_area_interleaved_worlds() {
         b.world.objects[&b.shooters[0]].experience.level,
         VeterancyLevel::Rookie
     );
-    b.expect_fx(&observer, "Regular", Some(b.shooters[0]));
-    a.no_repeat(&observer);
-    b.no_repeat(&observer);
+    b.expect_fx("Regular", Some(b.shooters[0]));
+    assert!(a.take_fx().is_empty());
+    a.no_repeat();
+    assert!(b.take_fx().is_empty());
+    b.no_repeat();
+    assert!(a.take_fx().is_empty());
 }
 
 #[test]
 fn ordinary_library_queued_area_two_collateral_kills_complete_in_encounter_order() {
-    let _guard = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
-    let _clear = ClearObserver;
-    let observer = observe();
     let mut f = fixture("TwoKills", 100.0, false, 30000000, 1, 10.0);
     let other = f
         .world
@@ -516,7 +491,11 @@ fn ordinary_library_queued_area_two_collateral_kills_complete_in_encounter_order
         f.world.objects[&f.shooters[0]].experience.level,
         VeterancyLevel::Elite
     );
-    let hits = observer.0.lock().unwrap().drain(..).collect::<Vec<_>>();
+    let observed = f.take_fx();
+    let hits = observed
+        .iter()
+        .map(|event| (event.list.clone(), event.victim, event.source))
+        .collect::<Vec<_>>();
     assert_eq!(hits.len(), 2);
     assert_eq!(hits[0].0, format!("FX_{}_Veteran", f.rows));
     assert_eq!(hits[1].0, format!("FX_{}_Elite", f.rows));
@@ -527,20 +506,20 @@ fn ordinary_library_queued_area_two_collateral_kills_complete_in_encounter_order
     assert_eq!(victims, expected); // HashMap encounter order is intentionally not sorted.
     assert!(hits.iter().all(|h| h.2 == Some(f.shooters[0].0)));
     assert_eq!(
-        take_dispatched_fx_nuggets(),
+        observed
+            .into_iter()
+            .flat_map(|event| event.sounds)
+            .collect::<Vec<_>>(),
         vec![
-            DispatchedFxNugget::Sound(format!("Sound_{}_Veteran", f.rows)),
-            DispatchedFxNugget::Sound(format!("Sound_{}_Elite", f.rows)),
+            format!("Sound_{}_Veteran", f.rows),
+            format!("Sound_{}_Elite", f.rows)
         ]
     );
-    f.no_repeat(&observer);
+    f.no_repeat();
 }
 
 #[test]
 fn ordinary_library_queued_area_secondary_and_sphere_boundary() {
-    let _guard = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
-    let _clear = ClearObserver;
-    let observer = observe();
     let mut f = fixture_custom(
         "Bands",
         200.0,
@@ -570,16 +549,17 @@ fn ordinary_library_queued_area_secondary_and_sphere_boundary() {
     assert_eq!(f.world.objects[&secondary].health.current, 175.0);
     assert_eq!(f.world.objects[&outside].health.current, 200.0);
     assert_eq!(f.xp(), 0.0);
-    let hits = observer.0.lock().unwrap();
+    let observed = f.take_fx();
+    let hits = observed
+        .iter()
+        .map(|event| (event.list.clone(), event.victim, event.source))
+        .collect::<Vec<_>>();
     assert_eq!(hits.len(), 2);
     assert!(hits.iter().all(|h| h.0 == format!("FX_{}_Regular", f.rows)));
 }
 
 #[test]
 fn ordinary_library_queued_area_elevation_uses_3d_sphere() {
-    let _guard = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
-    let _clear = ClearObserver;
-    let observer = observe();
     let mut f = fixture("Elevation", 200.0, false, 30000000, 1, 10.0);
     let victim = f.world.objects.get_mut(&f.victim).unwrap();
     victim.set_position(Vec3::new(11.0, 20.0, 0.0));
@@ -588,14 +568,11 @@ fn ordinary_library_queued_area_elevation_uses_3d_sphere() {
     assert!(f.world.objects[&f.victim].get_position().y > 10.0);
     assert_eq!(f.world.objects[&f.victim].health.current, 200.0);
     assert_eq!(f.world.objects[&f.intended].health.current, 9900.0);
-    assert!(observer.0.lock().unwrap().is_empty());
+    assert!(f.take_fx().is_empty());
 }
 
 #[test]
 fn ordinary_library_queued_area_mask_fallback_and_intended_bypass() {
-    let _guard = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
-    let _clear = ClearObserver;
-    let observer = observe();
     // Some(players)/None(team_factory) preserves the current frozen-team Neutral fallback,
     // despite the players' explicit Enemies relationship.
     let mut f = fixture_custom("Mask", 200.0, false, 30000000, 1, 10.0, 5.0, "ENEMIES", "");
@@ -604,14 +581,11 @@ fn ordinary_library_queued_area_mask_fallback_and_intended_bypass() {
     assert_eq!(f.world.objects[&f.victim].health.current, 200.0);
     assert_eq!(f.world.objects[&f.intended].health.current, 9900.0);
     assert_eq!(f.xp(), 0.0);
-    assert!(observer.0.lock().unwrap().is_empty());
+    assert!(f.take_fx().is_empty());
 }
 
 #[test]
 fn ordinary_library_queued_area_source_and_producer_excluded() {
-    let _guard = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
-    let _clear = ClearObserver;
-    let observer = observe();
     let mut f = fixture_custom(
         "Producer",
         200.0,
@@ -628,14 +602,11 @@ fn ordinary_library_queued_area_source_and_producer_excluded() {
     assert_eq!(f.world.objects[&f.shooters[0]].health.current, 500.0);
     assert_eq!(f.world.objects[&f.victim].health.current, 200.0);
     assert_eq!(f.world.objects[&f.intended].health.current, 9900.0);
-    assert!(observer.0.lock().unwrap().is_empty());
+    assert!(f.take_fx().is_empty());
 }
 
 #[test]
 fn ordinary_library_queued_area_self_mask_includes_source_and_producer() {
-    let _guard = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
-    let _clear = ClearObserver;
-    let observer = observe();
     let mut f = fixture_custom(
         "Self",
         200.0,
@@ -652,14 +623,11 @@ fn ordinary_library_queued_area_self_mask_includes_source_and_producer() {
     assert_eq!(f.world.objects[&f.shooters[0]].health.current, 400.0);
     assert_eq!(f.world.objects[&f.victim].health.current, 100.0);
     assert_eq!(f.xp(), 0.0);
-    f.expect_fx(&observer, "Regular", Some(f.shooters[0]));
+    f.expect_fx("Regular", Some(f.shooters[0]));
 }
 
 #[test]
 fn ordinary_library_queued_area_secondary_dual_threshold_is_preserved() {
-    let _guard = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
-    let _clear = ClearObserver;
-    let observer = observe();
     let mut f = fixture_custom(
         "Threshold",
         200.0,
@@ -678,14 +646,11 @@ fn ordinary_library_queued_area_secondary_dual_threshold_is_preserved() {
         .set_position(Vec3::new(16.00025, 0.0, 0.0));
     f.accept();
     assert_eq!(f.world.objects[&f.victim].health.current, 200.0);
-    assert!(observer.0.lock().unwrap().is_empty());
+    assert!(f.take_fx().is_empty());
 }
 
 #[test]
 fn ordinary_library_queued_area_shock_after_nonlethal_damage() {
-    let _guard = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
-    let _clear = ClearObserver;
-    let observer = observe();
     let mut f = fixture_custom(
         "Shock",
         200.0,
@@ -706,14 +671,11 @@ fn ordinary_library_queued_area_shock_after_nonlethal_damage() {
     assert!(victim.movement.velocity.y > 0.0);
     assert!(victim.is_shock_stunned());
     assert_eq!(f.xp(), 0.0);
-    f.expect_fx(&observer, "Regular", Some(f.shooters[0]));
+    f.expect_fx("Regular", Some(f.shooters[0]));
 }
 
 #[test]
 fn ordinary_library_queued_area_dead_but_installed_source_at_arrival() {
-    let _guard = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
-    let _clear = ClearObserver;
-    let observer = observe();
     let mut f = fixture("DeadInstalled", 100.0, false, 30, 1, 10.0);
     f.accept();
     while f.world.get_current_frame() < 110 {
@@ -733,6 +695,6 @@ fn ordinary_library_queued_area_dead_but_installed_source_at_arrival() {
         f.world.objects[&source].experience.level,
         VeterancyLevel::Veteran
     );
-    f.expect_fx(&observer, "Veteran", Some(source));
-    f.no_repeat(&observer);
+    f.expect_fx("Veteran", Some(source));
+    f.no_repeat();
 }

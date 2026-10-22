@@ -51,7 +51,7 @@ impl GameLogic {
             if unit.is_deployed() {
                 unit.set_deployed(
                     false,
-                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
             }
         }
@@ -107,7 +107,7 @@ impl GameLogic {
             if entered_move {
                 unit.set_ai_state(
                     AIState::Moving,
-                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
             }
             (true, entered_move)
@@ -234,7 +234,7 @@ impl GameLogic {
                             started_undeploy = true;
                             unit.set_deployed(
                                 false,
-                                &mut crate::game_logic::MovementAudio::queue(
+                                &mut crate::game_logic::ObjectAudio::queue(
                                     &mut self.queued_audio_events,
                                 ),
                             );
@@ -246,7 +246,7 @@ impl GameLogic {
                         {
                             unit.set_deployed(
                                 false,
-                                &mut crate::game_logic::MovementAudio::queue(
+                                &mut crate::game_logic::ObjectAudio::queue(
                                     &mut self.queued_audio_events,
                                 ),
                             );
@@ -255,7 +255,7 @@ impl GameLogic {
                     // Already Undeploying: begin_undeploy returns false and
                     // does not touch ready_frame. stop_moving only keeps the
                     // empty-path locomotor off while the pack is still running.
-                    unit.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+                    unit.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                         &mut self.queued_audio_events,
                     ));
                     block_path = true;
@@ -263,7 +263,7 @@ impl GameLogic {
             } else if unit.is_deployed() {
                 unit.set_deployed(
                     false,
-                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
             }
             unit.clear_pending_waypoint_labels();
@@ -404,7 +404,7 @@ impl GameLogic {
                 if entered_move {
                     unit.set_ai_state(
                         AIState::Moving,
-                        &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                        &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                     );
                 }
                 unit.set_status_moving(true);
@@ -949,7 +949,7 @@ impl GameLogic {
         if entered_move {
             unit.set_ai_state(
                 AIState::Moving,
-                &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
         }
         {}
@@ -1664,7 +1664,7 @@ impl GameLogic {
         let overlay = unit.temporary_move_frames > 0 && !matches!(unit.ai_state, AIState::Moving);
         unit.waiting_for_path = false;
         if overlay {
-            unit.end_temporary_move_overlay(&mut crate::game_logic::MovementAudio::queue(
+            unit.end_temporary_move_overlay(&mut crate::game_logic::ObjectAudio::queue(
                 &mut self.queued_audio_events,
             ));
             unit.ignored_obstacle_id = None;
@@ -1673,12 +1673,12 @@ impl GameLogic {
             // C++ AIInternalMoveToState reports FAILURE for a missing waited
             // path, but AIPanicState::update deliberately converts failure
             // to CONTINUE and stays on the same waypoint.
-            unit.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+            unit.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                 &mut self.queued_audio_events,
             ));
             unit.retry_path = true;
         } else if matches!(unit.ai_state, AIState::Moving) {
-            unit.stop_moving(&mut crate::game_logic::MovementAudio::queue(
+            unit.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                 &mut self.queued_audio_events,
             ));
         }
@@ -1992,7 +1992,7 @@ impl GameLogic {
                     if !matches!(unit.ai_state, AIState::AttackMoving | AIState::Patrolling) {
                         unit.set_ai_state(
                             AIState::Attacking,
-                            &mut crate::game_logic::MovementAudio::queue(
+                            &mut crate::game_logic::ObjectAudio::queue(
                                 &mut self.queued_audio_events,
                             ),
                         );
@@ -2042,7 +2042,7 @@ impl GameLogic {
                 if !matches!(unit.ai_state, AIState::AttackMoving | AIState::Patrolling) {
                     unit.set_ai_state(
                         AIState::Attacking,
-                        &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                        &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                     );
                     if !unit.movement.path.is_empty() {
                         unit.set_status_moving(true);
@@ -2253,7 +2253,7 @@ impl GameLogic {
                 if !already {
                     obj.set_ai_state(
                         state.clone(),
-                        &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                        &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                     );
                 }
                 if !obj.movement.path.is_empty() {
@@ -2268,7 +2268,7 @@ impl GameLogic {
             if !already {
                 obj.set_ai_state(
                     state,
-                    &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                    &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
             }
             if obj.is_alive() && !obj.can_move() {
@@ -2375,17 +2375,17 @@ impl GameLogic {
         // keeps firing / resumes the attack.
         unit.set_guard_position(
             None,
-            &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+            &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
         );
         unit.set_guard_target(
             None,
-            &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+            &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
         );
-        unit.end_guard_retaliate(&mut crate::game_logic::MovementAudio::queue(
+        unit.end_guard_retaliate(&mut crate::game_logic::ObjectAudio::queue(
             &mut self.queued_audio_events,
         ));
         unit.hunting = false;
-        unit.stop_attack(&mut crate::game_logic::MovementAudio::queue(
+        unit.stop_attack(&mut crate::game_logic::ObjectAudio::queue(
             &mut self.queued_audio_events,
         ));
         unit.is_attack_path = false;
@@ -2403,7 +2403,7 @@ impl GameLogic {
         if entered_move {
             unit.set_ai_state(
                 AIState::Moving,
-                &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
         }
         {}

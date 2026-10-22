@@ -532,7 +532,7 @@ fn combat_drop_sets_pending_evacuate() {
         p.set_contained_by(Some(transport));
         p.set_ai_state(
             crate::game_logic::AIState::Docked,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
     }
     {
@@ -819,7 +819,7 @@ fn object_attack_orders_passenger_fire() {
         r.set_contained_by(Some(humvee));
         r.set_ai_state(
             crate::game_logic::AIState::Garrisoned,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         r.weapon = Some(Weapon {
             damage: 10.0,
@@ -888,7 +888,7 @@ fn object_attack_skips_vehicle_transport_riders() {
         r.set_contained_by(Some(chinook));
         r.set_ai_state(
             crate::game_logic::AIState::Garrisoned,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         r.weapon = Some(Weapon {
             damage: 10.0,
@@ -948,7 +948,7 @@ fn stop_idles_garrison_occupants_and_hive_slaves() {
         o.set_contained_by(Some(site));
         o.set_ai_state(
             crate::game_logic::AIState::Attacking,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
     }
     {
@@ -1005,12 +1005,12 @@ fn stop_idles_ai_transport_occupants() {
         r.set_contained_by(Some(truck));
         r.set_ai_state(
             crate::game_logic::AIState::Attacking,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         r.set_target(
             Some(ObjectId(99)),
             attack_events,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
     }
     {

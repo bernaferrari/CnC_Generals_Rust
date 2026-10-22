@@ -51,11 +51,6 @@ pub const UPGRADE_FANATICISM: &str = "Upgrade_Fanaticism";
 /// Retail Upgrade_Nationalism (player science/upgrade; stacks with HORDE).
 pub const UPGRADE_NATIONALISM: &str = "Upgrade_Nationalism";
 
-/// C++ `TheGameLogic->getDrawIconUI()` — scripts hide horde rings with icon chrome.
-pub fn leftover_horde_draw_icon_ui() -> bool {
-    gamelogic::helpers::TheGameLogic::get_draw_icon_ui()
-}
-
 /// Retail Upgrade_ChinaNuclearTanks residual.
 pub const UPGRADE_CHINA_NUCLEAR_TANKS: &str = "Upgrade_ChinaNuclearTanks";
 /// Retail NuclearTankDeathWeapon residual.

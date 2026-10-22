@@ -1881,11 +1881,11 @@ mod common_target_parity {
             );
             o.set_ai_state(
                 crate::game_logic::AIState::Moving,
-                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
             );
             o.set_ai_state(
                 crate::game_logic::AIState::Idle,
-                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
             );
             assert!(o.idle_mood_reset_pending);
             o.auto_acquire_idle_bits = AUTO_ACQUIRE_IDLE;
@@ -1930,7 +1930,7 @@ mod common_target_parity {
         if let Some(o) = logic.host_object_mut(id) {
             o.set_ai_state(
                 crate::game_logic::AIState::Idle,
-                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
             );
             assert!(!o.idle_mood_reset_pending, "already idle must not rearm");
         }
@@ -2038,11 +2038,11 @@ mod common_target_parity {
         if let Some(o) = logic.host_object_mut(id) {
             o.set_ai_state(
                 crate::game_logic::AIState::Moving,
-                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
             );
             o.set_ai_state(
                 crate::game_logic::AIState::Idle,
-                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
             );
             o.set_position(start);
         }
@@ -2055,11 +2055,11 @@ mod common_target_parity {
         if let Some(o) = logic.host_object_mut(id) {
             o.set_ai_state(
                 crate::game_logic::AIState::Moving,
-                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
             );
             o.set_ai_state(
                 crate::game_logic::AIState::Idle,
-                &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
             );
             o.set_position(far);
         }

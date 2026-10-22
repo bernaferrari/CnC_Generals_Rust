@@ -65,7 +65,7 @@ fn seeking_repair_master_records_receiving_body_history_before_drone() {
     object.target = Some(dock);
     object.set_ai_state(
         AIState::SeekingRepair,
-        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
     );
     // This control starts after DockUpdate has admitted the active docker;
     // approach movement is exercised by the separate docking fixtures.
@@ -197,7 +197,7 @@ fn seeking_repair_consumes_one_logic_action_independent_of_display_delta() {
         object.target = Some(dock);
         object.set_ai_state(
             AIState::SeekingRepair,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         world.host_object_mut(dock).unwrap().dock_active_docker = Some(master);
     }

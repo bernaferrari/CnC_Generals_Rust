@@ -160,7 +160,7 @@ fn worker_shoes_upgrade_speed_and_supply_boost_residual() {
         w.target = Some(supply_id);
         w.set_ai_state(
             AIState::ReturningResources,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
     }
     let cash_before = game_logic
@@ -1315,7 +1315,7 @@ fn plant_timed_demo_charge_command_plants_after_reach() {
         burton.set_position(Vec3::new(2.0, 0.0, 0.0));
         burton.set_ai_state(
             AIState::SpecialAbility,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         burton.target = Some(target_id);
     }
@@ -1400,7 +1400,7 @@ fn plant_and_detonate_remote_demo_charge_residual() {
         burton.set_position(Vec3::new(2.0, 0.0, 0.0));
         burton.set_ai_state(
             AIState::SpecialAbility,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         burton.target = Some(target_id);
     }
@@ -2341,7 +2341,7 @@ fn money_crate_collide_unit_pickup_residual() {
     assert!(
         game_logic
             .host_money_crates()
-            .money_pickup_anims
+            .money_pickup_animation_history
             .iter()
             .any(|a| a.template == "MoneyPickUp"
                 && (a.display_time_seconds - 4.0).abs() < 0.01
@@ -2839,7 +2839,7 @@ fn hacker_internet_center_residual_deposits_cash() {
         obj.set_contained_by(Some(ic_id));
         obj.set_ai_state(
             AIState::Docked,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
     }
 

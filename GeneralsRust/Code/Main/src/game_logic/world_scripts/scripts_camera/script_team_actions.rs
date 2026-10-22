@@ -369,7 +369,7 @@ impl GameLogic {
             }
             obj.apply_kill_pilot_unmanned(
                 &mut self.health_events,
-                &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
             obj.deselect();
             obj.set_team(Team::Neutral, &mut self.ownership_events);
@@ -1573,7 +1573,7 @@ impl GameLogic {
                 obj.ignored_obstacle_id = Some(dest);
                 obj.set_ai_state(
                     AIState::Entering,
-                    &mut crate::game_logic::MovementAudio::queue(audio_events),
+                    &mut crate::game_logic::ObjectAudio::queue(audio_events),
                 );
             }
         }
@@ -2287,12 +2287,12 @@ impl GameLogic {
         let (object, audio_events) = self.host_object_and_audio_events_mut(id).unwrap();
         Self::clear_owned_named_ai_goal(
             object,
-            &mut crate::game_logic::MovementAudio::queue(audio_events),
+            &mut crate::game_logic::ObjectAudio::queue(audio_events),
         );
-        object.stop_moving(&mut crate::game_logic::MovementAudio::queue(audio_events));
+        object.stop_moving(&mut crate::game_logic::ObjectAudio::queue(audio_events));
         object.set_ai_state(
             AIState::Idle,
-            &mut crate::game_logic::MovementAudio::queue(audio_events),
+            &mut crate::game_logic::ObjectAudio::queue(audio_events),
         );
         let identity = format!("owned:{team_id}");
         let target = self.choose_attack_team_victim(id, &identity, false);

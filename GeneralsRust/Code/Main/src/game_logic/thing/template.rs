@@ -256,6 +256,9 @@ pub struct ThingTemplate {
     /// Immutable per-template fear event admitted by the receiving session.
     #[serde(skip)]
     pub voice_fear: Option<String>,
+    /// Effective receiving SoundPromotedVeteran/Elite/Hero cues; rebound on load.
+    #[serde(skip)]
+    pub sound_promoted: [Option<String>; 3],
 
     /// `RailedTransportContain::Slots`, when that exact contain module is
     /// present.  A railed dock with no contain module never gains synthetic
@@ -793,6 +796,7 @@ impl ThingTemplate {
             supplies_depleted_voice: String::new(),
             voice_defect: None,
             voice_fear: None,
+            sound_promoted: [None, None, None],
             railed_transport_slots: None,
             railed_path_prefix_name: String::new(),
 

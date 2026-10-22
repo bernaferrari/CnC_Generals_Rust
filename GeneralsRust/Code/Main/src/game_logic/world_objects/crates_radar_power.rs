@@ -744,7 +744,7 @@ impl GameLogic {
                 // ExecuteAnimation MoneyPickUp residual (INI-authored money crates).
                 let anim =
                     HostMoneyCrateRegistry::money_pickup_anim(crate_id, picker_id, pos, self.frame);
-                self.host_money_crates.record_money_pickup_anim(anim);
+                self.admit_money_pickup_animation(anim);
             }
             if salvage_money && amount > 0 {
                 let player_color = owner_player_id

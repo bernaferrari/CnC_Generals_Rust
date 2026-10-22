@@ -998,7 +998,7 @@ impl UnitControlSystem {
             let _ = logic.host_object_mut(object_id);
             if let Some(obj) = logic.objects.get_mut(&object_id) {
                 if obj.is_mobile() {
-                    obj.stop(&mut crate::game_logic::MovementAudio::queue(
+                    obj.stop(&mut crate::game_logic::ObjectAudio::queue(
                         &mut logic.queued_audio_events,
                     ));
                 }
@@ -1025,7 +1025,7 @@ impl UnitControlSystem {
             if let Some(obj) = logic.objects.get_mut(&object_id) {
                 obj.set_guard_position(
                     None,
-                    &mut crate::game_logic::MovementAudio::queue(&mut logic.queued_audio_events),
+                    &mut crate::game_logic::ObjectAudio::queue(&mut logic.queued_audio_events),
                 );
             }
         }
@@ -1049,7 +1049,7 @@ impl UnitControlSystem {
             if let Some(obj) = logic.objects.get_mut(&object_id) {
                 obj.set_guard_target(
                     None,
-                    &mut crate::game_logic::MovementAudio::queue(&mut logic.queued_audio_events),
+                    &mut crate::game_logic::ObjectAudio::queue(&mut logic.queued_audio_events),
                 );
             }
         }

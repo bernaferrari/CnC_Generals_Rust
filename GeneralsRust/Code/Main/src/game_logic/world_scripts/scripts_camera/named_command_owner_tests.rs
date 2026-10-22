@@ -145,7 +145,7 @@ fn named_face_retains_object_goal_and_clears_route_without_idling_passengers() {
         object.set_target(
             Some(target),
             attack_events,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
     };
     world.host_object_mut(id).unwrap().occupants.push(passenger);
@@ -478,7 +478,7 @@ fn world_snapshot_capture_rejects_invalid_continuation_without_dropping_objects(
     source.frame = 9;
     source.host_object_mut(id).unwrap().set_ai_state(
         AIState::Panic,
-        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
     );
     assert!(source.host_object(id).unwrap().panic_runtime.is_none());
     let count = source.host_objects().len();

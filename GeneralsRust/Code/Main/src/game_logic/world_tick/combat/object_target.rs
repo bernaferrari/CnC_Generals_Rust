@@ -270,7 +270,7 @@ impl GameLogic {
                     attacker.note_attack_target(
                         target_id,
                         &mut self.attack_events,
-                        &mut crate::game_logic::MovementAudio::queue(&mut self.queued_audio_events),
+                        &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                     );
                     if !matches!(
                         attacker.ai_state,
@@ -278,7 +278,7 @@ impl GameLogic {
                     ) {
                         attacker.set_ai_state(
                             AIState::Attacking,
-                            &mut crate::game_logic::MovementAudio::queue(
+                            &mut crate::game_logic::ObjectAudio::queue(
                                 &mut self.queued_audio_events,
                             ),
                         );
@@ -344,7 +344,7 @@ impl GameLogic {
                         attacker.note_attack_target(
                             target_id,
                             &mut self.attack_events,
-                            &mut crate::game_logic::MovementAudio::queue(
+                            &mut crate::game_logic::ObjectAudio::queue(
                                 &mut self.queued_audio_events,
                             ),
                         );
@@ -354,7 +354,7 @@ impl GameLogic {
                         ) {
                             attacker.set_ai_state(
                                 AIState::Attacking,
-                                &mut crate::game_logic::MovementAudio::queue(
+                                &mut crate::game_logic::ObjectAudio::queue(
                                     &mut self.queued_audio_events,
                                 ),
                             );
@@ -402,7 +402,7 @@ impl GameLogic {
                             attacker.note_attack_target(
                                 target_id,
                                 &mut self.attack_events,
-                                &mut crate::game_logic::MovementAudio::queue(
+                                &mut crate::game_logic::ObjectAudio::queue(
                                     &mut self.queued_audio_events,
                                 ),
                             );
@@ -413,7 +413,7 @@ impl GameLogic {
                             if entered_attack {
                                 attacker.set_ai_state(
                                     AIState::Attacking,
-                                    &mut crate::game_logic::MovementAudio::queue(
+                                    &mut crate::game_logic::ObjectAudio::queue(
                                         &mut self.queued_audio_events,
                                     ),
                                 );

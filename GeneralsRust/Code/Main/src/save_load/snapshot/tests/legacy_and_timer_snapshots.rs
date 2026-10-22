@@ -946,10 +946,10 @@ fn snapshot_round_trips_v18_ui_script_radar_water_drawable() {
         module_path!(),
         "snapshot_round_trips_v18_ui_script_radar_water_drawable",
         || {
-            gamelogic::helpers::TheGameLogic::set_draw_icon_ui(false);
             gamelogic::helpers::TheGameLogic::set_hulk_max_lifetime_override(42);
             gamelogic::helpers::TheGameLogic::set_rank_points_to_add_at_game_start(15);
             let mut source = GameLogic::new();
+            source.set_draw_icon_ui(false);
             let engine = gamelogic::scripting::engine::ScriptEngine::new().unwrap();
             {
                 engine.restore_named_trackers(
@@ -1008,7 +1008,11 @@ fn snapshot_round_trips_v18_ui_script_radar_water_drawable() {
                 .restore_from_snapshot(&snapshot, &mut restored)
                 .expect("restore");
             assert_eq!(restored.rank_level_limit(), 8);
-            assert!(!gamelogic::helpers::TheGameLogic::get_draw_icon_ui());
+            assert!(!restored.get_draw_icon_ui());
+            assert!(
+                gamelogic::helpers::TheGameLogic::get_draw_icon_ui(),
+                "receiving restore must leave standalone Core drawIconUI unchanged"
+            );
             assert_eq!(
                 gamelogic::helpers::TheGameLogic::get_hulk_max_lifetime_override(),
                 42
@@ -1133,7 +1137,7 @@ fn disabled_paralyzed_freeze_survives_snapshot_until_saved_frame() {
         let obj = source.host_object_mut(id).expect("obj");
         obj.apply_disabled_paralyzed(
             140,
-            &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
     }
 

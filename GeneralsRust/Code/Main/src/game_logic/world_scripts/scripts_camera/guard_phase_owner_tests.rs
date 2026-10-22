@@ -330,7 +330,7 @@ fn cancelled_return_path_does_not_count_as_arrival() {
     owner
         .host_object_mut(id)
         .unwrap()
-        .stop_moving(&mut crate::game_logic::MovementAudio::queue(&mut Vec::new()));
+        .stop_moving(&mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()));
     assert!(!GameLogic::host_internal_move_reached_goal(
         owner.host_object(id).unwrap()
     ));
@@ -417,7 +417,7 @@ fn temporary_quick_exit_preserves_idle_and_resumes_once_on_completion_frame() {
     unit.unit_ai_runtime.set_quick_exit_deadline(Some(10));
     unit.set_ai_state(
         AIState::Moving,
-        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
     );
     assert_eq!(unit.unit_ai_runtime.guard_phase(), Some(GuardPhase::Idle));
     assert_eq!(unit.unit_ai_runtime.guard_scan_deadline(), Some(11));
@@ -446,7 +446,7 @@ fn temporary_quick_exit_preserves_idle_and_resumes_once_on_completion_frame() {
     let unit = owner.host_object_mut(id).unwrap();
     unit.set_ai_state(
         AIState::Moving,
-        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
     );
     assert_eq!(unit.unit_ai_runtime.guard_phase(), None);
     assert_eq!(unit.unit_ai_runtime.guard_scan_deadline(), None);

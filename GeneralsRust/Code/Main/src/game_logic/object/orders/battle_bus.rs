@@ -79,7 +79,7 @@ impl Object {
         self.movement.target_position = None;
         self.set_ai_state(
             AIState::Idle,
-            &mut crate::game_logic::MovementAudio::callback(&mut |object, request| {
+            &mut crate::game_logic::ObjectAudio::callback(&mut |object, request| {
                 body_fx(object, BodyStateFx::MovementStop(request), None)
             }),
         );
@@ -105,7 +105,7 @@ impl Object {
         current_frame: u32,
         _above_terrain_hint: bool,
         passenger_count: usize,
-        audio: &mut crate::game_logic::MovementAudio<'_>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) -> (bool, bool) {
         self.tick_battle_bus_slow_death_with_fx(
             current_frame,
@@ -122,7 +122,7 @@ impl Object {
         _above_terrain_hint: bool,
         passenger_count: usize,
         dispatch: &mut dyn FnMut(&str, &Object, bool),
-        audio: &mut crate::game_logic::MovementAudio<'_>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) -> (bool, bool) {
         use crate::game_logic::host_battle_bus::{
             BATTLE_BUS_MC_BIT_SECOND_LIFE, battle_bus_hit_ground_fx_name,

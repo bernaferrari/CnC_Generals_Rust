@@ -301,7 +301,7 @@ fn moving_path_snapshot() -> crate::save_load::snapshot::WorldSnapshot {
     let unit = source.objects.get_mut(&PANIC_UNIT).expect("moving unit");
     unit.set_ai_state(
         AIState::Moving,
-        &mut crate::game_logic::MovementAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
     );
     unit.movement.path = vec![
         Vec3::new(0.0, 0.0, 0.0),
