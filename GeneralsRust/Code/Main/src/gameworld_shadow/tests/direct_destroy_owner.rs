@@ -30,6 +30,22 @@ fn coupled_direct_destroy_preserves_owner_body_through_health_writeback() {
     );
     assert!(logic.has_pending_destroy_work());
     let _ = observe_completed_owner(&mut shadow, &mut logic);
+    let object = logic
+        .host_object(id)
+        .expect("observer retains pending owner");
+    assert!(object.status.destroyed);
+    assert!(!object.status.on_die_started);
+    assert_eq!(
+        (object.health.current, object.previous_health),
+        (40.0, 50.0)
+    );
+    assert!(logic.objects.ordered_ids().contains(&id));
+    assert!(shadow.entity_for_host(id).is_some());
+    assert!(logic.has_pending_destroy_work());
+    logic
+        .process_destroy_list_with_effects_checked(&mut Default::default())
+        .unwrap();
+    let _ = observe_completed_owner(&mut shadow, &mut logic);
     assert!(logic.host_object(id).is_none());
     assert!(shadow.entity_for_host(id).is_none());
     logic.process_destroy_list();

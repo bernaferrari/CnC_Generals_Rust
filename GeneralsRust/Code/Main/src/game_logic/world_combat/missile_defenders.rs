@@ -2107,27 +2107,41 @@ impl GameLogic {
                 Some(BUNKER_BUSTER_OCCUPANT_WEAPON),
                 occupant_damage_type,
             );
-            let Some(occ) = self.objects.get_mut(&occ_id) else {
+            let Some(occ) = self.objects.get(&occ_id) else {
                 continue;
             };
             if !occ.is_alive() {
                 continue;
             }
-            let killed = occ.take_damage_with_context_with_repulsor_policy(
-                BUNKER_BUSTER_HARM_AMOUNT,
-                attacker_id,
-                occupant_damage_type,
-                occupant_death_type,
-                None,
-                self.frame,
-                &context,
-                &mut self.health_events,
-                &self.enable_repulsors,
-                Some(&mut self.ownership_events),
-            );
-            if killed || !occ.is_alive() || occ.health.current <= 0.0 || occ.status.destroyed {
+            let identity = self.live_draw_playback_identity(occ);
+            let killed = self
+                .apply_owned_damage_with_killer_team_with_effects(
+                    occ_id,
+                    BUNKER_BUSTER_HARM_AMOUNT,
+                    attacker_id,
+                    occupant_damage_type,
+                    occupant_death_type,
+                    None,
+                    &context,
+                    Some(attacker_team),
+                    presentation_effects,
+                )
+                .is_some_and(|result| result.destroyed());
+            // Body/Die callbacks may reenter this owner. Never classify or
+            // queue a same-number replacement using the old occupant hit.
+            let current = self
+                .objects
+                .get(&occ_id)
+                .filter(|object| self.live_draw_playback_identity(object) == identity);
+            if killed
+                || current.is_some_and(|occ| {
+                    !occ.is_alive() || occ.health.current <= 0.0 || occ.status.destroyed
+                })
+            {
                 kills = kills.saturating_add(1);
-                destroy_ids.push(occ_id);
+                if current.is_some() {
+                    destroy_ids.push(occ_id);
+                }
             }
         }
 

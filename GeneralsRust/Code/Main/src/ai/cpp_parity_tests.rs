@@ -1385,8 +1385,17 @@ fn skirmish_new_map_uses_aidata_side_build_list() {
         ai.initialize(Vec3::new(-40.0, 0.0, -40.0));
         assert!(ai.apply_skirmish_new_map(&mut logic));
         assert!(
+            logic.host_object(start_cc).unwrap().status.destroyed,
+            "adjustBuildList queues the map CC; physical destruction belongs to endphase"
+        );
+        assert!(logic.objects.ordered_ids().contains(&start_cc));
+        assert!(logic.has_pending_object_removals());
+        logic
+            .process_destroy_list_with_effects_checked(&mut Default::default())
+            .unwrap();
+        assert!(
             logic.host_object(start_cc).is_none(),
-            "map-placed CC must be destroyed"
+            "checked endphase physically removes queued CC"
         );
         let cc_pad = ai
             .building_queue

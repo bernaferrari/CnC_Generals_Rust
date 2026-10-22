@@ -24,6 +24,10 @@ fn injured_world() -> (GameLogic, GameWorldShadow, ObjectId) {
     // tests need a body that actually accepts those points.
     template.is_trainable = true;
     logic.templates.insert(template.name.clone(), template);
+    finish_injured_world(logic)
+}
+
+fn finish_injured_world(mut logic: GameLogic) -> (GameLogic, GameWorldShadow, ObjectId) {
     let id = logic
         .create_object("OwnerHealingVehicle", Team::USA, Vec3::ZERO)
         .expect("owner object");
@@ -37,16 +41,81 @@ fn injured_world() -> (GameLogic, GameWorldShadow, ObjectId) {
     (logic, shadow, id)
 }
 
-fn install_actual_reactions(logic: &mut GameLogic, id: ObjectId) -> ObjectId {
-    use crate::game_logic::host_fire_weapon_when_damaged::HostFireWeaponWhenDamagedData;
-    logic.host_object_mut(id).unwrap().fire_weapon_when_damaged =
-        Some(HostFireWeaponWhenDamagedData {
-            reaction_damaged: Some("SmallPoisonFieldWeapon".into()),
-            reaction_really_damaged: Some("MediumPoisonFieldWeapon".into()),
-            reaction_pristine: Some("LargePoisonFieldWeapon".into()),
-            reaction_rubble: Some("LargePoisonFieldWeapon".into()),
-            ..Default::default()
-        });
+fn injured_world_with_reactions() -> (GameLogic, GameWorldShadow, ObjectId) {
+    injured_world_with_reaction_threshold(1.0)
+}
+
+fn injured_world_with_reaction_threshold(threshold: f32) -> (GameLogic, GameWorldShadow, ObjectId) {
+    // Actual parsed module and weapon content is admitted BEFORE construction.
+    // Distinct roles retain distinct Weapons, even when two use one template.
+    let weapons = [
+        ("OwnerReactionDamaged539", 2.0),
+        ("OwnerReactionCritical539", 2.0),
+        ("OwnerReactionPristine539", 2.5),
+    ]
+    .into_iter()
+    .map(|(name, damage)| format!(
+        "Weapon {name}\n PrimaryDamage = {damage}\n PrimaryDamageRadius = 120\n DamageType = POISON\n DeathType = POISONED\n RadiusDamageAffects = ENEMIES NEUTRALS\n ProjectileObject = NONE\n ClipSize = 8\n ClipReloadTime = 0\n DelayBetweenShots = 0\nEnd\n"
+    ))
+    .collect::<String>();
+    // The current Object constructor still reads immutable WeaponStore
+    // construction defaults. Feed that existing parser the SAME authored
+    // content; live temporary fire below uses this world's receiving catalog.
+    assert_eq!(
+        crate::assets::ini_template_loader::register_weapons_from_ini_text(&weapons),
+        3
+    );
+    let object = format!(
+        "Object OwnerHealingVehicle\n KindOf = VEHICLE\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = FireWeaponWhenDamagedBehavior OwnedDamageReaction\n StartsActive = Yes\n DamageAmount = {threshold}\n ReactionWeaponDamaged = OwnerReactionDamaged539\n ReactionWeaponReallyDamaged = OwnerReactionCritical539\n ReactionWeaponPristine = OwnerReactionPristine539\n ReactionWeaponRubble = OwnerReactionPristine539\n End\nEnd\n"
+    );
+    let mut logic = GameLogic::new();
+    logic.add_player(Player::new(0, Team::USA, "Owner", true));
+    logic
+        .admit_receiving_module_content(
+            crate::assets::ReceivingObjectContent::from_sources([(
+                "owned-damage-reactions539.ini".to_owned(),
+                object,
+            )])
+            .unwrap(),
+        )
+        .unwrap();
+    // Object/module content and Weapon content have distinct receiving
+    // admissions. Never let an initialized application's unrelated weapon
+    // snapshot supply this fixture's actual temporary fire definitions.
+    let mut definitions = std::collections::HashMap::new();
+    assert_eq!(
+        crate::assets::ini_template_loader::parse_weapon_definitions_ini_into(
+            &mut definitions,
+            &weapons,
+            crate::assets::ini_template_loader::WeaponDefinitionLoadType::Normal,
+        ),
+        3,
+    );
+    let catalog: std::collections::HashMap<_, _> = definitions
+        .into_values()
+        .map(|rule| (rule.name.to_ascii_lowercase(), std::sync::Arc::new(rule)))
+        .collect();
+    logic.weapon_definition_base = Some(catalog.clone());
+    logic.weapon_definitions = Some(catalog);
+    let (logic, shadow, id) = finish_injured_world(logic);
+    let source = logic.host_object(id).unwrap();
+    assert!(
+        source.fire_weapon_when_damaged.is_none(),
+        "no hand-set residual adapter"
+    );
+    assert_eq!(source.temporary_weapon_runtime.damaged.len(), 1);
+    assert_eq!(
+        source.temporary_weapon_runtime.damaged[0]
+            .weapons
+            .iter()
+            .flatten()
+            .count(),
+        4
+    );
+    (logic, shadow, id)
+}
+
+fn install_reaction_target(logic: &mut GameLogic) -> ObjectId {
     logic.add_player(Player::new(1, Team::China, "ReactionEnemy", false));
     for (id, alliance) in [(0, 0), (1, 1)] {
         let player = logic.get_player_mut(id).unwrap();
@@ -302,9 +371,9 @@ fn completed_damage_after_coupled_healing_is_not_replayed_without_session() {
 
 #[test]
 fn damage_reactions_observe_damage_state_before_later_healing() {
-    let (mut logic, mut shadow, id) = injured_world();
+    let (mut logic, mut shadow, id) = injured_world_with_reactions();
     let eid = shadow.entity_for_host(id).unwrap();
-    let reaction_target = install_actual_reactions(&mut logic, id);
+    let reaction_target = install_reaction_target(&mut logic);
     // Retail really-damaged threshold is 35%; the first operation leaves 39%,
     // then the next leaves 20%, before healing restores pristine health.
     perform_owner_damage(&mut logic, id, 1.0, None);
@@ -345,6 +414,13 @@ fn pending_lethal_damage_keeps_destruction_admission_before_later_absolute_healt
     assert!(logic.health_events.snapshot_damage().is_empty());
     assert!(logic.health_events.snapshot_heal().is_empty());
     crate::gameworld_shadow::run_owned_host_boundary(None, &mut logic);
+    assert!(logic.host_object(id).unwrap().status.destroyed);
+    assert!(logic.objects.ordered_ids().contains(&id));
+    assert!(logic.has_pending_destroy_work());
+    logic
+        .process_destroy_list_with_effects_checked(&mut Default::default())
+        .unwrap();
+    crate::gameworld_shadow::run_owned_host_boundary(None, &mut logic);
     assert!(
         logic.host_object(id).is_none(),
         "original admitted death completes physical cleanup once"
@@ -353,9 +429,9 @@ fn pending_lethal_damage_keeps_destruction_admission_before_later_absolute_healt
 
 #[test]
 fn fatal_owner_damage_reacts_to_zero_health_and_cannot_write_back_stale_hp() {
-    let (mut logic, mut shadow, id) = injured_world();
+    let (mut logic, mut shadow, id) = injured_world_with_reactions();
     let eid = shadow.entity_for_host(id).unwrap();
-    let reaction_target = install_actual_reactions(&mut logic, id);
+    let reaction_target = install_reaction_target(&mut logic);
 
     {
         logic
@@ -380,6 +456,14 @@ fn fatal_owner_damage_reacts_to_zero_health_and_cannot_write_back_stale_hp() {
         99.375,
         "TankArmor POISON25% rubble reaction executes before source removal"
     );
+    assert!(logic.host_object(id).unwrap().status.destroyed);
+    assert!(logic.objects.ordered_ids().contains(&id));
+    assert!(logic.has_pending_destroy_work());
+    assert!(shadow.entity_for_host(id).is_some());
+    logic
+        .process_destroy_list_with_effects_checked(&mut Default::default())
+        .unwrap();
+    observe_completed_owner(&mut shadow, &mut logic);
     assert!(logic.host_object(id).is_none());
     assert!(shadow.entity_for_host(id).is_none());
     let _ = observe_completed_owner(&mut shadow, &mut logic);
@@ -512,6 +596,22 @@ fn pending_destroy_transport_does_not_invent_a_body_health_change() {
     assert!(!object.status.on_die_started);
     assert!(logic.health_events.snapshot_damage().is_empty());
     observe_completed_owner(&mut shadow, &mut logic);
+    let object = logic
+        .host_object(id)
+        .expect("observer retains pending owner");
+    assert!(object.status.destroyed);
+    assert_eq!(object.health.current, 40.0);
+    assert!(!object.status.on_die_started);
+    assert!(logic.objects.ordered_ids().contains(&id));
+    assert!(logic.has_pending_destroy_work());
+    assert!(shadow.entity_for_host(id).is_some());
+    logic
+        .process_destroy_list_with_effects_checked(&mut Default::default())
+        .unwrap();
+    observe_completed_owner(&mut shadow, &mut logic);
     assert!(logic.host_object(id).is_none());
     assert!(shadow.entity_for_host(id).is_none());
 }
+
+#[path = "typed_reaction_owner_tests.rs"]
+mod typed_reaction_owner_tests;

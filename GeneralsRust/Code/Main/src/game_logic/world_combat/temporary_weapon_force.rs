@@ -143,10 +143,8 @@ impl GameLogic {
         fields: super::temporary_weapon_status::TemporaryWeaponStoreFields,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> u32 {
-        let (pos, team, suspend_fx_frame, ammo) = self
-            .objects
-            .get(&source)
-            .map(|object| {
+        let Some((pos, team, suspend_fx_frame, ammo, identity)) =
+            self.objects.get(&source).map(|object| {
                 let persisted = persist.and_then(|key| {
                     object
                         .temporary_weapon_runtime
@@ -159,9 +157,12 @@ impl GameLogic {
                     object.team,
                     persisted.map(|weapon| weapon.suspend_fx_frame).unwrap_or(0),
                     persisted.map(|weapon| weapon.ammo_in_clip),
+                    self.live_draw_playback_identity(object),
                 )
             })
-            .unwrap_or((Vec3::ZERO, Team::Neutral, 0, None));
+        else {
+            return 0;
+        };
         if let Some(object) = self.objects.get_mut(&source) {
             let _ = object.capture_pending_temporary_weapon_visual_dispatch(
                 template_name,
@@ -184,6 +185,13 @@ impl GameLogic {
             Some(template_name),
             effects,
         );
+        if !self
+            .objects
+            .get(&source)
+            .is_some_and(|object| self.live_draw_playback_identity(object) == identity)
+        {
+            return hits;
+        }
         if let Some(key) = persist {
             if let Some(object) = self.objects.get_mut(&source) {
                 if let Some(weapon) = object

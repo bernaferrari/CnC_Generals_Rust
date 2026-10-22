@@ -108,10 +108,7 @@ End
         .expect("authored hover locomotor"),
         1
     );
-    let mut parser = crate::assets::IniParser::new();
-    parser
-        .parse_ini_content(
-            r#"
+    let source = r#"
 Object HqO7b46Helipad
   Type = Structure
   KindOf = STRUCTURE SELECTABLE FS_AIRFIELD
@@ -140,20 +137,18 @@ Object HqO7b46Helicopter
   End
   Locomotor = SET_NORMAL HqO7b46HoverLocomotor
 End
-"#,
-            "hq_o7b46_helipad.ini",
-        )
-        .expect("authored helipad and helicopter");
+"#;
     let mut logic = GameLogic::new();
+    logic
+        .admit_receiving_module_content(
+            crate::assets::ReceivingObjectContent::from_sources([(
+                "hq_o7b46_helipad.ini".to_owned(),
+                source.to_owned(),
+            )])
+            .expect("authored paired helipad and helicopter"),
+        )
+        .expect("receiving helipad module owner");
     logic.add_player(Player::new(0, Team::USA, "HelipadOwner", true));
-    for name in ["HqO7b46Helipad", "HqO7b46Helicopter"] {
-        let template = GameLogic::build_template_from_object_definition(
-            name,
-            parser.get_definition(name).expect("authored definition"),
-            None,
-        );
-        logic.templates.insert(name.to_owned(), template);
-    }
     let pad = logic
         .create_object("HqO7b46Helipad", Team::USA, Vec3::new(40.0, 0.0, 40.0))
         .expect("authored helipad");

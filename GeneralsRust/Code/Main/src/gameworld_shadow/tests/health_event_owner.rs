@@ -91,8 +91,16 @@ fn another_world_boundary_cannot_admit_the_owners_lethal_damage() {
     assert!(!foreign.status.on_die_started);
     assert!(!other.has_pending_destroy_work());
     crate::gameworld_shadow::run_owned_host_boundary(None, &mut owner);
-    // The completed production boundary performs onDie and final cleanup;
-    // only this owner may remove the admitted object and retain its receipt.
+    assert!(owner.host_object(id).unwrap().status.destroyed);
+    assert!(owner.objects.ordered_ids().contains(&id));
+    assert!(owner.has_pending_destroy_work());
+    assert!(other.host_object(other_id).unwrap().is_alive());
+    // onDie already ran on this owner. Only its explicit checked endphase
+    // performs physical cleanup; the observer merely retains the receipt.
+    owner
+        .process_destroy_list_with_effects_checked(&mut Default::default())
+        .unwrap();
+    crate::gameworld_shadow::run_owned_host_boundary(None, &mut owner);
     assert!(owner.host_object(id).is_none());
     assert!(!owner.has_pending_destroy_work());
     let completed = owner.health_events.snapshot_last_damage();

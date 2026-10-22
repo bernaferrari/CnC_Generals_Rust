@@ -11,10 +11,8 @@
 //!
 //! Rust conversion: 2025
 
-use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
-use std::rc::Rc;
 
 use crate::common::ascii_string::AsciiString;
 
@@ -374,73 +372,42 @@ impl DisabledTypesStatistics {
     }
 }
 
-// THREAD: C++ plain static; driven only by the single game/client thread.
-thread_local! {
-    static DISABLED_TYPES_MANAGER: RefCell<Option<Rc<RefCell<DisabledTypesManager>>>> =
-        const { RefCell::new(None) };
-}
-
-/// Initialize the global disabled types manager
-pub fn init_disabled_types_manager() {
-    DISABLED_TYPES_MANAGER.with_borrow_mut(|existing| {
-        if existing.is_none() {
-            *existing = Some(Rc::new(RefCell::new(DisabledTypesManager::new())));
-        } else if let Some(cell) = existing {
-            *cell.borrow_mut() = DisabledTypesManager::new();
-        }
-    });
-}
-
-/// C++ parity entrypoint for startup mask initialization (`initDisabledMasks`).
+/// C++ startup entrypoint (`initDisabledMasks`).
 ///
-/// In the original code this initializes global `DISABLEDMASK_ALL`.
-/// Rust uses bitflags `all()` semantics, so this keeps parity as a lightweight
-/// startup hook while ensuring the disabled-types manager is reset.
-pub fn init_disabled_masks() {
-    init_disabled_types_manager();
-}
-
-/// Get reference to the global disabled types manager
-pub fn get_disabled_types_manager() -> Option<Rc<RefCell<DisabledTypesManager>>> {
-    DISABLED_TYPES_MANAGER.with_borrow(|manager| manager.clone())
-}
-
-/// Convenience functions for checking disabled status
-pub fn is_unit_disabled(name: &str) -> bool {
-    let ascii_name = AsciiString::from(name);
-    get_disabled_types_manager()
-        .map(|manager| manager.borrow().is_type_disabled(DisableableType::Unit, &ascii_name))
-        .unwrap_or(false)
-}
-
-pub fn is_building_disabled(name: &str) -> bool {
-    let ascii_name = AsciiString::from(name);
-    get_disabled_types_manager()
-        .map(|manager| manager.borrow().is_type_disabled(DisableableType::Building, &ascii_name))
-        .unwrap_or(false)
-}
-
-pub fn is_upgrade_disabled(name: &str) -> bool {
-    let ascii_name = AsciiString::from(name);
-    get_disabled_types_manager()
-        .map(|manager| manager.borrow().is_type_disabled(DisableableType::Upgrade, &ascii_name))
-        .unwrap_or(false)
-}
-
-pub fn is_special_power_disabled(name: &str) -> bool {
-    let ascii_name = AsciiString::from(name);
-    get_disabled_types_manager()
-        .map(|manager| {
-            manager
-                .borrow()
-                .is_type_disabled(DisableableType::SpecialPower, &ascii_name)
-        })
-        .unwrap_or(false)
-}
+/// C++ initializes `DISABLEDMASK_ALL` by clearing and flipping its thirteen
+/// declared bits. Rust's `DisabledMaskType::all()` and `empty()` already provide
+/// these values without mutable publication or per-thread initialization.
+/// Content-name restrictions, when needed, belong to an owned
+/// `DisabledTypesManager`; they are independent of the gameplay disabled mask.
+pub fn init_disabled_masks() {}
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn startup_masks_are_values_and_do_not_reset_owned_restrictions() {
+        use crate::common::thing::update_module::{DisabledMaskType, DisabledType};
+
+        let mut owner = DisabledTypesManager::new();
+        let peer = DisabledTypesManager::new();
+        let name = AsciiString::from("OwnedUnit");
+        owner.disable_object(DisableInfo::new(
+            name.clone(),
+            DisableableType::Unit,
+            DisableReason::Debug,
+        ));
+        let mut held = DisabledMaskType::none();
+        held.set_disabled(DisabledType::Held);
+        for _ in 0..2 {
+            init_disabled_masks();
+            assert_eq!(DisabledMaskType::all().bits(), (1u32 << 13) - 1);
+            assert_eq!(DisabledMaskType::none().bits(), 0);
+            assert_eq!(held.bits(), 1u32 << 3);
+            assert!(owner.is_type_disabled(DisableableType::Unit, &name));
+            assert!(!peer.is_disabled(&name));
+        }
+    }
 
     #[test]
     fn test_disableable_type_from_str() {

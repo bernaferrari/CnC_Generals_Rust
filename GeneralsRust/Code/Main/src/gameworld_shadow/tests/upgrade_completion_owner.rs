@@ -22,19 +22,27 @@ fn install_rules(logic: &mut GameLogic, cost: u32, seconds: u32) {
         cost,
         seconds,
     );
-    // Main's actual Object definition parser/projection, not synthetic capture flags.
+    // The actual receiving producer pairs typed modules and host projection.
     // Producer admission uses the existing static retail CommandSet fallback;
     // this fixture does not claim full authored Common CommandSet coverage.
     let source = format!(
         "Object {PRODUCER}\n  Type = Structure\n  KindOf = STRUCTURE SELECTABLE ATTACKABLE FS_BARRACKS\n  Body = ActiveBody ModuleTag_Body\n    MaxHealth = 1000\n    InitialHealth = 1000\n  End\n  Behavior = ProductionUpdate ModuleTag_Production\n  End\nEnd\nObject {INFANTRY}\n  Type = Infantry\n  KindOf = INFANTRY SELECTABLE ATTACKABLE\n  Body = ActiveBody ModuleTag_Body\n    MaxHealth = 100\n    InitialHealth = 100\n  End\n  Behavior = SpecialAbility ModuleTag_Capture\n    SpecialPowerTemplate = SpecialAbilityRangerCaptureBuilding\n    StartsPaused = Yes\n  End\n  Behavior = UnpauseSpecialPowerUpgrade ModuleTag_CaptureUpgrade\n    SpecialPowerTemplate = SpecialAbilityRangerCaptureBuilding\n    TriggeredBy = {UPGRADE_INFANTRY_CAPTURE}\n  End\nEnd\n"
     );
-    let mut parser = crate::assets::IniParser::new();
-    parser
-        .parse_ini_content(&source, "upgrade_completion_owner.ini")
-        .expect("real Object INI");
+    // Reset retains the already admitted receiving catalog and restores its
+    // baseline. Fresh source and load receivers admit the identical source.
+    if logic.receiving_module_content.is_none() {
+        logic
+            .admit_receiving_module_content(
+                crate::assets::ReceivingObjectContent::from_sources([(
+                    "upgrade_completion_owner.ini".to_owned(),
+                    source,
+                )])
+                .expect("real paired Object INI"),
+            )
+            .expect("receiving Object module owner");
+    }
     for name in [PRODUCER, INFANTRY] {
-        let definition = parser.get_definition(name).expect("authored definition");
-        let template = GameLogic::build_template_from_object_definition(name, definition, None);
+        let template = logic.templates.get(name).expect("authored definition");
         assert!(template.is_kind_of(KindOf::Attackable));
         if name == INFANTRY {
             assert_eq!(template.capture_power, CapturePowerKind::Ranger);
@@ -47,7 +55,6 @@ fn install_rules(logic: &mut GameLogic, cost: u32, seconds: u32) {
             assert!(template.is_kind_of(KindOf::Structure));
             assert!(template.is_kind_of(KindOf::FSBarracks));
         }
-        logic.templates.insert(name.to_owned(), template);
     }
 }
 

@@ -1,36 +1,26 @@
-//! Complete an ordinary Main-owned frame, then copy its observations.
+//! Copy completed Main observations without advancing gameplay or destruction.
 //!
 //! No shadow tick or reverse write participates in this boundary;
 //! the projection cannot select another simulation authority.
 
 use super::{GameWorldShadow, presentation_entity_count_from_shadow};
-use crate::game_logic::{GameLogic, HostSupportOp};
+use crate::game_logic::GameLogic;
 
-/// Admit required owner effects before the next fixed step. Only afterward may
-/// the observer copy completed values from an immutable Main borrow.
+/// Copy a completed Main phase into its observation. This boundary never
+/// admits gameplay effects or retires Objects; the driving session's checked
+/// end-of-frame phase owns physical destruction.
 pub(crate) fn run_owned_host_boundary(
     shadow: Option<&mut GameWorldShadow>,
     logic: &mut GameLogic,
 ) -> usize {
-    // A completed step has released its compatibility store/policy scopes.
-    // Death callbacks still use those adapters, so resolve this owner for the
-    // bounded admission operation and restore the previous context afterward.
-    // Neither scope publishes or lends a shadow as writable simulation state.
-    let stores = std::sync::Arc::clone(&logic.world_services);
-    gamelogic::system::engine_stores::with_world_services(&stores, || {
-        // Ordered owner admission distinguishes already-applied damage/
-        // healing observations from required pending effects.
-        let _ = logic.health_events.drain_for_host_boundary();
-        logic.apply_host_support_op(HostSupportOp::ProcessDestroyListIfNeeded);
-        freeze_host_observations(logic);
-
-        if let Some(shadow) = shadow {
-            shadow.sync_from_host(logic);
-            presentation_entity_count_from_shadow(shadow)
-        } else {
-            0
-        }
-    })
+    let _ = logic.health_events.drain_for_host_boundary();
+    freeze_host_observations(logic);
+    if let Some(shadow) = shadow {
+        shadow.sync_from_host(logic);
+        presentation_entity_count_from_shadow(shadow)
+    } else {
+        0
+    }
 }
 
 /// These records describe state already committed by Main. Movement completes
@@ -38,7 +28,7 @@ pub(crate) fn run_owned_host_boundary(
 /// attack/owner/production/fire-sound/economy presentation receipts. Mirror-only records
 /// have no remaining default gameplay consumer: the observer copies the owner.
 ///
-/// Health is admitted above. Projectile work stays in CombatSystem (the
+/// Health observations are frozen above. Projectile work stays in CombatSystem (the
 /// fire-spawn experiment is never enabled on this path). Production ready work
 /// is already applied by its owner. EVA stays pending for PresentationFrame's
 /// consuming take_last_drain(), which intentionally drains its own queue.

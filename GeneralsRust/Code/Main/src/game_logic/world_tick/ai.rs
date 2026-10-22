@@ -404,7 +404,8 @@ impl GameLogic {
                 }
             } else {
             }
-            // C++ FireWeaponWhenDamagedBehavior forceFire (reaction + continuous).
+            // Reactions completed at the released Body onDamage point. Only
+            // the module's continuous weapons belong to its ordinary update.
             let has_live_damaged = self
                 .objects
                 .get(&object_id)
@@ -414,20 +415,6 @@ impl GameLogic {
                     .objects
                     .get_mut(&object_id)
                     .and_then(|o| o.take_pending_fire_when_damaged_weapon());
-                let damage_events: Vec<_> = self
-                    .health_events
-                    .snapshot_damage()
-                    .into_iter()
-                    .filter(|event| event.target == object_id)
-                    .collect();
-                for event in damage_events {
-                    let _ = self.execute_temporary_weapon_on_damage_with_effects(
-                        object_id,
-                        event.amount,
-                        event.damage_type_ordinal,
-                        presentation_effects,
-                    );
-                }
                 let _ = self.execute_temporary_weapon_continuous_with_effects(
                     object_id,
                     presentation_effects,

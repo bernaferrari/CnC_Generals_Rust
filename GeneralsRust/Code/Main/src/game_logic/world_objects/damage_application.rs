@@ -606,6 +606,7 @@ impl GameLogic {
             .get(&victim_id)
             .expect("Body phase preserves receiving victim");
         let hp_lost = (before_hp - victim.health.current).max(0.0);
+        let victim_identity = self.live_draw_playback_identity(victim);
         let victim_position = victim.get_position();
         let victim_team = victim.team;
         self.admit_object_drawable_deselection(victim_id);
@@ -618,11 +619,25 @@ impl GameLogic {
             .objects
             .get(&victim_id)
             .is_some_and(|object| !object.temporary_weapon_runtime.damaged.is_empty());
-        if hp_lost > 0.0
-            && damage_type != crate::game_logic::combat::DamageType::Healing
-            && !has_installed_reaction_weapons
-        {
-            if let Some(weapon) = self
+        if hp_lost > 0.0 && damage_type != crate::game_logic::combat::DamageType::Healing {
+            if has_installed_reaction_weapons {
+                if let Some(actual_damage) = application.actual_damage_dealt() {
+                    // Offer the installed source-ordered modules while their
+                    // Body state is this hit's state, before bridge/state/Die
+                    // callbacks. A callback may reenter even with zero hits.
+                    reaction_callback_ran = true;
+                    let _ = self
+                        .objects
+                        .get_mut(&victim_id)
+                        .and_then(|object| object.take_pending_fire_when_damaged_weapon());
+                    let _ = self.execute_temporary_weapon_on_damage_with_effects(
+                        victim_id,
+                        actual_damage,
+                        damage_type.to_store() as u32,
+                        effects,
+                    );
+                }
+            } else if let Some(weapon) = self
                 .objects
                 .get_mut(&victim_id)
                 .and_then(|object| object.take_pending_fire_when_damaged_weapon())
@@ -632,9 +647,26 @@ impl GameLogic {
                     .apply_fire_weapon_when_damaged_named_with_effects(victim_id, &weapon, effects);
             }
         }
+        if reaction_callback_ran
+            && !self
+                .objects
+                .get(&victim_id)
+                .is_some_and(|object| self.live_draw_playback_identity(object) == victim_identity)
+        {
+            // A reentrant callback retired/reset this incarnation. Its
+            // continuation must never be completed against a replacement ID.
+            return None;
+        }
         let bridge_callbacks = application.bridge_callbacks();
         if let Some(callbacks) = bridge_callbacks {
             self.complete_owned_bridge_body_callbacks_with_effects(callbacks, effects);
+            if !self
+                .objects
+                .get(&victim_id)
+                .is_some_and(|object| self.live_draw_playback_identity(object) == victim_identity)
+            {
+                return None;
+            }
         }
         let callback_source = application
             .source_id()

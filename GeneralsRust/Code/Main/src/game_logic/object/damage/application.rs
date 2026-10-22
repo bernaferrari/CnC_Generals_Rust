@@ -67,6 +67,15 @@ impl DamageApplication {
         }
     }
 
+    /// Actual post-armor DamageInfo amount at ActiveBody's released onDamage
+    /// point. Overkill is not truncated to the remaining hit points.
+    pub(in crate::game_logic) fn actual_damage_dealt(&self) -> Option<f32> {
+        match self {
+            Self::Active(tail) => Some(tail.actual_damage),
+            Self::Complete(_) | Self::Healing(_) => None,
+        }
+    }
+
     pub(in crate::game_logic) fn set_killed_after_callbacks(&mut self, killed: bool) {
         if let Self::Active(tail) = self {
             tail.lethal = killed;

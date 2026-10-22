@@ -680,13 +680,13 @@ fn new_cold_fusion_after_control_rods_gets_energy_bonus() {
         .add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::PowerPlant)
         .set_health(800.0);
+    plant.energy_production = Some(5);
     logic.templates.insert("AmericaPowerPlant".into(), plant);
 
     let id = logic
         .create_object_for_player("AmericaPowerPlant", 0, glam::Vec3::new(0.0, 0.0, 0.0))
         .expect("plant");
     if let Some(o) = logic.host_object_mut(id) {
-        o.power_provided = 5;
         o.construction_percent = 1.0;
         o.set_status_under_construction(false);
     }
@@ -779,20 +779,22 @@ fn retail_overcharge_behavior_metadata_drives_frozen_command_and_live_drain() {
     // C++ gives EnergyBonus its ThingTemplate default of zero.  It must not
     // remove an otherwise valid behavior interface or turn this into a
     // name/KindOf-only permission.
-    parser
-        .parse_ini_content(
-            r#"
+    let defaults_source = r#"
 Object MetadataOnlyOvercharger
   Type = Structure
   KindOf = STRUCTURE SELECTABLE
   EnergyProduction = 10
+  Body = ActiveBody ModuleTag_Body
+    MaxHealth = 100
+    InitialHealth = 100
+  End
   Behavior = OverchargeBehavior ModuleTag_Overcharge
     HealthPercentToDrainPerSecond = 3%
   End
 End
-"#,
-            "overcharge-defaults.ini",
-        )
+"#;
+    parser
+        .parse_ini_content(defaults_source, "overcharge-defaults.ini")
         .expect("parse zero-bonus Overcharge fixture");
     let retail_template = GameLogic::build_template_from_object_definition(
         "ChinaPowerPlant",
@@ -845,12 +847,32 @@ End
 
     let mut logic = GameLogic::new();
     logic.add_player(Player::new(0, Team::China, "China", true));
+    // Pair the exact retail Object block, avoiding unrelated retail objects.
+    // Retail top-level End is unindented; nested module Ends are indented.
+    let retail_start = retail_source
+        .find("Object ChinaPowerPlant\r\n")
+        .or_else(|| retail_source.find("Object ChinaPowerPlant\n"))
+        .expect("retail ChinaPowerPlant source start");
+    let retail_tail = &retail_source[retail_start..];
+    let retail_end = retail_tail
+        .find("\nEnd")
+        .expect("retail ChinaPowerPlant source end")
+        + "\nEnd".len();
     logic
-        .templates
-        .insert("ChinaPowerPlant".into(), retail_template);
-    logic
-        .templates
-        .insert("MetadataOnlyOvercharger".into(), zero_bonus_template);
+        .admit_receiving_module_content(
+            crate::assets::ReceivingObjectContent::from_sources([
+                (
+                    "ChinaPowerPlant-retail.ini".to_owned(),
+                    retail_tail[..retail_end].to_owned(),
+                ),
+                (
+                    "overcharge-defaults.ini".to_owned(),
+                    defaults_source.to_owned(),
+                ),
+            ])
+            .expect("paired retail and zero-bonus Object definitions"),
+        )
+        .expect("receiving overcharge module owner");
 
     // This keeps the old false positive shape (a China/power name plus
     // PowerPlant KindOf) but deliberately omits the parsed Behavior.
@@ -1283,6 +1305,12 @@ fn infantry_collision_reclaims_unmanned_vehicle() {
 
     assert!(logic.try_infantry_unmanned_reclaim(iid, vid));
     assert!(logic.unmanned_reclaims > 0);
+    assert!(
+        logic.objects.contains_key(&iid),
+        "recrew queues physical removal until the C++ end phase"
+    );
+    assert!(logic.objects.ordered_ids().contains(&iid));
+    assert!(logic.host_object(iid).unwrap().status.destroyed);
     // destroy_object may defer removal to end-of-frame residual.
     let infantry_gone = logic
         .host_object(iid)
@@ -1300,6 +1328,12 @@ fn infantry_collision_reclaims_unmanned_vehicle() {
     // experience; veterancy transfer is the pilot-crate path only.
     assert_eq!(v.experience.level, VeterancyLevel::Rookie);
     assert!(v.is_private_captured());
+    logic
+        .process_destroy_list_with_effects_checked(&mut Default::default())
+        .unwrap();
+    assert!(!logic.objects.contains_key(&iid));
+    assert!(!logic.objects.ordered_ids().contains(&iid));
+    assert!(logic.objects.contains_key(&vid));
 }
 
 #[test]
@@ -1934,6 +1968,11 @@ fn sell_ejects_garrison_and_kills_parked_aircraft() {
         let _ = a.add_occupant(jid);
     }
     assert!(logic.start_sell_object(afid));
+    assert!(
+        logic.objects.contains_key(&jid),
+        "sell cannot advance the physical destroy-list phase"
+    );
+    assert!(logic.objects.ordered_ids().contains(&jid));
     logic.process_destroy_list();
     assert!(logic.sell_parked_units_killed > 0);
     assert!(logic.host_object(jid).is_none());

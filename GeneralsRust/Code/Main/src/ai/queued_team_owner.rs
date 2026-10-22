@@ -40,7 +40,8 @@ impl GameLogic {
         });
         let start = if let Some((id, pos)) = center {
             self.destroy_object_with_effects(id, ui);
-            self.process_destroy_list_with_effects(ui);
+            // AISkirmishPlayer::adjustBuildList queues physical deletion;
+            // the original end-of-frame phase retires this installed Object.
             pos
         } else {
             fallback
@@ -953,6 +954,25 @@ mod tests {
         let mut collector = ThingTemplate::new("AmericaVehicleChinook");
         collector.add_kind_of(KindOf::Harvester);
         world.templates.insert(collector.name.clone(), collector);
+        let original_cc = world
+            .create_object_for_player("AmericaCommandCenter", 1, Vec3::new(10., 0., 20.))
+            .unwrap();
+        let unrelated = world
+            .create_object_for_player("AmericaInfantryRanger", 1, Vec3::new(90., 0., 0.))
+            .unwrap();
+        let mut peer = GameLogic::new();
+        peer.add_player(Player::new(1, Team::USA, "SameIdPeer", false));
+        peer.templates.insert(
+            "AmericaCommandCenter".into(),
+            world.templates["AmericaCommandCenter"].clone(),
+        );
+        peer.set_next_object_id_for_restore(original_cc);
+        let peer_cc = peer
+            .create_object_for_player("AmericaCommandCenter", 1, Vec3::new(110., 0., 120.))
+            .unwrap();
+        assert_eq!(original_cc, peer_cc);
+        let original_health = world.objects[&original_cc].health.current;
+        world.destroy_object(unrelated);
         let ai = world.ai_manager.ai_players.get_mut(&1).unwrap();
         ai.skirmish_new_map_applied = false;
         ai.next_team_queue_time = 999.0;
@@ -975,6 +995,24 @@ mod tests {
                 && o.owner_player_id == Some(1)
         }));
         assert_eq!(world.ai_manager.ai_players.len(), 2);
+        for id in [original_cc, unrelated] {
+            assert!(
+                world.objects.contains_key(&id),
+                "startup callbacks cannot flush queued physical deletion"
+            );
+            assert!(world.objects.ordered_ids().contains(&id));
+            assert!(world.objects[&id].status.destroyed);
+        }
+        assert_eq!(world.objects[&original_cc].health.current, original_health);
+        assert!(world.has_pending_object_removals());
+        assert!(!peer.objects[&peer_cc].status.destroyed);
+        world
+            .process_destroy_list_with_effects_checked(&mut Default::default())
+            .unwrap();
+        assert!(!world.objects.contains_key(&original_cc));
+        assert!(!world.objects.contains_key(&unrelated));
+        assert!(peer.objects.contains_key(&peer_cc));
+        assert!(!peer.objects[&peer_cc].status.destroyed);
     }
 
     #[test]
@@ -1134,4 +1172,16 @@ mod tests {
         );
     }
     include!("native_ai_ui_tests.rs");
+}
+
+#[cfg(test)]
+impl GameLogic {
+    pub(crate) fn initialize_owned_skirmish_ai_from_definitions_for_test(
+        &mut self,
+        player: u32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
+        let data = AiDataView::from_world(self);
+        self.initialize_owned_skirmish_ai_with_effects(player, &data, effects);
+    }
 }

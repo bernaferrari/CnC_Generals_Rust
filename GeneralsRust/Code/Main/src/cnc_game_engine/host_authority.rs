@@ -396,15 +396,12 @@ impl CnCGameEngine {
         } else if self.host_match_local_supplies.is_some_and(|s| s >= floor) {
             return;
         }
-        let _ = self.with_native_camera_input_effects(|world, effects, _| {
-            world.apply_host_support_op_with_effects(
-                crate::game_logic::HostSupportOp::EnsurePlayerMinSupplies {
-                    player_id: pid,
-                    floor,
-                },
-                effects,
-            )
-        });
+        self.host_game_logic_mut().apply_host_support_op(
+            crate::game_logic::HostSupportOp::EnsurePlayerMinSupplies {
+                player_id: pid,
+                floor,
+            },
+        );
     }
 
     /// Wave 871: clear all host_match_* residuals (reset/load/start boundaries).
@@ -720,11 +717,9 @@ impl CnCGameEngine {
             return true;
         }
         let ok = matches!(
-            self.with_native_camera_input_effects(|world, effects, _| world
-                .apply_host_support_op_with_effects(
-                    crate::game_logic::HostSupportOp::EnsureBarracksBuildingData { id },
-                    effects
-                )),
+            self.host_game_logic_mut().apply_host_support_op(
+                crate::game_logic::HostSupportOp::EnsureBarracksBuildingData { id },
+            ),
             crate::game_logic::HostSupportResult::Bool(true)
         );
         if ok && self.last_presentation_frame.is_none() {
@@ -748,11 +743,9 @@ impl CnCGameEngine {
             return true;
         }
         let ok = matches!(
-            self.with_native_camera_input_effects(|world, effects, _| world
-                .apply_host_support_op_with_effects(
-                    crate::game_logic::HostSupportOp::ForceEnsureBarracksBuildingData { id },
-                    effects
-                )),
+            self.host_game_logic_mut().apply_host_support_op(
+                crate::game_logic::HostSupportOp::ForceEnsureBarracksBuildingData { id },
+            ),
             crate::game_logic::HostSupportResult::Bool(true)
         );
         if ok && self.last_presentation_frame.is_none() {

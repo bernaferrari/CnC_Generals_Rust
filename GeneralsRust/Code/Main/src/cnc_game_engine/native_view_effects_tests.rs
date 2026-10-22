@@ -1143,3 +1143,6 @@ fn missing_client_key_with_canonical_constructor_is_not_prebirth_absence() {
 
 #[path = "native_physical_callback_tests.rs"]
 mod native_physical_callback_tests;
+
+#[path = "native_deletion_phase_tests.rs"]
+mod native_deletion_phase_tests;

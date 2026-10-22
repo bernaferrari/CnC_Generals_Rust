@@ -56,8 +56,9 @@ mod direct_destroy_owner;
 
 mod movement_event_owner;
 
-/// Exercise the actual shipped owner admission before inspecting its projection.
-/// This fixture performs no shadow gameplay tick or synthetic mutation replay.
+/// Exercise the shipped observation boundary before inspecting its projection.
+/// This fixture performs no gameplay tick, physical cleanup or mutation replay.
+/// Tests offering an end-of-frame cleanup must call the checked owner explicitly.
 pub(super) fn observe_completed_owner(
     shadow: &mut GameWorldShadow,
     logic: &mut GameLogic,

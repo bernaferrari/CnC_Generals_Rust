@@ -5,6 +5,11 @@
 use super::super::*;
 
 impl GameLogic {
+    #[cfg(test)]
+    pub(crate) fn unmanned_reclaim_count_for_test(&self) -> u32 {
+        self.unmanned_reclaims
+    }
+
     /// C++ `DozerAIUpdate::findGoodBuildOrRepairPosition` (cpp:1855-1894).
     /// Half-radius seed, then `findPositionAround` (0–100, maxZDelta 10,
     /// `sourceToPathToDest`, ignore target when airborne). Failure keeps seed.
@@ -137,7 +142,6 @@ impl GameLogic {
             self.admit_host_radar_disabled_edges(vehicle_id);
             let _ = self.transfer_script_object_name(infantry_id, vehicle_id);
             self.destroy_object_with_effects(infantry_id, effects);
-            self.process_destroy_list_with_effects(effects);
             self.unmanned_reclaims = self.unmanned_reclaims.saturating_add(1);
             return true;
         }
@@ -161,8 +165,7 @@ impl GameLogic {
         self.admit_host_radar_disabled_edges(vehicle_id);
         let _ = self.transfer_script_object_name(infantry_id, vehicle_id);
         self.destroy_object_with_effects(infantry_id, effects);
-        // C++ destroyObject is immediate for collision reclaim residual path.
-        self.process_destroy_list_with_effects(effects);
+        // PhysicsUpdate1205 queues physical deletion after immediate onDelete.
         self.unmanned_reclaims = self.unmanned_reclaims.saturating_add(1);
         true
     }
@@ -844,10 +847,8 @@ impl GameLogic {
                 self.sell_parked_units_killed = self.sell_parked_units_killed.saturating_add(1);
             }
         }
-        // Wave 482: flush sell residual kills (parked aircraft) same frame.
-        if self.sell_parked_units_killed > 0 {
-            self.process_destroy_list_with_effects(effects);
-        }
+        // ParkingPlaceBehavior::killAllParkedUnits does not flush unrelated
+        // pending deletions. Physical retirement stays in the outer frame phase.
     }
 
     pub fn start_sell_object(&mut self, object_id: ObjectId) -> bool {

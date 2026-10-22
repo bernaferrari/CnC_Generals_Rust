@@ -38,12 +38,38 @@ impl GameLogic {
         // C++ Object::onDamage delivers to every damage module; leftover
         // FireWeaponWhenDamagedBehavior::on_damage fires each instance whose
         // reaction weapon is READY_TO_FIRE. Do not stop at the first ready.
-        let plans = self.damaged_reaction_plan(source, actual_damage, damage_type_ordinal);
+        let Some(object) = self.objects.get(&source) else {
+            return 0;
+        };
+        let identity = self.live_draw_playback_identity(object);
+        let modules: Vec<_> = object
+            .temporary_weapon_runtime
+            .damaged
+            .iter()
+            .map(|runtime| runtime.module_source_index)
+            .collect();
         let mut hits = 0u32;
-        for plan in plans {
-            hits = hits.saturating_add(
-                self.force_fire_temporary_runtime_with_effects(source, plan, effects),
+        for module in modules {
+            if !self
+                .objects
+                .get(&source)
+                .is_some_and(|object| self.live_draw_playback_identity(object) == identity)
+            {
+                break;
+            }
+            // Each next DamageModule reads the live Body after the preceding
+            // module's synchronous weapon callbacks, just like Object::onDamage.
+            let plans = self.damaged_reaction_plan_for_module(
+                source,
+                actual_damage,
+                damage_type_ordinal,
+                Some(module),
             );
+            for plan in plans {
+                hits = hits.saturating_add(
+                    self.force_fire_temporary_runtime_with_effects(source, plan, effects),
+                );
+            }
         }
         hits
     }
@@ -167,6 +193,16 @@ impl GameLogic {
         actual_damage: f32,
         damage_type_ordinal: u32,
     ) -> Vec<TemporaryWeaponRuntimeKey> {
+        self.damaged_reaction_plan_for_module(source, actual_damage, damage_type_ordinal, None)
+    }
+
+    fn damaged_reaction_plan_for_module(
+        &mut self,
+        source: ObjectId,
+        actual_damage: f32,
+        damage_type_ordinal: u32,
+        source_index: Option<u32>,
+    ) -> Vec<TemporaryWeaponRuntimeKey> {
         let Some((object_tags, player_tags)) = self.fire_when_owned_upgrade_tags(source) else {
             return Vec::new();
         };
@@ -178,6 +214,9 @@ impl GameLogic {
         let owned = owned_upgrade_tag_refs(&object_tags, &player_tags);
         let mut chosen = Vec::new();
         for (runtime, metadata) in object.damaged_temporary_weapon_instances_mut() {
+            if source_index.is_some_and(|index| index != metadata.module_source_index) {
+                continue;
+            }
             if metadata.starts_active || metadata.upgrade_mux.triggered_by_owned(&owned) {
                 runtime.upgrade_executed = true;
             }

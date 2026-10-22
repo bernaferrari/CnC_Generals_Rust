@@ -133,10 +133,13 @@ fn residual_auto_fire_consume_ammo_source() {
         "try_strategy_center_bombardment_turret_fire",
         "update_pending_patriot_assists",
     ] {
-        let at = src
-            .find(&format!("fn {name}"))
-            .unwrap_or_else(|| panic!("missing {name}"));
-        let body = &src[at..src.len().min(at + 14000)];
+        let owner = format!("{name}_with_effects");
+        let adapter = last_rust_fn_body(src, name).expect(name);
+        assert!(
+            adapter.contains(&format!("self.{owner}(")),
+            "{name} delegates to its receiving owner"
+        );
+        let body = last_rust_fn_body(src, &owner).expect(&owner);
         assert!(
             body.contains("consume_ammo_on_fire"),
             "{name} must stamp weapon via consume_ammo_on_fire (not last_fire-only)"
@@ -152,7 +155,13 @@ fn residual_auto_fire_consume_ammo_source() {
         "try_garrison_residual_fire",
         "try_transport_passenger_residual_fire",
     ] {
-        let body = last_rust_fn_body(src, name).unwrap_or_else(|| panic!("missing {name}"));
+        let owner = format!("{name}_with_effects");
+        assert!(
+            last_rust_fn_body(src, name)
+                .expect(name)
+                .contains(&format!("self.{owner}("))
+        );
+        let body = last_rust_fn_body(src, &owner).expect(&owner);
         assert!(body.contains("fire_owned_passive_weapon"));
         assert!(
             !body.contains("consume_ammo_on_fire"),
@@ -257,7 +266,8 @@ fn game_client_input_devices_have_one_injection_and_update_owner() {
 #[test]
 fn residual_auto_fire_host_attack_log_source() {
     let src = GAME_LOGIC_HOST_SRC;
-    let body = last_rust_fn_body(src, "residual_auto_fire_apply_damage").expect("helper");
+    let body =
+        last_rust_fn_body(src, "residual_auto_fire_apply_damage_with_effects").expect("helper");
     assert!(
         body.contains("source.note_attack_target(target_id, &mut self.attack_events)"),
         "residual auto-fire helper must record receiving attack output for presentation AttackTargeted"
@@ -267,7 +277,13 @@ fn residual_auto_fire_host_attack_log_source() {
         "try_transport_passenger_residual_fire",
         "try_strategy_center_bombardment_turret_fire",
     ] {
-        let b = last_rust_fn_body(src, name).expect(name);
+        let owner = format!("{name}_with_effects");
+        assert!(
+            last_rust_fn_body(src, name)
+                .expect(name)
+                .contains(&format!("self.{owner}("))
+        );
+        let b = last_rust_fn_body(src, &owner).expect(&owner);
         assert!(
             !b.contains("gameworld_ai_decision_authority")
                 && !b.contains("writeback_attack_targets_to_host"),
@@ -690,7 +706,7 @@ fn strategy_center_fire_preserves_the_target_accepted_by_aim_source() {
     // Choosing a nearer target in FIRE would skip that target's AIM phase.
     let body = last_rust_fn_body(
         GAME_LOGIC_HOST_SRC,
-        "try_strategy_center_bombardment_turret_fire",
+        "try_strategy_center_bombardment_turret_fire_with_effects",
     )
     .expect("live Strategy Center FIRE");
     assert!(body.contains("let Some(target_id) = attacker.turret_target_id"));
@@ -719,10 +735,13 @@ fn residual_acquire_query_source() {
         "try_garrison_residual_fire",
         "try_transport_passenger_residual_fire",
     ] {
-        let i = src
-            .find(&format!("fn {name}"))
-            .unwrap_or_else(|| panic!("missing {name}"));
-        let body = &src[i..src.len().min(i + 8000)];
+        let owner = format!("{name}_with_effects");
+        assert!(
+            last_rust_fn_body(src, name)
+                .expect(name)
+                .contains(&format!("self.{owner}("))
+        );
+        let body = last_rust_fn_body(src, &owner).expect(&owner);
         assert!(
             body.contains("pick_nearest_residual_target")
                 && body.contains("ResidualAcquireCandidate"),
@@ -888,7 +907,7 @@ fn residual_acquire_query_source() {
     }
     // Money crate nearest picker residual.
     {
-        let name = "update_money_crate_collides";
+        let name = "update_money_crate_collides_with_effects";
         let i = src
             .find(&format!("fn {name}"))
             .or_else(|| src.find(&format!("pub fn {name}")))

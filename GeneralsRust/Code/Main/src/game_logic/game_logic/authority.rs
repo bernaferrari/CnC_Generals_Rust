@@ -377,7 +377,7 @@ pub enum SessionControlOp {
     },
 }
 
-/// Wave 934: host-support residual authority payload (barracks/supplies/shell/destroy/template).
+/// Wave 934: host-support residual authority payload (barracks/supplies/shell/template).
 #[derive(Debug, Clone)]
 pub enum HostSupportOp {
     EnsureBarracksBuildingData {
@@ -394,7 +394,6 @@ pub enum HostSupportOp {
         dt: f32,
         budget: usize,
     },
-    ProcessDestroyListIfNeeded,
     InsertThingTemplate {
         name: String,
         template: ThingTemplate,

@@ -8,6 +8,7 @@
 // John McDonald
 // July 2002
 
+#[cfg(feature = "perf_timers")]
 use std::cell::RefCell;
 use std::collections::HashMap;
 #[cfg(feature = "perf_timers")]
@@ -530,19 +531,6 @@ impl Default for PerfMetricsOutput {
     fn default() -> Self {
         Self::new()
     }
-}
-
-// Global performance metrics instance
-// THREAD: C++ plain static; driven only by the single game/client thread.
-thread_local! {
-    static PERF_METRICS: RefCell<PerfMetricsOutput> = RefCell::new(PerfMetricsOutput {
-        output_stats: HashMap::new(),
-    });
-}
-
-/// Run `f` with the global performance metrics.
-pub fn with_perf_metrics<R>(f: impl FnOnce(&mut PerfMetricsOutput) -> R) -> R {
-    PERF_METRICS.with_borrow_mut(f)
 }
 
 /// Macros for performance timing (enabled only with perf_timers feature)

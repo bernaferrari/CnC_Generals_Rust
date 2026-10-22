@@ -1756,15 +1756,24 @@ fn no_shadow_boundary_does_not_replay_committed_damage_and_is_idempotent() {
     assert_eq!(lethal_event[0].target, lethal);
     assert!(lethal_event[0].destroyed);
     crate::gameworld_shadow::run_owned_host_boundary(None, &mut logic);
-    // CPP GameLogic.cpp:3762 completes destruction before the next frame.
-    assert!(logic.host_object(lethal).is_none());
-    assert!(!logic.has_pending_destroy_work());
+    assert!(logic.host_object(lethal).unwrap().status.destroyed);
+    assert_eq!(logic.host_object(lethal).unwrap().health.current, 0.0);
+    assert!(logic.objects.ordered_ids().contains(&lethal));
+    assert!(logic.has_pending_destroy_work());
     let completed = logic.health_events.snapshot_last_damage();
     assert_eq!(completed.len(), 2);
     assert_eq!(completed[0].target, ordinary);
     assert!(!completed[0].destroyed);
     assert_eq!(completed[1].target, lethal);
     assert!(completed[1].destroyed);
+    // CPP GameLogic.cpp3762 is the physical endphase, before the next frame.
+    logic
+        .process_destroy_list_with_effects_checked(&mut Default::default())
+        .unwrap();
+    crate::gameworld_shadow::run_owned_host_boundary(None, &mut logic);
+    assert!(logic.host_object(lethal).is_none());
+    assert!(!logic.has_pending_destroy_work());
+    assert_eq!(logic.health_events.snapshot_last_damage(), completed);
     crate::gameworld_shadow::run_owned_host_boundary(None, &mut logic);
     assert!(logic.host_object(lethal).is_none());
     assert!(!logic.has_pending_destroy_work());

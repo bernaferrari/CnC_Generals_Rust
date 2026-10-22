@@ -10,73 +10,86 @@ fn explosion_detonation_damage_source_authority_source() {
     for (name, call, damage_kind) in [
         (
             "apply_bunker_buster_to_target",
-            "apply_residual_damage_owned(receiving_damage_target_id,structure_dmg,attacker_id,",
+            "apply_residual_damage_owned_with_effects(receiving_damage_target_id,structure_dmg,attacker_id,",
             "STEALTH_JET_MISSILE_DAMAGE_TYPE",
         ),
         (
             "apply_kill_garrisoned_to_target",
-            "apply_residual_damage_owned(receiving_damage_id,999_999.0,attacker_id,",
+            "apply_residual_damage_owned_with_effects(receiving_damage_id,999_999.0,attacker_id,",
             "DamageType::Unresistable",
         ),
         (
             "apply_neutron_blast_at",
-            "apply_residual_damage_owned(receiving_damage_id,999_999.0,caster_id,",
+            "apply_residual_damage_owned_with_effects(receiving_damage_id,999_999.0,caster_id,",
             "DamageType::Unresistable",
         ),
         (
             "apply_bomb_truck_death_detonation_at",
-            "apply_residual_damage_owned(owned_victim_id,dmg,Some(truck_id),owned_damage_type,",
+            "apply_residual_damage_owned_with_effects(owned_victim_id,dmg,Some(truck_id),owned_damage_type,",
             "BOMB_TRUCK_DAMAGE_TYPE",
         ),
         (
             "apply_nuclear_tanks_death_detonation_at",
-            "apply_residual_damage_owned(owned_victim_id,dmg,Some(tank_id),owned_damage_type,",
+            "apply_residual_damage_owned_with_effects(owned_victim_id,dmg,Some(tank_id),owned_damage_type,",
             "NUCLEAR_TANK_DAMAGE_TYPE",
         ),
         (
             "detonate_booby_trap_at",
-            "apply_residual_damage_owned(owned_victim_id,dmg,Some(plant.planter_id),owned_damage_type,",
+            "apply_residual_damage_owned_with_effects(owned_victim_id,dmg,Some(plant.planter_id),owned_damage_type,",
             "BOOBY_DAMAGE_TYPE",
         ),
         (
             "activate_helix_napalm_bomb",
-            "apply_residual_damage_owned(owned_victim_id,dmg,Some(source_object),owned_damage_type,",
+            "apply_residual_damage_owned_with_effects(owned_victim_id,dmg,Some(source_object),owned_damage_type,",
             "HELIX_NAPALM_DAMAGE_TYPE",
         ),
         (
             "detonate_car_bomb",
-            "apply_residual_damage_owned(owned_victim_id,dmg,Some(car_id),owned_damage_type,",
+            "apply_residual_damage_owned_with_effects(owned_victim_id,dmg,Some(car_id),owned_damage_type,",
             "SUICIDE_CAR_BOMB_DAMAGE_TYPE",
         ),
         (
             "detonate_mine_internal",
-            "apply_residual_damage_owned(owned_victim_id,dmg,Some(mine_id),owned_damage_type,",
+            "apply_residual_damage_owned_with_effects(owned_victim_id,dmg,Some(mine_id),owned_damage_type,",
             "DamageType::Explosive",
         ),
         (
             "update_sneak_attacks",
-            "apply_residual_damage_owned(owned_victim_id,pulse.damage,Some(pulse.source_object),owned_damage_type,",
+            "apply_residual_damage_owned_with_effects(owned_victim_id,pulse.damage,Some(pulse.source_object),owned_damage_type,",
             "DamageType::Unresistable",
         ),
         (
             "update_overcharge_drain",
-            "apply_residual_damage_owned(owned_victim_id,damage,Some(id),owned_damage_type,",
+            "apply_residual_damage_owned_with_effects(owned_victim_id,damage,Some(id),owned_damage_type,",
             "DamageType::Penalty",
         ),
         (
             "apply_host_hive_damage_from",
-            "apply_residual_damage_owned(owned_victim_id,damage,source_id,owned_damage_type,",
+            "apply_residual_damage_owned_with_effects(owned_victim_id,damage,source_id,owned_damage_type,",
             "DamageType::Unresistable",
         ),
         (
             "process_destroy_list",
-            "apply_residual_damage_owned(receiving_damage_target_id,1.0e9,Some(event.id),",
+            "apply_residual_damage_owned_with_effects(receiving_damage_target_id,1.0e9,Some(event.id),",
             "DamageType::Falling",
         ),
     ] {
-        let body = last_rust_fn_body(src, name)
-            .or_else(|| rust_fn_body(src, name))
-            .unwrap_or_else(|| panic!("missing {name}"));
+        let owner_name = if name == "process_destroy_list" {
+            "process_destroy_list_with_effects_checked".to_owned()
+        } else {
+            format!("{name}_with_effects")
+        };
+        let adapter = last_rust_fn_body(src, name).expect(name);
+        assert!(
+            adapter.contains(&format!("self.{name}_with_effects(")),
+            "{name} reaches the effects-bearing route"
+        );
+        if name == "process_destroy_list" {
+            let checked_adapter = last_rust_fn_body(src, "process_destroy_list_with_effects")
+                .expect("destroy adapter");
+            assert!(checked_adapter.contains("self.process_destroy_list_with_effects_checked("));
+        }
+        let body = last_rust_fn_body(src, &owner_name).expect(&owner_name);
         let normalized: String = body.split_whitespace().collect();
         assert!(
             normalized.contains(call),
@@ -93,8 +106,8 @@ fn explosion_detonation_damage_source_authority_source() {
             "{name} must not keep anonymous Object damage"
         );
     }
-    let owner =
-        last_rust_fn_body(src, "apply_residual_damage_owned").expect("receiving body owner");
+    let owner = last_rust_fn_body(src, "apply_residual_damage_owned_with_effects")
+        .expect("receiving body owner");
     let owner: String = owner.split_whitespace().collect();
     assert!(
         owner.contains("letframe=self.frame;")
@@ -103,6 +116,10 @@ fn explosion_detonation_damage_source_authority_source() {
     assert!(
         owner.contains("victim.begin_damage_with_context_and_player_effects("),
         "all typed families must enter the outer Body admission kernel"
+    );
+    assert!(
+        owner.contains("victim.begin_damage_with_context_and_effects("),
+        "native route retains synchronous Body FX callbacks"
     );
     assert!(
         owner.contains("Self::apply_body_player_effect(players,frame,&source_players,effect);"),
@@ -490,7 +507,7 @@ fn heal_armor_absolute_hp_authority_source() {
         "fn apply_drone_armor_to_team",
         "fn apply_aircraft_armor_to_team",
         "fn apply_composite_armor_unlock_to_team",
-        "fn activate_spy_drone",
+        "fn activate_spy_drone_with_effects",
         "fn apply_battle_plan_set_battle_plan",
     ] {
         let i = src
@@ -588,9 +605,8 @@ fn suicide_consume_destroy_damage_authority_source() {
 
 #[test]
 fn execute_packs_presentation_particle_systems_source() {
-    let rp = crate::graphics::render_pipeline::RENDER_PIPELINE_SRC;
-    let i = rp.find("pub fn execute").expect("execute");
-    let body = &rp[i..rp.len().min(i + 4000)];
+    let rp = include_str!("../../graphics/render_pipeline/pipeline_execute.rs");
+    let body = last_rust_fn_body(rp, "execute").expect("actual execute owner");
     assert!(
         body.contains("pack_presentation_particle_systems")
             && body.contains("debug_last_particle_systems_packed"),
@@ -606,8 +622,11 @@ fn execute_packs_presentation_particle_systems_source() {
 #[test]
 fn residual_auto_fire_keeps_live_primary_damage() {
     // Structural side-effect guard only; this gives no C++ behavioral credit.
-    let helper =
-        last_rust_fn_body(GAME_LOGIC_HOST_SRC, "residual_auto_fire_apply_damage").expect("helper");
+    let helper = last_rust_fn_body(
+        GAME_LOGIC_HOST_SRC,
+        "residual_auto_fire_apply_damage_with_effects",
+    )
+    .expect("helper");
     assert!(
         helper.contains("apply_residual_damage_owned"),
         "the residual hit applies damage to the receiving canonical Body/Player"

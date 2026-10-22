@@ -739,10 +739,8 @@ impl AIPlayer {
         }
         let (id, pos) = found?;
         game_logic.destroy_object(id);
-        // C++ newMap destroys the map-placed CC synchronously before the build list.
-        // Explicit destroyObject already owns deletion; it does not start or await
-        // a StructureToppleUpdate animation or issue another onDie callback.
-        game_logic.process_destroy_list();
+        // C++ adjustBuildList959 queues deletion; onDelete runs now, while
+        // physical removal belongs to GameLogic's end-of-frame phase.
         Some(pos)
     }
 

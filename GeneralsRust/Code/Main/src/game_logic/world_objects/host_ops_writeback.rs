@@ -423,14 +423,6 @@ impl GameLogic {
     /// Wave 934: single host-support residual authority boundary.
     #[inline]
     pub fn apply_host_support_op(&mut self, op: HostSupportOp) -> HostSupportResult {
-        self.apply_host_support_op_with_effects(op, &mut Default::default())
-    }
-
-    pub(crate) fn apply_host_support_op_with_effects(
-        &mut self,
-        op: HostSupportOp,
-        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> HostSupportResult {
         match op {
             HostSupportOp::EnsureBarracksBuildingData { id } => {
                 HostSupportResult::Bool(self.ensure_barracks_building_data(id))
@@ -444,10 +436,6 @@ impl GameLogic {
             }
             HostSupportOp::UpdateShellWithBudget { dt, budget } => {
                 HostSupportResult::Snapshot(self.update_shell_with_budget(dt, budget))
-            }
-            HostSupportOp::ProcessDestroyListIfNeeded => {
-                self.process_destroy_list_if_needed_with_effects(effects);
-                HostSupportResult::Unit
             }
             HostSupportOp::InsertThingTemplate { name, template } => {
                 self.templates.insert(name, template);
