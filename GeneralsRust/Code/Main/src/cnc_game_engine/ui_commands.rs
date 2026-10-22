@@ -1330,11 +1330,10 @@ impl CnCGameEngine {
         // remains cache-miss/one-barrel fail-closed rather than doing I/O from
         // `Weapon::privateFireWeapon`'s Rust equivalent.
         self.prewarm_host_weapon_barrel_topologies_for_loaded_world();
-        // A successful requested or fallback load installed a new terrain
-        // payload and a new logical object world.  Rebuild the
-        // presentation-owned Arc and discard raw object-id renderer timelines
-        // only when that new world is ready; failed attempts leave their
-        // active world/cache intact.
+        // The old native world was retired before this in-place load.
+        // Move the successfully admitted candidate owners into the receiver,
+        // then commit their reserved identity. Failure cannot restore the old
+        // logical world; this direct route is intentionally non-atomic.
         #[cfg(feature = "game_client")]
         let pending_audio = match native_candidate
             .install_owned_worlds(&mut self.game_client, &mut self.render_pipeline)

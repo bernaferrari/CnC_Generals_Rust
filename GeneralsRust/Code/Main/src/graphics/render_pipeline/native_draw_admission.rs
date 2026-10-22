@@ -45,6 +45,7 @@ impl super::native_pose_loan::NativeInstalledPoseLoan<'_> {
     /// Retire this receiver's render state and playback at one destroy boundary.
     /// Numeric ObjectIds in other pipeline owners are independent.
     pub(super) fn retire_native_drawable(&mut self, id: crate::game_logic::ObjectId) {
+        self.native_drawable_lifetimes.remove(&id.0);
         self.drawable_visual_states
             .retain(|(object, _), _| *object != id.0);
         self.live_draw_playback
@@ -120,6 +121,7 @@ impl super::native_pose_loan::NativeInstalledPoseLoan<'_> {
     }
 
     pub(crate) fn clear_world(&mut self) {
+        self.native_drawable_lifetimes.clear();
         self.drawable_visual_states.clear();
         self.live_draw_playback.clear();
         *self.pending_client_drawable_restore = None;
@@ -138,11 +140,15 @@ impl super::native_pose_loan::NativeInstalledPoseLoan<'_> {
         if let PresentationDrawableMutation::TransformInstalled { source: event, .. } = &mutation {
             if let Some(identity) = source.and_then(|s| s.identity) {
                 let replacement = self
-                    .drawable_visual_states
-                    .iter()
-                    .any(|((object, _), state)| {
-                        *object == id.0 && state.native_host_identity.as_ref() != Some(identity)
-                    });
+                    .native_drawable_lifetimes
+                    .get(&id.0)
+                    .is_some_and(|lifetime| lifetime.identity != *identity)
+                    || self
+                        .drawable_visual_states
+                        .iter()
+                        .any(|((object, _), state)| {
+                            *object == id.0 && state.native_host_identity.as_ref() != Some(identity)
+                        });
                 if replacement {
                     self.receive_native_mutation_from_source(
                         PresentationDrawableMutation::Creating {
@@ -165,6 +171,17 @@ impl super::native_pose_loan::NativeInstalledPoseLoan<'_> {
                 sync_ms,
                 ..
             } => {
+                self.native_drawable_lifetimes.remove(&id.0);
+                if let Some(identity) = source.and_then(|source| source.identity) {
+                    self.native_drawable_lifetimes.insert(
+                        id.0,
+                        native_draw_world::NativeDrawableLifetime {
+                            identity: identity.clone(),
+                            #[cfg(feature = "game_client")]
+                            binding: None,
+                        },
+                    );
+                }
                 self.drawable_visual_states
                     .retain(|(object, _), _| *object != id.0);
                 let Some(source) = source else { return };

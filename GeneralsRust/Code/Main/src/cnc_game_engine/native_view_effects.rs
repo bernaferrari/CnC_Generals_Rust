@@ -88,6 +88,51 @@ impl NativeViewEffects for NativeRendererViewEffects<'_> {
     fn local_player_id(&self) -> u32 {
         self.local_player_id
     }
+    fn retire_object_drawable(
+        &mut self,
+        identity: &crate::assets::LiveDrawPlaybackIdentity,
+    ) -> Result<(), String> {
+        let Some(key) = self
+            .drawables
+            .binding_key(self.host_epoch, identity.object_id())
+        else {
+            if self.drawables.has_object_drawable(identity.object_id())
+                || self.poses.has_drawable_lifetime(identity.object_id())
+            {
+                return Err("native physical retirement has an existing receiver without its current Client binding".into());
+            }
+            // Genuine prebirth absence has neither an actual CPU association
+            // nor a constructor lifetime. Never invent a key to delete it.
+            return Ok(());
+        };
+        self.poses
+            .validate_object_retirement(identity, key)
+            .map_err(str::to_owned)?;
+        let cpu = self
+            .retirement
+            .retire(&mut self.drawables, Some(key.drawable_id));
+        let draw = if self
+            .drawables
+            .binding_key(self.host_epoch, identity.object_id())
+            .is_none()
+        {
+            self.poses
+                .retire_object_after_client(identity, key)
+                .map_err(str::to_owned)
+        } else {
+            Ok(())
+        };
+        match (cpu, draw) {
+            (Ok(()), Ok(())) => Ok(()),
+            (cpu, draw) => Err(format!(
+                "native physical retirement CPU: {}; Draw: {}",
+                cpu.err()
+                    .map(|error| error.to_string())
+                    .unwrap_or_else(|| "completed".into()),
+                draw.err().unwrap_or_else(|| "completed".into())
+            )),
+        }
+    }
     fn host_epoch(&self) -> u64 {
         self.host_epoch
     }

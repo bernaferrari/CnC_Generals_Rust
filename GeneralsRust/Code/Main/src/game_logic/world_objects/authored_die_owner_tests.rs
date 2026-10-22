@@ -3,7 +3,7 @@
 use crate::game_logic::combat::DamageType;
 use crate::game_logic::host_usa_pilot::HostDeathType;
 use crate::game_logic::object::DamageHitContext;
-use crate::game_logic::{GameLogic, Object, ObjectId, Team, ThingTemplate};
+use crate::game_logic::{GameLogic, ObjectId, Team};
 use game_engine::common::ini::ini_fx_list as fx;
 use gamelogic::common::{Coord3D, Matrix3D};
 use gamelogic::helpers::HostFxObjectPose;
@@ -47,16 +47,28 @@ fn world(middle: &str) -> (GameLogic, ObjectId, ObjectId) {
     world_with_kind(middle, "INERT IMMOBILE")
 }
 fn world_with_kind(middle: &str, kind: &str) -> (GameLogic, ObjectId, ObjectId) {
-    let mut parser = crate::assets::IniParser::new();
-    parser.parse_ini_content(&format!(
-        "Object AuthoredDieVictim\nKindOf = {kind}\nBody = ActiveBody BodyTag\nMaxHealth = 100\nInitialHealth = 100\nEnd\nBehavior = FXListDie First\nDeathFX = {FIRST}\nEnd\n{middle}\nBehavior = FXListDie Last\nDeathFX = {SECOND}\nEnd\nEnd"
-    ), "authored-die-owner.ini").unwrap();
-    let template = GameLogic::build_template_from_object_definition(
-        "AuthoredDieVictim",
-        parser.get_definition("AuthoredDieVictim").unwrap(),
-        None,
+    // One immutable authored source feeds the parser witness and the real
+    // paired owner. Keep its admitted projection instead of replacing it with
+    // a parser-only template that loses receiving constructor identity.
+    let source_text = format!(
+        "Object AuthoredDieVictim\nKindOf = {kind}\nBody = ActiveBody BodyTag\nMaxHealth = 100\nInitialHealth = 100\nEnd\nBehavior = FXListDie First\nDeathFX = {FIRST}\nEnd\n{middle}\nBehavior = FXListDie Last\nDeathFX = {SECOND}\nEnd\nEnd\nObject AuthoredDieChild\nBody = ActiveBody ChildBodyTag\nMaxHealth = 100\nInitialHealth = 100\nEnd\nEnd\nObject AuthoredSource\nBody = ActiveBody SourceBodyTag\nMaxHealth = 100\nInitialHealth = 100\nEnd\nBehavior = DestroyDie SourceDeleteTag\nEnd\nEnd\n"
     );
+    let mut parser = crate::assets::IniParser::new();
+    parser
+        .parse_ini_content(&source_text, "authored-die-owner.ini")
+        .unwrap();
+    assert!(parser.get_definition("AuthoredDieVictim").is_some());
+    assert!(parser.get_definition("AuthoredDieChild").is_some());
     let mut world = GameLogic::new();
+    world
+        .admit_receiving_module_content(
+            crate::assets::ReceivingObjectContent::from_sources([(
+                "authored-die-owner.ini".to_owned(),
+                source_text,
+            )])
+            .unwrap(),
+        )
+        .unwrap();
     world.add_player(crate::game_logic::Player::new(
         0,
         Team::Neutral,
@@ -70,16 +82,15 @@ fn world_with_kind(middle: &str, kind: &str) -> (GameLogic, ObjectId, ObjectId) 
         "Source",
         false,
     ));
-    world.templates.insert(template.name.clone(), template);
     let victim = world
         .create_object("AuthoredDieVictim", Team::USA, Vec3::ZERO)
         .unwrap();
     world.objects.get_mut(&victim).unwrap().owner_player_id = Some(1);
-    let source = ObjectId(90001);
-    world.objects.insert(
-        source,
-        Object::new(ThingTemplate::new("AuthoredSource"), source, Team::China),
-    );
+    // The source participates in encoded continuation too: construct it through
+    // the same admitted owner instead of installing an unbound raw Object.
+    let source = world
+        .create_object("AuthoredSource", Team::China, Vec3::ZERO)
+        .unwrap();
     world.objects.get_mut(&source).unwrap().owner_player_id = Some(2);
     {
         let mut shroud = world.world_services.shroud().lock().unwrap();
@@ -392,14 +403,15 @@ fn duplicate_create_slots_interleave_with_fx_and_transfer_previous_body_history(
             let (mut owner, victim, source) = world(&format!(
                 "Behavior = CreateObjectDie CreateFirst\nCreationList = OCL_AuthoredDieChild\nTransferPreviousHealth = Yes\nEnd\nBehavior = FXListDie Between\nDeathFX = {SECOND}\nEnd\nBehavior = CreateObjectDie CreateLast\nCreationList = OCL_AuthoredDieChild\nTransferPreviousHealth = Yes\nEnd"
             ));
-            let mut child = ThingTemplate::new("AuthoredDieChild");
+            // Retain this fixture's exact Body/armor-FX override on the
+            // already admitted child; do not erase its paired constructor data.
+            let child = owner.templates.get_mut("AuthoredDieChild").unwrap();
             child.set_health(100.);
             child.armor_sets.push(crate::game_logic::HostArmorSet {
                 conditions: 0,
                 armor: None,
                 damage_fx: Some("DamageFX_AuthoredDieChild".into()),
             });
-            owner.templates.insert(child.name.clone(), child);
             hit(&mut owner, victim, Some(source), 1.);
             hit(&mut owner, victim, None, 1000.);
             assert_eq!(

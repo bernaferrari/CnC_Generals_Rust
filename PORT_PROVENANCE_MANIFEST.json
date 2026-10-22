@@ -160590,7 +160590,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "b23268f1ce35ef79a69f506155a935e56c0f2954bf2992734754e25fe0fb1370",
+  "input_digest": "bbdc2ec16868af21aed7c9c70c786eadb07df76c61cb16be29e50d37143c7203",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -165460,11 +165460,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 460,
+        "end_line": 431,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/copy_protection.rs",
-      "sha256": "d15f231c6b50303a52f2a1819f4932ec91af73adf9f8867da847b61eb0af8221",
+      "sha256": "67eb58df182721dd2abfac0c32f075a66d9308fd425072df3ffa9d598cb1ac6e",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -165484,11 +165484,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 563,
+        "end_line": 538,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/data_chunk.rs",
-      "sha256": "0443f8c64178c2f82090402f786c5fce4a445abd456621bdadbab2d2a292e5de",
+      "sha256": "be95d59e225daf2d0f86ffc5e656335265838e3630674fbb43a4cbf8bf61714a",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -167092,11 +167092,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 483,
+        "end_line": 544,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/native_particle_draw.rs",
-      "sha256": "16681576dac67092b69323c66c7fb439ab18815738a2a3bdfc0e74ec5ee7a308",
+      "sha256": "1f56c5626f25a0188c532a1569afd7c61831d52714e6cb6503e4a9ae5dff71d0",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -167368,11 +167368,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 696,
+        "end_line": 707,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/semantic_admission.rs",
-      "sha256": "1b74414521b5a604c03771bd6d8aa1ff7cd43c3f866e9618350960275f90c679",
+      "sha256": "cc2b17731cde835dfc7ee5605e0e2743e1eebbfd54197966636443e54a1dca0e",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },

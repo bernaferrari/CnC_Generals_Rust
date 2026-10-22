@@ -26,9 +26,19 @@ impl GameLogic {
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
+        self.process_destroy_list_if_needed_with_effects_checked(presentation_effects)
+            .expect("native physical Drawable retirement must complete")
+    }
+
+    pub(crate) fn process_destroy_list_if_needed_with_effects_checked(
+        &mut self,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
         if self.has_pending_destroy_work() {
-            self.process_destroy_list_with_effects(presentation_effects);
+            self.process_destroy_list_with_effects_checked(presentation_effects)?;
         }
+
+        Ok(())
     }
 
     pub fn process_destroy_list(&mut self) {
@@ -41,11 +51,27 @@ impl GameLogic {
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
+        self.process_destroy_list_with_effects_checked(presentation_effects)
+            .expect("native physical Drawable retirement must complete")
+    }
+
+    pub(crate) fn process_destroy_list_with_effects_checked(
+        &mut self,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
         let mut destroyed_structure = false;
         let mut rubble_stamps: Vec<(glam::Vec3, i32)> = Vec::new();
         while let Some(event) = self.objects_to_destroy.pop_front() {
             if !event.needs_death_effects() {
-                destroyed_structure |= self.finish_direct_object_removal(event.id);
+                match self.finish_direct_object_removal_checked(event.id, presentation_effects) {
+                    Ok(structure) => destroyed_structure |= structure,
+                    Err(error) => {
+                        // Native failure stops this frame. Preserve the selected
+                        // event and installed host lifetime for diagnostics.
+                        self.objects_to_destroy.push_front(event);
+                        return Err(error);
+                    }
+                }
                 continue;
             }
             #[cfg(feature = "game_client")]
@@ -142,6 +168,16 @@ impl GameLogic {
             self.unregister_tunnel_containment_with_effects(event.id, presentation_effects);
             self.finish_building_sound(event.id);
             self.detach_host_fog_ghost(event.id);
+            // Object.cpp598-607: remove radar, notify the actual receiving
+            // Drawable, then unlink team and finally erase the host node.
+            self.remove_host_radar_provider(event.id);
+            self.host_radar_remove_object(event.id);
+            if let Err(error) =
+                self.retire_native_object_drawable_with_effects(event.id, presentation_effects)
+            {
+                self.objects_to_destroy.push_front(event);
+                return Err(error);
+            }
             // CPP Object destructor unlinks only at physical removal, after onDelete.
             // Dead-but-extant objects remain members through their onDie callbacks.
             if let Some(team_name) = self
@@ -183,8 +219,6 @@ impl GameLogic {
                     let exit_at = obj.contained_by.unwrap_or(event.id);
                     let _ = self.exit_cave_unit(event.id, exit_at);
                 }
-                self.remove_host_radar_provider(event.id);
-                self.host_radar_remove_object(event.id);
                 #[cfg(test)]
                 crate::game_logic::host_destroy_log::record(event.id);
                 // Wave 681: mid-frame GameWorld Destroy while coupled shadow tick is live.
@@ -405,6 +439,8 @@ impl GameLogic {
                 self.pathfinding_system.stamp_rubble_at_world(pos, radius);
             }
         }
+
+        Ok(())
     }
 
     pub(in super::super) fn record_destruction(

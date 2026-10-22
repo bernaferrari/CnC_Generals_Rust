@@ -79,6 +79,13 @@ struct Effects {
 }
 impl NativeViewEffects for Effects {
     #[cfg(feature = "game_client")]
+    fn retire_object_drawable(
+        &mut self,
+        _: &crate::assets::LiveDrawPlaybackIdentity,
+    ) -> Result<(), String> {
+        Err("camera-only fixture cannot physically retire native Drawables".into())
+    }
+    #[cfg(feature = "game_client")]
     fn host_epoch(&self) -> u64 {
         1
     }

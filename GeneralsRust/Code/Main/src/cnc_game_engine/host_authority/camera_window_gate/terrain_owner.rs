@@ -309,11 +309,10 @@ impl CnCGameEngine {
                 .truncate()
                 .to_array()
         };
-        let mut effects = peer.native_map.effects();
-        let receiver = effects
-            .terrain
-            .as_deref_mut()
-            .ok_or("staged peer has no native owner")?;
+        let receiver = peer
+            .native_map
+            .terrain_effects()
+            .ok_or("staged peer has no native terrain owner")?;
         receiver.add_water_velocity(origin[0] + 10.0, origin[1] + 10.0, 1.0, origin[2] + 4.0);
         receiver.add_scorch(origin, 2.0, 0);
         Ok(())

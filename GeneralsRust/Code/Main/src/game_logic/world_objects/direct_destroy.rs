@@ -318,6 +318,15 @@ impl GameLogic {
 
     /// Physical-only queue completion: no onDie, body damage, bounty or death FX.
     pub(in super::super) fn finish_direct_object_removal(&mut self, id: ObjectId) -> bool {
+        self.finish_direct_object_removal_checked(id, &mut Default::default())
+            .expect("native physical Drawable retirement must complete")
+    }
+
+    pub(in super::super) fn finish_direct_object_removal_checked(
+        &mut self,
+        id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<bool> {
         self.pending_special_abilities.remove(&id);
         self.pending_special_abilities
             .retain(|_, ability| ability.target_id() != id);
@@ -336,22 +345,59 @@ impl GameLogic {
             }
         }
         self.detach_host_fog_ghost(id);
+        // Object.cpp598-607: radar removal and sendObjectDestroyed run while
+        // the destructor still carries the Object’s original team.
+        self.remove_host_radar_provider(id);
+        self.host_radar_remove_object(id);
+        self.retire_native_object_drawable_with_effects(id, effects)?;
         // CPP Object destructor unlinks only at physical removal, after onDelete.
         // Dead-but-extant objects remain members through their onDie callbacks.
         if let Some(team_name) = self.objects.get(&id).map(|o| o.team_instance_name.clone()) {
             self.unlink_leftover_team_host_member(id, &team_name);
         }
         let Some(object) = self.objects.remove(&id) else {
-            return false;
+            return Ok(false);
         };
         self.remove_host_dock_approach_queue(id);
-        self.remove_host_radar_provider(id);
-        self.host_radar_remove_object(id);
         #[cfg(test)]
         crate::game_logic::host_destroy_log::record(id);
 
         self.clear_removed_object_references(id);
-        object.is_kind_of(KindOf::Structure)
+        Ok(object.is_kind_of(KindOf::Structure))
+    }
+
+    /// Physical destructor notification; death/slow death alone never retires.
+    pub(in super::super) fn retire_native_object_drawable_with_effects(
+        &self,
+        id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
+        let Some(object) = self.objects.get(&id) else {
+            return Ok(());
+        };
+        #[cfg(feature = "game_client")]
+        {
+            let Some(view) = effects.view.as_deref_mut() else {
+                return if self.requires_native_drawable_owner() {
+                    Err(gamelogic::GameLogicError::Configuration(format!(
+                        "physical Object {id} removal requires its native Drawable owner"
+                    )))
+                } else {
+                    Ok(())
+                };
+            };
+            let identity = self.live_draw_playback_identity(object);
+            view.retire_object_drawable(&identity)
+                .map_err(gamelogic::GameLogicError::Configuration)
+        }
+        #[cfg(not(feature = "game_client"))]
+        if self.requires_native_drawable_owner() {
+            Err(gamelogic::GameLogicError::Configuration(format!(
+                "physical Object {id} removal requires the native GameClient feature"
+            )))
+        } else {
+            Ok(())
+        }
     }
 
     pub(in super::super) fn clear_removed_object_references(&mut self, id: ObjectId) {

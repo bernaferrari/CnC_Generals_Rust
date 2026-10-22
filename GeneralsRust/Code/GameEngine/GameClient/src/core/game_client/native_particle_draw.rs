@@ -480,3 +480,64 @@ impl NativeDrawableOwner<'_> {
         self.drawables.try_clear_for_map_attempt(particles)
     }
 }
+
+#[cfg(test)]
+mod missing_binding_retirement_tests {
+    use super::*;
+    #[test]
+    fn actual_client_load_postprocess_keeps_cpu_actor_when_binding_disappears() {
+        #[cfg(not(target_arch = "wasm32"))]
+        if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
+            module_path!(),
+            "actual_client_load_postprocess_keeps_cpu_actor_when_binding_disappears",
+        ) {
+            return;
+        }
+        let mut client = GameClient::new().unwrap();
+        let mut peer = GameClient::new().unwrap();
+        assert!(!client.drawables.borrow_native().has_object_drawable(42));
+        let entry = super::tests::presentation_drawable_sync_for_test(
+            42,
+            91,
+            "LoadedUnboundOwner",
+            true,
+            false,
+            [0.; 3],
+            0.,
+        );
+        client.sync_presentation_drawables([entry.clone()]).unwrap();
+        peer.sync_presentation_drawables([entry]).unwrap();
+        let key = client
+            .drawables
+            .borrow_native()
+            .binding_key(91, 42)
+            .unwrap();
+        let peer_key = peer.drawables.borrow_native().binding_key(91, 42).unwrap();
+        client.load_post_process().unwrap();
+        assert!(
+            client
+                .drawables
+                .borrow_native()
+                .binding_key(91, 42)
+                .is_none()
+        );
+        assert!(
+            client.drawables.borrow_native().has_object_drawable(42),
+            "decoded-unbound actor is not genuine prebirth absence"
+        );
+        assert!(client.find_drawable_by_id(key.drawable_id).is_some());
+        assert_eq!(
+            peer.drawables.borrow_native().binding_key(91, 42),
+            Some(peer_key)
+        );
+        assert!(peer.drawables.borrow_native().has_object_drawable(42));
+        client.drawables.drawable_object_map.remove(&42);
+        assert!(
+            client.drawables.borrow_native().has_object_drawable(42),
+            "inconsistent inverse map cannot hide an actual bound CPU node"
+        );
+        client.invalidate_presentation_drawable_world();
+        assert!(!client.drawables.borrow_native().has_object_drawable(42));
+        peer.invalidate_presentation_drawable_world();
+    }
+}

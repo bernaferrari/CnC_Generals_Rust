@@ -1221,8 +1221,18 @@ mod live_upgrade_mux_tests {
         logic.record_host_upgrade_queued(2, Team::GLA, "Upgrade_BecomeRealGLABarracks", Some(id));
         logic.apply_host_upgrade_complete(Team::GLA, 2, "Upgrade_BecomeRealGLABarracks");
         assert!(
+            logic.objects[&id].status.destroyed,
+            "live mux queues old fake without physical erasure"
+        );
+        assert_eq!(
+            logic.objects[&id].health.current, 500.0,
+            "direct replacement does not apply body death"
+        );
+        assert!(logic.has_pending_destroy_work());
+        logic.process_destroy_list();
+        assert!(
             logic.objects.get(&id).is_none(),
-            "fake must be removed via live complete mux"
+            "physical flush removes old fake after replacement birth"
         );
         assert!(
             logic

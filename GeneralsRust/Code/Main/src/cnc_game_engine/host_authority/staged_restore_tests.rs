@@ -1101,13 +1101,18 @@ fn staged_native_commit_finishes_after_logic_and_camera_install() {
         .find("runtime_world.preflight_native()")
         .expect("native payload preflight");
     let teardown = body
-        .find("self.host_advance_direct_visual_world_epoch()")
-        .expect("old client teardown");
+        .find(".install_owned_worlds(&mut self.game_client, &mut self.render_pipeline)")
+        .expect("retire old Client and install the actual admitted native owners");
+    let epoch = body
+        .find("self.commit_native_world_epoch(epoch)")
+        .expect("commit the reserved native candidate identity");
     let discard_live = body
         .find("discard_live_for_world_replace()")
         .expect("live output invalidation");
     assert!(preflight < discard_live && preflight < teardown && teardown < globals);
-    assert!(globals < logic && logic < camera && camera < effects && effects < shadow);
+    assert!(
+        globals < logic && logic < epoch && epoch < camera && camera < effects && effects < shadow
+    );
     assert!(!body.contains("execute_after_logic_commit()"));
 }
 
@@ -1387,7 +1392,13 @@ fn main_services_start_and_stage_leave_foreign_core_ai_installed() {
         module_path!(),
         "main_services_start_and_stage_leave_foreign_core_ai_installed",
         || {
+            let _ =
+                env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
+                    .is_test(true)
+                    .try_init();
             let _logs = WorldStageLogRestore::take();
+            #[cfg(feature = "game_client")]
+            let (_gpu, mut native_graphics, mut native_pipeline) = staged_native_fixture_gpu();
             let temp = tempfile::tempdir().unwrap();
             let map_path = temp.path().join("OwnedServices.map");
             let mut map = game_engine::common::system::DataChunkOutput::new();
@@ -1453,6 +1464,34 @@ fn main_services_start_and_stage_leave_foreign_core_ai_installed() {
             gamelogic::system::engine_stores::with_active_stores(&foreign, || {
                 let foreign_parser = game_engine::common::ini::ini_ai_data::get_ai_data_store();
                 let mut source = GameLogic::new();
+                // Explicit immutable starting-actor inputs for this world-service
+                // fixture, not retail art/health fidelity. Even NoDraw actors
+                // require a real admitted receiving template at native birth.
+                source
+                    .admit_receiving_module_content(
+                        crate::assets::ReceivingObjectContent::from_sources([(
+                            "owned-services-starting-actors.ini".to_owned(),
+                            r#"
+Object AmericaVehicleDozer
+ KindOf = VEHICLE DOZER SELECTABLE
+ Body = ActiveBody OwnedDozerBody
+  MaxHealth = 100
+  InitialHealth = 100
+ End
+End
+Object AmericaCommandCenter
+ KindOf = STRUCTURE COMMANDCENTER IMMOBILE SELECTABLE
+ Body = ActiveBody OwnedCommandCenterBody
+  MaxHealth = 100
+  InitialHealth = 100
+ End
+End
+"#
+                            .to_owned(),
+                        )])
+                        .unwrap(),
+                    )
+                    .unwrap();
                 let terrain_definitions = crate::game_logic::terrain_definitions::parse_application_terrain_sources(&[
                     ("Terrain.ini", "Terrain SavedOwnedTerrain\n Texture = owned-saved.tga\n Class = ROCK\nEnd\n".into())
                 ]).unwrap();
@@ -1567,7 +1606,25 @@ fn main_services_start_and_stage_leave_foreign_core_ai_installed() {
                     ..
                 } = saves.load_game_snapshot("owned_services").unwrap();
                 let mut failed_native =
-                    super::super::map_native_admission::NativeMapCandidate::default();
+                    super::super::map_native_admission::NativeMapCandidate::with_epoch(901);
+                #[cfg(feature = "game_client")]
+                let mut failed_retirement =
+                    game_client::core::game_client::NativeParticleRetirementService;
+                #[cfg(feature = "game_client")]
+                let mut failed_attempt = failed_native
+                    .attempt(
+                        native_pipeline.borrow_native_draw_services(),
+                        &mut native_graphics,
+                        0,
+                        super::super::native_view_effects::receiving_native_drawable_policy(),
+                        &mut failed_retirement,
+                    )
+                    .unwrap();
+                #[cfg(feature = "game_client")]
+                let failed_receiver =
+                    Some(&mut failed_attempt as &mut dyn crate::game_logic::NativeMapAdmission);
+                #[cfg(not(feature = "game_client"))]
+                let failed_receiver = None;
                 let failure = CnCGameEngine::stage_decoded_saved_world_for_restore_with_native(
                     &snapshot,
                     info,
@@ -1604,14 +1661,26 @@ fn main_services_start_and_stage_leave_foreign_core_ai_installed() {
                         ));
                         Err("owned-service rollback witness".into())
                     },
-                    failed_native.receiver(),
+                    failed_receiver,
                 );
-                assert!(matches!(failure, Err(ref error) if error.contains("rollback witness")));
+                assert!(
+                    matches!(&failure, Err(error) if error.contains("rollback witness")),
+                    "requested late rollback callback was not reached: {:?}",
+                    failure.as_ref().err()
+                );
+                #[cfg(feature = "game_client")]
+                drop(failed_attempt);
                 #[cfg(feature = "game_client")]
                 assert_eq!(
                     failed_native.raw_height_for_test(1, 1),
                     Some(40),
                     "rejected native candidate is detached from receiving saved raw7"
+                );
+                #[cfg(feature = "game_client")]
+                discard_staged_native_fixture(
+                    &mut failed_native,
+                    &mut native_graphics,
+                    &mut native_pipeline,
                 );
                 assert!(source.isInGame());
                 assert!(
@@ -1647,7 +1716,27 @@ fn main_services_start_and_stage_leave_foreign_core_ai_installed() {
                     gamelogic::ai::integration::with_ai_integration(|ai| ai.get_ai_player_count()),
                     Some(integration_count)
                 );
-                let staged = CnCGameEngine::stage_saved_world_for_restore(
+                let mut accepted_native =
+                    super::super::map_native_admission::NativeMapCandidate::with_epoch(902);
+                #[cfg(feature = "game_client")]
+                let mut accepted_retirement =
+                    game_client::core::game_client::NativeParticleRetirementService;
+                #[cfg(feature = "game_client")]
+                let mut accepted_attempt = accepted_native
+                    .attempt(
+                        native_pipeline.borrow_native_draw_services(),
+                        &mut native_graphics,
+                        0,
+                        super::super::native_view_effects::receiving_native_drawable_policy(),
+                        &mut accepted_retirement,
+                    )
+                    .unwrap();
+                #[cfg(feature = "game_client")]
+                let accepted_receiver =
+                    Some(&mut accepted_attempt as &mut dyn crate::game_logic::NativeMapAdmission);
+                #[cfg(not(feature = "game_client"))]
+                let accepted_receiver = None;
+                let mut staged = CnCGameEngine::stage_saved_world_for_restore_with_native(
                     &mut saves,
                     "owned_services",
                     GameMode::Skirmish,
@@ -1671,8 +1760,15 @@ fn main_services_start_and_stage_leave_foreign_core_ai_installed() {
                     source.session_view.camera.movement_policy,
                     source.session_view.camera.input_policy,
                     &source.world_services,
+                    accepted_receiver,
                 )
                 .expect("successful native owned-service staging");
+                #[cfg(feature = "game_client")]
+                drop(accepted_attempt);
+                #[cfg(feature = "game_client")]
+                {
+                    staged.native_map = accepted_native;
+                }
                 assert!(staged.logic.isInGame());
                 assert_eq!(
                     &**staged.logic.effective_terrain_definitions(),
@@ -1723,6 +1819,12 @@ fn main_services_start_and_stage_leave_foreign_core_ai_installed() {
                     1
                 );
                 assert_eq!(live_light, 1);
+                #[cfg(feature = "game_client")]
+                discard_staged_native_fixture(
+                    &mut staged.native_map,
+                    &mut native_graphics,
+                    &mut native_pipeline,
+                );
                 // Match the production boundary: globals, installed host,
                 // then checked native finish. No Core AI participates.
                 let StagedRestoreWorld {
@@ -1773,6 +1875,7 @@ fn native_initial_roster_audio_survives_staging_and_discards_late_client_failure
         "native_initial_roster_audio_survives_staging_and_discards_late_client_failure",
         || {
             use crate::game_logic::containment_audio_test_support as audio;
+            let (_gpu, mut native_graphics, mut native_pipeline) = staged_native_fixture_gpu();
             let temp = tempfile::tempdir().unwrap();
             let map_path = temp.path().join("ContainmentAudioStage.map");
             let mut map = game_engine::common::system::DataChunkOutput::new();
@@ -1889,8 +1992,21 @@ End
             invalid_drawable.extend_from_slice(&0_i32.to_le_bytes());
             crate::save_load::snapshot::validate_game_client_xfer_bytes(&invalid_drawable).unwrap();
             let stage = |native: &mut super::super::map_native_admission::NativeMapCandidate,
-                         client_bytes: Option<Vec<u8>>| {
-                CnCGameEngine::stage_decoded_saved_world_for_restore_with_native(
+                         client_bytes: Option<Vec<u8>>,
+                         graphics: &mut GraphicsSystem,
+                         pipeline: &mut RenderPipeline| {
+                let mut retirement =
+                    game_client::core::game_client::NativeParticleRetirementService;
+                let mut attempt = native
+                    .attempt(
+                        pipeline.borrow_native_draw_services(),
+                        graphics,
+                        0,
+                        super::super::native_view_effects::receiving_native_drawable_policy(),
+                        &mut retirement,
+                    )
+                    .unwrap();
+                let staged = CnCGameEngine::stage_decoded_saved_world_for_restore_with_native(
                     &snapshot,
                     save_info("containment-audio-stage", map_name.clone()),
                     None,
@@ -1925,17 +2041,22 @@ End
                             .restore_from_snapshot(snapshot, candidate)
                             .map_err(|error| error.to_string())
                     },
-                    native.receiver(),
-                )
+                    Some(&mut attempt),
+                );
+                drop(attempt);
+                staged
             };
             let mut rejected_native =
-                super::super::map_native_admission::NativeMapCandidate::default();
-            let mut rejected =
-                stage(&mut rejected_native, Some(invalid_drawable)).unwrap_or_else(|error| {
-                    panic!(
-                        "envelope/map staging must succeed before the real late decoder: {error}"
-                    )
-                });
+                super::super::map_native_admission::NativeMapCandidate::with_epoch(903);
+            let mut rejected = stage(
+                &mut rejected_native,
+                Some(invalid_drawable),
+                &mut native_graphics,
+                &mut native_pipeline,
+            )
+            .unwrap_or_else(|error| {
+                panic!("envelope/map staging must succeed before the real late decoder: {error}")
+            });
             rejected.native_map = rejected_native;
             assert_service_empty();
             let mut failed_client = game_client::core::game_client::GameClient::new().unwrap();
@@ -1945,12 +2066,22 @@ End
             )
             .expect_err("real GameClient Drawable payload rejects after successful staging");
             assert!(!error.to_string().is_empty());
+            discard_staged_native_fixture(
+                &mut rejected.native_map,
+                &mut native_graphics,
+                &mut native_pipeline,
+            );
             drop(rejected);
             assert_service_empty();
             let mut accepted_native =
-                super::super::map_native_admission::NativeMapCandidate::default();
-            let mut accepted = stage(&mut accepted_native, None)
-                .unwrap_or_else(|error| panic!("accepted stage: {error}"));
+                super::super::map_native_admission::NativeMapCandidate::with_epoch(903);
+            let mut accepted = stage(
+                &mut accepted_native,
+                None,
+                &mut native_graphics,
+                &mut native_pipeline,
+            )
+            .unwrap_or_else(|error| panic!("accepted stage: {error}"));
             accepted.native_map = accepted_native;
             assert_service_empty();
             {
@@ -1966,6 +2097,58 @@ End
                     &[("ContainmentStageAuthoredEnter", container_id)],
                 );
             }
+            discard_staged_native_fixture(
+                &mut accepted.native_map,
+                &mut native_graphics,
+                &mut native_pipeline,
+            );
         },
     );
+}
+
+#[cfg(feature = "game_client")]
+struct StagedNativeGpuScope;
+#[cfg(feature = "game_client")]
+impl Drop for StagedNativeGpuScope {
+    fn drop(&mut self) {
+        let _ = ww3d_engine::shutdown();
+    }
+}
+#[cfg(feature = "game_client")]
+fn staged_native_fixture_gpu() -> (StagedNativeGpuScope, GraphicsSystem, RenderPipeline) {
+    ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
+        width: 32,
+        height: 32,
+        ..Default::default()
+    })
+    .unwrap();
+    let scope = StagedNativeGpuScope;
+    let graphics = GraphicsSystem::new(
+        ww3d_engine::device().unwrap(),
+        ww3d_engine::queue().unwrap(),
+        ww3d_engine::color_format().unwrap(),
+        ww3d_engine::depth_format().unwrap(),
+    )
+    .unwrap();
+    let pipeline = RenderPipeline::initialize(&graphics).unwrap();
+    (scope, graphics, pipeline)
+}
+#[cfg(feature = "game_client")]
+fn discard_staged_native_fixture(
+    candidate: &mut super::super::map_native_admission::NativeMapCandidate,
+    graphics: &mut GraphicsSystem,
+    pipeline: &mut RenderPipeline,
+) {
+    use crate::game_logic::NativeMapAdmission;
+    let mut retirement = game_client::core::game_client::NativeParticleRetirementService;
+    let mut attempt = candidate
+        .attempt(
+            pipeline.borrow_native_draw_services(),
+            graphics,
+            0,
+            super::super::native_view_effects::receiving_native_drawable_policy(),
+            &mut retirement,
+        )
+        .unwrap();
+    attempt.discard_attempt().unwrap();
 }

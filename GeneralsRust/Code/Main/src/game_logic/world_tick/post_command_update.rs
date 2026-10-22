@@ -951,7 +951,9 @@ impl GameLogic {
         // Same-frame cascades: iterator re-evaluates end() so objects queued
         // during deletion are processed this logic frame (GameLogic.cpp:2449-2510).
         self.fire_temporary_weapons_for_pending_deaths_with_effects(&mut ui);
-        self.process_destroy_list_with_effects(&mut ui);
+        if let Err(error) = self.process_destroy_list_with_effects_checked(&mut ui) {
+            return SimulationStepOutcome::Failed(error);
+        }
         // C++ BridgeBehavior/Tower onDamage/onHealing/onDie + scaffold rise tick.
         // Residual drain is same-frame after object combat/AI/repair and destroy.
         self.sync_host_bridge_rubble_and_scaffolds_with_effects(&mut ui);

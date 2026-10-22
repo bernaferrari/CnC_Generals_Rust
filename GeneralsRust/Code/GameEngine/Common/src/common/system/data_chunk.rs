@@ -14,9 +14,7 @@
 use super::compression::{
     CompressionLevel, compress_data, decompress_data, get_preferred_compression, is_data_compressed,
 };
-use std::cell::RefCell;
 use std::collections::HashMap;
-use std::rc::Rc;
 
 /// Data chunk header information
 #[derive(Debug, Clone)]
@@ -424,29 +422,6 @@ impl Default for DataChunkManager {
     fn default() -> Self {
         Self::new(64 * 1024 * 1024) // Default 64MB limit
     }
-}
-
-// THREAD: C++ plain static; driven only by the single game/client thread.
-thread_local! {
-    static CHUNK_MANAGER: RefCell<Option<Rc<RefCell<DataChunkManager>>>> =
-        const { RefCell::new(None) };
-}
-
-/// Initialize the global chunk manager
-pub fn init_chunk_manager(memory_limit: Option<usize>) {
-    let limit = memory_limit.unwrap_or(64 * 1024 * 1024);
-
-    CHUNK_MANAGER.with_borrow_mut(|manager| match manager {
-        Some(manager) => *manager.borrow_mut() = DataChunkManager::new(limit),
-        None => {
-            *manager = Some(Rc::new(RefCell::new(DataChunkManager::new(limit))));
-        }
-    });
-}
-
-/// Get reference to the global chunk manager
-pub fn get_chunk_manager() -> Option<Rc<RefCell<DataChunkManager>>> {
-    CHUNK_MANAGER.with_borrow(|manager| manager.clone())
 }
 
 #[cfg(test)]

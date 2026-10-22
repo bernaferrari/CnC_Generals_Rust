@@ -2548,10 +2548,32 @@ fn replace_object_upgrade_fake_gla_becomes_real() {
             glam::Vec3::new(10.0, 0.0, 20.0),
         )
         .unwrap();
-    logic.apply_upgrade_to_object(id, "Upgrade_BecomeRealGLABarracks");
+    logic.objects.get_mut(&id).unwrap().set_orientation(0.75);
+    let original_transform = logic.objects[&id].get_transform_matrix();
+    let original_team = logic.objects[&id].team_instance_id;
+    logic
+        .apply_upgrade_to_object_with_effects_checked(
+            id,
+            "Upgrade_BecomeRealGLABarracks",
+            &mut Default::default(),
+        )
+        .unwrap();
+    assert!(
+        logic.objects[&id].status.destroyed,
+        "old fake is queued, not physically erased"
+    );
+    assert!(logic.has_pending_destroy_work());
+    let real = logic
+        .objects
+        .values()
+        .find(|object| object.template_name == "GLABarracks")
+        .unwrap();
+    assert_eq!(real.get_transform_matrix(), original_transform);
+    assert_eq!(real.team_instance_id, original_team);
+    logic.process_destroy_list();
     assert!(
         logic.objects.get(&id).is_none(),
-        "fake must be removed from world"
+        "physical flush removes the old fake"
     );
     assert!(
         logic

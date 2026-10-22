@@ -434,7 +434,8 @@ mod transport_payload_continuation_tests {
                         .get_mut(&id)
                         .unwrap()
                         .initial_transport_payload_created = completed;
-                    let mut bytes = Vec::new();
+                    let mut bytes =
+                        super::super::lifecycle_tail::encode_lifecycle_tail(&Default::default());
                     append(&mut bytes, &world).unwrap();
                     let decoded = decode(&bytes).unwrap();
                     let records = decoded.records.as_deref().unwrap();
@@ -467,7 +468,8 @@ mod transport_payload_continuation_tests {
             }],
         })
         .unwrap();
-        let mut bytes = TAG.to_vec();
+        let mut bytes = super::super::lifecycle_tail::encode_lifecycle_tail(&Default::default());
+        bytes.extend_from_slice(TAG);
         bytes.extend_from_slice(&1u32.to_le_bytes());
         bytes.extend_from_slice(&(payload.len() as u32).to_le_bytes());
         bytes.extend_from_slice(&payload);

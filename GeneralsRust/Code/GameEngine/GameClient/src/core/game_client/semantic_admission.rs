@@ -85,6 +85,17 @@ impl NativeDrawableWorld {
     }
 }
 impl NativeDrawableOwner<'_> {
+    /// Missing runtime binding does not imply that its actual CPU actor is
+    /// absent (for example, the current Client load-postprocess clears keys).
+    /// A broken inverse map also cannot masquerade as prebirth absence.
+    pub fn has_object_drawable(&self, object: u32) -> bool {
+        self.drawables.drawable_object_map.contains_key(&object)
+            || self
+                .drawables
+                .drawable_map
+                .values()
+                .any(|drawable| drawable.get_object_id() == Some(object))
+    }
     pub fn binding_key(
         &self,
         epoch: u64,

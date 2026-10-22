@@ -17,7 +17,7 @@ fn presentation_path_applies_frozen_direct_shroud_after_sync_before_pose() {
         .expect("next helper boundary");
     let helper = &src[helper..helper_end];
     let sync = helper
-        .find("sync_presentation_drawables_observed(sync_entries, sync_ms,")
+        .find("sync_presentation_drawables_observed_with_content(")
         .expect("presentation drawable sync");
     let observer = helper
         .find("native_owner.receive_native_drawable_mutation(mutation, source, graphics)")
@@ -177,7 +177,7 @@ fn presentation_render_resolves_only_the_frozen_direct_scene_candidate_ledger() 
 }
 
 #[test]
-fn visual_world_state_invalidation_only_follows_successful_world_changes() {
+fn visual_world_state_follows_owned_replacement_and_direct_load_boundaries() {
     let lifecycle = crate::graphics::render_pipeline::RENDER_PIPELINE_SRC;
     let reset_at = lifecycle
         .find("pub fn invalidate_world_visual_state(")
@@ -224,7 +224,17 @@ fn visual_world_state_invalidation_only_follows_successful_world_changes() {
     let replacement = &replacement[..replacement
         .find("fn host_replace_staged_restore_world(")
         .expect("next replacement-neighbor method")];
-    assert_client_reset_precedes_renderer(replacement, "full GameLogic replacement");
+    let assert_owned_install_precedes_identity_commit = |boundary: &str| {
+        let install = boundary
+            .find(".install_owned_worlds(&mut self.game_client, &mut self.render_pipeline)")
+            .expect("actual admitted CPU and renderer owners replace the old world");
+        let epoch = boundary
+            .find("self.commit_native_world_epoch(epoch)")
+            .expect("only an installed native candidate commits its reserved identity");
+        assert!(install < epoch);
+        assert!(!boundary.contains("self.host_advance_direct_visual_world_epoch()"));
+    };
+    assert_owned_install_precedes_identity_commit(replacement);
     let replacement_reset = replacement
         .find("shadow.reset_for_world_boundary();")
         .expect("full replacement must reset GameWorld identity state");
@@ -242,7 +252,7 @@ fn visual_world_state_invalidation_only_follows_successful_world_changes() {
     let staged_replacement = &staged_replacement[..staged_replacement
         .find("pub(super) fn host_save_game_authority(")
         .expect("next staged-replacement neighbor method")];
-    assert_client_reset_precedes_renderer(staged_replacement, "committed staged restore");
+    assert_owned_install_precedes_identity_commit(staged_replacement);
 
     let map_load_source = include_str!("ui_commands.rs");
     let map_load = &map_load_source[map_load_source
@@ -251,20 +261,22 @@ fn visual_world_state_invalidation_only_follows_successful_world_changes() {
     let success_guard = map_load
         .find("let Some(loaded) = loaded else")
         .expect("successful map-load guard");
-    let reset_after_success = map_load
+    let old_client_retirement = map_load
+        .find("self.game_client.retire_native_drawable_world_for_replace()")
+        .expect("retire old Client while its logical world still exists");
+    let old_renderer_reset = map_load
         .find("self.render_pipeline.invalidate_world_visual_state()")
-        .expect("map-load visual reset");
-    let client_reset_after_success = map_load
-        .find("self.game_client.invalidate_presentation_drawable_world()")
-        .expect("map-load GameClient drawable reset");
-    let epoch_after_success = map_load
-        .find("self.host_advance_direct_visual_world_epoch()")
-        .expect("map-load direct visual epoch advance");
+        .expect("retire old renderer state before direct in-place map loading");
+    let install = map_load
+        .find(".install_owned_worlds(&mut self.game_client, &mut self.render_pipeline)")
+        .expect("actual loaded candidate owner install");
+    let epoch = map_load
+        .find("self.commit_native_world_epoch(epoch)")
+        .expect("commit admitted direct-load identity");
+    assert!(old_client_retirement < old_renderer_reset && old_renderer_reset < success_guard);
     assert!(
-        success_guard < epoch_after_success
-            && epoch_after_success < client_reset_after_success
-            && client_reset_after_success < reset_after_success,
-        "failed map loads must retain the active world's visual identity and state"
+        success_guard < install && install < epoch,
+        "direct loading is non-atomic, but failed attempts must never commit a candidate identity"
     );
 
     let setter_at = lifecycle
@@ -314,17 +326,21 @@ fn weapon_barrel_topology_prewarm_is_only_a_successful_world_boundary() {
         .find("self.prewarm_host_weapon_barrel_topologies_for_loaded_world()")
         .expect("host barrel topology prewarm");
     let visual_reset = map_load
-        .find("self.render_pipeline.invalidate_world_visual_state()")
-        .expect("new-world visual reset");
+        .find(".install_owned_worlds(&mut self.game_client, &mut self.render_pipeline)")
+        .expect("install actual admitted native world");
     assert!(
         success_guard < prewarm && prewarm < visual_reset,
-        "only a successfully installed logical world may preload exact W3D barrel topology"
+        "only a successfully loaded logical world may prewarm topology before installing its native candidate"
     );
 
     let helper_start = source
         .find("fn prewarm_host_weapon_barrel_topologies_for_loaded_world(")
         .expect("dedicated map-boundary helper");
-    let helper = &source[helper_start..map_load_start + success_guard];
+    let helper_end = source[helper_start..]
+        .find("\n    }\n")
+        .map(|end| helper_start + end + "\n    }\n".len())
+        .expect("end of the host-only prewarm helper");
+    let helper = &source[helper_start..helper_end];
     assert!(helper.contains("prewarm_weapon_barrel_topology_models_for_objects"));
     assert!(helper.contains("prewarm_weapon_barrel_topologies_for_object_conditions"));
     assert!(

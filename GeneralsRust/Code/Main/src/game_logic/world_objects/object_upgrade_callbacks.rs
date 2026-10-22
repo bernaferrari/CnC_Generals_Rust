@@ -19,6 +19,16 @@ impl GameLogic {
         upgrade: &str,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
+        self.apply_upgrade_to_object_with_effects_checked(object_id, upgrade, presentation_effects)
+            .expect("owned upgrade callback admission must complete");
+    }
+
+    pub(crate) fn apply_upgrade_to_object_with_effects_checked(
+        &mut self,
+        object_id: ObjectId,
+        upgrade: &str,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
         use crate::game_logic::host_overlord_addons::{
             is_bunker_addon_upgrade, is_gattling_addon_upgrade, is_overlord_family_host,
             is_propaganda_addon_upgrade,
@@ -253,52 +263,70 @@ impl GameLogic {
             }
         }
 
-        // C++ ReplaceObjectUpgrade residual (FakeGLA* → real building).
-        // C++ destroys immediately (pathfinder unmark + destroyObject) before spawn.
-        // Host residual: remove from world map now (skip topple/deferred die list).
+        // ReplaceObjectUpgrade.cpp65 queues destruction; the old Object and
+        // Drawable remain installed until processDestroyList's physical phase.
         if crate::game_logic::host_replace_object_upgrade::is_replace_object_upgrade(upgrade) {
-            let info = self
-                .objects
-                .get(&object_id)
-                .map(|o| (o.template_name.clone(), o.team, o.get_position()));
-            if let Some((template_name, team, pos)) = info {
+            let info = self.objects.get(&object_id).map(|object| {
+                (
+                    object.template_name.clone(),
+                    object.team,
+                    object.owner_player_id,
+                    object.team_instance_name.clone(),
+                    object.team_instance_id,
+                    object.get_transform_matrix(),
+                    object.get_position(),
+                )
+            });
+            if let Some((template_name, team, owner, team_name, team_id, transform, position)) =
+                info
+            {
                 if let Some(replacement) =
                     crate::game_logic::host_replace_object_upgrade::replacement_template_for_fake(
                         &template_name,
                     )
                 {
                     if !self.templates.contains_key(&replacement) {
-                        if let Some(src) = self.templates.get(&template_name).cloned() {
-                            let mut dst = src;
-                            dst.name = replacement.clone();
-                            self.templates.insert(replacement.clone(), dst);
+                        if let Some(source) = self.templates.get(&template_name).cloned() {
+                            let mut target = source;
+                            target.name = replacement.clone();
+                            self.templates.insert(replacement.clone(), target);
                         }
                     }
-                    // Immediate remove — same spirit as C++ destroy-before-create.
-                    self.remove_host_radar_provider(object_id);
-                    self.host_radar_remove_object(object_id);
-                    self.finish_building_sound(object_id);
-                    if let Some(object) = self.objects.get(&object_id) {
-                        if !object.name.is_empty() {
-                            self.named_unit_history.insert(object.name.clone());
-                        }
-                    }
-                    let _removed = self.objects.remove(&object_id);
-                    self.beacon_client.remove(object_id);
-                    if let Some(new_id) = self.create_object_with_script_effects(
-                        &replacement,
-                        team,
-                        pos,
-                        None,
-                        presentation_effects,
-                    ) {
-                        if let Some(obj) = self.objects.get_mut(&new_id) {
-                            obj.status.under_construction = false;
+                    self.destroy_object_with_effects(object_id, presentation_effects);
+                    let created = if let (Some(controller), Some(team_id)) = (owner, team_id) {
+                        self.create_object_on_exact_script_team_with_effects_checked(
+                            &replacement,
+                            controller,
+                            &team_name,
+                            team_id,
+                            position,
+                            true,
+                            None,
+                            presentation_effects,
+                        )?
+                    } else {
+                        self.create_object_for_owner_or_team_with_effects_checked(
+                            &replacement,
+                            team,
+                            owner,
+                            position,
+                            None,
+                            presentation_effects,
+                        )?
+                    };
+                    if let Some(new_id) = created {
+                        if let Some(object) = self.objects.get_mut(&new_id) {
+                            object.set_transform_matrix_with_effects(
+                                transform,
+                                self.frame,
+                                presentation_effects,
+                            );
+                            object.status.under_construction = false;
                         }
                         self.replace_grant_command_upgrades
                             .record_replace(&template_name, &replacement);
-                        let _ = new_id;
                     }
+                    return Ok(());
                 }
             }
         }
@@ -313,6 +341,7 @@ impl GameLogic {
         {
             self.maybe_start_radar_extend(object_id);
         }
+        Ok(())
     }
 
     /// C++ `ObjectCreationUpgrade::upgradeImplementation` on this vehicle.

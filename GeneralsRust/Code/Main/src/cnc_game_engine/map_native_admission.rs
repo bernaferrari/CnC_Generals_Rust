@@ -25,10 +25,21 @@ impl NativeMapCandidate {
         self.epoch
     }
 
+    /// Terrain-only diagnostics borrow the actual prepared CPU visual without
+    /// claiming the factory/Client/renderer capability of NativeMapAttempt.
+    #[cfg(feature = "game_client")]
+    pub(super) fn terrain_effects(
+        &mut self,
+    ) -> Option<&mut dyn crate::game_logic::NativeTerrainEffects> {
+        self.visual
+            .as_mut()
+            .map(|visual| visual as &mut dyn crate::game_logic::NativeTerrainEffects)
+    }
+
     /// A lexical producer can borrow these disjoint existing owners together.
     /// The caller supplies its renderer/device service loan and the driving
     /// GameLogic supplies ModuleFactory directly to each birth operation.
-    #[cfg(feature = "game_client")]
+    #[cfg(all(test, feature = "game_client"))]
     pub(super) fn drawable_owners(
         &mut self,
     ) -> (
@@ -59,6 +70,9 @@ impl NativeMapCandidate {
         Ok(self.audio)
     }
 
+    // Component-only terrain/audio tests cannot admit a real object roster.
+    // Production must borrow the complete NativeMapAttempt instead.
+    #[cfg(test)]
     pub(super) fn receiver(&mut self) -> Option<&mut dyn crate::game_logic::NativeMapAdmission> {
         #[cfg(feature = "game_client")]
         {
@@ -75,24 +89,20 @@ impl NativeMapCandidate {
             .as_ref()
             .map(|visual| visual.get_raw_map_height(x, y))
     }
+    #[cfg(test)]
     pub(super) fn admit_audio_to(&mut self, audio: &mut dyn crate::game_logic::NativeAudioEffects) {
         self.audio.deliver_to(audio);
     }
+    #[cfg(not(feature = "game_client"))]
     pub(super) fn install_visuals(
         mut self,
         pipeline: &mut RenderPipeline,
     ) -> super::native_audio_effects::PendingNativeAudio {
-        #[cfg(feature = "game_client")]
-        pipeline.install_native_terrain_cpu(self.visual.take());
-        #[cfg(not(feature = "game_client"))]
         let _ = pipeline;
         self.audio
     }
-    pub(super) fn install(self, pipeline: &mut RenderPipeline) {
-        self.install_visuals(pipeline).admit_to_live();
-    }
 }
-#[cfg(feature = "game_client")]
+#[cfg(all(test, feature = "game_client"))]
 impl crate::game_logic::NativeMapAdmission for NativeMapCandidate {
     fn discard_attempt(&mut self) -> Result<(), String> {
         self.drawables

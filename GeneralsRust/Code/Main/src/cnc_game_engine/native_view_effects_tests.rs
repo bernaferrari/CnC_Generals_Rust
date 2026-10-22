@@ -271,6 +271,12 @@ impl NativeViewEffects for ActualFactoryProbe<'_, '_> {
     fn host_epoch(&self) -> u64 {
         self.runtime.host_epoch()
     }
+    fn retire_object_drawable(
+        &mut self,
+        identity: &crate::assets::LiveDrawPlaybackIdentity,
+    ) -> Result<(), String> {
+        self.runtime.retire_object_drawable(identity)
+    }
     fn sample_slave(&mut self, source: &NativeSlaveSource, bone: &str) -> SlaveCameraSample {
         self.runtime.sample_slave(source, bone)
     }
@@ -487,6 +493,12 @@ fn actual_factory_birth_installs_receiving_drawable_before_immediate_query_and_i
         fn host_epoch(&self) -> u64 {
             self.runtime.host_epoch()
         }
+        fn retire_object_drawable(
+            &mut self,
+            identity: &crate::assets::LiveDrawPlaybackIdentity,
+        ) -> Result<(), String> {
+            self.runtime.retire_object_drawable(identity)
+        }
         fn sample_slave(&mut self, source: &NativeSlaveSource, bone: &str) -> SlaveCameraSample {
             self.runtime.sample_slave(source, bone)
         }
@@ -613,16 +625,29 @@ fn detached_no_client_chunk_snapshot_rebuild_removes_absent_actor_and_rejects_ol
     let absent = birth(Vec3::new(13., 5., 7.));
     drop(birth);
     let old = world.current_native_slave_source(retained, 0).unwrap();
-    world
-        .objects
-        .get_mut(&retained)
-        .unwrap()
-        .set_position(Vec3::new(43., 5., 7.));
+    // The archive comes from a distinct, valid logical save owner containing
+    // only the retained actor. Its real factory maintains matching team roster;
+    // the receiving native foundation intentionally still has both Drawables.
+    // A logical-only archive writer has no native renderer requirement.
+    let mut saved_source = GameLogic::new();
+    saved_source.admit_receiving_module_content(
+        crate::assets::ReceivingObjectContent::from_sources([(
+            "strict-factory-save-source.ini".to_owned(),
+            "Object StrictFactoryOwner\nKindOf = VEHICLE\nBody = ActiveBody BodyTag\nMaxHealth = 40\nInitialHealth = 40\nEnd\nDraw = W3DModelDraw DrawTag\nDefaultConditionState\nModel = CameraModel\nEnd\nEnd\nEnd\n".to_owned(),
+        )]).unwrap(),
+    ).unwrap();
+    saved_source.add_player(crate::game_logic::Player::new(0, Team::USA, "USA", true));
+    let saved_retained = saved_source
+        .create_object("StrictFactoryOwner", Team::USA, Vec3::new(43., 5., 7.))
+        .unwrap();
+    assert_eq!(saved_retained, retained);
+    assert!(!saved_source.objects.contains_key(&absent));
+    assert!(
+        world.objects.contains_key(&absent),
+        "native map foundation remains intact before reconciliation"
+    );
     let builder = crate::save_load::SnapshotBuilder::new();
-    // The saved source excludes this actor; the detached native foundation
-    // deliberately still contains it until snapshot reconciliation.
-    world.objects.remove(&absent);
-    let snapshot = builder.create_world_snapshot(&world).unwrap();
+    let snapshot = builder.create_world_snapshot(&saved_source).unwrap();
     world.begin_saved_snapshot_admission().unwrap();
     builder
         .restore_from_snapshot(&snapshot, &mut world)
@@ -662,4 +687,456 @@ fn detached_no_client_chunk_snapshot_rebuild_removes_absent_actor_and_rejects_ol
         )
         .unwrap();
     attempt.discard_attempt().unwrap();
+}
+
+fn physical_retirement_world() -> GameLogic {
+    let text = "Object StrictFactoryOwner\nKindOf = VEHICLE\nBody = ActiveBody BodyTag\nMaxHealth = 40\nInitialHealth = 40\nEnd\nBehavior = DestroyDie DeleteTag\nEnd\nDraw = W3DModelDraw DrawTag\nDefaultConditionState\nModel = CameraModel\nEnd\nEnd\nEnd\nObject StrictNoDrawOwner\nKindOf = VEHICLE\nBody = ActiveBody BodyTag\nMaxHealth = 40\nInitialHealth = 40\nEnd\nEnd\n";
+    let mut world = GameLogic::new();
+    world
+        .admit_receiving_module_content(
+            crate::assets::ReceivingObjectContent::from_sources([(
+                "strict-retirement.ini".to_owned(),
+                text.to_owned(),
+            )])
+            .unwrap(),
+        )
+        .unwrap();
+    world.require_native_drawable_owner();
+    world
+}
+fn with_physical_retirement_view<R>(
+    client: &mut GameClient,
+    pipeline: &mut RenderPipeline,
+    graphics: &mut GraphicsSystem,
+    epoch: u64,
+    run: impl FnOnce(&mut NativeRendererViewEffects<'_>) -> R,
+) -> R {
+    let (_, _, owner) = client.split_frame_snow_and_drawable_owner();
+    let mut retirement = game_client::core::game_client::NativeParticleRetirementService;
+    let mut runtime = NativeRendererViewEffects::new(
+        pipeline.borrow_native_installed_poses(),
+        graphics,
+        owner,
+        epoch,
+        0,
+        receiving_native_drawable_policy(),
+        &mut retirement,
+    );
+    run(&mut runtime)
+}
+fn birth_physical_retirement_actor(
+    world: &mut GameLogic,
+    name: &str,
+    position: Vec3,
+    client: &mut GameClient,
+    pipeline: &mut RenderPipeline,
+    graphics: &mut GraphicsSystem,
+    epoch: u64,
+) -> ObjectId {
+    with_physical_retirement_view(client, pipeline, graphics, epoch, |runtime| {
+        world
+            .create_object_with_script_effects_checked(
+                name,
+                Team::USA,
+                position,
+                None,
+                &mut crate::game_logic::ScriptPresentationEffects {
+                    view: Some(&mut *runtime),
+                    ..Default::default()
+                },
+            )
+            .unwrap()
+            .unwrap()
+    })
+}
+
+#[test]
+#[ignore = "requires native WGPU; run explicit isolated physical-retirement acceptance"]
+fn actual_physical_delete_retires_semantic_receiver_only_after_queue_and_rejects_stale_rebirth_including_no_draw()
+ {
+    ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
+        width: 32,
+        height: 32,
+        ..Default::default()
+    })
+    .unwrap();
+    struct Scope;
+    impl Drop for Scope {
+        fn drop(&mut self) {
+            let _ = ww3d_engine::shutdown();
+        }
+    }
+    let _scope = Scope;
+    let mut graphics = GraphicsSystem::new(
+        ww3d_engine::device().unwrap(),
+        ww3d_engine::queue().unwrap(),
+        ww3d_engine::color_format().unwrap(),
+        ww3d_engine::depth_format().unwrap(),
+    )
+    .unwrap();
+    graphics.cache_model(
+        crate::assets::mesh_asset_resolve::canonical_model_key("CameraModel"),
+        model("CameraModel", 0.),
+    );
+    let mut pipeline = RenderPipeline::initialize(&graphics).unwrap();
+    let mut peer_pipeline = RenderPipeline::initialize(&graphics).unwrap();
+    let mut client = GameClient::new().unwrap();
+    let mut peer_client = GameClient::new().unwrap();
+    let mut world = physical_retirement_world();
+    let mut peer = physical_retirement_world();
+    let id = birth_physical_retirement_actor(
+        &mut world,
+        "StrictFactoryOwner",
+        Vec3::new(3., 5., 7.),
+        &mut client,
+        &mut pipeline,
+        &mut graphics,
+        EPOCH,
+    );
+    let peer_id = birth_physical_retirement_actor(
+        &mut peer,
+        "StrictFactoryOwner",
+        Vec3::new(303., 5., 7.),
+        &mut peer_client,
+        &mut peer_pipeline,
+        &mut graphics,
+        EPOCH + 1,
+    );
+    assert_eq!(
+        id, peer_id,
+        "independent allocators deliberately reuse the same ObjectID"
+    );
+    let old = world.current_native_slave_source(id, 0).unwrap();
+    let peer_source = peer.current_native_slave_source(peer_id, 0).unwrap();
+    let old_key = with_physical_retirement_view(
+        &mut client,
+        &mut pipeline,
+        &mut graphics,
+        EPOCH,
+        |runtime| {
+            let key = runtime.drawables.binding_key(EPOCH, id.0).unwrap();
+            assert_eq!(
+                pose(runtime.sample_slave(&old, "CAMERA")).w_axis.truncate(),
+                Vec3::new(3., 5., 7.)
+            );
+            world.destroy_object_with_effects(
+                id,
+                &mut crate::game_logic::ScriptPresentationEffects {
+                    view: Some(&mut *runtime),
+                    ..Default::default()
+                },
+            );
+            assert!(world.has_pending_object_removals());
+            assert!(
+                world.objects.contains_key(&id),
+                "marking is not physical removal"
+            );
+            assert!(world.objects[&id].status.destroyed);
+            assert_eq!(
+                world.objects[&id].health.current, 40.,
+                "direct deletion must not manufacture body damage"
+            );
+            assert_eq!(runtime.drawables.binding_key(EPOCH, id.0), Some(key));
+            assert_eq!(
+                pose(runtime.sample_slave(&old, "CAMERA")).w_axis.truncate(),
+                Vec3::new(3., 5., 7.)
+            );
+            world
+                .process_destroy_list_with_effects_checked(
+                    &mut crate::game_logic::ScriptPresentationEffects {
+                        view: Some(&mut *runtime),
+                        ..Default::default()
+                    },
+                )
+                .unwrap();
+            assert!(!world.objects.contains_key(&id));
+            assert!(!world.has_pending_object_removals());
+            assert!(runtime.drawables.binding_key(EPOCH, id.0).is_none());
+            assert!(matches!(
+                runtime.sample_slave(&old, "CAMERA"),
+                SlaveCameraSample::MissingDrawable
+            ));
+            key
+        },
+    );
+    with_physical_retirement_view(
+        &mut peer_client,
+        &mut peer_pipeline,
+        &mut graphics,
+        EPOCH + 1,
+        |runtime| {
+            assert!(
+                runtime.retire_object_drawable(&old.identity).is_err(),
+                "a foreign world cannot retire the same numeric ID"
+            );
+            assert!(
+                runtime
+                    .drawables
+                    .binding_key(EPOCH + 1, peer_id.0)
+                    .is_some()
+            );
+            assert_eq!(
+                pose(runtime.sample_slave(&peer_source, "CAMERA"))
+                    .w_axis
+                    .truncate(),
+                Vec3::new(303., 5., 7.)
+            );
+        },
+    );
+    // Reuse only after actual physical removal, through the real restore allocator.
+    world.set_next_object_id_for_restore(id);
+    let reborn = birth_physical_retirement_actor(
+        &mut world,
+        "StrictFactoryOwner",
+        Vec3::new(43., 5., 7.),
+        &mut client,
+        &mut pipeline,
+        &mut graphics,
+        EPOCH,
+    );
+    assert_eq!(reborn, id);
+    let current = world.current_native_slave_source(reborn, 0).unwrap();
+    assert_ne!(old.identity, current.identity);
+    with_physical_retirement_view(
+        &mut client,
+        &mut pipeline,
+        &mut graphics,
+        EPOCH,
+        |runtime| {
+            let key = runtime.drawables.binding_key(EPOCH, id.0).unwrap();
+            assert_ne!(key, old_key);
+            assert!(runtime.retire_object_drawable(&old.identity).is_err());
+            assert_eq!(runtime.drawables.binding_key(EPOCH, id.0), Some(key));
+            assert_eq!(
+                pose(runtime.sample_slave(&current, "CAMERA"))
+                    .w_axis
+                    .truncate(),
+                Vec3::new(43., 5., 7.)
+            );
+            // A lethal Body operation is distinct from direct deletion above, and
+            // still does not itself erase the installed semantic receiver.
+            // Use the complete production admission, which executes Body's
+            // synchronous callbacks and admits the resulting death lifecycle.
+            // The lower apply_host_damage adapter only returns Body's result.
+            let damage = world
+                .apply_owned_damage_with_effects(
+                    reborn,
+                    80.,
+                    None,
+                    crate::game_logic::combat::DamageType::Unresistable,
+                    crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+                    None,
+                    &crate::game_logic::object::DamageHitContext::default(),
+                    &mut crate::game_logic::ScriptPresentationEffects {
+                        view: Some(&mut *runtime),
+                        ..Default::default()
+                    },
+                )
+                .unwrap();
+            assert!(damage.destroyed());
+            assert!(world.objects.contains_key(&reborn));
+            assert!(world.objects[&reborn].health.current <= 0.);
+            assert!(world.has_pending_object_removals());
+            assert_eq!(runtime.drawables.binding_key(EPOCH, reborn.0), Some(key));
+            world
+                .process_destroy_list_with_effects_checked(
+                    &mut crate::game_logic::ScriptPresentationEffects {
+                        view: Some(&mut *runtime),
+                        ..Default::default()
+                    },
+                )
+                .unwrap();
+            assert!(!world.objects.contains_key(&reborn));
+            assert!(runtime.drawables.binding_key(EPOCH, reborn.0).is_none());
+            assert!(matches!(
+                runtime.sample_slave(&current, "CAMERA"),
+                SlaveCameraSample::MissingDrawable
+            ));
+        },
+    );
+    // NoDraw still has a semantic constructor lifetime; zero Draw modules must
+    // not allow a stale identity to alias a newly bound Object of the same ID.
+    world.set_next_object_id_for_restore(id);
+    let no_draw = birth_physical_retirement_actor(
+        &mut world,
+        "StrictNoDrawOwner",
+        Vec3::ZERO,
+        &mut client,
+        &mut pipeline,
+        &mut graphics,
+        EPOCH,
+    );
+    assert_eq!(no_draw, id);
+    let no_draw_old = world.live_draw_playback_identity(&world.objects[&no_draw]);
+    with_physical_retirement_view(
+        &mut client,
+        &mut pipeline,
+        &mut graphics,
+        EPOCH,
+        |runtime| {
+            assert!(runtime.drawables.binding_key(EPOCH, no_draw.0).is_some());
+            world.destroy_object_with_effects(
+                no_draw,
+                &mut crate::game_logic::ScriptPresentationEffects {
+                    view: Some(&mut *runtime),
+                    ..Default::default()
+                },
+            );
+            assert!(world.objects.contains_key(&no_draw));
+            assert!(runtime.drawables.binding_key(EPOCH, no_draw.0).is_some());
+            world
+                .process_destroy_list_with_effects_checked(
+                    &mut crate::game_logic::ScriptPresentationEffects {
+                        view: Some(&mut *runtime),
+                        ..Default::default()
+                    },
+                )
+                .unwrap();
+            assert!(!world.objects.contains_key(&no_draw));
+            assert!(runtime.drawables.binding_key(EPOCH, no_draw.0).is_none());
+        },
+    );
+    world.set_next_object_id_for_restore(no_draw);
+    let no_draw_reborn = birth_physical_retirement_actor(
+        &mut world,
+        "StrictNoDrawOwner",
+        Vec3::ZERO,
+        &mut client,
+        &mut pipeline,
+        &mut graphics,
+        EPOCH,
+    );
+    assert_eq!(no_draw_reborn, no_draw);
+    let no_draw_current = world.live_draw_playback_identity(&world.objects[&no_draw_reborn]);
+    assert_ne!(no_draw_old, no_draw_current);
+    with_physical_retirement_view(
+        &mut client,
+        &mut pipeline,
+        &mut graphics,
+        EPOCH,
+        |runtime| {
+            let key = runtime
+                .drawables
+                .binding_key(EPOCH, no_draw_reborn.0)
+                .unwrap();
+            assert!(runtime.retire_object_drawable(&no_draw_old).is_err());
+            assert_eq!(
+                runtime.drawables.binding_key(EPOCH, no_draw_reborn.0),
+                Some(key)
+            );
+            world.destroy_object_with_effects(
+                no_draw_reborn,
+                &mut crate::game_logic::ScriptPresentationEffects {
+                    view: Some(&mut *runtime),
+                    ..Default::default()
+                },
+            );
+            world
+                .process_destroy_list_with_effects_checked(
+                    &mut crate::game_logic::ScriptPresentationEffects {
+                        view: Some(&mut *runtime),
+                        ..Default::default()
+                    },
+                )
+                .unwrap();
+            assert!(
+                runtime
+                    .drawables
+                    .binding_key(EPOCH, no_draw_reborn.0)
+                    .is_none()
+            );
+        },
+    );
+    with_physical_retirement_view(
+        &mut peer_client,
+        &mut peer_pipeline,
+        &mut graphics,
+        EPOCH + 1,
+        |runtime| {
+            assert!(peer.objects.contains_key(&peer_id));
+            assert_eq!(
+                pose(runtime.sample_slave(&peer_source, "CAMERA"))
+                    .w_axis
+                    .truncate(),
+                Vec3::new(303., 5., 7.)
+            );
+            peer.destroy_object_with_effects(
+                peer_id,
+                &mut crate::game_logic::ScriptPresentationEffects {
+                    view: Some(&mut *runtime),
+                    ..Default::default()
+                },
+            );
+            peer.process_destroy_list_with_effects_checked(
+                &mut crate::game_logic::ScriptPresentationEffects {
+                    view: Some(&mut *runtime),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        },
+    );
+}
+
+#[test]
+#[ignore = "requires native WGPU; run explicit isolated missing-binding acceptance"]
+fn missing_client_key_with_canonical_constructor_is_not_prebirth_absence() {
+    ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
+        width: 32,
+        height: 32,
+        ..Default::default()
+    })
+    .unwrap();
+    struct Scope;
+    impl Drop for Scope {
+        fn drop(&mut self) {
+            let _ = ww3d_engine::shutdown();
+        }
+    }
+    let _scope = Scope;
+    let mut graphics = GraphicsSystem::new(
+        ww3d_engine::device().unwrap(),
+        ww3d_engine::queue().unwrap(),
+        ww3d_engine::color_format().unwrap(),
+        ww3d_engine::depth_format().unwrap(),
+    )
+    .unwrap();
+    let mut pipeline = RenderPipeline::initialize(&graphics).unwrap();
+    let mut client = GameClient::new().unwrap();
+    let mut world = physical_retirement_world();
+    let id = birth_physical_retirement_actor(
+        &mut world,
+        "StrictNoDrawOwner",
+        Vec3::ZERO,
+        &mut client,
+        &mut pipeline,
+        &mut graphics,
+        EPOCH,
+    );
+    let identity = world.live_draw_playback_identity(&world.objects[&id]);
+    // Execute a real CPU-only owner invalidation. Renderer constructor remains,
+    // exactly the mismatch the failclosed view must distinguish from prebirth.
+    client.invalidate_presentation_drawable_world();
+    with_physical_retirement_view(
+        &mut client,
+        &mut pipeline,
+        &mut graphics,
+        EPOCH,
+        |runtime| {
+            assert!(runtime.drawables.binding_key(EPOCH, id.0).is_none());
+            assert!(!runtime.drawables.has_object_drawable(id.0));
+            assert!(runtime.poses.has_drawable_lifetime(id.0));
+            assert!(runtime.retire_object_drawable(&identity).is_err());
+            assert!(
+                runtime.poses.has_drawable_lifetime(id.0),
+                "failed preflight cannot erase surviving owner"
+            );
+            runtime.discard_map_attempt().unwrap();
+            assert!(!runtime.poses.has_drawable_lifetime(id.0));
+            assert!(
+                runtime.retire_object_drawable(&identity).is_ok(),
+                "both owners absent is genuine prebirth absence"
+            );
+        },
+    );
 }

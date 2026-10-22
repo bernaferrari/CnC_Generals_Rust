@@ -28,8 +28,18 @@ impl<'a> NativeDrawServices<'a> {
     }
 }
 
+/// Actual per-object constructor lifetime, including authored NoDraw actors.
+/// Module-level identities remain consistency checks while their broader move
+/// is pending; lifecycle decisions use this canonical constructor record.
+#[derive(Debug, Clone)]
+pub(super) struct NativeDrawableLifetime {
+    pub(super) identity: crate::assets::LiveDrawPlaybackIdentity,
+    #[cfg(feature = "game_client")]
+    pub(super) binding: Option<game_client::core::PresentationDirectDrawableBindingKey>,
+}
 #[derive(Default)]
 pub(crate) struct NativeDrawWorld {
+    pub(super) native_drawable_lifetimes: HashMap<u32, NativeDrawableLifetime>,
     /// Runtime identity and current state for each original Draw module.
     pub(super) drawable_visual_states: HashMap<(u32, u32), ObjectVisualState>,
     pub(super) live_draw_playback:
@@ -48,6 +58,7 @@ impl NativeDrawWorld {
         animation_sync_ms: u32,
     ) -> native_pose_loan::NativeInstalledPoseLoan<'a> {
         native_pose_loan::NativeInstalledPoseLoan {
+            native_drawable_lifetimes: &mut self.native_drawable_lifetimes,
             live_draw_playback: &mut self.live_draw_playback,
             drawable_visual_states: &mut self.drawable_visual_states,
             failed_model_resolutions,

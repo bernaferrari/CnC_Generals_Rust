@@ -39,6 +39,9 @@ pub(crate) trait NativeViewEffects {
     fn local_player_id(&self) -> u32;
     fn sample_slave(&mut self, source: &NativeSlaveSource, bone: &str) -> SlaveCameraSample;
     #[cfg(feature = "game_client")]
+    fn retire_object_drawable(&mut self, identity: &LiveDrawPlaybackIdentity)
+    -> Result<(), String>;
+    #[cfg(feature = "game_client")]
     fn host_epoch(&self) -> u64;
     #[cfg(feature = "game_client")]
     fn admit_factory_drawable(

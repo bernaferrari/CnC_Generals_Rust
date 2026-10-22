@@ -40,8 +40,23 @@ fn same_id_peer_reset_and_replacement_cannot_query_or_consume_installed_owner() 
     let mut pending = None;
     let mut imports = HashMap::new();
     let mut playback = HashMap::new();
+    let mut lifetimes: HashMap<_, _> = states
+        .iter()
+        .filter_map(|((object, _), state)| {
+            state.native_host_identity.as_ref().map(|identity| {
+                (
+                    *object,
+                    native_draw_world::NativeDrawableLifetime {
+                        identity: identity.clone(),
+                        binding: state.native_client_binding,
+                    },
+                )
+            })
+        })
+        .collect();
     {
         let mut loan = NativeInstalledPoseLoan {
+            native_drawable_lifetimes: &mut lifetimes,
             live_draw_playback: &mut playback,
             drawable_visual_states: &mut states,
             failed_model_resolutions: &mut failed,
@@ -84,7 +99,22 @@ fn residual_same_id_sibling_from_prior_generation_rejects_whole_source_query() {
     let mut pending = None;
     let mut imports = HashMap::new();
     let mut playback = HashMap::new();
+    let mut lifetimes: HashMap<_, _> = states
+        .iter()
+        .filter_map(|((object, _), state)| {
+            state.native_host_identity.as_ref().map(|identity| {
+                (
+                    *object,
+                    native_draw_world::NativeDrawableLifetime {
+                        identity: identity.clone(),
+                        binding: state.native_client_binding,
+                    },
+                )
+            })
+        })
+        .collect();
     let loan = NativeInstalledPoseLoan {
+        native_drawable_lifetimes: &mut lifetimes,
         live_draw_playback: &mut playback,
         drawable_visual_states: &mut states,
         failed_model_resolutions: &mut failed,
@@ -134,7 +164,22 @@ fn same_object_same_template_client_replacement_requires_actual_constructor_befo
     let mut pending = None;
     let mut imports = HashMap::new();
     let mut playback = HashMap::new();
+    let mut lifetimes: HashMap<_, _> = states
+        .iter()
+        .filter_map(|((object, _), state)| {
+            state.native_host_identity.as_ref().map(|identity| {
+                (
+                    *object,
+                    native_draw_world::NativeDrawableLifetime {
+                        identity: identity.clone(),
+                        binding: state.native_client_binding,
+                    },
+                )
+            })
+        })
+        .collect();
     let mut loan = NativeInstalledPoseLoan {
+        native_drawable_lifetimes: &mut lifetimes,
         live_draw_playback: &mut playback,
         drawable_visual_states: &mut states,
         failed_model_resolutions: &mut failed,
@@ -154,6 +199,7 @@ fn same_object_same_template_client_replacement_requires_actual_constructor_befo
     // This is the real metadata reset performed by the constructor producer.
     let state = loan.drawable_visual_states.get_mut(&(42, 2)).unwrap();
     state.native_client_binding = None;
+    loan.native_drawable_lifetimes.get_mut(&42).unwrap().binding = None;
     assert_eq!(
         loan.validate_binding(&actual, key(4), 2),
         Err(NativeCameraPoseUnavailable::UnadmittedDrawableLifecycle),

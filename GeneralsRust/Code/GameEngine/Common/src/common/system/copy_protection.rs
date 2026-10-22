@@ -12,8 +12,6 @@
 //!
 //! Rust conversion: 2025
 
-use std::cell::RefCell;
-use std::rc::Rc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::common::ascii_string::AsciiString;
@@ -320,33 +318,6 @@ impl ProtectionManager {
     pub fn get_status(&self) -> ProtectionStatus {
         self.protection.get_status()
     }
-}
-
-// THREAD: C++ plain static; driven only by the single game/client thread.
-thread_local! {
-    static PROTECTION_MANAGER: RefCell<Option<Rc<RefCell<ProtectionManager>>>> =
-        const { RefCell::new(None) };
-}
-
-/// Initialize the global protection manager
-pub fn init_protection_manager(config: Option<ProtectionConfig>) {
-    let config = config.unwrap_or_default();
-
-    PROTECTION_MANAGER.with_borrow_mut(|cell| {
-        if cell.is_none() {
-            let mut manager = ProtectionManager::new(config.clone());
-            let _ = manager.init();
-            *cell = Some(Rc::new(RefCell::new(manager)));
-        } else if let Some(manager) = cell {
-            *manager.borrow_mut() = ProtectionManager::new(config);
-            let _ = manager.borrow_mut().init();
-        }
-    });
-}
-
-/// Get reference to the global protection manager
-pub fn get_protection_manager() -> Option<Rc<RefCell<ProtectionManager>>> {
-    PROTECTION_MANAGER.with_borrow(|cell| cell.clone())
 }
 
 /// Utility functions for copy protection

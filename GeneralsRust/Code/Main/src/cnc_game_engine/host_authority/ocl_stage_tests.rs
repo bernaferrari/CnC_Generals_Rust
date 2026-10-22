@@ -1,6 +1,72 @@
 //! Actual map-loading candidate uses the receiving application OCL base.
 use super::*;
 use crate::save_load::{GameDifficulty, SaveFileType};
+const MAPPED_ARMOR_SOURCE: &str = "Object MappedArmorActor\n KindOf = VEHICLE\n Geometry = CYLINDER\n GeometryMajorRadius = 4\n GeometryHeight = 6\n ArmorSet\n Conditions = NONE\n Armor = SharedArmor\n DamageFX = None\n End\n Body = ActiveBody MappedArmorBody\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n";
+
+struct OclNativeStageHarness {
+    #[cfg(feature = "game_client")]
+    graphics: GraphicsSystem,
+    #[cfg(feature = "game_client")]
+    pipeline: RenderPipeline,
+}
+impl OclNativeStageHarness {
+    fn new() -> Self {
+        #[cfg(feature = "game_client")]
+        {
+            ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
+                width: 32,
+                height: 32,
+                ..Default::default()
+            })
+            .unwrap();
+            let graphics = GraphicsSystem::new(
+                ww3d_engine::device().unwrap(),
+                ww3d_engine::queue().unwrap(),
+                ww3d_engine::color_format().unwrap(),
+                ww3d_engine::depth_format().unwrap(),
+            )
+            .unwrap();
+            let pipeline = RenderPipeline::initialize(&graphics).unwrap();
+            Self { graphics, pipeline }
+        }
+        #[cfg(not(feature = "game_client"))]
+        Self {}
+    }
+    fn run<R>(
+        &mut self,
+        run: impl FnOnce(Option<&mut dyn crate::game_logic::NativeMapAdmission>) -> R,
+    ) -> R {
+        #[cfg(feature = "game_client")]
+        {
+            use crate::game_logic::NativeMapAdmission;
+            let mut candidate =
+                super::super::map_native_admission::NativeMapCandidate::with_epoch(91);
+            let mut retirement = game_client::core::game_client::NativeParticleRetirementService;
+            let mut attempt = candidate
+                .attempt(
+                    self.pipeline.borrow_native_draw_services(),
+                    &mut self.graphics,
+                    0,
+                    super::super::native_view_effects::receiving_native_drawable_policy(),
+                    &mut retirement,
+                )
+                .unwrap();
+            let result = run(Some(&mut attempt));
+            // Staging assertions inspect the returned logical owner; this fixture
+            // never commits its native world. Retire through actual services.
+            attempt.discard_attempt().unwrap();
+            drop(attempt);
+            result
+        }
+        #[cfg(not(feature = "game_client"))]
+        run(None)
+    }
+    fn finish(self) {
+        drop(self);
+        #[cfg(feature = "game_client")]
+        ww3d_engine::shutdown().unwrap();
+    }
+}
 fn list(model: &str) -> String {
     format!(
         "ObjectCreationList SameOCL\n CreateDebris\n ModelNames={model}\n Count=1\n End\n End\n"
@@ -61,7 +127,17 @@ fn actual_saved_map_ocl_candidate_uses_own_base_and_solo_without_mutating_active
                 ),
             )
             .unwrap();
+            let mut native = OclNativeStageHarness::new();
             let mut source = GameLogic::new();
+            source
+                .admit_receiving_module_content(
+                    crate::assets::ReceivingObjectContent::from_sources([(
+                        "mapped-armor-stage.ini".to_owned(),
+                        MAPPED_ARMOR_SOURCE.to_owned(),
+                    )])
+                    .unwrap(),
+                )
+                .unwrap();
             source
                 .admit_ocl_application_sources(&[list("Application")])
                 .unwrap();
@@ -75,9 +151,9 @@ fn actual_saved_map_ocl_candidate_uses_own_base_and_solo_without_mutating_active
             // Independent receiving definition admission, not snapshot-derived
             // metadata or manually installed Some(empty) module identities.
             let mut parser = crate::assets::IniParser::new();
-            parser.parse_ini_content(
-                "Object MappedArmorActor\n KindOf = VEHICLE\n Geometry = CYLINDER\n GeometryMajorRadius = 4\n GeometryHeight = 6\n ArmorSet\n Conditions = NONE\n Armor = SharedArmor\n DamageFX = None\n End\n Body = ActiveBody MappedArmorBody\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n",
-                "mapped-armor-stage.ini").unwrap();
+            parser
+                .parse_ini_content(MAPPED_ARMOR_SOURCE, "mapped-armor-stage.ini")
+                .unwrap();
             let definition = parser.get_definition("MappedArmorActor").unwrap();
             let actor = GameLogic::build_template_from_object_definition(
                 "MappedArmorActor",
@@ -92,7 +168,12 @@ fn actual_saved_map_ocl_candidate_uses_own_base_and_solo_without_mutating_active
             assert!(actor.native_lifecycle_definitions.is_some());
             assert!(actor.client_module_declarations.is_some());
             assert_eq!(actor.armor_sets[0].armor.as_deref(), Some("SharedArmor"));
-            source.templates.insert(actor.name.clone(), actor);
+            assert!(
+                source.templates[&actor.name]
+                    .receiving_client_template
+                    .is_some(),
+                "factory keeps the paired receiving definition rather than an independent projection"
+            );
             let actor_id = source
                 .create_object_for_player("MappedArmorActor", 0, glam::Vec3::new(30.0, 0.0, 30.0))
                 .unwrap();
@@ -152,48 +233,51 @@ fn actual_saved_map_ocl_candidate_uses_own_base_and_solo_without_mutating_active
                 difficulty: GameDifficulty::Medium,
                 save_type: SaveFileType::Normal,
             };
-            let failed = CnCGameEngine::stage_decoded_saved_world_for_restore(
-                &snapshot,
-                info(),
-                None,
-                None,
-                None, // no paired TerrainVisual in this direct staging fixture
-                "ocl",
-                GameMode::Skirmish,
-                RestoreTemplateCatalog {
-                    templates: &source.templates,
-                    modules: &source.receiving_module_content,
-                    object_definitions: &source.receiving_object_definitions,
-                    baseline: &source.receiving_template_baseline,
-                },
-                &source.weapon_definition_base,
-                &source.projectile_definitions,
-                &active.ocl_application_definitions(),
-                source.ai_definitions.baseline(),
-                source.production_energy_baseline(),
-                source.physics_rules_baseline(),
-                source.effective_terrain_definitions(),
-                active.current_armor_definitions(),
-                active.session_view.camera.settings,
-                active.session_view.camera.clip_policy,
-                active.session_view.camera.shake_policy,
-                active.session_view.camera.movement_policy,
-                active.session_view.camera.input_policy,
-                &active.world_services,
-                |_, candidate| {
-                    assert_eq!(selected(candidate), "SavedSolo");
-                    assert_eq!(
-                        candidate
-                            .current_armor_definitions()
-                            .unwrap()
-                            .find_template("SharedArmor")
-                            .unwrap()
-                            .adjust_damage(gamelogic::damage::DamageType::Explosion, 100.0),
-                        25.0
-                    );
-                    Err("after actual map admission".into())
-                },
-            );
+            let failed = native.run(|native| {
+                CnCGameEngine::stage_decoded_saved_world_for_restore_with_native(
+                    &snapshot,
+                    info(),
+                    None,
+                    None,
+                    None, // no paired TerrainVisual in this direct staging fixture
+                    "ocl",
+                    GameMode::Skirmish,
+                    RestoreTemplateCatalog {
+                        templates: &source.templates,
+                        modules: &source.receiving_module_content,
+                        object_definitions: &source.receiving_object_definitions,
+                        baseline: &source.receiving_template_baseline,
+                    },
+                    &source.weapon_definition_base,
+                    &source.projectile_definitions,
+                    &active.ocl_application_definitions(),
+                    source.ai_definitions.baseline(),
+                    source.production_energy_baseline(),
+                    source.physics_rules_baseline(),
+                    source.effective_terrain_definitions(),
+                    active.current_armor_definitions(),
+                    active.session_view.camera.settings,
+                    active.session_view.camera.clip_policy,
+                    active.session_view.camera.shake_policy,
+                    active.session_view.camera.movement_policy,
+                    active.session_view.camera.input_policy,
+                    &active.world_services,
+                    |_, candidate| {
+                        assert_eq!(selected(candidate), "SavedSolo");
+                        assert_eq!(
+                            candidate
+                                .current_armor_definitions()
+                                .unwrap()
+                                .find_template("SharedArmor")
+                                .unwrap()
+                                .adjust_damage(gamelogic::damage::DamageType::Explosion, 100.0),
+                            25.0
+                        );
+                        Err("after actual map admission".into())
+                    },
+                    native,
+                )
+            });
             assert!(failed.err().unwrap().contains("after actual map admission"));
             assert!(Arc::ptr_eq(
                 active.current_armor_definitions().unwrap(),
@@ -213,42 +297,46 @@ fn actual_saved_map_ocl_candidate_uses_own_base_and_solo_without_mutating_active
                 &active.ocl_application_definitions()
             ));
             assert!(Arc::ptr_eq(&peer_base, &peer.ocl_application_definitions()));
-            let mut staged = CnCGameEngine::stage_decoded_saved_world_for_restore(
-                &snapshot,
-                info(),
-                None,
-                None,
-                None, // no paired TerrainVisual in this direct staging fixture
-                "ocl",
-                GameMode::Skirmish,
-                RestoreTemplateCatalog {
-                    templates: &source.templates,
-                    modules: &source.receiving_module_content,
-                    object_definitions: &source.receiving_object_definitions,
-                    baseline: &source.receiving_template_baseline,
-                },
-                &source.weapon_definition_base,
-                &source.projectile_definitions,
-                &active.ocl_application_definitions(),
-                source.ai_definitions.baseline(),
-                source.production_energy_baseline(),
-                source.physics_rules_baseline(),
-                source.effective_terrain_definitions(),
-                active.current_armor_definitions(),
-                active.session_view.camera.settings,
-                active.session_view.camera.clip_policy,
-                active.session_view.camera.shake_policy,
-                active.session_view.camera.movement_policy,
-                active.session_view.camera.input_policy,
-                &active.world_services,
-                |snapshot, candidate| {
-                    assert_eq!(selected(candidate), "SavedSolo");
-                    builder
-                        .restore_from_snapshot(snapshot, candidate)
-                        .map_err(|error| error.to_string())
-                },
-            )
-            .unwrap();
+            let mut staged = native
+                .run(|native| {
+                    CnCGameEngine::stage_decoded_saved_world_for_restore_with_native(
+                        &snapshot,
+                        info(),
+                        None,
+                        None,
+                        None, // no paired TerrainVisual in this direct staging fixture
+                        "ocl",
+                        GameMode::Skirmish,
+                        RestoreTemplateCatalog {
+                            templates: &source.templates,
+                            modules: &source.receiving_module_content,
+                            object_definitions: &source.receiving_object_definitions,
+                            baseline: &source.receiving_template_baseline,
+                        },
+                        &source.weapon_definition_base,
+                        &source.projectile_definitions,
+                        &active.ocl_application_definitions(),
+                        source.ai_definitions.baseline(),
+                        source.production_energy_baseline(),
+                        source.physics_rules_baseline(),
+                        source.effective_terrain_definitions(),
+                        active.current_armor_definitions(),
+                        active.session_view.camera.settings,
+                        active.session_view.camera.clip_policy,
+                        active.session_view.camera.shake_policy,
+                        active.session_view.camera.movement_policy,
+                        active.session_view.camera.input_policy,
+                        &active.world_services,
+                        |snapshot, candidate| {
+                            assert_eq!(selected(candidate), "SavedSolo");
+                            builder
+                                .restore_from_snapshot(snapshot, candidate)
+                                .map_err(|error| error.to_string())
+                        },
+                        native,
+                    )
+                })
+                .unwrap();
             assert_eq!(selected(&staged.logic), "SavedSolo");
             assert_eq!(adjusted(&staged.logic, actor_id), 25.0);
             assert!(Arc::ptr_eq(
@@ -284,32 +372,36 @@ fn actual_saved_map_ocl_candidate_uses_own_base_and_solo_without_mutating_active
             }
             #[cfg(not(feature = "game_client"))]
             saves.save_game("mapped_armor", &source, &info()).unwrap();
-            let mut archived = CnCGameEngine::stage_saved_world_for_restore(
-                &mut saves,
-                "mapped_armor",
-                GameMode::Skirmish,
-                RestoreTemplateCatalog {
-                    templates: &source.templates,
-                    modules: &source.receiving_module_content,
-                    object_definitions: &source.receiving_object_definitions,
-                    baseline: &source.receiving_template_baseline,
-                },
-                &source.weapon_definition_base,
-                &source.projectile_definitions,
-                &active.ocl_application_definitions(),
-                source.ai_definitions.baseline(),
-                source.production_energy_baseline(),
-                source.physics_rules_baseline(),
-                source.effective_terrain_definitions(),
-                active.current_armor_definitions(),
-                active.session_view.camera.settings,
-                active.session_view.camera.clip_policy,
-                active.session_view.camera.shake_policy,
-                active.session_view.camera.movement_policy,
-                active.session_view.camera.input_policy,
-                &active.world_services,
-            )
-            .unwrap();
+            let mut archived = native
+                .run(|native| {
+                    CnCGameEngine::stage_saved_world_for_restore_with_native(
+                        &mut saves,
+                        "mapped_armor",
+                        GameMode::Skirmish,
+                        RestoreTemplateCatalog {
+                            templates: &source.templates,
+                            modules: &source.receiving_module_content,
+                            object_definitions: &source.receiving_object_definitions,
+                            baseline: &source.receiving_template_baseline,
+                        },
+                        &source.weapon_definition_base,
+                        &source.projectile_definitions,
+                        &active.ocl_application_definitions(),
+                        source.ai_definitions.baseline(),
+                        source.production_energy_baseline(),
+                        source.physics_rules_baseline(),
+                        source.effective_terrain_definitions(),
+                        active.current_armor_definitions(),
+                        active.session_view.camera.settings,
+                        active.session_view.camera.clip_policy,
+                        active.session_view.camera.shake_policy,
+                        active.session_view.camera.movement_policy,
+                        active.session_view.camera.input_policy,
+                        &active.world_services,
+                        native,
+                    )
+                })
+                .unwrap();
             assert_eq!(
                 adjusted(&archived.logic, actor_id),
                 25.0,
@@ -355,6 +447,8 @@ fn actual_saved_map_ocl_candidate_uses_own_base_and_solo_without_mutating_active
             ));
             assert_eq!(selected(&active), "ActiveMap");
             assert_eq!(selected(&peer), "Peer");
+            drop(archived);
+            native.finish();
         },
     );
 }
