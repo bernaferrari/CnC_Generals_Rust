@@ -14,6 +14,15 @@ impl SnapshotBuilder {
         candidate: &mut GameLogic,
     ) -> SaveLoadResult<()> {
         validate_direct_world_snapshot_version(snapshot.version)?;
+        if candidate.object_lifecycle_callback_depth != 0
+            || candidate.host_objects().values().any(|object| {
+                object.kill_score_phase == crate::game_logic::kill_credit::KillScorePhase::Running
+            })
+        {
+            return Err(SaveLoadError::Corrupted(
+                "restore cannot replace an active Object lifecycle callback phase".into(),
+            ));
+        }
         self.restore_terrain(&snapshot.terrain, candidate)
     }
 
@@ -43,13 +52,25 @@ impl SnapshotBuilder {
         game_logic: &GameLogic,
         #[cfg(feature = "game_client")] client: Option<&game_client::core::game_client::GameClient>,
     ) -> SaveLoadResult<WorldSnapshot> {
-        // The runtime destruction queue is not part of Xfer. Capture only
-        // after end-of-frame physical removal, rather than restoring an
-        // immortal DESTROYED object whose deletion request was discarded.
-        if game_logic.has_pending_object_removals() {
+        // NDIE v2 captures the ordered removal queue after synchronous death
+        // callbacks return. A callback in progress has no resumable Rust stack,
+        // and a failed native retirement is terminal for this receiving owner.
+        if game_logic.host_objects().values().any(|object| {
+            object.kill_score_phase == crate::game_logic::kill_credit::KillScorePhase::Running
+        }) {
             return Err(SaveLoadError::Serialization(
-                "Cannot snapshot before pending object removals finish".to_string(),
+                "Cannot snapshot in-flight scoreTheKill".into(),
             ));
+        }
+        if game_logic.object_lifecycle_callback_depth != 0 {
+            return Err(SaveLoadError::Serialization(
+                "Cannot snapshot an active Object lifecycle callback phase".into(),
+            ));
+        }
+        if let Some(error) = game_logic.object_retirement_error() {
+            return Err(SaveLoadError::Serialization(format!(
+                "Cannot snapshot a failed Object retirement: {error}"
+            )));
         }
 
         log::info!("Creating world snapshot from game state");
@@ -315,6 +336,15 @@ impl SnapshotBuilder {
         game_logic: &mut GameLogic,
     ) -> SaveLoadResult<()> {
         validate_direct_world_snapshot_version(snapshot.version)?;
+        if game_logic.object_lifecycle_callback_depth != 0
+            || game_logic.host_objects().values().any(|object| {
+                object.kill_score_phase == crate::game_logic::kill_credit::KillScorePhase::Running
+            })
+        {
+            return Err(SaveLoadError::Corrupted(
+                "restore cannot replace an active Object lifecycle callback phase".into(),
+            ));
+        }
         game_logic
             .world_services
             .shroud()

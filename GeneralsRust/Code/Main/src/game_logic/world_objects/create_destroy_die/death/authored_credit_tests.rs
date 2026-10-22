@@ -103,7 +103,7 @@ fn authored_removal_keeps_enemy_credit_bounty_and_once_only_stats() {
 }
 
 #[test]
-fn legacy_manual_mark_keeps_one_skill_fallback_without_owned_score_phase() {
+fn manual_mark_never_infers_score_the_kill_from_old_damage_history() {
     let mut world = GameLogic::new();
     let mut attacker = Player::new(0, Team::USA, "LegacySource", true);
     attacker.alliance_team = 1;
@@ -137,13 +137,13 @@ fn legacy_manual_mark_keeps_one_skill_fallback_without_owned_score_phase() {
     assert!(!world.objects.contains_key(&victim));
     assert_eq!(
         world.get_player(0).unwrap().skill_points,
-        25,
-        "legacy final-removal fallback remains active"
+        0,
+        "manual onDie/removal without scoreTheKill must not fabricate skill credit"
     );
     world.process_destroy_list();
     assert_eq!(
         world.get_player(0).unwrap().skill_points,
-        25,
-        "fallback still executes once"
+        0,
+        "physical removal cannot discover a killer from retained hit history"
     );
 }

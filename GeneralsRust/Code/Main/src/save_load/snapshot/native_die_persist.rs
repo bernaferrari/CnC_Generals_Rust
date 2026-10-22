@@ -1,4 +1,4 @@
-//! NDIE v1: once-only Die receipts bound to receiving immutable declarations.
+//! NDIE v2: once-only Die receipts bound to receiving immutable declarations.
 //! Historical positional Object/World records remain unchanged.
 use super::{ObjectSnapshot, WorldSnapshot};
 use crate::game_logic::native_die_definition::{
@@ -11,16 +11,36 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 
 const TAG: &[u8; 4] = b"NDIE";
-const VERSION: u32 = 1;
+const VERSION: u32 = 2;
 const MAX_BYTES: usize = 16 * 1024 * 1024;
 #[derive(Serialize, Deserialize)]
 struct Record {
     id: u32,
     declarations: Option<Vec<String>>,
     runtime: NativeDieRuntime,
+    score_completed: bool,
+}
+/// Exact positional predecessor; XP-only history does not prove full scoring.
+#[derive(Serialize, Deserialize)]
+struct RecordV1 {
+    id: u32,
+    declarations: Option<Vec<String>>,
+    runtime: NativeDieRuntime,
+}
+#[derive(Serialize, Deserialize)]
+struct PayloadV2 {
+    records: Vec<Record>,
+    removals: Vec<crate::game_logic::kill_credit::PendingObjectRemoval>,
+}
+#[derive(Debug)]
+pub(super) struct Validated {
+    runtimes: HashMap<ObjectId, (NativeDieRuntime, bool)>,
+    removals: Vec<crate::game_logic::kill_credit::PendingObjectRemoval>,
 }
 pub(super) struct Decoded<'a> {
     records: Option<Vec<Record>>,
+    version: Option<u32>,
+    removals: Vec<crate::game_logic::kill_credit::PendingObjectRemoval>,
     pub legacy_tail: Cow<'a, [u8]>,
 }
 fn identity(template: &crate::game_logic::ThingTemplate) -> Option<Vec<String>> {
@@ -71,8 +91,18 @@ fn validate_temporal(
 }
 
 pub(super) fn append(bytes: &mut Vec<u8>, world: &GameLogic) -> SaveLoadResult<()> {
+    if world.object_lifecycle_callback_depth != 0 {
+        return Err(corrupted(
+            "cannot save during active Object lifecycle callbacks or physical drain",
+        ));
+    }
     let mut records = Vec::with_capacity(world.host_objects().len());
     for (id, object) in world.host_objects() {
+        if object.kill_score_phase == crate::game_logic::kill_credit::KillScorePhase::Running {
+            return Err(corrupted(
+                "cannot save an in-flight scoreTheKill callback phase",
+            ));
+        }
         if object.native_die_runtime.pending_create.is_some() {
             return Err(corrupted(format!(
                 "object {} has incomplete CreateObjectDie dispatch; finish its synchronous creation before saving",
@@ -98,14 +128,36 @@ pub(super) fn append(bytes: &mut Vec<u8>, world: &GameLogic) -> SaveLoadResult<(
             object.status.destroyed
                 || (object.status.effectively_dead && !object.is_inactive_body()),
         )?;
+        if object.kill_score_phase == crate::game_logic::kill_credit::KillScorePhase::Complete
+            && !object.kill_experience_awarded
+        {
+            return Err(corrupted(
+                "full score completion lacks independent XP admission receipt",
+            ));
+        }
         records.push(Record {
             id: id.0,
             declarations: identity(&object.thing().template),
             runtime: object.native_die_runtime.clone(),
+            score_completed: object.kill_score_phase
+                == crate::game_logic::kill_credit::KillScorePhase::Complete,
         });
     }
     records.sort_by_key(|record| record.id);
-    let payload = bincode_legacy::serialize(&records).map_err(corrupted)?;
+    let removals = world.pending_object_removal_snapshot();
+    let mut pending = std::collections::HashSet::new();
+    for record in &removals {
+        if !world.host_object(record.id).is_some_and(|object| {
+            object.status.destroyed && object.status.on_die_started == record.after_death
+        }) || !pending.insert(record.id)
+            || (!record.after_death && record.killer.is_some())
+        {
+            return Err(corrupted(
+                "invalid pending physical-removal roster or stage",
+            ));
+        }
+    }
+    let payload = bincode_legacy::serialize(&PayloadV2 { records, removals }).map_err(corrupted)?;
     if payload.len() > MAX_BYTES {
         return Err(corrupted("payload exceeds size limit"));
     }
@@ -125,6 +177,8 @@ pub(super) fn decode(bytes: &[u8]) -> SaveLoadResult<Decoded<'_>> {
     if !suffix.starts_with(TAG) {
         return Ok(Decoded {
             records: None,
+            version: None,
+            removals: Vec::new(),
             legacy_tail: Cow::Borrowed(bytes),
         });
     }
@@ -133,7 +187,7 @@ pub(super) fn decode(bytes: &[u8]) -> SaveLoadResult<Decoded<'_>> {
     }
     let version = u32::from_le_bytes(suffix[4..8].try_into().unwrap());
     let length = u32::from_le_bytes(suffix[8..12].try_into().unwrap()) as usize;
-    if version != VERSION {
+    if version != 1 && version != VERSION {
         return Err(corrupted("unknown version"));
     }
     if length > MAX_BYTES {
@@ -145,11 +199,32 @@ pub(super) fn decode(bytes: &[u8]) -> SaveLoadResult<Decoded<'_>> {
     let payload = suffix
         .get(12..end)
         .ok_or_else(|| corrupted("truncated records"))?;
-    let (records, consumed): (Vec<Record>, usize) = bincode::serde::decode_from_slice(
-        payload,
-        bincode::config::legacy().with_limit::<MAX_BYTES>(),
-    )
-    .map_err(corrupted)?;
+    let (records, removals, consumed) = if version == 1 {
+        let (old, consumed): (Vec<RecordV1>, usize) = bincode::serde::decode_from_slice(
+            payload,
+            bincode::config::legacy().with_limit::<MAX_BYTES>(),
+        )
+        .map_err(corrupted)?;
+        (
+            old.into_iter()
+                .map(|record| Record {
+                    id: record.id,
+                    declarations: record.declarations,
+                    runtime: record.runtime,
+                    score_completed: false,
+                })
+                .collect(),
+            Vec::new(),
+            consumed,
+        )
+    } else {
+        let (decoded, consumed): (PayloadV2, usize) = bincode::serde::decode_from_slice(
+            payload,
+            bincode::config::legacy().with_limit::<MAX_BYTES>(),
+        )
+        .map_err(corrupted)?;
+        (decoded.records, decoded.removals, consumed)
+    };
     if consumed != payload.len() || suffix[end..].starts_with(TAG) {
         return Err(corrupted("trailing or duplicate records"));
     }
@@ -157,6 +232,8 @@ pub(super) fn decode(bytes: &[u8]) -> SaveLoadResult<Decoded<'_>> {
     tail.extend_from_slice(&suffix[end..]);
     Ok(Decoded {
         records: Some(records),
+        version: Some(version),
+        removals,
         legacy_tail: Cow::Owned(tail),
     })
 }
@@ -165,9 +242,27 @@ pub(super) fn validate(
     snapshot: &WorldSnapshot,
     world: &GameLogic,
     body_kinds: &HashMap<ObjectId, crate::game_logic::thing::BodyKind>,
-) -> SaveLoadResult<HashMap<ObjectId, NativeDieRuntime>> {
+) -> SaveLoadResult<Validated> {
     let death_states =
         super::object_module_xfer_persist::saved_death_states(&snapshot.lifecycle_tail)?;
+    // A v1 receipt never recorded Player score completion. A dead/started
+    // import or XP-consumed live import cannot recover the original source
+    // player's identity after disappearance/transfer, so reject before mutation.
+    if decoded.version != Some(VERSION) {
+        let consumed_xp =
+            super::object_xfer_persist::saved_kill_experience_receipts(&snapshot.lifecycle_tail)?;
+        for (id, object) in &snapshot.objects {
+            if object.status.destroyed
+                || death_states.get(id).is_some_and(|state| state.started)
+                || consumed_xp.contains(id)
+            {
+                return Err(corrupted(format!(
+                    "NDIE v1/absent full-score receipt is ambiguous for already-dead or scored object {}; import requires an unscored live owner",
+                    id.0
+                )));
+            }
+        }
+    }
     let Some(records) = &decoded.records else {
         for (id, object) in &snapshot.objects {
             // InactiveBody starts effectively-dead even before any onDie.
@@ -205,13 +300,23 @@ pub(super) fn validate(
                 )));
             }
         }
-        return Ok(HashMap::new());
+        return Ok(Validated {
+            runtimes: HashMap::new(),
+            removals: Vec::new(),
+        });
     };
     if records.len() != snapshot.objects.len() {
         return Err(corrupted("incomplete owner roster"));
     }
+    let consumed_xp =
+        super::object_xfer_persist::saved_kill_experience_receipts(&snapshot.lifecycle_tail)?;
     let mut runtimes = HashMap::new();
     for record in records {
+        if record.score_completed && !consumed_xp.contains(&ObjectId(record.id)) {
+            return Err(corrupted(
+                "full score completion lacks independent XP admission receipt",
+            ));
+        }
         let id = ObjectId(record.id);
         let saved: &ObjectSnapshot = snapshot
             .objects
@@ -270,19 +375,48 @@ pub(super) fn validate(
             saved.status.destroyed
                 || state.is_some_and(|state| state.effectively_dead && !inactive),
         )?;
-        runtimes.insert(id, record.runtime.clone());
+        runtimes.insert(id, (record.runtime.clone(), record.score_completed));
     }
-    Ok(runtimes)
-}
-pub(super) fn apply(runtimes: HashMap<ObjectId, NativeDieRuntime>, world: &mut GameLogic) {
-    for object in world.objects.values_mut() {
-        object.native_die_runtime = NativeDieRuntime::default();
-    }
-    for (id, runtime) in runtimes {
-        if let Some(object) = world.objects.get_mut(&id) {
-            object.native_die_runtime = runtime;
+    let mut pending = std::collections::HashSet::new();
+    for removal in &decoded.removals {
+        let started = death_states
+            .get(&removal.id)
+            .is_some_and(|state| state.started);
+        if !snapshot
+            .objects
+            .get(&removal.id)
+            .is_some_and(|object| object.status.destroyed)
+            || !pending.insert(removal.id)
+            || removal.after_death != started
+            || (!removal.after_death && removal.killer.is_some())
+        {
+            return Err(corrupted(
+                "invalid pending physical-removal owner, duplicate, or stage",
+            ));
         }
     }
+    Ok(Validated {
+        runtimes,
+        removals: decoded.removals.clone(),
+    })
+}
+pub(super) fn apply(validated: Validated, world: &mut GameLogic) {
+    let Validated { runtimes, removals } = validated;
+    for object in world.objects.values_mut() {
+        object.native_die_runtime = NativeDieRuntime::default();
+        object.kill_score_phase = crate::game_logic::kill_credit::KillScorePhase::Ready;
+    }
+    for (id, (runtime, score_completed)) in runtimes {
+        if let Some(object) = world.objects.get_mut(&id) {
+            object.native_die_runtime = runtime;
+            object.kill_score_phase = if score_completed {
+                crate::game_logic::kill_credit::KillScorePhase::Complete
+            } else {
+                crate::game_logic::kill_credit::KillScorePhase::Ready
+            };
+        }
+    }
+    world.restore_pending_object_removals(removals);
 }
 fn corrupted(error: impl std::fmt::Display) -> SaveLoadError {
     SaveLoadError::Corrupted(format!("native Die continuation: {error}"))

@@ -1614,6 +1614,36 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     bytes.extend_from_slice(&encoded);
 }
 
+/// Inspect the historical XP-only receipt before any receiving-world mutation.
+pub(super) fn saved_kill_experience_receipts(
+    bytes: &[u8],
+) -> SaveLoadResult<std::collections::HashSet<ObjectId>> {
+    let Some(mut rest) = find_oxob_suffix(bytes) else {
+        return Ok(Default::default());
+    };
+    let version = take_u32(&mut rest)?;
+    if version < OXOB_VERSION {
+        return Ok(Default::default());
+    }
+    if version != OXOB_VERSION {
+        return Err(SaveLoadError::Corrupted(format!(
+            "unknown OXOB suffix version {version}"
+        )));
+    }
+    let length = take_u32(&mut rest)? as usize;
+    let bytes = rest
+        .get(..length)
+        .ok_or_else(|| SaveLoadError::Corrupted("OXOB payload truncated".into()))?;
+    let payload: ObjectXferPersistPayload = bincode_legacy::deserialize(bytes)
+        .map_err(|error| SaveLoadError::Corrupted(format!("OXOB payload decode: {error}")))?;
+    Ok(payload
+        .body_history
+        .into_iter()
+        .filter(|record| record.kill_experience_awarded)
+        .map(|record| ObjectId(record.object_id))
+        .collect())
+}
+
 pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> SaveLoadResult<()> {
     let Some(suffix) = find_oxob_suffix(bytes) else {
         reset_object_xfer(game_logic);

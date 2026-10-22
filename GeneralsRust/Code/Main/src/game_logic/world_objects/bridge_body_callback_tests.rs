@@ -964,3 +964,89 @@ fn actual_residual_damage_finishes_linked_bridge_callbacks_before_return() {
         },
     );
 }
+
+#[test]
+fn repaired_bridge_begins_new_owned_score_episode_and_preserves_saved_future() {
+    isolated(
+        "repaired_bridge_begins_new_owned_score_episode_and_preserves_saved_future",
+        || {
+            let mut world = GameLogic::new();
+            let (span, _, _, _) = bridge(&mut world, Vec3::new(50., 5., 50.));
+            world
+                .templates
+                .get_mut("OwnerSpan")
+                .unwrap()
+                .experience_values = [25.; 4];
+            world
+                .objects
+                .get_mut(&span)
+                .unwrap()
+                .template_mut()
+                .experience_values = [25.; 4];
+            let mut attacker = ThingTemplate::new("BridgeScoreSource");
+            attacker.set_health(100.).add_kind_of(KindOf::Vehicle);
+            attacker.is_trainable = true;
+            world.templates.insert(attacker.name.clone(), attacker);
+            let source = world
+                .create_object("BridgeScoreSource", Team::China, Vec3::ZERO)
+                .unwrap();
+            for expected in [25., 50.] {
+                world
+                    .apply_owned_damage(
+                        span,
+                        1000.,
+                        Some(source),
+                        DamageType::Unresistable,
+                        HostDeathType::Normal,
+                        None,
+                        &DamageHitContext::default(),
+                    )
+                    .unwrap();
+                assert_eq!(
+                    world.objects[&span].kill_score_phase,
+                    crate::game_logic::kill_credit::KillScorePhase::Complete
+                );
+                assert!(world.objects[&span].kill_experience_awarded);
+                assert_eq!(world.objects[&source].experience.current, expected);
+                world.mark_object_for_destruction(span, Some(Team::China));
+                assert_eq!(world.objects[&source].experience.current, expected);
+                if expected == 25. {
+                    world.apply_owned_healing(span, 200., None).unwrap();
+                    assert_eq!(world.objects[&span].health.current, 200.);
+                    assert_eq!(
+                        world.objects[&span].kill_score_phase,
+                        crate::game_logic::kill_credit::KillScorePhase::Ready
+                    );
+                    assert!(!world.objects[&span].kill_experience_awarded);
+                    let builder = crate::save_load::SnapshotBuilder::new();
+                    let snapshot = builder.create_world_snapshot(&world).unwrap();
+                    let bytes = bincode_legacy::serialize(&snapshot).unwrap();
+                    let decoded =
+                        crate::save_load::snapshot::decode_bincode_world_snapshot(&bytes).unwrap();
+                    let mut restored = GameLogic::new();
+                    restored.templates = world.templates.clone();
+                    builder
+                        .restore_from_snapshot(&decoded, &mut restored)
+                        .unwrap();
+                    assert_eq!(
+                        restored.objects[&span].kill_score_phase,
+                        crate::game_logic::kill_credit::KillScorePhase::Ready
+                    );
+                    assert!(!restored.objects[&span].kill_experience_awarded);
+                    restored
+                        .apply_owned_damage(
+                            span,
+                            1000.,
+                            Some(source),
+                            DamageType::Unresistable,
+                            HostDeathType::Normal,
+                            None,
+                            &DamageHitContext::default(),
+                        )
+                        .unwrap();
+                    assert_eq!(restored.objects[&source].experience.current, 50.);
+                }
+            }
+        },
+    );
+}

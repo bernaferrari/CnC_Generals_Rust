@@ -59,6 +59,16 @@ impl GameLogic {
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
+        self.object_lifecycle_callback_depth += 1;
+        let result = self.process_destroy_list_body_with_effects_checked(presentation_effects);
+        self.object_lifecycle_callback_depth -= 1;
+        result
+    }
+
+    fn process_destroy_list_body_with_effects_checked(
+        &mut self,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
         if let Some(error) = self.object_retirement_error() {
             return Err(error);
         }
@@ -159,8 +169,7 @@ impl GameLogic {
                             None,
                             presentation_effects,
                         ) {
-                            self.objects_to_destroy
-                                .push_back(DestructionEvent::after_death(sid, event.killer));
+                            self.queue_after_death_completion(sid, event.killer);
                         }
                     }
                 }
@@ -418,7 +427,6 @@ impl GameLogic {
                     event.id,
                     obj.get_template().name
                 );
-                self.record_destruction(&obj, event.killer);
 
                 self.clear_removed_object_references(event.id);
             }
@@ -433,194 +441,6 @@ impl GameLogic {
         }
 
         Ok(())
-    }
-
-    pub(in super::super) fn record_destruction(
-        &mut self,
-        destroyed_object: &Object,
-        killer: Option<Team>,
-    ) {
-        let destroyed_is_structure = destroyed_object.is_kind_of(KindOf::Structure);
-        let victim_team = destroyed_object.team;
-        let victim_id = destroyed_object.id;
-        let victim_pos = destroyed_object.get_position();
-        // C++ Object::scoreTheKill / Player::doBountyForKill:
-        // no bounty for under-construction, non-enemy, or same-controller kills.
-        let under_construction = destroyed_object.status.under_construction;
-        let victim_owner_player_id = self.player_owner_for_host_object(destroyed_object);
-        // C++ victim->getTemplate()->calcCostToBuild(victim->getControllingPlayer()).
-        // No controlling player → 0 (ThingTemplate.cpp:1510-1511).
-        let build_cost = match victim_owner_player_id {
-            Some(pid) => self.modified_build_cost_supplies(
-                pid,
-                &destroyed_object.template_name,
-                destroyed_object.thing().template.build_cost.supplies,
-            ),
-            None => 0,
-        };
-
-        let mut bounty_awarded = 0_u32;
-        let mut bounty_killer_id = ObjectId(0);
-        let mut bounty_float_pos = victim_pos;
-        let mut used_last_damage_source = false;
-        if let Some(team) = killer {
-            // `killer` is still a legacy team event, but BodyModule gives us
-            // the actual attacking object.  Carry that object's player owner
-            // through scoring instead of selecting the first same-faction
-            // player slot.
-            let mut killer_owner_player_id = None;
-            // Prefer C++ BodyModule last_damage_source residual for killer ObjectId.
-            if let Some(src) = destroyed_object.last_damage_source {
-                if let Some(src_obj) = self.objects.get(&src) {
-                    if src_obj.team == team {
-                        bounty_killer_id = src;
-                        bounty_float_pos = src_obj.get_position();
-                        killer_owner_player_id = self.player_owner_for_host_object(src_obj);
-                        used_last_damage_source = true;
-                    }
-                } else {
-                    // Killer already removed this frame — still record ObjectId residual.
-                    bounty_killer_id = src;
-                    used_last_damage_source = true;
-                }
-            }
-            // Fallback residual: nearest living unit on killer team near victim
-            // (destruction event carries team; last_damage_source may be unset).
-            if !used_last_damage_source {
-                if let Some((kid, kpos)) = self
-                    .objects
-                    .iter()
-                    .filter(|(_, o)| o.team == team && o.is_alive())
-                    .map(|(id, o)| (*id, o.get_position()))
-                    .min_by(|a, b| {
-                        let da = (a.1.x - victim_pos.x).hypot(a.1.z - victim_pos.z);
-                        let db = (b.1.x - victim_pos.x).hypot(b.1.z - victim_pos.z);
-                        da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
-                    })
-                {
-                    bounty_killer_id = kid;
-                    bounty_float_pos = kpos;
-                }
-            }
-            let enemy_kill = match (killer_owner_player_id, victim_owner_player_id) {
-                (Some(killer_player_id), Some(victim_player_id)) => {
-                    self.player_relationship(killer_player_id, victim_player_id)
-                        == gamelogic::common::Relationship::Enemies
-                }
-                // A genuinely unowned victim has no player relationship.
-                // Preserve the legacy faction gate for map/old-save objects
-                // without assigning it a player.
-                _ => team != victim_team && team != Team::Neutral && victim_team != Team::Neutral,
-            };
-            let score_counts = self.score_the_kill_victim_counts(destroyed_object);
-            let scoring_enabled = self.is_scoring_enabled();
-            let counts_destroyed_building =
-                Self::live_score_counts_as_building_destroy(destroyed_object);
-            let counts_destroyed_unit = Self::live_score_counts_as_unit_destroy(destroyed_object);
-            let template_name = destroyed_object.template_name.clone();
-            if let Some(player_id) = killer_owner_player_id {
-                let mut rank_skill = 0;
-                let self_kill = victim_owner_player_id == Some(player_id);
-                // C++ scoreTheKill: addObjectDestroyed only after ENEMIES and
-                // controller != victimController (Object.cpp:2915-2927).
-                let record_destroyed = !under_construction
-                    && score_counts
-                    && enemy_kill
-                    && !self_kill
-                    && (counts_destroyed_building || counts_destroyed_unit);
-                if let Some(player) = self.players.get_mut(&player_id) {
-                    if record_destroyed && scoring_enabled {
-                        if counts_destroyed_building {
-                            player.record_structure_destroyed();
-                        } else if counts_destroyed_unit {
-                            player.record_unit_destroyed();
-                        }
-                    }
-
-                    // Cash bounty residual: award ceil(cost * percent) on enemy kill.
-                    // C++ scoreTheKill gates doBountyForKill with playable-side + IGNORED_IN_GUI.
-                    if enemy_kill
-                        && !under_construction
-                        && score_counts
-                        && player.cash_bounty_percent > 0.0
-                    {
-                        bounty_awarded =
-                            player.do_bounty_for_kill(build_cost, &mut self.economy_events);
-                    }
-
-                    // C++ Player::addSkillPointsForKill (scoreTheKill).
-                    // Skill value is victim template SkillPointValue / ExperienceValue.
-                    // C++ Object.cpp:2898-2905: skip non-playable and IGNORED_IN_GUI.
-                    if enemy_kill
-                        && !under_construction
-                        && score_counts
-                        && !destroyed_object.kill_experience_awarded
-                    {
-                        // Owned scoreTheKill already admits Player skill points
-                        // before onDie (Object.cpp2928). Only residual callers
-                        // that skipped that phase need this legacy fallback.
-                        rank_skill = destroyed_object.kill_skill_point_value();
-                    }
-                }
-                if rank_skill != 0 {
-                    let _ = self.add_player_skill_points(player_id, rank_skill);
-                }
-                if record_destroyed {
-                    if let Some(victim_id) = victim_owner_player_id {
-                        gamelogic::player::notify_live_object_destroyed(
-                            player_id,
-                            victim_id,
-                            &template_name,
-                            under_construction,
-                        );
-                    }
-                }
-            }
-
-            // C++ CashBountyPower presentation: floating "+$N" AddCash text at
-            // the killer position; registry honesty records the award.
-            if bounty_awarded > 0 {
-                if used_last_damage_source {
-                    self.cash_bounty.record_last_damage_source_kill();
-                }
-                self.cash_bounty.record_floating_text(
-                    crate::game_logic::host_cash_bounty::HostCashBountyFloatingText::new(
-                        bounty_killer_id,
-                        destroyed_object.id,
-                        bounty_float_pos,
-                        bounty_awarded,
-                        self.frame,
-                    ),
-                );
-                self.cash_bounty.record_bounty_award(bounty_awarded);
-            }
-
-            // C++ addObjectLost only runs inside scoreTheKill (a killer called it)
-            // after playable-side + IGNORED_IN_GUI. Killer-less sell/script destroy
-            // never touches the keeper.
-            if score_counts && !under_construction {
-                if let Some(player_id) = victim_owner_player_id {
-                    let counts_lost_building = counts_destroyed_building;
-                    let counts_lost_unit = counts_destroyed_unit;
-                    if let Some(player) = self.players.get_mut(&player_id) {
-                        if scoring_enabled {
-                            if counts_lost_building {
-                                player.record_structure_lost();
-                            } else if counts_lost_unit {
-                                player.record_unit_lost();
-                            }
-                        }
-                    }
-                    if counts_lost_building || counts_lost_unit {
-                        gamelogic::player::notify_live_object_lost(
-                            player_id,
-                            &destroyed_object.template_name,
-                            under_construction,
-                        );
-                    }
-                }
-            }
-        }
     }
 
     /// C++ Object::scoreTheKill playable-side + KINDOF_IGNORED_IN_GUI gate.
@@ -1370,7 +1190,17 @@ End
         if let Some(v) = logic.host_object_mut(enemy) {
             v.last_damage_source = Some(killer);
         }
-        logic.mark_object_for_destruction(enemy, Some(Team::USA));
+        logic
+            .apply_owned_damage(
+                enemy,
+                1.0e9,
+                Some(killer),
+                crate::game_logic::combat::DamageType::Unresistable,
+                crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+                None,
+                &crate::game_logic::object::DamageHitContext::default(),
+            )
+            .unwrap();
         logic.process_destroy_list();
         assert_eq!(logic.get_player(0).unwrap().statistics.units_destroyed, 1);
         assert_eq!(logic.get_player(2).unwrap().statistics.units_lost, 1);
@@ -1378,7 +1208,17 @@ End
         if let Some(v) = logic.host_object_mut(ally) {
             v.last_damage_source = Some(killer);
         }
-        logic.mark_object_for_destruction(ally, Some(Team::USA));
+        logic
+            .apply_owned_damage(
+                ally,
+                1.0e9,
+                Some(killer),
+                crate::game_logic::combat::DamageType::Unresistable,
+                crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+                None,
+                &crate::game_logic::object::DamageHitContext::default(),
+            )
+            .unwrap();
         logic.process_destroy_list();
         assert_eq!(
             logic.get_player(0).unwrap().statistics.units_destroyed,
@@ -1399,7 +1239,17 @@ End
         if let Some(v) = logic.host_object_mut(ignored) {
             v.last_damage_source = Some(killer);
         }
-        logic.mark_object_for_destruction(ignored, Some(Team::USA));
+        logic
+            .apply_owned_damage(
+                ignored,
+                1.0e9,
+                Some(killer),
+                crate::game_logic::combat::DamageType::Unresistable,
+                crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+                None,
+                &crate::game_logic::object::DamageHitContext::default(),
+            )
+            .unwrap();
         logic.process_destroy_list();
         assert_eq!(logic.get_player(0).unwrap().statistics.units_destroyed, 1);
         assert_eq!(logic.get_player(2).unwrap().statistics.units_lost, gla_lost);
@@ -1468,7 +1318,17 @@ End
         if let Some(v) = logic.host_object_mut(usa_victim) {
             v.last_damage_source = Some(gla_killer);
         }
-        logic.mark_object_for_destruction(usa_victim, Some(Team::GLA));
+        logic
+            .apply_owned_damage(
+                usa_victim,
+                1.0e9,
+                Some(gla_killer),
+                crate::game_logic::combat::DamageType::Unresistable,
+                crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+                None,
+                &crate::game_logic::object::DamageHitContext::default(),
+            )
+            .unwrap();
         logic.process_destroy_list();
         assert_eq!(logic.get_player(2).unwrap().statistics.units_destroyed, 1);
         assert_eq!(logic.get_player(0).unwrap().statistics.units_lost, 1);
@@ -1483,7 +1343,17 @@ End
         if let Some(v) = logic.host_object_mut(gla_victim) {
             v.last_damage_source = Some(usa_killer);
         }
-        logic.mark_object_for_destruction(gla_victim, Some(Team::USA));
+        logic
+            .apply_owned_damage(
+                gla_victim,
+                1.0e9,
+                Some(usa_killer),
+                crate::game_logic::combat::DamageType::Unresistable,
+                crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+                None,
+                &crate::game_logic::object::DamageHitContext::default(),
+            )
+            .unwrap();
         logic.process_destroy_list();
         assert_eq!(
             logic.get_player(0).unwrap().statistics.units_destroyed,
@@ -1528,7 +1398,17 @@ End
         if let Some(v) = logic.host_object_mut(off_victim) {
             v.last_damage_source = Some(killer);
         }
-        logic.mark_object_for_destruction(off_victim, Some(Team::USA));
+        logic
+            .apply_owned_damage(
+                off_victim,
+                1.0e9,
+                Some(killer),
+                crate::game_logic::combat::DamageType::Unresistable,
+                crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+                None,
+                &crate::game_logic::object::DamageHitContext::default(),
+            )
+            .unwrap();
         logic.process_destroy_list();
         assert_eq!(logic.get_player(0).unwrap().statistics.units_destroyed, 0);
         assert_eq!(logic.get_player(2).unwrap().statistics.units_lost, 0);
@@ -1545,7 +1425,17 @@ End
         if let Some(v) = logic.host_object_mut(on_victim) {
             v.last_damage_source = Some(killer);
         }
-        logic.mark_object_for_destruction(on_victim, Some(Team::USA));
+        logic
+            .apply_owned_damage(
+                on_victim,
+                1.0e9,
+                Some(killer),
+                crate::game_logic::combat::DamageType::Unresistable,
+                crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+                None,
+                &crate::game_logic::object::DamageHitContext::default(),
+            )
+            .unwrap();
         logic.process_destroy_list();
         assert_eq!(logic.get_player(0).unwrap().statistics.units_destroyed, 1);
         assert_eq!(logic.get_player(2).unwrap().statistics.units_lost, 1);

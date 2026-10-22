@@ -454,6 +454,8 @@ impl Object {
                         // installed bridge. The completed module receipts
                         // belong to the old episode, like the onDie latch.
                         self.native_die_runtime = Default::default();
+                        self.kill_score_phase = Default::default();
+                        self.kill_experience_awarded = false;
                     }
                 }
             }

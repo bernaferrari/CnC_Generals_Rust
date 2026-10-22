@@ -136,6 +136,8 @@ fn native_die_legacy_zero_health_live_is_allowed_but_saved_started_is_rejected()
     let snapshot = builder.create_world_snapshot(&source).unwrap();
     let absent = Decoded {
         records: None,
+        version: None,
+        removals: Vec::new(),
         legacy_tail: Cow::Borrowed(&[]),
     };
     assert!(
@@ -159,7 +161,7 @@ fn native_die_legacy_zero_health_live_is_allowed_but_saved_started_is_rejected()
     assert!(
         error
             .to_string()
-            .contains("lacks once-only native Die receipts")
+            .contains("full-score receipt is ambiguous")
     );
 }
 
@@ -230,10 +232,13 @@ fn native_die_capsule_forged_completed_or_ai_receipt_rejects_detached_candidate(
             runtime.completed.insert(8);
         }
         let decoded = Decoded {
+            version: Some(VERSION),
+            removals: Vec::new(),
             records: Some(vec![Record {
                 id: id.0,
                 declarations: identity(receiving.templates.get("NativeReceiptOwner").unwrap()),
                 runtime,
+                score_completed: false,
             }]),
             legacy_tail: Cow::Borrowed(&[]),
         };
@@ -261,6 +266,7 @@ fn native_die_capsule_completed_live_slot_rejects_capture_and_detached_restore()
         id: id.0,
         declarations: identity(&source.templates["NativeReceiptOwner"]),
         runtime: runtime.clone(),
+        score_completed: false,
     };
     let mut offset =
         super::super::combat_projectile_persist::prefix_len(&snapshot.lifecycle_tail).unwrap();
@@ -284,7 +290,11 @@ fn native_die_capsule_completed_live_slot_rejects_capture_and_detached_restore()
             .try_into()
             .unwrap(),
     ) as usize;
-    let payload = bincode_legacy::serialize(&vec![record]).unwrap();
+    let payload = bincode_legacy::serialize(&PayloadV2 {
+        records: vec![record],
+        removals: Vec::new(),
+    })
+    .unwrap();
     let mut replacement = Vec::new();
     replacement.extend_from_slice(TAG);
     replacement.extend_from_slice(&VERSION.to_le_bytes());
@@ -417,10 +427,13 @@ fn native_die_capsule_ai_receipt_requires_world_latch_despite_receiving_interfac
     let mut runtime = NativeDieRuntime::default();
     runtime.ai_dead = true;
     let forged = Decoded {
+        version: Some(VERSION),
+        removals: Vec::new(),
         records: Some(vec![Record {
             id: id.0,
             declarations: identity(&source.templates["NativeReceiptOwner"]),
             runtime: runtime.clone(),
+            score_completed: false,
         }]),
         legacy_tail: Cow::Borrowed(&[]),
     };
@@ -503,3 +516,225 @@ fn native_die_capsule_actual_physics_crush_receipt_survives_without_world_latch(
 
 #[path = "native_die_body_admission_tests.rs"]
 mod body_admission_tests;
+
+fn replace_ndie(
+    snapshot: &mut crate::save_load::snapshot::WorldSnapshot,
+    version: u32,
+    payload: Vec<u8>,
+) {
+    let mut offset =
+        super::super::combat_projectile_persist::prefix_len(&snapshot.lifecycle_tail).unwrap();
+    loop {
+        let tag = &snapshot.lifecycle_tail[offset..offset + 4];
+        let length = u32::from_le_bytes(
+            snapshot.lifecycle_tail[offset + 8..offset + 12]
+                .try_into()
+                .unwrap(),
+        ) as usize;
+        if tag == TAG {
+            let mut replacement = Vec::new();
+            replacement.extend_from_slice(TAG);
+            replacement.extend_from_slice(&version.to_le_bytes());
+            replacement.extend_from_slice(&(payload.len() as u32).to_le_bytes());
+            replacement.extend_from_slice(&payload);
+            snapshot
+                .lifecycle_tail
+                .splice(offset..offset + 12 + length, replacement);
+            return;
+        }
+        assert!(
+            [b"CPRJ", b"BDKD", b"NLFC", b"ODIS", b"RDCK", b"OLST"]
+                .contains(&tag.try_into().unwrap())
+        );
+        offset += 12 + length;
+    }
+}
+fn v1(snapshot: &mut crate::save_load::snapshot::WorldSnapshot, source: &GameLogic) {
+    let records: Vec<_> = source
+        .host_objects()
+        .iter()
+        .map(|(id, object)| RecordV1 {
+            id: id.0,
+            declarations: identity(&object.thing().template),
+            runtime: object.native_die_runtime.clone(),
+        })
+        .collect();
+    replace_ndie(snapshot, 1, bincode_legacy::serialize(&records).unwrap());
+}
+#[test]
+fn v1_unscored_live_owner_imports_without_fabricating_full_score() {
+    let (source, id) = owner("KeepA");
+    let mut snapshot = SnapshotBuilder::new()
+        .create_world_snapshot(&source)
+        .unwrap();
+    v1(&mut snapshot, &source);
+    let (mut receiving, _) = owner("KeepA");
+    SnapshotBuilder::new()
+        .restore_from_snapshot(&snapshot, &mut receiving)
+        .unwrap();
+    assert_eq!(
+        receiving.objects[&id].kill_score_phase,
+        crate::game_logic::kill_credit::KillScorePhase::Ready
+    );
+    assert!(receiving.pending_object_removal_snapshot().is_empty());
+}
+#[test]
+fn v1_ambiguous_dead_owner_rejects_before_queue_cache_or_owner_mutation() {
+    let (mut source, id) = owner("KeepA");
+    source
+        .apply_owned_damage(
+            id,
+            1000.,
+            Some(id),
+            crate::game_logic::combat::DamageType::Unresistable,
+            crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+            None,
+            &crate::game_logic::object::DamageHitContext::default(),
+        )
+        .unwrap();
+    let mut snapshot = SnapshotBuilder::new()
+        .create_world_snapshot(&source)
+        .unwrap();
+    v1(&mut snapshot, &source);
+    let (mut receiving, same) = owner("KeepA");
+    let (peer, peer_id) = owner("KeepA");
+    assert_eq!((id, same), (peer_id, peer_id));
+    receiving.frame = 915;
+    let cache: std::collections::HashSet<_> = receiving.templates.keys().cloned().collect();
+    let error = SnapshotBuilder::new()
+        .restore_from_snapshot(&snapshot, &mut receiving)
+        .unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("full-score receipt is ambiguous")
+    );
+    assert_eq!(receiving.frame, 915);
+    assert_eq!(receiving.objects[&id].health.current, 100.);
+    assert_eq!(
+        receiving.objects[&id].kill_score_phase,
+        crate::game_logic::kill_credit::KillScorePhase::Ready
+    );
+    assert!(receiving.pending_object_removal_snapshot().is_empty());
+    assert_eq!(cache, receiving.templates.keys().cloned().collect());
+    assert_eq!(peer.objects[&id].health.current, 100.);
+    assert!(peer.pending_object_removal_snapshot().is_empty());
+}
+#[test]
+fn v2_malformed_pending_removal_graph_rejects_before_live_mutation() {
+    let (mut source, id) = owner("KeepA");
+    source
+        .apply_owned_damage(
+            id,
+            1000.,
+            Some(id),
+            crate::game_logic::combat::DamageType::Unresistable,
+            crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+            None,
+            &crate::game_logic::object::DamageHitContext::default(),
+        )
+        .unwrap();
+    source.destroy_object(id);
+    assert!(source.objects[&id].status.on_die_started);
+    assert!(source.objects[&id].status.destroyed);
+    for removals in [
+        vec![crate::game_logic::kill_credit::PendingObjectRemoval {
+            id: ObjectId(999),
+            killer: None,
+            after_death: true,
+        }],
+        vec![crate::game_logic::kill_credit::PendingObjectRemoval {
+            id,
+            killer: Some(Team::USA),
+            after_death: false,
+        }],
+        vec![
+            crate::game_logic::kill_credit::PendingObjectRemoval {
+                id,
+                killer: None,
+                after_death: true
+            };
+            2
+        ],
+    ] {
+        let mut snapshot = SnapshotBuilder::new()
+            .create_world_snapshot(&source)
+            .unwrap();
+        let records = vec![Record {
+            id: id.0,
+            declarations: identity(&source.objects[&id].thing().template),
+            runtime: source.objects[&id].native_die_runtime.clone(),
+            score_completed: true,
+        }];
+        replace_ndie(
+            &mut snapshot,
+            VERSION,
+            bincode_legacy::serialize(&PayloadV2 { records, removals }).unwrap(),
+        );
+        let (mut receiving, _) = owner("KeepA");
+        receiving.frame = 915;
+        let error = SnapshotBuilder::new()
+            .restore_from_snapshot(&snapshot, &mut receiving)
+            .unwrap_err();
+        assert!(error.to_string().contains("pending physical-removal"));
+        assert_eq!(receiving.frame, 915);
+        assert_eq!(receiving.objects[&id].health.current, 100.);
+        assert!(receiving.pending_object_removal_snapshot().is_empty());
+    }
+}
+#[test]
+fn save_rejects_inflight_score_and_lifecycle_phases_without_draining_them() {
+    let (mut source, id) = owner("KeepA");
+    source.objects.get_mut(&id).unwrap().kill_score_phase =
+        crate::game_logic::kill_credit::KillScorePhase::Running;
+    let error = SnapshotBuilder::new()
+        .create_world_snapshot(&source)
+        .unwrap_err();
+    assert!(error.to_string().contains("in-flight scoreTheKill"));
+    assert_eq!(
+        source.objects[&id].kill_score_phase,
+        crate::game_logic::kill_credit::KillScorePhase::Running
+    );
+    source.objects.get_mut(&id).unwrap().kill_score_phase =
+        crate::game_logic::kill_credit::KillScorePhase::Ready;
+    source.object_lifecycle_callback_depth = 1;
+    let error = SnapshotBuilder::new()
+        .create_world_snapshot(&source)
+        .unwrap_err();
+    assert!(error.to_string().contains("active Object lifecycle"));
+    assert_eq!(source.object_lifecycle_callback_depth, 1);
+    assert_eq!(source.objects[&id].health.current, 100.);
+    assert!(source.pending_object_removal_snapshot().is_empty());
+}
+
+#[test]
+fn v1_initial_inactive_body_is_not_misclassified_as_an_ambiguous_death() {
+    let (mut source, id) = owner("KeepA");
+    let mut template = source.templates["NativeReceiptOwner"].clone();
+    template.body_kind = Some(crate::game_logic::thing::BodyKind::Inactive);
+    template.set_health(0.);
+    source
+        .templates
+        .insert(template.name.clone(), template.clone());
+    source.objects.insert(
+        id,
+        crate::game_logic::Object::new(template.clone(), id, Team::USA),
+    );
+    assert!(source.objects[&id].status.effectively_dead);
+    assert!(!source.objects[&id].status.on_die_started);
+    let mut snapshot = SnapshotBuilder::new()
+        .create_world_snapshot(&source)
+        .unwrap();
+    v1(&mut snapshot, &source);
+    let (mut receiving, _) = owner("KeepA");
+    receiving.templates.insert(template.name.clone(), template);
+    SnapshotBuilder::new()
+        .restore_from_snapshot(&snapshot, &mut receiving)
+        .unwrap();
+    assert!(receiving.objects[&id].is_inactive_body());
+    assert!(!receiving.objects[&id].status.on_die_started);
+    assert_eq!(
+        receiving.objects[&id].kill_score_phase,
+        crate::game_logic::kill_credit::KillScorePhase::Ready
+    );
+}

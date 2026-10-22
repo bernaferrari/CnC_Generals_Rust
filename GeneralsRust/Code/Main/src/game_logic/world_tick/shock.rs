@@ -1293,41 +1293,34 @@ impl GameLogic {
     /// Explicit CPP Object::scoreTheKill may precede Body death, as in
     /// AIRappelState. Ordinary combat admission keeps its dead-victim gate.
     pub(crate) fn score_the_kill_experience(&mut self, killer_id: ObjectId, victim_id: ObjectId) {
+        use crate::game_logic::kill_credit::KillScorePhase;
         let Some(victim) = self.objects.get(&victim_id) else {
             return;
         };
-        if victim.kill_experience_awarded {
+        if victim.kill_score_phase != KillScorePhase::Ready {
             return;
         }
-        let xp = victim.kill_experience_value();
-        let team = victim.team;
-        if let Some(v) = self.objects.get_mut(&victim_id) {
-            v.kill_experience_awarded = true;
+        if let Some(victim) = self.objects.get_mut(&victim_id) {
+            victim.kill_score_phase = KillScorePhase::Running;
         }
-        if !self.kill_awards_unit_experience(killer_id, victim_id, team) {
-            return;
-        }
-        // C++ Object::scoreTheKill → controller->addSkillPointsForKill
-        // (Object.cpp:2928, Player.cpp:2462-2475): the killer's owning player
-        // gains the victim's SkillPointValue (the helper repeats the
-        // under-construction skip at Player.cpp:2470-2472).
-        let killer_owner = self
-            .objects
-            .get(&killer_id)
-            .and_then(|killer| self.player_owner_for_host_object(killer));
-        let skill_value = self
-            .objects
-            .get(&victim_id)
-            .map(|victim| victim.kill_skill_point_value())
-            .unwrap_or(0);
-        if skill_value > 0 {
-            if let Some(owner) = killer_owner {
-                if let Some(player) = self.players.get_mut(&owner) {
-                    player.add_skill_points_limited(skill_value, self.rank_level_limit);
-                }
+        self.record_owned_score_the_kill(killer_id, victim_id);
+        // Preserve the independently persisted historical XP receipt. It must
+        // never be reinterpreted as proof that full Player scoring occurred.
+        let award = self.objects.get(&victim_id).and_then(|victim| {
+            (!victim.kill_experience_awarded)
+                .then_some((victim.kill_experience_value(), victim.team))
+        });
+        if let Some((xp, team)) = award {
+            if let Some(victim) = self.objects.get_mut(&victim_id) {
+                victim.kill_experience_awarded = true;
+            }
+            if self.kill_awards_unit_experience(killer_id, victim_id, team) {
+                self.award_experience(killer_id, xp);
             }
         }
-        self.award_experience(killer_id, xp);
+        if let Some(victim) = self.objects.get_mut(&victim_id) {
+            victim.kill_score_phase = KillScorePhase::Complete;
+        }
     }
 
     /// C++ Object::scoreTheKill + getExperienceValue: only ENEMIES, not own/allies.

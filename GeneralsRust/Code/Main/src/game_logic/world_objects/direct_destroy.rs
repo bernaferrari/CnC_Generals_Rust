@@ -44,6 +44,16 @@ impl GameLogic {
         id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
+        self.object_lifecycle_callback_depth += 1;
+        self.apply_object_delete_callbacks_body_with_effects(id, effects);
+        self.object_lifecycle_callback_depth -= 1;
+    }
+
+    fn apply_object_delete_callbacks_body_with_effects(
+        &mut self,
+        id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         self.detach_destroyed_object_from_contain(id);
         self.delete_direct_containment_with_effects(id, effects);
         self.remove_host_radar_provider(id);

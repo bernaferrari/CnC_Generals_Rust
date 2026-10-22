@@ -43,7 +43,11 @@ fn replace_receipt(snapshot: &mut WorldSnapshot, record: Option<Record>) {
         if tag == TAG {
             let mut bytes = Vec::new();
             if let Some(record) = record {
-                let payload = bincode_legacy::serialize(&vec![record]).unwrap();
+                let payload = bincode_legacy::serialize(&PayloadV2 {
+                    records: vec![record],
+                    removals: Vec::new(),
+                })
+                .unwrap();
                 bytes.extend_from_slice(TAG);
                 bytes.extend_from_slice(&VERSION.to_le_bytes());
                 bytes.extend_from_slice(&(payload.len() as u32).to_le_bytes());
@@ -91,6 +95,7 @@ fn native_die_saved_inactive_unset_receiving_body_rejects_forged_fx_before_mutat
     replace_receipt(
         &mut snapshot,
         Some(Record {
+            score_completed: false,
             id: id.0,
             declarations: identity(&source.templates["NativeReceiptOwner"]),
             runtime,

@@ -21,6 +21,8 @@ mod host;
 mod host_object_store;
 mod map_loading;
 pub(crate) use map_loading::MapAttemptKind;
+#[path = "../kill_credit.rs"]
+pub(crate) mod kill_credit;
 mod player;
 #[path = "../score_academy.rs"]
 mod score_academy;

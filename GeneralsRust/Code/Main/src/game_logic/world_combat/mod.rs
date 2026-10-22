@@ -39,6 +39,8 @@ mod weapon_visual_dispatch_tests;
 
 #[cfg(test)]
 mod projectile_body_owner_tests;
+#[cfg(test)]
+mod residual_attribution_tests;
 
 #[cfg(test)]
 mod passive_weapon_fire_tests;

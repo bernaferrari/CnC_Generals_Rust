@@ -70,6 +70,7 @@ impl GameLogic {
             weapon_definitions: None,
             projectile_definitions: Default::default(),
             physics_definitions: Default::default(),
+            object_lifecycle_callback_depth: 0,
             terrain_definitions: Default::default(),
             armor_definitions: None,
             weapon_effect_definitions: Default::default(),

@@ -2846,6 +2846,9 @@ pub struct Object {
     /// C++ ActiveBody scoreTheKill once per death (splash/residual + direct-fire).
     #[serde(default)]
     pub kill_experience_awarded: bool,
+    /// Full score admission, distinct from the historical XP-only receipt.
+    #[serde(skip)]
+    pub(crate) kill_score_phase: crate::game_logic::kill_credit::KillScorePhase,
     /// C++ Object `m_healthBoxOffset` (SpawnBehavior averages spawn positions).
     #[serde(default)]
     pub health_box_offset: [f32; 3],

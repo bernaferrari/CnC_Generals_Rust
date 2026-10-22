@@ -184,8 +184,7 @@ impl GameLogic {
         for id in destroy_ids {
             // Avoid re-entrancy loops: queue destroy without re-firing this dying unit.
             if id != dying_id {
-                self.objects_to_destroy
-                    .push_back(DestructionEvent::after_death(id, Some(team)));
+                self.queue_after_death_completion(id, Some(team));
             }
         }
     }
@@ -618,6 +617,46 @@ impl GameLogic {
         }
     }
 
+    pub(in crate::game_logic) fn queue_after_death_completion(
+        &mut self,
+        id: ObjectId,
+        killer: Option<Team>,
+    ) {
+        if self.objects.contains_key(&id)
+            && !self.objects_to_destroy.iter().any(|event| event.id == id)
+        {
+            self.objects_to_destroy
+                .push_back(DestructionEvent::after_death(id, killer));
+        }
+    }
+    pub(crate) fn pending_object_removal_snapshot(
+        &self,
+    ) -> Vec<crate::game_logic::kill_credit::PendingObjectRemoval> {
+        self.objects_to_destroy
+            .iter()
+            .map(
+                |event| crate::game_logic::kill_credit::PendingObjectRemoval {
+                    id: event.id,
+                    killer: event.killer,
+                    after_death: event.needs_death_effects(),
+                },
+            )
+            .collect()
+    }
+    pub(crate) fn restore_pending_object_removals(
+        &mut self,
+        records: Vec<crate::game_logic::kill_credit::PendingObjectRemoval>,
+    ) {
+        self.objects_to_destroy.clear();
+        for record in records {
+            self.objects_to_destroy.push_back(if record.after_death {
+                DestructionEvent::after_death(record.id, record.killer)
+            } else {
+                DestructionEvent::direct(record.id)
+            });
+        }
+    }
+
     fn enqueue_object_destruction(&mut self, id: ObjectId, killer: Option<Team>) {
         self.enqueue_object_destruction_with_effects(
             id,
@@ -640,8 +679,7 @@ impl GameLogic {
             return;
         }
         self.apply_pending_create_object_die_with_effects(id, presentation_effects);
-        self.objects_to_destroy
-            .push_back(DestructionEvent::after_death(id, killer));
+        self.queue_after_death_completion(id, killer);
         if let Some(object) = self.objects.get_mut(&id) {
             object.status.destroyed = true;
         }
@@ -671,6 +709,32 @@ impl GameLogic {
         topple_interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
+        self.object_lifecycle_callback_depth += 1;
+        self.begin_object_death_callbacks_with_effects(
+            id,
+            killer,
+            input,
+            topple_interpreter,
+            presentation_effects,
+        );
+        self.object_lifecycle_callback_depth -= 1;
+    }
+
+    fn begin_object_death_callbacks_with_effects(
+        &mut self,
+        id: ObjectId,
+        killer: Option<Team>,
+        input: Option<crate::game_logic::object::OnDieInput>,
+        topple_interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
+        if self
+            .objects_to_destroy
+            .iter()
+            .any(|event| event.id == id && !event.needs_death_effects())
+        {
+            return;
+        }
         if self
             .objects
             .get(&id)
@@ -789,8 +853,7 @@ impl GameLogic {
         if death_type.is_some_and(|death_type| {
             self.try_apply_instant_death_with_effects(id, death_type, presentation_effects)
         }) {
-            self.objects_to_destroy
-                .push_back(DestructionEvent::after_death(id, killer));
+            self.queue_after_death_completion(id, killer);
             if let Some(obj) = self.objects.get_mut(&id) {
                 obj.status.destroyed = true;
             }

@@ -51,8 +51,17 @@ fn world() -> (GameLogic, ObjectId, ObjectId) {
 }
 
 fn kill(world: &mut GameLogic, killer: ObjectId, victim: ObjectId) {
-    world.host_object_mut(victim).unwrap().last_damage_source = Some(killer);
-    world.mark_object_for_destruction(victim, Some(Team::USA));
+    world
+        .apply_owned_damage(
+            victim,
+            1.0e9,
+            Some(killer),
+            crate::game_logic::combat::DamageType::Unresistable,
+            crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+            None,
+            &crate::game_logic::object::DamageHitContext::default(),
+        )
+        .unwrap();
     world.process_destroy_list();
     assert!(world.host_object(victim).is_none());
 }
