@@ -174,7 +174,7 @@ fn active_return_snapshot_continues_route_deadline_and_phase_without_new_order()
     );
     let enemy = source
         .host_objects()
-        .values()
+        .registered_values()
         .find(|u| u.name == "NamedTarget")
         .unwrap()
         .id;
@@ -255,7 +255,7 @@ fn due_return_enemy_acquisition_precedes_simultaneous_arrival() {
     let (mut owner, id) = unfinished_return();
     let enemy = owner
         .host_objects()
-        .values()
+        .registered_values()
         .find(|u| u.name == "NamedTarget")
         .unwrap()
         .id;

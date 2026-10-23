@@ -32,7 +32,7 @@ fn place(logic: &mut GameLogic, player: u32, text: &str) -> ObjectId {
             .unwrap(),
         CommandResult::Success
     );
-    *logic.host_objects().keys().next().unwrap()
+    *logic.host_objects().registered_keys().next().unwrap()
 }
 
 #[test]
@@ -124,7 +124,7 @@ fn encoded_roster_replacement_cannot_reuse_the_previous_beacon_entry() {
     let bytes = bincode_legacy::serialize(&snapshot).unwrap();
     let decoded: WorldSnapshot = bincode_legacy::deserialize(&bytes).unwrap();
     builder.restore_from_snapshot(&decoded, &mut owner).unwrap();
-    assert!(owner.host_objects().is_empty());
+    assert!(owner.host_objects().registered_is_empty());
     assert_eq!(host_beacon_caption(&owner, id), None);
     assert!(!host_beacon_is_hidden(&owner, id));
     assert_eq!(place(&mut owner, 0, "new visible caption"), id);

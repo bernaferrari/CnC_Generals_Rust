@@ -1782,7 +1782,7 @@ mod tests {
         assert!(logic.is_initialized());
         assert_eq!(logic.game_logic.game_mode(), GameMode::None);
         assert!(logic.game_logic.get_players().is_empty());
-        assert!(logic.game_logic.host_objects().is_empty());
+        assert!(logic.game_logic.host_objects().registered_is_empty());
 
         logic.game_logic.start_new_game(GameMode::Skirmish);
         assert_eq!(logic.game_logic.game_mode(), GameMode::Skirmish);

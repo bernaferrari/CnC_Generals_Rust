@@ -469,7 +469,7 @@ impl GameLogic {
 
         let candidates: Vec<(ObjectId, f32)> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, obj)| {
                 if source == Some(*id) {
                     return None;
@@ -629,7 +629,7 @@ impl GameLogic {
                 // Pure residual acquire: nearest combat target near impact (XZ).
                 let candidates: Vec<_> = self
                     .objects
-                    .iter()
+                    .registered()
                     .map(|(&id, obj)| {
                         let combat_kind =
                             crate::game_logic::host_residual_acquire::residual_combat_kind(
@@ -799,7 +799,7 @@ impl GameLogic {
 
         let candidates: Vec<_> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(id, _)| **id != host_id)
             .map(|(id, obj)| {
                 let combat_kind = crate::game_logic::host_residual_acquire::residual_combat_kind(
@@ -1100,7 +1100,7 @@ impl GameLogic {
         // Collect candidates: intended always; splash ring when tier has radius.
         let candidates: Vec<(ObjectId, f32, bool)> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, obj)| {
                 if source == Some(*id) {
                     return None;
@@ -1552,7 +1552,7 @@ impl GameLogic {
 
         let candidates: Vec<(ObjectId, f32, bool)> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, obj)| {
                 if source == Some(*id) {
                     return None;
@@ -1701,7 +1701,7 @@ impl GameLogic {
                 // Pure residual acquire: nearest combat target near impact (XZ).
                 let candidates: Vec<_> = self
                     .objects
-                    .iter()
+                    .registered()
                     .map(|(&id, obj)| {
                         let combat_kind =
                             crate::game_logic::host_residual_acquire::residual_combat_kind(
@@ -1991,7 +1991,7 @@ impl GameLogic {
         let frame = self.frame;
         let flying: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, o)| {
                 if o.marauder_shell_projectile && o.is_alive() {
                     Some(*id)
@@ -2151,7 +2151,7 @@ impl GameLogic {
 
         let candidates: Vec<(ObjectId, f32, bool)> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, obj)| {
                 if source == Some(*id) {
                     return None;
@@ -2499,7 +2499,7 @@ impl GameLogic {
         let frame = self.frame;
         let flying: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, o)| {
                 if o.scorpion_shell_projectile && o.is_alive() {
                     Some(*id)

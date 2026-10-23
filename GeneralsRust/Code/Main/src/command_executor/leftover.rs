@@ -348,7 +348,7 @@ impl<'a> CommandExecutor<'a> {
             let sc_cands: Vec<_> = self
                 .game_logic
                 .host_objects()
-                .iter()
+                .registered()
                 .filter_map(|(&id, obj)| {
                     if obj.team != team || !obj.is_alive() || obj.status.under_construction {
                         return None;
@@ -509,7 +509,7 @@ impl<'a> CommandExecutor<'a> {
             let mine_cands: Vec<_> = self
                 .game_logic
                 .host_objects()
-                .iter()
+                .registered()
                 .filter_map(|(&id, obj)| {
                     if !obj.is_alive() || obj.mine_data.is_none() || obj.team == team {
                         return None;
@@ -1186,7 +1186,7 @@ fn host_object_is_beacon(logic: &GameLogic, id: ObjectId) -> bool {
 fn host_count_player_beacons(logic: &GameLogic, player_id: u32, template_name: &str) -> i32 {
     logic
         .host_objects()
-        .values()
+        .registered_values()
         .filter(|obj| {
             obj.owner_player_id == Some(player_id)
                 && obj.is_alive()
@@ -1227,7 +1227,7 @@ fn host_transfer_assets_from(logic: &mut GameLogic, dest_player: u32, source_pla
     // C++ Player::transferAssetsFromThat — skip beacon templates, then cash.
     let ids: Vec<ObjectId> = logic
         .host_objects()
-        .iter()
+        .registered()
         .filter_map(|(id, obj)| {
             (obj.owner_player_id == Some(source_player)
                 && obj.is_alive()
@@ -1268,7 +1268,7 @@ fn host_kill_player(
     // C++ Player::killPlayer — same army/beacon/tech/SP-AI path as victory.
     let ids: Vec<ObjectId> = logic
         .host_objects()
-        .iter()
+        .registered()
         .filter_map(|(id, obj)| (obj.owner_player_id == Some(player_id)).then_some(*id))
         .collect();
     logic.kill_player_for_victory_with_effects(player_id, effects);
@@ -1316,7 +1316,7 @@ pub fn host_beacon_is_hidden(logic: &GameLogic, id: ObjectId) -> bool {
 /// `host_beacons` is position-only, so presentation matches hide by pose.
 pub fn host_beacon_position_is_hidden(logic: &GameLogic, pos: Vec3) -> bool {
     const MATCH: f32 = 3.0; // beacon_manager BEACON_MATCH_THRESHOLD
-    logic.host_objects().values().any(|obj| {
+    logic.host_objects().registered_values().any(|obj| {
         obj.template_name.to_ascii_lowercase().contains("beacon")
             && (host_beacon_is_hidden(logic, obj.id) || obj.drawable_hidden)
             && (obj.get_position() - pos).length() <= MATCH
@@ -1350,7 +1350,7 @@ pub fn tick_live_beacon_client_updates(logic: &mut GameLogic) {
     let pulse_seconds = pulse_data.radar_pulse_duration as f32 / 30.0;
     let beacons: Vec<(ObjectId, glam::Vec3, bool, u32)> = logic
         .host_objects()
-        .iter()
+        .registered()
         .filter_map(|(id, obj)| {
             if !obj.is_alive() || !obj.template_name.to_ascii_lowercase().contains("beacon") {
                 return None;

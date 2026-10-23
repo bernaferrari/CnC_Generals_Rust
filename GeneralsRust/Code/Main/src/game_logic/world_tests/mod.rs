@@ -33,6 +33,14 @@ mod vehicles_and_lasers;
 
 #[test]
 fn fast_chunky_sync_fail_opens_when_legacy_globals_are_busy() {
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "fast_chunky_sync_fail_opens_when_legacy_globals_are_busy",
+        fast_chunky_sync_fail_opens_when_legacy_globals_are_busy_case,
+    );
+}
+
+fn fast_chunky_sync_fail_opens_when_legacy_globals_are_busy_case() {
     // Abandoned startup workers can still hold THE_TERRAIN_LOGIC / SidesList /
     // PlayerList / TeamFactory after generation bump. start_game_from_ui is
     // synchronous, so blocking writes hang Loading. Fail-open must return.
@@ -69,14 +77,17 @@ fn fast_chunky_sync_fail_opens_when_legacy_globals_are_busy() {
     let file_system = game_engine::common::system::file_system::get_file_system();
     let _fs = file_system.lock().expect("hold FileSystem");
 
-    let started = std::time::Instant::now();
+    // The exact child watchdog detects a blocking call: all five guards stay
+    // held on this thread until sync returns. This is not a frame-time benchmark.
     logic.sync_legacy_runtime_from_fast_chunky(chunky.source.as_path(), &chunky);
-    let elapsed = started.elapsed();
-    assert!(
-        elapsed < std::time::Duration::from_secs(2),
-        "sync blocked on contended locks for {:?}",
-        elapsed
-    );
+    // Explicitly release every held global guard after the operation. The
+    // isolated child proves the sync returns while all five remain held, while
+    // keeping a lock failure local to this test process.
+    drop(_fs);
+    drop(_teams);
+    drop(_players);
+    drop(_sides);
+    drop(_terrain);
 }
 
 #[test]

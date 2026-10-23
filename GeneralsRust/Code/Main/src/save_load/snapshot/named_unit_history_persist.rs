@@ -12,7 +12,7 @@ pub(super) fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, world: &GameLogic) {
         .chain(
             world
                 .host_objects()
-                .values()
+                .registered_values()
                 .filter_map(|object| (!object.name.is_empty()).then(|| object.name.clone())),
         )
         .collect();
@@ -75,7 +75,7 @@ pub(super) fn apply_from_lifecycle_tail(bytes: &[u8], world: &mut GameLogic) -> 
     names.extend(
         world
             .host_objects()
-            .values()
+            .registered_values()
             .filter_map(|object| (!object.name.is_empty()).then(|| object.name.clone())),
     );
     world.named_unit_history = names;
@@ -108,7 +108,7 @@ mod tests {
         let mut restored = GameLogic::new();
         apply_from_lifecycle_tail(&bytes, &mut restored).unwrap();
         assert_eq!(restored.named_unit_history, source.named_unit_history);
-        assert!(restored.host_objects().is_empty());
+        assert!(restored.host_objects().registered_is_empty());
     }
 
     #[test]

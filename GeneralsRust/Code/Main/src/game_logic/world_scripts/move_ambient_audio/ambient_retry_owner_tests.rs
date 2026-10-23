@@ -151,6 +151,13 @@ fn create(world: &mut GameLogic, object_rules: &str, position: Vec3) -> ObjectId
     let id = world
         .create_object(TEMPLATE, Team::USA, position)
         .expect("actual authored ambient admission");
+    assert!(
+        world.host_object(id).unwrap().ambient_audio.is_none(),
+        "headless Object birth must not duplicate native Drawable ambient ownership"
+    );
+    // Exercise the existing receiving script-audio residual explicitly. These
+    // pacing tests do not construct a native Drawable or claim its ctor proof.
+    assert!(world.enable_owned_object_sound(id, true));
     let object = world.objects.get(&id).expect("actual admitted Object");
     assert_eq!(
         object.health.current, 100.0,
@@ -165,7 +172,7 @@ fn create(world: &mut GameLogic, object_rules: &str, position: Vec3) -> ObjectId
         id,
         position,
         1,
-        "constructor-path SoundAmbient starts once",
+        "explicit receiving script-audio activation starts once",
     );
     id
 }

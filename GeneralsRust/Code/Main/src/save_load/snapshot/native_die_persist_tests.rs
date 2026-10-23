@@ -552,7 +552,7 @@ fn replace_ndie(
 fn v1(snapshot: &mut crate::save_load::snapshot::WorldSnapshot, source: &GameLogic) {
     let records: Vec<_> = source
         .host_objects()
-        .iter()
+        .registered()
         .map(|(id, object)| RecordV1 {
             id: id.0,
             declarations: identity(&object.thing().template),

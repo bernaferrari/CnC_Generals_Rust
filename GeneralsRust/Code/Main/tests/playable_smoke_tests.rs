@@ -291,7 +291,7 @@ fn run_basic_faction_flow(human_team: Team) {
     game_logic.process_commands();
     let barracks_pending = game_logic
         .get_objects()
-        .values()
+        .registered_values()
         .any(|o| o.template_name == "SmokeBarracks");
     assert!(
         barracks_pending,
@@ -301,7 +301,7 @@ fn run_basic_faction_flow(human_team: Team) {
     assert!(
         run_until(&mut game_logic, 90, |game_logic| game_logic
             .get_objects()
-            .values()
+            .registered_values()
             .any(|object| {
                 object.template_name == "SmokeBarracks"
                     && object.team == human_team
@@ -313,7 +313,7 @@ fn run_basic_faction_flow(human_team: Team) {
 
     let barracks_id = game_logic
         .get_objects()
-        .values()
+        .registered_values()
         .find(|object| {
             object.template_name == "SmokeBarracks"
                 && object.team == human_team
@@ -354,7 +354,7 @@ fn run_basic_faction_flow(human_team: Team) {
     assert!(
         run_until(&mut game_logic, 90, |game_logic| game_logic
             .get_objects()
-            .values()
+            .registered_values()
             .any(
                 |object| object.template_name == "SmokeRanger" && object.team == human_team
             )),
@@ -364,7 +364,7 @@ fn run_basic_faction_flow(human_team: Team) {
 
     let ranger_id = game_logic
         .get_objects()
-        .values()
+        .registered_values()
         .find(|object| object.template_name == "SmokeRanger" && object.team == human_team)
         .map(|object| object.id)
         .expect("barracks production should spawn faction-owned infantry");
@@ -506,14 +506,14 @@ fn mini_skirmish_playable_flow_smoke() {
     ));
     assert!(run_until(&mut game_logic, 90, |game_logic| game_logic
         .get_objects()
-        .values()
+        .registered_values()
         .any(
             |object| object.template_name == "SmokeBarracks" && object.is_constructed()
         )));
 
     let barracks = game_logic
         .get_objects()
-        .values()
+        .registered_values()
         .find(|object| object.template_name == "SmokeBarracks")
         .expect("dozer construct command should create barracks");
     assert!(barracks.is_constructed());
@@ -540,14 +540,14 @@ fn mini_skirmish_playable_flow_smoke() {
     ));
     assert!(run_until(&mut game_logic, 90, |game_logic| game_logic
         .get_objects()
-        .values()
+        .registered_values()
         .any(
             |object| object.template_name == "SmokeRanger" && object.team == Team::USA
         )));
 
     let ranger_id = game_logic
         .get_objects()
-        .values()
+        .registered_values()
         .find(|object| object.template_name == "SmokeRanger" && object.team == Team::USA)
         .map(|object| object.id)
         .expect("barracks production should spawn a ranger");
@@ -717,7 +717,7 @@ fn mini_skirmish_playable_flow_smoke() {
     // Eliminate every living China object (fail-closed if AI left residuals).
     let china_ids: Vec<_> = game_logic
         .get_objects()
-        .values()
+        .registered_values()
         .filter(|o| o.team == Team::China && o.is_alive())
         .map(|o| o.id)
         .collect();
@@ -788,7 +788,7 @@ fn dozer_construct_places_barracks_under_construction() {
     assert!(
         game_logic
             .get_objects()
-            .values()
+            .registered_values()
             .any(|o| o.template_name == "SmokeBarracks"),
         "barracks must exist after DozerConstruct; supplies={}",
         game_logic
@@ -798,7 +798,7 @@ fn dozer_construct_places_barracks_under_construction() {
     );
     let barracks_id = game_logic
         .get_objects()
-        .values()
+        .registered_values()
         .find(|o| o.template_name == "SmokeBarracks")
         .map(|o| o.id)
         .expect("placed barracks id");

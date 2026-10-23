@@ -30,13 +30,13 @@ fn spawn_skirmish_starting_units_spawns_missing_builder() {
     );
     let before = logic
         .host_objects()
-        .values()
+        .registered_values()
         .filter(|o| o.team == Team::USA && o.is_mobile())
         .count();
     logic.spawn_skirmish_starting_units();
     let after = logic
         .host_objects()
-        .values()
+        .registered_values()
         .filter(|o| o.team == Team::USA && o.is_mobile())
         .count();
     assert!(
@@ -45,7 +45,7 @@ fn spawn_skirmish_starting_units_spawns_missing_builder() {
     );
     let china_mobile = logic
         .host_objects()
-        .values()
+        .registered_values()
         .filter(|o| o.team == Team::China && o.is_mobile())
         .count();
     assert!(
@@ -77,7 +77,7 @@ fn america_vehicle_dozer_is_retail_starting_builder() {
     // Lone Eagle-style maps keep buildings but omit the starting dozer.
     // spawn_skirmish_starting_units is the map/skirmish start path (not spawn_dozer=1).
     assert!(
-        !logic.host_objects().values().any(|o| {
+        !logic.host_objects().registered_values().any(|o| {
             o.team == Team::USA
                 && o.is_alive()
                 && (o.template_name.eq_ignore_ascii_case("AmericaVehicleDozer")
@@ -88,7 +88,7 @@ fn america_vehicle_dozer_is_retail_starting_builder() {
     logic.spawn_skirmish_starting_units();
     let has_builder = logic
         .host_objects()
-        .values()
+        .registered_values()
         .any(|o| o.team == Team::USA && o.is_alive() && o.is_mobile() && o.can_construct());
     assert!(
         has_builder,
@@ -96,7 +96,7 @@ fn america_vehicle_dozer_is_retail_starting_builder() {
     );
     let builder = logic
         .host_objects()
-        .values()
+        .registered_values()
         .find(|o| o.team == Team::USA && o.can_construct())
         .unwrap()
         .id;
@@ -159,7 +159,7 @@ fn america_vehicle_dozer_is_retail_starting_builder() {
     assert_eq!(logic.get_player(0).unwrap().effective_supplies(), 700);
     let site = logic
         .host_objects()
-        .values()
+        .registered_values()
         .find(|o| o.template_name == "SpawnedBuilderScaffold")
         .unwrap();
     assert!(site.status.under_construction);
@@ -300,7 +300,7 @@ fn spawn_skirmish_starting_units_uses_player_rally() {
     logic.spawn_skirmish_starting_units();
     let dozer = logic
         .host_objects()
-        .values()
+        .registered_values()
         .find(|o| o.team == Team::USA && o.is_alive() && o.is_mobile() && o.can_construct())
         .expect("starting builder");
     let pos = dozer.get_position();

@@ -95,7 +95,11 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
 }
 
 fn capture(game_logic: &GameLogic) -> ModuleRuntimePersistPayload {
-    let mut ids: Vec<ObjectId> = game_logic.host_objects().keys().copied().collect();
+    let mut ids: Vec<ObjectId> = game_logic
+        .host_objects()
+        .registered_keys()
+        .copied()
+        .collect();
     ids.sort();
 
     let mut countermeasures = Vec::new();

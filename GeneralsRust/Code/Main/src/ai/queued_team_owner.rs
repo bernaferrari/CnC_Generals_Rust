@@ -32,7 +32,7 @@ impl GameLogic {
         if !has_definition {
             return;
         }
-        let center = self.host_objects().iter().find_map(|(&id, object)| {
+        let center = self.host_objects().registered().find_map(|(&id, object)| {
             (object.is_alive()
                 && object.is_kind_of(KindOf::CommandCenter)
                 && self.object_owned_by_player(object, player))
@@ -989,7 +989,7 @@ mod tests {
             .iter()
             .find(|p| p.template_name == "AmericaSupplyCenter")
             .unwrap();
-        assert!(world.host_objects().values().any(|o| {
+        assert!(world.host_objects().registered_values().any(|o| {
             o.template_name == "AmericaVehicleChinook"
                 && o.producer_id == pad.object_id
                 && o.owner_player_id == Some(1)

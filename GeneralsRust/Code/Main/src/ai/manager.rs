@@ -767,7 +767,7 @@ impl AIManager {
         }
         let needle = team_name.trim();
         if !needle.is_empty() {
-            for obj in game_logic.host_objects().values() {
+            for obj in game_logic.host_objects().registered_values() {
                 if !obj.is_alive()
                     || obj.team_instance_name.is_empty()
                     || !obj.team_instance_name.eq_ignore_ascii_case(needle)

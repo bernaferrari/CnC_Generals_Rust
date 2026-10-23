@@ -492,7 +492,7 @@ fn canonical_command_set_is_projected_from_receiving_owner() {
     }
     shadow.sync_from_host(&logic);
 
-    let o = logic.host_objects().get(&oid).expect("o");
+    let o = logic.host_objects().lookup(&oid).expect("o");
     assert_eq!(
         o.command_set_override.as_deref(),
         Some("Command_DemoSuicide")
@@ -536,7 +536,7 @@ fn canonical_selection_radius_projects_without_writeback() {
     }
     shadow.sync_from_host(&logic);
 
-    let o = logic.host_objects().get(&oid).expect("o");
+    let o = logic.host_objects().lookup(&oid).expect("o");
     assert!((o.selection_radius - 14.5).abs() < 1e-5);
 }
 
@@ -580,7 +580,7 @@ fn canonical_ground_height_is_projected_from_receiving_owner() {
     }
     shadow.sync_from_host(&logic);
 
-    let o = logic.host_objects().get(&oid).expect("o");
+    let o = logic.host_objects().lookup(&oid).expect("o");
     assert!((o.ground_height - 12.5).abs() < 1e-5);
     assert!(o.ground_height_from_terrain);
 }
@@ -684,7 +684,7 @@ fn canonical_kind_of_projects_without_writeback() {
     let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
 
     let bits = {
-        let o = logic.host_objects().get(&oid).expect("o");
+        let o = logic.host_objects().lookup(&oid).expect("o");
         o.presentation_kind_of_bits()
     };
     assert!(bits != 0, "bits {bits}");
@@ -741,7 +741,7 @@ fn canonical_identity_projects_without_writeback() {
     }
     shadow.sync_from_host(&logic);
 
-    let o = logic.host_objects().get(&oid).expect("o");
+    let o = logic.host_objects().lookup(&oid).expect("o");
     assert_eq!(o.name, "ScriptRanger");
     assert!((o.team_color[0] - 0.1).abs() < 1e-5);
 }
@@ -786,7 +786,7 @@ fn canonical_building_type_is_projected_from_receiving_owner() {
     }
     shadow.sync_from_host(&logic);
 
-    let o = logic.host_objects().get(&oid).expect("o");
+    let o = logic.host_objects().lookup(&oid).expect("o");
     assert_eq!(
         o.building_data.as_ref().map(|b| b.building_type),
         Some(BuildingType::Barracks)
@@ -842,7 +842,7 @@ fn canonical_crush_vision_is_projected_from_receiving_owner() {
     }
     shadow.sync_from_host(&logic);
 
-    let o = logic.host_objects().get(&oid).expect("o");
+    let o = logic.host_objects().lookup(&oid).expect("o");
     assert_eq!(o.crusher_level, 2);
     assert_eq!(o.crushable_level, 1);
     assert!((o.vision_range - 175.0).abs() < 1e-5);
@@ -895,7 +895,7 @@ fn canonical_mine_cheer_is_projected_from_receiving_owner() {
     }
     shadow.sync_from_host(&logic);
 
-    let o = logic.host_objects().get(&oid).expect("o");
+    let o = logic.host_objects().lookup(&oid).expect("o");
     assert!(o.demo_suicided_detonating);
     assert!((o.cheer_timer - 2.5).abs() < 1e-5);
     assert!(o.mine_data.is_some());
@@ -938,6 +938,6 @@ fn canonical_model_condition_is_projected_from_receiving_owner() {
     }
     shadow.sync_from_host(&logic);
 
-    let o = logic.host_objects().get(&oid).expect("o");
+    let o = logic.host_objects().lookup(&oid).expect("o");
     assert_eq!(o.model_condition_bits, 0b1011);
 }

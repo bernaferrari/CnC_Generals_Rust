@@ -300,7 +300,7 @@ fn production_shadow_boundary_preserves_same_faction_player_radar_ownership_case
         );
         let dish = logic
             .host_objects()
-            .values()
+            .registered_values()
             .find(|obj| obj.template_name == "AmericaCommandCenter")
             .expect("actual provider object");
         // The adapter reports the next frame, after completing the previous
@@ -359,7 +359,7 @@ fn production_shadow_boundary_preserves_same_faction_player_radar_ownership_case
     restored
         .clear_all_objects_with_effects_checked(&mut Default::default())
         .unwrap();
-    assert!(restored.objects.is_empty());
+    assert!(restored.objects.registered_is_empty());
     assert_eq!(
         (
             restored.host_radar.online_transitions,
@@ -418,7 +418,7 @@ fn production_shadow_boundary_preserves_same_faction_player_radar_ownership_case
     ordinary_restored
         .clear_all_objects_with_effects_checked(&mut Default::default())
         .unwrap();
-    assert!(ordinary_restored.objects.is_empty());
+    assert!(ordinary_restored.objects.registered_is_empty());
     assert_eq!(
         (
             ordinary_restored.host_radar.online_transitions,

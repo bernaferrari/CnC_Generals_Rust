@@ -107,7 +107,7 @@ impl ResourceManager {
     pub fn find_nearest_supply_source(
         &self,
         position: Vec3,
-        objects: &HashMap<ObjectId, Object>,
+        objects: crate::game_logic::HostObjectRead<'_>,
     ) -> Option<ObjectId> {
         // Pure residual acquire: nearest supply source that can accept a gatherer (3D).
         let candidates: Vec<_> = self
@@ -117,7 +117,7 @@ impl ResourceManager {
                 if !source.can_accept_gatherer() {
                     return None;
                 }
-                let source_obj = objects.get(&source_id)?;
+                let source_obj = objects.lookup(&source_id)?;
                 Some(
                     crate::game_logic::host_residual_acquire::ResidualAcquireCandidate {
                         id: source_id,

@@ -170,7 +170,7 @@ fn place_beacon_spawns_world_object_and_honors_cap() {
     assert_eq!(place(&mut logic), CommandResult::Success);
     let beacons: Vec<_> = logic
         .host_objects()
-        .iter()
+        .registered()
         .filter(|(_, o)| o.template_name.to_ascii_lowercase().contains("beacon"))
         .map(|(id, _)| *id)
         .collect();
@@ -452,7 +452,7 @@ fn execute_build_refuses_human_on_unmovables() {
     assert!(
         !logic
             .objects
-            .values()
+            .registered_values()
             .any(|o| o.template_name == "TestUnmovableBarracks"),
         "no structure on un-scootable occupants"
     );
@@ -516,7 +516,7 @@ fn execute_build_no_money_queues_insufficient_funds_eva_and_refuses() {
     assert!(
         !logic
             .objects
-            .values()
+            .registered_values()
             .any(|o| o.template_name == "TestPoorBarracks"),
         "no structure may be placed without funds"
     );
@@ -637,7 +637,7 @@ fn dozer_place_and_cancel_use_calc_cost_to_build_handicap() {
 
     let building_id = logic
         .objects
-        .values()
+        .registered_values()
         .find(|o| o.template_name == "TestHandicapBarracks")
         .map(|o| o.id)
         .expect("placed barracks");

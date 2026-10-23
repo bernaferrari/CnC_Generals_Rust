@@ -100,7 +100,7 @@ fn authored_body_class_overrides_names_and_foreign_same_id_owners() {
     assert!(clone.is_inactive_body());
     assert_inactive(&owner, id);
     owner.reset();
-    assert!(owner.host_objects().is_empty());
+    assert!(owner.host_objects().registered_is_empty());
     let reset_id = owner
         .create_object(name, Team::USA, glam::Vec3::ZERO)
         .unwrap();
@@ -205,7 +205,7 @@ fn encoded_body_kind_restores_with_and_without_receiving_definitions() {
         missing_catalog.frame, 99,
         "missing declarations reject before mutation"
     );
-    assert!(missing_catalog.host_objects().is_empty());
+    assert!(missing_catalog.host_objects().registered_is_empty());
     for loaded_definition in [false, true] {
         let mut receiving = GameLogic::new();
         admit_definition(&mut receiving, name, true);

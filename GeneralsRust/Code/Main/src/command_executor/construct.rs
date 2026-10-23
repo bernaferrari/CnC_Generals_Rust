@@ -400,7 +400,7 @@ impl<'a> CommandExecutor<'a> {
             major
         };
         let mut to_destroy: Vec<ObjectId> = Vec::new();
-        for (&id, obj) in self.game_logic.host_objects() {
+        for (&id, obj) in self.game_logic.host_objects().registered() {
             if eligible_candidates.is_some_and(|ids| !ids.contains(&id)) {
                 continue;
             }

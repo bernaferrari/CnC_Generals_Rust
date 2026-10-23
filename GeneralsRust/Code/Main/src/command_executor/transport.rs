@@ -46,7 +46,7 @@ impl<'a> CommandExecutor<'a> {
         let candidates: Vec<_> = self
             .game_logic
             .host_objects()
-            .iter()
+            .registered()
             .filter_map(|(&obj_id, obj)| {
                 if obj.team != unit_team || !obj.is_alive() || !obj.can_contain() {
                     return None;

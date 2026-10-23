@@ -385,7 +385,7 @@ fn cpp_chunk_game_logic_does_not_report_successful_empty_world() {
         .load_game("retail_cpp", &mut world)
         .expect_err("live load must refuse unrestored C++ CHUNK_GameLogic");
     assert!(
-        world.host_objects().is_empty(),
+        world.host_objects().registered_is_empty(),
         "fail-closed load must not populate a stripped world"
     );
     let load_err = load_err.to_string();

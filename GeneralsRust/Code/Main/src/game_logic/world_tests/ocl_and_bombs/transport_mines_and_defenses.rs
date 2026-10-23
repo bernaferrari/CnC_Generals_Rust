@@ -660,7 +660,7 @@ fn cluster_mines_special_power_places_mines() {
 
     let mine_count = game_logic
         .host_objects()
-        .values()
+        .registered_values()
         .filter(|o| {
             o.mine_data
                 .as_ref()

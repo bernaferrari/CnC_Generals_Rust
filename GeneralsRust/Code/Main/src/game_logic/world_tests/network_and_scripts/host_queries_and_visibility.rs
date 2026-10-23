@@ -395,7 +395,7 @@ fn host_player_census_keeps_same_faction_players_distinct() {
     logic
         .create_object("ChinaInfantryRedguard", Team::China, Vec3::ZERO)
         .expect("unowned infantry");
-    for object in logic.objects.values_mut() {
+    for object in logic.objects.registered_values_mut() {
         if object.template_name == "ChinaInfantryRedguard" {
             object.owner_player_id = None;
         }
@@ -433,7 +433,9 @@ fn host_player_census_excludes_kindof_inert_from_has_any_objects() {
         condition
     };
     let mut logic = GameLogic::new();
-    logic.add_player(Player::new(1, Team::USA, "PlyrAmerica", true));
+    logic.add_player(
+        Player::new(1, Team::USA, "PlyrAmerica", true).with_script_identity("PlyrAmerica"),
+    );
 
     let mut field = ThingTemplate::new("TestInertRadiationField");
     field.set_health(100.0);
@@ -456,14 +458,16 @@ fn host_player_census_excludes_kindof_inert_from_has_any_objects() {
     logic
         .templates
         .insert("AmericaInfantryRanger".into(), ranger);
-    logic
+    let ranger_id = logic
         .create_object_for_player("AmericaInfantryRanger", 1, Vec3::new(12.0, 0.0, 22.0))
         .expect("ranger");
 
-    assert!(
-        !logic.owned_script_condition_for_test(destroyed()),
-        "a living non-inert unit still counts"
+    assert_eq!(
+        logic.host_object(ranger_id).unwrap().owner_player_id,
+        Some(1)
     );
+    let has_any_objects = !logic.owned_script_condition_for_test(destroyed());
+    assert!(has_any_objects, "a living non-inert unit still counts");
 }
 
 #[test]
@@ -473,6 +477,18 @@ fn create_object_script_request_spawns_named_host_unit() {
 
     OBJECT_REGISTRY.clear();
     let mut logic = GameLogic::new();
+    logic.add_player(Player::new(1, Team::USA, "PlyrAmerica", true));
+    let existing_team = {
+        let mut factory = logic.team_factory.lock().expect("world team factory");
+        factory.replace_team_prototype(gamelogic::team::TeamPrototype::new("teamAmerica".into()));
+        factory
+            .create_inactive_team("teamAmerica")
+            .expect("teamAmerica prototype")
+    };
+    existing_team
+        .write()
+        .expect("teamAmerica instance")
+        .set_controlling_player_id(Some(1));
     let mut t = ThingTemplate::new("AmericaInfantryRanger");
     t.set_health(100.0);
     logic.templates.insert("AmericaInfantryRanger".into(), t);
@@ -909,7 +925,7 @@ fn host_ai_rebind_after_world_wipe_keeps_players_cash_and_rebuilds() {
         logic.host_ai_activity_count() >= 1
             || logic
                 .host_objects()
-                .values()
+                .registered_values()
                 .any(|o| o.team == Team::GLA && o.is_kind_of(KindOf::Structure)),
         "AI rebuild soup should progress after rebind"
     );
@@ -940,7 +956,7 @@ fn clear_game_data_scrubs_map_and_player_state() {
     assert_eq!(game_logic.game_mode, GameMode::None);
     assert!(game_logic.map_name.is_empty());
     assert!(!game_logic.map_loaded);
-    assert!(game_logic.objects.is_empty());
+    assert!(game_logic.objects.registered_is_empty());
     assert!(game_logic.players.is_empty());
 }
 
@@ -1082,10 +1098,7 @@ fn asset_template_catalogue_seed_keeps_curated_templates_and_uses_exact_retail_f
         .get("AmericaTankCrusader")
         .expect("curated template retained");
     assert_eq!(curated_after.max_health, 777.0);
-    assert_eq!(
-        curated_after.model_name.as_deref(),
-        Some("CuratedExactModel")
-    );
+    assert_eq!(curated_after.model_name.as_deref(), Some("AVCrusader"));
 
     let seeded = logic
         .templates

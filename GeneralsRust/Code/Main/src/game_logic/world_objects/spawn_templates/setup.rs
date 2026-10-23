@@ -474,7 +474,7 @@ impl GameLogic {
 
         println!(
             "✅ Comprehensive RTS test map created with {} objects across all factions!",
-            self.objects.len()
+            self.objects.registered_len()
         );
 
         // Demonstrate the RTS functionality

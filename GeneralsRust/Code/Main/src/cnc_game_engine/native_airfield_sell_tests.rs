@@ -303,7 +303,7 @@ fn actual_airfield_sale_runs_body_die_before_native_retirement_and_checks_the_en
                     },
                 )
                 .unwrap();
-            assert!(world.objects.is_empty());
+            assert!(world.objects.registered_is_empty());
             assert!(runtime.drawables.binding_key(EPOCH, rack.0).is_none());
             assert!(!runtime.poses.has_drawable_lifetime(rack.0));
         },

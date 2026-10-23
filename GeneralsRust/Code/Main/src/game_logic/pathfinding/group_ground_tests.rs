@@ -19,7 +19,7 @@ fn raw_group_search_matches_executed_original_cpp() {
         let start = GridPos::new(input[2], input[3]);
         let requested = GridPos::new(input[4], input[5]);
         let expected = case["raw_original_search"].as_str().unwrap();
-        let objects = HashMap::new();
+        let objects = HostObjectStore::new();
         let from = Vec3::new(start.x as f32 * 10.0, 0.0, start.y as f32 * 10.0);
         let to = Vec3::new(requested.x as f32 * 10.0, 0.0, requested.y as f32 * 10.0);
         if expected == "null" {
@@ -27,7 +27,7 @@ fn raw_group_search_matches_executed_original_cpp() {
                 grid.find_group_ground_path_owned(
                     from,
                     to,
-                    &objects,
+                    objects.read(),
                     |_| true,
                     &mut 0,
                     &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0)
@@ -51,7 +51,7 @@ fn raw_group_search_matches_executed_original_cpp() {
         // search starts after that probe; the production query below checks it.
         let goal = *original.last().unwrap();
         let (actual, actual_cost) = grid
-            .group_ground_raw_trace(start, goal, &objects)
+            .group_ground_raw_trace(start, goal, objects.read())
             .expect("original found a route");
         assert_eq!(actual, original, "{} parent chain", case["name"]);
         assert_eq!(
@@ -64,7 +64,7 @@ fn raw_group_search_matches_executed_original_cpp() {
             .find_group_ground_path_owned(
                 from,
                 to,
-                &objects,
+                objects.read(),
                 |_| true,
                 &mut 0,
                 &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
@@ -83,7 +83,11 @@ fn raw_group_search_matches_executed_original_cpp() {
 fn first_goal_neighbor_preserves_safe_admitted_ray_cost() {
     let grid = PathfindingGrid::new(240.0, 240.0, 10.0);
     let (chain, cost) = grid
-        .group_ground_raw_trace(GridPos::new(12, 12), GridPos::new(13, 12), &HashMap::new())
+        .group_ground_raw_trace(
+            GridPos::new(12, 12),
+            GridPos::new(13, 12),
+            HostObjectStore::new().read(),
+        )
         .unwrap();
     assert_eq!(chain, [GridPos::new(12, 12), GridPos::new(13, 12)]);
     // Original reads an uninitialized local here (O0 cost1, O2 cost5).
@@ -97,12 +101,12 @@ fn receiving_group_queries_do_not_inherit_individual_ignore_or_peer_cells() {
     let mut peer = PathfindingSystem::new(400.0, 400.0);
     let start = Vec3::new(80.0, 0.0, 200.0);
     let goal = Vec3::new(300.0, 0.0, 200.0);
-    let objects = HashMap::new();
+    let objects = HostObjectStore::new();
     let expected = first
         .find_group_ground_path(
             start,
             goal,
-            &objects,
+            objects.read(),
             &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
         )
         .unwrap();
@@ -113,7 +117,7 @@ fn receiving_group_queries_do_not_inherit_individual_ignore_or_peer_cells() {
         peer.find_group_ground_path(
             start,
             goal,
-            &objects,
+            objects.read(),
             &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0)
         )
         .is_none()
@@ -124,7 +128,7 @@ fn receiving_group_queries_do_not_inherit_individual_ignore_or_peer_cells() {
             .find_group_ground_path(
                 start,
                 goal,
-                &objects,
+                objects.read(),
                 &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0)
             )
             .unwrap(),
@@ -141,7 +145,7 @@ fn receiving_group_queries_do_not_inherit_individual_ignore_or_peer_cells() {
             .find_group_ground_path(
                 start,
                 goal,
-                &objects,
+                objects.read(),
                 &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0)
             )
             .unwrap(),
@@ -163,14 +167,14 @@ fn fixed_occupants_are_resolved_from_each_receiving_object_map() {
     occupant.crushable_level = 1;
     let mut counterpart = occupant.clone();
     counterpart.crushable_level = 0;
-    let first_objects = HashMap::from([(occupant.id, occupant)]);
-    let peer_objects = HashMap::from([(counterpart.id, counterpart)]);
+    let first_objects = registered_path_fixture([(occupant.id, occupant)]);
+    let peer_objects = registered_path_fixture([(counterpart.id, counterpart)]);
     first.set_ignore_obstacle(Some(ObjectId(91)));
     let shifted = first
         .find_group_ground_path(
             start,
             goal,
-            &first_objects,
+            first_objects.read(),
             &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
         )
         .unwrap();
@@ -178,7 +182,7 @@ fn fixed_occupants_are_resolved_from_each_receiving_object_map() {
         .find_group_ground_path(
             start,
             goal,
-            &peer_objects,
+            peer_objects.read(),
             &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
         )
         .unwrap();
@@ -195,7 +199,7 @@ fn fixed_occupants_are_resolved_from_each_receiving_object_map() {
             .find_group_ground_path(
                 start,
                 goal,
-                &first_objects,
+                first_objects.read(),
                 &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0)
             )
             .unwrap(),
@@ -205,7 +209,7 @@ fn fixed_occupants_are_resolved_from_each_receiving_object_map() {
         .find_group_ground_path(
             start,
             goal,
-            &HashMap::new(),
+            HostObjectStore::new().read(),
             &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
         )
         .unwrap();
@@ -243,7 +247,7 @@ fn failed_shared_group_search_preserves_member_movement_admission() {
                 member.num_frames_blocked = 9;
                 member.is_blocked_and_stuck = true;
                 member.is_final_goal = false;
-                world.objects.insert(id, member);
+                world.objects.admit(id, member);
                 goals.push((id, destination));
             }
             assert!(!world.assign_shared_group_paths(&goals, destination));
@@ -272,7 +276,7 @@ fn group_cleanup_is_charged_to_the_receiving_queue_budget() {
             .find_group_ground_path(
                 start,
                 goal,
-                &HashMap::new(),
+                HostObjectStore::new().read(),
                 &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0)
             )
             .is_some()
@@ -287,7 +291,7 @@ fn group_cleanup_is_charged_to_the_receiving_queue_budget() {
         peer.find_group_ground_path(
             start,
             goal,
-            &HashMap::new(),
+            HostObjectStore::new().read(),
             &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0)
         )
         .is_none()
@@ -309,7 +313,7 @@ fn off_map_segment_still_uses_cpp_clamped_cell_destination_probe() {
         .find_group_ground_path(
             Vec3::new(420.0, 0.0, 200.0),
             Vec3::new(460.0, 0.0, 200.0),
-            &HashMap::new(),
+            HostObjectStore::new().read(),
             &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
         )
         .unwrap();
@@ -348,7 +352,7 @@ fn group_search_crosses_owned_bridge_without_ground_pinches_leaking_to_deck() {
         .find_group_ground_path(
             Vec3::new(80.0, 0.0, 200.0),
             goal,
-            &HashMap::new(),
+            HostObjectStore::new().read(),
             &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
         )
         .expect("connected owned deck route");
@@ -360,7 +364,7 @@ fn group_search_crosses_owned_bridge_without_ground_pinches_leaking_to_deck() {
         .group_ground_layer_trace(
             owner.grid.world_to_grid(Vec3::new(80.0, 0.0, 200.0)),
             owner.grid.world_to_grid(goal),
-            &HashMap::new(),
+            HostObjectStore::new().read(),
         )
         .unwrap();
     assert!(

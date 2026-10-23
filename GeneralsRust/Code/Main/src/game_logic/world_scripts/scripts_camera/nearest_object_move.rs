@@ -112,7 +112,7 @@ impl GameLogic {
         // remain candidates until their physical partition removal.
         // Keep the current production visitation order and strict tie rule;
         // exact equivalence/partition ordering is tracked in hq-llakh.
-        for (&id, object) in self.objects.iter() {
+        for (&id, object) in self.objects.registered() {
             if off_map(object.get_position()) != source_off_map
                 || !names.iter().any(|name| object.template_name == *name)
             {

@@ -195,7 +195,7 @@ fn eject_pilot_parachute_open_dist_residual() {
 
     let pilot_id = game_logic
         .objects
-        .iter()
+        .registered()
         .find(|(_, o)| o.is_alive() && o.template_name == EJECT_PILOT_TEMPLATE)
         .map(|(id, _)| *id)
         .expect("ejected pilot");
@@ -309,7 +309,7 @@ fn eject_pilot_parachute_pitch_roll_sway_residual() {
 
     let pilot_id = game_logic
         .objects
-        .iter()
+        .registered()
         .find(|(_, o)| o.is_alive() && o.template_name == EJECT_PILOT_TEMPLATE)
         .map(|(id, _)| *id)
         .expect("ejected pilot");
@@ -2153,7 +2153,7 @@ fn radar_scan_spawns_radar_van_ping_object() {
     assert!(logic.radar_scans.honesty_ping_ok());
     let ping = logic
         .host_objects()
-        .values()
+        .registered_values()
         .find(|o| o.radar_van_ping)
         .expect("RadarVanPing");
     assert_eq!(ping.template_name, RADAR_VAN_PING_TEMPLATE);
@@ -2252,7 +2252,7 @@ fn spy_satellite_spawns_ping_object() {
     assert!(logic.spy_satellites.honesty_ping_ok());
     let ping = logic
         .host_objects()
-        .values()
+        .registered_values()
         .find(|o| o.spy_satellite_ping)
         .expect("ping");
     assert_eq!(ping.template_name, SPY_SATELLITE_PING_TEMPLATE);
@@ -2299,7 +2299,7 @@ fn spy_satellite_destalths_units_in_scan() {
     assert!(logic.activate_spy_satellite(0, Team::USA, Vec3::new(100.0, 0.0, 100.0), Some(cc_id),));
     let ping = logic
         .host_objects()
-        .values()
+        .registered_values()
         .find(|o| o.spy_satellite_ping)
         .expect("ping");
     assert!(
@@ -2411,7 +2411,7 @@ fn emergency_repair_spawns_invisible_marker() {
     // Marker dies same frame (DeletionUpdate 0).
     let alive_markers = logic
         .host_objects()
-        .values()
+        .registered_values()
         .filter(|o| o.emergency_repair_marker && o.is_alive())
         .count();
     assert_eq!(alive_markers, 0);
@@ -2537,7 +2537,7 @@ fn gps_scrambler_grows_and_spawns_marker() {
     assert!(
         logic
             .host_objects()
-            .values()
+            .registered_values()
             .any(|o| o.gps_scrambler_marker && o.template_name == GPS_SCRAMBLER_INVISIBLE_MARKER)
     );
     assert!(logic.host_object(near).unwrap().is_effectively_stealthed());
@@ -2559,7 +2559,7 @@ fn gps_scrambler_grows_and_spawns_marker() {
     assert!(
         !logic
             .host_objects()
-            .values()
+            .registered_values()
             .any(|o| o.gps_scrambler_marker && o.is_alive()),
         "GPS invisible marker must be destroyObject'd at FinalRadius"
     );
@@ -2666,7 +2666,7 @@ fn ambush_fade_in_stealths_rebels() {
     );
     let stealthed = logic
         .host_objects()
-        .values()
+        .registered_values()
         .filter(|o| o.ambush_fade_in && o.status.stealthed)
         .count();
     assert!(stealthed >= 1, "FadeIn rebels should be stealthed");
@@ -2679,7 +2679,7 @@ fn ambush_fade_in_stealths_rebels() {
     assert!(logic.host_ambushes.fade_in_clears >= 1);
     let still_fading = logic
         .host_objects()
-        .values()
+        .registered_values()
         .filter(|o| o.ambush_fade_in)
         .count();
     assert_eq!(still_fading, 0, "FadeIn should clear after FadeTime");
@@ -2717,7 +2717,7 @@ fn frenzy_spawns_invisible_marker() {
     assert!(logic.frenzies.honesty_marker_ok());
     let marker = logic
         .host_objects()
-        .values()
+        .registered_values()
         .find(|o| o.frenzy_invisible_marker)
         .expect("marker");
     assert_eq!(marker.template_name, FRENZY_MARKER_LEVEL1);
@@ -2851,7 +2851,7 @@ fn cluster_mines_flight_places_field() {
     assert_eq!(vo.source_object, cc_id);
     let mines_before = logic
         .host_objects()
-        .values()
+        .registered_values()
         .filter(|o| o.template_name.contains("Mine") || o.template_name.contains("mine"))
         .count();
     for f in 0..400 {
@@ -2866,7 +2866,7 @@ fn cluster_mines_flight_places_field() {
     assert!(logic.cluster_mines_flight_reg.mines_spawned >= 1);
     let mines_after = logic
         .host_objects()
-        .values()
+        .registered_values()
         .filter(|o| o.template_name.contains("Mine") || o.template_name.contains("mine"))
         .count();
     assert!(
@@ -2931,7 +2931,7 @@ fn anthrax_bomb_flight_drops_payload() {
         if logic.anthrax_bomb_flight_reg.bombs_dropped >= 1 {
             let bomb_pos = logic
                 .host_objects()
-                .values()
+                .registered_values()
                 .find(|o| o.anthrax_bomb_payload)
                 .map(|o| o.get_position());
             if let Some(bp) = bomb_pos {
@@ -2985,7 +2985,7 @@ fn anthrax_bomb_queue_spawns_one_cargo_plane() {
     );
     let planes = logic
         .host_objects()
-        .values()
+        .registered_values()
         .filter(|o| o.anthrax_bomb_transport.is_some() || o.template_name == "GLAJetCargoPlane")
         .count();
     assert_eq!(

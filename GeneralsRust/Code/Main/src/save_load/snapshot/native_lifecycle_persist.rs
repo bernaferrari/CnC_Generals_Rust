@@ -43,7 +43,7 @@ pub(super) struct Decoded<'a> {
 pub(super) fn append(bytes: &mut Vec<u8>, world: &GameLogic) -> SaveLoadResult<()> {
     let mut records: Vec<_> = world
         .host_objects()
-        .iter()
+        .registered()
         .map(|(id, object)| Record {
             object_id: id.0,
             runtime: object.native_lifecycle.clone(),
@@ -247,7 +247,7 @@ pub(super) fn validate(
 /// were reconstructed. Restoration never invokes payload creation callbacks.
 pub(super) fn apply_transport_payload_latches(records: Option<&[Record]>, world: &mut GameLogic) {
     // A save without this continuation predates deferred payload creation.
-    for object in world.objects.values_mut() {
+    for object in world.objects.registered_values_mut() {
         object.initial_transport_payload_created = true;
     }
     if let Some(records) = records {
@@ -446,13 +446,13 @@ mod transport_payload_continuation_tests {
                         .get_mut(&id)
                         .unwrap()
                         .initial_transport_payload_created = !completed;
-                    let count = world.objects.len();
+                    let count = world.objects.registered_len();
                     apply_transport_payload_latches(Some(records), &mut world);
                     assert_eq!(
                         world.objects[&id].initial_transport_payload_created,
                         completed
                     );
-                    assert_eq!(world.objects.len(), count);
+                    assert_eq!(world.objects.registered_len(), count);
                 }
             },
         );

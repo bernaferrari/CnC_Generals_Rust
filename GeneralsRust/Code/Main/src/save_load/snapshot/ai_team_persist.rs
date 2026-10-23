@@ -835,7 +835,7 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     let ai = capture(game_logic);
     let mut movement_runtime: Vec<_> = game_logic
         .objects
-        .iter()
+        .registered()
         .map(|(id, object)| MovementRuntimePersist {
             receiver: id.0,
             goal_object: object.movement_goal_object().map(|goal| goal.0),
@@ -1036,7 +1036,7 @@ pub(super) fn apply_from_lifecycle_tail_with_object_records(
             .map_err(|err| SaveLoadError::Corrupted(format!("TMAI payload decode: {err}")))?
     };
     apply_payload(game_logic, payload, object_records);
-    for object in game_logic.objects.values_mut() {
+    for object in game_logic.objects.registered_values_mut() {
         object.set_movement_goal_object(None);
     }
     for row in movement_runtime {
@@ -1071,7 +1071,11 @@ fn capture(game_logic: &GameLogic) -> AiTeamPersistPayload {
         .map(|req| (req.unit_id.0, req))
         .collect();
 
-    let mut object_ids: Vec<ObjectId> = game_logic.host_objects().keys().copied().collect();
+    let mut object_ids: Vec<ObjectId> = game_logic
+        .host_objects()
+        .registered_keys()
+        .copied()
+        .collect();
     object_ids.sort();
     let mut orders = Vec::new();
     for id in object_ids {

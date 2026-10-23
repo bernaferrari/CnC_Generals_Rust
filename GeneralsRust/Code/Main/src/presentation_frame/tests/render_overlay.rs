@@ -2004,7 +2004,7 @@ fn presentation_freezes_can_make_cameos_residual() {
         Some(bid.0),
         "frame2 producer; local_sel={:?} objs={}",
         logic.get_player(0).map(|p| p.selected_objects.clone()),
-        logic.host_objects().len()
+        logic.host_objects().registered_len()
     );
     let burton2 = frame2
         .can_make_cameos

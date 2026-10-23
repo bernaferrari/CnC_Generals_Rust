@@ -106,7 +106,7 @@ impl UnitControlDemo {
 
             println!(
                 "Demo world created with {} objects",
-                logic.host_objects().len()
+                logic.host_objects().registered_len()
             );
         }
 

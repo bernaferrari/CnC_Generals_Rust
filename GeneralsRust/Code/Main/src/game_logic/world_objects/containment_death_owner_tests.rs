@@ -162,7 +162,7 @@ fn authored_passenger_death_type_preserves_default_override_and_saved_continuati
             assert!(
                 receiving
                     .host_objects()
-                    .values()
+                    .registered_values()
                     .any(|object| object.template_name == "OwnedRiderDeathWitness")
             );
         }
@@ -197,7 +197,7 @@ fn unfree_rider_kill_completes_receiving_callbacks_before_container_death_effect
     let witness = |name: &str| {
         owner
             .host_objects()
-            .values()
+            .registered_values()
             .find(|object| object.template_name == name)
             .unwrap()
             .id
@@ -221,7 +221,7 @@ fn unfree_rider_indestructible_kill_does_not_force_death_dispatch() {
     assert!(
         !owner
             .host_objects()
-            .values()
+            .registered_values()
             .any(|object| object.template_name == "OwnedRiderDeathWitness")
     );
 }
@@ -282,13 +282,13 @@ fn instant_death_effect_follows_all_installed_rider_damage_callbacks() {
     kill(&mut owner, container);
     let container_witness = owner
         .host_objects()
-        .values()
+        .registered_values()
         .find(|object| object.template_name == "OwnedContainerDeathWitness")
         .unwrap()
         .id;
     let rider_witnesses: Vec<_> = owner
         .host_objects()
-        .values()
+        .registered_values()
         .filter(|object| object.template_name == "OwnedRiderDeathWitness")
         .map(|object| object.id)
         .collect();
@@ -345,7 +345,7 @@ fn unfree_rider_destroy_flag_skips_body_death_and_its_instant_creation_effect() 
     assert!(
         !owner
             .host_objects()
-            .values()
+            .registered_values()
             .any(|object| object.template_name == "OwnedRiderDeathWitness")
     );
     assert!(
@@ -373,7 +373,7 @@ fn dead_rider_change_owner_removes_rider_by_direct_destruction() {
     assert!(
         !owner
             .host_objects()
-            .values()
+            .registered_values()
             .any(|object| object.template_name == "OwnedRiderDeathWitness")
     );
 }
@@ -404,7 +404,7 @@ fn cave_death_remaps_shared_pool_before_last_entrance_direct_destruction() {
     assert!(
         !owner
             .host_objects()
-            .values()
+            .registered_values()
             .any(|object| object.template_name == "OwnedRiderDeathWitness")
     );
 }

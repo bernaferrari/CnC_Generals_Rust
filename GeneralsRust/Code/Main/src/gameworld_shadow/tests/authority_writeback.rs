@@ -86,7 +86,12 @@ fn gameworld_step_movement_advances_move_target() {
     // Immutable projection cannot replace the actual moved pose.
     shadow.sync_from_host(&logic);
 
-    let host_x = logic.host_objects().get(&oid).expect("o").get_position().x;
+    let host_x = logic
+        .host_objects()
+        .lookup(&oid)
+        .expect("o")
+        .get_position()
+        .x;
     assert!(
         (host_x - after).abs() < 1e-3,
         "host pose writeback host={host_x} gw={after}"
@@ -112,7 +117,7 @@ fn damage_authority_defers_host_hp_until_writeback() {
         .expect("id");
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
-    let before = logic.host_objects().get(&oid).expect("o").health.current;
+    let before = logic.host_objects().lookup(&oid).expect("o").health.current;
     logic.health_events.clear_damage();
 
     {
@@ -121,7 +126,7 @@ fn damage_authority_defers_host_hp_until_writeback() {
     };
 
     // C++ ActiveBody::internalChangeHealth writes HP the same frame.
-    let mid = logic.host_objects().get(&oid).expect("o").health.current;
+    let mid = logic.host_objects().lookup(&oid).expect("o").health.current;
     assert!(
         (mid - (before - 25.0)).abs() < 1e-5,
         "host HP same-frame before={before} mid={mid}"
@@ -142,7 +147,7 @@ fn damage_authority_defers_host_hp_until_writeback() {
         let _ = o.take_damage(25.0, health_events);
     }
     let _ = observe_completed_owner(&mut shadow, &mut logic);
-    let after = logic.host_objects().get(&oid).expect("o").health.current;
+    let after = logic.host_objects().lookup(&oid).expect("o").health.current;
     assert!(
         after < before - 20.0,
         "writeback must apply damage before={before} after={after}"
@@ -193,7 +198,7 @@ fn heal_authority_commits_host_hp_before_shadow_writeback() {
         o.heal(30.0, health_events, body_frame);
     };
 
-    let mid = logic.host_objects().get(&oid).expect("o").health.current;
+    let mid = logic.host_objects().lookup(&oid).expect("o").health.current;
     assert!((mid - 70.0).abs() < 1e-5, "host heal committed mid={mid}");
     let events = logic.health_events.snapshot_heal();
     assert!(
@@ -204,7 +209,7 @@ fn heal_authority_commits_host_hp_before_shadow_writeback() {
         events
     );
     let _ = observe_completed_owner(&mut shadow, &mut logic);
-    let after = logic.host_objects().get(&oid).expect("o").health.current;
+    let after = logic.host_objects().lookup(&oid).expect("o").health.current;
     assert!((after - 70.0).abs() < 1e-3, "writeback heal after={after}");
     assert!(logic.health_events.snapshot_heal().is_empty());
 }
@@ -311,14 +316,24 @@ fn host_update_movement_skips_when_gameworld_movement_authority() {
             glam::Vec3::new(30.0, 0.0, 0.0),
         )
         .expect("keep-alive structure");
-    let before = logic.host_objects().get(&oid).expect("o").get_position().x;
+    let before = logic
+        .host_objects()
+        .lookup(&oid)
+        .expect("o")
+        .get_position()
+        .x;
     let mut shadow = GameWorldShadow::new(64);
     // Multiple authority frames (path integrate + pose writeback each session).
     for _ in 0..10 {
         logic.update();
         let _ = observe_completed_owner(&mut shadow, &mut logic);
     }
-    let after = logic.host_objects().get(&oid).expect("o").get_position().x;
+    let after = logic
+        .host_objects()
+        .lookup(&oid)
+        .expect("o")
+        .get_position()
+        .x;
     assert!(
         after > before + 1.0,
         "shadow session movement authority must march host pose before={before} after={after}"
@@ -493,7 +508,7 @@ fn canonical_max_health_is_projected_from_receiving_owner() {
         e.max_health = 250.0;
     }
     shadow.sync_from_host(&logic);
-    let obj = logic.host_objects().get(&oid).expect("o");
+    let obj = logic.host_objects().lookup(&oid).expect("o");
     assert!(
         (obj.max_health - 250.0).abs() < 1e-3,
         "host max {}",
@@ -535,7 +550,7 @@ fn apply_host_positions_uses_host_orientation_channel() {
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
     let pos = {
-        let obj = logic.host_objects().get(&id).unwrap();
+        let obj = logic.host_objects().lookup(&id).unwrap();
         let p = obj.get_position();
         [p.x, p.y, p.z]
     };
@@ -604,7 +619,7 @@ fn mark_for_destruction_logs_on_remove() {
         ev.iter().any(|e| e.id == id),
         "destroy process must log host_destroy: {ev:?}"
     );
-    assert!(logic.host_objects().get(&id).is_none());
+    assert!(logic.host_objects().lookup(&id).is_none());
 }
 
 #[test]
@@ -851,7 +866,7 @@ fn attack_target_writeback_updates_host() {
 
     shadow.sync_from_host(&logic);
 
-    assert_eq!(logic.host_objects().get(&a).unwrap().target, Some(b));
+    assert_eq!(logic.host_objects().lookup(&a).unwrap().target, Some(b));
     // Clear via shadow mutation + writeback
     logic
         .host_object_mut(a)
@@ -862,7 +877,7 @@ fn attack_target_writeback_updates_host() {
 
     shadow.sync_from_host(&logic);
 
-    assert_eq!(logic.host_objects().get(&a).unwrap().target, None);
+    assert_eq!(logic.host_objects().lookup(&a).unwrap().target, None);
 }
 
 #[test]
@@ -928,7 +943,7 @@ fn move_to_logs_destination_for_mobile_unit() {
         .create_object("MoveLogU", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
         .expect("a");
     assert!(
-        logic.host_objects().get(&a).unwrap().is_mobile(),
+        logic.host_objects().lookup(&a).unwrap().is_mobile(),
         "template Infantry should make object mobile"
     );
     let (object, mut events) = logic.host_object_and_movement_events_mut(a).unwrap();
@@ -984,7 +999,7 @@ fn move_target_writeback_updates_host() {
     assert!(
         logic
             .host_objects()
-            .get(&a)
+            .lookup(&a)
             .unwrap()
             .movement
             .target_position
@@ -1050,7 +1065,8 @@ fn production_complete_identifies_the_actual_created_object() {
         .unwrap();
     logic.host_object_mut(producer).unwrap().building_data =
         Some(BuildingData::new(BuildingType::Barracks));
-    let before: std::collections::HashSet<_> = logic.host_objects().keys().copied().collect();
+    let before: std::collections::HashSet<_> =
+        logic.host_objects().registered_keys().copied().collect();
     assert!(logic.enqueue_production(producer, "CompletionInfantry".into()));
     let mut completed = None;
     for _ in 0..300 {
@@ -1199,7 +1215,7 @@ fn stale_engine_id_does_not_skip_host_movement() {
     for _ in 0..10 {
         logic.update_with_dt(1.0 / 30.0);
     }
-    let p = logic.host_objects().get(&id).unwrap().get_position();
+    let p = logic.host_objects().lookup(&id).unwrap().get_position();
     assert!(
         p.x > 0.05,
         "host movement must advance despite stale engine_object_id when bridge off; pos={p:?}"
@@ -1222,7 +1238,7 @@ fn host_object_ignores_registry_when_bridge_off() {
         o.health.current = 12.0;
         o.set_position(glam::Vec3::new(3.0, 0.0, 4.0));
     }
-    let o = logic.host_objects().get(&id).unwrap();
+    let o = logic.host_objects().lookup(&id).unwrap();
     assert!((o.get_health_percentage() - (12.0 / 50.0)).abs() < 0.02 || o.health.current == 12.0);
     let p = o.get_position();
     assert!((p.x - 3.0).abs() < 0.01 && (p.z - 4.0).abs() < 0.01);
@@ -1246,7 +1262,7 @@ fn host_object_pose_hp_never_dual_read_registry() {
         o.set_position(glam::Vec3::new(7.0, 0.0, 9.0));
         o.set_orientation(1.25);
     }
-    let o = logic.host_objects().get(&id).unwrap();
+    let o = logic.host_objects().lookup(&id).unwrap();
     assert_eq!(o.get_position(), glam::Vec3::new(7.0, 0.0, 9.0));
     assert!((o.get_orientation() - 1.25).abs() < 1e-5);
     assert!((o.get_health_percentage() - (33.0 / 80.0)).abs() < 1e-5);
@@ -1272,10 +1288,10 @@ fn reset_skips_factory_when_bridge_off() {
     let _ = logic
         .create_object("RstU", Team::USA, glam::Vec3::ZERO)
         .expect("id");
-    assert!(!logic.host_objects().is_empty());
+    assert!(!logic.host_objects().registered_is_empty());
     // Must not panic / lock-poison on factory residual when bridge off.
     logic.reset();
-    assert!(logic.host_objects().is_empty());
+    assert!(logic.host_objects().registered_is_empty());
     assert_eq!(logic.get_frame(), 0);
 }
 
@@ -1372,7 +1388,7 @@ fn owned_damage_and_move_do_not_implicitly_publish_to_comparison_world() {
 
     shadow.sync_from_host(&logic);
     shadow.sync_from_host(&logic);
-    let host_hp = logic.host_objects().get(&oid).expect("o").health.current;
+    let host_hp = logic.host_objects().lookup(&oid).expect("o").health.current;
     assert!(
         (host_hp - 75.0).abs() < 1e-3,
         "after writeback host and GameWorld must share one HP; host={host_hp} gw={gw_hp}"
@@ -1574,13 +1590,16 @@ fn world_tick_split_borrow_still_reads_frame() {
     let owner_module = include_str!("../../game_logic/game_logic/mod.rs");
     assert!(
         owner_module.contains("mod host_object_store;")
-            && owner_module.contains("pub use host_object_store::HostObjectStore;"),
+            && owner_module
+                .contains("pub use host_object_store::{HostObjectRead, HostObjectStore};"),
         "the canonical GameLogic module must wire the actual owned store definition"
     );
     assert!(
         store.contains("pub objects: HostObjectStore")
             && store.contains("struct HostObjectStore")
-            && store.contains("impl std::ops::Deref for HostObjectStore"),
+            && store.contains("pub struct HostObjectRead")
+            && store.contains("pub fn read(&self)")
+            && !store.contains("impl std::ops::Deref for HostObjectStore"),
         "objects must be a HostObjectStore field (split-borrow), not a raw HashMap field"
     );
 }
@@ -2011,8 +2030,11 @@ fn coupled_tick_group_speed_reads_script_damage_from_host_owner_before_shadow_bo
         // formation group_speed, before any Main post-step shadow boundary.
         logic.tick_logic_frame_with_boundary(1.0 / 30.0, None, None, |_| {});
 
-        let fast_object = logic.host_objects().get(&fast).expect("fast after move");
-        let slow_object = logic.host_objects().get(&slow).expect("slow after damage");
+        let fast_object = logic.host_objects().lookup(&fast).expect("fast after move");
+        let slow_object = logic
+            .host_objects()
+            .lookup(&slow)
+            .expect("slow after damage");
         assert_eq!(
             slow_object.health.current, 30.0,
             "named damage applied on host"

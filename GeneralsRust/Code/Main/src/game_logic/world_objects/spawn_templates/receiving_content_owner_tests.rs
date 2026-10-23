@@ -130,7 +130,7 @@ fn captured_missing_admission_rejects_while_uncaptured_programmatic_template_is_
         "{error}"
     );
     assert!(captured.receiving_module_content.is_none());
-    assert!(captured.objects.is_empty());
+    assert!(captured.objects.registered_is_empty());
     assert!(
         captured
             .create_object(NAME, Team::USA, Vec3::ZERO)
@@ -485,7 +485,7 @@ fn authoritative_empty_content_cannot_spawn_a_synthetic_bootstrap_template() {
             .is_none(),
         "native Some(empty) must not create a compatibility substitute"
     );
-    assert!(world.host_objects().is_empty());
+    assert!(world.host_objects().registered_is_empty());
 }
 
 #[test]
@@ -512,6 +512,14 @@ fn native_science_frame_uses_uncapped_receiving_membership_and_current_local_vie
                 .insert(format!("SCIENCE_Receiving{id:02}"));
         }
         world.add_player(player);
+        if observer {
+            // Object::setTeam redirects inactive controllers to the actual
+            // receiving neutral Player; the local science viewer stays observer.
+            let mut neutral = Player::new(2, Team::Neutral, "Neutral", false);
+            neutral.map_side.role = crate::game_logic::PlayerSideRole::Neutral;
+            neutral.map_side.map_player_name.clear();
+            world.add_player(neutral);
+        }
         world
             .create_object_for_player("NativeScienceProbe", 0, Vec3::ZERO)
             .unwrap();

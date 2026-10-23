@@ -9,27 +9,53 @@ use crate::game_logic::host_battlemaster::{
 
 fn admitted_decal() -> (GameLogic, ObjectId) {
     const NAME: &str = "DecalCadenceCrate";
+    let source = "Object DecalCadenceCrate\n  KindOf = STRUCTURE\n  Body = ActiveBody ModuleTag_Body\n    MaxHealth = 50\n    InitialHealth = 50\n  End\nEnd\n";
+    let module = crate::assets::ReceivingObjectContent::from_sources([(
+        "decal_cadence.ini".to_owned(),
+        source.to_owned(),
+    )])
+    .unwrap();
     let mut parser = crate::assets::IniParser::new();
     assert_eq!(
         parser
-            .parse_ini_content(
-                "Object DecalCadenceCrate\n  Body = ActiveBody ModuleTag_Body\n    MaxHealth = 50\n  End\nEnd\n",
-                "decal_cadence.ini",
-            )
+            .parse_ini_content(source, "decal_cadence.ini",)
             .unwrap(),
         1,
     );
-    let template = GameLogic::build_template_from_object_definition(
-        NAME,
-        parser.get_definition(NAME).unwrap(),
-        None,
-    );
     let mut logic = GameLogic::new();
+    // Original Object construction resolves a real neutral default Team.
+    let mut neutral = Player::new(0, Team::Neutral, "DecalNeutral", false);
+    neutral.map_side.role = crate::game_logic::PlayerSideRole::Neutral;
+    neutral.map_side.map_player_name.clear();
+    logic.add_player(neutral);
 
-    logic.templates.insert(NAME.into(), template);
+    logic.admit_receiving_module_content(module).unwrap();
+    assert!(logic.templates[NAME].is_kind_of(KindOf::Structure));
+    // C++ creates this actor on the reserved neutral Player's exact default
+    // Team. The generic faction-only convenience path carries no controller.
+    let team_name = logic.default_host_team_instance_name(Some(0), Team::Neutral);
+    let team_id = logic
+        .host_default_team_id(0)
+        .expect("admitted neutral default Team");
     let id = logic
-        .create_object(NAME, Team::Neutral, Vec3::ZERO)
+        .create_object_on_exact_script_team_with_effects_checked(
+            NAME,
+            0,
+            &team_name,
+            team_id,
+            Vec3::ZERO,
+            false,
+            None,
+            &mut Default::default(),
+        )
+        .unwrap()
         .unwrap();
+    assert_eq!(
+        logic.host_object(id).unwrap().team_instance_id,
+        Some(team_id)
+    );
+    assert_eq!(logic.host_object(id).unwrap().owner_player_id, Some(0));
+    assert!(logic.host_object(id).unwrap().team_instance_id.is_some());
     logic
         .host_object_mut(id)
         .unwrap()
@@ -52,10 +78,15 @@ fn assert_opacity(logic: &GameLogic, id: ObjectId, expected: f32) {
 #[test]
 fn terrain_decal_fade_advances_once_per_bare_host_frame() {
     let (mut logic, id) = admitted_decal();
+    let (peer, peer_id) = admitted_decal();
+    assert_eq!(id, peer_id);
     for frame in 1..=3 {
         logic.update();
         assert_eq!(logic.getFrame(), frame);
         assert_opacity(&logic, id, frame as f32 * CRATE_DECAL_FADE_IN_RATE);
+        assert_eq!(peer.getFrame(), 0);
+        assert_opacity(&peer, peer_id, 0.0);
+        assert_eq!(peer.host_object(peer_id).unwrap().owner_player_id, Some(0));
     }
 }
 

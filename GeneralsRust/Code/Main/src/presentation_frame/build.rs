@@ -354,7 +354,7 @@ impl PresentationFrame {
             let facts = DirectShroudFrameFacts::freeze(shroud, local_player_id);
             let objects: Vec<_> = logic
                 .host_objects()
-                .values()
+                .registered_values()
                 .map(|obj| {
                     let owner = obj
                         .owner_player_id
@@ -402,10 +402,12 @@ impl PresentationFrame {
             )
         };
         let weapon_ready_time_seconds = logic.frame as f32 / 30.0;
-        let mut objects = Vec::with_capacity(logic.host_objects().len());
-        let mut direct_host_drawables = Vec::with_capacity(logic.host_objects().len());
-        for (obj, (fow_visibility, drawable_shroud)) in
-            logic.host_objects().values().zip(frozen_object_shrouds)
+        let mut objects = Vec::with_capacity(logic.host_objects().registered_len());
+        let mut direct_host_drawables = Vec::with_capacity(logic.host_objects().registered_len());
+        for (obj, (fow_visibility, drawable_shroud)) in logic
+            .host_objects()
+            .registered_values()
+            .zip(frozen_object_shrouds)
         {
             // C++ Drawable::setDrawableHidden — ride-hide hijacker has no mesh.
             if obj.drawable_hidden {
@@ -1359,7 +1361,7 @@ impl PresentationFrame {
                 let rel = logic.player_relationship(local_player_id, pid);
                 let owned_structure_modules: Vec<_> = logic
                     .host_objects()
-                    .values()
+                    .registered_values()
                     .filter(|o| {
                         superweapon_object_owned_by_player(o, p, logic)
                             && o.is_alive()
@@ -1517,14 +1519,14 @@ impl PresentationFrame {
             .or_else(|| {
                 let ownerless = logic
                     .host_objects()
-                    .iter()
+                    .registered()
                     .all(|(_, o)| o.owner_player_id.is_none());
                 ownerless.then(|| {
                     (
                         local_team,
                         logic
                             .host_objects()
-                            .iter()
+                            .registered()
                             .filter(|(_, o)| o.selected)
                             .map(|(id, _)| *id)
                             .collect::<Vec<ObjectId>>(),
@@ -1555,7 +1557,7 @@ impl PresentationFrame {
                 .or_else(|| {
                     logic
                         .host_objects()
-                        .iter()
+                        .registered()
                         .find(|(_, o)| is_producer(o))
                         .map(|(id, _)| *id)
                 });
@@ -1762,7 +1764,7 @@ impl PresentationFrame {
         let mut floating_texts = collect_presentation_floating_texts(logic);
         // Wave 514: active host emoticons → floating-text residual (presentation-only).
         let frame_now = logic.get_frame();
-        for obj in logic.host_objects().values() {
+        for obj in logic.host_objects().registered_values() {
             if obj.emoticon_frames_left <= 0 || obj.emoticon_name.is_empty() {
                 continue;
             }
@@ -1970,7 +1972,7 @@ impl PresentationFrame {
             particle_systems.len(),
         );
 
-        let native_ghost_scale_sources = logic.host_objects().values().filter(|object| {
+        let native_ghost_scale_sources = logic.host_objects().registered_values().filter(|object| {
             object.is_kind_of(KindOf::Immobile) && !object.get_template().default_draw_without_fog_memory
         }).map(|object| {
             let scale = object.drawable_instance_scale;
@@ -1992,7 +1994,7 @@ impl PresentationFrame {
             objects,
             structure_topple_transforms: logic
                 .host_objects()
-                .iter()
+                .registered()
                 .filter(|(_, object)| object.structure_topple_data.is_some())
                 .map(|(id, object)| (*id, object.get_transform_matrix()))
                 .collect(),
@@ -2035,7 +2037,7 @@ impl PresentationFrame {
                 // Visible host beacon objects win (C++ hideBeacon drops drawable + minimap).
                 let from_objects: Vec<glam::Vec3> = logic
                     .host_objects()
-                    .iter()
+                    .registered()
                     .filter_map(|(id, obj)| {
                         if !obj.is_alive()
                             || !obj.template_name.to_ascii_lowercase().contains("beacon")
@@ -2048,7 +2050,7 @@ impl PresentationFrame {
                     })
                     .take(64)
                     .collect();
-                let has_host_beacon_objs = logic.host_objects().values().any(|obj| {
+                let has_host_beacon_objs = logic.host_objects().registered_values().any(|obj| {
                     obj.is_alive() && obj.template_name.to_ascii_lowercase().contains("beacon")
                 });
                 if has_host_beacon_objs {

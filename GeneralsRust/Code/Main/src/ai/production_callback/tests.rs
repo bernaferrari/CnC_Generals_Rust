@@ -477,7 +477,12 @@ fn production_completion_receipts_follow_actual_owner_fifo_across_peer_reset_and
             kind: ProductionKind::Unit,
         });
         world.host_object_mut(factory).unwrap().building_data = Some(building);
-        let previous = world.objects.keys().copied().collect::<Vec<_>>();
+        let previous = world
+            .objects
+            .read()
+            .registered_keys()
+            .copied()
+            .collect::<Vec<_>>();
         world.update_production(1.0 / 30.0);
         assert!(
             world
@@ -491,7 +496,7 @@ fn production_completion_receipts_follow_actual_owner_fifo_across_peer_reset_and
         );
         let spawned = world
             .objects
-            .values()
+            .registered_values()
             .find(|object| object.producer_id == Some(factory) && !previous.contains(&object.id))
             .unwrap()
             .id;
@@ -542,11 +547,16 @@ fn production_completion_receipts_follow_actual_owner_fifo_across_peer_reset_and
     peer.templates = owner.templates.clone();
     builder.restore_from_snapshot(&snapshot, &mut peer).unwrap();
     assert!(peer.production_events.take_completed().is_empty());
-    let second_before = owner.objects.keys().copied().collect::<Vec<_>>();
+    let second_before = owner
+        .objects
+        .read()
+        .registered_keys()
+        .copied()
+        .collect::<Vec<_>>();
     finish(&mut owner, factory, name);
     let second = owner
         .objects
-        .keys()
+        .registered_keys()
         .copied()
         .find(|id| !second_before.contains(id))
         .unwrap();

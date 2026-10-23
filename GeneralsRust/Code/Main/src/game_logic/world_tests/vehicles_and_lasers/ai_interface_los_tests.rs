@@ -1,20 +1,19 @@
 //! C++ AIStates.cpp:1088–1113 distinguishes a null AI from an AI with no locomotor.
 use super::*;
 
+const AI_WEAPON_SOURCE: &str = "Weapon AiPresenceRifle\n PrimaryDamage = 25\n AttackRange = 200\n DamageType = SMALL_ARMS\nEnd\nWeapon AiPresenceTouch\n PrimaryDamage = 25\n AttackRange = 5\n DamageType = SMALL_ARMS\nEnd\n";
+
 fn load_rules() {
     let mut ini = game_engine::common::ini::ini::INI::new();
-    ini.with_inline_source(
-        "Weapon AiPresenceRifle\n PrimaryDamage = 25\n AttackRange = 200\n DamageType = SMALL_ARMS\nEnd\nWeapon AiPresenceTouch\n PrimaryDamage = 25\n AttackRange = 5\n DamageType = SMALL_ARMS\nEnd\n",
-        |ini| ini.parse_current_file(),
-    )
-    .expect("authored selected weapon");
+    ini.with_inline_source(AI_WEAPON_SOURCE, |ini| ini.parse_current_file())
+        .expect("authored selected weapon");
     game_engine::common::ini::ini_locomotor::load_locomotors_from_str(
         "Locomotor AiPresenceGround\n Surfaces = GROUND\n Speed = 20\n Acceleration = 100\n Braking = 100\n Appearance = TWO_LEGS\nEnd\n",
     )
     .expect("authored ground locomotor");
 }
 
-fn parsed_template(name: &str, ai_class: Option<&str>, ground: bool) -> ThingTemplate {
+fn parsed_template(name: &str, ai_class: Option<&str>, ground: bool) -> (ThingTemplate, String) {
     parsed_weapon_template(name, ai_class, ground, "AiPresenceRifle")
 }
 
@@ -23,7 +22,7 @@ fn parsed_weapon_template(
     ai_class: Option<&str>,
     ground: bool,
     weapon: &str,
-) -> ThingTemplate {
+) -> (ThingTemplate, String) {
     let behavior = ai_class
         .map(|class| format!(" Behavior = {class} ModuleTag_AI\n End\n"))
         .unwrap_or_default();
@@ -39,7 +38,7 @@ fn parsed_weapon_template(
         ""
     };
     let text = format!(
-        "Object {name}\n KindOf = INFANTRY ATTACKABLE ATTACK_NEEDS_LINE_OF_SIGHT\n{geometry} Body = ActiveBody ModuleTag_Body\n MaxHealth = 200\n End\n{behavior}{locomotor} WeaponSet\n Conditions = None\n Weapon = PRIMARY {weapon}\n End\nEnd\n"
+        "Object {name}\n KindOf = INFANTRY ATTACK_NEEDS_LINE_OF_SIGHT\n{geometry} Body = ActiveBody ModuleTag_Body\n MaxHealth = 200\n InitialHealth = 200\n End\n{behavior}{locomotor} WeaponSet\n Conditions = None\n Weapon = PRIMARY {weapon}\n End\nEnd\n"
     );
     let mut parser = crate::assets::IniParser::new();
     assert_eq!(
@@ -55,7 +54,10 @@ fn parsed_weapon_template(
         ai_class.is_some(),
         "test must preserve the actual authored module declaration"
     );
-    GameLogic::build_template_from_object_definition(name, definition, None)
+    (
+        GameLogic::build_template_from_object_definition(name, definition, None),
+        text,
+    )
 }
 
 fn set_line_blocked(logic: &mut GameLogic, source: ObjectId, target: ObjectId, blocked: bool) {
@@ -73,18 +75,53 @@ fn set_line_blocked(logic: &mut GameLogic, source: ObjectId, target: ObjectId, b
     }
 }
 
-fn scene(template: ThingTemplate) -> (GameLogic, ObjectId, ObjectId) {
+fn scene(template: (ThingTemplate, String)) -> (GameLogic, ObjectId, ObjectId) {
     scene_for_weapon(template, "AiPresenceRifle")
 }
 
-fn scene_for_weapon(template: ThingTemplate, weapon: &str) -> (GameLogic, ObjectId, ObjectId) {
+fn scene_for_weapon(
+    fixture: (ThingTemplate, String),
+    weapon: &str,
+) -> (GameLogic, ObjectId, ObjectId) {
     let mut logic = GameLogic::new();
+    let (template, source_text) = fixture;
     let name = template.name.clone();
-    logic.templates.insert(name.clone(), template);
-    logic.templates.insert(
-        "AiPresenceTarget".into(),
-        parsed_template("AiPresenceTarget", None, false),
-    );
+    if source_text.is_empty() {
+        // Explicit uncaptured programmatic control: absence is not proven.
+        logic.templates.insert(name.clone(), template);
+        let mut target = ThingTemplate::new("AiPresenceTarget");
+        target.add_kind_of(KindOf::Infantry).set_health(200.);
+        logic.templates.insert("AiPresenceTarget".into(), target);
+    } else {
+        let (_, target_text) = parsed_template("AiPresenceTarget", None, false);
+        logic
+            .admit_receiving_module_content(
+                crate::assets::ReceivingObjectContent::from_sources([
+                    ("ai_presence_source.ini".into(), source_text),
+                    ("ai_presence_target.ini".into(), target_text),
+                ])
+                .unwrap(),
+            )
+            .unwrap();
+        let mut weapons = std::collections::HashMap::new();
+        assert_eq!(
+            crate::assets::ini_template_loader::parse_weapon_definitions_ini_into(
+                &mut weapons,
+                AI_WEAPON_SOURCE,
+                crate::assets::ini_template_loader::WeaponDefinitionLoadType::Normal,
+            ),
+            2
+        );
+        logic
+            .admit_weapon_content_snapshot(
+                weapons
+                    .into_values()
+                    .map(|rule| (rule.name.clone(), rule))
+                    .collect(),
+                &[],
+            )
+            .unwrap();
+    }
     let source = logic
         .create_object(&name, Team::USA, glam::Vec3::new(10.0, 0.0, 10.0))
         .unwrap();
@@ -194,13 +231,6 @@ fn authored_ai_interface_presence_changes_only_the_cpp_ground_los_branch() {
                     Some(false),
                     true,
                 ),
-                (
-                    "AiPresenceUnknown",
-                    Some("DecorationAIUpdate"),
-                    false,
-                    None,
-                    false,
-                ),
             ] {
                 let (logic, source, target) = scene(parsed_template(name, ai, ground));
                 assert_eq!(
@@ -286,7 +316,7 @@ fn authored_ai_interface_metadata_survives_clone_restore_and_equal_id_worlds() {
         || {
             load_rules();
             let absent = parsed_template("AiPresenceSavedAbsent", None, false);
-            assert_eq!(absent.clone().authored_ai_update_interface(), Some(false));
+            assert_eq!(absent.0.clone().authored_ai_update_interface(), Some(false));
             let (source_world, source, target) = scene(absent);
             let (other_world, other_source, other_target) = scene(parsed_template(
                 "AiPresenceSavedPresent",
@@ -302,6 +332,13 @@ fn authored_ai_interface_metadata_survives_clone_restore_and_equal_id_worlds() {
             let snapshot = builder.create_world_snapshot(&source_world).unwrap();
             let mut restored = GameLogic::new();
             restored.templates = source_world.templates.clone();
+            restored.receiving_module_content = source_world.receiving_module_content.clone();
+            restored.receiving_object_definitions =
+                source_world.receiving_object_definitions.clone();
+            restored.receiving_template_baseline = source_world.receiving_template_baseline.clone();
+            restored.weapon_definition_base = source_world.weapon_definition_base.clone();
+            restored.weapon_definitions = source_world.weapon_definitions.clone();
+            restored.projectile_definitions = source_world.projectile_definitions.clone();
             builder
                 .restore_from_snapshot(&snapshot, &mut restored)
                 .unwrap();
@@ -324,7 +361,7 @@ fn authored_ai_interface_metadata_survives_clone_restore_and_equal_id_worlds() {
             template.add_kind_of(KindOf::Infantry);
             template.add_kind_of(KindOf::AttackNeedsLineOfSight);
             template.set_primary_weapon_name("AiPresenceRifle");
-            let (unknown, id, victim) = scene(template);
+            let (unknown, id, victim) = scene((template, String::new()));
             assert_eq!(
                 unknown
                     .host_object(id)
@@ -336,4 +373,18 @@ fn authored_ai_interface_metadata_survives_clone_restore_and_equal_id_worlds() {
             assert!(!unknown.out_of_weapon_range_object(id, victim));
         },
     );
+}
+
+#[test]
+fn unknown_ai_behavior_is_rejected_by_actual_receiving_module_factory() {
+    let (projection, text) =
+        parsed_template("AiPresenceUnknown", Some("DecorationAIUpdate"), false);
+    assert_eq!(projection.authored_ai_update_interface(), None);
+    let error = crate::assets::ReceivingObjectContent::from_sources([(
+        "unknown-ai-module.ini".into(),
+        text,
+    )])
+    .err()
+    .expect("C++ ModuleFactory has no DecorationAIUpdate registration");
+    assert!(error.contains("DecorationAIUpdate"), "{error}");
 }

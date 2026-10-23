@@ -140,7 +140,7 @@ mod tests {
             logic.templates.insert(name.into(), t);
             let _ = logic.create_object(name, Team::USA, pos).expect("spawn");
         }
-        let ids: Vec<_> = logic.host_objects().keys().copied().collect();
+        let ids: Vec<_> = logic.host_objects().registered_keys().copied().collect();
         assert!(ids.len() >= 2);
         let (a, b) = (ids[0], ids[1]);
         if let Some(obj) = logic.host_object_mut(a) {

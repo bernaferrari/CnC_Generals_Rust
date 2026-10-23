@@ -15,7 +15,7 @@ impl SnapshotBuilder {
     ) -> SaveLoadResult<()> {
         validate_direct_world_snapshot_version(snapshot.version)?;
         if candidate.object_lifecycle_callback_depth != 0
-            || candidate.host_objects().values().any(|object| {
+            || candidate.host_objects().registered_values().any(|object| {
                 object.kill_score_phase == crate::game_logic::kill_credit::KillScorePhase::Running
             })
         {
@@ -52,10 +52,15 @@ impl SnapshotBuilder {
         game_logic: &GameLogic,
         #[cfg(feature = "game_client")] client: Option<&game_client::core::game_client::GameClient>,
     ) -> SaveLoadResult<WorldSnapshot> {
+        if game_logic.has_unregistered_host_objects() {
+            return Err(SaveLoadError::Serialization(
+                "Cannot snapshot an unfinished Object constructor".into(),
+            ));
+        }
         // NDIE v2 captures the ordered removal queue after synchronous death
         // callbacks return. A callback in progress has no resumable Rust stack,
         // and a failed native retirement is terminal for this receiving owner.
-        if game_logic.host_objects().values().any(|object| {
+        if game_logic.host_objects().registered_values().any(|object| {
             object.kill_score_phase == crate::game_logic::kill_credit::KillScorePhase::Running
         }) {
             return Err(SaveLoadError::Serialization(
@@ -338,7 +343,7 @@ impl SnapshotBuilder {
         validate_direct_world_snapshot_version(snapshot.version)?;
         self.validate_object_restore_admission(&snapshot.objects, game_logic)?;
         if game_logic.object_lifecycle_callback_depth != 0
-            || game_logic.host_objects().values().any(|object| {
+            || game_logic.host_objects().registered_values().any(|object| {
                 object.kill_score_phase == crate::game_logic::kill_credit::KillScorePhase::Running
             })
         {
@@ -435,11 +440,28 @@ impl SnapshotBuilder {
         // Retire outgoing callbacks while their original frame/players/teams
         // still exist. Later object restoration may only reset an empty roster;
         // it must not run old destructors against newly restored owners.
-        game_logic
-            .destroy_all_objects_immediate_with_effects_checked(&mut Default::default())
-            .map_err(|error| {
-                SaveLoadError::Corrupted(format!("outgoing Object retirement: {error}"))
-            })?;
+        // Pending old-world starts are not incoming snapshot output. Isolate
+        // them BEFORE destruction: retirement itself emits required stops and
+        // other immediate callback output against the outgoing identities/poses.
+        let pending_audio_before_retirement = std::mem::take(&mut game_logic.queued_audio_events);
+        if let Err(error) =
+            game_logic.destroy_all_objects_immediate_with_effects_checked(&mut Default::default())
+        {
+            // A failed retirement retains its exact owner. Preserve both the
+            // previous pending output and the partial retirement output, without
+            // replaying callbacks or pretending the receiver was replaced.
+            let retirement_audio = std::mem::replace(
+                &mut game_logic.queued_audio_events,
+                pending_audio_before_retirement,
+            );
+            game_logic.queued_audio_events.extend(retirement_audio);
+            return Err(SaveLoadError::Corrupted(format!(
+                "outgoing Object retirement: {error}"
+            )));
+        }
+        // Successful retirement keeps its newly emitted output. Only the
+        // superseded pending old-world output is discarded here.
+        drop(pending_audio_before_retirement);
         // This direct API mutates the receiver below and may subsequently fail.
         // Its transient result must not describe the previous world after a
         // partial restore. Production loading isolates this work in a candidate.
@@ -448,7 +470,6 @@ impl SnapshotBuilder {
         }
         game_logic.initial_skirmish_admission = initial_skirmish;
         game_logic.clear_victory_observation();
-        game_logic.queued_audio_events.clear();
         // These are transient UI births, not snapshot state. Clear for every
         // replacement, including legacy saves lacking a camera continuation.
         // Production prepares this direct mutating restore on a detached candidate.
@@ -772,7 +793,7 @@ impl SnapshotBuilder {
         // All saved status/HP overlays are installed. Keep the exact restored
         // Body enum and any positive-HP AI-dead flag; zero HP is always dead.
         // Pure model reconstruction must not replay damage or death callbacks.
-        for object in game_logic.host_objects_mut().values_mut() {
+        for object in game_logic.host_objects_mut().registered_values_mut() {
             object.restore_body_observation(Some(object.body_damage_state));
         }
         // CPP TurretAI::loadPostProcess361–365 derives the initial team

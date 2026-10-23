@@ -96,8 +96,8 @@ pub(super) fn append(bytes: &mut Vec<u8>, world: &GameLogic) -> SaveLoadResult<(
             "cannot save during active Object lifecycle callbacks or physical drain",
         ));
     }
-    let mut records = Vec::with_capacity(world.host_objects().len());
-    for (id, object) in world.host_objects() {
+    let mut records = Vec::with_capacity(world.host_objects().registered_len());
+    for (id, object) in world.host_objects().registered() {
         if object.kill_score_phase == crate::game_logic::kill_credit::KillScorePhase::Running {
             return Err(corrupted(
                 "cannot save an in-flight scoreTheKill callback phase",
@@ -402,7 +402,7 @@ pub(super) fn validate(
 }
 pub(super) fn apply(validated: Validated, world: &mut GameLogic) {
     let Validated { runtimes, removals } = validated;
-    for object in world.objects.values_mut() {
+    for object in world.objects.registered_values_mut() {
         object.native_die_runtime = NativeDieRuntime::default();
         object.kill_score_phase = crate::game_logic::kill_credit::KillScorePhase::Ready;
     }

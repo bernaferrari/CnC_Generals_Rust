@@ -122,7 +122,7 @@ impl GameLogic {
 
         let victims: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, o)| {
                 if *id == dying_id || !o.is_alive() {
                     return None;
@@ -1118,7 +1118,7 @@ impl GameLogic {
 
     pub(in super::super::super) fn apply_dam_die_enable_waveguides(&mut self) {
         let frame = self.frame;
-        for obj in self.objects.values_mut() {
+        for obj in self.objects.registered_values_mut() {
             let is_wg = obj.is_kind_of(crate::game_logic::KindOf::WaveGuide)
                 || crate::game_logic::host_dam_die::is_wave_guide_template(&obj.template_name)
                 || crate::game_logic::host_wave_guide::is_wave_guide_template(&obj.template_name);

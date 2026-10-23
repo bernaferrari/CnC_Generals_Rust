@@ -285,5 +285,5 @@ fn missing_or_invalid_experience_is_not_a_recovery_sentinel() {
         builder.restore_from_snapshot(&snapshot, &mut restored),
         Err(SaveLoadError::VersionMismatch { .. })
     ));
-    assert!(restored.host_objects().is_empty());
+    assert!(restored.host_objects().registered_is_empty());
 }

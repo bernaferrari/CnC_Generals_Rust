@@ -11,7 +11,7 @@ impl super::GameLogic {
         for template in self.templates.values_mut() {
             template.armor_definitions = Some(Arc::clone(&catalog));
         }
-        for object in self.objects.values_mut() {
+        for object in self.objects.registered_values_mut() {
             object.template_mut().armor_definitions = Some(Arc::clone(&catalog));
         }
     }

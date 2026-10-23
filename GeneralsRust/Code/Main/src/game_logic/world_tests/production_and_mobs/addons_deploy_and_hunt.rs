@@ -503,7 +503,7 @@ fn queued_infantry_spawns_during_simulation() {
     }
     let unit = logic
         .objects
-        .values()
+        .registered_values()
         .find(|object| object.template_name == "TestInfantry")
         .expect("spawned infantry");
     assert!(
@@ -631,7 +631,7 @@ fn ignored_structure_is_not_dynamically_stamped() {
         logic
             .pathfinding_system
             .grid
-            .update_dynamic_obstacles(&logic.objects, &ground_source)
+            .update_dynamic_obstacles(logic.objects.read(), &ground_source)
     });
     assert_eq!(
         logic.pathfinding_system.grid.dynamic_pos_unit(cell),
@@ -653,7 +653,7 @@ fn ignored_structure_is_not_dynamically_stamped() {
         logic
             .pathfinding_system
             .grid
-            .update_dynamic_obstacles_ignoring(&logic.objects, Some(pad_id), &ground_source)
+            .update_dynamic_obstacles_ignoring(logic.objects.read(), Some(pad_id), &ground_source)
     });
     assert_eq!(
         logic.pathfinding_system.grid.dynamic_pos_unit(cell),
@@ -1347,7 +1347,7 @@ fn nuke_cannon_primary_residual_area_and_radiation() {
         game_logic.update_nuke_cannon_shell_projectiles();
         if !game_logic
             .objects
-            .values()
+            .registered_values()
             .any(|o| o.nuke_cannon_shell_projectile && o.is_alive())
         {
             break;
@@ -2368,7 +2368,7 @@ fn deploy_style_nuke_launcher_normal_attack_waits_for_range_and_unpack() {
     crate::game_logic::host_historic_bonus::set_logic_frame(102);
     crate::game_logic::combat::drain_pending_projectiles(
         &mut logic.combat_system,
-        &logic.objects,
+        logic.objects.read(),
         102,
     );
     crate::game_logic::combat::apply_ready_projectileless_delayed_damage(

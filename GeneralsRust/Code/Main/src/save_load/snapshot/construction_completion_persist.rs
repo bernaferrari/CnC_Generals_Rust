@@ -8,7 +8,7 @@ const MAGIC: &[u8; 4] = b"CPAD";
 pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, world: &GameLogic) {
     let mut rows: Vec<(u32, u32)> = world
         .host_objects()
-        .values()
+        .registered_values()
         .filter_map(|object| {
             let flags = u32::from(object.construction_power_admitted)
                 | (u32::from(object.status.sold) << 1)
@@ -53,7 +53,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], world: &mut GameLogic) -> SaveLoa
     if !bytes.ends_with(MAGIC) {
         // Historical saves do not prove admission. Never infer it from
         // transient factory percent or invoke completion while loading.
-        for object in world.host_objects_mut().values_mut() {
+        for object in world.host_objects_mut().registered_values_mut() {
             object.construction_power_admitted = false;
         }
         return Ok(());
@@ -91,7 +91,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], world: &mut GameLogic) -> SaveLoa
             return Err(invalid());
         }
     }
-    for object in world.host_objects_mut().values_mut() {
+    for object in world.host_objects_mut().registered_values_mut() {
         let flags = rows.get(&object.id).copied().unwrap_or(0);
         object.construction_power_admitted = flags & 1 != 0;
         // Version one contained only power IDs. It never overwrites status

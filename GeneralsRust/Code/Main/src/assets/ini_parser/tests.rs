@@ -689,8 +689,11 @@ End
     );
     assert!(playback.contains_key(&new_identity.playback_key(0)));
 
-    assert!(world_a.objects.is_empty(), "reset clears only world A");
-    assert_eq!(world_b.objects.len(), 1);
+    assert!(
+        world_a.objects.registered_is_empty(),
+        "reset clears only world A"
+    );
+    assert_eq!(world_b.objects.registered_len(), 1);
 }
 
 #[test]

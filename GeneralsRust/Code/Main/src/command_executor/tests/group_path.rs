@@ -1125,7 +1125,7 @@ fn movement_extent_uses_controlling_human_not_local_presentation() {
                 world.pathfinding_system.find_path_ex(
                     from,
                     goal,
-                    &world.objects,
+                    world.objects.read(),
                     false,
                     Some(human_id),
                     &ground_source,
@@ -1146,7 +1146,7 @@ fn movement_extent_uses_controlling_human_not_local_presentation() {
                 world.pathfinding_system.find_path_ex(
                     computer_start,
                     goal,
-                    &world.objects,
+                    world.objects.read(),
                     false,
                     Some(computer_id),
                     &ground_source,
@@ -1172,7 +1172,7 @@ fn movement_extent_uses_controlling_human_not_local_presentation() {
                 world.pathfinding_system.find_path_ex(
                     from,
                     goal,
-                    &world.objects,
+                    world.objects.read(),
                     false,
                     Some(human_id),
                     &ground_source,

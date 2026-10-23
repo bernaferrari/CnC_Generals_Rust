@@ -255,7 +255,7 @@ struct Ids {
 fn id_for_template(logic: &GameLogic, name: &str) -> ObjectId {
     let ids: Vec<_> = logic
         .host_objects()
-        .iter()
+        .registered()
         .filter(|(_, object)| object.get_template().name == name)
         .map(|(id, _)| *id)
         .collect();
@@ -268,7 +268,7 @@ fn id_for_template(logic: &GameLogic, name: &str) -> ObjectId {
 }
 
 fn restored_ids(logic: &GameLogic) -> Ids {
-    assert_eq!(logic.host_objects().len(), 3);
+    assert_eq!(logic.host_objects().registered_len(), 3);
     Ids {
         center: id_for_template(logic, CENTER),
         target: id_for_template(logic, GROUND),
@@ -354,7 +354,7 @@ fn admit(logic: &mut GameLogic, case: Case, journal: &mut fs::File) -> Ids {
 fn assert_admission(logic: &GameLogic, ids: Ids) {
     assert_catalog(logic);
     assert_eq!(
-        logic.host_objects().len(),
+        logic.host_objects().registered_len(),
         3,
         "unexpected object creation is outside this bounded scenario"
     );
@@ -630,7 +630,7 @@ fn record(
 fn roster(logic: &GameLogic) -> Value {
     let mut objects: Vec<_> = logic
         .host_objects()
-        .iter()
+        .registered()
         .map(|(id, object)| {
             json!({"id":id.0,"template":object.get_template().name,
             "owner":object.owner_player_id,"position":object.get_position(),
@@ -660,7 +660,7 @@ fn strategy_save_process() {
     write_json(
         &dir.join(format!("{role}-catalog-admission.json")),
         &json!({
-            "host_ai_player_count":logic.host_ai_player_count(),"objects":logic.host_objects().len(),
+            "host_ai_player_count":logic.host_ai_player_count(),"objects":logic.host_objects().registered_len(),
             "players":logic.get_players().len(),"locomotor_file_parse_count":2,
             "particle_system_count":get_particle_system_manager().unwrap().as_ref().unwrap().active_system_count()
         }),
@@ -708,7 +708,7 @@ fn strategy_save_process() {
     } else {
         // No source-world state or trace is read by this process. All IDs are
         // discovered from the restored roster, not imposed by the driver.
-        assert!(logic.host_objects().is_empty() && logic.get_players().is_empty());
+        assert!(logic.host_objects().registered_is_empty() && logic.get_players().is_empty());
         let loaded = manager.load_game("strategy", &mut logic);
         write_json(
             &dir.join("reader-load.json"),

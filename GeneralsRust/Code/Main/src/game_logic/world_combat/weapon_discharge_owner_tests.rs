@@ -275,7 +275,7 @@ fn accepted_discharge_restore_and_reset_clear_only_the_driving_queue() {
     accept_shot(&mut first, 3.0);
     first.reset();
     assert_eq!(first.weapon_discharge_next_sequence_for_snapshot(), 1);
-    assert!(first.host_objects().is_empty());
+    assert!(first.host_objects().registered_is_empty());
     assert!(cues(&publish(&mut first)).is_empty());
     assert_eq!(cues(&publish(&mut second)), vec![(SOURCE, 1, 0, 1, 30)]);
 }

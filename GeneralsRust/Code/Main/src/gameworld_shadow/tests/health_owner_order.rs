@@ -158,7 +158,7 @@ fn actual_coupled_fixed_frame_auto_heal_commits_owner_before_boundary() {
 
     {
         logic.tick_logic_frame_with_boundary(1.0 / 30.0, None, None, |_| {});
-        let object = logic.host_objects().get(&id).unwrap();
+        let object = logic.host_objects().lookup(&id).unwrap();
         assert_eq!(
             object.health.current, 42.0,
             "fixed-frame healing must commit on its owner"

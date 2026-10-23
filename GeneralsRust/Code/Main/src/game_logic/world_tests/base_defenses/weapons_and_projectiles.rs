@@ -843,7 +843,7 @@ fn rocket_buggy_residual_long_range_splash() {
         game_logic.update_rocket_buggy_missile_projectiles();
         if !game_logic
             .objects
-            .values()
+            .registered_values()
             .any(|o| o.rocket_buggy_missile_projectile && o.is_alive())
         {
             break;
@@ -1482,7 +1482,7 @@ fn aurora_bomb_projectile_guided_drop_flight() {
     assert!(logic.aurora_bombs.honesty_projectile_ok());
     let pid = logic
         .objects
-        .iter()
+        .registered()
         .find(|(_, o)| o.aurora_bomb_projectile)
         .map(|(id, _)| *id)
         .expect("aurora bomb projectile");
@@ -2243,7 +2243,7 @@ fn inferno_fire_field_object_spawns_on_zone() {
     // not `is_alive`.
     let field = logic
         .objects
-        .values()
+        .registered_values()
         .find(|o| o.inferno_fire_field && !o.status.destroyed)
         .expect("FireFieldSmall object");
     assert_eq!(field.template_name, INFERNO_FIRE_FIELD_TEMPLATE);
@@ -2256,7 +2256,7 @@ fn inferno_fire_field_object_spawns_on_zone() {
     let _ = logic.spawn_inferno_fire_zone(cannon, Team::China, impact, true);
     let upg = logic
         .objects
-        .values()
+        .registered_values()
         .find(|o| o.inferno_fire_field && o.inferno_fire_field_upgraded && !o.status.destroyed)
         .expect("FireFieldUpgradedSmall object");
     assert_eq!(upg.template_name, INFERNO_FIRE_FIELD_TEMPLATE_UPGRADED);
@@ -2267,7 +2267,10 @@ fn inferno_fire_field_object_spawns_on_zone() {
     logic.update_inferno_fire_field_objects();
     logic.process_destroy_list();
     assert!(
-        !logic.objects.values().any(|o| o.inferno_fire_field),
+        !logic
+            .objects
+            .registered_values()
+            .any(|o| o.inferno_fire_field),
         "FireFieldSmall should expire after DeletionUpdate lifetime"
     );
 }
@@ -2687,7 +2690,7 @@ fn technical_cannon_shell_projectile_flies_and_impacts() {
         logic.update_technical_cannon_shell_projectiles();
         if !logic
             .objects
-            .values()
+            .registered_values()
             .any(|o| o.technical_cannon_shell_projectile && o.is_alive())
         {
             break;
@@ -2714,7 +2717,7 @@ fn technical_cannon_shell_projectile_flies_and_impacts() {
     assert!(
         !logic
             .objects
-            .values()
+            .registered_values()
             .any(|o| o.technical_cannon_shell_projectile && o.is_alive()),
         "shell should detonate"
     );
@@ -2790,7 +2793,7 @@ fn technical_rpg_missile_projectile_flies_and_impacts() {
         logic.update_technical_rpg_missile_projectiles();
         if !logic
             .objects
-            .values()
+            .registered_values()
             .any(|o| o.technical_rpg_missile_projectile && o.is_alive())
         {
             break;
@@ -2809,7 +2812,7 @@ fn technical_rpg_missile_projectile_flies_and_impacts() {
     assert!(
         !logic
             .objects
-            .values()
+            .registered_values()
             .any(|o| o.technical_rpg_missile_projectile && o.is_alive()),
         "rpg missile should detonate"
     );

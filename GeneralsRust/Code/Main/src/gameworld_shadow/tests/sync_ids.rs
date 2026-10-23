@@ -236,7 +236,10 @@ fn shadow_counts_and_economy_match_after_skirmish_config() {
     );
     let view = presentation_view_from_shadow(&shadow, 0);
     assert_eq!(view.frame, logic.get_frame() as u64);
-    assert_eq!(view.entities.len(), logic.host_objects().len().min(4096));
+    assert_eq!(
+        view.entities.len(),
+        logic.host_objects().registered_len().min(4096)
+    );
 }
 
 #[test]
@@ -300,7 +303,7 @@ fn pose_writeback_is_last_writer() {
         .position = glam::Vec3::new(42.0, 1.0, 7.0);
     // Host still at origin until writeback.
     {
-        let p = logic.host_objects().get(&id).unwrap().get_position();
+        let p = logic.host_objects().lookup(&id).unwrap().get_position();
         assert!(p.x.abs() < 0.1, "pre-writeback host x={}", p.x);
     }
     logic
@@ -310,7 +313,7 @@ fn pose_writeback_is_last_writer() {
     logic.host_object_mut(id).unwrap().set_orientation(0.5);
     shadow.sync_from_host(&logic);
 
-    let p = logic.host_objects().get(&id).unwrap().get_position();
+    let p = logic.host_objects().lookup(&id).unwrap().get_position();
     assert!((p.x - 42.0).abs() < 0.01, "host x={}", p.x);
     assert!((p.z - 7.0).abs() < 0.01, "host z={}", p.z);
 }
@@ -1041,7 +1044,7 @@ fn writeback_production_and_rally_to_host() {
     data.rally_point = Some(glam::Vec3::new(9.0, 0.0, 8.0));
     data.production_queue[0].progress = 0.75;
     shadow.sync_from_host(&logic);
-    let obj = logic.host_objects().get(&id).expect("o");
+    let obj = logic.host_objects().lookup(&id).expect("o");
     let bd = obj.building_data.as_ref().expect("bd");
     assert_eq!(bd.rally_point, Some(glam::Vec3::new(9.0, 0.0, 8.0)));
     assert!((bd.production_queue[0].progress - 0.75).abs() < 1e-5);
@@ -1189,7 +1192,7 @@ fn completed_production_waits_for_open_door_before_entity_first_spawn() {
         "a closed production door must not accumulate unmapped entity-first spawns"
     );
     assert_eq!(
-        logic.host_objects().len(),
+        logic.host_objects().registered_len(),
         before,
         "closed doors must not create host objects"
     );
@@ -1211,7 +1214,7 @@ fn completed_production_waits_for_open_door_before_entity_first_spawn() {
     assert_eq!(
         logic
             .host_objects()
-            .values()
+            .registered_values()
             .filter(|object| object.template_name == "DoorGateRanger")
             .count(),
         1
@@ -1319,7 +1322,7 @@ fn completed_quantity_batch_emits_every_entity_first_unit_after_open_door() {
     shadow.sync_from_host(&logic);
     let spawned: Vec<_> = logic
         .host_objects()
-        .values()
+        .registered_values()
         .filter(|object| object.template_name == "DoorBatchRanger")
         .collect();
     assert_eq!(
@@ -1425,7 +1428,7 @@ fn queue_exit_sole_tick_releases_one_then_waits_exact_nine_frames() {
     let spawned = |logic: &GameLogic| {
         logic
             .host_objects()
-            .values()
+            .registered_values()
             .filter(|object| object.template_name == "QueueSoleRanger")
             .count()
     };
@@ -1655,7 +1658,7 @@ fn construction_shadow_disagreement_cannot_mutate_live_host() {
     }
     let n = shadow.compare_construction_to_host(&logic);
     assert!(n >= 1);
-    let obj = logic.host_objects().get(&id).expect("o");
+    let obj = logic.host_objects().lookup(&id).expect("o");
     assert!((obj.construction_percent - 0.2).abs() < 1e-5);
     assert!(obj.status.under_construction);
     assert!(!obj.status.sold);
@@ -1672,7 +1675,7 @@ fn construction_shadow_disagreement_cannot_mutate_live_host() {
     }
     shadow.sync_from_host(&logic);
 
-    let obj = logic.host_objects().get(&id).expect("o");
+    let obj = logic.host_objects().lookup(&id).expect("o");
     assert!(!obj.status.stealthed);
     assert!(!obj.status.selected);
     // Complete residual
@@ -1682,7 +1685,7 @@ fn construction_shadow_disagreement_cannot_mutate_live_host() {
         e.under_construction = false;
     }
     let _ = shadow.compare_construction_to_host(&logic);
-    let obj = logic.host_objects().get(&id).expect("o");
+    let obj = logic.host_objects().lookup(&id).expect("o");
     assert!((obj.construction_percent - 0.2).abs() < 1e-5);
     assert!(obj.status.under_construction);
 }

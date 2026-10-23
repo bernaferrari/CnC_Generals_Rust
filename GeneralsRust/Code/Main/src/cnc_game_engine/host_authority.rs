@@ -2186,7 +2186,7 @@ impl CnCGameEngine {
         if let Some(error) = live.object_retirement_error() {
             return Err(error.to_string());
         }
-        if live.requires_native_drawable_owner() && !live.host_objects().is_empty() {
+        if live.requires_native_drawable_owner() && !live.host_objects().registered_is_empty() {
             return Err("logical-only restore cannot retire a live native Object owner".into());
         }
         if crate::game_logic::script_loader::find_map_file(&decoded.save_info.map_name).is_none() {

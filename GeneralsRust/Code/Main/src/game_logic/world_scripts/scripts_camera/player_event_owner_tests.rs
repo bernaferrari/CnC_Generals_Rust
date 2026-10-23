@@ -15,7 +15,7 @@ fn world() -> (GameLogic, ObjectId) {
     let mut world = GameLogic::new();
     world.world_min = Vec3::ZERO;
     world.world_max = Vec3::splat(1000.0);
-    world.add_player(Player::new(1, Team::USA, PLAYER, true));
+    world.add_player(Player::new(1, Team::USA, PLAYER, true).with_script_identity(PLAYER));
     let mut template = ThingTemplate::new("OwnedEventInfantry");
     template.add_kind_of(KindOf::Infantry).set_health(100.0);
     world.templates.insert(template.name.clone(), template);
@@ -172,7 +172,7 @@ fn player_events_select_driving_world_and_engine_with_identical_ids() {
     let (mut first, id) = world();
     let (mut second, second_id) = world();
     assert_eq!(id, second_id);
-    second.players.get_mut(&1).unwrap().name = "ForeignPlayer".into();
+    second.players.get_mut(&1).unwrap().map_side.map_player_name = "ForeignPlayer".into();
     second.host_object_mut(id).unwrap().name = "ForeignSource".into();
     let kind = ConditionType::PlayerTriggeredSpecialPowerFromNamed;
     let first_engine = engine(condition(kind, PLAYER, EVENT, Some(SOURCE)));
@@ -201,7 +201,7 @@ fn missing_player_does_not_consume_event() {
     notify(&engine, kind, 1, EVENT, id);
     assert_eq!(tick(&engine, &mut world), 0);
     assert!(engine.is_upgrade_complete(1, EVENT, false, id.0));
-    world.players.get_mut(&1).unwrap().name = "AbsentPlayer".into();
+    world.players.get_mut(&1).unwrap().map_side.map_player_name = "AbsentPlayer".into();
     assert_eq!(tick(&engine, &mut world), 1);
     assert_eq!(tick(&engine, &mut world), 1);
 }

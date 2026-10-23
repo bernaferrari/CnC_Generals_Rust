@@ -96,7 +96,7 @@ fn named_camera_missing_and_case_mismatch_preserve_receiving_camera() {
                     owner.session_view.scripted.camera_follow_target = Some(id);
                     owner.session_view.scripted.camera_tether_play = Some(7.);
                     owner.session_view.camera.install_zoom(2., 3., 0., 0.);
-                    let count = owner.host_objects().len();
+                    let count = owner.host_objects().registered_len();
                     authored_named(&mut owner, &peer, kind, name);
                     assert_eq!(owner.camera_follow_object_id(), Some(id));
                     assert_eq!(owner.session_view.scripted.camera_tether_play, Some(7.));
@@ -107,7 +107,7 @@ fn named_camera_missing_and_case_mismatch_preserve_receiving_camera() {
                     assert!(!owner.session_view.camera.rotation_registers.is_tracking());
                     assert_eq!(owner.session_view.camera.camera_zoom_target, Some(2.));
                     assert_eq!(
-                        owner.host_objects().len(),
+                        owner.host_objects().registered_len(),
                         count,
                         "missing camera target must not be created"
                     );

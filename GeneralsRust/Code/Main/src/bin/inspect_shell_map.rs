@@ -163,8 +163,8 @@ fn main() -> Result<()> {
 
     let loaded = logic.load_map(map_name);
     println!("load_map_returned={loaded}");
-    println!("logic_objects={}", logic.host_objects().len());
-    for object in logic.host_objects().values().take(20) {
+    println!("logic_objects={}", logic.host_objects().registered_len());
+    for object in logic.host_objects().registered_values().take(20) {
         println!(
             "object id={} template={} model={} pos={:?}",
             object.id,

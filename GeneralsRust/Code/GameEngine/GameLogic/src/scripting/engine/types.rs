@@ -856,6 +856,16 @@ pub trait ScriptExecutionDriver {
     ) -> ScriptOwnerQuery<ScriptSpecialPowerReadiness> {
         ScriptOwnerQuery::Unavailable
     }
+    /// Receiving named Object's actual AI completed-waypoint labels.
+    /// Missing is authoritative; only Unavailable retains standalone fallback.
+    fn named_waypoint_complete(
+        &self,
+        _unit: &str,
+        _path: &str,
+        _this_object: Option<u32>,
+    ) -> ScriptOwnerQuery<bool> {
+        ScriptOwnerQuery::Unavailable
+    }
     fn team_waypoint_complete(
         &self,
         _team: &str,

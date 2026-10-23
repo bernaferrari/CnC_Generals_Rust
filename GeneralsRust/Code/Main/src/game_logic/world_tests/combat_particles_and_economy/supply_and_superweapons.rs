@@ -48,7 +48,7 @@ fn supply_center_one_shot_collector_enters_authored_wanting_route_without_passiv
         .expect("supply center");
     let collector_id = logic
         .host_objects()
-        .values()
+        .registered_values()
         .find(|object| object.producer_id == Some(center_id))
         .map(|object| object.id)
         .expect("one-shot collector");
@@ -114,7 +114,7 @@ fn supply_center_one_shot_collector_uses_exit_interface() {
         .expect("stash");
     let first_id = logic
         .host_objects()
-        .values()
+        .registered_values()
         .find(|object| object.producer_id == Some(center_id))
         .map(|object| object.id)
         .expect("one-shot collector");
@@ -2548,7 +2548,7 @@ fn firewall_black_napalm_upgraded_segments_and_damage() {
 
     let upgraded_segments = logic
         .objects
-        .values()
+        .registered_values()
         .filter(|o| o.firewall_segment && o.template_name == FIREWALL_SEGMENT_TEMPLATE_UPGRADED)
         .count();
     assert!(
@@ -2605,7 +2605,7 @@ fn firewall_inch_forward_moves_segment_objects() {
 
     let seg_id = logic
         .objects
-        .iter()
+        .registered()
         .find(|(_, o)| o.firewall_segment)
         .map(|(id, _)| *id)
         .expect("segment object");
@@ -2639,7 +2639,7 @@ fn firewall_spawns_segment_objects_residual() {
     assert!(logic.fire_walls().segments_spawned >= 1);
     let segs: Vec<_> = logic
         .host_objects()
-        .values()
+        .registered_values()
         .filter(|o| o.firewall_segment)
         .collect();
     assert!(!segs.is_empty());
@@ -2986,7 +2986,7 @@ fn inferno_cannon_attack_spawns_fire_zone_damaging_enemies() {
         game_logic.update_inferno_shell_projectiles();
         if !game_logic
             .objects
-            .values()
+            .registered_values()
             .any(|o| o.inferno_shell_projectile && o.is_alive())
         {
             break;
@@ -3138,7 +3138,7 @@ fn angry_mob_projectile_flies_and_impacts() {
         logic.update_angry_mob_projectiles();
         if !logic
             .objects
-            .values()
+            .registered_values()
             .any(|o| o.angry_mob_projectile && o.is_alive())
         {
             break;
@@ -3157,7 +3157,7 @@ fn angry_mob_projectile_flies_and_impacts() {
     assert!(
         !logic
             .objects
-            .values()
+            .registered_values()
             .any(|o| o.angry_mob_projectile && o.is_alive()),
         "projectile should detonate"
     );
@@ -3348,7 +3348,7 @@ fn angry_mob_damages_nearby_enemies_over_frames() {
     // Dead members reduce DPS; last member destroys the nexus.
     let member_ids: Vec<_> = game_logic
         .host_objects()
-        .values()
+        .registered_values()
         .filter(|o| o.angry_mob_member && o.angry_mob_nexus_id == Some(mob_id))
         .map(|o| o.id)
         .collect();
@@ -3692,7 +3692,7 @@ fn aurora_bomb_host_path_queues_and_applies_delayed_area_damage() {
         game_logic.honesty_aurora_fuel_air_gas_object_ok()
             || game_logic
                 .host_objects()
-                .values()
+                .registered_values()
                 .any(|o| o.template_name == AIRF_AURORA_BOMB_GAS_OBJECT),
         "FuelAir dive must spawn AirF_AuroraBombGas SpecialObject residual"
     );

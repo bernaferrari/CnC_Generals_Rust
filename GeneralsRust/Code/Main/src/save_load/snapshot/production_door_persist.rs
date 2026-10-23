@@ -122,7 +122,11 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
 }
 
 fn capture(game_logic: &GameLogic) -> ProductionDoorPersistPayload {
-    let mut object_ids: Vec<ObjectId> = game_logic.host_objects().keys().copied().collect();
+    let mut object_ids: Vec<ObjectId> = game_logic
+        .host_objects()
+        .registered_keys()
+        .copied()
+        .collect();
     object_ids.sort();
     let mut objects = Vec::new();
     for id in object_ids {

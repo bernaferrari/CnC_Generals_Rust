@@ -242,7 +242,7 @@ fn corrupt_present_projectile_frame_rejects_before_receiver_mutation() {
     let before = arena_bytes(&receiver);
     let frame = receiver.frame;
     let health = receiver.host_object(target).unwrap().health.current;
-    let objects = receiver.objects.len();
+    let objects = receiver.objects.registered_len();
     assert!(
         SnapshotBuilder::new()
             .restore_from_snapshot(&saved, &mut receiver)
@@ -250,6 +250,6 @@ fn corrupt_present_projectile_frame_rejects_before_receiver_mutation() {
     );
     assert_eq!(arena_bytes(&receiver), before);
     assert_eq!(receiver.frame, frame);
-    assert_eq!(receiver.objects.len(), objects);
+    assert_eq!(receiver.objects.registered_len(), objects);
     assert_eq!(receiver.host_object(target).unwrap().health.current, health);
 }

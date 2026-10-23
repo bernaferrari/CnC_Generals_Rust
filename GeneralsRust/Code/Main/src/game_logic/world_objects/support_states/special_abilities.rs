@@ -1134,7 +1134,7 @@ impl GameLogic {
             });
         let stale: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, o)| {
                 if (o.weapon_laser_beam || o.missile_defender_laser_beam)
                     && o.producer_id == Some(producer_id)
@@ -1534,7 +1534,7 @@ impl GameLogic {
         flee_range: f32,
     ) -> Option<glam::Vec3> {
         let mut best: Option<(f32, glam::Vec3)> = None;
-        for obj in self.objects.values() {
+        for obj in self.objects.registered_values() {
             if obj.team != team || !obj.is_kind_of(KindOf::Mine) {
                 continue;
             }

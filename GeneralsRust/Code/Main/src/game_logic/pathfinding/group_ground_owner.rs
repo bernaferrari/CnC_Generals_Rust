@@ -6,7 +6,7 @@ impl PathfindingSystem {
         &mut self,
         from: Vec3,
         to: Vec3,
-        objects: &HashMap<ObjectId, Object>,
+        objects: HostObjectRead<'_>,
         ground_source: &PathfindingGround<'_>,
     ) -> Option<Vec<Vec3>> {
         // A group query has no individual ignored obstacle or seeker. Admit

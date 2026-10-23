@@ -64,7 +64,7 @@ impl GameLogic {
         let now = self.frame;
         let ids: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, o)| {
                 o.power_plant_rods_done_frame > 0 && o.power_plant_rods_done_frame <= now
             })

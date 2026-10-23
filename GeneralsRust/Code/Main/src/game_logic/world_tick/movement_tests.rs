@@ -44,7 +44,7 @@ fn blocked_astar_does_not_install_direct_through_obstacle_move() {
             let ground_source = PathfindingGround::Flat(0.0);
             logic
                 .pathfinding_system
-                .find_path(start, goal, &logic.objects, &ground_source)
+                .find_path(start, goal, logic.objects.read(), &ground_source)
         })
         .is_none(),
         "sealed wall must make A* fail"
@@ -73,7 +73,7 @@ fn blocked_astar_long_range_does_not_fail_open() {
             let ground_source = PathfindingGround::Flat(0.0);
             logic
                 .pathfinding_system
-                .find_path(start, goal, &logic.objects, &ground_source)
+                .find_path(start, goal, logic.objects.read(), &ground_source)
         })
         .is_none()
     );

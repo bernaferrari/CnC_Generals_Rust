@@ -198,7 +198,7 @@ impl CombatSystem {
         historic_damage_limit: u32,
         projectile: &Projectile,
         impact_pos: Vec3,
-        objects: &HashMap<ObjectId, Object>,
+        objects: HostObjectRead<'_>,
     ) {
         if projectile.historic_bonus_count <= 0 {
             return;
@@ -213,7 +213,7 @@ impl CombatSystem {
             return;
         }
         let team = objects
-            .get(&projectile.shooter_id)
+            .lookup(&projectile.shooter_id)
             .map(|o| o.team)
             .unwrap_or(crate::game_logic::Team::Neutral);
         let key = if projectile.historic_weapon_key.is_empty() {
@@ -273,13 +273,13 @@ impl CombatSystem {
     }
 
     /// Refresh homing aim points from registered object positions.
-    pub fn refresh_homing_aims(&mut self, objects: &HashMap<ObjectId, Object>) {
+    pub fn refresh_homing_aims(&mut self, objects: HostObjectRead<'_>) {
         for p in self.projectiles.values_mut() {
             if !p.is_homing {
                 continue;
             }
             if let Some(tid) = p.target_id {
-                if let Some(tgt) = objects.get(&tid) {
+                if let Some(tgt) = objects.lookup(&tid) {
                     p.target_position = tgt.get_position();
                 }
             }
@@ -288,10 +288,10 @@ impl CombatSystem {
 
     fn splash_area_event(
         projectile: &Projectile,
-        objects: &HashMap<ObjectId, Object>,
+        objects: HostObjectRead<'_>,
         position: Vec3,
     ) -> DamageEvent {
-        let live = objects.get(&projectile.shooter_id);
+        let live = objects.lookup(&projectile.shooter_id);
         // C++ fireWeaponTemplate: DamageDealtAtSelfPosition → damageID=INVALID,
         // damagePos=sourcePos (Weapon.cpp:1008, 1035). Stay off cone field.
         let at_self =
@@ -389,13 +389,13 @@ impl CombatSystem {
     /// building. Must not go through `ProjectileImpactFx` / Weapon.cpp
     /// `doFXPos` detonation (shooter matrix + overrideRadius).
     fn play_garrison_hit_kill_fx(
-        objects: &HashMap<ObjectId, Object>,
+        objects: HostObjectRead<'_>,
         building_id: ObjectId,
         fx_name: &str,
         fx: &mut dyn FnMut(&str, ProjectileFxObject<'_>),
     ) {
         if !fx_name.is_empty() {
-            if let Some(building) = objects.get(&building_id) {
+            if let Some(building) = objects.lookup(&building_id) {
                 fx(fx_name, ProjectileFxObject::Object(building));
             }
         }
@@ -641,7 +641,7 @@ impl CombatSystem {
                     let shooter_pos = objects.get(shooter_id).map(|s| s.get_position());
                     let shooter_producer = objects.get(shooter_id).and_then(|s| s.producer_id);
                     let shooter_dir_xz = objects.get(shooter_id).map(|s| s.unit_direction_xz());
-                    for (vid, obj) in objects.iter_mut() {
+                    for (vid, obj) in objects.registered_mut() {
                         let op = obj.get_position();
                         let dist = splash_from_bounding_sphere_3d(
                             *position,
@@ -780,8 +780,12 @@ impl CombatSystem {
         health_events: &mut crate::game_logic::HostHealthEvents,
         ownership_events: &mut crate::game_logic::host_owner_log::OwnershipEvents,
     ) {
-        let events =
-            self.prepare_projectileless_delayed_shot(shot, objects, frame, historic_damage_limit);
+        let events = self.prepare_projectileless_delayed_shot(
+            shot,
+            objects.read(),
+            frame,
+            historic_damage_limit,
+        );
         self.apply_damage_events(
             &events,
             objects,
@@ -797,7 +801,7 @@ impl CombatSystem {
     pub(in crate::game_logic) fn prepare_projectileless_delayed_shot(
         &mut self,
         shot: &LiveProjectilelessDelayedDamage,
-        objects: &HashMap<ObjectId, Object>,
+        objects: HostObjectRead<'_>,
         frame: u32,
         historic_damage_limit: u32,
     ) -> Vec<DamageEvent> {
@@ -826,9 +830,13 @@ impl CombatSystem {
         proj.source_owner_player_id = p
             .source_context
             .and_then(|c| c.source_owner_player_id)
-            .or_else(|| objects.get(&p.shooter_id).and_then(|o| o.owner_player_id));
+            .or_else(|| {
+                objects
+                    .lookup(&p.shooter_id)
+                    .and_then(|o| o.owner_player_id)
+            });
         proj.source_team_instance_name = objects
-            .get(&p.shooter_id)
+            .lookup(&p.shooter_id)
             .map(|o| o.team_instance_name.clone())
             .unwrap_or_default();
         proj.source_veterancy = p
@@ -935,7 +943,7 @@ fn host_projectile_is_small_missile(projectile: &Projectile) -> bool {
 fn apply_countermeasure_report_and_decoy(
     projectile: &mut Projectile,
     proj_id: ObjectId,
-    objects: &HashMap<ObjectId, Object>,
+    objects: HostObjectRead<'_>,
     reg: &mut crate::game_logic::host_countermeasures::HostCountermeasuresRegistry,
     frame: u32,
 ) {
@@ -949,7 +957,7 @@ fn apply_countermeasure_report_and_decoy(
         projectile.cm_reported = true;
         if host_projectile_is_small_missile(projectile) {
             if let Some(tid) = projectile.target_id {
-                if let Some(target) = objects.get(&tid) {
+                if let Some(target) = objects.lookup(&tid) {
                     let has_cm = aircraft_has_countermeasures_upgrade(&target.applied_upgrades);
                     let airborne =
                         target.is_kind_of(KindOf::Aircraft) || target.status.airborne_target;
@@ -978,13 +986,13 @@ fn apply_countermeasure_report_and_decoy(
         projectile.frames_till_decoyed = 0;
         projectile.no_damage = true;
         if let Some(victim_id) = projectile.target_id {
-            let aircraft_xz = objects.get(&victim_id).map(|o| {
+            let aircraft_xz = objects.lookup(&victim_id).map(|o| {
                 let p = o.get_position();
                 (p.x, p.z)
             });
             if let Some(axz) = aircraft_xz {
                 let flare_xz: Vec<(ObjectId, f32, f32)> = objects
-                    .iter()
+                    .registered()
                     .filter(|(_, o)| {
                         o.countermeasure_flare && o.producer_id == Some(victim_id) && o.is_alive()
                     })
@@ -998,7 +1006,7 @@ fn apply_countermeasure_report_and_decoy(
                 {
                     projectile.target_id = Some(fid);
                     projectile.is_homing = true;
-                    if let Some(flare) = objects.get(&fid) {
+                    if let Some(flare) = objects.lookup(&fid) {
                         projectile.target_position = flare.get_position();
                     }
                 }

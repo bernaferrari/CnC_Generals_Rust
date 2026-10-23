@@ -152,7 +152,7 @@ pub(crate) fn run() -> anyhow::Result<()> {
     let token = Arc::downgrade(&failed.visual_draw_identity_token);
     let retained_address = std::ptr::from_ref(failed);
     assert_ne!(generation, 0);
-    assert!(!world.get_objects().contains_key(&failed_id));
+    assert!(!world.get_objects().lookup(&failed_id).is_some());
     assert!(world.object_retirement_error().is_some());
     engine.game_logic = world;
     let epoch = engine.host_direct_visual_world_epoch;
@@ -314,7 +314,7 @@ pub(crate) fn run() -> anyhow::Result<()> {
         assert_eq!(engine.game_logic.get_frame(), 89);
         assert_eq!(engine.host_direct_visual_world_epoch, epoch);
         assert_eq!(engine.game_logic.logic_random.seed_words(), seed);
-        assert_eq!(engine.game_logic.get_objects().len(), 1);
+        assert_eq!(engine.game_logic.get_objects().registered_len(), 1);
         assert_eq!(engine.selected_objects, vec![live_id]);
         assert!(Arc::ptr_eq(
             &live_token.upgrade().unwrap(),

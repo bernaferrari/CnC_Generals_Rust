@@ -177,7 +177,7 @@ fn crush_zero_then_huge_keeps_inline_owned_effects_and_receiving_crusher_pose() 
                 assert!(world.objects[&VICTIM].status.destroyed);
                 assert_effects(&events, Some(CRUSHER), Some(Coord3D::new(6., 0., 0.)));
                 assert_eq!(
-                    world.objects.len(),
+                    world.objects.registered_len(),
                     2,
                     "both callback participants remain installed"
                 );

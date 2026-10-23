@@ -361,7 +361,7 @@ fn accepted_queue_fifo_repeated_shots_keep_frozen_source_after_retirement() {
     // before any flight. Sort only this observation by allocation identity.
     let mut children: Vec<_> = world
         .objects
-        .iter()
+        .registered()
         .filter(|(_, child)| {
             matches!(
                 child.template_name.as_str(),
@@ -439,7 +439,7 @@ fn accepted_queue_fifo_repeated_shots_keep_frozen_source_after_retirement() {
     assert_eq!(
         world
             .objects
-            .values()
+            .registered_values()
             .filter(|child| matches!(
                 child.template_name.as_str(),
                 "AcceptedFireFirstChild" | "AcceptedFireSecondChild"

@@ -65,7 +65,7 @@ fn baikonur_neutron_spawn_fx_shakes_only_receiving_view() {
             assert!(
                 owner
                     .objects
-                    .values()
+                    .registered_values()
                     .any(|object| object.pending_death_fx.as_deref()
                         == Some(crate::game_logic::host_baikonur_launch::BAIKONUR_NUKE_FX))
             );

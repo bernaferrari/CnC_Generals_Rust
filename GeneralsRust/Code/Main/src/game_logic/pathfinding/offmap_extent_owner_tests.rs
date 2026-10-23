@@ -37,16 +37,16 @@ fn receiving_maximum_boundary_changes_real_offmap_path_without_foreign_selection
         assert!(
             !grid_b.leftover_should_force_direct_path_for_off_map_start(start, goal, &ground_b)
         );
-        let objects = HashMap::new();
+        let objects = HostObjectStore::new();
         assert_eq!(
-            grid_a.find_path_ex(start, goal, &objects, false, None, &ground_a),
+            grid_a.find_path_ex(start, goal, objects.read(), false, None, &ground_a),
             Some(PathfindingSystem::leftover_compute_quick_path_nodes(
                 start, goal
             ))
         );
         assert!(
             grid_b
-                .find_path_ex(start, goal, &objects, false, None, &ground_b)
+                .find_path_ex(start, goal, objects.read(), false, None, &ground_b)
                 .is_none(),
             "receiving on-map start must honor the sealed pathfind wall"
         );

@@ -17,7 +17,7 @@ impl GameLogic {
         // sampling every structure on Lone Eagle (~900 objs) dominated host frames.
         let ground_heights: Vec<(ObjectId, f32)> = {
             let mut out = Vec::new();
-            for (id, o) in self.objects.iter() {
+            for (id, o) in self.objects.registered() {
                 let wreck = o.status.destroyed || !o.is_alive();
                 let wreck_airborne = wreck && o.get_position().y > o.ground_height + 0.05;
                 let physics_active = o.can_move()
@@ -43,7 +43,7 @@ impl GameLogic {
             out
         };
         let mut expired_paths: Vec<ObjectId> = Vec::new();
-        for (id, o) in self.objects.iter_mut() {
+        for (id, o) in self.objects.registered_mut() {
             o.clear_blocked_frame_state();
             o.tick_move_away_state();
             if o.tick_path_queue(&mut crate::game_logic::ObjectAudio::queue(
@@ -63,7 +63,7 @@ impl GameLogic {
         }
         let snap_ids: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, o)| o.overlay_arrival_snap.then_some(*id))
             .collect();
         for id in snap_ids {
@@ -83,7 +83,7 @@ impl GameLogic {
             );
             if self
                 .objects
-                .get(&id)
+                .lookup(&id)
                 .is_some_and(|o| o.pending_ground_collide)
             {
                 landed.push(id);
@@ -98,12 +98,12 @@ impl GameLogic {
         // C++ OpenContain::addOrRemoveObjFromWorld unRegisterObject when
         // isEnclosingContainerFor (Humvee/Chinook/garrison/Troop Crawler).
         // Fire Base / parachute / Overlord portable stay registered.
-        let enclosing_hidden = enclosing_hidden_rider_ids(&self.objects);
+        let enclosing_hidden = enclosing_hidden_rider_ids(self.objects.read());
         // O(1) id → pose/radius for pair resolution (was linear find per neighbor).
         let mut entry_by_id: std::collections::HashMap<u32, (glam::Vec3, f32)> =
             std::collections::HashMap::new();
         let mut mobile_ids: Vec<ObjectId> = Vec::new();
-        for (id, o) in self.objects.iter() {
+        for (id, o) in self.objects.registered() {
             // C++ unRegisterObject while ride-hidden (hijacker mesh + collide).
             if o.drawable_hidden || o.hijacker_in_vehicle {
                 continue;
@@ -152,12 +152,13 @@ impl GameLogic {
                     continue;
                 };
                 let b_id = ObjectId(b_raw);
-                let geom_hit =
-                    if let (Some(a), Some(b)) = (self.objects.get(a_id), self.objects.get(&b_id)) {
-                        super::collide_dispatch::host_geom_collides(a, b)
-                    } else {
-                        None
-                    };
+                let geom_hit = if let (Some(a), Some(b)) =
+                    (self.objects.lookup(a_id), self.objects.lookup(&b_id))
+                {
+                    super::collide_dispatch::host_geom_collides(a, b)
+                } else {
+                    None
+                };
                 // C++ processContactList only onCollide after geomCollidesWithGeom.
                 // First-overlap 0-damage crush bookkeeping must not fire from
                 // a shared partition cell without contact (hq-zsklj).
@@ -166,11 +167,11 @@ impl GameLogic {
                     // (PartitionManager.cpp:2466-2468).
                     let skip_status = self
                         .objects
-                        .get(a_id)
+                        .lookup(a_id)
                         .is_some_and(|o| o.status.no_collisions)
                         || self
                             .objects
-                            .get(&b_id)
+                            .lookup(&b_id)
                             .is_some_and(|o| o.status.no_collisions);
                     if skip_status {
                         continue;
@@ -182,8 +183,14 @@ impl GameLogic {
                     if self.try_physics_collide_with_effects(*a_id, b_id, a_r, effects) {
                         handled = handled.saturating_add(1);
                     }
-                    let reverse_ok = self.objects.get(a_id).is_some_and(|o| !o.status.destroyed)
-                        && self.objects.get(&b_id).is_some_and(|o| !o.status.destroyed);
+                    let reverse_ok = self
+                        .objects
+                        .lookup(a_id)
+                        .is_some_and(|o| !o.status.destroyed)
+                        && self
+                            .objects
+                            .lookup(&b_id)
+                            .is_some_and(|o| !o.status.destroyed);
                     if reverse_ok
                         && self.try_physics_collide_with_effects(b_id, *a_id, b_r, effects)
                     {
@@ -201,7 +208,7 @@ impl GameLogic {
         // Stun/bounce residual on non-mobile still advances overlap bookkeeping.
         let extra: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, o)| {
                 o.is_alive()
                     && !o.status.destroyed
@@ -215,7 +222,7 @@ impl GameLogic {
                 o.advance_physics_overlap_frame();
             }
         }
-        for o in self.objects.values_mut() {
+        for o in self.objects.registered_values_mut() {
             o.landing_splat_done = false;
         }
         handled
@@ -232,7 +239,7 @@ impl GameLogic {
         // Include bounce_audio_pending so land audio drains even after stun ends.
         let ids: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, o)| o.shock_stun_frames > 0 || o.bounce_audio_pending > 0)
             .map(|(id, _)| *id)
             .collect();
@@ -240,7 +247,7 @@ impl GameLogic {
         for id in ids {
             let pos = self
                 .objects
-                .get(&id)
+                .lookup(&id)
                 .map(|o| o.get_position())
                 .unwrap_or(glam::Vec3::ZERO);
             let (cliff, water) = self.sample_stun_surface_at(pos);
@@ -249,7 +256,7 @@ impl GameLogic {
                 .unwrap_or(0.0);
             let ground_y = self
                 .objects
-                .get(&id)
+                .lookup(&id)
                 .map(|o| self.physics_ground_y_with_deck(o, terrain_y))
                 .unwrap_or(terrain_y);
             if let Some(o) = self.objects.get_mut(&id) {
@@ -259,7 +266,7 @@ impl GameLogic {
             }
             if self
                 .objects
-                .get(&id)
+                .lookup(&id)
                 .is_some_and(|o| o.shock_stun_frames > 0)
             {
                 self.drive_owned_contact_with_effects(
@@ -337,7 +344,7 @@ impl GameLogic {
         let r2 = search_radius * search_radius;
         let ids: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, obj)| {
                 if skip_id == Some(*id) {
                     return None;
@@ -356,7 +363,7 @@ impl GameLogic {
             .collect();
         let mut n = 0u32;
         for id in ids {
-            let pos = match self.objects.get(&id) {
+            let pos = match self.objects.lookup(&id) {
                 Some(o) => o.get_position(),
                 None => continue,
             };
@@ -443,7 +450,7 @@ impl GameLogic {
             });
         let (shooter_template, attacker_owner, attacker_team_instance, attacker_producer) = self
             .objects
-            .get(&attacker_id)
+            .lookup(&attacker_id)
             .map(|a| {
                 (
                     a.template_name.clone(),
@@ -456,7 +463,7 @@ impl GameLogic {
         // C++ Weapon.cpp dealDamageInternal iterates partition-world objects
         // only. Enclosing occupants (tunnel/transport) unRegisterObject on
         // enter, so splash at an entrance must not hit the shared pool.
-        let enclosing_hidden = enclosing_hidden_rider_ids(&self.objects);
+        let enclosing_hidden = enclosing_hidden_rider_ids(self.objects.read());
         let tunnel_held: std::collections::HashSet<u32> = self
             .tunnel_network
             .occupant_player_ids()
@@ -467,7 +474,7 @@ impl GameLogic {
         let players = &self.players;
         let candidates: Vec<(ObjectId, f32)> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, obj)| {
                 if *id == intended_id {
                     return None;
@@ -530,7 +537,7 @@ impl GameLogic {
             }
             // Earlier victims may synchronously kill another snapshotted
             // candidate through onDie. Re-fetch instead of replaying that hit.
-            if self.objects.get(&id).is_some_and(|obj| obj.is_alive()) {
+            if self.objects.lookup(&id).is_some_and(|obj| obj.is_alive()) {
                 let damage_type = native_rule
                     .as_ref()
                     .map(|rule| {
@@ -557,7 +564,7 @@ impl GameLogic {
                         )
                     });
                 let context = crate::game_logic::object::DamageHitContext::new_selected(
-                    self.objects.get(&attacker_id),
+                    self.objects.lookup(&attacker_id),
                     weapon_name,
                     damage_type,
                     native_rule.as_deref(),
@@ -584,7 +591,7 @@ impl GameLogic {
         }
         let source_pos = self
             .objects
-            .get(&attacker_id)
+            .lookup(&attacker_id)
             .map(|a| a.get_position())
             .unwrap_or(impact);
         let _ = self.apply_shock_wave_at_impact(impact, source_pos, max_r, weapon_name, None);
@@ -645,7 +652,7 @@ impl GameLogic {
         // C++ dealDamageInternal: authored primary/secondary radii, no 1.5x ring.
         let radius_mult = self
             .objects
-            .get(&attacker_id)
+            .lookup(&attacker_id)
             .map(|source| source.weapon_bonus_radius())
             .unwrap_or(1.0);
         let (primary_r, secondary_r, primary_dmg, secondary_dmg) =
@@ -661,7 +668,7 @@ impl GameLogic {
                     Some(n) => {
                         let radius_mult = self
                             .objects
-                            .get(&attacker_id)
+                            .lookup(&attacker_id)
                             .map(|a| a.weapon_bonus_radius())
                             .unwrap_or(1.0);
                         let pr = host_primary_damage_radius_for_weapon_name(n) * radius_mult;
@@ -691,7 +698,7 @@ impl GameLogic {
             });
         let (shooter_template, attacker_owner, attacker_team_instance, attacker_producer) = self
             .objects
-            .get(&attacker_id)
+            .lookup(&attacker_id)
             .map(|a| {
                 (
                     a.template_name.clone(),
@@ -704,7 +711,7 @@ impl GameLogic {
         let players = &self.players;
         let candidates: Vec<(ObjectId, f32)> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, obj)| {
                 if *id == skip_id {
                     return None;
@@ -777,7 +784,7 @@ impl GameLogic {
             }
             // Earlier victims may synchronously kill another snapshotted
             // candidate through onDie. Re-fetch instead of replaying that hit.
-            if self.objects.get(&id).is_some_and(|obj| obj.is_alive()) {
+            if self.objects.lookup(&id).is_some_and(|obj| obj.is_alive()) {
                 let damage_type = native_rule
                     .as_ref()
                     .map(|rule| {
@@ -804,7 +811,7 @@ impl GameLogic {
                         )
                     });
                 let context = crate::game_logic::object::DamageHitContext::new_selected(
-                    self.objects.get(&attacker_id),
+                    self.objects.lookup(&attacker_id),
                     weapon_name,
                     damage_type,
                     native_rule.as_deref(),
@@ -831,7 +838,7 @@ impl GameLogic {
         }
         let source_pos = self
             .objects
-            .get(&attacker_id)
+            .lookup(&attacker_id)
             .map(|a| a.get_position())
             .unwrap_or(impact);
         let _ =
@@ -850,11 +857,11 @@ impl GameLogic {
             scatter_misses_intended_target, scatter_seed_for_shot,
         };
         let (wname, tgt_inf, hit_r) = {
-            let attacker = match self.objects.get(&attacker_id) {
+            let attacker = match self.objects.lookup(&attacker_id) {
                 Some(a) => a,
                 None => return false,
             };
-            let target = match self.objects.get(&target_id) {
+            let target = match self.objects.lookup(&target_id) {
                 Some(t) => t,
                 None => return false,
             };
@@ -901,7 +908,7 @@ impl GameLogic {
         target_id: Option<ObjectId>,
     ) -> bool {
         use crate::game_logic::weapon_bootstrap::is_inside_minimum_attack_range;
-        let Some(attacker) = self.objects.get(&attacker_id) else {
+        let Some(attacker) = self.objects.lookup(&attacker_id) else {
             return false;
         };
         if !attacker.can_move() || !attacker.is_alive() {
@@ -919,7 +926,7 @@ impl GameLogic {
         let mut dz = src.z - target_pos.z;
         let center = (dx * dx + dz * dz).sqrt();
         let tgt_r = target_id
-            .and_then(|id| self.objects.get(&id))
+            .and_then(|id| self.objects.lookup(&id))
             .map(|o| o.thing().template.geometry_info.bounding_circle_radius())
             .unwrap_or(0.0);
         // C++ getVectorTo FROM_BOUNDINGSPHERE_2D.
@@ -1011,7 +1018,7 @@ impl GameLogic {
         weapon_name: Option<&str>,
         target_id: Option<ObjectId>,
     ) -> glam::Vec3 {
-        let Some(attacker) = self.objects.get(&attacker_id) else {
+        let Some(attacker) = self.objects.lookup(&attacker_id) else {
             return target_pos;
         };
         let under = crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25;
@@ -1027,7 +1034,7 @@ impl GameLogic {
             .geometry_info
             .bounding_circle_radius();
         let tgt_r = target_id
-            .and_then(|id| self.objects.get(&id))
+            .and_then(|id| self.objects.lookup(&id))
             .map(|o| o.thing().template.geometry_info.bounding_circle_radius())
             .unwrap_or(0.0);
         let dx = target_pos.x - src.x;
@@ -1063,7 +1070,7 @@ impl GameLogic {
         weapon_range: f32,
         min_range: f32,
     ) -> glam::Vec3 {
-        let Some(obj) = self.objects.get(&attacker_id) else {
+        let Some(obj) = self.objects.lookup(&attacker_id) else {
             return dest;
         };
         if !PathfindingGrid::is_aircraft_that_adjusts_destination(obj) {
@@ -1073,7 +1080,7 @@ impl GameLogic {
         let unit_radius = obj.selection_radius.max(src_r);
         let tgt_r = self
             .objects
-            .values()
+            .registered_values()
             .filter(|o| o.id != attacker_id && o.is_alive())
             .find(|o| {
                 let p = o.get_position();
@@ -1085,7 +1092,7 @@ impl GameLogic {
             .unwrap_or(0.0);
         let min_range = self
             .objects
-            .get(&attacker_id)
+            .lookup(&attacker_id)
             .and_then(|a| {
                 a.selected_weapon_slot()
                     .and_then(|s| a.weapon_slot(s))
@@ -1102,7 +1109,7 @@ impl GameLogic {
         };
         self.pathfinding_system.adjust_target_destination(
             attacker_id.0,
-            &self.objects,
+            self.objects.read(),
             dest,
             target_pos,
             unit_radius,
@@ -1128,7 +1135,7 @@ impl GameLogic {
         }
         let can_air = self
             .objects
-            .get(&attacker_id)
+            .lookup(&attacker_id)
             .and_then(|attacker| {
                 attacker.selected_weapon_slot().and_then(|slot| {
                     attacker
@@ -1139,7 +1146,7 @@ impl GameLogic {
             .unwrap_or(false);
         let attacker_off_map = self
             .objects
-            .get(&attacker_id)
+            .lookup(&attacker_id)
             .map(|attacker| {
                 crate::game_logic::host_deliver_payload::is_off_map_default_residual(
                     attacker.get_position(),
@@ -1148,12 +1155,12 @@ impl GameLogic {
             .unwrap_or(false);
         let victim_owner = self
             .objects
-            .get(&dead_victim_id)
+            .lookup(&dead_victim_id)
             .and_then(|victim| victim.owner_player_id);
         // Pure residual acquire: nearest same-team victim near kill position (XZ).
         let candidates: Vec<_> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(&id, obj)| {
                 if id == attacker_id || id == dead_victim_id || !obj.is_alive() {
                     return None;
@@ -1205,7 +1212,7 @@ impl GameLogic {
             return false;
         };
         {}
-        let next_pos = self.objects.get(&next_id).map(|obj| obj.get_position());
+        let next_pos = self.objects.lookup(&next_id).map(|obj| obj.get_position());
         let armed = if let Some(attacker) = self.objects.get_mut(&attacker_id) {
             attacker.target = Some(next_id);
             attacker.set_ai_state(
@@ -1248,7 +1255,7 @@ impl GameLogic {
         if amount <= 0.0 || !amount.is_finite() {
             return;
         }
-        let Some(obj) = self.objects.get(&recipient_id) else {
+        let Some(obj) = self.objects.lookup(&recipient_id) else {
             return;
         };
         if !obj.is_accepting_experience_points() {
@@ -1281,7 +1288,7 @@ impl GameLogic {
         killer_id: ObjectId,
         victim_id: ObjectId,
     ) {
-        let Some(victim) = self.objects.get(&victim_id) else {
+        let Some(victim) = self.objects.lookup(&victim_id) else {
             return;
         };
         if victim.is_alive() && victim.health.current > 0.0 && !victim.status.destroyed {
@@ -1294,7 +1301,7 @@ impl GameLogic {
     /// AIRappelState. Ordinary combat admission keeps its dead-victim gate.
     pub(crate) fn score_the_kill_experience(&mut self, killer_id: ObjectId, victim_id: ObjectId) {
         use crate::game_logic::kill_credit::KillScorePhase;
-        let Some(victim) = self.objects.get(&victim_id) else {
+        let Some(victim) = self.objects.lookup(&victim_id) else {
             return;
         };
         if victim.kill_score_phase != KillScorePhase::Ready {
@@ -1306,7 +1313,7 @@ impl GameLogic {
         self.record_owned_score_the_kill(killer_id, victim_id);
         // Preserve the independently persisted historical XP receipt. It must
         // never be reinterpreted as proof that full Player scoring occurred.
-        let award = self.objects.get(&victim_id).and_then(|victim| {
+        let award = self.objects.lookup(&victim_id).and_then(|victim| {
             (!victim.kill_experience_awarded)
                 .then_some((victim.kill_experience_value(), victim.team))
         });
@@ -1332,10 +1339,10 @@ impl GameLogic {
         victim_team: Team,
     ) -> bool {
         use gamelogic::common::Relationship;
-        let Some(killer) = self.objects.get(&killer_id) else {
+        let Some(killer) = self.objects.lookup(&killer_id) else {
             return false;
         };
-        if let Some(victim) = self.objects.get(&victim_id) {
+        if let Some(victim) = self.objects.lookup(&victim_id) {
             if !self.score_the_kill_victim_counts(victim) {
                 return false;
             }
@@ -1392,10 +1399,10 @@ impl GameLogic {
 /// C++ `OpenContain::addOrRemoveObjFromWorld` — enclosing riders leave the
 /// collide partition on enter and re-register on exit. Live rebuilds each tick.
 fn enclosing_hidden_rider_ids(
-    objects: &std::collections::HashMap<ObjectId, Object>,
+    objects: crate::game_logic::HostObjectRead<'_>,
 ) -> std::collections::HashSet<u32> {
     let pairs: Vec<(ObjectId, ObjectId, String)> = objects
-        .iter()
+        .registered()
         .filter_map(|(id, o)| {
             o.contained_by
                 .map(|cid| (*id, cid, o.template_name.clone()))
@@ -1405,7 +1412,7 @@ fn enclosing_hidden_rider_ids(
         .into_iter()
         .filter(|(rid, cid, tmpl)| {
             objects
-                .get(cid)
+                .lookup(cid)
                 .is_some_and(|c| enclosing_container_hides_rider(c, *rid, tmpl))
         })
         .map(|(rid, _, _)| rid.0)

@@ -208,7 +208,7 @@ impl GameLogic {
     ) {
         let hosts: Vec<ObjectId> = self
             .objects
-            .values()
+            .registered_values()
             .filter(|obj| {
                 portable_addon_installed(
                     obj.has_overlord_gattling_addon,

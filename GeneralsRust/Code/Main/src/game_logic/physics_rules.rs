@@ -31,7 +31,7 @@ impl super::GameLogic {
         rules: PhysicsContentRules,
     ) -> Result<(), String> {
         let rules = rules.validate()?;
-        if !self.objects.is_empty() {
+        if !self.objects.registered_is_empty() {
             return Err("Physics content admission requires an empty receiving world".into());
         }
         self.physics_definitions = PhysicsDefinitions {
@@ -48,7 +48,7 @@ impl super::GameLogic {
         rules: PhysicsContentRules,
     ) -> Result<(), String> {
         let rules = rules.validate()?;
-        if !self.objects.is_empty() {
+        if !self.objects.registered_is_empty() {
             return Err("Map Physics admission requires an empty receiving world".into());
         }
         self.physics_definitions.effective = rules;

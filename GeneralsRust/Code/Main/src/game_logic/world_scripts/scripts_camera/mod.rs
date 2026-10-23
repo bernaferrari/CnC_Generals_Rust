@@ -17,7 +17,7 @@ fn merge_host_bridge_states(
         .read()
         .expect("owned terrain bridge query");
     snap.any_bridges_damage_states_changed = terrain.bridge_damage_states_changed();
-    for obj in world.host_objects().values() {
+    for obj in world.host_objects().registered_values() {
         if obj.name.is_empty() {
             continue;
         }

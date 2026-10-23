@@ -22,7 +22,7 @@ pub(super) struct Decoded<'a> {
 pub(super) fn append(bytes: &mut Vec<u8>, world: &GameLogic) -> SaveLoadResult<()> {
     let mut records: Vec<_> = world
         .host_objects()
-        .iter()
+        .registered()
         .map(|(id, object)| Record {
             object_id: id.0,
             awestruck: object.status.disabled_awestruck,
@@ -102,7 +102,7 @@ pub(super) fn validate(
 }
 pub(super) fn apply(records: Option<&[Record]>, world: &mut GameLogic) {
     // Pre-native saves explicitly restore both unsupported bits clear.
-    for object in world.objects.values_mut() {
+    for object in world.objects.registered_values_mut() {
         object.status.disabled_awestruck = false;
         object.status.disabled_brainwashed = false;
         object.status.disabled_awestruck_until_frame = 0;

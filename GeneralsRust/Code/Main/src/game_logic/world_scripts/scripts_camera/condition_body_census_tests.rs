@@ -67,7 +67,9 @@ fn destroyed(name: &str) -> Condition {
 
 fn world(current: f32) -> (GameLogic, ObjectId) {
     let mut world = GameLogic::new();
-    world.add_player(Player::new(0, Team::USA, "OwnedBodyPlayer", true));
+    world.add_player(
+        Player::new(0, Team::USA, "OwnedBodyPlayer", true).with_script_identity("OwnedBodyPlayer"),
+    );
     let mut template = ThingTemplate::new("OwnedBodyUnit");
     template.set_health(100.0).add_kind_of(KindOf::Infantry);
     world.templates.insert(template.name.clone(), template);

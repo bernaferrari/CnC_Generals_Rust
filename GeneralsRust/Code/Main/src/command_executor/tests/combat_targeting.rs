@@ -231,6 +231,14 @@ fn attack_team_engages_member_of_team() {
     use glam::Vec3;
 
     let mut logic = GameLogic::new();
+    // A C++ attack-Team operand requires actual controlled Team membership;
+    // faction labels alone do not create a controller or default Team.
+    logic.add_player(
+        crate::game_logic::Player::new(0, Team::USA, "Attacker", true).with_script_identity("USA"),
+    );
+    logic.add_player(
+        crate::game_logic::Player::new(1, Team::GLA, "Victims", false).with_script_identity("GLA"),
+    );
     for (name, _t) in [("AT_U", Team::USA), ("AT_E", Team::GLA)] {
         let mut tpl = ThingTemplate::new(name);
         tpl.add_kind_of(KindOf::Vehicle);
@@ -239,9 +247,11 @@ fn attack_team_engages_member_of_team() {
         tpl.set_health(200.0);
         logic.templates.insert(name.to_string(), tpl);
     }
-    let u = logic.create_object("AT_U", Team::USA, Vec3::ZERO).unwrap();
+    let u = logic
+        .create_object_for_player("AT_U", 0, Vec3::ZERO)
+        .unwrap();
     let e = logic
-        .create_object("AT_E", Team::GLA, Vec3::new(30.0, 0.0, 0.0))
+        .create_object_for_player("AT_E", 1, Vec3::new(30.0, 0.0, 0.0))
         .unwrap();
     {
         use crate::game_logic::Weapon;
@@ -1990,6 +2000,14 @@ fn attack_team_reacquires_after_victim_dies() {
     use glam::Vec3;
 
     let mut logic = GameLogic::new();
+    // A C++ attack-Team operand requires actual controlled Team membership;
+    // faction labels alone do not create a controller or default Team.
+    logic.add_player(
+        crate::game_logic::Player::new(0, Team::USA, "Attacker", true).with_script_identity("USA"),
+    );
+    logic.add_player(
+        crate::game_logic::Player::new(1, Team::GLA, "Victims", false).with_script_identity("GLA"),
+    );
     for name in ["AT2_U", "AT2_E"] {
         let mut tpl = ThingTemplate::new(name);
         tpl.add_kind_of(KindOf::Vehicle);
@@ -1998,12 +2016,14 @@ fn attack_team_reacquires_after_victim_dies() {
         tpl.set_health(200.0);
         logic.templates.insert(name.to_string(), tpl);
     }
-    let u = logic.create_object("AT2_U", Team::USA, Vec3::ZERO).unwrap();
+    let u = logic
+        .create_object_for_player("AT2_U", 0, Vec3::ZERO)
+        .unwrap();
     let near = logic
-        .create_object("AT2_E", Team::GLA, Vec3::new(20.0, 0.0, 0.0))
+        .create_object_for_player("AT2_E", 1, Vec3::new(20.0, 0.0, 0.0))
         .unwrap();
     let far = logic
-        .create_object("AT2_E", Team::GLA, Vec3::new(80.0, 0.0, 0.0))
+        .create_object_for_player("AT2_E", 1, Vec3::new(80.0, 0.0, 0.0))
         .unwrap();
     {
         let uo = logic.host_object_mut(u).unwrap();

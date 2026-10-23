@@ -342,7 +342,7 @@ impl GameLogic {
             AIState,
         )> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, o)| {
                 let h = o.command_button_hunt.as_ref()?;
                 if !h.due(frame) {
@@ -486,7 +486,7 @@ impl GameLogic {
         let hunter_off = self.hunt_pos_off_map(hunter_pos);
         let mut candidates: Vec<(ObjectId, f32)> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(tid, t)| {
                 if *tid == hunter_id || !t.is_alive() {
                     return None;
@@ -562,7 +562,7 @@ impl GameLogic {
                 CommandButtonHuntSpecial::Tnt | CommandButtonHuntSpecial::DemoCharge
             );
         let mut best: Option<(ObjectId, i32, i32)> = None;
-        for (tid, t) in self.objects.iter() {
+        for (tid, t) in self.objects.registered() {
             if *tid == hunter_id || !t.is_alive() {
                 continue;
             }
@@ -681,7 +681,7 @@ impl GameLogic {
         target_pos: glam::Vec3,
         view_range: f32,
     ) -> bool {
-        self.objects.iter().any(|(mid, m)| {
+        self.objects.registered().any(|(mid, m)| {
             if *mid == hunter_id || !m.is_alive() || !m.is_kind_of(KindOf::Mine) {
                 return false;
             }
@@ -786,7 +786,7 @@ impl GameLogic {
         let frame = self.frame;
         let ids: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, o)| o.deploy_style.is_some())
             .map(|(id, _)| *id)
             .collect();
@@ -1096,7 +1096,7 @@ impl GameLogic {
 
         let crawler_ids: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, o)| {
                 o.is_troop_crawler_style_container()
                     && o.assault_transport
@@ -1565,7 +1565,7 @@ impl GameLogic {
 
         // Snapshot bus state without overlapping borrows.
         let mut bus_snapshots: Vec<(ObjectId, bool, Vec<ObjectId>, usize, f32)> = Vec::new();
-        for (id, o) in self.objects.iter() {
+        for (id, o) in self.objects.registered() {
             if !o.is_battle_bus_transport {
                 continue;
             }
@@ -1703,7 +1703,7 @@ impl GameLogic {
     ) {
         let riders: Vec<(ObjectId, ObjectId)> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, o)| o.hijacker_in_vehicle)
             .filter_map(|(id, o)| o.hijack_vehicle_id.map(|vid| (*id, vid)))
             .collect();
@@ -1855,7 +1855,7 @@ impl GameLogic {
         };
         let ids: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, o)| {
                 o.is_alive()
                     && !o.status.destroyed
@@ -1916,7 +1916,7 @@ impl GameLogic {
         }
         let occupied: Vec<(glam::Vec3, f32)> = self
             .objects
-            .values()
+            .registered_values()
             .filter(|o| o.is_alive() && !o.status.destroyed)
             .map(|o| (o.get_position(), o.thing().geometry.radius.max(1.0)))
             .collect();
@@ -1977,7 +1977,7 @@ impl GameLogic {
             vec![picker_id]
         } else {
             self.objects
-                .iter()
+                .registered()
                 .filter(|(_, o)| {
                     o.team == team
                         && o.is_alive()

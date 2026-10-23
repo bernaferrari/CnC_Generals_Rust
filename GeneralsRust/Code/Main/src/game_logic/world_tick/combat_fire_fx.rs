@@ -201,7 +201,7 @@ impl GameLogic {
         let frame = self.frame;
         let snapshots: Vec<_> = self
             .objects
-            .iter()
+            .registered()
             .map(|(id, obj)| {
                 (
                     *id,

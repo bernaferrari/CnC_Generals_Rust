@@ -100,7 +100,7 @@ impl GameLogic {
         for (index, team) in team_order.into_iter().enumerate() {
             let has_presence = self
                 .objects
-                .values()
+                .registered_values()
                 .any(|object| object.team == team && object.is_alive());
             if has_presence {
                 continue;
@@ -271,7 +271,7 @@ impl GameLogic {
 
         let container_ids: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, obj)| owned(obj) && !obj.contained_units().is_empty())
             .map(|(id, _)| *id)
             .collect();
@@ -295,7 +295,7 @@ impl GameLogic {
 
         let army: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, obj)| owned(obj))
             .map(|(id, _)| *id)
             .collect();

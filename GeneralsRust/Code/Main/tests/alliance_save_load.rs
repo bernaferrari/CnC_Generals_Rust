@@ -372,24 +372,24 @@ fn externally_supplied_save_reader() {
         "external result={result:?} frame={} players={} objects={}",
         restored.get_frame(),
         restored.get_players().len(),
-        restored.host_objects().len()
+        restored.host_objects().registered_len()
     );
     if std::env::var_os("ALLIANCE_EXPECT_REJECTION").is_some() {
         assert!(result.is_err());
         assert_eq!(restored.get_frame(), 0);
         assert!(restored.get_players().is_empty());
-        assert!(restored.host_objects().is_empty());
+        assert!(restored.host_objects().registered_is_empty());
     } else {
         result.unwrap();
         let attacker = restored
             .host_objects()
-            .values()
+            .registered_values()
             .find(|o| o.get_template().name == ATTACKER)
             .unwrap()
             .id;
         let target = restored
             .host_objects()
-            .values()
+            .registered_values()
             .find(|o| o.get_template().name == TARGET)
             .unwrap()
             .id;
@@ -946,7 +946,7 @@ fn world_versions_23_and_24_keep_nonempty_direct_and_bincode_alignment() {
         .unwrap();
         let mut host = world();
         assert!(manager.load_game("rejected", &mut host).is_err());
-        assert!(host.get_players().is_empty() && host.host_objects().is_empty());
+        assert!(host.get_players().is_empty() && host.host_objects().registered_is_empty());
     }
     let mut body = chunk_payload(original, "CHUNK_GameLogic");
     body.push(0x5a);
@@ -1014,7 +1014,7 @@ fn new_file_bundle_requires_exact_host_alliance_coverage() {
         let result = manager.load_game(name, &mut restored);
         println!("v24 coverage {name}: {result:?}");
         assert!(result.is_err(), "{name}");
-        assert!(restored.get_players().is_empty() && restored.host_objects().is_empty());
+        assert!(restored.get_players().is_empty() && restored.host_objects().registered_is_empty());
         // A failed candidate cannot modify a separately retained capsule.
         restored.add_player(Player::new(0, Team::USA, "Fresh", true));
         assert_eq!(restored.get_player(0).unwrap().alliance_team, -1, "{name}");
@@ -1150,7 +1150,7 @@ fn mission_only_file_does_not_require_a_players_chunk_or_restore_host() {
     );
     let mut restored = world();
     manager.load_game("mission", &mut restored).unwrap();
-    assert!(restored.get_players().is_empty() && restored.host_objects().is_empty());
+    assert!(restored.get_players().is_empty() && restored.host_objects().registered_is_empty());
 }
 
 #[test]

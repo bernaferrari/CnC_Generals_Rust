@@ -527,13 +527,13 @@ fn door_gated_spawn_waits_for_waiting_open() {
     }
     let before_units = logic
         .host_objects()
-        .values()
+        .registered_values()
         .filter(|o| o.template_name == "AmericaInfantryRanger")
         .count();
     let _ = logic.update_with_dt(1.0 / 30.0);
     let after_units = logic
         .host_objects()
-        .values()
+        .registered_values()
         .filter(|o| o.template_name == "AmericaInfantryRanger")
         .count();
     assert_eq!(
@@ -648,7 +648,7 @@ fn door_animated_factory_releases_after_opening_time() {
     let (phase1, end1, units_mid) = {
         let units = logic
             .host_objects()
-            .values()
+            .registered_values()
             .filter(|o| o.template_name == "AmericaTankCrusader")
             .count();
         let o = logic.host_object(bid).expect("wf");
@@ -673,7 +673,7 @@ fn door_animated_factory_releases_after_opening_time() {
         .unwrap_or(0);
     let units = logic
         .host_objects()
-        .values()
+        .registered_values()
         .filter(|o| o.template_name == "AmericaTankCrusader")
         .count();
     assert_eq!(phase2, 2, "door must reach WAITING_OPEN");
@@ -742,7 +742,7 @@ fn closing_factory_door_pops_waiting_open_for_next_unit() {
     });
     let units = logic
         .host_objects()
-        .values()
+        .registered_values()
         .filter(|o| o.template_name == "AmericaTankCrusader")
         .count();
     assert_eq!(phase, 2, "CLOSING must pop to WAITING_OPEN, phase={phase}");
@@ -788,7 +788,7 @@ fn completed_production_preserves_factory_identity_exit_facing_and_rally() {
 
     let unit = logic
         .host_objects()
-        .values()
+        .registered_values()
         .find(|object| object.template_name == "TestInfantry")
         .expect("completed unit");
     assert_eq!(unit.producer_id, Some(producer_id));
@@ -1128,6 +1128,9 @@ fn construction_audio_restore_and_direct_removal_stop_outgoing_owner_loop() {
             assert_eq!(old_site, site);
             destination.start_building_sound(old_site, "TestBuilding", old_pos);
             destination.queued_audio_events.clear();
+            destination.queue_audio_event(crate::game_logic::AudioEventRequest::new(
+                "SupersededOldWorldPendingAudio",
+            ));
             builder
                 .restore_from_snapshot(&snapshot, &mut destination)
                 .unwrap();
@@ -1140,6 +1143,13 @@ fn construction_audio_restore_and_direct_removal_stop_outgoing_owner_loop() {
                         && event.position == Some(old_pos)
                         && event.event_type == "BuildingConstructionLoop"),
                 "restore stops outgoing playback before replacing its position"
+            );
+            assert!(
+                destination
+                    .queued_audio_events
+                    .iter()
+                    .all(|event| event.event_type != "SupersededOldWorldPendingAudio"),
+                "discard pending old output without discarding retirement stops"
             );
             assert_eq!(
                 destination.host_object(site).unwrap().get_position(),

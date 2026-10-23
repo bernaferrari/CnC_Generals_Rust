@@ -196,7 +196,7 @@ impl PathfindingGrid {
     /// Update dynamic obstacles based on unit positions
     pub fn update_dynamic_obstacles(
         &mut self,
-        objects: &HashMap<ObjectId, Object>,
+        objects: HostObjectRead<'_>,
         ground_source: &PathfindingGround<'_>,
     ) {
         self.update_dynamic_obstacles_ignoring(objects, None, ground_source);
@@ -205,7 +205,7 @@ impl PathfindingGrid {
     /// Same occupancy stamp, skipping `ignore` (C++ `ignoreObstacle(goalObject)`).
     pub fn update_dynamic_obstacles_ignoring(
         &mut self,
-        objects: &HashMap<ObjectId, Object>,
+        objects: HostObjectRead<'_>,
         ignore: Option<ObjectId>,
         ground_source: &PathfindingGround<'_>,
     ) {
@@ -214,7 +214,7 @@ impl PathfindingGrid {
         // C++ iterates TheGameLogic's insertion-ordered object list
         // (getFirstObject/getNextObject); HashMap order would randomize which
         // unit owns a contested cell's single m_posUnitID. Sort by ObjectID.
-        let mut stamp_order: Vec<&Object> = objects.values().collect();
+        let mut stamp_order: Vec<&Object> = objects.registered_values().collect();
         stamp_order.sort_by_key(|o| o.id);
         for obj in stamp_order {
             let is_aircraft = obj.is_kind_of(KindOf::Aircraft)
@@ -755,11 +755,11 @@ impl PathfindingGrid {
     /// have changed or cleared its goal since the last path request.
     pub(super) fn aircraft_goal_claims(
         &self,
-        objects: &HashMap<ObjectId, Object>,
+        objects: HostObjectRead<'_>,
         seeker: u32,
     ) -> HashSet<GridPos> {
         let mut claimed = HashSet::new();
-        for obj in objects.values().filter(|obj| obj.id.0 != seeker) {
+        for obj in objects.registered_values().filter(|obj| obj.id.0 != seeker) {
             let Some((cell, radius, num_above)) = self.aircraft_goal_footprint(obj) else {
                 continue;
             };

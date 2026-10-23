@@ -299,7 +299,7 @@ fn max_named_fallback_ambiguity_is_preserved_not_redefined() {
 fn live_case(token: &str, height: f32, initial: bool) {
     let mut game = GameLogic::new();
     assert_eq!(game.get_frame(), 0);
-    assert!(game.host_objects().is_empty());
+    assert!(game.host_objects().registered_is_empty());
     let warm = game.update_with_dt(DT);
     assert_eq!((warm.frame, warm.steps_run), (1, 1));
     let template = load(&format!("Live{token}"), usize::from(initial), token, true);

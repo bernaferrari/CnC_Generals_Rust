@@ -361,13 +361,13 @@ fn counts_as_any_object(obj: &Object) -> bool {
 
 impl PlayerArmyState {
     fn from_objects(
-        objects: &HashMap<ObjectId, Object>,
+        objects: crate::game_logic::HostObjectRead<'_>,
         player: &Player,
         unique_team_owner: Option<u32>,
     ) -> Self {
         let mut state = Self::default();
 
-        for obj in objects.values() {
+        for obj in objects.registered_values() {
             if !object_belongs_to_player(obj, player, unique_team_owner) || !obj.is_alive() {
                 continue;
             }
@@ -471,7 +471,7 @@ impl VictoryConditions {
     pub fn evaluate(
         &mut self,
         players: &HashMap<u32, Player>,
-        objects: &HashMap<ObjectId, Object>,
+        objects: crate::game_logic::HostObjectRead<'_>,
         frame: u32,
         game_mode: GameMode,
     ) -> Option<VictoryCondition> {
@@ -482,7 +482,7 @@ impl VictoryConditions {
     pub fn evaluate_with_templates(
         &mut self,
         players: &HashMap<u32, Player>,
-        objects: &HashMap<ObjectId, Object>,
+        objects: crate::game_logic::HostObjectRead<'_>,
         frame: u32,
         game_mode: GameMode,
         identities: &HashMap<u32, PlayerTemplateIdentity>,
@@ -495,7 +495,7 @@ impl VictoryConditions {
     pub fn evaluate_with_world_factory(
         &mut self,
         players: &HashMap<u32, Player>,
-        objects: &HashMap<ObjectId, Object>,
+        objects: crate::game_logic::HostObjectRead<'_>,
         frame: u32,
         game_mode: GameMode,
         identities: &HashMap<u32, PlayerTemplateIdentity>,
@@ -514,7 +514,7 @@ impl VictoryConditions {
     fn evaluate_with_templates_and_factory(
         &mut self,
         players: &HashMap<u32, Player>,
-        objects: &HashMap<ObjectId, Object>,
+        objects: crate::game_logic::HostObjectRead<'_>,
         frame: u32,
         game_mode: GameMode,
         identities: &HashMap<u32, PlayerTemplateIdentity>,
@@ -653,7 +653,7 @@ impl VictoryConditions {
         &self,
         player: &Player,
         players: &HashMap<u32, Player>,
-        objects: &HashMap<ObjectId, Object>,
+        objects: crate::game_logic::HostObjectRead<'_>,
     ) -> bool {
         let owner = unique_faction_owner(players, player.team, &self.player_templates);
         self.is_defeated(PlayerArmyState::from_objects(objects, player, owner))
@@ -943,13 +943,13 @@ mod tests {
         let mut players = HashMap::new();
         players.insert(0, player(0, Team::USA, 1));
         players.insert(1, player(1, Team::USA, 2));
-        let mut objects = HashMap::new();
+        let mut objects = crate::game_logic::HostObjectStore::new();
         let (a, oa) = obj(1, 0, Team::USA, &[KindOf::Infantry]);
         let (b, ob) = obj(2, 1, Team::USA, &[KindOf::Infantry]);
-        objects.insert(a, oa);
-        objects.insert(b, ob);
+        objects.admit(a, oa);
+        objects.admit(b, ob);
         assert!(
-            vc.evaluate(&players, &objects, 10, GameMode::Skirmish)
+            vc.evaluate(&players, objects.read(), 10, GameMode::Skirmish)
                 .is_none(),
             "USA-vs-USA with different alliance_team must continue"
         );
@@ -958,13 +958,13 @@ mod tests {
         mixed.insert(0, player(0, Team::USA, 7));
         mixed.insert(1, player(1, Team::China, 7));
         mixed.insert(2, player(2, Team::GLA, 8));
-        let mut objs = HashMap::new();
+        let mut objs = crate::game_logic::HostObjectStore::new();
         let (c, oc) = obj(3, 0, Team::USA, &[KindOf::Infantry]);
         let (d, od) = obj(4, 1, Team::China, &[KindOf::Infantry]);
-        objs.insert(c, oc);
-        objs.insert(d, od);
+        objs.admit(c, oc);
+        objs.admit(d, od);
         // GLA has no army → defeated; USA+China share alliance 7 → win.
-        let outcome = vc.evaluate(&mixed, &objs, 11, GameMode::Skirmish);
+        let outcome = vc.evaluate(&mixed, objs.read(), 11, GameMode::Skirmish);
         assert!(
             matches!(outcome, Some(VictoryCondition::Winner(_))),
             "mixed-faction 2v1 with shared alliance_team must end, got {outcome:?}"
@@ -988,12 +988,12 @@ mod tests {
         gla.set_map_relationship(0, Relationship::Allies);
         allies.insert(0, usa);
         allies.insert(1, gla);
-        let mut objects = HashMap::new();
+        let mut objects = crate::game_logic::HostObjectStore::new();
         let (a, oa) = obj(1, 0, Team::USA, &[KindOf::Infantry]);
         let (b, ob) = obj(2, 1, Team::GLA, &[KindOf::Infantry]);
-        objects.insert(a, oa);
-        objects.insert(b, ob);
-        let outcome = vc.evaluate(&allies, &objects, 12, GameMode::Skirmish);
+        objects.admit(a, oa);
+        objects.admit(b, ob);
+        let outcome = vc.evaluate(&allies, objects.read(), 12, GameMode::Skirmish);
         assert!(
             matches!(outcome, Some(VictoryCondition::Winner(_))),
             "mutual PLAYER_RELATES Allies must be one alliance, got {outcome:?}"
@@ -1008,13 +1008,14 @@ mod tests {
         china.set_map_relationship(0, Relationship::Enemies);
         ffa.insert(0, usa);
         ffa.insert(1, china);
-        let mut objs = HashMap::new();
+        let mut objs = crate::game_logic::HostObjectStore::new();
         let (c, oc) = obj(3, 0, Team::USA, &[KindOf::Infantry]);
         let (d, od) = obj(4, 1, Team::China, &[KindOf::Infantry]);
-        objs.insert(c, oc);
-        objs.insert(d, od);
+        objs.admit(c, oc);
+        objs.admit(d, od);
         assert!(
-            vc.evaluate(&ffa, &objs, 13, GameMode::Skirmish).is_none(),
+            vc.evaluate(&ffa, objs.read(), 13, GameMode::Skirmish)
+                .is_none(),
             "scripted Enemies on the same slot team must not share victory"
         );
         vc.reset();
@@ -1033,12 +1034,12 @@ mod tests {
         gla.set_team_relationship_override("teamP0", Relationship::Allies);
         allies.insert(0, usa);
         allies.insert(1, gla);
-        let mut objects = HashMap::new();
+        let mut objects = crate::game_logic::HostObjectStore::new();
         let (a, oa) = obj(1, 0, Team::USA, &[KindOf::Infantry]);
         let (b, ob) = obj(2, 1, Team::GLA, &[KindOf::Infantry]);
-        objects.insert(a, oa);
-        objects.insert(b, ob);
-        let outcome = vc.evaluate(&allies, &objects, 14, GameMode::Skirmish);
+        objects.admit(a, oa);
+        objects.admit(b, ob);
+        let outcome = vc.evaluate(&allies, objects.read(), 14, GameMode::Skirmish);
         assert!(
             matches!(outcome, Some(VictoryCondition::Winner(_))),
             "mutual PLAYER_SET_OVERRIDE_RELATION_TO_TEAM Allies must be one alliance, got {outcome:?}"
@@ -1052,13 +1053,13 @@ mod tests {
         usa.set_team_relationship_override("teamP1", Relationship::Allies);
         one_way.insert(0, usa);
         one_way.insert(1, gla);
-        let mut objs = HashMap::new();
+        let mut objs = crate::game_logic::HostObjectStore::new();
         let (c, oc) = obj(3, 0, Team::USA, &[KindOf::Infantry]);
         let (d, od) = obj(4, 1, Team::GLA, &[KindOf::Infantry]);
-        objs.insert(c, oc);
-        objs.insert(d, od);
+        objs.admit(c, oc);
+        objs.admit(d, od);
         assert!(
-            vc.evaluate(&one_way, &objs, 15, GameMode::Skirmish)
+            vc.evaluate(&one_way, objs.read(), 15, GameMode::Skirmish)
                 .is_none(),
             "one-way PLAYER_SET_OVERRIDE_RELATION_TO_TEAM must not share victory"
         );
@@ -1071,12 +1072,12 @@ mod tests {
         gla.set_team_relationship_override("teamplayer0", Relationship::Allies);
         teamplayer.insert(0, usa);
         teamplayer.insert(1, gla);
-        let mut objs = HashMap::new();
+        let mut objs = crate::game_logic::HostObjectStore::new();
         let (e, oe) = obj(5, 0, Team::USA, &[KindOf::Infantry]);
         let (f, of) = obj(6, 1, Team::GLA, &[KindOf::Infantry]);
-        objs.insert(e, oe);
-        objs.insert(f, of);
-        let outcome = vc.evaluate(&teamplayer, &objs, 16, GameMode::Skirmish);
+        objs.admit(e, oe);
+        objs.admit(f, of);
+        let outcome = vc.evaluate(&teamplayer, objs.read(), 16, GameMode::Skirmish);
         assert!(
             matches!(outcome, Some(VictoryCondition::Winner(_))),
             "scripted teamplayerN default-team ALLIES must share victory, got {outcome:?}"
@@ -1090,15 +1091,15 @@ mod tests {
         let mut players = HashMap::new();
         players.insert(0, player(0, Team::USA, 1));
         players.insert(1, player(1, Team::GLA, 2));
-        let mut objects = HashMap::new();
+        let mut objects = crate::game_logic::HostObjectStore::new();
         let (a, oa) = obj(1, 0, Team::USA, &[KindOf::Infantry]);
-        objects.insert(a, oa);
+        objects.admit(a, oa);
         assert!(
-            vc.evaluate(&players, &objects, 3, GameMode::SinglePlayer)
+            vc.evaluate(&players, objects.read(), 3, GameMode::SinglePlayer)
                 .is_none()
         );
         assert!(
-            vc.evaluate(&players, &objects, 3, GameMode::Shell)
+            vc.evaluate(&players, objects.read(), 3, GameMode::Shell)
                 .is_none()
         );
         assert!(vc.peek_defeat_events().is_empty());
@@ -1111,7 +1112,7 @@ mod tests {
         let mut players = HashMap::new();
         players.insert(0, player(0, Team::USA, 1));
         players.insert(1, player(1, Team::GLA, 2));
-        let mut objects = HashMap::new();
+        let mut objects = crate::game_logic::HostObjectStore::new();
         let (cc, occ) = obj(
             1,
             0,
@@ -1119,9 +1120,9 @@ mod tests {
             &[KindOf::Structure, KindOf::MpCountForVictory],
         );
         let (wall, owall) = obj(2, 1, Team::GLA, &[KindOf::Structure]);
-        objects.insert(cc, occ);
-        objects.insert(wall, owall);
-        let outcome = vc.evaluate(&players, &objects, 4, GameMode::Skirmish);
+        objects.admit(cc, occ);
+        objects.admit(wall, owall);
+        let outcome = vc.evaluate(&players, objects.read(), 4, GameMode::Skirmish);
         assert!(
             matches!(outcome, Some(VictoryCondition::Winner(0))),
             "wall-only STRUCTURE without MP_COUNT must not stall, got {outcome:?}"
@@ -1137,12 +1138,12 @@ mod tests {
         let mut players = HashMap::new();
         players.insert(0, player(0, Team::USA, 1));
         players.insert(1, player(1, Team::GLA, 2));
-        let mut objects = HashMap::new();
+        let mut objects = crate::game_logic::HostObjectStore::new();
         let (a, oa) = obj(1, 0, Team::USA, &[KindOf::Infantry]);
         let (rad, orad) = obj(2, 1, Team::GLA, &[KindOf::Inert]);
-        objects.insert(a, oa);
-        objects.insert(rad, orad);
-        let outcome = vc.evaluate(&players, &objects, 5, GameMode::Skirmish);
+        objects.admit(a, oa);
+        objects.admit(rad, orad);
+        let outcome = vc.evaluate(&players, objects.read(), 5, GameMode::Skirmish);
         assert!(
             matches!(outcome, Some(VictoryCondition::Winner(0))),
             "KINDOF_INERT radiation must not stall annihilation, got {outcome:?}"
@@ -1174,11 +1175,11 @@ mod tests {
         let mut players = HashMap::new();
         players.insert(0, player(0, Team::USA, 1));
         players.insert(1, player(1, Team::GLA, 2));
-        let mut objects = HashMap::new();
+        let mut objects = crate::game_logic::HostObjectStore::new();
         let (a, oa) = obj(1, 0, Team::USA, &[KindOf::Infantry]);
-        objects.insert(a, oa);
+        objects.admit(a, oa);
 
-        let outcome = vc.evaluate(&players, &objects, 8, GameMode::Skirmish);
+        let outcome = vc.evaluate(&players, objects.read(), 8, GameMode::Skirmish);
         assert!(
             matches!(outcome, Some(VictoryCondition::Winner(0))),
             "local should win when the other army is gone, got {outcome:?}"
@@ -1207,13 +1208,13 @@ mod tests {
         players.insert(1, player(1, Team::USA, 1));
         players.insert(2, player(2, Team::China, 2));
         players.insert(3, player(3, Team::GLA, 3));
-        let mut objects = HashMap::new();
+        let mut objects = crate::game_logic::HostObjectStore::new();
         let (c, oc) = obj(3, 2, Team::China, &[KindOf::Infantry]);
         let (d, od) = obj(4, 3, Team::GLA, &[KindOf::Infantry]);
-        objects.insert(c, oc);
-        objects.insert(d, od);
+        objects.admit(c, oc);
+        objects.admit(d, od);
 
-        let outcome = vc.evaluate(&players, &objects, 9, GameMode::Skirmish);
+        let outcome = vc.evaluate(&players, objects.read(), 9, GameMode::Skirmish);
         assert!(
             outcome.is_none(),
             "two enemy alliances still fighting must not end the match, got {outcome:?}"
@@ -1234,13 +1235,13 @@ mod tests {
         let mut players = HashMap::new();
         players.insert(0, named);
         players.insert(1, player(1, Team::GLA, 2));
-        let mut objects = HashMap::new();
+        let mut objects = crate::game_logic::HostObjectStore::new();
         let (a, oa) = obj(1, 0, Team::USA, &[KindOf::Infantry]);
         let (b, ob) = obj(2, 1, Team::GLA, &[KindOf::Infantry]);
-        objects.insert(a, oa);
-        objects.insert(b, ob);
+        objects.admit(a, oa);
+        objects.admit(b, ob);
         assert!(
-            vc.evaluate(&players, &objects, 12, GameMode::Skirmish)
+            vc.evaluate(&players, objects.read(), 12, GameMode::Skirmish)
                 .is_none(),
             "a living army named Civilian/Observer still counts in cachePlayerPtrs"
         );
@@ -1258,7 +1259,7 @@ mod tests {
         named_only.insert(1, player(1, Team::GLA, 2));
         let outcome = vc.evaluate_with_templates(
             &named_only,
-            &objects,
+            objects.read(),
             13,
             GameMode::Skirmish,
             &civilian_idents,
@@ -1279,11 +1280,11 @@ mod tests {
         let mut players = HashMap::new();
         players.insert(0, player(0, Team::USA, 1));
         players.insert(1, player(1, Team::GLA, 2));
-        let mut objects = HashMap::new();
+        let mut objects = crate::game_logic::HostObjectStore::new();
         let (a, oa) = obj(1, 0, Team::USA, &[KindOf::Infantry]);
-        objects.insert(a, oa);
+        objects.admit(a, oa);
         // GLA has no army; empty flags must leave victory to scripts.
-        let outcome = vc.evaluate(&players, &objects, 20, GameMode::Skirmish);
+        let outcome = vc.evaluate(&players, objects.read(), 20, GameMode::Skirmish);
         assert!(
             outcome.is_none(),
             "C++ hasSinglePlayerBeenDefeated is false with no flags, got {outcome:?}"
@@ -1300,13 +1301,13 @@ mod tests {
         let mut players = HashMap::new();
         players.insert(0, player(0, Team::USA, 1));
         players.insert(1, player(1, Team::GLA, 2));
-        let mut objects = HashMap::new();
+        let mut objects = crate::game_logic::HostObjectStore::new();
         let (a, oa) = obj(1, 0, Team::USA, &[KindOf::Infantry]);
-        objects.insert(a, oa);
+        objects.admit(a, oa);
 
         for frame in [0u32, 1] {
             let mut vc = VictoryConditions::new();
-            let outcome = vc.evaluate(&players, &objects, frame, GameMode::Skirmish);
+            let outcome = vc.evaluate(&players, objects.read(), frame, GameMode::Skirmish);
             assert!(
                 matches!(outcome, Some(VictoryCondition::Winner(0))),
                 "frame {frame} still ends the match, got {outcome:?}"
@@ -1323,7 +1324,7 @@ mod tests {
         }
 
         let mut late = VictoryConditions::new();
-        let late_outcome = late.evaluate(&players, &objects, 2, GameMode::Skirmish);
+        let late_outcome = late.evaluate(&players, objects.read(), 2, GameMode::Skirmish);
         assert!(
             matches!(late_outcome, Some(VictoryCondition::Winner(0))),
             "frame 2 still ends the match, got {late_outcome:?}"
@@ -1337,10 +1338,10 @@ mod tests {
 
         // Frame-0 mark sticks; later ticks must not announce a start-empty side.
         let mut sticky = VictoryConditions::new();
-        sticky.evaluate(&players, &objects, 0, GameMode::Skirmish);
+        sticky.evaluate(&players, objects.read(), 0, GameMode::Skirmish);
         assert!(sticky.peek_defeat_events().is_empty());
         let _ = sticky.take_pending_kills();
-        sticky.evaluate(&players, &objects, 8, GameMode::Skirmish);
+        sticky.evaluate(&players, objects.read(), 8, GameMode::Skirmish);
         assert!(
             sticky.peek_defeat_events().is_empty(),
             "already-marked start-empty side stays silent after frame > 1"

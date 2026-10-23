@@ -43,7 +43,7 @@ impl GameLogic {
 
         let candidates: Vec<(ObjectId, f32)> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, obj)| {
                 if source == Some(*id) {
                     return None;
@@ -292,7 +292,7 @@ impl GameLogic {
         let frame = self.frame as u32;
         let ids: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, o)| o.is_alive() && o.float_update.is_some())
             .map(|(id, _)| *id)
             .collect();
@@ -585,7 +585,7 @@ impl GameLogic {
         let draw_icon_ui = self.get_draw_icon_ui();
         let ids: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, o)| o.is_alive() && o.spectre_gunship_update.is_some())
             .map(|(id, _)| *id)
             .collect();
@@ -1431,7 +1431,7 @@ impl GameLogic {
 
         let ids: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, o)| o.fuel_air_gas_slow_death.is_some() && o.is_alive())
             .map(|(id, _)| *id)
             .collect();
@@ -1562,7 +1562,7 @@ impl GameLogic {
         let killer = producer.or(Some(source_id));
         let victims: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(oid, o)| {
                 **oid != source_id && o.is_alive()
                     // In-flight DeliverPayload warheads (A10 missile, carpet
@@ -1620,7 +1620,7 @@ impl GameLogic {
         use crate::game_logic::host_smart_bomb_target_homing::SMART_BOMB_SIGNIFICANTLY_ABOVE_TERRAIN;
         let ids: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, o)| o.is_alive() && o.smart_bomb_target_homing.is_some())
             .map(|(id, _)| *id)
             .collect();
@@ -1652,7 +1652,7 @@ impl GameLogic {
     pub(in super::super) fn update_checkpoint_update(&mut self) {
         let ids: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, o)| o.is_alive() && o.checkpoint_update.is_some())
             .map(|(id, _)| *id)
             .collect();
@@ -1676,7 +1676,7 @@ impl GameLogic {
                 self.checkpoint_update_reg.record_scan();
                 let mut enemy = false;
                 let mut ally = false;
-                for (oid, o) in self.objects.iter() {
+                for (oid, o) in self.objects.registered() {
                     if *oid == id || !o.is_alive() {
                         continue;
                     }
@@ -1746,7 +1746,7 @@ impl GameLogic {
         let draw_icon_ui = self.get_draw_icon_ui();
         let ids: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, o)| o.is_alive() && o.radius_decal_update.is_some())
             .map(|(id, _)| *id)
             .collect();
@@ -1772,7 +1772,7 @@ impl GameLogic {
     pub(in super::super) fn update_prone_update(&mut self) {
         let ids: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, o)| o.is_alive() && o.prone_update.is_some())
             .map(|(id, _)| *id)
             .collect();
@@ -1821,7 +1821,7 @@ impl GameLogic {
         let frame = self.frame as u32;
         let ids: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, o)| o.is_alive() && o.animation_steering.is_some())
             .map(|(id, _)| *id)
             .collect();
@@ -1842,7 +1842,7 @@ impl GameLogic {
     pub(in super::super) fn update_enemy_near(&mut self) {
         let ids: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, o)| o.is_alive() && o.enemy_near.is_some())
             .map(|(id, _)| *id)
             .collect();
@@ -1865,7 +1865,7 @@ impl GameLogic {
             let enemy_present = if needs_scan {
                 self.enemy_near_reg.record_scan();
                 let mut found = false;
-                for (oid, o) in self.objects.iter() {
+                for (oid, o) in self.objects.registered() {
                     if *oid == id || !o.is_alive() {
                         continue;
                     }
@@ -1912,7 +1912,7 @@ impl GameLogic {
         let frame = self.frame as u32;
         let ids: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, o)| o.is_alive() && o.base_regenerate.is_some())
             .map(|(id, _)| *id)
             .collect();
@@ -2048,7 +2048,7 @@ impl GameLogic {
         let frame = self.frame as u32;
         let ids: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, o)| o.is_alive() && o.has_fire_spread())
             .map(|(id, _)| *id)
             .collect();
@@ -2058,7 +2058,7 @@ impl GameLogic {
 
         let positions: Vec<(ObjectId, Vec3, bool)> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, o)| o.is_alive() && o.has_fire_spread())
             .map(|(id, o)| {
                 let would = o
@@ -2211,7 +2211,7 @@ impl GameLogic {
         let frame = self.frame as u32;
         let members: Vec<(ObjectId, Vec3)> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, o)| o.is_alive() && o.has_tensile_formation())
             .map(|(id, o)| (*id, o.get_position()))
             .collect();
@@ -2344,7 +2344,7 @@ impl GameLogic {
             self.tensile_formation_reg.record_propagate();
             let hurt: Vec<ObjectId> = self
                 .objects
-                .iter()
+                .registered()
                 .filter(|(_, o)| o.is_alive() && o.has_tensile_formation())
                 .filter(|(_, o)| {
                     let p = o.get_position();
@@ -2401,7 +2401,7 @@ impl GameLogic {
     ) {
         let object_positions: Vec<(ObjectId, Vec3, Team, bool, bool)> = self
             .objects
-            .iter()
+            .registered()
             .map(|(id, obj)| {
                 (
                     *id,
@@ -2481,7 +2481,7 @@ impl GameLogic {
     ) {
         let object_positions: Vec<(ObjectId, Vec3, Team, bool)> = self
             .objects
-            .iter()
+            .registered()
             .map(|(id, obj)| (*id, obj.get_position(), obj.team, obj.is_alive()))
             .collect();
 
@@ -2657,7 +2657,7 @@ impl GameLogic {
         let frame = self.frame;
         let flying: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, o)| {
                 if o.nuke_cannon_shell_projectile && o.is_alive() {
                     Some(*id)

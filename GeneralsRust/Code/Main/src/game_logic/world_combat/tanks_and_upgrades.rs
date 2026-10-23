@@ -183,7 +183,7 @@ impl GameLogic {
         let frame = self.frame;
         let flying: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, o)| {
                 if o.battlemaster_shell_projectile && o.is_alive() {
                     Some(*id)
@@ -345,7 +345,7 @@ impl GameLogic {
 
         let candidates: Vec<(ObjectId, f32, bool)> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, obj)| {
                 if source == Some(*id) {
                     return None;
@@ -647,7 +647,7 @@ impl GameLogic {
 
         let horde_units: Vec<(ObjectId, Team, Option<u32>, LeftoverHordeScanUnit, String)> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, o)| {
                 if !o.is_alive() || !is_china_infantry_horde_unit(&o.template_name) {
                     return None;
@@ -1037,7 +1037,7 @@ impl GameLogic {
         let cruise = TANK_HUNTER_PROJECTILE_SPEED / 30.0;
         let flying: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, o)| {
                 if o.tank_hunter_missile_projectile && o.is_alive() {
                     Some(*id)
@@ -1218,7 +1218,7 @@ impl GameLogic {
 
         let candidates: Vec<(ObjectId, f32, bool)> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, obj)| {
                 if source == Some(*id) {
                     return None;
@@ -1475,7 +1475,7 @@ impl GameLogic {
         let frame = self.frame;
         let flying: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, o)| {
                 if o.flashbang_grenade_projectile && o.is_alive() {
                     Some(*id)
@@ -1704,7 +1704,7 @@ impl GameLogic {
         let frame = self.frame;
         let flying: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, o)| {
                 if o.humvee_tow_projectile && o.is_alive() {
                     Some(*id)
@@ -1930,7 +1930,7 @@ impl GameLogic {
         let frame = self.frame;
         let flying: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, o)| {
                 if o.dragon_flame_projectile && o.is_alive() {
                     Some(*id)
@@ -2148,7 +2148,7 @@ impl GameLogic {
         let frame = self.frame;
         let flying: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, o)| {
                 if o.toxin_stream_projectile && o.is_alive() {
                     Some(*id)

@@ -955,10 +955,29 @@ fn retail_harvesters_parse_and_accept_gather_through_live_command_authority() {
     };
     use crate::presentation_frame::PresentationFrame;
 
+    fn selected_object_source(text: &str, name: &str) -> String {
+        let lines = text.lines().collect::<Vec<_>>();
+        let header = |line: &str| {
+            let mut words = line.split(';').next().unwrap_or("").split_whitespace();
+            let kind = words.next()?;
+            let name = words.next()?;
+            (["Object", "ChildObject", "ObjectReskin"].contains(&kind) && name != "=")
+                .then_some(name.to_string())
+        };
+        let start = lines
+            .iter()
+            .position(|line| header(line).as_deref() == Some(name))
+            .expect("actual retail Object declaration");
+        let end = (start + 1..lines.len())
+            .find(|&index| header(lines[index]).is_some())
+            .unwrap_or(lines.len());
+        format!("{}\n", lines[start..end].join("\n"))
+    }
+
     fn retail_definition(
         relative_path: &str,
         object_name: &str,
-    ) -> crate::assets::ObjectDefinition {
+    ) -> (crate::assets::ObjectDefinition, String) {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../..")
             .join(relative_path);
@@ -968,10 +987,11 @@ fn retail_harvesters_parse_and_accept_gather_through_live_command_authority() {
         parser
             .parse_ini_content(&contents, &path.display().to_string())
             .unwrap_or_else(|error| panic!("parse retail Object INI {}: {error}", path.display()));
-        parser
+        let definition = parser
             .get_definition(object_name)
             .cloned()
-            .unwrap_or_else(|| panic!("{object_name} missing from {}", path.display()))
+            .unwrap_or_else(|| panic!("{object_name} missing from {}", path.display()));
+        (definition, selected_object_source(&contents, object_name))
     }
 
     let cases = [
@@ -990,7 +1010,7 @@ fn retail_harvesters_parse_and_accept_gather_through_live_command_authority() {
     ];
 
     for (object_name, source_path, team, player_id) in cases {
-        let definition = retail_definition(source_path, object_name);
+        let (definition, source) = retail_definition(source_path, object_name);
         let template =
             GameLogic::build_template_from_object_definition(object_name, &definition, None);
         assert!(
@@ -1006,20 +1026,33 @@ fn retail_harvesters_parse_and_accept_gather_through_live_command_authority() {
             "{object_name} must retain its authored movable classification rather than a name-based fallback structure"
         );
 
+        // Real collector prerequisites remain real content even though this
+        // fixture is testing Gather, not producing either collector.
+        let building_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../..")
+            .join("windows_game/extracted_big_files_v2/INIZH/Data/INI/Object/FactionBuilding.ini");
+        let buildings = std::fs::read_to_string(&building_path).unwrap();
+        let mut sources = vec![(source_path.into(), source)];
+        // Preserve the selected declarations' actual FactionBuilding order.
+        for name in [
+            "AmericaPowerPlant",
+            "ChinaPowerPlant",
+            "AmericaSupplyCenter",
+            "ChinaSupplyCenter",
+        ] {
+            sources.push((
+                format!("FactionBuilding.ini:{name}"),
+                selected_object_source(&buildings, name),
+            ));
+        }
+        sources.push(("gather-resource-fixture.ini".into(), "Object RetailGatherSupply\nKindOf = SUPPLY_SOURCE\nBody = ActiveBody SupplyBody\nMaxHealth = 100\nInitialHealth = 100\nEnd\nEnd\n".into()));
         let mut game_logic = GameLogic::new();
+        game_logic
+            .admit_receiving_module_content(
+                crate::assets::ReceivingObjectContent::from_sources(sources).unwrap(),
+            )
+            .unwrap();
         ensure_test_player_for_team(&mut game_logic, team);
-        game_logic
-            .templates
-            .insert(object_name.to_string(), template);
-
-        let mut resource = ThingTemplate::new("RetailGatherSupply");
-        resource
-            .add_kind_of(KindOf::Resource)
-            .add_kind_of(KindOf::Harvestable)
-            .set_health(100.0);
-        game_logic
-            .templates
-            .insert("RetailGatherSupply".to_string(), resource);
 
         let collector_id = game_logic
             .create_object(object_name, team, Vec3::ZERO)
@@ -1069,7 +1102,7 @@ fn retail_harvesters_parse_and_accept_gather_through_live_command_authority() {
             game_logic.pathfinding_system.find_path_ex(
                 Vec3::ZERO,
                 Vec3::new(20.0, 0.0, 0.0),
-                &game_logic.objects,
+                game_logic.objects.read(),
                 false,
                 Some(collector_id),
                 &ground_source,

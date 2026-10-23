@@ -147,7 +147,7 @@ fn load(world: &mut GameLogic, path: &Path) -> ObjectId {
     assert!(world.terrain.is_some(), "actual raw HeightMapData admitted");
     let objects: Vec<_> = world
         .objects
-        .values()
+        .registered_values()
         .filter(|object| object.get_template().name == PROBE)
         .map(|object| object.id)
         .collect();
@@ -472,7 +472,7 @@ fn actual_non40_map_snapshot_continues_shroud_expiry_and_receiving_index() {
                 .snapshot_state();
             let peer_pose = peer.host_object(peer_id).unwrap().get_position();
             let peer_health = peer.host_object(peer_id).unwrap().health.current;
-            let peer_objects = peer.objects.len();
+            let peer_objects = peer.objects.registered_len();
             let peer_camera = peer.capture_camera_continuation().unwrap();
             let source_before = source
                 .world_services
@@ -500,7 +500,7 @@ fn actual_non40_map_snapshot_continues_shroud_expiry_and_receiving_index() {
                 peer.host_object(peer_id).unwrap().health.current,
                 peer_health
             );
-            assert_eq!(peer.objects.len(), peer_objects);
+            assert_eq!(peer.objects.registered_len(), peer_objects);
             assert_eq!(peer.capture_camera_continuation().unwrap(), peer_camera);
             assert_eq!(
                 peer.world_services

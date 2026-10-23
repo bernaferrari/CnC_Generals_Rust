@@ -155,7 +155,7 @@ mod sides_host_apply_tests {
                 assert!(
                     world
                         .objects
-                        .values()
+                        .registered_values()
                         .any(|object| object.thing().template.name == "SlotAdmissionMarker"),
                     "object-placement admission must also execute"
                 );

@@ -179,7 +179,7 @@ pub fn run_map_frame_scenario(
         frames_advanced,
         frame_before,
         frame_after,
-        object_count: logic.host_objects().len(),
+        object_count: logic.host_objects().registered_len(),
         status,
     })
 }

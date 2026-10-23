@@ -307,7 +307,7 @@ impl GameLogic {
         // 1) All team internet centers: SpyVision disabled until frame.
         let center_ids: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, o)| {
                 o.is_alive()
                     && o.team == owner_team
@@ -336,7 +336,7 @@ impl GameLogic {
             .map(|c| c.contained_units())
             .unwrap_or_default();
         // Also collect reverse contained_by residual (garrison / fail-open).
-        for (id, o) in &self.objects {
+        for (id, o) in self.objects.registered() {
             if o.contained_by == Some(center_id) && !occupants.contains(id) {
                 occupants.push(*id);
             }
@@ -750,7 +750,7 @@ impl GameLogic {
         // --- Clear previous army residual bonuses ---
         let previous_ids: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, obj)| {
                 if obj.team == team && obj.has_battle_plan_bonus() {
                     Some(*id)
@@ -835,7 +835,7 @@ impl GameLogic {
             if paralyze_on_none {
                 let candidates: Vec<ObjectId> = self
                     .objects
-                    .iter()
+                    .registered()
                     .filter_map(|(id, obj)| {
                         if !obj.is_alive() {
                             return None;
@@ -905,7 +905,7 @@ impl GameLogic {
         // Apply army residual bonuses.
         let candidates: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, obj)| {
                 if !obj.is_alive() {
                     return None;
@@ -1108,7 +1108,7 @@ impl GameLogic {
         // Snapshot in-range objects (include STRUCTURE so contained walk can fire).
         let candidates: Vec<(ObjectId, bool, bool, bool, bool, Vec<ObjectId>)> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, obj)| {
                 if !obj.is_alive() {
                     return None;
@@ -1670,7 +1670,7 @@ impl GameLogic {
         for field in self.special_power_strikes.radiation_fields() {
             consider(field.position, &mut best);
         }
-        for obj in self.objects.values() {
+        for obj in self.objects.registered_values() {
             if !obj.is_alive() {
                 continue;
             }
@@ -1725,7 +1725,7 @@ impl GameLogic {
 
         // Clear residual enemy/neutral mines in radius (safe disarm, no splash).
         let mut mines_to_clear: Vec<ObjectId> = Vec::new();
-        for (id, obj) in &self.objects {
+        for (id, obj) in self.objects.registered() {
             if !obj.is_alive() {
                 continue;
             }
@@ -1911,7 +1911,7 @@ impl GameLogic {
         let frame = self.frame;
         let flying: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, o)| {
                 if o.cleanup_stream_projectile && o.is_alive() {
                     Some(*id)
@@ -2102,7 +2102,7 @@ impl GameLogic {
         let frame = self.frame;
         let flying: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, o)| {
                 if o.angry_mob_projectile && o.is_alive() {
                     Some(*id)
@@ -2222,7 +2222,7 @@ impl GameLogic {
         let mut any_destroyed = false;
         let victims: Vec<(ObjectId, f32)> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, obj)| {
                 if source.map(|s| s == *id).unwrap_or(false) {
                     return None;
@@ -2370,7 +2370,7 @@ impl GameLogic {
 
         let candidates: Vec<(ObjectId, bool, bool, bool, bool)> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, obj)| {
                 if !obj.is_alive() {
                     return None;

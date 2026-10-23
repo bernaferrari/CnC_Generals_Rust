@@ -521,6 +521,24 @@ End
         );
         logic.skirmish_rules.limit_superweapons = true;
 
+        // The retail POWERED cannon consumes ten Energy. Supply real owned
+        // generation rather than relying on a presentation-only zero fallback.
+        let plant_id = logic
+            .create_object_for_player("AmericaPowerPlant", 1, Vec3::new(-80.0, 0.0, 0.0))
+            .expect("actual receiving retail power producer");
+        assert!(
+            logic
+                .host_object(plant_id)
+                .unwrap()
+                .get_template()
+                .energy_production
+                .unwrap()
+                > 0
+        );
+        logic
+            .create_object_for_player("AmericaPowerPlant", 1, Vec3::new(-120.0, 0.0, 0.0))
+            .expect("second actual five-Energy retail producer");
+
         let particle_id = logic
             .create_object_for_player("AmericaParticleCannonUplink", 1, Vec3::ZERO)
             .expect("retail particle structure");

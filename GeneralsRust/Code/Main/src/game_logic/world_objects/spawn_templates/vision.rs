@@ -31,7 +31,7 @@ impl GameLogic {
 
         let snaps: Vec<_> = self
             .objects
-            .values()
+            .registered_values()
             .filter(|obj| obj.is_alive())
             .map(|obj| {
                 let pos = obj.get_position();
@@ -203,7 +203,7 @@ impl GameLogic {
 
         let object_snaps: Vec<_> = self
             .objects
-            .values()
+            .registered_values()
             .filter(|o| o.is_alive())
             .map(|o| {
                 let pos = o.get_position();

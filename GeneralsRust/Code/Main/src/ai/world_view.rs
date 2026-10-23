@@ -7,7 +7,8 @@
 //! AI executes on Main objects; this module only provides strategic read inputs.
 
 use crate::game_logic::{
-    GameLogic, Object, ObjectId, Player, PlayerTemplateIdentity, Team, ThingTemplate,
+    GameLogic, HostObjectRead, Object, ObjectId, Player, PlayerTemplateIdentity, Team,
+    ThingTemplate,
 };
 use glam::Vec3;
 use std::collections::HashMap;
@@ -62,7 +63,7 @@ impl<'a> AiWorldView<'a> {
     pub(super) fn script_engine(&self) -> Option<&'a gamelogic::scripting::engine::ScriptEngine> {
         self.world.owned_script_engine.as_ref()
     }
-    pub(super) fn host_objects(&self) -> &'a HashMap<ObjectId, Object> {
+    pub(super) fn host_objects(&self) -> HostObjectRead<'a> {
         self.world.host_objects()
     }
     pub(super) fn host_object(&self, id: ObjectId) -> Option<&'a Object> {

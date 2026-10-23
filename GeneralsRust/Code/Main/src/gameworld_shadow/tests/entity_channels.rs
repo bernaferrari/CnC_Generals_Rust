@@ -38,7 +38,7 @@ fn canonical_sole_healing_is_projected_from_receiving_owner() {
 
     shadow.sync_from_host(&logic);
 
-    let o = logic.host_objects().get(&tgt).unwrap();
+    let o = logic.host_objects().lookup(&tgt).unwrap();
     assert_eq!(o.sole_healing_benefactor, Some(dozer));
     assert_eq!(o.sole_healing_benefactor_expiration_frame, 900);
 }
@@ -77,7 +77,7 @@ fn ai_mood_is_canonical_and_shadow_only_observes() {
     e.mood_attack_check_rate = 30;
     e.auto_acquire_when_idle = true;
     e.attack_priority_set.clear();
-    let o = logic.host_objects().get(&oid).unwrap();
+    let o = logic.host_objects().lookup(&oid).unwrap();
     assert_eq!(o.idle_since_frame, 120);
     assert_eq!(o.mood_attack_check_rate, 45);
     assert!(!o.auto_acquire_when_idle);
@@ -167,7 +167,7 @@ fn canonical_production_door_is_projected_from_receiving_owner() {
     assert!(e.production_door_hold_open);
 
     shadow.sync_from_host(&logic);
-    let o = logic.host_objects().get(&oid).unwrap();
+    let o = logic.host_objects().lookup(&oid).unwrap();
     assert_eq!(o.production_door_phase, 2);
     assert_eq!(o.production_door_phase_end_frame, 500);
     assert!(o.production_door_hold_open);
@@ -226,7 +226,7 @@ fn physics_motive_channel_via_set_physics_motive() {
 
     shadow.sync_from_host(&logic);
 
-    let o = logic.host_objects().get(&oid).unwrap();
+    let o = logic.host_objects().lookup(&oid).unwrap();
     assert_eq!(o.motive_frames_remaining, 12);
     assert!((o.physics_mass - 2.5).abs() < 1e-5);
     assert!(o.can_path_through_units);
@@ -285,7 +285,7 @@ fn canonical_bounce_land_is_projected_from_receiving_owner() {
 
     shadow.sync_from_host(&logic);
 
-    let o = logic.host_objects().get(&oid).unwrap();
+    let o = logic.host_objects().lookup(&oid).unwrap();
     assert!(o.kill_when_resting_on_ground);
     assert_eq!(o.bounce_land_events, 3);
     assert_eq!(o.bounce_audio_pending, 2);
@@ -349,7 +349,7 @@ fn turret_extended_channel_via_set_turret() {
 
     shadow.sync_from_host(&logic);
 
-    let o = logic.host_objects().get(&oid).unwrap();
+    let o = logic.host_objects().lookup(&oid).unwrap();
     assert!((o.turret_angle_deg - 45.0).abs() < 1e-5);
     assert!((o.turret_turn_rate_rad - 0.05).abs() < 1e-5);
     assert!(o.turret_enabled);
@@ -400,7 +400,7 @@ fn stealth_delay_channel_via_set_stealth_delay() {
 
     shadow.sync_from_host(&logic);
 
-    let o = logic.host_objects().get(&oid).unwrap();
+    let o = logic.host_objects().lookup(&oid).unwrap();
     assert!(o.stealth_delay_pending);
     assert_eq!(o.stealth_allowed_frame, 300);
     assert_eq!(o.stealth_delay_frames, 75);
@@ -459,7 +459,7 @@ fn combat_attack_channel_via_set_combat_attack() {
 
     shadow.sync_from_host(&logic);
 
-    let o = logic.host_objects().get(&oid).unwrap();
+    let o = logic.host_objects().lookup(&oid).unwrap();
     assert_eq!(o.pre_attack_target, Some(tgt));
     assert_eq!(o.attack_substate, AttackSubState::FireWeapon);
     assert_eq!(o.consecutive_shots_at_target, 3);
@@ -525,7 +525,7 @@ fn locomotor_channel_via_set_locomotor() {
 
     shadow.sync_from_host(&logic);
 
-    let o = logic.host_objects().get(&oid).unwrap();
+    let o = logic.host_objects().lookup(&oid).unwrap();
     assert!(o.is_approach_path);
     assert!(o.moving_backwards);
     assert_eq!(o.loco_appearance, LocomotorAppearance::Wings);
@@ -589,7 +589,7 @@ fn canonical_ai_request_is_projected_from_receiving_owner() {
 
     shadow.sync_from_host(&logic);
 
-    let o = logic.host_objects().get(&oid).unwrap();
+    let o = logic.host_objects().lookup(&oid).unwrap();
     assert_eq!(o.requested_victim_id, Some(victim));
     assert_eq!(o.disguise_pending_template.as_deref(), Some("FakeTank"));
     assert_eq!(o.disguise_pending_team, Some(Team::GLA));
@@ -642,7 +642,7 @@ fn canonical_hijacker_is_projected_from_receiving_owner() {
 
     shadow.sync_from_host(&logic);
 
-    let o = logic.host_objects().get(&oid).unwrap();
+    let o = logic.host_objects().lookup(&oid).unwrap();
     assert_eq!(o.hijack_vehicle_id, Some(vehicle));
     assert!(o.hijacker_in_vehicle);
     assert_eq!(o.hive_slave_respawn_frame, 250);
@@ -681,7 +681,7 @@ fn leech_range_channel_via_set_weapon_stats() {
 
     shadow.sync_from_host(&logic);
 
-    let o = logic.host_objects().get(&oid).unwrap();
+    let o = logic.host_objects().lookup(&oid).unwrap();
     assert!(o.leech_range_active_primary);
     assert!(o.leech_range_active_secondary);
 }
@@ -735,7 +735,7 @@ fn fire_intent_channel_via_set_fire_intent() {
 
     shadow.sync_from_host(&logic);
 
-    let o = logic.host_objects().get(&oid).unwrap();
+    let o = logic.host_objects().lookup(&oid).unwrap();
     assert_eq!(o.last_fire_victim_host, victim.0);
     assert_eq!(o.fire_intent_count, 3);
     assert!((o.last_fire_damage - 42.0).abs() < 1e-5);

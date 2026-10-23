@@ -69,7 +69,7 @@ impl GameLogic {
 
         let cands: Vec<_> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(&id, obj)| {
                 if !obj.is_alive() {
                     return None;

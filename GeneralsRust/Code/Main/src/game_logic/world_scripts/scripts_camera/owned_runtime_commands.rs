@@ -205,7 +205,7 @@ impl GameLogic {
     ) {
         let ids: Vec<ObjectId> = self
             .host_objects()
-            .values()
+            .registered_values()
             .filter(|object| {
                 object.owner_player_id == Some(player)
                     && object.is_alive()

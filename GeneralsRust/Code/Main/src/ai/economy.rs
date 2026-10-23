@@ -139,7 +139,7 @@ impl AIPlayer {
         let game_logic = &AiWorldView::new(game_logic);
         game_logic
             .host_objects()
-            .values()
+            .registered_values()
             .filter(|object| {
                 if object.team != team || !object.is_alive() || !object.can_construct() {
                     return false;
@@ -179,7 +179,7 @@ impl AIPlayer {
         let game_logic = &AiWorldView::new(game_logic);
         game_logic
             .host_objects()
-            .values()
+            .registered_values()
             .any(|object| object.team == team && object.is_alive() && object.can_construct())
     }
 
@@ -225,7 +225,7 @@ impl AIPlayer {
         let factory = Self::find_factory_for_unit_ex(world, template, self.team, true)?;
         let mut preexisting: Vec<_> = world
             .host_objects()
-            .iter()
+            .registered()
             .filter_map(|(&id, object)| {
                 (world.object_owned_by_player(object, self.player_id)
                     && object.producer_id == Some(factory)
@@ -473,9 +473,13 @@ impl AIPlayer {
         prior_id: ObjectId,
     ) -> Option<ObjectId> {
         let game_logic = &AiWorldView::new(game_logic);
-        game_logic.host_objects().iter().find_map(|(&id, object)| {
-            (object.is_rebuild_hole && object.rebuild_spawner_id == Some(prior_id)).then_some(id)
-        })
+        game_logic
+            .host_objects()
+            .registered()
+            .find_map(|(&id, object)| {
+                (object.is_rebuild_hole && object.rebuild_spawner_id == Some(prior_id))
+                    .then_some(id)
+            })
     }
 
     pub(super) fn sync_build_list_object_status(
@@ -771,7 +775,7 @@ impl AIPlayer {
             return None;
         }
         let mut best: Option<(u32, Vec3)> = None;
-        for (&id, object) in game_logic.host_objects() {
+        for (&id, object) in game_logic.host_objects().registered() {
             if !object.is_alive() || object.status.destroyed {
                 continue;
             }
@@ -870,7 +874,7 @@ impl AIPlayer {
             Vec::new();
         let mut own_cash_gens: Vec<gamelogic::ai::ai_player::LeftoverOwnedCashGenerator> =
             Vec::new();
-        for (&id, source) in game_logic.host_objects() {
+        for (&id, source) in game_logic.host_objects().registered() {
             if !source.is_alive() {
                 continue;
             }
@@ -932,7 +936,7 @@ impl AIPlayer {
         radius: f32,
     ) -> bool {
         let game_logic = &AiWorldView::new(game_logic);
-        game_logic.host_objects().values().any(|cand| {
+        game_logic.host_objects().registered_values().any(|cand| {
             if !cand.is_alive()
                 || !Self::is_host_cash_generator(cand)
                 || !self.host_owned_by_us(game_logic, cand)
@@ -959,7 +963,7 @@ impl AIPlayer {
         let mut hi_x = f32::MIN;
         let mut hi_z = f32::MIN;
         let mut any = false;
-        for obj in game_logic.host_objects().values() {
+        for obj in game_logic.host_objects().registered_values() {
             if !obj.is_alive()
                 || !game_logic.object_owned_by_player(obj, enemy_player_id)
                 || !obj.is_kind_of(KindOf::Structure)
@@ -1008,7 +1012,7 @@ impl AIPlayer {
             Self::aidata_supply_center_safe_radius(ai_data),
             template_r,
         );
-        let candidates = game_logic.host_objects().values().map(|other| {
+        let candidates = game_logic.host_objects().registered_values().map(|other| {
             let p = other.get_position();
             gamelogic::ai::ai_player::LeftoverLocationSafeCandidate {
                 x: p.x,
@@ -1096,7 +1100,7 @@ impl AIPlayer {
         }
         self.supply_source_attack_check_frame = cur_frame.saturating_add(SCAN_RATE);
 
-        for (&id, obj) in game_logic.host_objects() {
+        for (&id, obj) in game_logic.host_objects().registered() {
             if !game_logic.object_owned_by_player(obj, self.player_id) || !obj.is_alive() {
                 continue;
             }
@@ -1151,7 +1155,7 @@ impl AIPlayer {
         let needle = team_name.trim();
         game_logic
             .host_objects()
-            .iter()
+            .registered()
             .filter_map(|(&id, obj)| {
                 if !obj.is_alive() || !game_logic.object_owned_by_player(obj, self.player_id) {
                     return None;
@@ -1243,7 +1247,7 @@ impl AIPlayer {
         let game_logic = &AiWorldView::new(game_logic);
         let mut centers: Vec<ObjectId> = game_logic
             .host_objects()
-            .iter()
+            .registered()
             .filter_map(|(&id, object)| {
                 (game_logic.object_owned_by_player(object, self.player_id)
                     && object.is_alive()
@@ -1276,7 +1280,7 @@ impl AIPlayer {
 
         game_logic
             .host_objects()
-            .iter()
+            .registered()
             .filter_map(|(&id, source)| {
                 if !source.is_alive()
                     || source.status.under_construction
@@ -1329,7 +1333,7 @@ impl AIPlayer {
         let game_logic = &AiWorldView::new(game_logic);
         game_logic
             .host_objects()
-            .values()
+            .registered_values()
             .filter(|object| {
                 game_logic.object_owned_by_player(object, self.player_id)
                     && object.is_alive()
@@ -1348,7 +1352,7 @@ impl AIPlayer {
         let game_logic = &AiWorldView::new(game_logic);
         game_logic
             .host_objects()
-            .values()
+            .registered_values()
             .filter(|object| {
                 game_logic.object_owned_by_player(object, self.player_id)
                     && object.is_alive()
@@ -1405,7 +1409,7 @@ impl AIPlayer {
     ) {
         let mut collectors: Vec<ObjectId> = game_logic
             .host_objects()
-            .iter()
+            .registered()
             .filter_map(|(&id, object)| {
                 let spawned_here_without_a_dock =
                     object.producer_id == Some(center_id) && object.preferred_dock_id.is_none();
@@ -1452,7 +1456,7 @@ impl AIPlayer {
     ) -> bool {
         let mut candidates: Vec<ObjectId> = game_logic
             .host_objects()
-            .iter()
+            .registered()
             .filter_map(|(&id, collector)| {
                 let missing_preferred_dock = collector
                     .preferred_dock_id

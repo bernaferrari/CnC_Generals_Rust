@@ -141,7 +141,7 @@ impl GameLogic {
         unfinished: Vec<(ObjectId, Vec3)>,
     ) {
         for (id, position) in unfinished {
-            let builder = self.host_objects().values().any(|object| {
+            let builder = self.host_objects().registered_values().any(|object| {
                 self.object_owned_by_player(object, player)
                     && object.is_alive()
                     && object.can_construct()

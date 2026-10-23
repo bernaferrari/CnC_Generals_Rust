@@ -149,7 +149,7 @@ impl SnapshotBuilder {
         // (C++ TransportContain keeps that flag from the live rider list).
         let outpost_ids: Vec<ObjectId> = game_logic
             .host_objects()
-            .iter()
+            .registered()
             .filter(|(_, object)| object.is_listening_outpost_style_container())
             .map(|(id, _)| *id)
             .collect();
@@ -188,7 +188,9 @@ impl SnapshotBuilder {
         // SnapshotBuilder has no native receiver. Production restores into a
         // detached candidate; live replacement must explicitly retire through
         // the receiving engine first, before this method mutates any state.
-        if game_logic.requires_native_drawable_owner() && !game_logic.host_objects().is_empty() {
+        if game_logic.requires_native_drawable_owner()
+            && !game_logic.host_objects().registered_is_empty()
+        {
             return Err(SaveLoadError::Corrupted(
                 "live native Object roster must retire before snapshot replacement".into(),
             ));
@@ -1323,7 +1325,7 @@ impl SnapshotBuilder {
     ) -> SaveLoadResult<()> {
         let mut resource_ids: Vec<ObjectId> = game_logic
             .host_objects()
-            .iter()
+            .registered()
             .filter_map(|(id, object)| Self::is_resource_source_object(object).then_some(*id))
             .collect();
         resource_ids.sort();
@@ -1671,7 +1673,11 @@ impl SnapshotBuilder {
     }
 
     pub(super) fn sync_all_garrisoned_units_from_occupants(&self, game_logic: &mut GameLogic) {
-        let ids: Vec<ObjectId> = game_logic.host_objects().keys().copied().collect();
+        let ids: Vec<ObjectId> = game_logic
+            .host_objects()
+            .registered_keys()
+            .copied()
+            .collect();
         for id in ids {
             if let Some(object) = game_logic.host_objects_mut().get_mut(&id) {
                 Self::rebuild_garrisoned_units_from_occupants(object);

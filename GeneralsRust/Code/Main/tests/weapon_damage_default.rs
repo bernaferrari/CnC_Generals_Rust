@@ -127,7 +127,7 @@ fn run_case(
         .create_object(&target_name, Team::GLA, Vec3::new(10.0, 0.0, 0.0))
         .unwrap();
 
-    let admitted = world.get_objects().get(&attacker_id).unwrap();
+    let admitted = world.get_objects().lookup(&attacker_id).unwrap();
     let expected_name = (!matches!(binding, Binding::Unnamed)).then_some(rule_name.as_str());
     assert_eq!(admitted.weapon_name_for_slot(0), expected_name);
     let weapon = admitted.weapon.as_ref().unwrap();
@@ -142,7 +142,7 @@ fn run_case(
     assert!(
         world
             .get_objects()
-            .get(&target_id)
+            .lookup(&target_id)
             .unwrap()
             .weapon
             .is_none()
@@ -207,8 +207,8 @@ fn run_case(
             },
             None,
         );
-        let shooter = world.get_objects().get(&attacker_id).unwrap();
-        let victim = world.get_objects().get(&target_id).unwrap();
+        let shooter = world.get_objects().lookup(&attacker_id).unwrap();
+        let victim = world.get_objects().lookup(&target_id).unwrap();
         let traced = trace
             .objects
             .iter()

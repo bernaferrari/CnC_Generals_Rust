@@ -225,7 +225,7 @@ impl GameLogic {
             }
             let remaining: Vec<_> = self
                 .objects
-                .values()
+                .registered_values()
                 .filter(|object| {
                     object.id != id
                         && object.is_alive()

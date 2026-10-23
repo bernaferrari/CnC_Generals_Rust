@@ -43,7 +43,7 @@ impl GameLogic {
         // compatibility owner when this team has exactly one living player.
         let owner_raw: Vec<(ObjectId, Option<u32>, crate::game_logic::Team)> = self
             .objects
-            .values()
+            .registered_values()
             .map(|obj| (obj.id, obj.owner_player_id, obj.team))
             .collect();
         let object_owner_player_ids: std::collections::HashMap<ObjectId, Option<u32>> = owner_raw
@@ -62,7 +62,7 @@ impl GameLogic {
         // including an allied player resuming another player's scaffold.
         let authored_time_frames: std::collections::HashMap<ObjectId, u32> = self
             .objects
-            .values()
+            .registered_values()
             .filter_map(|builder| {
                 let target_id = builder.dozer_task_build_target.or(builder.target)?;
                 let target = self.objects.get(&target_id)?;
@@ -113,7 +113,7 @@ impl GameLogic {
             bool,
         )> = self
             .objects
-            .values()
+            .registered_values()
             .filter(|obj| obj.is_alive() && obj.can_construct())
             .map(|obj| {
                 (
@@ -357,7 +357,7 @@ impl GameLogic {
             let building_pos = self.objects.get(&completed_id).map(|o| o.get_position());
             let mut end_moves: Vec<(ObjectId, glam::Vec3)> = Vec::new();
             let mut finished_builders: Vec<ObjectId> = Vec::new();
-            for obj in self.objects.values_mut() {
+            for obj in self.objects.registered_values_mut() {
                 let slot = obj.dozer_task_build_target;
                 let constructing = obj.is_alive()
                     && obj.ai_state == AIState::Constructing
@@ -497,7 +497,7 @@ impl GameLogic {
             Option<Vec3>,
         )> = self
             .objects
-            .values()
+            .registered_values()
             .filter(|obj| obj.is_alive() && obj.can_construct())
             .map(|obj| {
                 (
@@ -665,7 +665,7 @@ impl GameLogic {
             Team,
             crate::game_logic::buildings::ProductionItem,
         )> = Vec::new();
-        let mut producers: Vec<ObjectId> = self.objects.keys().copied().collect();
+        let mut producers: Vec<ObjectId> = self.objects.registered_keys().copied().collect();
         producers.sort_by_key(|id| id.0);
         for producer_id in producers {
             let Some(obj) = self.objects.get(&producer_id) else {
@@ -780,7 +780,7 @@ impl GameLogic {
         // owner through player_owner_for_host_object.
         let object_owner_player_ids: std::collections::HashMap<ObjectId, Option<u32>> = self
             .objects
-            .values()
+            .registered_values()
             .map(|obj| (obj.id, self.player_owner_for_host_object(obj)))
             .collect();
 
@@ -790,7 +790,7 @@ impl GameLogic {
         // Upgrade completions: (team, upgrade_name, producer_id)
         let mut upgrade_completions: Vec<(Team, String, ObjectId)> = Vec::new();
 
-        for (&id, obj) in self.objects.iter_mut() {
+        for (&id, obj) in self.objects.registered_mut() {
             if !obj.is_constructed() || !obj.is_alive() {
                 continue;
             }
@@ -2159,7 +2159,7 @@ impl GameLogic {
             self.ensure_ai_faction_templates(player.team);
             for (i, unit_name) in unit_names.iter().enumerate() {
                 // Skip if this exact starting unit template already exists for the team.
-                let already = self.objects.values().any(|o| {
+                let already = self.objects.registered_values().any(|o| {
                     o.owner_player_id == Some(pid)
                         && o.is_alive()
                         && o.template_name.eq_ignore_ascii_case(unit_name)
@@ -2168,7 +2168,7 @@ impl GameLogic {
                 let is_builder = unit_name.to_ascii_lowercase().contains("dozer")
                     || unit_name.to_ascii_lowercase().contains("worker");
                 let has_builder = is_builder
-                    && self.objects.values().any(|o| {
+                    && self.objects.registered_values().any(|o| {
                         o.owner_player_id == Some(pid)
                             && o.is_alive()
                             && o.is_mobile()

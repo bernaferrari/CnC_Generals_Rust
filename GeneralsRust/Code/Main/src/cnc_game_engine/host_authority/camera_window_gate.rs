@@ -562,7 +562,7 @@ impl CnCGameEngine {
             let shared = self
                 .game_logic
                 .objects
-                .keys()
+                .registered_keys()
                 .any(|id| peer.logic.objects.contains_key(id));
             require(shared, "real staged peer lacks shared saved Object IDs")?;
             peer.logic.admit_script_screen_shake(1);

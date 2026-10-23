@@ -32,7 +32,7 @@ impl CommandExecutor<'_> {
         let collision_candidates = self
             .game_logic
             .host_objects()
-            .keys()
+            .registered_keys()
             .copied()
             .collect::<HashSet<_>>();
         let mut placed = false;

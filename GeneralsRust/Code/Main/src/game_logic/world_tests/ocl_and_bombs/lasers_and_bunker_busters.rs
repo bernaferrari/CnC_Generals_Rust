@@ -1165,7 +1165,7 @@ fn neutron_shell_residual_upgrade_and_blast() {
         game_logic.update_neutron_cannon_shell_projectiles();
         if !game_logic
             .objects
-            .values()
+            .registered_values()
             .any(|o| o.neutron_cannon_shell_projectile && o.is_alive())
         {
             break;
@@ -1447,7 +1447,7 @@ fn bunker_buster_residual_kills_garrison_and_damages_bunker() {
         game_logic.update_stealth_jet_missile_projectiles();
         if !game_logic
             .objects
-            .values()
+            .registered_values()
             .any(|o| o.stealth_jet_missile_projectile && o.is_alive())
         {
             break;
@@ -1825,7 +1825,7 @@ fn microwave_disable_spawns_laser_stream() {
     assert!(logic.honesty_microwave_laser_ok());
     let beams = logic
         .objects
-        .values()
+        .registered_values()
         .filter(|o| o.weapon_laser_beam && o.template_name == HOST_MICROWAVE_LASER_NAME)
         .count();
     assert!(beams >= 1, "MicrowaveDisableStream beam object expected");

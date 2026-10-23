@@ -104,7 +104,7 @@ impl GameLogic {
         self.tick_jet_ai_update_all_with_effects(presentation_effects);
         let ids: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, o)| {
                 o.is_alive()
                     && (o.is_kind_of(KindOf::Aircraft) || o.object_type == ObjectType::Aircraft)
@@ -146,7 +146,7 @@ impl GameLogic {
         let now = self.frame;
         let ids: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, o)| {
                 (o.is_alive()
                     && (o.is_kind_of(KindOf::Aircraft) || o.object_type == ObjectType::Aircraft))
@@ -888,7 +888,7 @@ impl GameLogic {
     ) {
         let ids: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, o)| {
                 o.is_alive()
                     && Self::object_is_produced_at_helipad(o)
@@ -1410,7 +1410,7 @@ impl GameLogic {
         // C++ ParkingPlace slot.
         let mut persisted_reservations: Vec<(ObjectId, usize)> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(&jet_id, jet)| {
                 (jet.is_alive() && Self::is_aircraft(jet) && jet.producer_id == Some(airfield_id))
                     .then(|| {
@@ -1445,7 +1445,7 @@ impl GameLogic {
         // first free source-authored space deterministically by ObjectId.
         let mut legacy_parked: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(&jet_id, jet)| {
                 (jet.is_alive()
                     && Self::is_aircraft(jet)
@@ -1826,14 +1826,14 @@ impl GameLogic {
         let mut desired: Vec<(ObjectId, ObjectId)> = Vec::new();
         let airfields: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, object)| Self::has_usable_airfield_parking_behavior(object))
             .map(|(&id, _)| id)
             .collect();
         for airfield_id in airfields {
             let jet_ids: Vec<ObjectId> = self
                 .objects
-                .iter()
+                .registered()
                 .filter(|(_, jet)| Self::is_aircraft(jet) && jet.is_alive())
                 .map(|(&id, _)| id)
                 .collect();
@@ -2626,7 +2626,7 @@ impl GameLogic {
 
         let mut candidates: Vec<(ObjectId, f32)> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(&airfield_id, airfield)| {
                 (airfield_id != jet_id
                     && Self::has_usable_airfield_parking_behavior(airfield)
@@ -3123,7 +3123,7 @@ impl GameLogic {
         // Rearm / CM reload for docked aircraft. Helos skip hangar stalls.
         let jet_ids: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, o)| {
                 o.is_alive()
                     && (o.is_kind_of(KindOf::Aircraft) || o.object_type == ObjectType::Aircraft)

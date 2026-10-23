@@ -54,7 +54,7 @@ fn assert_rejected_source(ini: String, name: &str, field: &str) {
     assert_eq!(replacements, 1, "one authored numeric field under test");
     let control =
         receiving_source(control_ini).expect("identical source with valid numeric field admits");
-    assert!(control.host_objects().is_empty());
+    assert!(control.host_objects().registered_is_empty());
     drop(control);
     // Core INI::parse_real returns InvalidData for invalid numeric tokens;
     // finite-value rejection can instead name the projected Body field.
@@ -82,7 +82,7 @@ fn assert_rejected_source(ini: String, name: &str, field: &str) {
         diagnostic.contains("Body definition") && diagnostic.contains(field),
         "wrong rejection: {diagnostic}"
     );
-    assert!(candidate.host_objects().is_empty());
+    assert!(candidate.host_objects().registered_is_empty());
 }
 
 #[test]
@@ -145,7 +145,7 @@ fn malformed_authored_initial_health_rejects_before_factory_admission() {
             "InvalidBody",
             "InitialHealth",
         );
-        assert_eq!(world.host_objects().len(), 1);
+        assert_eq!(world.host_objects().registered_len(), 1);
         assert_eq!(world.host_object(first).unwrap().health.current, 30.0);
     }
     let second = world

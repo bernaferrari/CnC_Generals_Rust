@@ -27,7 +27,7 @@ impl GameLogic {
         }
 
         let mut heal_jobs: Vec<(ObjectId, u32, Vec<ObjectId>)> = Vec::new();
-        for (&id, obj) in &self.objects {
+        for (&id, obj) in self.objects.registered() {
             if !obj.thing().template.contain_module.kind.is_heal_contain() {
                 continue;
             }
@@ -83,7 +83,7 @@ impl GameLogic {
 
         // Each living TunnelContain::update heals the shared tracker (C++ per-entrance).
         let mut tunnel_ticks: Vec<(u32, u32)> = Vec::new();
-        for obj in self.objects.values() {
+        for obj in self.objects.registered_values() {
             if !obj.is_alive() || obj.status.under_construction {
                 continue;
             }
@@ -122,7 +122,7 @@ impl GameLogic {
 
         // C++ GarrisonContain::update → healObjects when HealObjects=Yes.
         let mut garrison_jobs: Vec<(u32, Vec<ObjectId>)> = Vec::new();
-        for obj in self.objects.values() {
+        for obj in self.objects.registered_values() {
             if obj.thing().template.contain_module.kind
                 != crate::game_logic::ContainModuleKind::Garrison
             {
@@ -203,7 +203,7 @@ impl GameLogic {
         // m_guardEnemyScanRate (host_guard_enemy_scan_rate), not a hard 30.
         let scan_rate = self.host_guard_enemy_scan_rate();
         let mut writes: Vec<(u32, ObjectId, bool)> = Vec::new();
-        for obj in self.objects.values() {
+        for obj in self.objects.registered_values() {
             if !obj.is_alive() || obj.status.under_construction {
                 continue;
             }
@@ -256,7 +256,7 @@ impl GameLogic {
                     if !att_alive {
                         return None;
                     }
-                    let tunnel = self.objects.values().find(|o| {
+                    let tunnel = self.objects.registered_values().find(|o| {
                         o.tunnel_system_key() == player_id
                             && o.is_alive()
                             && (o.is_tunnel_network_style_container()
@@ -496,7 +496,7 @@ impl GameLogic {
                 }
             }
         } else {
-            for (id, o) in &self.objects {
+            for (id, o) in self.objects.registered() {
                 if o.tunnel_system_key() == player_id
                     && o.is_alive()
                     && !o.status.sold
@@ -794,7 +794,7 @@ impl GameLogic {
                 self.pathfinding_system.grid.cell_type(cell) == PathfindCellType::Impassable
             };
             let overlaps_object = |p: Vec3| {
-                self.objects.values().any(|o| {
+                self.objects.registered_values().any(|o| {
                     if !o.is_alive() {
                         return false;
                     }
@@ -836,7 +836,7 @@ impl GameLogic {
         let mut best_cash: Option<(f32, Vec3, f32)> = None;
         let mut best_cc: Option<(f32, Vec3, f32)> = None;
         let mut best_struct: Option<(f32, Vec3, f32)> = None;
-        for obj in self.objects.values() {
+        for obj in self.objects.registered_values() {
             if !obj.is_alive() || obj.status.destroyed || obj.team != team {
                 continue;
             }

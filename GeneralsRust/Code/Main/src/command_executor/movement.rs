@@ -90,7 +90,7 @@ impl<'a> CommandExecutor<'a> {
     /// pathfind-cell neighborhood. Gate is `canCrushOrSquish` (ALLIES + SquishCollide).
     fn dest_drawable_at(&self, dest: Vec3) -> Option<ObjectId> {
         let mut best: Option<(ObjectId, f32)> = None;
-        for other in self.game_logic.objects.values() {
+        for other in self.game_logic.objects.registered_values() {
             if !other.is_alive() {
                 continue;
             }

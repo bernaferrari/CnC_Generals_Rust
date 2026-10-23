@@ -28,7 +28,7 @@ impl SnapshotBuilder {
     ) -> SaveLoadResult<HashMap<ObjectId, ObjectSnapshot>> {
         let mut objects = HashMap::new();
 
-        for (id, object) in game_logic.host_objects() {
+        for (id, object) in game_logic.host_objects().registered() {
             // A partial object set is not a valid saved world. Preserve the
             // validation error rather than silently deleting an object on load.
             objects.insert(*id, self.snapshot_object(game_logic, object)?);
@@ -459,7 +459,7 @@ impl SnapshotBuilder {
         let mut unlocked_units = HashSet::new();
         let mut unlocked_buildings = HashSet::new();
 
-        for object in game_logic.host_objects().values() {
+        for object in game_logic.host_objects().registered_values() {
             if object.team != player.team || !object.is_alive() {
                 continue;
             }
@@ -538,7 +538,11 @@ impl SnapshotBuilder {
         &self,
         game_logic: &GameLogic,
     ) -> Vec<ObjectInstanceGuardSnapshot> {
-        let mut ids: Vec<ObjectId> = game_logic.host_objects().keys().copied().collect();
+        let mut ids: Vec<ObjectId> = game_logic
+            .host_objects()
+            .registered_keys()
+            .copied()
+            .collect();
         ids.sort();
         let mut entries = Vec::with_capacity(ids.len());
         for id in ids {
@@ -559,7 +563,11 @@ impl SnapshotBuilder {
 
     /// C++ OverchargeBehavior::xfer m_overchargeActive + loadPostProcess.
     fn snapshot_overcharge_active(&self, game_logic: &GameLogic) -> Vec<ObjectOverchargeSnapshot> {
-        let mut ids: Vec<ObjectId> = game_logic.host_objects().keys().copied().collect();
+        let mut ids: Vec<ObjectId> = game_logic
+            .host_objects()
+            .registered_keys()
+            .copied()
+            .collect();
         ids.sort();
         let mut entries = Vec::new();
         for id in ids {
@@ -607,7 +615,11 @@ impl SnapshotBuilder {
 
     /// C++ `Object::xfer` `m_visionSpiedMask` (`Object.cpp:4126-4130`).
     fn snapshot_vision_spied(&self, game_logic: &GameLogic) -> Vec<ObjectVisionSpiedSnapshot> {
-        let mut ids: Vec<ObjectId> = game_logic.host_objects().keys().copied().collect();
+        let mut ids: Vec<ObjectId> = game_logic
+            .host_objects()
+            .registered_keys()
+            .copied()
+            .collect();
         ids.sort();
         let mut entries = Vec::new();
         for id in ids {
@@ -626,7 +638,11 @@ impl SnapshotBuilder {
 
     /// C++ `Object::xfer` `m_builderID` + Dozer BUILD task.
     fn snapshot_builder_tasks(&self, game_logic: &GameLogic) -> Vec<ObjectBuilderTaskSnapshot> {
-        let mut ids: Vec<ObjectId> = game_logic.host_objects().keys().copied().collect();
+        let mut ids: Vec<ObjectId> = game_logic
+            .host_objects()
+            .registered_keys()
+            .copied()
+            .collect();
         ids.sort();
         let mut entries = Vec::new();
         for id in ids {
@@ -660,7 +676,11 @@ impl SnapshotBuilder {
 
     /// C++ `Object::xfer` sole-heal / contain-frame / original team / formation.
     fn snapshot_object_persist(&self, game_logic: &GameLogic) -> Vec<ObjectPersistTailSnapshot> {
-        let mut ids: Vec<ObjectId> = game_logic.host_objects().keys().copied().collect();
+        let mut ids: Vec<ObjectId> = game_logic
+            .host_objects()
+            .registered_keys()
+            .copied()
+            .collect();
         ids.sort();
         let mut entries = Vec::new();
         for id in ids {
@@ -733,7 +753,11 @@ impl SnapshotBuilder {
             })
             .collect();
         let mut seen: HashSet<ObjectId> = entries.iter().map(|entry| entry.object_id).collect();
-        let mut ids: Vec<ObjectId> = game_logic.host_objects().keys().copied().collect();
+        let mut ids: Vec<ObjectId> = game_logic
+            .host_objects()
+            .registered_keys()
+            .copied()
+            .collect();
         ids.sort();
         for id in ids {
             if !seen.insert(id) {
@@ -843,7 +867,11 @@ impl SnapshotBuilder {
         &self,
         game_logic: &GameLogic,
     ) -> Vec<ObjectExperienceTrackerSnapshot> {
-        let mut ids: Vec<ObjectId> = game_logic.host_objects().keys().copied().collect();
+        let mut ids: Vec<ObjectId> = game_logic
+            .host_objects()
+            .registered_keys()
+            .copied()
+            .collect();
         ids.sort();
         let mut entries = Vec::new();
         for id in ids {
@@ -898,7 +926,11 @@ impl SnapshotBuilder {
         &self,
         game_logic: &GameLogic,
     ) -> Vec<ObjectCommandSetSnapshot> {
-        let mut ids: Vec<ObjectId> = game_logic.host_objects().keys().copied().collect();
+        let mut ids: Vec<ObjectId> = game_logic
+            .host_objects()
+            .registered_keys()
+            .copied()
+            .collect();
         ids.sort();
         let mut entries = Vec::new();
         for id in ids {
@@ -952,7 +984,11 @@ impl SnapshotBuilder {
     /// C++ `StealthUpdate::xfer` disguise identity + transition
     /// (`StealthUpdate.cpp:1141-1177`).
     fn snapshot_object_disguises(&self, game_logic: &GameLogic) -> Vec<ObjectDisguiseSnapshot> {
-        let mut ids: Vec<ObjectId> = game_logic.host_objects().keys().copied().collect();
+        let mut ids: Vec<ObjectId> = game_logic
+            .host_objects()
+            .registered_keys()
+            .copied()
+            .collect();
         ids.sort();
         let mut entries = Vec::new();
         for id in ids {
@@ -1042,7 +1078,11 @@ impl SnapshotBuilder {
         &self,
         game_logic: &GameLogic,
     ) -> Vec<ClientDrawableVisualSnapshot> {
-        let mut ids: Vec<ObjectId> = game_logic.host_objects().keys().copied().collect();
+        let mut ids: Vec<ObjectId> = game_logic
+            .host_objects()
+            .registered_keys()
+            .copied()
+            .collect();
         ids.sort();
         let mut entries = Vec::new();
         for id in ids {
@@ -1309,13 +1349,17 @@ impl SnapshotBuilder {
     fn snapshot_population_used(&self, game_logic: &GameLogic, team: Team) -> u32 {
         game_logic
             .host_objects()
-            .values()
+            .registered_values()
             .filter(|object| object.team == team && object.is_alive() && object.is_mobile())
             .count() as u32
     }
 
     fn snapshot_player_build_queue(&self, game_logic: &GameLogic, team: Team) -> Vec<String> {
-        let mut object_ids: Vec<ObjectId> = game_logic.host_objects().keys().copied().collect();
+        let mut object_ids: Vec<ObjectId> = game_logic
+            .host_objects()
+            .registered_keys()
+            .copied()
+            .collect();
         object_ids.sort_by_key(|id| id.0);
 
         let mut build_queue = Vec::new();
@@ -1434,7 +1478,7 @@ impl SnapshotBuilder {
     ) -> SaveLoadResult<ResourceManagerSnapshot> {
         let mut resource_ids: Vec<ObjectId> = _game_logic
             .host_objects()
-            .iter()
+            .registered()
             .filter_map(|(id, object)| Self::is_resource_source_object(object).then_some(*id))
             .collect();
         resource_ids.sort();
@@ -1447,7 +1491,7 @@ impl SnapshotBuilder {
 
             let harvesters = _game_logic
                 .host_objects()
-                .iter()
+                .registered()
                 .filter_map(|(id, object)| {
                     (object.target == Some(resource_id)
                         && (object.ai_state == AIState::Gathering || object.is_worker()))
@@ -1479,7 +1523,7 @@ impl SnapshotBuilder {
             HashMap::new();
 
         let now = game_logic.get_current_frame() as f32 / 30.0;
-        for object in game_logic.host_objects().values() {
+        for object in game_logic.host_objects().registered_values() {
             if object.movement.path.len() < 2 {
                 continue;
             }
@@ -1531,7 +1575,7 @@ impl SnapshotBuilder {
         let sim_time = _game_logic.get_current_frame() as f32 / 30.0;
 
         let mut active_combats = Vec::new();
-        for (&attacker_id, attacker) in _game_logic.host_objects() {
+        for (&attacker_id, attacker) in _game_logic.host_objects().registered() {
             if !attacker.is_alive() {
                 continue;
             }
@@ -1562,7 +1606,7 @@ impl SnapshotBuilder {
         }
 
         let mut recent_deaths = Vec::new();
-        for (&object_id, object) in _game_logic.host_objects() {
+        for (&object_id, object) in _game_logic.host_objects().registered() {
             if !object.status.destroyed {
                 continue;
             }
@@ -1589,7 +1633,7 @@ impl SnapshotBuilder {
         let mut experience_events = Vec::new();
         let mut veterancy_bonuses = HashMap::new();
 
-        for (&object_id, object) in _game_logic.host_objects() {
+        for (&object_id, object) in _game_logic.host_objects().registered() {
             if object.experience.current <= 0.0 && object.experience.level == VeterancyLevel::Rookie
             {
                 continue;
@@ -1791,7 +1835,7 @@ impl SnapshotBuilder {
     fn snapshot_airfield_parking(&self, game_logic: &GameLogic) -> AirfieldParkingWorldSnapshot {
         let mut jet_stalls: Vec<AirfieldJetStallSnapshot> = game_logic
             .host_objects()
-            .iter()
+            .registered()
             .filter_map(|(id, object)| {
                 object
                     .airfield_parking_space_index

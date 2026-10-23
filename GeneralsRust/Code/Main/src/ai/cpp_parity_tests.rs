@@ -882,7 +882,7 @@ fn active_loose_collector_rejoins_one_supply_center_before_paid_replacement() {
     // would in a real match after that starter had been lost in combat.
     let starter_ids: Vec<ObjectId> = logic
         .host_objects()
-        .iter()
+        .registered()
         .filter_map(|(&id, object)| {
             (object.producer_id == Some(replacement_center)
                 && object
@@ -2315,7 +2315,7 @@ fn launch_attack_sets_target_and_logs_host_attack() {
     ai.is_active = true;
     let usa_unit = logic
         .host_objects()
-        .iter()
+        .registered()
         .find(|(_, o)| o.team == Team::USA && o.is_alive())
         .map(|(id, _)| *id)
         .expect("usa unit");
@@ -2330,7 +2330,7 @@ fn launch_attack_sets_target_and_logs_host_attack() {
     let targeted = logic.attack_events.take_completed();
     let unit = logic
         .host_objects()
-        .get(&usa_unit)
+        .lookup(&usa_unit)
         .expect("usa unit after launch");
     assert!(
         unit.target.is_some(),
@@ -2361,7 +2361,7 @@ fn launch_attack_sets_target_and_logs_host_attack() {
     let logged = logic.attack_events.take_completed();
     let unit = logic
         .host_objects()
-        .get(&usa_unit)
+        .lookup(&usa_unit)
         .expect("usa unit legacy");
     assert!(
         unit.target.is_some()

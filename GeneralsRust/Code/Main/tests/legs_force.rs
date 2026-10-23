@@ -97,7 +97,10 @@ fn run_case(name: &str, assert_original_force: bool) {
         _ => (36, 90, 90, 3600),
     };
     let mut game = GameLogic::new();
-    assert_eq!((game.get_frame(), game.host_objects().len()), (0, 0));
+    assert_eq!(
+        (game.get_frame(), game.host_objects().registered_len()),
+        (0, 0)
+    );
     // The first measured movement must be due: movement wakes from frame 1.
     let warm = game.update_with_dt(DT);
     assert_eq!((warm.frame, warm.steps_run), (1, 1));
@@ -220,7 +223,7 @@ fn run_case(name: &str, assert_original_force: bool) {
     assert_eq!((tick.frame, tick.steps_run), (2, 1));
     assert!(!tick.budget_hit);
     assert_eq!(tick.accumulated_time_seconds, 0.0);
-    assert_eq!(game.host_objects().len(), 1);
+    assert_eq!(game.host_objects().registered_len(), 1);
     let object = game.host_object(id).unwrap();
     active_guards(object);
     assert_eq!(object.cur_locomotor_name.as_deref(), Some(loco.as_str()));

@@ -1387,16 +1387,19 @@ impl AIPlayer {
     ) -> Option<ObjectId> {
         let game_logic = &AiWorldView::new(game_logic);
         let preferred = Self::preferred_upgrade_producer_names(upgrade_name);
-        game_logic.host_objects().iter().find_map(|(&id, object)| {
-            let name_ok = preferred.iter().any(|name| {
-                object.template_name.eq_ignore_ascii_case(name)
-                    || object.get_template().name.eq_ignore_ascii_case(name)
-            });
-            (game_logic.object_owned_by_player(object, self.player_id)
-                && name_ok
-                && Self::building_can_queue_upgrade(object, upgrade_name, upgrade_type))
-            .then_some(id)
-        })
+        game_logic
+            .host_objects()
+            .registered()
+            .find_map(|(&id, object)| {
+                let name_ok = preferred.iter().any(|name| {
+                    object.template_name.eq_ignore_ascii_case(name)
+                        || object.get_template().name.eq_ignore_ascii_case(name)
+                });
+                (game_logic.object_owned_by_player(object, self.player_id)
+                    && name_ok
+                    && Self::building_can_queue_upgrade(object, upgrade_name, upgrade_type))
+                .then_some(id)
+            })
     }
 
     pub(super) fn try_queue_structure_upgrade(&mut self, world: &mut GameLogic) {
@@ -1938,7 +1941,7 @@ impl AIPlayer {
         let game_logic = &AiWorldView::new(game_logic);
         game_logic
             .host_objects()
-            .values()
+            .registered_values()
             .filter(|object| {
                 Self::pad_object_still_ours(object, self.player_id, self.team)
                     && object.is_alive()
@@ -2071,7 +2074,7 @@ impl AIPlayer {
         let dest_priority = self.dest_team_production_priority(dest_team_name);
         let mut dist_sqr = max_dist * max_dist;
         let mut recruit: Option<ObjectId> = None;
-        for (&id, object) in game_logic.host_objects() {
+        for (&id, object) in game_logic.host_objects().registered() {
             if !Self::pad_object_still_ours(object, self.player_id, self.team) {
                 continue;
             }
@@ -2770,7 +2773,7 @@ impl AIPlayer {
         // when busy_ok; nearest 3D tiebreak for stable multi-factory choice.
         let cands: Vec<_> = game_logic
             .host_objects()
-            .iter()
+            .registered()
             .filter_map(|(&id, object)| {
                 if object.team != team || !object.is_constructed() || !object.is_alive() {
                     return None;

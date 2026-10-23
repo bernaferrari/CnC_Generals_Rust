@@ -177,7 +177,7 @@ fn find_attack_path_circles_ridge_to_clear_shot() {
         cell_size: sys.grid.grid_size(),
     };
 
-    let mut objects = HashMap::new();
+    let mut objects = HostObjectStore::new();
     let mut atk_t = ThingTemplate::new("Ranger");
     atk_t.add_kind_of(KindOf::Infantry);
     atk_t.add_kind_of(KindOf::AttackNeedsLineOfSight);
@@ -191,21 +191,21 @@ fn find_attack_path_circles_ridge_to_clear_shot() {
         range: 90.0,
         ..Weapon::default()
     });
-    objects.insert(atk.id, atk);
+    objects.admit(atk.id, atk);
 
     let mut tgt_t = ThingTemplate::new("Rebel");
     tgt_t.add_kind_of(KindOf::Infantry);
     let mut tgt = Object::new(tgt_t, ObjectId(2), Team::GLA);
     tgt.set_position(Vec3::new(150.0, 0.0, 50.0));
     tgt.selection_radius = 5.0;
-    objects.insert(tgt.id, tgt);
+    objects.admit(tgt.id, tgt);
 
     let path = sys
         .find_attack_firing_position(
             Vec3::new(20.0, 0.0, 50.0),
             Vec3::new(150.0, 0.0, 50.0),
             90.0,
-            &objects,
+            objects.read(),
             false,
             Some(ObjectId(1)),
             &ground_source,
@@ -236,7 +236,7 @@ fn attack_step_occupancy_matches_leftover() {
     masks[1] = 1u16 << 0 | 1u16 << 1;
     g.set_player_ally_masks(masks);
 
-    let mut objects = HashMap::new();
+    let mut objects = HostObjectStore::new();
     let mut enemy_t = ThingTemplate::new("Bunker");
     enemy_t.add_kind_of(KindOf::Vehicle);
     let mut enemy = Object::new(enemy_t, ObjectId(1), Team::GLA);
@@ -246,7 +246,7 @@ fn attack_step_occupancy_matches_leftover() {
     ));
     enemy.owner_player_id = Some(2);
     enemy.crushable_level = 0;
-    objects.insert(enemy.id, enemy);
+    objects.admit(enemy.id, enemy);
 
     let mut ally_t = ThingTemplate::new("Humvee");
     ally_t.add_kind_of(KindOf::Vehicle);
@@ -260,7 +260,7 @@ fn attack_step_occupancy_matches_leftover() {
     // enemy's single m_posUnitID (last writer wins, AIPathfind.cpp:1405).
     ally.selection_radius = 1.0;
     ally.owner_player_id = Some(1);
-    objects.insert(ally.id, ally);
+    objects.admit(ally.id, ally);
 
     let mut goal_t = ThingTemplate::new("Ranger");
     goal_t.add_kind_of(KindOf::Infantry);
@@ -274,10 +274,10 @@ fn attack_step_occupancy_matches_leftover() {
         GridPos::new(8, 8),
         &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
     ));
-    objects.insert(goaled.id, goaled);
+    objects.admit(goaled.id, goaled);
 
     g.update_dynamic_obstacles(
-        &objects,
+        objects.read(),
         &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
     );
     let start = GridPos::new(4, 4);
@@ -350,7 +350,7 @@ fn attack_vehicle_strip_back_retreats_off_busy_ally() {
     masks[1] = 1u16 << 0 | 1u16 << 1;
     sys.grid.set_player_ally_masks(masks);
 
-    let mut objects = HashMap::new();
+    let mut objects = HostObjectStore::new();
     let mut tank_t = ThingTemplate::new("Crusader");
     tank_t.add_kind_of(KindOf::Vehicle);
     tank_t.add_kind_of(KindOf::AttackNeedsLineOfSight);
@@ -359,7 +359,7 @@ fn attack_vehicle_strip_back_retreats_off_busy_ally() {
     tank.owner_player_id = Some(0);
     tank.selection_radius = 8.0;
     tank.locomotor_surfaces = SURFACE_GROUND;
-    objects.insert(tank.id, tank);
+    objects.admit(tank.id, tank);
 
     let mut ally_t = ThingTemplate::new("Humvee");
     ally_t.add_kind_of(KindOf::Vehicle);
@@ -368,13 +368,13 @@ fn attack_vehicle_strip_back_retreats_off_busy_ally() {
     ally.set_position(Vec3::new(70.0, 0.0, 50.0));
     ally.owner_player_id = Some(1);
     ally.ai_state = crate::game_logic::AIState::Attacking;
-    objects.insert(ally.id, ally);
+    objects.admit(ally.id, ally);
 
     let path = sys.find_attack_firing_position(
         Vec3::new(20.0, 0.0, 50.0),
         Vec3::new(150.0, 0.0, 50.0),
         80.0,
-        &objects,
+        objects.read(),
         false,
         Some(ObjectId(1)),
         &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
@@ -467,7 +467,7 @@ fn find_closest_path_accepts_occupied_goal_when_can_path_through_units() {
         &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
     );
 
-    let mut objects = HashMap::new();
+    let mut objects = HostObjectStore::new();
     let mut inf_t = ThingTemplate::new("Ranger");
     inf_t.add_kind_of(KindOf::Infantry);
     let mut seeker = Object::new(inf_t.clone(), ObjectId(1), Team::USA);
@@ -476,19 +476,19 @@ fn find_closest_path_accepts_occupied_goal_when_can_path_through_units() {
     seeker.selection_radius = 1.0;
     seeker.locomotor_surfaces = SURFACE_GROUND;
     seeker.can_path_through_units = false;
-    objects.insert(seeker.id, seeker);
+    objects.admit(seeker.id, seeker);
 
     let mut parked = Object::new(inf_t, ObjectId(2), Team::USA);
     parked.set_position(to);
     parked.owner_player_id = Some(0);
     parked.selection_radius = 1.0;
-    objects.insert(parked.id, parked);
+    objects.admit(parked.id, parked);
 
     sys.grid.update_dynamic_obstacles(
-        &objects,
+        objects.read(),
         &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
     );
-    sys.bind_seeker_from_mover(&objects, Some(ObjectId(1)));
+    sys.bind_seeker_from_mover(objects.read(), Some(ObjectId(1)));
     sys.apply_seeker_human_flag();
 
     let without = sys
@@ -512,7 +512,7 @@ fn find_closest_path_accepts_occupied_goal_when_can_path_through_units() {
         .get_mut(&ObjectId(1))
         .unwrap()
         .can_path_through_units = true;
-    sys.bind_seeker_from_mover(&objects, Some(ObjectId(1)));
+    sys.bind_seeker_from_mover(objects.read(), Some(ObjectId(1)));
     assert!(
         sys.seeker_can_path_through_units,
         "bind must copy leftover canPathThroughUnits"
@@ -659,7 +659,7 @@ fn find_safe_path_enqueues_change_layers() {
 fn snap_closest_goal_avoids_fixed_occupant() {
     use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
     let mut sys = PathfindingSystem::new(200.0, 200.0);
-    let mut objects = HashMap::new();
+    let mut objects = HostObjectStore::new();
     let mut tmpl = ThingTemplate::new("Ranger");
     tmpl.add_kind_of(KindOf::Infantry);
     let mut parked = Object::new(tmpl, ObjectId(7), Team::USA);
@@ -670,9 +670,9 @@ fn snap_closest_goal_avoids_fixed_occupant() {
     parked.set_position(pad);
     parked.owner_player_id = Some(0);
     parked.selection_radius = 1.0;
-    objects.insert(parked.id, parked);
+    objects.admit(parked.id, parked);
     sys.grid.update_dynamic_obstacles(
-        &objects,
+        objects.read(),
         &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
     );
     sys.seeker_id = Some(ObjectId(8));
@@ -715,7 +715,7 @@ fn process_pathfind_queue_stops_at_cell_budget() {
     assert!(sys.queue_path(mk(2, 30.0)));
     assert!(sys.queue_path(mk(3, 50.0)));
     assert_eq!(sys.pending_path_count(), 3);
-    let objects = HashMap::new();
+    let objects = HostObjectStore::new();
     sys.begin_pathfind_queue_frame();
     let mut processed = 0usize;
     while sys.pathfind_budget_remaining() {
@@ -725,7 +725,7 @@ fn process_pathfind_queue_stops_at_cell_budget() {
         let _ = sys.find_path_ex(
             req.start,
             req.destination,
-            &objects,
+            objects.read(),
             false,
             Some(req.unit_id),
             &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
@@ -768,13 +768,13 @@ fn ignore_obstacle_walks_through_owned_footprint() {
     let goal = Vec3::new(90.0, 0.0, 35.0);
     unit.set_position(start);
     unit.owner_player_id = Some(0);
-    let mut objects = HashMap::new();
-    objects.insert(unit.id, unit);
+    let mut objects = HostObjectStore::new();
+    objects.admit(unit.id, unit);
 
     let blocked = sys.find_path_ex_surfaces(
         start,
         goal,
-        &objects,
+        objects.read(),
         false,
         SURFACE_GROUND,
         false,
@@ -815,7 +815,7 @@ fn ignore_obstacle_walks_through_owned_footprint() {
         .find_path_ex_surfaces(
             start,
             goal,
-            &objects,
+            objects.read(),
             false,
             SURFACE_GROUND,
             false,
@@ -913,27 +913,27 @@ fn queued_search_uses_ignore_written_after_enqueue() {
 fn find_path_ex_surfaces_uses_mover_not_nearest() {
     use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
     let mut sys = PathfindingSystem::new(200.0, 200.0);
-    let mut objects = HashMap::new();
+    let mut objects = HostObjectStore::new();
     let mut dozer_t = ThingTemplate::new("AmericaDozer");
     dozer_t.add_kind_of(KindOf::Dozer);
     dozer_t.add_kind_of(KindOf::Vehicle);
     let mut dozer = Object::new(dozer_t, ObjectId(1), Team::USA);
     dozer.set_position(Vec3::new(20.0, 0.0, 20.0));
     dozer.owner_player_id = Some(0);
-    objects.insert(dozer.id, dozer);
+    objects.admit(dozer.id, dozer);
     let mut inf_t = ThingTemplate::new("Ranger");
     inf_t.add_kind_of(KindOf::Infantry);
     let mut inf = Object::new(inf_t, ObjectId(2), Team::USA);
     inf.set_position(Vec3::new(80.0, 0.0, 20.0));
     inf.owner_player_id = Some(0);
-    objects.insert(inf.id, inf);
+    objects.admit(inf.id, inf);
 
     let hop = Vec3::new(90.0, 0.0, 20.0);
     let goal = Vec3::new(150.0, 0.0, 20.0);
     let _ = sys.find_path_ex_surfaces(
         hop,
         goal,
-        &objects,
+        objects.read(),
         false,
         SURFACE_GROUND,
         false,
@@ -950,7 +950,7 @@ fn find_path_ex_surfaces_uses_mover_not_nearest() {
     let _ = sys.find_path_ex_surfaces(
         hop,
         goal,
-        &objects,
+        objects.read(),
         false,
         SURFACE_GROUND,
         false,
@@ -966,11 +966,11 @@ fn find_path_ex_surfaces_uses_mover_not_nearest() {
 #[test]
 fn find_path_via_crate_notes_cells_allocated() {
     let mut sys = PathfindingSystem::new(200.0, 200.0);
-    let objects = HashMap::new();
+    let objects = HostObjectStore::new();
     let _ = sys.find_path_ex(
         Vec3::new(10.0, 0.0, 10.0),
         Vec3::new(80.0, 0.0, 10.0),
-        &objects,
+        objects.read(),
         false,
         None,
         &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
@@ -986,16 +986,16 @@ fn find_path_via_crate_notes_cells_allocated() {
 fn blast_crater_stamps_above_terrain_and_survives_remove() {
     use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
     let mut sys = PathfindingSystem::new(200.0, 200.0);
-    let mut objects = HashMap::new();
+    let mut objects = HostObjectStore::new();
     let mut crater_t = ThingTemplate::new("ScriptedBlastCrater");
     crater_t.add_kind_of(KindOf::Structure);
     crater_t.add_kind_of(KindOf::BlastCrater);
     let mut crater = Object::new(crater_t, ObjectId(7), Team::Neutral);
     crater.set_position(Vec3::new(80.0, 50.0, 80.0));
     crater.selection_radius = 20.0;
-    objects.insert(crater.id, crater);
+    objects.admit(crater.id, crater);
     sys.apply_structure_static_blocks(
-        &objects,
+        objects.read(),
         0.0,
         &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
     );
@@ -1010,9 +1010,9 @@ fn blast_crater_stamps_above_terrain_and_survives_remove() {
     let mut floating = Object::new(floating_t, ObjectId(8), Team::USA);
     floating.set_position(Vec3::new(40.0, 50.0, 40.0));
     floating.selection_radius = 20.0;
-    objects.insert(floating.id, floating);
+    objects.admit(floating.id, floating);
     sys.apply_structure_static_blocks(
-        &objects,
+        objects.read(),
         0.0,
         &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
     );
@@ -1025,7 +1025,7 @@ fn blast_crater_stamps_above_terrain_and_survives_remove() {
     objects.clear();
     sys.grid.clear_static_blocks();
     sys.apply_structure_static_blocks(
-        &objects,
+        objects.read(),
         0.0,
         &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
     );
@@ -1040,14 +1040,14 @@ fn blast_crater_stamps_above_terrain_and_survives_remove() {
 fn aircraft_path_first_node_uses_dest_altitude() {
     use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
     let mut sys = PathfindingSystem::new(200.0, 200.0);
-    let objects = HashMap::new();
+    let objects = HostObjectStore::new();
     let start = Vec3::new(10.0, 20.0, 10.0);
     let goal = Vec3::new(80.0, 50.0, 90.0);
     let path = sys
         .find_path_ex(
             start,
             goal,
-            &objects,
+            objects.read(),
             true,
             None,
             &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
@@ -1065,25 +1065,25 @@ fn aircraft_path_first_node_uses_dest_altitude() {
     );
     assert!((path[1].y - goal.y).abs() < 0.01);
 
-    let mut objects = HashMap::new();
+    let mut objects = HostObjectStore::new();
     let mut jet_t = ThingTemplate::new("Raptor");
     jet_t.add_kind_of(KindOf::Aircraft);
     let mut jet = Object::new(jet_t, ObjectId(1), Team::USA);
     jet.set_position(start);
     jet.loco_appearance = LocomotorAppearance::Wings;
-    objects.insert(jet.id, jet);
+    objects.admit(jet.id, jet);
     let mut bldg_t = ThingTemplate::new("CommandCenter");
     bldg_t.add_kind_of(KindOf::Structure);
     bldg_t.add_kind_of(KindOf::AircraftPathAround);
     let mut bldg = Object::new(bldg_t, ObjectId(2), Team::USA);
     bldg.set_position(Vec3::new(45.0, 0.0, 50.0));
     bldg.selection_radius = 30.0;
-    objects.insert(bldg.id, bldg);
+    objects.admit(bldg.id, bldg);
     let detoured = sys
         .find_path_ex(
             start,
             goal,
-            &objects,
+            objects.read(),
             true,
             Some(ObjectId(1)),
             &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
@@ -1182,18 +1182,18 @@ fn crate_path_uses_adjust_coord_to_cell_not_corners() {
     let start = Vec3::new(20.0, 0.0, 20.0);
     let goal = Vec3::new(80.0, 0.0, 20.0);
 
-    let mut inf_objects = HashMap::new();
+    let mut inf_objects = HostObjectStore::new();
     let mut inf_t = ThingTemplate::new("Ranger");
     inf_t.add_kind_of(KindOf::Infantry);
     let mut inf = Object::new(inf_t, ObjectId(1), Team::USA);
     inf.set_position(start);
     inf.selection_radius = 1.0;
-    inf_objects.insert(inf.id, inf);
+    inf_objects.admit(inf.id, inf);
     let inf_path = sys
         .find_path_ex(
             start,
             goal,
-            &inf_objects,
+            inf_objects.read(),
             false,
             Some(ObjectId(1)),
             &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
@@ -1217,18 +1217,18 @@ fn crate_path_uses_adjust_coord_to_cell_not_corners() {
         );
     }
 
-    let mut veh_objects = HashMap::new();
+    let mut veh_objects = HostObjectStore::new();
     let mut veh_t = ThingTemplate::new("CrusaderTank");
     veh_t.add_kind_of(KindOf::Vehicle);
     let mut veh = Object::new(veh_t, ObjectId(2), Team::USA);
     veh.set_position(start);
     veh.selection_radius = 8.0;
-    veh_objects.insert(veh.id, veh);
+    veh_objects.admit(veh.id, veh);
     let veh_path = sys
         .find_path_ex(
             start,
             goal,
-            &veh_objects,
+            veh_objects.read(),
             false,
             Some(ObjectId(2)),
             &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
@@ -1270,13 +1270,13 @@ fn patch_path_skips_occupied_ally_waypoints() {
         GridPos::new(16, 4),
         &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
     );
-    let mut objects = HashMap::new();
+    let mut objects = HostObjectStore::new();
     let mut seeker_t = ThingTemplate::new("Ranger");
     seeker_t.add_kind_of(KindOf::Infantry);
     let mut seeker = Object::new(seeker_t, ObjectId(1), Team::USA);
     seeker.set_position(from);
     seeker.owner_player_id = Some(0);
-    objects.insert(seeker.id, seeker);
+    objects.admit(seeker.id, seeker);
     let mut parked_t = ThingTemplate::new("Humvee");
     parked_t.add_kind_of(KindOf::Vehicle);
     let mut parked = Object::new(parked_t, ObjectId(9), Team::USA);
@@ -1284,14 +1284,14 @@ fn patch_path_skips_occupied_ally_waypoints() {
     parked.owner_player_id = Some(0);
     parked.crushable_level = 1;
     parked.selection_radius = 4.0;
-    objects.insert(parked.id, parked);
+    objects.admit(parked.id, parked);
     assert!(
         sys.patch_path(
             from,
             &[from, mid, dest],
             SURFACE_GROUND,
             false,
-            &objects,
+            objects.read(),
             Some(ObjectId(1)),
             &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0)
         )
@@ -1306,7 +1306,7 @@ fn patch_path_skips_occupied_ally_waypoints() {
             &[from, mid, dest],
             SURFACE_GROUND,
             false,
-            &objects,
+            objects.read(),
             Some(ObjectId(1)),
             &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
         )
@@ -1323,7 +1323,7 @@ fn find_attack_path_binds_leftover_seeker() {
     let mut sys = PathfindingSystem::new(200.0, 200.0);
     sys.set_human_player_mask(1u16 << 0);
 
-    let mut objects = HashMap::new();
+    let mut objects = HostObjectStore::new();
     let mut inf_t = ThingTemplate::new("Ranger");
     inf_t.add_kind_of(KindOf::Infantry);
     let mut inf = Object::new(inf_t, ObjectId(1), Team::USA);
@@ -1331,10 +1331,10 @@ fn find_attack_path_binds_leftover_seeker() {
     inf.owner_player_id = Some(0);
     inf.selection_radius = 1.0;
     inf.locomotor_surfaces = SURFACE_GROUND;
-    objects.insert(inf.id, inf);
+    objects.admit(inf.id, inf);
 
     // Stale infantry seeker from a prior pathfind.
-    sys.bind_seeker_from_mover(&objects, Some(ObjectId(1)));
+    sys.bind_seeker_from_mover(objects.read(), Some(ObjectId(1)));
     sys.apply_seeker_human_flag();
     assert!(sys.seeker_is_infantry);
     assert!(sys.seeker_is_human);
@@ -1347,13 +1347,13 @@ fn find_attack_path_binds_leftover_seeker() {
     tank.owner_player_id = Some(2);
     tank.selection_radius = 8.0;
     tank.locomotor_surfaces = SURFACE_GROUND | SURFACE_WATER;
-    objects.insert(tank.id, tank);
+    objects.admit(tank.id, tank);
 
     let path = sys.find_attack_firing_position(
         Vec3::new(20.0, 0.0, 50.0),
         Vec3::new(150.0, 0.0, 50.0),
         80.0,
-        &objects,
+        objects.read(),
         false,
         Some(ObjectId(2)),
         &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
@@ -1398,7 +1398,7 @@ fn find_attack_path_range_tests_adjust_coord_to_cell() {
     let mut sys = PathfindingSystem::new(200.0, 200.0);
     let size = sys.grid.grid_size();
 
-    let mut objects = HashMap::new();
+    let mut objects = HostObjectStore::new();
     let mut inf_t = ThingTemplate::new("Ranger");
     inf_t.add_kind_of(KindOf::Infantry);
     let mut inf = Object::new(inf_t, ObjectId(1), Team::USA);
@@ -1406,14 +1406,14 @@ fn find_attack_path_range_tests_adjust_coord_to_cell() {
     inf.owner_player_id = Some(0);
     inf.selection_radius = 1.0;
     inf.locomotor_surfaces = SURFACE_GROUND;
-    objects.insert(inf.id, inf);
+    objects.admit(inf.id, inf);
 
     let path = sys
         .find_attack_firing_position(
             Vec3::new(20.0, 0.0, 50.0),
             Vec3::new(150.0, 0.0, 50.0),
             80.0,
-            &objects,
+            objects.read(),
             false,
             Some(ObjectId(1)),
             &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
@@ -1537,7 +1537,7 @@ fn find_path_crusher_crosses_fence_line() {
         sys.grid.set_cell_obstacle(GridPos::new(8, y), true, false);
     }
     sys.grid.rebuild_path_zones();
-    let mut objects = HashMap::new();
+    let mut objects = HostObjectStore::new();
     let mut t = ThingTemplate::new("Overlord");
     t.add_kind_of(KindOf::Vehicle);
     let mut tank = Object::new(t, ObjectId(1), Team::China);
@@ -1545,11 +1545,11 @@ fn find_path_crusher_crosses_fence_line() {
     tank.crusher_level = 3;
     tank.selection_radius = 8.0;
     tank.locomotor_surfaces = SURFACE_GROUND;
-    objects.insert(tank.id, tank);
+    objects.admit(tank.id, tank);
     let path = sys.find_path_ex_surfaces(
         Vec3::new(20.0, 0.0, 80.0),
         Vec3::new(140.0, 0.0, 80.0),
-        &objects,
+        objects.read(),
         false,
         SURFACE_GROUND,
         true,

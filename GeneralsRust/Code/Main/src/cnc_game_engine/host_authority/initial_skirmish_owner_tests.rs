@@ -285,8 +285,8 @@ fn direct_config_archive_rebuilds_saved_initial_foundation_before_strict_map_cov
                 assert_eq!(loaded.is_local, player.is_local);
             }
             assert_eq!(
-                restored.logic.host_objects().len(),
-                source.host_objects().len()
+                restored.logic.host_objects().registered_len(),
+                source.host_objects().registered_len()
             );
             assert_eq!(
                 restored.logic.get_player(0).unwrap().name,

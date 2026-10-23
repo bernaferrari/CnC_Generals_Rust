@@ -113,7 +113,7 @@ impl GameLogic {
 
         // C++ SpyVisionSpecialPower: duration += contain->getContainCount() * bonus.
         let captured_count = caster_id
-            .and_then(|id| self.objects.get(&id))
+            .and_then(|id| self.objects.lookup(&id))
             .map(|o| o.contained_units().len() as u32)
             .unwrap_or(0);
         let duration = cia_intelligence_duration_frames(captured_count);
@@ -123,7 +123,7 @@ impl GameLogic {
         // Collect enemy unit snapshots first (avoid borrow issues while mutating).
         let enemy_snapshots: Vec<(ObjectId, Vec3, f32, bool)> = self
             .objects
-            .values()
+            .registered_values()
             .filter(|obj| {
                 spy_vision_target_is_enemy(&self.players, player_id, obj)
                     && caster_id.map(|c| c != obj.id).unwrap_or(true)
@@ -144,7 +144,7 @@ impl GameLogic {
         let mut any_fow = false;
         let mut any_detect = false;
         let mut audio_pos = caster_id
-            .and_then(|id| self.objects.get(&id).map(|o| o.get_position()))
+            .and_then(|id| self.objects.lookup(&id).map(|o| o.get_position()))
             .unwrap_or(Vec3::ZERO);
 
         for (obj_id, location, radius, _was_stealthed) in enemy_snapshots {
@@ -257,7 +257,7 @@ impl GameLogic {
                 .collect();
             if let Ok(mut shroud_mgr) = std::sync::Arc::clone(self.world_services.shroud()).lock() {
                 for (obj_id, remain, player_mask) in remaining_by_id {
-                    let Some(obj) = self.objects.get(&obj_id) else {
+                    let Some(obj) = self.objects.lookup(&obj_id) else {
                         continue;
                     };
                     if !obj.is_alive() {
@@ -321,7 +321,7 @@ impl GameLogic {
         };
         use gamelogic::common::Coord3D;
 
-        let Some(center) = self.objects.get(&center_id) else {
+        let Some(center) = self.objects.lookup(&center_id) else {
             return false;
         };
         if !center.is_alive() {
@@ -345,7 +345,7 @@ impl GameLogic {
         let command_centers_only = spec.command_centers_only;
         let enemy_snapshots: Vec<(ObjectId, Vec3, f32)> = self
             .objects
-            .values()
+            .registered_values()
             .filter(|obj| {
                 spy_vision_target_is_enemy(&self.players, player_id, obj)
                     && obj.id != center_id
@@ -468,7 +468,7 @@ impl GameLogic {
             let Some(cid) = act.caster_id else {
                 continue;
             };
-            let dead_or_disabled = match self.objects.get(&cid) {
+            let dead_or_disabled = match self.objects.lookup(&cid) {
                 None => true,
                 Some(o) => !o.is_alive() || o.is_spy_vision_disabled(frame),
             };
@@ -487,7 +487,7 @@ impl GameLogic {
         let mut activate = Vec::new();
         let center_ids: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, o)| {
                 o.is_alive()
                     && (o.is_kind_of(KindOf::FSInternetCenter)
@@ -499,7 +499,7 @@ impl GameLogic {
             .collect();
 
         for id in center_ids {
-            let Some(obj) = self.objects.get(&id) else {
+            let Some(obj) = self.objects.lookup(&id) else {
                 continue;
             };
             if obj.is_spy_vision_disabled(frame) {
@@ -605,7 +605,7 @@ impl GameLogic {
         use crate::game_logic::host_firewall::{FIREWALL_ACTIVATE_AUDIO, FIREWALL_BURN_AUDIO};
 
         let (caster_pos, source_team, upgraded) = {
-            let obj = self.objects.get(&source_object)?;
+            let obj = self.objects.lookup(&source_object)?;
             if !obj.is_alive() {
                 return None;
             }
@@ -679,7 +679,7 @@ impl GameLogic {
     ) {
         let object_positions: Vec<(ObjectId, Vec3, Team, bool)> = self
             .objects
-            .iter()
+            .registered()
             .map(|(id, obj)| (*id, obj.get_position(), obj.team, obj.is_alive()))
             .collect();
 
@@ -828,13 +828,13 @@ impl GameLogic {
         }
         let team = self
             .objects
-            .get(&source_id)
+            .lookup(&source_id)
             .map(|o| o.team)
             .unwrap_or(Team::Neutral);
 
         // C++ ScatterRadiusVsInfantry residual on InfernoCannonGun vs infantry (**30**).
         let target_is_infantry = intended
-            .and_then(|id| self.objects.get(&id))
+            .and_then(|id| self.objects.lookup(&id))
             .map(|o| o.is_kind_of(KindOf::Infantry))
             .unwrap_or(false);
         let seed = crate::game_logic::weapon_bootstrap::scatter_seed_for_shot(
@@ -852,7 +852,7 @@ impl GameLogic {
         }
         if target_is_infantry {
             let hit_r = intended
-                .and_then(|id| self.objects.get(&id))
+                .and_then(|id| self.objects.lookup(&id))
                 .map(|o| {
                     if o.selection_radius > 0.0 {
                         o.selection_radius
@@ -862,7 +862,7 @@ impl GameLogic {
                 })
                 .unwrap_or(crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS);
             let intended_pos = intended
-                .and_then(|id| self.objects.get(&id))
+                .and_then(|id| self.objects.lookup(&id))
                 .map(|o| o.get_position());
             if crate::game_logic::host_inferno_cannon::inferno_cannon_scatter_misses_infantry(
                 true, seed, hit_r,
@@ -915,7 +915,7 @@ impl GameLogic {
         let frame = self.frame;
         let flying: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, o)| {
                 if o.inferno_shell_projectile && o.is_alive() {
                     Some(*id)
@@ -934,7 +934,7 @@ impl GameLogic {
         )> = Vec::new();
         for id in flying {
             let (source, intended, from, aim, launch, frames, upgraded, team) = {
-                let Some(o) = self.objects.get(&id) else {
+                let Some(o) = self.objects.lookup(&id) else {
                     continue;
                 };
                 let from = o
@@ -957,7 +957,7 @@ impl GameLogic {
                 )
             };
             let team = source
-                .and_then(|sid| self.objects.get(&sid).map(|s| s.team))
+                .and_then(|sid| self.objects.lookup(&sid).map(|s| s.team))
                 .unwrap_or(team);
             let elapsed = frame.saturating_sub(launch);
             let t = (elapsed as f32 / frames as f32).clamp(0.0, 1.0);
@@ -975,7 +975,7 @@ impl GameLogic {
             }
         }
         for (id, source, intended, pos, upgraded, team) in impact {
-            let shell_team = self.objects.get(&id).map(|o| o.team);
+            let shell_team = self.objects.lookup(&id).map(|o| o.team);
             if let Some(o) = self.objects.get_mut(&id) {
                 // Wave 752: under damage authority, do not zero host HP mid-frame
                 // (dual with GW HP writeback). Project lethal via damage log + flags.
@@ -1032,7 +1032,7 @@ impl GameLogic {
             let Some(sid) = source else {
                 return (0, false);
             };
-            let Some(obj) = self.objects.get(&sid) else {
+            let Some(obj) = self.objects.lookup(&sid) else {
                 return (0, false);
             };
             if !is_inferno_cannon_template(&obj.template_name) {
@@ -1053,7 +1053,7 @@ impl GameLogic {
 
         let candidates: Vec<(ObjectId, f32)> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, obj)| {
                 if source == Some(*id) {
                     return None;
@@ -1278,7 +1278,7 @@ impl GameLogic {
     ) {
         let object_positions: Vec<(ObjectId, Vec3, Team, bool)> = self
             .objects
-            .iter()
+            .registered()
             .map(|(id, obj)| (*id, obj.get_position(), obj.team, obj.is_alive()))
             .collect();
 
@@ -1414,7 +1414,7 @@ impl GameLogic {
                 .add_kind_of(KindOf::Selectable)
                 .add_kind_of(KindOf::IgnoredInGui);
         }
-        let origin = self.objects.get(&nexus_id)?.get_position();
+        let origin = self.objects.lookup(&nexus_id)?.get_position();
         let angle = (slot_index as f32) * (2.0 * PI / 8.0);
         let radius = 8.0 + (slot_index % 3) as f32 * 2.0;
         let place = glam::Vec3::new(
@@ -1493,7 +1493,7 @@ impl GameLogic {
         use std::f32::consts::PI;
         let pairs: Vec<(ObjectId, ObjectId, u32)> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, o)| {
                 if o.angry_mob_member {
                     o.angry_mob_nexus_id.map(|n| (*id, n, id.0 % 8))
@@ -1505,7 +1505,7 @@ impl GameLogic {
         let mut destroy = Vec::new();
         let mut moves = Vec::new();
         for (mid, nid, slot) in pairs {
-            let Some(nexus) = self.objects.get(&nid) else {
+            let Some(nexus) = self.objects.lookup(&nid) else {
                 destroy.push(mid);
                 continue;
             };
@@ -1525,7 +1525,7 @@ impl GameLogic {
             // PANIC when lagging (masterPathDistToGoal > myPathDistToGoal).
             let member_pos = self
                 .objects
-                .get(&mid)
+                .lookup(&mid)
                 .map(|o| o.get_position())
                 .unwrap_or(origin);
             let nexus_goal = nexus
@@ -1595,14 +1595,14 @@ impl GameLogic {
     fn angry_mob_relationship_enemies_from_maps(
         team_factory: &gamelogic::team::TeamFactoryHandle,
         players: &std::collections::HashMap<u32, crate::game_logic::Player>,
-        objects: &std::collections::HashMap<ObjectId, Object>,
+        objects: crate::game_logic::HostObjectRead<'_>,
         source_id: ObjectId,
         source_team: Team,
         target_id: ObjectId,
         target_team: Team,
     ) -> bool {
         use crate::game_logic::host_angry_mob::is_angry_mob_hostile_team;
-        match (objects.get(&source_id), objects.get(&target_id)) {
+        match (objects.lookup(&source_id), objects.lookup(&target_id)) {
             (Some(src), Some(tgt))
                 if src.owner_player_id.is_some() && tgt.owner_player_id.is_some() =>
             {
@@ -1640,7 +1640,7 @@ impl GameLogic {
         // Living residual nexus sources.
         let living: Vec<(ObjectId, Team, Vec3)> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, obj)| {
                 if !obj.is_alive() || !is_angry_mob_nexus_template(&obj.template_name) {
                     return None;
@@ -1664,7 +1664,7 @@ impl GameLogic {
         // C++ SpawnBehavior::onSpawnDeath — shrink live count; last member kills nexus.
         let destroy_nexuses =
             self.angry_mobs
-                .process_dead_members(frame, |mid| match self.objects.get(&mid) {
+                .process_dead_members(frame, |mid| match self.objects.lookup(&mid) {
                     None => true,
                     Some(o) => !o.is_alive() || o.status.destroyed || o.status.effectively_dead,
                 });
@@ -1719,7 +1719,7 @@ impl GameLogic {
                 .map(|m| (m.object_id, m.member_ids.clone()))
                 .collect();
             for (nid, members) in plans {
-                let Some(nexus_pos) = self.objects.get(&nid).map(|o| o.get_position()) else {
+                let Some(nexus_pos) = self.objects.lookup(&nid).map(|o| o.get_position()) else {
                     continue;
                 };
                 let mut sx = 0.0;
@@ -1727,7 +1727,7 @@ impl GameLogic {
                 let mut sz = 0.0;
                 let mut n = 0u32;
                 for mid in members {
-                    if let Some(m) = self.objects.get(&mid) {
+                    if let Some(m) = self.objects.lookup(&mid) {
                         if m.is_alive() {
                             let p = m.get_position();
                             sx += p.x - nexus_pos.x;
@@ -1758,7 +1758,7 @@ impl GameLogic {
         use crate::game_logic::host_angry_mob::angry_mob_possible_to_attack;
         let candidates: Vec<(ObjectId, Vec3, Team, bool, bool, bool, bool)> = self
             .objects
-            .iter()
+            .registered()
             .map(|(id, obj)| {
                 let air_ok = angry_mob_possible_to_attack(
                     obj.is_kind_of(KindOf::Aircraft) || obj.object_type == ObjectType::Aircraft,
@@ -1799,7 +1799,7 @@ impl GameLogic {
 
         // C++ getNextMoodTarget → findClosestEnemy: player ENEMIES, not
         // faction Team. 2v2 GLA+China Allies skipped; FFA same-faction hits.
-        let objects = self.objects.map();
+        let objects = self.objects.read();
         let players = &self.players;
         let plans = self.angry_mobs.plan_due_ticks_with_enemies(
             frame,
@@ -1821,7 +1821,7 @@ impl GameLogic {
         for mut plan in plans {
             plan.hits.retain(|hit| {
                 self.objects
-                    .get(&hit.target_id)
+                    .lookup(&hit.target_id)
                     .map(|o| o.is_alive() && !o.is_effectively_stealthed())
                     .unwrap_or(false)
             });
@@ -1837,12 +1837,12 @@ impl GameLogic {
                 let kind = angry_mob_projectile_kind_for_tick(frame);
                 let from = self
                     .objects
-                    .get(&plan.mob_id)
+                    .lookup(&plan.mob_id)
                     .map(|o| o.get_position())
                     .unwrap_or(Vec3::ZERO);
                 let aim = self
                     .objects
-                    .get(&first.target_id)
+                    .lookup(&first.target_id)
                     .map(|o| o.get_position())
                     .unwrap_or(from);
                 let _ = self.spawn_angry_mob_projectile_with_effects(
@@ -1910,7 +1910,7 @@ impl GameLogic {
                 }
                 let muzzle = self
                     .objects
-                    .get(&plan.mob_id)
+                    .lookup(&plan.mob_id)
                     .map(|m| m.get_position())
                     .unwrap_or(Vec3::ZERO);
                 let impact = audio_pos.or(Some(muzzle));
@@ -2018,7 +2018,7 @@ impl GameLogic {
         }
         let team = self
             .objects
-            .get(&source_id)
+            .lookup(&source_id)
             .map(|o| o.team)
             .unwrap_or(Team::Neutral);
         // Drop slightly below the aircraft so freefall/guidance is visible.
@@ -2085,7 +2085,7 @@ impl GameLogic {
         // Drop shells whose mission already completed residual detonation.
         let stale: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, o)| {
                 if !o.aurora_bomb_projectile || !o.is_alive() {
                     return None;
@@ -2106,14 +2106,14 @@ impl GameLogic {
                 }
                 o.status.destroyed = true;
             }
-            let team = self.objects.get(&id).map(|o| o.team);
+            let team = self.objects.lookup(&id).map(|o| o.team);
             self.mark_object_for_destruction_with_effects(id, team, effects);
         }
         let speed = AURORA_BOMB_LOCO_SPEED / 30.0;
         let min_speed = AURORA_BOMB_LOCO_MIN_SPEED / 30.0;
         let flying: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, o)| {
                 if o.aurora_bomb_projectile && o.is_alive() {
                     Some(*id)
@@ -2125,7 +2125,7 @@ impl GameLogic {
         let mut arrived: Vec<ObjectId> = Vec::new();
         for id in flying {
             let (aim, pos) = {
-                let Some(o) = self.objects.get(&id) else {
+                let Some(o) = self.objects.lookup(&id) else {
                     continue;
                 };
                 let aim = o
@@ -2182,7 +2182,7 @@ impl GameLogic {
                 o.status.effectively_dead = true;
                 o.aurora_bomb_projectile = false;
             }
-            let team = self.objects.get(&id).map(|o| o.team);
+            let team = self.objects.lookup(&id).map(|o| o.team);
             self.mark_object_for_destruction_with_effects(id, team, effects);
         }
     }
@@ -2216,7 +2216,7 @@ impl GameLogic {
         let frame = self.frame;
         let source_owner_player_id = self
             .objects
-            .get(&source_object)
+            .lookup(&source_object)
             .and_then(|object| self.player_owner_for_host_object(object));
         let id = self.aurora_bombs.queue_for_owner(
             kind,
@@ -2230,7 +2230,7 @@ impl GameLogic {
         // C++ AuroraBomb SpecialObject residual (guided drop under aircraft).
         let from = self
             .objects
-            .get(&source_object)
+            .lookup(&source_object)
             .map(|o| o.get_position())
             .unwrap_or(target_position);
         let _ = self.spawn_aurora_bomb_projectile_with_effects(
@@ -2253,7 +2253,7 @@ impl GameLogic {
         let _ = self.combat_particles.spawn(
             CombatParticleKind::WeaponMuzzleFlash,
             self.objects
-                .get(&source_object)
+                .lookup(&source_object)
                 .map(|o| o.get_position())
                 .unwrap_or(target_position),
             frame,
@@ -2328,7 +2328,7 @@ impl GameLogic {
         }
         if self
             .objects
-            .get(&gid)
+            .lookup(&gid)
             .and_then(|o| o.fuel_air_gas_slow_death.as_ref())
             .is_some()
         {
@@ -2354,7 +2354,7 @@ impl GameLogic {
 
         let object_positions: Vec<(ObjectId, Vec3, Team, bool)> = self
             .objects
-            .iter()
+            .registered()
             .map(|(id, obj)| (*id, obj.get_position(), obj.team, obj.is_alive()))
             .collect();
 
@@ -2578,7 +2578,7 @@ mod spawn_behavior_parity {
     fn live_members(logic: &GameLogic, nid: ObjectId) -> Vec<ObjectId> {
         logic
             .host_objects()
-            .values()
+            .registered_values()
             .filter(|o| {
                 o.angry_mob_member
                     && o.angry_mob_nexus_id == Some(nid)

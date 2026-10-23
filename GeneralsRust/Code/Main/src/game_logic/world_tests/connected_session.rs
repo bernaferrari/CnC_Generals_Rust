@@ -137,7 +137,7 @@ fn construct_and_produce(world: &mut GameLogic, dozer: ObjectId) -> (ObjectId, O
     );
     let barracks = world
         .objects
-        .values()
+        .registered_values()
         .find(|object| object.template_name == "AmericaBarracks")
         .unwrap()
         .id;
@@ -180,13 +180,13 @@ fn construct_and_produce(world: &mut GameLogic, dozer: ObjectId) -> (ObjectId, O
         },
     );
     for _ in 0..240 {
-        if let Some(unit) = world
+        let produced = world
             .objects
-            .values()
+            .registered_values()
             .find(|object| object.template_name == "AmericaInfantryRanger")
-        {
-            assert_eq!(unit.producer_id, Some(barracks));
-            let unit_id = unit.id;
+            .map(|unit| (unit.id, unit.producer_id));
+        if let Some((unit_id, producer_id)) = produced {
+            assert_eq!(producer_id, Some(barracks));
             for _ in 0..240 {
                 let unit = world.host_object(unit_id).unwrap();
                 if unit.ai_state == AIState::Idle && !unit.status.moving {

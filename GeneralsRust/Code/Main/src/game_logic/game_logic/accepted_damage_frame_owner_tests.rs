@@ -35,7 +35,7 @@ fn consume_before_due(world: &mut GameLogic, target: ObjectId, hp: f32) {
 }
 
 fn materialize_only(world: &mut GameLogic) {
-    drain_pending_projectiles(&mut world.combat_system, &world.objects, world.frame);
+    drain_pending_projectiles(&mut world.combat_system, world.objects.read(), world.frame);
     assert_eq!(world.combat_system.projectile_count(), 0);
 }
 

@@ -3935,7 +3935,7 @@ impl GameLogic {
         // therefore never reaches this list.
         let scuttles_due: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(&id, object)| {
                 let delay = object
                     .thing()

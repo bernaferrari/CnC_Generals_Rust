@@ -50,8 +50,13 @@ fn named_ownership_uses_canonical_player_identity_without_alive_gate_or_foreign_
         ScriptOwnerQuery::Present(true)
     );
     assert_eq!(
-        driver.named_owned_by_player(THIS_OBJECT, THIS_PLAYER, Some("NamedOwner"), Some(unit.0)),
+        driver.named_owned_by_player(THIS_OBJECT, THIS_PLAYER, Some("NamedVictim"), Some(unit.0)),
         ScriptOwnerQuery::Present(false)
+    );
+    assert_eq!(
+        driver.named_owned_by_player(THIS_OBJECT, THIS_PLAYER, Some("NamedOwner"), Some(unit.0)),
+        ScriptOwnerQuery::Missing,
+        "display-name collision must not fabricate a canonical current player"
     );
     owner.host_object_mut(unit).unwrap().owner_player_id = None;
     assert!(!owner.owned_script_condition_for_test(owned("NamedUnit", "AuthoredOwner")));

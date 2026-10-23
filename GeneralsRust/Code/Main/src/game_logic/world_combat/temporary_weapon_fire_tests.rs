@@ -564,7 +564,7 @@ fn damaged_reaction_fires_every_ready_module() {
     // Use real world admission: raw insertion leaves generation0, which
     // first discharge would stamp and correctly invalidate a captured lease.
     assert_eq!(logic.add_object(object), source);
-    assert_eq!(logic.objects.len(), 1);
+    assert_eq!(logic.objects.registered_len(), 1);
     let identity = logic.live_draw_playback_identity(logic.host_object(source).unwrap());
     let keys = logic.damaged_reaction_plan(source, 10.0, 0);
     assert_eq!(

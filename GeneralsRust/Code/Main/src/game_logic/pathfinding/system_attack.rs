@@ -5,11 +5,11 @@ impl PathfindingSystem {
     pub fn splat_units_on_wall_piece(
         &self,
         piece_id: ObjectId,
-        objects: &HashMap<ObjectId, Object>,
+        objects: HostObjectRead<'_>,
     ) -> Vec<ObjectId> {
         let wall_h = self.grid.wall_height;
         objects
-            .values()
+            .registered_values()
             .filter(|obj| {
                 if obj.id == piece_id || !obj.is_alive() {
                     return false;
@@ -41,7 +41,7 @@ impl PathfindingSystem {
         from: Vec3,
         victim: Vec3,
         weapon_range: f32,
-        objects: &HashMap<ObjectId, Object>,
+        objects: HostObjectRead<'_>,
         is_crusher: bool,
         mover: Option<ObjectId>,
         ground_source: &PathfindingGround<'_>,
@@ -63,7 +63,7 @@ impl PathfindingSystem {
         let start = self.grid.cell_for_unit_position(from, center_in_cell);
         let victim_cell = self.grid.world_to_grid(victim);
         let surfaces = mover
-            .and_then(|id| objects.get(&id))
+            .and_then(|id| objects.lookup(&id))
             .map(|o| o.locomotor_surfaces)
             .filter(|&s| s != 0)
             .unwrap_or(SURFACE_GROUND);
@@ -77,7 +77,7 @@ impl PathfindingSystem {
         let layer = PathfindLayerEnum::Ground;
         let attacker_id = self.seeker_id;
         let victim_id = objects
-            .values()
+            .registered_values()
             .filter(|o| {
                 let p = o.get_position();
                 let dx = p.x - victim.x;
@@ -101,7 +101,7 @@ impl PathfindingSystem {
             })
             .map(|o| o.id);
         let is_vehicle = attacker_id
-            .and_then(|id| objects.get(&id))
+            .and_then(|id| objects.lookup(&id))
             .is_some_and(|o| o.is_kind_of(KindOf::Vehicle));
         let ally_mask = seeker_player
             .map(|p| self.grid.ally_mask_for(p))
@@ -160,8 +160,8 @@ impl PathfindingSystem {
                         && !self.is_attack_view_blocked_for(
                             test,
                             victim,
-                            attacker_id.and_then(|id| objects.get(&id)),
-                            victim_id.and_then(|id| objects.get(&id)),
+                            attacker_id.and_then(|id| objects.lookup(&id)),
+                            victim_id.and_then(|id| objects.lookup(&id)),
                             ground_source,
                         )
                     {
@@ -265,8 +265,8 @@ impl PathfindingSystem {
                         && self.is_attack_view_blocked_for(
                             world,
                             victim,
-                            attacker_id.and_then(|id| objects.get(&id)),
-                            victim_id.and_then(|id| objects.get(&id)),
+                            attacker_id.and_then(|id| objects.lookup(&id)),
+                            victim_id.and_then(|id| objects.lookup(&id)),
                             ground_source,
                         )
                     {
@@ -413,7 +413,7 @@ impl PathfindingSystem {
                     && (fixed & !friend) != 0
                     && (crusher_level == 0 || crusher_level <= crush);
                 let mut blocked_by_allies = (fixed & friend) != 0 || (goal_m & friend) != 0;
-                let occupant = objects.values().find(|o| {
+                let occupant = objects.registered_values().find(|o| {
                     let gp = self.grid.world_to_grid(o.get_position());
                     (gp.x - c.x).abs() <= r && (gp.y - c.y).abs() <= r
                 });
@@ -503,7 +503,7 @@ impl PathfindingSystem {
     pub(super) fn find_tall_building_along_segment(
         from: Vec3,
         to: Vec3,
-        objects: &HashMap<ObjectId, Object>,
+        objects: HostObjectRead<'_>,
         ignore: Option<ObjectId>,
     ) -> Option<(ObjectId, Vec3, f32)> {
         let dx = to.x - from.x;
@@ -514,7 +514,7 @@ impl PathfindingSystem {
         }
         let steps = ((len / 5.0).ceil() as i32).clamp(1, 256);
         let mut best: Option<(ObjectId, Vec3, f32, f32)> = None;
-        for obj in objects.values() {
+        for obj in objects.registered_values() {
             if ignore == Some(obj.id) {
                 continue;
             }
@@ -553,7 +553,7 @@ impl PathfindingSystem {
     pub fn segment_intersects_tall_building(
         from: Vec3,
         mut to: Vec3,
-        objects: &HashMap<ObjectId, Object>,
+        objects: HostObjectRead<'_>,
         ignore: Option<ObjectId>,
     ) -> Option<(Vec3, Vec3, Vec3, Vec3)> {
         let mut from_pos = from;
@@ -610,10 +610,10 @@ impl PathfindingSystem {
 
     /// C++ `AIUpdateInterface::getBuildingToNotPathAround` (Chinook combat-drop).
     pub(super) fn building_to_not_path_around(
-        objects: &HashMap<ObjectId, Object>,
+        objects: HostObjectRead<'_>,
         seeker: Option<ObjectId>,
     ) -> Option<ObjectId> {
-        let obj = seeker.and_then(|id| objects.get(&id))?;
+        let obj = seeker.and_then(|id| objects.lookup(&id))?;
         let ai = obj.chinook_ai.as_ref()?;
         use crate::game_logic::host_combat_chinook::HostChinookAIState;
         if matches!(
@@ -630,7 +630,7 @@ impl PathfindingSystem {
     /// insert radial offsets when AIRCRAFT_PATH_AROUND / tall structures clip.
     pub fn detour_path_around_tall_buildings(
         path: &[Vec3],
-        objects: &HashMap<ObjectId, Object>,
+        objects: HostObjectRead<'_>,
     ) -> Vec<Vec3> {
         Self::detour_path_around_tall_buildings_ignoring(path, objects, None)
     }
@@ -638,7 +638,7 @@ impl PathfindingSystem {
     /// Leftover `get_aircraft_path` segment walk (`limit=20`, insert n1,n2,n3).
     pub fn detour_path_around_tall_buildings_ignoring(
         path: &[Vec3],
-        objects: &HashMap<ObjectId, Object>,
+        objects: HostObjectRead<'_>,
         ignore: Option<ObjectId>,
     ) -> Vec<Vec3> {
         if path.len() < 2 {
@@ -670,7 +670,7 @@ impl PathfindingSystem {
         &mut self,
         start: Vec3,
         goal: Vec3,
-        objects: &HashMap<ObjectId, Object>,
+        objects: HostObjectRead<'_>,
         ground_source: &PathfindingGround<'_>,
     ) -> Option<Vec<Vec3>> {
         self.find_path_ex(start, goal, objects, false, None, ground_source)
@@ -681,11 +681,11 @@ impl PathfindingSystem {
         from: Vec3,
         to: Vec3,
         circle_radius: f32,
-        objects: &HashMap<ObjectId, Object>,
+        objects: HostObjectRead<'_>,
         ignore: Option<ObjectId>,
     ) -> Option<Vec3> {
         let mut best: Option<(ObjectId, Vec3, f32, f32)> = None;
-        for obj in objects.values() {
+        for obj in objects.registered_values() {
             if ignore == Some(obj.id) {
                 continue;
             }
@@ -712,7 +712,7 @@ impl PathfindingSystem {
         adjust.y = to.y;
         // Leftover second AIRCRAFT_PATH_AROUND near adjust_to.
         let mut other: Option<(Vec3, f32, f32)> = None;
-        for obj in objects.values() {
+        for obj in objects.registered_values() {
             if ignore == Some(obj.id) || obj.id == tall_id {
                 continue;
             }

@@ -115,7 +115,7 @@ pub fn capture_lifecycle_tail(game_logic: &GameLogic) -> SaveLoadResult<Lifecycl
     // to this Main session; another observer's arena generation cannot author
     // the saved references. Independent GameWorld saves own their generations.
     let generation_for = |_host: ObjectId| 1;
-    for object in game_logic.host_objects().values() {
+    for object in game_logic.host_objects().registered_values() {
         tail.envelopes.push(
             object
                 .entity_lifecycle_envelope_with_railroad(game_logic.railroad.get(object.id))
@@ -157,7 +157,7 @@ pub fn apply_lifecycle_tail_to_host(
     let mut railroad = crate::game_logic::host_railroad::HostRailroadRegistry::default();
     for envelope in &tail.envelopes {
         let id = ObjectId(envelope.entity_id);
-        if let Some(object) = game_logic.host_objects().get(&id) {
+        if let Some(object) = game_logic.host_objects().lookup(&id) {
             let mut candidate = object.clone();
             if let Some(car) = candidate
                 .entity_apply_lifecycle_envelope_with_railroad(envelope)
@@ -232,7 +232,7 @@ fn validate_overlord_containment_candidates(
             .map(|(_, candidate)| candidate)
             .or_else(|| game_logic.host_object(id))
     };
-    for id in game_logic.host_objects().keys().copied() {
+    for id in game_logic.host_objects().registered_keys().copied() {
         let owner = object(id).expect("existing candidate owner");
         if !owner.overlord_redirection_active {
             // Inactive-but-installed payload is an original onDie phase.

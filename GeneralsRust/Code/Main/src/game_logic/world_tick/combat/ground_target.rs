@@ -652,7 +652,7 @@ impl GameLogic {
         // Pure residual acquire: nearest attackable victim near ground impact (3D).
         let candidate_ids: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(&candidate_id, candidate)| {
                 if candidate_id == attacker_id
                     || !candidate.is_alive()

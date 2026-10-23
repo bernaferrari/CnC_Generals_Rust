@@ -120,7 +120,7 @@ impl GameLogic {
         // Pure residual acquire query (fire decision choice phase).
         let candidates: Vec<_> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(id, _)| **id != passenger_id && **id != cid)
             .map(|(id, obj)| {
                 let combat_kind = crate::game_logic::host_residual_acquire::residual_combat_kind(

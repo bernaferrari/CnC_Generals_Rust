@@ -696,7 +696,7 @@ impl GameLogic {
             };
             crate::game_logic::combat::drain_pending_projectiles_with_terrain(
                 &mut self.combat_system,
-                objects,
+                objects.read(),
                 self.frame,
                 Some(&projectile_terrain),
             );

@@ -472,7 +472,7 @@ pub fn nearer_live_bridge_attack_point(from: glam::Vec3, victim: &Object) -> gla
 /// Explicit low-level mapless adapter. Main sessions use the receiving variant below.
 pub fn drain_pending_projectiles(
     combat: &mut CombatSystem,
-    objects: &HashMap<ObjectId, Object>,
+    objects: HostObjectRead<'_>,
     frame: u32,
 ) {
     drain_pending_projectiles_with_terrain(combat, objects, frame, None);
@@ -481,7 +481,7 @@ pub fn drain_pending_projectiles(
 /// Actual Main admissions borrow the receiving view for each path calculation.
 pub(in crate::game_logic) fn drain_pending_projectiles_with_terrain(
     combat: &mut CombatSystem,
-    objects: &HashMap<ObjectId, Object>,
+    objects: HostObjectRead<'_>,
     frame: u32,
     terrain: Option<&crate::game_logic::game_logic::FlightTerrainView<'_>>,
 ) {
@@ -510,7 +510,7 @@ pub(in crate::game_logic) fn drain_pending_projectiles_with_terrain(
 /// are installed directly. The queued caller retains its original apply phase.
 pub(in crate::game_logic) fn materialize_accepted_projectile(
     combat: &mut CombatSystem,
-    objects: &HashMap<ObjectId, Object>,
+    objects: HostObjectRead<'_>,
     frame: u32,
     p: PendingProjectile,
     stream_binding: Option<ProjectileStreamBinding>,
@@ -534,7 +534,7 @@ pub(in crate::game_logic) fn materialize_accepted_projectile(
     // the source may die before the host drains this queue.
     let source_context = p.source_context.or_else(|| {
         objects
-            .get(&p.shooter_id)
+            .lookup(&p.shooter_id)
             .map(|source| ProjectileLaunchContext {
                 source_team: source.team,
                 source_owner_player_id: source.owner_player_id,
@@ -572,7 +572,7 @@ pub(in crate::game_logic) fn materialize_accepted_projectile(
 
     let actual_target_pos = p
         .target_id
-        .and_then(|tid| objects.get(&tid))
+        .and_then(|tid| objects.lookup(&tid))
         .map(|obj| {
             if let Some(off) = obj.get_sneaky_targeting_offset(frame) {
                 obj.get_position() + off
@@ -592,7 +592,7 @@ pub(in crate::game_logic) fn materialize_accepted_projectile(
     // direct target lock when scatter > 0 (miss / near-miss residual).
     let mut fire_target_id = p.target_id;
     if let Some(tid) = p.target_id {
-        if let Some(obj) = objects.get(&tid) {
+        if let Some(obj) = objects.lookup(&tid) {
             if obj.get_sneaky_targeting_offset(frame).is_some() {
                 fire_target_id = None;
             }
@@ -617,7 +617,7 @@ pub(in crate::game_logic) fn materialize_accepted_projectile(
         // a position, Z snapped to ground. Host Y is up.
         target_pos.x += table_offset.x;
         target_pos.z += table_offset.y;
-        if let Some(target) = p.target_id.and_then(|tid| objects.get(&tid)) {
+        if let Some(target) = p.target_id.and_then(|tid| objects.lookup(&tid)) {
             if target.ground_height_from_terrain {
                 target_pos.y = target.ground_height;
             }
@@ -626,7 +626,7 @@ pub(in crate::game_logic) fn materialize_accepted_projectile(
     } else if p.scatter_radius > 0.0 {
         // C++ fireWeaponTemplate: STRUCTURE aims at geometry center, then
         // each shot rolls GameLogicRandomValueReal radius + angle.
-        if let Some(target) = p.target_id.and_then(|tid| objects.get(&tid)) {
+        if let Some(target) = p.target_id.and_then(|tid| objects.lookup(&tid)) {
             if target.is_kind_of(crate::game_logic::KindOf::Structure) {
                 target_pos = crate::game_logic::weapon_bootstrap::structure_scatter_aim_origin(
                     target_pos,
@@ -639,7 +639,7 @@ pub(in crate::game_logic) fn materialize_accepted_projectile(
         target_pos += offset;
         // C++ snaps Z to the victim pathfind layer so a miss hits dirt,
         // not a far point past the volume. Host Y is up.
-        if let Some(target) = p.target_id.and_then(|tid| objects.get(&tid)) {
+        if let Some(target) = p.target_id.and_then(|tid| objects.lookup(&tid)) {
             if target.ground_height_from_terrain {
                 target_pos.y = target.ground_height;
             }
@@ -724,11 +724,13 @@ pub(in crate::game_logic) fn materialize_accepted_projectile(
         proj.detonation_ocl_name = p.detonation_ocl_name.clone();
         proj.exhaust_name = p.exhaust_name.clone();
         proj.source_team = source_context.source_team;
-        proj.source_owner_player_id = source_context
-            .source_owner_player_id
-            .or_else(|| objects.get(&p.shooter_id).and_then(|o| o.owner_player_id));
+        proj.source_owner_player_id = source_context.source_owner_player_id.or_else(|| {
+            objects
+                .lookup(&p.shooter_id)
+                .and_then(|o| o.owner_player_id)
+        });
         proj.source_team_instance_name = objects
-            .get(&p.shooter_id)
+            .lookup(&p.shooter_id)
             .map(|o| o.team_instance_name.clone())
             .unwrap_or_default();
         proj.source_veterancy = source_context.source_veterancy;

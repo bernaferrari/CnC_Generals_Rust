@@ -53,7 +53,7 @@ pub(super) fn migrate_v16(
 pub(super) fn capture(world: &GameLogic) -> Vec<BodyDamageHistoryPersist> {
     let mut records: Vec<_> = world
         .host_objects()
-        .iter()
+        .registered()
         .map(|(id, object)| BodyDamageHistoryPersist {
             object_id: id.0,
             source_id: object.last_damage_source.map(|id| id.0),
@@ -97,7 +97,7 @@ pub(super) fn validate(
 pub(super) fn apply(world: &mut GameLogic, records: Vec<BodyDamageHistoryPersist>) {
     // Earlier OXOB versions did not store this history; do not retain whatever
     // happened to be in a reused receiving Object before that older load.
-    for object in world.host_objects_mut().values_mut() {
+    for object in world.host_objects_mut().registered_values_mut() {
         object.last_damage_source = None;
         object.last_damage_timestamp = None;
         object.previous_health = object.health.current;

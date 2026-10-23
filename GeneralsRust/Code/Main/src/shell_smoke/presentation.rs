@@ -109,7 +109,11 @@ pub(super) fn evaluate_presentation_residuals(
             atk_logic.templates.insert(name.into(), t);
             let _ = atk_logic.create_object(name, crate::game_logic::Team::USA, pos);
         }
-        let ids: Vec<_> = atk_logic.host_objects().keys().copied().collect();
+        let ids: Vec<_> = atk_logic
+            .host_objects()
+            .registered_keys()
+            .copied()
+            .collect();
         if ids.len() >= 2 {
             if let Some(obj) = atk_logic.host_object_mut(ids[0]) {
                 obj.target = Some(ids[1]);

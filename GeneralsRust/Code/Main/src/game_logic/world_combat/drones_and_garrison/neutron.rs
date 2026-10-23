@@ -143,7 +143,7 @@ impl GameLogic {
         let frame = self.frame;
         let flying: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, o)| {
                 if o.neutron_cannon_shell_projectile && o.is_alive() {
                     Some(*id)
@@ -261,7 +261,7 @@ impl GameLogic {
 
         let candidates: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, obj)| {
                 if caster_id == Some(*id) {
                     return None;

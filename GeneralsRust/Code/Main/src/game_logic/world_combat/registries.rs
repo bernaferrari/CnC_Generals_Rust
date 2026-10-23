@@ -536,7 +536,7 @@ impl GameLogic {
     ) {
         let ids: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, obj)| obj.status.pending_garrison_really_damaged_eject)
             .map(|(id, _)| *id)
             .collect();
@@ -1675,13 +1675,13 @@ impl GameLogic {
 
         let ids: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, o)| o.neutron_missile_update.is_some() && o.is_alive())
             .map(|(id, _)| *id)
             .collect();
         let others: Vec<(ObjectId, glam::Vec3)> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, o)| o.is_alive())
             .map(|(id, o)| (*id, o.get_position()))
             .collect();
@@ -1899,7 +1899,7 @@ impl GameLogic {
 
         let ids: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, o)| o.scud_storm_missile_flight.is_some() && o.is_alive())
             .map(|(id, _)| *id)
             .collect();
@@ -2151,7 +2151,7 @@ impl GameLogic {
         // Move transports. C++ HeadOffMapState + CleanUpState: fly off then destroy.
         let tids: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, o)| o.carpet_bomb_transport.is_some() && o.is_alive())
             .map(|(id, _)| *id)
             .collect();
@@ -2182,7 +2182,7 @@ impl GameLogic {
         // C++ payload is contained on the transport. Dead bomber cancels remaining drops.
         let carpet_ids: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, o)| o.carpet_bomb_transport.is_some())
             .map(|(id, _)| *id)
             .collect();
@@ -2243,7 +2243,7 @@ impl GameLogic {
             .collect();
         let mark: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, o)| o.carpet_bomb_transport.is_some())
             .map(|(id, _)| *id)
             .collect();
@@ -2261,7 +2261,7 @@ impl GameLogic {
         // Fall payloads and detonate near ground.
         let bombs: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, o)| o.carpet_bomb_payload && o.is_alive())
             .map(|(id, _)| *id)
             .collect();
@@ -2476,7 +2476,7 @@ impl GameLogic {
 
         let tids: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, o)| o.artillery_barrage_transport.is_some() && o.is_alive())
             .map(|(id, _)| *id)
             .collect();
@@ -2556,7 +2556,7 @@ impl GameLogic {
 
         let shells: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, o)| o.artillery_barrage_shell && o.is_alive())
             .map(|(id, _)| *id)
             .collect();
@@ -2752,7 +2752,7 @@ impl GameLogic {
 
         let tids: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, o)| o.a10_strike_transport.is_some() && o.is_alive())
             .map(|(id, _)| *id)
             .collect();
@@ -2887,7 +2887,7 @@ impl GameLogic {
 
         let missiles: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, o)| o.a10_strike_missile && o.is_alive())
             .map(|(id, _)| *id)
             .collect();
@@ -2926,7 +2926,7 @@ impl GameLogic {
                 // with any contained remainder — payload delivery is over).
                 let alive_transports = self
                     .objects
-                    .values()
+                    .registered_values()
                     .filter(|o| o.a10_strike_transport.is_some() && o.is_alive())
                     .count();
                 let final_wave = self.a10_strike_flight_reg.impacts
@@ -3041,7 +3041,7 @@ impl GameLogic {
 
         let tids: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, o)| o.leaflet_transport_target.is_some() && o.is_alive())
             .map(|(id, _)| *id)
             .collect();
@@ -3130,7 +3130,7 @@ impl GameLogic {
         // C++ LeafletDropBehavior::update first tick: create + attachToObject.
         let containers: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, o)| o.leaflet_container && o.is_alive())
             .map(|(id, _)| *id)
             .collect();
@@ -3261,7 +3261,7 @@ impl GameLogic {
 
         let tids: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, o)| o.paradrop_transport_target.is_some() && o.is_alive())
             .map(|(id, _)| *id)
             .collect();
@@ -3353,7 +3353,7 @@ impl GameLogic {
 
         let chutes: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, o)| o.paradrop_parachute && o.is_alive())
             .map(|(id, _)| *id)
             .collect();
@@ -3510,7 +3510,7 @@ impl GameLogic {
 
         let tids: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, o)| o.daisy_cutter_transport.is_some() && o.is_alive())
             .map(|(id, _)| *id)
             .collect();
@@ -3584,7 +3584,7 @@ impl GameLogic {
 
         let bombs: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, o)| o.daisy_cutter_bomb && o.is_alive())
             .map(|(id, _)| *id)
             .collect();

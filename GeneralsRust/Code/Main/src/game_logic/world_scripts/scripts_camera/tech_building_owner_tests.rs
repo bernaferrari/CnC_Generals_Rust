@@ -68,8 +68,8 @@ fn world() -> (GameLogic, ObjectId) {
     let mut world = GameLogic::new();
     world.world_min = Vec3::ZERO;
     world.world_max = Vec3::splat(1000.0);
-    world.add_player(Player::new(1, Team::USA, "Viewer", true));
-    world.add_player(Player::new(2, Team::USA, "Other", false));
+    world.add_player(Player::new(1, Team::USA, "Viewer", true).with_script_identity("Viewer"));
+    world.add_player(Player::new(2, Team::USA, "Other", false).with_script_identity("Other"));
     world
         .players
         .get_mut(&1)

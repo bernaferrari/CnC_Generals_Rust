@@ -45,7 +45,7 @@ fn set_combat_status_mutation_channel_updates_shadow_entity() {
 
     shadow.sync_from_host(&logic);
 
-    let o = logic.host_objects().get(&id).expect("o");
+    let o = logic.host_objects().lookup(&id).expect("o");
     assert!(o.status.stealthed);
     assert!(o.status.attacking);
     assert!(o.status.is_firing_weapon);
@@ -97,7 +97,7 @@ fn host_selection_status_log_drives_set_combat_status_channel() {
     }
     shadow.sync_from_host(&logic);
 
-    assert!(logic.host_objects().get(&id).expect("o").status.selected);
+    assert!(logic.host_objects().lookup(&id).expect("o").status.selected);
 }
 
 #[test]
@@ -146,7 +146,7 @@ fn host_attacking_status_log_drives_set_combat_status_channel() {
     }
     shadow.sync_from_host(&logic);
 
-    let o = logic.host_objects().get(&id).expect("o");
+    let o = logic.host_objects().lookup(&id).expect("o");
     assert!(o.status.attacking && o.status.is_firing_weapon);
 }
 
@@ -195,7 +195,7 @@ fn host_stealth_status_log_drives_set_combat_status_channel() {
     }
     shadow.sync_from_host(&logic);
 
-    let o = logic.host_objects().get(&id).expect("o");
+    let o = logic.host_objects().lookup(&id).expect("o");
     assert!(o.status.stealthed && !o.status.detected);
 }
 
@@ -251,7 +251,7 @@ fn host_emp_status_log_drives_set_combat_status_channel() {
     assert!(
         logic
             .host_objects()
-            .get(&id)
+            .lookup(&id)
             .expect("o")
             .status
             .disabled_emp
@@ -537,12 +537,12 @@ fn canonical_containment_projects_without_writeback() {
     shadow.sync_from_host(&logic);
 
     assert_eq!(
-        logic.host_objects().get(&inf).expect("i").contained_by,
+        logic.host_objects().lookup(&inf).expect("i").contained_by,
         Some(bunker)
     );
     let bd = logic
         .host_objects()
-        .get(&bunker)
+        .lookup(&bunker)
         .expect("b")
         .building_data
         .as_ref()
@@ -641,7 +641,7 @@ fn host_special_power_cooldown_remaining_channel() {
         e.special_power_cooldown = 45.0;
     }
     shadow.sync_from_host(&logic);
-    let o = logic.host_objects().get(&oid).expect("o");
+    let o = logic.host_objects().lookup(&oid).expect("o");
     assert!(!o.special_power_ready);
     assert!((o.special_power_cooldown_remaining - 18.0).abs() < 1e-3);
     assert!((o.special_power_cooldown - 45.0).abs() < 1e-3);
@@ -686,7 +686,7 @@ fn canonical_special_power_projects_without_writeback() {
     assert!(
         logic
             .host_objects()
-            .get(&id)
+            .lookup(&id)
             .expect("o")
             .special_power_ready
     );
@@ -735,7 +735,7 @@ fn canonical_stored_supplies_is_projected_from_receiving_owner() {
     assert_eq!(
         logic
             .host_objects()
-            .get(&id)
+            .lookup(&id)
             .expect("o")
             .stored_resources
             .supplies,
@@ -784,7 +784,7 @@ fn owned_construction_snapshot_refreshes_projection_without_writeback() {
     }
     let wb = shadow.compare_construction_to_host(&logic);
     assert!(wb >= 1);
-    let o = logic.host_objects().get(&id).expect("o");
+    let o = logic.host_objects().lookup(&id).expect("o");
     assert_eq!(o.construction_percent, 0.0);
     assert!(!o.status.under_construction);
 }
@@ -856,7 +856,7 @@ fn host_owner_log_drives_transfer_owner_channel() {
 
     shadow.sync_from_host(&logic);
 
-    let o = logic.host_objects().get(&id).expect("o");
+    let o = logic.host_objects().lookup(&id).expect("o");
 
     assert_eq!(o.team, capture_team);
     assert_eq!(o.owner_player_id, Some(capture_pid));
@@ -928,7 +928,7 @@ fn host_production_log_drives_set_production_queue_channel() {
     let _ = shadow.compare_rebuild_producer_to_host(&logic);
     shadow.sync_from_host(&logic);
 
-    let o = logic.host_objects().get(&barracks).expect("b");
+    let o = logic.host_objects().lookup(&barracks).expect("b");
     let q = &o.building_data.as_ref().expect("bd").production_queue;
     assert_eq!(q[0].template_name, "ProdRanger");
 }
@@ -1142,7 +1142,7 @@ fn host_force_attack_status_log_drives_set_combat_status_channel() {
 
     shadow.sync_from_host(&logic);
 
-    let o = logic.host_objects().get(&id).expect("o");
+    let o = logic.host_objects().lookup(&id).expect("o");
     assert!(o.force_attack);
     assert!(o.status.using_ability);
     assert!(o.status.deployed);
@@ -1199,7 +1199,7 @@ fn host_residual_status_log_drives_set_combat_status_channel() {
 
     shadow.sync_from_host(&logic);
 
-    let o = logic.host_objects().get(&id).expect("o");
+    let o = logic.host_objects().lookup(&id).expect("o");
     assert!(o.status.no_collisions);
     assert!(o.status.private_captured);
     assert!(o.status.faerie_fire);

@@ -517,7 +517,7 @@ fn america_paradrop_host_path_queues_and_spawns_infantry() {
     let target = Vec3::new(200.0, 0.0, 100.0);
     let infantry_count = |gl: &GameLogic| {
         gl.host_objects()
-            .values()
+            .registered_values()
             .filter(|o| o.is_kind_of(crate::game_logic::KindOf::Infantry))
             .count()
     };
@@ -676,7 +676,7 @@ fn gla_ambush_host_path_queues_and_spawns_infantry() {
     }
 
     let target = Vec3::new(200.0, 0.0, 100.0);
-    let objects_before = game_logic.host_objects().len();
+    let objects_before = game_logic.host_objects().registered_len();
 
     game_logic.queue_command(GameCommand {
         command_type: CommandType::DoSpecialPower {
@@ -709,7 +709,7 @@ fn gla_ambush_host_path_queues_and_spawns_infantry() {
         "activation must queue RebelAmbushActivated audio"
     );
     assert_eq!(
-        game_logic.host_objects().len(),
+        game_logic.host_objects().registered_len(),
         objects_before + GLA_AMBUSH1_UNIT_COUNT as usize,
         "infantry spawn on the fire frame"
     );
@@ -771,7 +771,7 @@ fn gla_ambush_host_path_queues_and_spawns_infantry() {
         "spawn must queue RebelAmbushSpawn audio"
     );
     assert_eq!(
-        game_logic.host_objects().len(),
+        game_logic.host_objects().registered_len(),
         objects_before + GLA_AMBUSH1_UNIT_COUNT as usize
     );
 }
@@ -1252,7 +1252,7 @@ fn cleanup_stream_projectile_flies_and_clears() {
         logic.update_cleanup_stream_projectiles();
         if !logic
             .objects
-            .values()
+            .registered_values()
             .any(|o| o.cleanup_stream_projectile && o.is_alive())
         {
             break;
@@ -1268,7 +1268,7 @@ fn cleanup_stream_projectile_flies_and_clears() {
     assert!(
         !logic
             .objects
-            .values()
+            .registered_values()
             .any(|o| o.cleanup_stream_projectile && o.is_alive()),
         "cleanup projectile should detonate"
     );
@@ -1373,7 +1373,7 @@ fn cleanup_area_residual_clears_hazards_and_mines() {
         game_logic.update_cleanup_stream_projectiles();
         if !game_logic
             .objects
-            .values()
+            .registered_values()
             .any(|o| o.cleanup_stream_projectile && o.is_alive())
             && game_logic
                 .cleanup_areas()

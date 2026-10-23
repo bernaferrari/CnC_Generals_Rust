@@ -332,7 +332,7 @@ impl GameLogic {
         let hijack_guard = me.thing().template.hijack_guard;
         let radius_sq = inner * inner;
         let mut best: Option<(ObjectId, f32)> = None;
-        for (cid, cand) in self.objects.iter() {
+        for (cid, cand) in self.objects.registered() {
             if *cid == unit_id || !cand.is_alive() || cand.status.destroyed {
                 continue;
             }
@@ -454,7 +454,7 @@ impl GameLogic {
         let mut n = 0usize;
         let ids: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, o)| o.team == team)
             .map(|(id, _)| *id)
             .collect();
@@ -535,7 +535,7 @@ impl GameLogic {
             return Vec::new();
         }
         self.host_objects()
-            .values()
+            .registered_values()
             .filter(|obj| {
                 if !obj.team_instance_name.is_empty() {
                     return obj.team_instance_name.eq_ignore_ascii_case(needle);
@@ -553,7 +553,7 @@ impl GameLogic {
         let att = attitude_i8.clamp(-2, 2);
         let ids: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, o)| o.team == team && o.is_alive())
             .map(|(id, _)| *id)
             .collect();
@@ -577,7 +577,7 @@ impl GameLogic {
         let faction = Self::resolve_host_team_name(team_name);
         let ids: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, o)| {
                 o.is_alive()
                     && ((!o.team_instance_name.is_empty()
@@ -600,7 +600,7 @@ impl GameLogic {
     pub fn find_object_id_by_name(&self, name: &str) -> Option<ObjectId> {
         // Prefer host object name residual (production path — no engine_object_id).
         let lower = name.to_ascii_lowercase();
-        if let Some((id, _)) = self.objects.iter().find(|(_, o)| {
+        if let Some((id, _)) = self.objects.registered().find(|(_, o)| {
             (!o.name.is_empty() && o.name.eq_ignore_ascii_case(name))
                 || o.thing().template.name.eq_ignore_ascii_case(name)
                 || o.template_name.eq_ignore_ascii_case(name)
@@ -756,7 +756,7 @@ impl GameLogic {
         let range_sq = range * range;
         let candidates: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(id, o)| {
                 if **id == victim_id || **id == damager_id || !o.is_alive() {
                     return false;
@@ -810,7 +810,7 @@ impl GameLogic {
     pub fn tick_guard_retaliate_states(&mut self) {
         let ids: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, o)| matches!(o.ai_state, AIState::GuardRetaliating))
             .map(|(id, _)| *id)
             .collect();
@@ -1007,7 +1007,7 @@ impl GameLogic {
     pub fn set_team_repulsor(&mut self, team: crate::game_logic::Team, repulsor: bool) -> usize {
         let ids: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, o)| o.team == team && o.is_alive())
             .map(|(id, _)| *id)
             .collect();
@@ -1074,7 +1074,7 @@ impl GameLogic {
         let faction = Self::resolve_host_team_name(team_name);
         let ids: Vec<ObjectId> = self
             .objects
-            .values()
+            .registered_values()
             .filter(|obj| {
                 obj.is_alive()
                     && (faction.map(|t| obj.team == t).unwrap_or(false)
@@ -1145,7 +1145,7 @@ impl GameLogic {
         let faction = Self::resolve_host_team_name(team_name);
         let members: Vec<ObjectId> = self
             .objects
-            .values()
+            .registered_values()
             .filter(|obj| {
                 obj.is_alive()
                     && (faction.map(|t| obj.team == t).unwrap_or(false)
@@ -1331,7 +1331,7 @@ impl GameLogic {
 
         let path_sessions: Vec<(u32, i32, i32)> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, object)| {
                 object
                     .unit_ai_runtime
@@ -1385,7 +1385,7 @@ impl GameLogic {
 
         let sessions: Vec<(u32, glam::Vec3, glam::Vec3, i32, i32)> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, object)| {
                 object.unit_ai_runtime.wander_in_place().map(|state| {
                     (
@@ -1749,7 +1749,7 @@ impl GameLogic {
         use gamelogic::common::Relationship;
 
         let mut best: Option<(ObjectId, f32)> = None;
-        for (id, obj) in self.host_objects() {
+        for (id, obj) in self.host_objects().registered() {
             if exclude.contains(id) {
                 continue;
             }
@@ -1812,7 +1812,7 @@ impl GameLogic {
         // Dead units only count when explicitly flagged repulsor (ActiveBody residual).
         let candidates: Vec<_> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(&oid, other)| {
                 if oid == unit_id {
                     return None;
@@ -3064,7 +3064,7 @@ mod tests {
 
         let proj = logic
             .host_objects()
-            .values()
+            .registered_values()
             .find(|obj| obj.is_kind_of(KindOf::Projectile) && obj.producer_id == Some(id))
             .expect("leftover forceFire live projectile");
         assert_eq!(proj.formation_id, 0, "leaveGroup");

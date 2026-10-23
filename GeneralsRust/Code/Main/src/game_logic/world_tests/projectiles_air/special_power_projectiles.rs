@@ -229,7 +229,7 @@ fn baikonur_launch_door_and_detonation() {
     assert!(
         logic
             .objects
-            .values()
+            .registered_values()
             .any(|o| o.template_name == BAIKONUR_DETONATION_OBJECT)
     );
     assert!(
@@ -335,7 +335,7 @@ fn spectre_orbit_spawns_howitzer_shell_objects() {
     assert!(logic.special_power_strikes.howitzer_shell_objects_spawned() >= 1);
     let shell = logic
         .host_objects()
-        .values()
+        .registered_values()
         .find(|o| o.spectre_howitzer_shell)
         .expect("SpectreHowitzerShell");
     assert_eq!(shell.template_name, SPECTRE_HOWITZER_SHELL_OBJECT);
@@ -560,7 +560,7 @@ fn scud_storm_anthrax_beta_spawns_poison_field_upgraded_large() {
     assert!(ScudStormAnthraxTier::AnthraxBeta.is_upgraded());
     let obj = logic
         .host_objects()
-        .values()
+        .registered_values()
         .find(|o| o.anthrax_toxin_field && o.template_name == SCUD_POISON_UPGRADED_OBJECT_NAME)
         .expect("PoisonFieldUpgradedLarge");
     assert!((obj.health.maximum - 120.0).abs() < 0.01);
@@ -607,7 +607,7 @@ fn scud_storm_spawns_poison_field_large_object() {
     assert_eq!(field.object_template, SCUD_POISON_OBJECT_NAME);
     let obj = logic
         .host_objects()
-        .values()
+        .registered_values()
         .find(|o| o.anthrax_toxin_field && o.template_name == SCUD_POISON_OBJECT_NAME)
         .expect("PoisonFieldLarge object");
     assert_eq!(field.object_id, Some(obj.id));
@@ -648,7 +648,7 @@ fn anthrax_bomb_spawns_toxin_field_object() {
     assert!(logic.special_power_strikes.toxin_objects_spawned() >= 1);
     let obj = logic
         .host_objects()
-        .values()
+        .registered_values()
         .find(|o| o.anthrax_toxin_field)
         .expect("toxin field object");
     assert_eq!(obj.template_name, ANTHRAX_TOXIN_OBJECT_NAME);
@@ -706,7 +706,7 @@ fn nuclear_missile_spawns_radiation_field_object() {
     assert!(logic.special_power_strikes.radiation_objects_spawned() >= 1);
     let obj = logic
         .host_objects()
-        .values()
+        .registered_values()
         .find(|o| o.nuke_radiation_field)
         .expect("radiation field object");
     assert_eq!(obj.template_name, NUKE_RADIATION_OBJECT_NAME);
@@ -764,7 +764,7 @@ fn radiation_field_object_carries_cleanup_hazard_kindof_and_hazardous_armor() {
     logic.spawn_nuke_radiation_field_objects_for_new_fields();
     let obj = logic
         .host_objects()
-        .values()
+        .registered_values()
         .find(|o| o.nuke_radiation_field)
         .expect("radiation field object");
     assert!(std::sync::Arc::ptr_eq(
@@ -830,7 +830,7 @@ fn toxin_field_object_carries_cleanup_hazard_kindof_and_hazardous_armor() {
     logic.spawn_anthrax_toxin_field_objects_for_new_fields();
     let obj = logic
         .host_objects()
-        .values()
+        .registered_values()
         .find(|o| o.anthrax_toxin_field)
         .expect("toxin field object");
     for kind in [
@@ -886,7 +886,7 @@ fn point_defense_intercept_spawns_laser_beam_object() {
     assert!(logic.point_defense_laser_beams_spawned >= 1);
     let beam = logic
         .host_objects()
-        .values()
+        .registered_values()
         .find(|o| o.point_defense_laser_beam)
         .expect("PDL beam object");
     assert_eq!(beam.template_name, PDL_LASER_BEAM_DEFAULT);
@@ -940,7 +940,7 @@ fn particle_cannon_spawns_connector_laser_objects() {
     assert!(logic.special_power_strikes.connector_objects_spawned() >= 2);
     let names: Vec<_> = logic
         .host_objects()
-        .values()
+        .registered_values()
         .filter(|o| o.particle_connector_laser)
         .map(|o| o.template_name.clone())
         .collect();
@@ -997,7 +997,7 @@ fn particle_cannon_spawns_orbital_laser_object() {
     assert!(logic.special_power_strikes.beam_objects_spawned() >= 1);
     let laser = logic
         .host_objects()
-        .values()
+        .registered_values()
         .find(|o| o.particle_orbital_laser)
         .expect("OrbitalLaser");
     assert_eq!(laser.template_name, PARTICLE_ORBITAL_LASER_NAME);
@@ -1066,7 +1066,7 @@ fn particle_uplink_spawns_trail_remnant_objects() {
     assert!(logic.special_power_strikes.remnant_objects_spawned() >= 1);
     let obj = logic
         .host_objects()
-        .values()
+        .registered_values()
         .find(|o| o.particle_trail_remnant)
         .expect("trail remnant object");
     assert_eq!(obj.template_name, PARTICLE_REMNANT_OBJECT_NAME);
@@ -1225,7 +1225,7 @@ fn emp_pulse_spawns_effect_spheroid_residual() {
     assert!(logic.emp_pulses().honesty_spheroid_ok());
     let sph = logic
         .host_objects()
-        .values()
+        .registered_values()
         .find(|o| o.emp_pulse_spheroid)
         .expect("spheroid");
     assert_eq!(sph.template_name, EMP_PULSE_EFFECT_SPHEROID);
@@ -2488,9 +2488,6 @@ fn strategy_center_battle_plan_paralyze_residual_on_plan_change() {
 
 #[test]
 fn retail_eject_pilot_metadata_drives_death_and_hijacker_interface() {
-    use crate::game_logic::audio_dispatch_impl::{
-        clear_test_template_voices, set_test_per_unit_sound,
-    };
     use crate::game_logic::host_usa_pilot::{
         EJECT_PILOT_TEMPLATE, significantly_above_terrain_threshold,
     };
@@ -2498,10 +2495,6 @@ fn retail_eject_pilot_metadata_drives_death_and_hijacker_interface() {
         EjectPilotCreationList, EjectPilotDeathTypes, EjectPilotExemptStatus,
         EjectPilotVeterancyLevels, VeterancyLevel,
     };
-
-    clear_test_template_voices();
-    set_test_per_unit_sound("AmericaVehicleHumvee", "VoiceEject", "HumveeVoiceEject");
-    set_test_per_unit_sound("AmericaVehicleHumvee", "SoundEject", "HumveeSoundEject");
 
     // This checkout ships no retail BIG/INI data (windows_game/
     // extracted_big_files_v2 does not exist), so author the exact retail
@@ -2559,18 +2552,35 @@ fn retail_eject_pilot_metadata_drives_death_and_hijacker_interface() {
     assert!(raptor_template.eject_pilot_die.is_some());
 
     let mut game_logic = GameLogic::new();
+    let mut source = String::new();
+    for (name, kinds, health, eject) in [
+        ("AmericaVehicleHumvee", "VEHICLE SELECTABLE", 200, true),
+        ("AmericaJetRaptor", "VEHICLE AIRCRAFT SELECTABLE", 200, true),
+        (EJECT_PILOT_TEMPLATE, "INFANTRY SELECTABLE", 100, false),
+        ("AmericaVehicleHumveeNameOnly", "VEHICLE", 200, false),
+    ] {
+        source.push_str(&format!("Object {name}\nKindOf = {kinds}\nBody = ActiveBody BodyTag\nMaxHealth = {health}\nInitialHealth = {health}\nEnd\n"));
+        if eject {
+            source.push_str("Behavior = EjectPilotDie EjectTag\nGroundCreationList = OCL_EjectPilotOnGround\nAirCreationList = OCL_EjectPilotViaParachute\nEnd\n");
+        }
+        if name == "AmericaVehicleHumvee" {
+            source.push_str("UnitSpecificSounds\nVoiceEject = HumveeVoiceEject\nSoundEject = HumveeSoundEject\nEnd\n");
+        }
+        source.push_str("End\n");
+    }
+    source.push_str("Object ParserShapedUnknownEject\nKindOf = VEHICLE\nBody = ActiveBody UnknownBody\nMaxHealth = 200\nInitialHealth = 200\nEnd\nBehavior = EjectPilotDie ModuleTag_01\nGroundCreationList = OCL_NotSupportedByHost\nEnd\nEnd\n");
+    game_logic
+        .admit_receiving_module_content(
+            crate::assets::ReceivingObjectContent::from_sources([(
+                "eject-pilot-fixtures.ini".into(),
+                source,
+            )])
+            .unwrap(),
+        )
+        .unwrap();
     game_logic
         .players
         .insert(0, Player::new(0, Team::USA, "USA 0", true));
-    game_logic
-        .templates
-        .insert("AmericaVehicleHumvee".to_string(), humvee_template);
-    game_logic
-        .templates
-        .insert("AmericaJetRaptor".to_string(), raptor_template);
-    game_logic
-        .templates
-        .insert(EJECT_PILOT_TEMPLATE.to_string(), pilot_template);
 
     // A real parsed ground module exposes the hijacker interface before its
     // death OCL runs, then the selected OCL gives the pilot its parsed 60f
@@ -2618,7 +2628,7 @@ fn retail_eject_pilot_metadata_drives_death_and_hijacker_interface() {
 
     let pilot_id = game_logic
         .objects
-        .iter()
+        .registered()
         .find(|(_, object)| {
             object.is_alive()
                 && object.template_name == EJECT_PILOT_TEMPLATE
@@ -2656,7 +2666,7 @@ fn retail_eject_pilot_metadata_drives_death_and_hijacker_interface() {
     game_logic.mark_object_for_destruction(raptor_id, Some(Team::GLA));
     game_logic.process_destroy_list();
     assert!(
-        game_logic.objects.values().any(|object| {
+        game_logic.objects.registered_values().any(|object| {
             object.is_alive()
                 && object.template_name == EJECT_PILOT_TEMPLATE
                 && object.owner_player_id == Some(0)
@@ -2666,11 +2676,6 @@ fn retail_eject_pilot_metadata_drives_death_and_hijacker_interface() {
     );
 
     // A name-only impostor gets neither the interface nor a death spawn.
-    let mut name_only = ThingTemplate::new("AmericaVehicleHumveeNameOnly");
-    name_only.add_kind_of(KindOf::Vehicle).set_health(200.0);
-    game_logic
-        .templates
-        .insert("AmericaVehicleHumveeNameOnly".to_string(), name_only);
     let name_only_id = game_logic
         .create_object_for_player(
             "AmericaVehicleHumveeNameOnly",
@@ -2716,9 +2721,14 @@ End
         None,
     );
     assert!(unknown_template.eject_pilot_die.is_some());
-    game_logic
-        .templates
-        .insert("ParserShapedUnknownEject".to_string(), unknown_template);
+    assert!(
+        game_logic
+            .templates
+            .get("ParserShapedUnknownEject")
+            .unwrap()
+            .eject_pilot_die
+            .is_some()
+    );
     let unknown_id = game_logic
         .create_object_for_player("ParserShapedUnknownEject", 0, Vec3::new(200.0, 0.0, 0.0))
         .expect("unknown module vehicle");
@@ -2739,7 +2749,6 @@ End
         ejections_before_unknown,
         "unknown selected OCL must not synthesize an ejection"
     );
-    clear_test_template_voices();
 }
 
 #[test]
@@ -2799,7 +2808,7 @@ fn eject_pilot_veterancy_levels_all_minus_regular_residual() {
     assert_eq!(
         game_logic
             .objects
-            .values()
+            .registered_values()
             .filter(|o| o.is_alive() && o.template_name == EJECT_PILOT_TEMPLATE)
             .count(),
         0,
@@ -2915,7 +2924,7 @@ fn eject_pilot_die_mux_death_types_and_hijacked_residual() {
     assert_eq!(
         game_logic
             .objects
-            .values()
+            .registered_values()
             .filter(|o| o.is_alive() && o.template_name == EJECT_PILOT_TEMPLATE)
             .count(),
         0,
@@ -3014,7 +3023,7 @@ fn eject_pilot_die_mux_death_types_and_hijacked_residual() {
     assert!(
         game_logic
             .objects
-            .values()
+            .registered_values()
             .any(|o| o.is_alive() && o.template_name == EJECT_PILOT_TEMPLATE),
         "normal death residual must spawn pilot"
     );
@@ -3267,7 +3276,7 @@ fn eject_pilot_invulnerable_time_residual() {
 
     let pilot_id = game_logic
         .objects
-        .iter()
+        .registered()
         .find(|(_, o)| o.is_alive() && o.template_name == EJECT_PILOT_TEMPLATE)
         .map(|(id, _)| *id)
         .expect("ejected pilot");
@@ -3424,4 +3433,93 @@ fn spectre_orbit_queues_voice_rapid_fire_once_per_fast_crossing() {
         logic.queued_audio_events
     );
     clear_test_template_voices();
+}
+
+#[test]
+fn actual_eject_uses_receiving_per_unit_sounds_without_same_name_peer_or_silent_fallback() {
+    fn world(cue: Option<&str>, position: Vec3) -> (GameLogic, ObjectId) {
+        let sounds = cue
+            .map(|cue| {
+                format!(
+                    "UnitSpecificSounds\nVoiceEject = {cue}Voice\nSoundEject = {cue}Sound\nEnd\n"
+                )
+            })
+            .unwrap_or_default();
+        let text = format!(
+            "Object ReceivingEjectCarrier\nKindOf = VEHICLE SELECTABLE\nBody = ActiveBody BodyTag\nMaxHealth = 200\nInitialHealth = 200\nEnd\nBehavior = EjectPilotDie EjectTag\nGroundCreationList = OCL_EjectPilotOnGround\nAirCreationList = OCL_EjectPilotViaParachute\nEnd\n{sounds}End\nObject AmericaInfantryPilot\nKindOf = INFANTRY SELECTABLE\nBody = ActiveBody PilotBody\nMaxHealth = 100\nInitialHealth = 100\nEnd\nEnd\n"
+        );
+        let mut world = GameLogic::new();
+        world
+            .admit_receiving_module_content(
+                crate::assets::ReceivingObjectContent::from_sources([(
+                    "receiving-eject-audio.ini".into(),
+                    text,
+                )])
+                .unwrap(),
+            )
+            .unwrap();
+        world.add_player(Player::new(0, Team::USA, "EjectOwner", true));
+        let id = world
+            .create_object_for_player("ReceivingEjectCarrier", 0, position)
+            .unwrap();
+        world.host_object_mut(id).unwrap().experience.level =
+            crate::game_logic::VeterancyLevel::Veteran;
+        (world, id)
+    }
+    fn eject(world: &mut GameLogic, id: ObjectId) {
+        world.host_object_mut(id).unwrap().status.destroyed = true;
+        world.mark_object_for_destruction(id, Some(Team::GLA));
+        assert_eq!(
+            world.usa_pilot_residual().ejections,
+            1,
+            "the actual owned EjectPilotDie route must create its pilot, even for silent content"
+        );
+    }
+    register_retail_eject_pilot_ocls();
+    let (mut owner, id) = world(Some("OwnerEject"), Vec3::new(50., 0., 50.));
+    let (mut peer, peer_id) = world(Some("PeerEject"), Vec3::new(70., 0., 70.));
+    let (mut silent, silent_id) = world(None, Vec3::new(90., 0., 90.));
+    assert_eq!(id, peer_id);
+    assert_eq!(id, silent_id);
+    eject(&mut owner, id);
+    for (slot, player) in [("OwnerEjectVoice", Some(0)), ("OwnerEjectSound", None)] {
+        let event = owner
+            .queued_audio_events
+            .iter()
+            .find(|event| event.event_type == slot)
+            .unwrap();
+        assert_eq!(event.position, Some(Vec3::new(50., 0., 50.)));
+        assert_eq!(event.object_id, None);
+        assert_eq!(event.player_index, player);
+    }
+    assert!(peer.queued_audio_events.is_empty());
+    assert_eq!(peer.usa_pilot_residual().ejections, 0);
+    eject(&mut peer, peer_id);
+    assert!(
+        peer.queued_audio_events
+            .iter()
+            .any(|event| event.event_type == "PeerEjectVoice")
+    );
+    assert!(
+        peer.queued_audio_events
+            .iter()
+            .any(|event| event.event_type == "PeerEjectSound")
+    );
+    assert!(
+        !peer
+            .queued_audio_events
+            .iter()
+            .any(|event| event.event_type.starts_with("OwnerEject"))
+    );
+    eject(&mut silent, silent_id);
+    assert!(
+        silent.queued_audio_events.is_empty(),
+        "missing authored slots stay silent despite same-template peers"
+    );
+    assert!(
+        !owner
+            .queued_audio_events
+            .iter()
+            .any(|event| event.event_type.starts_with("PeerEject"))
+    );
 }

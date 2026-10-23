@@ -58,7 +58,7 @@ impl GameLogic {
         }
         let candidates: Vec<(ObjectId, String, glam::Vec3)> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, unit)| unit.ambient_sound_enabled_from_script)
             .filter_map(|(id, unit)| {
                 let name = unit.ambient_audio.as_ref()?;
@@ -315,6 +315,7 @@ mod tests {
         let id = logic
             .create_object("AmericaTankCrusader", Team::USA, Vec3::ZERO)
             .expect("tank");
+        assert!(logic.enable_owned_object_sound(id, true));
         logic.queued_audio_events.clear();
         (logic, id)
     }
@@ -402,7 +403,7 @@ mod tests {
     }
 
     #[test]
-    fn create_starts_template_sound_ambient() {
+    fn headless_birth_is_inactive_then_receiving_script_activation_starts_ambient() {
         let mut logic = GameLogic::new();
         let mut tmpl = ThingTemplate::new("AmericaWarFactory");
         tmpl.add_kind_of(KindOf::Structure);
@@ -414,19 +415,24 @@ mod tests {
             .create_object("AmericaWarFactory", Team::USA, Vec3::new(10.0, 0.0, 10.0))
             .expect("factory");
         assert!(
+            logic.host_object(id).unwrap().ambient_audio.is_none(),
+            "headless birth does not duplicate native constructor audio"
+        );
+        assert!(logic.enable_owned_object_sound(id, true));
+        assert!(
             logic.queued_audio_events.iter().any(|e| {
                 e.event_type == "WarFactoryAmbientLoop"
                     && e.object_id == Some(id)
                     && e.is_looping
                     && !e.stop
             }),
-            "create must start SoundAmbient: {:?}",
+            "explicit receiving script activation must start SoundAmbient: {:?}",
             logic.queued_audio_events
         );
     }
 
     #[test]
-    fn body_damage_restarts_damaged_ambient() {
+    fn receiving_script_activation_after_body_damage_selects_damaged_ambient() {
         let (mut logic, id) = tank_logic();
         logic.queued_audio_events.clear();
         let damage = logic.host_object(id).unwrap().health.maximum * 0.5;
@@ -445,6 +451,7 @@ mod tests {
             logic.host_object(id).unwrap().body_damage_state,
             HostBodyDamageType::Damaged
         );
+        logic.start_ambient_sound(id);
         logic.retry_dropped_ambient_sounds();
         assert!(
             logic
@@ -496,6 +503,11 @@ mod tests {
         let id = logic
             .create_object("AmericaWarFactory", Team::USA, Vec3::new(10.0, 0.0, 10.0))
             .expect("factory");
+        assert!(
+            logic.host_object(id).unwrap().ambient_audio.is_none(),
+            "headless birth does not duplicate native constructor audio"
+        );
+        assert!(logic.enable_owned_object_sound(id, true));
         if let Some(obj) = logic.objects.get_mut(&id) {
             obj.name = "NamedFactory".into();
         }
@@ -659,6 +671,11 @@ mod tests {
         let id = logic
             .create_object("AmericaWarFactory", Team::USA, Vec3::new(10.0, 0.0, 10.0))
             .expect("factory");
+        assert!(
+            logic.host_object(id).unwrap().ambient_audio.is_none(),
+            "headless birth does not duplicate native constructor audio"
+        );
+        assert!(logic.enable_owned_object_sound(id, true));
         logic.queued_audio_events.clear();
         logic.retry_dropped_ambient_sounds();
         assert!(
@@ -707,6 +724,11 @@ mod tests {
         let id = logic
             .create_object("AmericaWarFactory", Team::USA, Vec3::new(10.0, 0.0, 10.0))
             .expect("factory");
+        assert!(
+            logic.host_object(id).unwrap().ambient_audio.is_none(),
+            "headless birth does not duplicate native constructor audio"
+        );
+        assert!(logic.enable_owned_object_sound(id, true));
         logic.queued_audio_events.clear();
 
         fn restarts_queued(logic: &GameLogic, id: ObjectId) -> bool {
@@ -762,6 +784,11 @@ mod tests {
         let id = logic
             .create_object("AmericaWarFactory", Team::USA, Vec3::new(10.0, 0.0, 10.0))
             .expect("factory");
+        assert!(
+            logic.host_object(id).unwrap().ambient_audio.is_none(),
+            "headless birth does not duplicate native constructor audio"
+        );
+        assert!(logic.enable_owned_object_sound(id, true));
         logic.queued_audio_events.clear();
 
         logic.set_current_frame(200);
@@ -811,6 +838,11 @@ mod tests {
         let id = logic
             .create_object("AmericaWarFactory", Team::USA, Vec3::new(10.0, 0.0, 10.0))
             .expect("factory");
+        assert!(
+            logic.host_object(id).unwrap().ambient_audio.is_none(),
+            "headless birth does not duplicate native constructor audio"
+        );
+        assert!(logic.enable_owned_object_sound(id, true));
         assert_eq!(
             logic
                 .objects

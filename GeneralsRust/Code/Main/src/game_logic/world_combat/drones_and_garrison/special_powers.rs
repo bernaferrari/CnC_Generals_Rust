@@ -193,7 +193,8 @@ impl GameLogic {
         let spheroid_id = if let Some(pid) = caster_id {
             self.spawn_emp_pulse_spheroid_with_effects(location, pid, presentation_effects)
         } else {
-            self.objects.keys().next().copied().and_then(|pid| {
+            let caster = self.objects.registered_keys().next().copied();
+            caster.and_then(|pid| {
                 self.spawn_emp_pulse_spheroid_with_effects(location, pid, presentation_effects)
             })
         };
@@ -254,7 +255,7 @@ impl GameLogic {
 
         let candidates: Vec<(ObjectId, bool, bool, bool, bool, bool, bool, bool)> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, obj)| {
                 if !obj.is_alive() {
                     return None;
@@ -517,7 +518,7 @@ impl GameLogic {
 
     /// Residual honesty: Strategy Center turret pitch/yaw left natural (aim residual).
     pub fn honesty_strategy_center_turret_aim_ok(&self) -> bool {
-        self.objects.values().any(|o| {
+        self.objects.registered_values().any(|o| {
             crate::game_logic::host_strategy_center::is_strategy_center_template(&o.template_name)
                 && !crate::game_logic::host_strategy_center::turret_angles_are_natural(
                     o.turret_angle_deg,
@@ -622,7 +623,7 @@ impl GameLogic {
             // Pure residual acquire: nearest legal enemy in mood vision (XZ).
             let candidates: Vec<_> = self
                 .objects
-                .iter()
+                .registered()
                 .map(|(&oid, other)| {
                     crate::game_logic::host_residual_acquire::ResidualAcquireCandidate {
                         id: oid,
@@ -732,7 +733,7 @@ impl GameLogic {
         // Kind-only host Strategy fixtures can have an active plan without a
         // door record. Keep the same ownership clear path as their Idle hook,
         // after the existing registered-center order above.
-        for (&cid, obj) in self.objects.iter() {
+        for (&cid, obj) in self.objects.registered() {
             if obj.turret_mood_target
                 && (is_strategy_center_template(&obj.template_name)
                     || obj.is_kind_of(KindOf::FSStrategyCenter))

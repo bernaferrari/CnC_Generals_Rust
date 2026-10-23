@@ -150,7 +150,7 @@ impl GameLogic {
             {
                 let splat = self
                     .pathfinding_system
-                    .splat_units_on_wall_piece(event.id, &self.objects);
+                    .splat_units_on_wall_piece(event.id, self.objects.read());
                 self.pathfinding_system.remove_wall_piece(event.id);
                 for sid in splat {
                     if sid == event.id {
@@ -549,7 +549,7 @@ impl GameLogic {
         };
         let mut best = 0.0f32;
         let mut found = false;
-        for object in self.objects.values() {
+        for object in self.objects.registered_values() {
             if !self.object_owned_by_player(object, player_id) {
                 continue;
             }

@@ -13,6 +13,16 @@ use glam::Mat4;
 use glam::Vec3;
 use std::collections::HashMap;
 
+fn registered_physics_objects(
+    objects: impl IntoIterator<Item = (ObjectId, Object)>,
+) -> crate::game_logic::HostObjectStore {
+    let mut store = crate::game_logic::HostObjectStore::new();
+    for (id, object) in objects {
+        store.admit(id, object);
+    }
+    store
+}
+
 fn hover_facts(motive_accel_x: f32, frozen: bool) -> HostPhysicsVisualFacts {
     HostPhysicsVisualFacts {
         appearance: PhysicsVisualAppearance::Hover,
@@ -65,16 +75,18 @@ fn physics_option_is_read_lazily_and_once_per_frozen_frame() {
     let mut cached = None;
     let mut object = test_object(1, "NonPhysics");
     object.loco_appearance = crate::game_logic::LocomotorAppearance::Other;
-    let objects = HashMap::from([(object.id, object.clone())]);
-    assert!(collect_facts(&object, &objects, false, false, &mut cached, |_| None).is_none());
+    let objects = registered_physics_objects([(object.id, object.clone())]);
+    assert!(collect_facts(&object, objects.read(), false, false, &mut cached, |_| None).is_none());
     assert_eq!(cached, None, "no eligible drawable means no option read");
 
     object.loco_appearance = crate::game_logic::LocomotorAppearance::Hover;
-    let objects = HashMap::from([(object.id, object.clone())]);
-    let first = collect_facts(&object, &objects, false, false, &mut cached, |_| None).unwrap();
+    let objects = registered_physics_objects([(object.id, object.clone())]);
+    let first =
+        collect_facts(&object, objects.read(), false, false, &mut cached, |_| None).unwrap();
     assert_eq!(cached, Some(first.show_client_physics));
 
-    let second = collect_facts(&object, &objects, false, false, &mut cached, |_| None).unwrap();
+    let second =
+        collect_facts(&object, objects.read(), false, false, &mut cached, |_| None).unwrap();
     assert_eq!(second.show_client_physics, first.show_client_physics);
 
     let mut reads = 0;
@@ -210,11 +222,11 @@ fn treads_overlap_uses_ini_geometry_and_kindof_tokens() {
     let mut tank = test_object(1, "SlopeTank");
     tank.physics_current_overlap = Some(ObjectId(2));
     let bush = test_object(2, "Bush");
-    let mut objects = HashMap::new();
-    objects.insert(bush.id, bush);
+    let mut objects = crate::game_logic::HostObjectStore::new();
+    objects.admit(bush.id, bush);
     let body = body_for_object(
         &tank,
-        &objects,
+        objects.read(),
         |_| Some(0.0),
         |name| definitions.get(name).cloned().unwrap_or_default(),
     );
@@ -229,7 +241,7 @@ fn treads_overlap_uses_ini_geometry_and_kindof_tokens() {
     objects.insert(curb.id, curb);
     let body = body_for_object(
         &tank,
-        &objects,
+        objects.read(),
         |_| Some(0.0),
         |name| definitions.get(name).cloned().unwrap_or_default(),
     );
@@ -241,7 +253,7 @@ fn treads_overlap_uses_ini_geometry_and_kindof_tokens() {
     let missing = test_object(4, "NoDefinition");
     let body = body_for_object(
         &missing,
-        &HashMap::new(),
+        crate::game_logic::HostObjectStore::new().read(),
         |_| None,
         |name| definitions.get(name).cloned().unwrap_or_default(),
     );
@@ -256,7 +268,7 @@ fn same_name_local_definitions_remain_independent_in_shared_body_sampling() {
     let mut object = test_object(1, "SharedVisual");
     object.physics_current_overlap = Some(ObjectId(2));
     let other = test_object(2, "SharedOverlap");
-    let objects = HashMap::from([(other.id, other)]);
+    let objects = registered_physics_objects([(other.id, other)]);
     let a = HashMap::from([
         (
             "SharedVisual",
@@ -300,7 +312,7 @@ fn same_name_local_definitions_remain_independent_in_shared_body_sampling() {
     let sample = |definitions: &HashMap<&str, ObjectVisualIni>| {
         body_for_object(
             &object,
-            &objects,
+            objects.read(),
             |_| Some(0.0),
             |name| definitions.get(name).cloned().unwrap_or_default(),
         )

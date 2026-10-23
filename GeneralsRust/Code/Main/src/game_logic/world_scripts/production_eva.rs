@@ -96,7 +96,7 @@ impl GameLogic {
 
         let candidates: Vec<(ObjectId, Vec3, bool, bool)> = self
             .objects
-            .iter()
+            .registered()
             .map(|(id, o)| {
                 (
                     *id,
@@ -187,7 +187,7 @@ impl GameLogic {
         let _ = DEMO_SUICIDE_DYNAMITE_PLUS_FIRE; // honesty weapon name residual
         let candidates: Vec<(ObjectId, Vec3, bool, bool)> = self
             .objects
-            .iter()
+            .registered()
             .map(|(id, o)| {
                 (
                     *id,
@@ -942,7 +942,7 @@ impl GameLogic {
     fn eva_player_superweapon_ready_hidden(&mut self, owner_player_id: u32, kind: &str) -> bool {
         let matching: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, obj)| {
                 if obj.owner_player_id != Some(owner_player_id) {
                     return None;
@@ -1375,7 +1375,7 @@ impl GameLogic {
         self.radar_construction_events = self.radar_construction_events.saturating_add(1);
         // C++ DozerAIUpdate.cpp:597-617 — local dozer getVoiceTaskComplete only.
         // Never the slot token or invented BuildingComplete.
-        let dozer = self.objects.iter().find(|(_, o)| {
+        let dozer = self.objects.registered().find(|(_, o)| {
             o.team == team
                 && o.is_alive()
                 && o.can_construct()
@@ -1489,7 +1489,7 @@ impl GameLogic {
         // C++ DozerAIUpdate.cpp:511/670: ACTIVELY_CONSTRUCTING only while AT the dock.
         let dozer_ids: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, o)| {
                 o.is_alive()
                     && o.can_construct()
@@ -1551,7 +1551,7 @@ impl GameLogic {
         // rest of Lone Eagle's ~900 decorative props each frame.
         let ids: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, o)| {
                 o.is_alive()
                     && (o.can_construct()
@@ -1713,7 +1713,7 @@ impl GameLogic {
         }
         let ids: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, object)| object.overcharge_enabled)
             .map(|(id, _)| *id)
             .collect();

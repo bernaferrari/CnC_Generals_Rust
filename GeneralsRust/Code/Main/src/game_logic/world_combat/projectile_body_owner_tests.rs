@@ -275,7 +275,7 @@ fn receiving_projectile_lazy_admission_is_isolated_and_missing_never_bootstraps(
         missing.spawn_technical_cannon_shell_projectile(missing_source, Vec3::ZERO, aim, None),
         None
     );
-    assert_eq!(missing.objects.len(), 1);
+    assert_eq!(missing.objects.registered_len(), 1);
     assert_eq!(missing.cleanup_stream_missiles_spawned, 0);
     assert_eq!(missing.angry_mob_projectiles_spawned, 0);
     assert_eq!(missing.technical_cannon_shells_spawned, 0);

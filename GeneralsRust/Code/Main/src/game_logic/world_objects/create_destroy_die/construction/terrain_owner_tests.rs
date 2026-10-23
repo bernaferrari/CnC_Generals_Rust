@@ -19,10 +19,18 @@ fn authored_owner() -> game_engine::common::dict::Dict {
         key_player_faction, key_player_is_human, key_player_name,
     };
     let mut owner = game_engine::common::dict::Dict::new();
-    owner.set_ascii_string(key_player_name(), "USA");
+    owner.set_ascii_string(key_player_name(), "RustPlayer0");
     owner.set_ascii_string(key_player_faction(), "FactionAmerica");
     owner.set_bool(key_player_is_human(), true);
     owner
+}
+
+fn authored_owner_id(world: &GameLogic) -> u32 {
+    world
+        .get_players()
+        .iter()
+        .find_map(|(&id, player)| (player.script_identity() == Some("RustPlayer0")).then_some(id))
+        .expect("exact map-admitted RustPlayer0 controller")
 }
 
 fn map_bytes(raw: &[u8]) -> Vec<u8> {
@@ -35,8 +43,8 @@ fn map_bytes(raw: &[u8]) -> Vec<u8> {
         out.write_byte(*value);
     }
     out.close_data_chunk();
-    // This map really owns USA's default team. Validation appends the reserved
-    // neutral after this authored slot, preserving owner0 and reproducible IDs.
+    // This is authored side ordinal 0, not Player ID 0. C++ reserves Player 0
+    // for Neutral and admits this named controller separately.
     out.open_data_chunk("SidesList", 2);
     out.write_int(1);
     out.write_dict(&authored_owner());
@@ -60,21 +68,25 @@ fn world_with_scaffold_geometry(
     let mut logic = GameLogic::new();
     admit_construction_content(&mut logic, scaffold_geometry);
     assert!(logic.load_map(path.to_str().unwrap()));
-    let mut player = Player::new(0, Team::USA, "USA", true);
-    player.apply_map_side_dict(&authored_owner(), false, &mut logic.economy_events);
-    player.resources.supplies = 1000;
-    logic.add_player(player);
+    let owner = authored_owner_id(&logic);
+    // Fund the admitted named controller, preserving its default Team.
+    logic
+        .get_player_mut(owner)
+        .expect("map-admitted named controller")
+        .resources
+        .supplies = 1000;
     let constructor = logic
-        .create_object_for_player("OwnedHeightDozer", 0, Vec3::ZERO)
+        .create_object_for_player("OwnedHeightDozer", owner, Vec3::ZERO)
         .unwrap();
     (logic, constructor)
 }
 
 fn construct(world: &mut GameLogic, builder: ObjectId, position: Vec3) -> ObjectId {
+    let owner = authored_owner_id(world);
     world
         .create_dozer_scaffold(
             "OwnedHeightScaffold",
-            0,
+            owner,
             builder,
             position,
             0.,
@@ -119,9 +131,19 @@ fn actual_dozer_creation_lowers_receiving_map_and_preserves_same_id_peer() {
             );
             assert_eq!(a.host_object(id).unwrap().builder_id, Some(builder_a));
             assert_eq!(a.host_object(id).unwrap().health.current, 1.);
-            assert_eq!(a.get_player(0).unwrap().effective_supplies(), 700);
+            assert_eq!(
+                a.get_player(authored_owner_id(&a))
+                    .unwrap()
+                    .effective_supplies(),
+                700
+            );
             assert_eq!(bytes(&b), before_b);
-            assert_eq!(b.get_player(0).unwrap().effective_supplies(), 1000);
+            assert_eq!(
+                b.get_player(authored_owner_id(&b))
+                    .unwrap()
+                    .effective_supplies(),
+                1000
+            );
             let peer_id = construct(&mut b, builder_b, Vec3::new(30., 10., 30.));
             assert_eq!(peer_id, id);
             assert_eq!(b.host_object(peer_id).unwrap().get_position().y, 93.75);
@@ -169,7 +191,13 @@ fn authored_small_and_zero_radius_skip_edits_but_still_snap_at_original_phase() 
                 let id = construct(&mut logic, builder, Vec3::new(30., -90., 30.));
                 assert_eq!(bytes(&logic), before);
                 assert_eq!(logic.host_object(id).unwrap().get_position().y, 50.);
-                assert_eq!(logic.get_player(0).unwrap().effective_supplies(), 700);
+                assert_eq!(
+                    logic
+                        .get_player(authored_owner_id(&logic))
+                        .unwrap()
+                        .effective_supplies(),
+                    700
+                );
             }
         },
     );
@@ -243,8 +271,14 @@ fn constructed_raw_height_survives_native_encoded_restore_and_next_creation() {
                 source.host_object(next_source).unwrap().get_position()
             );
             assert_eq!(
-                restored.get_player(0).unwrap().effective_supplies(),
-                source.get_player(0).unwrap().effective_supplies()
+                restored
+                    .get_player(authored_owner_id(&restored))
+                    .unwrap()
+                    .effective_supplies(),
+                source
+                    .get_player(authored_owner_id(&source))
+                    .unwrap()
+                    .effective_supplies()
             );
             assert_eq!(
                 restored.terrain_ground_height_at(next_position),
@@ -276,8 +310,9 @@ fn admit_group_member(world: &mut GameLogic) -> ObjectId {
     game_engine::common::ini::ini_locomotor::load_locomotors_from_str(
         "Locomotor OwnedFlattenGroupLocomotor\n  Surfaces = GROUND\n  Speed = 30\n  Appearance = TREADS\nEnd\n",
     ).unwrap();
+    let owner = authored_owner_id(world);
     let id = world
-        .create_object_for_player("OwnedFlattenGroupMember", 0, Vec3::new(60., 0., 30.))
+        .create_object_for_player("OwnedFlattenGroupMember", owner, Vec3::new(60., 0., 30.))
         .unwrap();
     let member = world.host_object(id).unwrap();
     assert!(

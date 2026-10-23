@@ -48,7 +48,13 @@ impl CombatSystem {
         let mut projectiles_to_remove = Vec::new();
         if let Some(projectile) = self.projectiles.get_mut(&proj_id) {
             if let Some(reg) = countermeasures.as_mut() {
-                apply_countermeasure_report_and_decoy(projectile, proj_id, objects, reg, frame);
+                apply_countermeasure_report_and_decoy(
+                    projectile,
+                    proj_id,
+                    objects.read(),
+                    reg,
+                    frame,
+                );
             }
             let target_exists = projectile
                 .target_id
@@ -108,10 +114,14 @@ impl CombatSystem {
                         historic_damage_limit,
                         projectile,
                         impact,
-                        objects,
+                        objects.read(),
                     );
                     if !projectile.no_damage && projectile.explosion_radius > 0.0 {
-                        damage_events.push(Self::splash_area_event(projectile, objects, impact));
+                        damage_events.push(Self::splash_area_event(
+                            projectile,
+                            objects.read(),
+                            impact,
+                        ));
                     }
                     if !projectile.detonation_fx_name.is_empty()
                         || !projectile.detonation_ocl_name.is_empty()
@@ -167,7 +177,7 @@ impl CombatSystem {
                     projectile.damage_type,
                     DamageType::Flame | DamageType::ParticleBeam
                 );
-                for (&oid, obj) in objects.iter() {
+                for (&oid, obj) in objects.registered() {
                     if oid == shooter || Some(oid) == intended {
                         continue;
                     }
@@ -235,7 +245,7 @@ impl CombatSystem {
                     .is_some()
                     {
                         Self::play_garrison_hit_kill_fx(
-                            objects,
+                            objects.read(),
                             sid,
                             flight.garrison_hit_kill_fx(),
                             fx,
@@ -251,10 +261,10 @@ impl CombatSystem {
                     historic_damage_limit,
                     projectile,
                     impact,
-                    objects,
+                    objects.read(),
                 );
                 if !projectile.no_damage && projectile.explosion_radius > 0.0 {
-                    damage_events.push(Self::splash_area_event(projectile, objects, impact));
+                    damage_events.push(Self::splash_area_event(projectile, objects.read(), impact));
                 } else if !projectile.no_damage {
                     damage_events.push(DamageEvent::Direct {
                         target_id: sid,
@@ -303,7 +313,7 @@ impl CombatSystem {
                             .is_some()
                             {
                                 Self::play_garrison_hit_kill_fx(
-                                    objects,
+                                    objects.read(),
                                     target_id,
                                     flight.garrison_hit_kill_fx(),
                                     fx,
@@ -319,12 +329,15 @@ impl CombatSystem {
                             historic_damage_limit,
                             projectile,
                             impact,
-                            objects,
+                            objects.read(),
                         );
                         if !projectile.no_damage && projectile.explosion_radius > 0.0 {
                             // C++ Weapon.cpp:1438: primary inside primaryRadius, else secondary.
-                            damage_events
-                                .push(Self::splash_area_event(projectile, objects, impact));
+                            damage_events.push(Self::splash_area_event(
+                                projectile,
+                                objects.read(),
+                                impact,
+                            ));
                         } else if !projectile.no_damage {
                             damage_events.push(DamageEvent::Direct {
                                 target_id,
@@ -370,10 +383,14 @@ impl CombatSystem {
                         historic_damage_limit,
                         projectile,
                         impact,
-                        objects,
+                        objects.read(),
                     );
                     if !projectile.no_damage && projectile.explosion_radius > 0.0 {
-                        damage_events.push(Self::splash_area_event(projectile, objects, impact));
+                        damage_events.push(Self::splash_area_event(
+                            projectile,
+                            objects.read(),
+                            impact,
+                        ));
                     }
                     if !projectile.detonation_fx_name.is_empty()
                         || !projectile.detonation_ocl_name.is_empty()

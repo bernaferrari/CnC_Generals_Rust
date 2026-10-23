@@ -23,7 +23,7 @@ impl GameLogic {
         }
         let ids: Vec<_> = self
             .objects
-            .values()
+            .registered_values()
             .filter(|object| self.player_owner_for_host_object(object) == Some(player_id))
             .map(|object| object.id)
             .collect();

@@ -71,7 +71,11 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
 
 fn capture(game_logic: &GameLogic) -> BoobyTrapPersistPayload {
     let registry = game_logic.booby_trap_residual().clone();
-    let mut object_ids: Vec<ObjectId> = game_logic.host_objects().keys().copied().collect();
+    let mut object_ids: Vec<ObjectId> = game_logic
+        .host_objects()
+        .registered_keys()
+        .copied()
+        .collect();
     object_ids.sort();
     let mut trapped_ids = Vec::new();
     for id in object_ids {

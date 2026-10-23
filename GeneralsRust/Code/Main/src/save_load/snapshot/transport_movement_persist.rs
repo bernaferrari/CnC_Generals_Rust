@@ -18,7 +18,7 @@ pub(super) struct TransportMovementPersist {
 pub(super) fn capture(game_logic: &GameLogic) -> Vec<TransportMovementPersist> {
     game_logic
         .host_objects()
-        .iter()
+        .registered()
         .map(|(id, object)| TransportMovementPersist {
             object_id: id.0,
             state: object.transport_return_state,
@@ -83,7 +83,7 @@ pub(super) fn validate(
 }
 
 pub(super) fn reset(game_logic: &mut GameLogic) {
-    for object in game_logic.host_objects_mut().values_mut() {
+    for object in game_logic.host_objects_mut().registered_values_mut() {
         object.transport_return_state = None;
         object.temporary_move_frames = 0;
         object.temporary_move_saved_dest = None;

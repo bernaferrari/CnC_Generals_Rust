@@ -76,7 +76,7 @@ fn actual_source_clear_suspends_before_callbacks_and_advances_reset_frame_once()
                 |receiving| {
                     callbacks += 1;
                     assert_eq!(receiving.frame, 1, "source tail runs against cleared world");
-                    assert!(receiving.objects.is_empty());
+                    assert!(receiving.objects.registered_is_empty());
                 },
             );
             assert!(matches!(result, NativeTickProgress::Complete(_)));

@@ -180,7 +180,7 @@ impl AIPlayer {
         let game_logic = &AiWorldView::new(game_logic);
         let mut strength = 0.0;
 
-        for object in game_logic.host_objects().values() {
+        for object in game_logic.host_objects().registered_values() {
             if game_logic.object_owned_by_player(object, self.player_id)
                 && object.is_alive()
                 && object.can_attack()
@@ -205,7 +205,7 @@ impl AIPlayer {
 
         let mut strength = 0.0;
 
-        for object in game_logic.host_objects().values() {
+        for object in game_logic.host_objects().registered_values() {
             if game_logic.object_owned_by_player(object, enemy_id)
                 && object.is_alive()
                 && object.can_attack()
@@ -242,7 +242,7 @@ impl AIPlayer {
         let focus_enemy = enemy_player.and_then(|enemy_id| {
             game_logic
                 .host_objects()
-                .iter()
+                .registered()
                 .filter(|(_, o)| {
                     game_logic.object_owned_by_player(o, enemy_id)
                         && o.is_alive()
@@ -309,7 +309,7 @@ impl AIPlayer {
         );
 
         let mut attack_units = Vec::new();
-        for (object_id, object) in game_logic.host_objects() {
+        for (object_id, object) in game_logic.host_objects().registered() {
             if game_logic.object_owned_by_player(object, self.player_id)
                 && object.is_alive()
                 && object.can_attack()
@@ -342,7 +342,7 @@ impl AIPlayer {
         game_logic: &(impl AiReadSource + ?Sized),
     ) -> bool {
         let game_logic = &AiWorldView::new(game_logic);
-        game_logic.host_objects().values().any(|object| {
+        game_logic.host_objects().registered_values().any(|object| {
             game_logic.object_owned_by_player(object, self.player_id)
                 && object.is_alive()
                 && object.can_attack()
@@ -373,7 +373,7 @@ impl AIPlayer {
             String,
             bool,
         )> = Vec::new();
-        for (id, object) in game_logic.host_objects() {
+        for (id, object) in game_logic.host_objects().registered() {
             if !game_logic.object_owned_by_player(object, self.player_id) || !object.is_alive() {
                 continue;
             }
@@ -891,7 +891,7 @@ impl AIPlayer {
         let mut min_z = 0.0;
         let mut max_x = 0.0;
         let mut max_z = 0.0;
-        for object in game_logic.host_objects().values() {
+        for object in game_logic.host_objects().registered_values() {
             // C++ AIPlayer::getPlayerStructureBounds walks the player's team
             // members without a liveness test (AIPlayer.cpp:3761-3830).
             if !game_logic.object_owned_by_player(object, enemy_player_id)
@@ -934,7 +934,7 @@ impl AIPlayer {
         let radius = radius.max(4.0 * crate::game_logic::PATHFIND_CELL_SIZE_F_RESIDUAL);
         let rad_sqr = radius * radius;
         let mut cash = 0.0_f32;
-        for object in game_logic.host_objects().values() {
+        for object in game_logic.host_objects().registered_values() {
             if !game_logic.object_owned_by_player(object, enemy_player_id) || !object.is_alive() {
                 continue;
             }
@@ -995,7 +995,7 @@ impl AIPlayer {
         let mut count = 0;
 
         // Find enemy command center or other key buildings
-        for object in game_logic.host_objects().values() {
+        for object in game_logic.host_objects().registered_values() {
             if game_logic.object_owned_by_player(object, enemy_player_id)
                 && object.is_alive()
                 && (object.is_kind_of(KindOf::CommandCenter)
@@ -1050,7 +1050,7 @@ impl AIPlayer {
         // Count military units
         let military_units = game_logic
             .host_objects()
-            .iter()
+            .registered()
             .filter(|(_, obj)| {
                 game_logic.object_owned_by_player(obj, self.player_id) && obj.can_attack()
             })

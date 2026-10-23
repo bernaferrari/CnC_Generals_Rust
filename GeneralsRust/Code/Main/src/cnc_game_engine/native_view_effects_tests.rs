@@ -653,7 +653,7 @@ fn detached_no_client_chunk_snapshot_rebuild_removes_absent_actor_and_rejects_ol
     world
         .clear_all_objects_with_effects_checked(&mut attempt.effects())
         .unwrap();
-    assert!(world.objects.is_empty());
+    assert!(world.objects.registered_is_empty());
     assert!(world.pending_object_removal_snapshot().is_empty());
     {
         let mut effects = attempt.effects();
@@ -710,7 +710,7 @@ fn detached_no_client_chunk_snapshot_rebuild_removes_absent_actor_and_rejects_ol
     world
         .clear_all_objects_with_effects_checked(&mut attempt.effects())
         .unwrap();
-    assert!(world.objects.is_empty());
+    assert!(world.objects.registered_is_empty());
     assert!(world.pending_object_removal_snapshot().is_empty());
     attempt.discard_attempt().unwrap();
 }
@@ -1255,7 +1255,7 @@ fn actual_native_bulk_clear_retires_each_owner_without_touching_peer() {
                     .clear_all_objects_with_effects_checked(&mut effects)
                     .unwrap();
                 drop(effects);
-                assert!(world.objects.is_empty());
+                assert!(world.objects.registered_is_empty());
                 assert!(world.pending_object_removal_snapshot().is_empty());
                 for id in &ids {
                     assert!(runtime.drawables.binding_key(EPOCH, id.0).is_none());

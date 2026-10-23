@@ -350,9 +350,9 @@ fn construction_complete_heal_log_sets_full_hp_via_writeback() {
         o.construction_percent = 1.0;
         o.status.under_construction = false;
     }
-    assert!((logic.host_objects().get(&oid).expect("o").health.current - 500.0).abs() < 1e-5);
+    assert!((logic.host_objects().lookup(&oid).expect("o").health.current - 500.0).abs() < 1e-5);
     let _ = observe_completed_owner(&mut shadow, &mut logic);
-    let o = logic.host_objects().get(&oid).expect("o");
+    let o = logic.host_objects().lookup(&oid).expect("o");
     assert!(
         (o.health.current - o.health.maximum).abs() < 1e-3,
         "hp {}",
@@ -388,7 +388,7 @@ fn construction_shadow_reports_disagreement_without_rewriting_percent() {
     assert!(
         (logic
             .host_objects()
-            .get(&oid)
+            .lookup(&oid)
             .expect("o")
             .construction_percent
             - 0.5)
@@ -411,7 +411,7 @@ fn construction_shadow_reports_disagreement_without_rewriting_percent() {
     assert!(
         (logic
             .host_objects()
-            .get(&oid)
+            .lookup(&oid)
             .expect("o")
             .construction_percent
             - 0.5)
@@ -563,7 +563,7 @@ fn exit_delay_remaining_channel_via_production_progress() {
 
     let d = logic
         .host_objects()
-        .get(&oid)
+        .lookup(&oid)
         .unwrap()
         .building_data
         .as_ref()
@@ -609,7 +609,7 @@ fn body_damage_state_channel_via_set_body_damage() {
     shadow.sync_from_host(&logic);
 
     assert_eq!(
-        logic.host_objects().get(&oid).unwrap().body_damage_state,
+        logic.host_objects().lookup(&oid).unwrap().body_damage_state,
         HostBodyDamageType::ReallyDamaged
     );
 }
@@ -726,7 +726,7 @@ fn canonical_front_crushed_is_projected_from_receiving_owner() {
     shadow.sync_from_host(&logic);
 
     assert!(
-        logic.host_objects().get(&oid).unwrap().front_crushed,
+        logic.host_objects().lookup(&oid).unwrap().front_crushed,
         "front crushed writeback"
     );
 }
@@ -761,7 +761,7 @@ fn waiting_for_path_channel_via_set_movement() {
     shadow.sync_from_host(&logic);
 
     assert!(
-        logic.host_objects().get(&oid).unwrap().waiting_for_path,
+        logic.host_objects().lookup(&oid).unwrap().waiting_for_path,
         "waiting_for_path writeback"
     );
 }
@@ -808,7 +808,7 @@ fn locomotor_path_flags_channel_via_set_movement() {
 
     shadow.sync_from_host(&logic);
 
-    let o = logic.host_objects().get(&oid).unwrap();
+    let o = logic.host_objects().lookup(&oid).unwrap();
     assert_eq!(o.locomotor_surfaces, 0b101);
     assert!(o.is_attack_path);
     assert!(o.is_braking);
@@ -860,7 +860,7 @@ fn canonical_shock_stun_is_projected_from_receiving_owner() {
     let _ = shadow.compare_rebuild_producer_to_host(&logic);
     shadow.sync_from_host(&logic);
 
-    let o = logic.host_objects().get(&oid).unwrap();
+    let o = logic.host_objects().lookup(&oid).unwrap();
     assert_eq!(o.shock_stun_frames, 30);
     assert!((o.shock_yaw_rate - 0.5).abs() < 1e-5);
     assert!(o.shock_allow_bounce);
@@ -908,7 +908,7 @@ fn blocked_path_channel_via_set_movement() {
 
     shadow.sync_from_host(&logic);
 
-    let o = logic.host_objects().get(&oid).unwrap();
+    let o = logic.host_objects().lookup(&oid).unwrap();
     assert!((o.cur_max_blocked_speed - 3.5).abs() < 1e-5);
     assert_eq!(o.num_frames_blocked, 7);
     assert!(o.is_blocked);
@@ -974,7 +974,7 @@ fn canonical_rebuild_producer_is_projected_from_receiving_owner() {
     assert!(shadow.compare_rebuild_producer_to_host(&logic) >= 1);
     shadow.sync_from_host(&logic);
 
-    let o = logic.host_objects().get(&hole).unwrap();
+    let o = logic.host_objects().lookup(&hole).unwrap();
     assert!(o.is_rebuild_hole);
     assert_eq!(o.rebuild_template_name.as_deref(), Some("BldA"));
     assert_eq!(o.rebuild_ready_frame, 100);

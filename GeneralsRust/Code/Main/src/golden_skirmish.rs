@@ -339,7 +339,7 @@ fn resolve_map(explicit: Option<&str>) -> (String, bool) {
 fn usa_base_position(logic: &GameLogic) -> Vec3 {
     logic
         .host_objects()
-        .values()
+        .registered_values()
         .find(|o| {
             o.team == Team::USA
                 && o.is_alive()
@@ -349,7 +349,7 @@ fn usa_base_position(logic: &GameLogic) -> Vec3 {
         .or_else(|| {
             logic
                 .host_objects()
-                .values()
+                .registered_values()
                 .find(|o| o.team == Team::USA && o.is_alive())
                 .map(|o| o.get_position())
         })
@@ -396,7 +396,7 @@ fn find_map_enemy_structure(logic: &GameLogic) -> Option<ObjectId> {
     // accept name/kind heuristics so primary_enemy is never None on Lone Eagle.
     let enemies: Vec<_> = logic
         .host_objects()
-        .values()
+        .registered_values()
         .filter(|o| is_hostile_map_object(o))
         .collect();
     if enemies.is_empty() {
@@ -433,7 +433,7 @@ fn find_map_enemy_structure(logic: &GameLogic) -> Option<ObjectId> {
 fn find_any_enemy(logic: &GameLogic) -> Option<ObjectId> {
     logic
         .host_objects()
-        .values()
+        .registered_values()
         .find(|o| is_hostile_map_object(o))
         .map(|o| o.id)
 }
@@ -451,7 +451,7 @@ fn ensure_map_combat_primary_enemy(logic: &mut GameLogic, usa_base: Vec3) -> Opt
     // Landmark: supply dock/pile or offset from USA base.
     let landmark = logic
         .host_objects()
-        .values()
+        .registered_values()
         .find(|o| {
             let n = o.template_name.to_ascii_lowercase();
             n.contains("supplydock") || n.contains("supply_pile") || n.contains("supplypile")
@@ -543,22 +543,22 @@ fn ensure_human_economy(logic: &mut GameLogic, supplies: u32, power: u32) {
 }
 
 fn ensure_dozer(logic: &mut GameLogic, base: Vec3) -> Option<ObjectId> {
-    logic
+    let existing = logic
         .host_objects()
-        .values()
+        .registered_values()
         .find(|o| o.team == Team::USA && o.is_alive() && o.can_construct())
-        .map(|o| o.id)
-        .or_else(|| {
-            let pos = clamp_build_site(logic, base + Vec3::new(25.0, 0.0, 0.0));
-            // Prefer retail USA_Dozer when the catalog has it.
-            if logic.templates.contains_key("USA_Dozer") {
-                logic
-                    .create_object("USA_Dozer", Team::USA, pos)
-                    .or_else(|| logic.create_object("GoldenDozer", Team::USA, pos))
-            } else {
-                logic.create_object("GoldenDozer", Team::USA, pos)
-            }
-        })
+        .map(|o| o.id);
+    existing.or_else(|| {
+        let pos = clamp_build_site(logic, base + Vec3::new(25.0, 0.0, 0.0));
+        // Prefer retail USA_Dozer when the catalog has it.
+        if logic.templates.contains_key("USA_Dozer") {
+            logic
+                .create_object("USA_Dozer", Team::USA, pos)
+                .or_else(|| logic.create_object("GoldenDozer", Team::USA, pos))
+        } else {
+            logic.create_object("GoldenDozer", Team::USA, pos)
+        }
+    })
 }
 
 /// Find or field a KINDOF_HARVESTER collector for the Gather step.
@@ -572,7 +572,7 @@ fn ensure_dozer(logic: &mut GameLogic, base: Vec3) -> Option<ObjectId> {
 fn ensure_harvester(logic: &mut GameLogic, base: Vec3) -> Option<ObjectId> {
     if let Some(existing) = logic
         .host_objects()
-        .values()
+        .registered_values()
         .find(|o| o.team == Team::USA && o.is_alive() && o.can_move() && o.is_resource_collector())
         .map(|o| o.id)
     {
@@ -721,7 +721,7 @@ fn resolve_map_gather_target(logic: &mut GameLogic, base: Vec3) -> (Option<Objec
     // 1) Already-harvestable non-golden resources on the loaded map.
     let existing_gatherable = logic
         .host_objects()
-        .values()
+        .registered_values()
         .find(|o| {
             o.team != Team::USA
                 && is_gatherable_resource(o)
@@ -737,7 +737,7 @@ fn resolve_map_gather_target(logic: &mut GameLogic, base: Vec3) -> (Option<Objec
     // 2) Map SupplyDock / SupplyPile / PileSmal by retail name (may lack Harvestable).
     let map_supply_name = logic
         .host_objects()
-        .values()
+        .registered_values()
         .find(|o| o.is_alive() && is_retail_supply_source_name(&o.template_name))
         .map(|o| o.id);
     if let Some(id) = map_supply_name {
@@ -932,7 +932,7 @@ fn live_rangers(logic: &GameLogic, rangers: &[ObjectId]) -> Vec<ObjectId> {
 fn collect_live_produced_rangers(logic: &GameLogic) -> Vec<ObjectId> {
     logic
         .host_objects()
-        .values()
+        .registered_values()
         .filter(|o| o.team == Team::USA && o.is_alive() && is_produced_ranger(&o.template_name))
         .map(|o| o.id)
         .collect()
@@ -1138,7 +1138,7 @@ fn clear_remaining_enemy_army_for_map_victory(
     for _ in 0..DRAIN_PASSES {
         let leftovers: Vec<ObjectId> = logic
             .host_objects()
-            .values()
+            .registered_values()
             .filter(|o| is_map_victory_mopup_residue(o) && o.is_alive())
             .map(|o| o.id)
             .collect();
@@ -1155,7 +1155,7 @@ fn clear_remaining_enemy_army_for_map_victory(
     // Stuck topple/hole residue: still destroy_object only — never objects.remove.
     let force_ids: Vec<ObjectId> = logic
         .host_objects()
-        .values()
+        .registered_values()
         .filter(|o| is_map_victory_mopup_residue(o))
         .map(|o| o.id)
         .collect();
@@ -1214,7 +1214,7 @@ fn fight_enemies_with_rangers(
         .or_else(|| {
             logic
                 .host_objects()
-                .values()
+                .registered_values()
                 .find(|o| o.team != Team::USA && o.team != Team::Neutral && o.is_alive())
                 .map(|o| o.id)
         });
@@ -1297,7 +1297,7 @@ fn fight_enemies_with_rangers(
                 // Prefer structures/CC (victory-critical) over wandering units, then nearest.
                 logic
                     .host_objects()
-                    .values()
+                    .registered_values()
                     .filter(|o| o.team != Team::USA && o.team != Team::Neutral && o.is_alive())
                     .min_by(|a, b| {
                         let rank = |o: &crate::game_logic::Object| {
@@ -1514,7 +1514,7 @@ fn fight_enemies_with_rangers(
             }
         } else if !logic
             .host_objects()
-            .values()
+            .registered_values()
             .any(|o| o.team != Team::USA && o.team != Team::Neutral && o.is_alive())
         {
             combat_destroyed = true;
@@ -1524,7 +1524,7 @@ fn fight_enemies_with_rangers(
         if combat_destroyed
             && !logic
                 .host_objects()
-                .values()
+                .registered_values()
                 .any(|o| o.team != Team::USA && o.team != Team::Neutral && o.is_alive())
         {
             break;
@@ -1534,7 +1534,7 @@ fn fight_enemies_with_rangers(
     // Final clear pass check.
     let enemies_left = logic
         .host_objects()
-        .values()
+        .registered_values()
         .any(|o| o.team != Team::USA && o.team != Team::Neutral && o.is_alive());
     if !enemies_left {
         combat_destroyed = true;
@@ -1649,13 +1649,13 @@ fn run_synthetic_host_skirmish(
     ));
     let constructed = run_until(logic, 360, |g| {
         g.host_objects()
-            .values()
+            .registered_values()
             .any(|o| o.template_name == "Barracks" && o.team == Team::USA && o.is_constructed())
     })?;
 
     let barracks_id = logic
         .host_objects()
-        .values()
+        .registered_values()
         .find(|o| o.template_name == "Barracks" && o.team == Team::USA && o.is_constructed())
         .map(|o| o.id);
 
@@ -1738,14 +1738,14 @@ fn run_synthetic_host_skirmish(
         produced = queue_ok
             && run_until(logic, 360, |g| {
                 g.host_objects()
-                    .values()
+                    .registered_values()
                     .filter(|o| o.template_name == "GoldenRanger" && o.team == Team::USA)
                     .count()
                     >= 1
             })?;
         let _ = run_until(logic, 360, |g| {
             g.host_objects()
-                .values()
+                .registered_values()
                 .filter(|o| o.template_name == "GoldenRanger" && o.team == Team::USA)
                 .count()
                 >= 4
@@ -1796,7 +1796,7 @@ fn run_synthetic_host_skirmish(
 
     let production_rangers: Vec<_> = logic
         .host_objects()
-        .values()
+        .registered_values()
         .filter(|o| o.template_name == "GoldenRanger" && o.team == Team::USA && o.is_alive())
         .map(|o| o.id)
         .collect();
@@ -1825,7 +1825,7 @@ fn run_synthetic_host_skirmish(
 
     let gla_alive = logic
         .host_objects()
-        .values()
+        .registered_values()
         .any(|o| o.team == Team::GLA && o.is_alive());
     let victory = all_cleared
         && !gla_alive
@@ -2038,7 +2038,7 @@ fn run_map_world_skirmish(
         ));
         logic.process_commands();
         constructed = run_until(logic, 300, |g| {
-            g.host_objects().values().any(|o| {
+            g.host_objects().registered_values().any(|o| {
                 is_barracks_object(o)
                     && (o.template_name == *bname
                         || o.template_name.contains("Barracks")
@@ -2053,7 +2053,7 @@ fn run_map_world_skirmish(
 
     let barracks_id = logic
         .host_objects()
-        .values()
+        .registered_values()
         .find(|o| is_barracks_object(o))
         .map(|o| o.id);
     if barracks_built_name.is_empty() {
@@ -2157,7 +2157,7 @@ fn run_map_world_skirmish(
             }
             let got_two = run_until(logic, 600, |g| {
                 g.host_objects()
-                    .values()
+                    .registered_values()
                     .filter(|o| {
                         o.team == Team::USA && o.is_alive() && is_produced_ranger(&o.template_name)
                     })
@@ -2170,7 +2170,7 @@ fn run_map_world_skirmish(
                 // Prefer a full squad so store damage can clear multi-structure maps.
                 let _ = run_until(logic, 400, |g| {
                     g.host_objects()
-                        .values()
+                        .registered_values()
                         .filter(|o| {
                             o.team == Team::USA
                                 && o.is_alive()
@@ -2227,7 +2227,7 @@ fn run_map_world_skirmish(
 
     let production_rangers: Vec<_> = logic
         .host_objects()
-        .values()
+        .registered_values()
         .filter(|o| o.team == Team::USA && o.is_alive() && is_produced_ranger(&o.template_name))
         .map(|o| o.id)
         .collect();
@@ -2320,7 +2320,7 @@ fn run_map_world_skirmish(
             if !ranger_name_used.is_empty() {
                 let live_count = logic
                     .host_objects()
-                    .values()
+                    .registered_values()
                     .filter(|o| {
                         o.team == Team::USA && o.is_alive() && is_produced_ranger(&o.template_name)
                     })
@@ -2335,7 +2335,7 @@ fn run_map_world_skirmish(
                     }
                     let _ = run_until(logic, 120, |g| {
                         g.host_objects()
-                            .values()
+                            .registered_values()
                             .filter(|o| {
                                 o.team == Team::USA
                                     && o.is_alive()
@@ -2372,7 +2372,7 @@ fn run_map_world_skirmish(
         all_cleared = c
             && !logic
                 .host_objects()
-                .values()
+                .registered_values()
                 .any(|o| o.team != Team::USA && o.team != Team::Neutral && o.is_alive());
         combat_no_teleport_ok &= t;
         combat_realistic_speed_ok &= s;
@@ -2437,7 +2437,7 @@ fn run_map_world_skirmish(
 
         all_cleared = !logic
             .host_objects()
-            .values()
+            .registered_values()
             .any(|o| is_hostile_map_object(o));
     }
 
@@ -2447,7 +2447,7 @@ fn run_map_world_skirmish(
             .unwrap_or(false);
         // Wave 830: also true if no living enemy command-center-class remains
         // (rebuild may allocate a new id; primary id alone is insufficient).
-        let no_enemy_cc = !logic.host_objects().values().any(|o| {
+        let no_enemy_cc = !logic.host_objects().registered_values().any(|o| {
             o.team != Team::USA
                 && o.team != Team::Neutral
                 && o.is_alive()
@@ -2469,7 +2469,7 @@ fn run_map_world_skirmish(
     // trailing frames cannot re-spawn a CC after a proven clear.
     let enemy_alive = logic
         .host_objects()
-        .values()
+        .registered_values()
         .any(|o| o.team != Team::USA && o.team != Team::Neutral && o.is_alive());
     let victory = all_cleared
         && !enemy_alive
@@ -2765,7 +2765,7 @@ mod tests {
         ensure_human_economy(&mut logic, 25_000, 500);
         let base = logic
             .host_objects()
-            .values()
+            .registered_values()
             .find(|o| o.team == Team::USA && o.is_kind_of(KindOf::CommandCenter))
             .map(|o| o.get_position())
             .unwrap_or(Vec3::ZERO);
@@ -2809,7 +2809,7 @@ mod tests {
         ensure_human_economy(&mut logic, 25_000, 500);
         let base = logic
             .host_objects()
-            .values()
+            .registered_values()
             .find(|o| o.team == Team::USA && o.is_kind_of(KindOf::CommandCenter))
             .map(|o| o.get_position())
             .unwrap_or(Vec3::ZERO);
@@ -3236,7 +3236,7 @@ mod tests {
         assert!(logic.load_map(&map_identity));
         let mut by_team = std::collections::BTreeMap::<String, u32>::new();
         let mut faction_structures = 0u32;
-        for o in logic.host_objects().values() {
+        for o in logic.host_objects().registered_values() {
             if !o.is_alive() {
                 continue;
             }

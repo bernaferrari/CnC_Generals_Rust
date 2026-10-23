@@ -9,7 +9,7 @@ fn combat_chase_pathfinds_cpp_surface() {
     // Pathfinder::findAttackPath + isAttackViewBlockedByObstacle).
     let combat_src = crate::game_logic::residuals::harness::rust_fn_body(
         include_str!("../../world_tick/combat/object_target.rs"),
-        "update_object_target_combat",
+        "update_object_target_combat_with_effects",
     )
     .expect("actual object-target method");
     let paths_src = include_str!("../../world_save/world_paths.rs");
@@ -58,10 +58,13 @@ fn attack_view_blocked_cpp_surface() {
     // its range/obstacle query, and the underlying pathfinder LOS operation.
     let body = crate::game_logic::residuals::harness::rust_fn_body(
         include_str!("../../world_tick/combat/object_target.rs"),
-        "update_object_target_combat",
+        "update_object_target_combat_with_effects",
     )
     .expect("actual object-target method");
-    assert!(body.contains("if let Some(slot) = selected_slot"));
+    assert!(
+        body.contains("if let Some(slot) = selected_slot"),
+        "Weapon.cpp only enters firing/range handling for a selected current slot"
+    );
     assert!(
         body.contains("out_of_weapon_range_object(attacker_id, target_id)"),
         "combat must gate fire on the current-weapon range/LOS query"

@@ -15,7 +15,7 @@ impl GameLogic {
         crc.compute_crc(b"MARKER:Objects");
         // Main currently has no original m_objList: stable ID order is the
         // explicit Rust encoding until original object visitation is transferred.
-        let mut ids: Vec<_> = self.objects.keys().copied().collect();
+        let mut ids: Vec<_> = self.objects.registered_keys().copied().collect();
         ids.sort_unstable_by_key(|id| id.0);
         for id in ids {
             let object = &self.objects[&id];

@@ -1751,7 +1751,7 @@ fn build_command_rejects_non_worker_constructor() {
 
     let created_structures = game_logic
         .host_objects()
-        .values()
+        .registered_values()
         .filter(|o| o.template_name == "TestBuilding")
         .count();
     assert_eq!(created_structures, 0);
@@ -1837,7 +1837,7 @@ fn dozer_line_ordinary_scaffolds_use_one_constructor_in_selection_order() {
     assert!(dozer_b_state.dozer_task_build_target.is_none());
     let mut tiles = game_logic
         .host_objects()
-        .values()
+        .registered_values()
         .filter(|object| object.template_name == "TestBuilding")
         .collect::<Vec<_>>();
     tiles.sort_by(|a, b| a.get_position().x.total_cmp(&b.get_position().x));
@@ -1859,7 +1859,7 @@ fn dozer_line_ordinary_scaffolds_use_one_constructor_in_selection_order() {
 
     let created_structures = game_logic
         .host_objects()
-        .values()
+        .registered_values()
         .filter(|o| o.template_name == "TestBuilding")
         .count();
     assert_eq!(created_structures, 2);
@@ -2326,6 +2326,25 @@ fn retail_pilot_metadata_drives_starting_veteran_and_same_owner_recrew() {
     use crate::game_logic::VeterancyLevel;
     use std::path::Path;
 
+    fn selected_object_source(text: &str, name: &str) -> String {
+        let lines = text.lines().collect::<Vec<_>>();
+        let header = |line: &str| {
+            let mut words = line.split(';').next().unwrap_or("").split_whitespace();
+            let kind = words.next()?;
+            let name = words.next()?;
+            (["Object", "ChildObject", "ObjectReskin"].contains(&kind) && name != "=")
+                .then_some(name.to_string())
+        };
+        let start = lines
+            .iter()
+            .position(|line| header(line).as_deref() == Some(name))
+            .expect("actual retail Object declaration");
+        let end = (start + 1..lines.len())
+            .find(|&index| header(lines[index]).is_some())
+            .unwrap_or(lines.len());
+        format!("{}\n", lines[start..end].join("\n"))
+    }
+
     let mut game_logic = GameLogic::new();
     ensure_test_tank_template(&mut game_logic);
     // CPP VeterancyCrateCollide requires the receiving vehicle's authored
@@ -2371,9 +2390,12 @@ fn retail_pilot_metadata_drives_starting_veteran_and_same_owner_recrew() {
         metadata.pilot_starting_level(),
         Some(VeterancyLevel::Veteran)
     );
-    game_logic
-        .templates
-        .insert("AmericaInfantryPilot".to_string(), pilot_tpl);
+    game_logic.admit_receiving_module_content(
+        crate::assets::ReceivingObjectContent::from_sources([
+            ("AmericaInfantryPilot.ini".into(), selected_object_source(&source, "AmericaInfantryPilot")),
+            ("pilot-companion-fixtures.ini".into(), "Object TestTank\nKindOf = VEHICLE SELECTABLE SCORE\nIsTrainable = Yes\nBuildCost = 600\nTransportSlotCount = 3\nBody = ActiveBody TankBody\nMaxHealth = 250\nInitialHealth = 250\nEnd\nEnd\nObject AmericaInfantryPilotNameOnly\nKindOf = INFANTRY SELECTABLE\nBody = ActiveBody NameBody\nMaxHealth = 100\nInitialHealth = 100\nEnd\nEnd\n".into()),
+        ]).unwrap(),
+    ).unwrap();
 
     let pilot_id = game_logic
         .create_object_for_player("AmericaInfantryPilot", 0, Vec3::new(2.0, 0.0, 0.0))
@@ -2386,14 +2408,6 @@ fn retail_pilot_metadata_drives_starting_veteran_and_same_owner_recrew() {
 
     // A pilot-named template with no parsed behavior remains ordinary
     // infantry: it starts Rookie and cannot create an Enter order.
-    let mut name_only = ThingTemplate::new("AmericaInfantryPilotNameOnly");
-    name_only
-        .add_kind_of(KindOf::Infantry)
-        .add_kind_of(KindOf::Selectable)
-        .set_health(100.0);
-    game_logic
-        .templates
-        .insert("AmericaInfantryPilotNameOnly".to_string(), name_only);
     let name_only_id = game_logic
         .create_object_for_player("AmericaInfantryPilotNameOnly", 0, Vec3::new(2.0, 0.0, 2.0))
         .expect("name-only pilot");
@@ -2606,113 +2620,178 @@ fn live_host_injects_completed_waypoint_labels_and_shroud_discovered_by() {
 }
 
 #[test]
-fn live_host_from_named_and_skirmish_conditions_use_inject() {
-    use gamelogic::object::registry::OBJECT_REGISTRY;
-    use gamelogic::player::player_list;
-    use gamelogic::scripting::clear_host_script_query_snapshot;
-    use gamelogic::scripting::core::{Condition, ConditionType, Parameter, ParameterType};
-    use gamelogic::scripting::engine::{
-        get_named_object_tracker, initialize_script_engine, with_script_engine_mut,
+fn live_named_and_skirmish_conditions_use_receiving_driver() {
+    use gamelogic::scripting::core::{
+        Condition, ConditionType, OrCondition, Parameter, ParameterType, Script,
     };
-    use gamelogic::scripting::executor::{
-        ScriptConditionEvaluator, ScriptConditionResult, ScriptContext,
-    };
-    use std::sync::{Arc, RwLock};
+    use gamelogic::scripting::engine::ScriptEngine;
 
-    OBJECT_REGISTRY.clear();
-    clear_host_script_query_snapshot();
-    initialize_script_engine().expect("script engine");
-    player_list().write().unwrap().clear();
-    let leftover = Arc::new(RwLock::new(gamelogic::player::Player::new(1)));
-    leftover.write().unwrap().set_display_name("PlyrAmerica");
-    player_list().write().unwrap().add_player(leftover);
-
-    let mut logic = GameLogic::new();
-    logic.add_player(Player::new(1, Team::USA, "PlyrAmerica", true));
-    logic.add_player(Player::new(2, Team::China, "PlyrChina", false));
-    let mut t = ThingTemplate::new("NamedCannon");
-    t.set_health(1000.0);
-    logic.templates.insert("NamedCannon".into(), t);
-    let id = logic
-        .create_object_for_player("NamedCannon", 1, Vec3::new(5.0, 0.0, 5.0))
-        .expect("cannon");
-    if let Some(o) = logic.host_object_mut(id) {
-        o.name = "ParticleCannon".into();
-        o.team_instance_name = "USA_Superweapons".into();
-        o.completed_waypoint_labels = vec!["HeroPath".into()];
+    fn world(completed: bool) -> (GameLogic, ObjectId) {
+        let mut logic = GameLogic::new();
+        logic.add_player(
+            Player::new(1, Team::USA, "PlyrAmerica", true).with_script_identity("PlyrAmerica"),
+        );
+        logic.add_player(
+            Player::new(2, Team::China, "PlyrChina", false).with_script_identity("PlyrChina"),
+        );
+        // The original named/team completion conditions require an actual AI
+        // interface. Author that fixture capability rather than relying on a
+        // global query snapshot which omitted the interface check.
+        let mut template = ThingTemplate::new("NamedCannon");
+        template.set_health(1000.0);
+        template.set_authored_ai_update_interface(Some(true));
+        logic.templates.insert("NamedCannon".into(), template);
+        let team_id = {
+            let mut factory = logic.team_factory.lock().unwrap();
+            factory
+                .init_team_owned(
+                    "USA_Superweapons".into(),
+                    "PlyrAmerica".into(),
+                    true,
+                    None,
+                    Some(1),
+                )
+                .unwrap();
+            let team = factory.find_team("USA_Superweapons").unwrap();
+            let id = team.read().unwrap().get_id();
+            id
+        };
+        let id = logic
+            .create_object_on_exact_script_team_with_effects_checked(
+                "NamedCannon",
+                1,
+                "USA_Superweapons",
+                team_id,
+                Vec3::new(5., 0., 5.),
+                true,
+                None,
+                &mut crate::game_logic::ScriptPresentationEffects::default(),
+            )
+            .unwrap()
+            .unwrap();
+        assert!(logic.set_host_object_name(id, "ParticleCannon"));
+        if completed {
+            logic.host_object_mut(id).unwrap().completed_waypoint_labels =
+                vec!["HeroPath".into(), String::new(), "OtherPath".into()];
+        }
+        logic.install_owned_script_engine(ScriptEngine::new().unwrap());
+        (logic, id)
     }
-    logic.inject_host_named_unit_map_into_crate_tracker();
-
-    let completed = with_script_engine_mut(|engine| {
-        engine.notify_of_triggered_special_power(1, "SuperweaponParticleUplinkCannon", id.0);
-        let mut from_named = Condition::new(ConditionType::PlayerTriggeredSpecialPowerFromNamed);
-        from_named
-            .add_parameter(Parameter::with_string(
-                ParameterType::Side,
-                "PlyrAmerica".into(),
-            ))
-            .unwrap();
-        from_named
-            .add_parameter(Parameter::with_string(
-                ParameterType::SpecialPower,
-                "SuperweaponParticleUplinkCannon".into(),
-            ))
-            .unwrap();
-        from_named
-            .add_parameter(Parameter::with_string(
-                ParameterType::Unit,
-                "ParticleCannon".into(),
-            ))
-            .unwrap();
-        let evaluator_state = std::cell::RefCell::new(ScriptContext::new());
-        let mut evaluator = ScriptConditionEvaluator::new(&engine, &evaluator_state);
-        assert_eq!(
-            evaluator.evaluate_condition(&mut from_named).unwrap(),
-            ScriptConditionResult::True
-        );
-
-        let mut reached = Condition::new(ConditionType::NamedReachedWaypointsEnd);
-        reached
-            .add_parameter(Parameter::with_string(
-                ParameterType::Unit,
-                "ParticleCannon".into(),
-            ))
-            .unwrap();
-        reached
-            .add_parameter(Parameter::with_string(
-                ParameterType::WaypointPath,
-                "HeroPath".into(),
-            ))
-            .unwrap();
-        assert_eq!(
-            evaluator.evaluate_condition(&mut reached).unwrap(),
-            ScriptConditionResult::True
-        );
-
-        let mut team_reached = Condition::new(ConditionType::TeamReachedWaypointsEnd);
-        team_reached
-            .add_parameter(Parameter::with_string(
-                ParameterType::Team,
-                "USA_Superweapons".into(),
-            ))
-            .unwrap();
-        team_reached
-            .add_parameter(Parameter::with_string(
-                ParameterType::WaypointPath,
-                "HeroPath".into(),
-            ))
-            .unwrap();
-        assert_eq!(
-            evaluator.evaluate_condition(&mut team_reached).unwrap(),
-            ScriptConditionResult::True
-        );
-    });
-
-    player_list().write().unwrap().clear();
-    clear_host_script_query_snapshot();
-    get_named_object_tracker().clear().ok();
-    assert_eq!(completed, Some(()));
-    assert!(OBJECT_REGISTRY.is_empty());
+    fn condition(kind: ConditionType, parameters: &[(ParameterType, &str)]) -> Condition {
+        let mut value = Condition::new(kind);
+        for &(kind, name) in parameters {
+            value
+                .add_parameter(Parameter::with_string(kind, name.into()))
+                .unwrap();
+        }
+        value
+    }
+    fn evaluate(logic: &mut GameLogic, condition: Condition) -> bool {
+        let mut branch = OrCondition::new();
+        branch.set_first_and_condition(Some(Box::new(condition)));
+        let mut script = Script::new();
+        script.condition = Some(Box::new(branch));
+        logic
+            .with_owned_script_engine(|engine, world| {
+                world.evaluate_owned_script_conditions(engine, &mut script, None)
+            })
+            .unwrap()
+    }
+    fn named(path: &str) -> Condition {
+        condition(
+            ConditionType::NamedReachedWaypointsEnd,
+            &[
+                (ParameterType::Unit, "ParticleCannon"),
+                (ParameterType::WaypointPath, path),
+            ],
+        )
+    }
+    fn team(path: &str) -> Condition {
+        condition(
+            ConditionType::TeamReachedWaypointsEnd,
+            &[
+                (ParameterType::Team, "USA_Superweapons"),
+                (ParameterType::WaypointPath, path),
+            ],
+        )
+    }
+    fn triggered() -> Condition {
+        condition(
+            ConditionType::PlayerTriggeredSpecialPowerFromNamed,
+            &[
+                (ParameterType::Side, "PlyrAmerica"),
+                (
+                    ParameterType::SpecialPower,
+                    "SuperweaponParticleUplinkCannon",
+                ),
+                (ParameterType::Unit, "ParticleCannon"),
+            ],
+        )
+    }
+    let (mut logic, id) = world(true);
+    let (mut peer, peer_id) = world(false);
+    assert_eq!(id, peer_id);
+    assert_eq!(
+        logic.host_object(id).unwrap().team_instance_name,
+        "USA_Superweapons"
+    );
+    logic
+        .with_owned_script_engine(|engine, _| {
+            engine.notify_of_triggered_special_power(1, "SuperweaponParticleUplinkCannon", id.0)
+        })
+        .unwrap();
+    // Original three positive gameplay assertions, now the real condition walk.
+    assert!(evaluate(&mut logic, triggered()));
+    assert!(evaluate(&mut logic, named("HeroPath")));
+    assert!(evaluate(&mut logic, team("HeroPath")));
+    assert!(
+        evaluate(&mut logic, named("")),
+        "empty label equality is not rejected"
+    );
+    assert!(
+        !evaluate(&mut peer, named("")),
+        "no completed waypoint is false"
+    );
+    assert!(
+        !evaluate(&mut logic, triggered()),
+        "original remove=true consumes this owner's event"
+    );
+    assert!(!evaluate(&mut peer, triggered()));
+    assert!(!evaluate(&mut peer, named("HeroPath")));
+    assert!(!evaluate(&mut peer, team("HeroPath")));
+    assert!(
+        !evaluate(&mut logic, named("heropath")),
+        "C++ exact path label spelling"
+    );
+    assert!(!evaluate(
+        &mut logic,
+        condition(
+            ConditionType::NamedReachedWaypointsEnd,
+            &[
+                (ParameterType::Unit, "MissingCannon"),
+                (ParameterType::WaypointPath, "HeroPath")
+            ]
+        )
+    ));
+    logic
+        .host_object_mut(id)
+        .unwrap()
+        .template_mut()
+        .set_authored_ai_update_interface(Some(false));
+    assert!(
+        !evaluate(&mut logic, named("HeroPath")),
+        "completed label without AI is false"
+    );
+    logic
+        .host_object_mut(id)
+        .unwrap()
+        .template_mut()
+        .set_authored_ai_update_interface(Some(true));
+    assert!(evaluate(&mut logic, named("HeroPath")));
+    assert!(
+        !evaluate(&mut peer, named("HeroPath")),
+        "same-ID peer remains incomplete"
+    );
 }
 
 #[test]

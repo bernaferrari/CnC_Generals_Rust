@@ -338,7 +338,7 @@ impl GameLogic {
             u128, /*kind_mask*/
         )> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, obj)| {
                 if !obj.is_alive() || obj.team == Team::Neutral {
                     return None;
@@ -915,7 +915,7 @@ impl GameLogic {
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
-        let ids: Vec<_> = self.objects.keys().copied().collect();
+        let ids: Vec<_> = self.objects.registered_keys().copied().collect();
         for id in ids {
             self.admit_host_radar_provider_with_effects(id, effects);
         }

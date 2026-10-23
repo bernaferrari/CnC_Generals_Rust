@@ -148,7 +148,7 @@ fn technical_residual_transport_and_salvage_weapon() {
         game_logic.update_technical_rpg_missile_projectiles();
         if !game_logic
             .objects
-            .values()
+            .registered_values()
             .any(|o| o.technical_rpg_missile_projectile && o.is_alive())
         {
             break;
@@ -279,7 +279,7 @@ fn toxin_stream_projectile_flies_and_impacts() {
         logic.update_toxin_stream_projectiles();
         if !logic
             .objects
-            .values()
+            .registered_values()
             .any(|o| o.toxin_stream_projectile && o.is_alive())
         {
             break;
@@ -298,7 +298,7 @@ fn toxin_stream_projectile_flies_and_impacts() {
     assert!(
         !logic
             .objects
-            .values()
+            .registered_values()
             .any(|o| o.toxin_stream_projectile && o.is_alive()),
         "stream projectile should detonate"
     );
@@ -391,7 +391,7 @@ fn toxin_tractor_residual_stream_spray_and_death_field() {
         game_logic.update_toxin_stream_projectiles();
         if !game_logic
             .objects
-            .values()
+            .registered_values()
             .any(|o| o.toxin_stream_projectile && o.is_alive())
         {
             break;
@@ -1461,7 +1461,7 @@ fn scout_and_hellfire_drone_residual_attach_detect_and_fire() {
     game_logic.tick_nested_attack_machines(&[hf_id], 41.0 / 30.0, 41);
     crate::game_logic::combat::drain_pending_projectiles(
         &mut game_logic.combat_system,
-        &game_logic.objects,
+        game_logic.objects.read(),
         41,
     );
     assert!(
@@ -1668,7 +1668,7 @@ fn hellfire_scatter_misses_infantry_residual() {
         logic.tick_nested_attack_machines(&[hf], logic.frame as f32 / 30.0, logic.frame);
         crate::game_logic::combat::drain_pending_projectiles(
             &mut logic.combat_system,
-            &logic.objects,
+            logic.objects.read(),
             logic.frame,
         );
         if logic.hellfire_scatter_applied > 0 {
@@ -1700,7 +1700,7 @@ fn hellfire_scatter_misses_infantry_residual() {
         logic.tick_nested_attack_machines(&[hf], logic.frame as f32 / 30.0, logic.frame);
         crate::game_logic::combat::drain_pending_projectiles(
             &mut logic.combat_system,
-            &logic.objects,
+            logic.objects.read(),
             logic.frame,
         );
     }

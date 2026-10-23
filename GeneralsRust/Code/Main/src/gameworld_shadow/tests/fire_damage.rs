@@ -62,7 +62,7 @@ fn fire_at_records_fire_intent_residual() {
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
 
-    let o = logic.host_objects().get(&oid).unwrap();
+    let o = logic.host_objects().lookup(&oid).unwrap();
     assert_eq!(o.last_fire_victim_host, vid.0);
     assert_eq!(o.last_fire_frame, 77);
     assert!((o.last_fire_damage - 15.0).abs() < 1e-5);
@@ -121,22 +121,22 @@ fn assign_unit_path_decision_authority() {
     assert!(ok, "path assign should succeed");
 
     assert_eq!(
-        logic.host_objects().get(&oid).unwrap().ai_state,
+        logic.host_objects().lookup(&oid).unwrap().ai_state,
         AIState::Moving,
         "host Moving immediate"
     );
     assert!(
-        logic.host_objects().get(&oid).unwrap().status.moving
+        logic.host_objects().lookup(&oid).unwrap().status.moving
             || logic
                 .host_objects()
-                .get(&oid)
+                .lookup(&oid)
                 .unwrap()
                 .movement
                 .target_position
                 .is_some()
             || !logic
                 .host_objects()
-                .get(&oid)
+                .lookup(&oid)
                 .unwrap()
                 .movement
                 .path
@@ -147,7 +147,7 @@ fn assign_unit_path_decision_authority() {
     shadow.sync_from_host(&logic);
 
     assert_eq!(
-        logic.host_objects().get(&oid).unwrap().ai_state,
+        logic.host_objects().lookup(&oid).unwrap().ai_state,
         AIState::Moving
     );
 }
@@ -185,7 +185,7 @@ fn private_idle_decision_authority() {
     assert!(logic.private_idle_for_test(oid));
 
     // AIUpdate.cpp:3067 clears the state machine and enters Idle immediately.
-    let idle = logic.host_objects().get(&oid).unwrap();
+    let idle = logic.host_objects().lookup(&oid).unwrap();
     assert!(idle.target.is_none());
     assert_eq!(idle.ai_state, AIState::Idle);
     let mut shadow = GameWorldShadow::new(64);
@@ -211,7 +211,7 @@ fn private_idle_decision_authority() {
     );
 
     // The canonical command has already entered Idle.
-    let o = logic.host_objects().get(&oid).unwrap();
+    let o = logic.host_objects().lookup(&oid).unwrap();
     assert!(o.target.is_none());
     assert_eq!(o.ai_state, AIState::Idle);
 }
@@ -326,7 +326,7 @@ fn append_unit_waypoint_decision_authority() {
     assert!(logic.append_unit_waypoint_for_test(oid, glam::Vec3::new(30.0, 0.0, 0.0)));
 
     assert_eq!(
-        logic.host_objects().get(&oid).unwrap().ai_state,
+        logic.host_objects().lookup(&oid).unwrap().ai_state,
         AIState::Moving,
         "host Moving immediate"
     );
@@ -334,7 +334,7 @@ fn append_unit_waypoint_decision_authority() {
     shadow.sync_from_host(&logic);
 
     assert_eq!(
-        logic.host_objects().get(&oid).unwrap().ai_state,
+        logic.host_objects().lookup(&oid).unwrap().ai_state,
         AIState::Moving
     );
 }
@@ -359,14 +359,14 @@ fn set_ai_state_decision_aware_writeback() {
 
     // C++ AIUpdate applies this state synchronously to the receiving owner.
     assert_eq!(
-        logic.host_objects().get(&oid).unwrap().ai_state,
+        logic.host_objects().lookup(&oid).unwrap().ai_state,
         AIState::Gathering
     );
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
 
     assert_eq!(
-        logic.host_objects().get(&oid).unwrap().ai_state,
+        logic.host_objects().lookup(&oid).unwrap().ai_state,
         AIState::Gathering
     );
 }
@@ -454,7 +454,7 @@ fn radar_extend_channel_via_set_radar_extend() {
 
     shadow.sync_from_host(&logic);
 
-    let o = logic.host_objects().get(&oid).unwrap();
+    let o = logic.host_objects().lookup(&oid).unwrap();
     assert!(o.radar_active);
     assert_eq!(o.radar_extend_done_frame, 120);
     assert_eq!(
@@ -535,7 +535,7 @@ fn special_power_timer_belongs_to_owner_not_projection() {
             .special_power_cooldown_remaining = 9.0;
     }
 
-    let o = logic.host_objects().get(&oid).expect("o");
+    let o = logic.host_objects().lookup(&oid).expect("o");
     assert!((o.special_power_cooldown_remaining - 2.0).abs() < 1e-3);
     shadow.sync_from_host(&logic);
     let entity = shadow.entity_for_host(oid).unwrap();
@@ -561,7 +561,7 @@ fn damage_is_immediate_and_projection_cannot_reapply_it() {
 
     let mut shadow = GameWorldShadow::new(4096);
     shadow.sync_from_host(&logic);
-    let pre = logic.host_objects().get(&id).unwrap().health.current;
+    let pre = logic.host_objects().lookup(&id).unwrap().health.current;
 
     // Wave 758: couple for damage_authority_live.
 
@@ -571,7 +571,7 @@ fn damage_is_immediate_and_projection_cannot_reapply_it() {
         }
     };
 
-    let host_mid = logic.host_objects().get(&id).unwrap().health.current;
+    let host_mid = logic.host_objects().lookup(&id).unwrap().health.current;
     // C++ ActiveBody::internalChangeHealth writes HP the same frame.
     // The observer cannot change the result of this owner write.
     assert!(
@@ -611,11 +611,11 @@ fn damage_authority_applies_host_hp_when_shadow_disabled() {
     let id = logic
         .create_object("AuthUnit", Team::USA, Vec3::new(2.0, 0.0, 0.0))
         .expect("unit");
-    let pre = logic.host_objects().get(&id).unwrap().health.current;
+    let pre = logic.host_objects().lookup(&id).unwrap().health.current;
     if let Some((obj, health_events)) = logic.host_object_and_health_events_mut(id) {
         let _ = obj.take_damage(25.0, health_events);
     }
-    let mid = logic.host_objects().get(&id).unwrap().health.current;
+    let mid = logic.host_objects().lookup(&id).unwrap().health.current;
     assert!(
         (mid - (pre - 25.0)).abs() < 0.01,
         "host HP must apply immediately when shadow disabled; pre={pre} mid={mid}"
@@ -785,7 +785,7 @@ fn dozer_bored_repair_state_decision_authority() {
     logic.set_ai_state_decision_aware_for_test(oid, AIState::Repairing);
 
     assert_eq!(
-        logic.host_objects().get(&oid).unwrap().ai_state,
+        logic.host_objects().lookup(&oid).unwrap().ai_state,
         AIState::Repairing,
         "host AI state applies immediately"
     );
@@ -793,7 +793,7 @@ fn dozer_bored_repair_state_decision_authority() {
     shadow.sync_from_host(&logic);
 
     assert_eq!(
-        logic.host_objects().get(&oid).unwrap().ai_state,
+        logic.host_objects().lookup(&oid).unwrap().ai_state,
         AIState::Repairing
     );
 }
@@ -817,7 +817,7 @@ fn hijacker_docked_state_decision_authority() {
     logic.set_ai_state_decision_aware_for_test(oid, AIState::Docked);
 
     assert_eq!(
-        logic.host_objects().get(&oid).unwrap().ai_state,
+        logic.host_objects().lookup(&oid).unwrap().ai_state,
         AIState::Docked,
         "host AI state applies immediately"
     );
@@ -825,7 +825,7 @@ fn hijacker_docked_state_decision_authority() {
     shadow.sync_from_host(&logic);
 
     assert_eq!(
-        logic.host_objects().get(&oid).unwrap().ai_state,
+        logic.host_objects().lookup(&oid).unwrap().ai_state,
         AIState::Docked
     );
 }
@@ -999,7 +999,7 @@ fn private_stop_clears_owner_before_projection() {
     assert!(logic.private_stop(oid));
     // Host target clears same-frame; decision log still drives GameWorld.
     assert!(
-        logic.host_objects().get(&oid).unwrap().target.is_none(),
+        logic.host_objects().lookup(&oid).unwrap().target.is_none(),
         "private_stop must clear host target immediately"
     );
 
@@ -1024,7 +1024,7 @@ fn private_stop_clears_owner_before_projection() {
             .is_none()
     );
     assert!(
-        logic.host_objects().get(&oid).unwrap().target.is_none(),
+        logic.host_objects().lookup(&oid).unwrap().target.is_none(),
         "host remains clear after stop + GameWorld stop apply"
     );
 }

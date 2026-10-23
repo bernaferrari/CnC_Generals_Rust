@@ -69,7 +69,7 @@ fn launch_attack_installs_owned_attack_move_state_and_path() {
     ai.is_active = true;
     let usa_unit = logic
         .host_objects()
-        .iter()
+        .registered()
         .find(|(_, o)| o.team == Team::USA && o.is_alive())
         .map(|(id, _)| *id)
         .expect("usa unit");

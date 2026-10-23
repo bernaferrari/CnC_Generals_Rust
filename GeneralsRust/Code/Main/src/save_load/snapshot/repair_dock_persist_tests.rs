@@ -458,6 +458,6 @@ fn repair_cache_rejects_inconsistent_saved_template_without_receiving_catalog() 
             .is_err()
     );
     assert_eq!(receiver.frame, 81);
-    assert!(receiver.objects.is_empty());
+    assert!(receiver.objects.registered_is_empty());
     assert!(receiver.templates.is_empty());
 }

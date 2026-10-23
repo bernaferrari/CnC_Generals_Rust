@@ -21,7 +21,7 @@ impl GameLogic {
         // AIStates.cpp:2052-2085 updates the selected object goal during
         // object AI; AI.cpp:332 then consumes its path queue. Re-read the
         // driving object here so queued work sees this frame's goal pose.
-        let object_ids: Vec<_> = self.objects.keys().copied().collect();
+        let object_ids: Vec<_> = self.objects.registered_keys().copied().collect();
         self.refresh_movement_goal_objects(&object_ids);
         self.reissue_pending_moves();
         self.process_pathfind_queue();

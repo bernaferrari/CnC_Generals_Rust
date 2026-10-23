@@ -44,7 +44,7 @@ pub use crate_tick::{
 };
 pub(crate) use host::PathfindingHeightSamples;
 pub use host::{GameLogic, RuntimeWeatherState};
-pub use host_object_store::HostObjectStore;
+pub use host_object_store::{HostObjectRead, HostObjectStore};
 pub(crate) use player::PlayerSideRole;
 pub(self) use player::{
     AirfieldHealingInfo, AirfieldParkingSpace, FRAMES_TO_ALLOW_SCAFFOLD_RESIDUAL,
@@ -102,7 +102,7 @@ impl GameLogic {
         for player in self.players.values_mut() {
             player.is_alive = self
                 .objects
-                .values()
+                .registered_values()
                 .any(|obj| obj.team == player.team && obj.is_alive());
         }
     }
@@ -110,7 +110,7 @@ impl GameLogic {
     /// Unique W3D names for objects already spawned on this world.
     pub fn live_drawable_model_names(&self) -> Vec<String> {
         let mut names = std::collections::BTreeSet::new();
-        for obj in self.objects.values() {
+        for obj in self.objects.registered_values() {
             let Some(name) = obj.thing().template.model_name.as_deref() else {
                 continue;
             };
@@ -136,7 +136,7 @@ impl GameLogic {
         self.update_player_alive_state();
         let outcome = self.victory_conditions.evaluate_with_world_factory(
             &self.players,
-            &self.objects,
+            self.objects.read(),
             self.frame,
             self.game_mode,
             &self.player_template_bindings,

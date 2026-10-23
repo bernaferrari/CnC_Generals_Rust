@@ -200,7 +200,7 @@ impl HostScriptExecutionDriver<'_> {
         let mut rider = candidate;
         // A valid containment chain cannot visit more objects than this world
         // owns. Broken references and cycles cannot supply a visible candidate.
-        for _ in 0..self.world.host_objects().len() {
+        for _ in 0..self.world.host_objects().registered_len() {
             let Some(container_id) = rider.contained_by else {
                 return true;
             };
@@ -365,7 +365,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
                         Unmanned::DeleteAll => self
                             .world
                             .host_objects()
-                            .values()
+                            .registered_values()
                             .filter(|o| o.status.disabled_unmanned && !o.status.destroyed)
                             .map(|o| o.id.0)
                             .collect(),
@@ -806,6 +806,30 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
             ),
         )
     }
+    // CPP ScriptConditions1301-1325: resolve actual named Object, require AI,
+    // then compare the completed waypoint's labels exactly. No active goal or
+    // motion destination can stand in for a completed waypoint.
+    fn named_waypoint_complete(
+        &self,
+        unit: &str,
+        path: &str,
+        this_object: Option<u32>,
+    ) -> ScriptOwnerQuery<bool> {
+        let Some(object) = self
+            .world
+            .owned_named_script_object(unit, this_object.map(ObjectId))
+            .and_then(|id| self.world.host_object(id))
+        else {
+            return ScriptOwnerQuery::Missing;
+        };
+        ScriptOwnerQuery::Present(
+            object.has_ai_update_interface()
+                && object
+                    .completed_waypoint_labels
+                    .iter()
+                    .any(|label| label == path),
+        )
+    }
     fn team_waypoint_complete(
         &self,
         team: &str,
@@ -860,7 +884,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         for object in self
             .world
             .host_objects()
-            .values()
+            .registered_values()
             .filter(|object| object.owner_player_id == Some(owner))
         {
             if object.status.under_construction || object.is_disabled() {
@@ -937,7 +961,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         let count = self
             .world
             .host_objects()
-            .values()
+            .registered_values()
             .filter(|object| {
                 object.owner_player_id == Some(owner)
                     || (matches!(query, ScriptSkirmishCensus::NeutralUnmanned)
@@ -975,7 +999,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         let found = self
             .world
             .host_objects()
-            .values()
+            .registered_values()
             .filter(|object| object.owner_player_id == Some(owner))
             .any(|object| {
                 matches!(
@@ -1015,7 +1039,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         for object in self
             .world
             .host_objects()
-            .values()
+            .registered_values()
             .filter(|object| object.owner_player_id == Some(owner))
         {
             changed |= geometry.did_enter_or_exit(object.id.0, self.world.frame);
@@ -1198,38 +1222,43 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         };
         let source = looker.get_position();
         let source_off_map = off_map(looker);
-        let found = self.world.host_objects().values().any(|candidate| {
-            if candidate.id == looker.id
-                || candidate.status.effectively_dead
-                || !self.sighting_candidate_is_in_partition(candidate)
-                || candidate.is_effectively_stealthed()
-                || off_map(candidate) != source_off_map
-                || candidate.owner_player_id != Some(player)
-            {
-                return false;
-            }
-            let position = candidate.get_position();
-            let dx = position.x - source.x;
-            let dz = position.z - source.z;
-            // CPP FROM_CENTER_2D rejects equality; altitude is irrelevant.
-            if !(dx * dx + dz * dz < looker.vision_range * looker.vision_range) {
-                return false;
-            }
-            match filter {
-                ScriptSightingFilter::Types(names) => {
-                    names.iter().any(|name| *name == candidate.template_name)
+        let found = self
+            .world
+            .host_objects()
+            .registered_values()
+            .any(|candidate| {
+                if candidate.id == looker.id
+                    || candidate.status.effectively_dead
+                    || !self.sighting_candidate_is_in_partition(candidate)
+                    || candidate.is_effectively_stealthed()
+                    || off_map(candidate) != source_off_map
+                    || candidate.owner_player_id != Some(player)
+                {
+                    return false;
                 }
-                ScriptSightingFilter::Relationship(alliance) => {
-                    let relationship = self.world.script_sighting_relationship(looker, candidate);
-                    match alliance {
-                        0 => relationship == Relationship::Enemies,
-                        1 => relationship == Relationship::Neutral,
-                        2 => relationship == Relationship::Allies,
-                        _ => false,
+                let position = candidate.get_position();
+                let dx = position.x - source.x;
+                let dz = position.z - source.z;
+                // CPP FROM_CENTER_2D rejects equality; altitude is irrelevant.
+                if !(dx * dx + dz * dz < looker.vision_range * looker.vision_range) {
+                    return false;
+                }
+                match filter {
+                    ScriptSightingFilter::Types(names) => {
+                        names.iter().any(|name| *name == candidate.template_name)
+                    }
+                    ScriptSightingFilter::Relationship(alliance) => {
+                        let relationship =
+                            self.world.script_sighting_relationship(looker, candidate);
+                        match alliance {
+                            0 => relationship == Relationship::Enemies,
+                            1 => relationship == Relationship::Neutral,
+                            2 => relationship == Relationship::Allies,
+                            _ => false,
+                        }
                     }
                 }
-            }
-        });
+            });
         // CPP filters candidate life, not the looking object's life.
         ScriptOwnerQuery::Present(found)
     }
@@ -1282,9 +1311,14 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
                 id
             }
             Some(name) => {
-                let Some(id) = self.world.host_objects().values().find_map(|object| {
-                    (!name.is_empty() && object.name == name).then_some(object.id.0)
-                }) else {
+                let Some(id) = self
+                    .world
+                    .host_objects()
+                    .registered_values()
+                    .find_map(|object| {
+                        (!name.is_empty() && object.name == name).then_some(object.id.0)
+                    })
+                else {
                     return ScriptOwnerQuery::Missing;
                 };
                 id
@@ -1485,7 +1519,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         let center_z = (bounds.lo.y + bounds.hi.y) as f32 / 2.0;
         let radius = trigger.get_radius() + distance;
         let radius_sq = radius * radius;
-        let found = self.world.host_objects().values().any(|object| {
+        let found = self.world.host_objects().registered_values().any(|object| {
             let position = object.get_position();
             if !object.is_kind_of(KindOf::TechBuilding)
                 || object.owner_player_id == Some(player.id)
@@ -1535,7 +1569,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         let id = self
             .world
             .host_objects()
-            .values()
+            .registered_values()
             .find(|object| !object.name.is_empty() && object.name.eq_ignore_ascii_case(name))
             .map(|object| object.id);
         if let Some(id) = id {
@@ -1885,7 +1919,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         };
         // CPP Team::hasAnyObjects1751: exact status/kind filters. Other
         // legacy census exclusions do not alter this owner's condition.
-        ScriptOwnerQuery::Present(self.world.host_objects().values().any(|object| {
+        ScriptOwnerQuery::Present(self.world.host_objects().registered_values().any(|object| {
             self.world.object_owned_by_player(object, player)
                 && !object.status.effectively_dead
                 && !object.status.destroyed
@@ -2124,7 +2158,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         let Some(object) = self
             .world
             .host_objects()
-            .values()
+            .registered_values()
             .find(|object| !object.name.is_empty() && object.name.eq_ignore_ascii_case(name))
         else {
             return ScriptOwnerQuery::Missing;

@@ -109,7 +109,7 @@ fn native_die_saved_inactive_unset_receiving_body_rejects_forged_fx_before_mutat
         .unwrap_err();
     assert!(error.to_string().contains("live unstarted Body"));
     assert_eq!(receiving.get_current_frame(), 779);
-    assert!(receiving.host_objects().is_empty());
+    assert!(receiving.host_objects().registered_is_empty());
     // Explicitly incompatible receiving Body metadata must still fail BDKD.
     receiving
         .templates
@@ -125,5 +125,5 @@ fn native_die_saved_inactive_unset_receiving_body_rejects_forged_fx_before_mutat
             .contains("Body class differs from saved module")
     );
     assert_eq!(receiving.get_current_frame(), 779);
-    assert!(receiving.host_objects().is_empty());
+    assert!(receiving.host_objects().registered_is_empty());
 }

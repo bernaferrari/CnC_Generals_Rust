@@ -481,14 +481,14 @@ fn world_snapshot_capture_rejects_invalid_continuation_without_dropping_objects(
         &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
     );
     assert!(source.host_object(id).unwrap().panic_runtime.is_none());
-    let count = source.host_objects().len();
+    let count = source.host_objects().registered_len();
     let result = crate::save_load::SnapshotBuilder::new().create_world_snapshot(&source);
     assert!(
         matches!(result, Err(crate::save_load::SaveLoadError::Corrupted(ref message))
         if message.contains("AI_PANIC")),
         "invalid owned continuation must fail capture, never save a world missing the object"
     );
-    assert_eq!(source.host_objects().len(), count);
+    assert_eq!(source.host_objects().registered_len(), count);
     assert_eq!(source.frame, 9);
     assert_eq!(source.host_object(id).unwrap().ai_state, AIState::Panic);
     assert_eq!(source.host_object(target).unwrap().health.current, 100.0);
@@ -500,8 +500,11 @@ fn world_snapshot_capture_keeps_every_valid_owned_object() {
     let snapshot = crate::save_load::SnapshotBuilder::new()
         .create_world_snapshot(&source)
         .unwrap();
-    assert_eq!(snapshot.objects.len(), source.host_objects().len());
-    for id in source.host_objects().keys() {
+    assert_eq!(
+        snapshot.objects.len(),
+        source.host_objects().registered_len()
+    );
+    for id in source.host_objects().registered_keys() {
         assert!(snapshot.objects.contains_key(id));
     }
 }

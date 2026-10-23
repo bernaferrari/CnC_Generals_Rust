@@ -1,6 +1,6 @@
 //! CPP PhysicsUpdate: returned falling hit -> current effective death/SPLATTED;
 //! clear FREEFALL -> resting Object::kill (max health + m_kill).
-use crate::game_logic::{GameLogic, HostArmorSet, ObjectId, Player, Team};
+use crate::game_logic::{GameLogic, ObjectId, Player, Team};
 use game_engine::common::ini::{ini_damage_fx as damage, ini_fx_list as fx};
 use gamelogic::common::{Coord3D, Matrix3D, ObjectShroudStatus};
 use gamelogic::helpers::HostFxObjectPose;
@@ -55,28 +55,44 @@ fn install() -> Receiver<(&'static str, Option<u32>)> {
     receive
 }
 fn world() -> (GameLogic, ObjectId) {
-    let mut parser = crate::assets::IniParser::new();
-    parser.parse_ini_content(&format!("Object LandingPhaseVictim\nKindOf = VEHICLE\nBody = ActiveBody Body\nMaxHealth = 100\nInitialHealth = 100\nEnd\nBehavior = PhysicsBehavior Physics\nKillWhenRestingOnGround = Yes\nEnd\nBehavior = FXListDie FX\nDeathFX = {DIE}\nEnd\nBehavior = KeepObjectDie Keep\nEnd\nEnd"), "landing-phase.ini").unwrap();
-    let mut template = GameLogic::build_template_from_object_definition(
-        "LandingPhaseVictim",
-        parser.get_definition("LandingPhaseVictim").unwrap(),
-        None,
-    );
+    let content = crate::assets::ReceivingObjectContent::from_sources([(
+        "physics_landing_phase.ini".into(),
+        format!(
+            r#"
+Object LandingPhaseVictim
+  KindOf = VEHICLE
+  Body = ActiveBody Body
+    MaxHealth = 100
+    InitialHealth = 100
+  End
+  ArmorSet
+    Conditions = None
+    Armor = {ZERO_ARMOR}
+    DamageFX = {RULES}
+  End
+  Behavior = PhysicsBehavior Physics
+    KillWhenRestingOnGround = Yes
+  End
+  Behavior = FXListDie FX
+    DeathFX = {DIE}
+  End
+  Behavior = KeepObjectDie Keep
+  End
+End
+"#
+        ),
+    )])
+    .unwrap();
     let mut armor = gamelogic::object::armor::ArmorTemplate::new();
     armor.set_default(1.);
     armor.set_coefficient(gamelogic::damage::DamageType::Unresistable, 0.);
     let mut definitions = gamelogic::object::armor::ArmorDefinitions::new();
     definitions.register_template(ZERO_ARMOR, armor);
-    template.armor_definitions = Some(std::sync::Arc::new(definitions));
-    template.armor_sets.push(HostArmorSet {
-        conditions: 0,
-        armor: Some(ZERO_ARMOR.into()),
-        damage_fx: Some(RULES.into()),
-    });
     let mut world = GameLogic::new();
     world.add_player(Player::new(0, Team::Neutral, "Neutral", false));
     world.add_player(Player::new(1, Team::USA, "Local", true));
-    world.templates.insert(template.name.clone(), template);
+    world.admit_receiving_module_content(content).unwrap();
+    world.admit_armor_definitions(std::sync::Arc::new(definitions));
     let id = world
         .create_object_for_player("LandingPhaseVictim", 1, Vec3::ZERO)
         .unwrap();
@@ -126,7 +142,7 @@ fn assert_dead_owner(world: &GameLogic, id: ObjectId) {
         );
     }
     assert_eq!(
-        world.objects.len(),
+        world.objects.registered_len(),
         1,
         "KeepObjectDie leaves identity installed"
     );

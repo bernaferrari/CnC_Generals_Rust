@@ -72,7 +72,7 @@ fn assert_constructor_admission(world: &mut GameLogic, name: &str) {
     );
     let site = world
         .host_objects()
-        .values()
+        .registered_values()
         .find(|o| o.template_name == "CatalogScaffold")
         .unwrap();
     assert!(site.status.under_construction);
@@ -138,7 +138,7 @@ fn constructor_admission_does_not_promote_worker_harvester_or_names() {
         assert!(
             !owner
                 .host_objects()
-                .values()
+                .registered_values()
                 .any(|o| o.template_name == "CatalogScaffold")
         );
     }
@@ -157,11 +157,11 @@ fn same_id_constructor_admission_preserves_peer_cash_and_task() {
         .create_object_for_player("AmericaVehicleDozer", 0, Vec3::new(55.0, 0.0, 55.0))
         .unwrap();
     assert_eq!(id, peer_id);
-    let peer_count = peer.host_objects().len();
+    let peer_count = peer.host_objects().registered_len();
     assert_eq!(construct(&mut owner, id), CommandResult::Success);
     assert_eq!(owner.get_player(0).unwrap().effective_supplies(), 700);
     assert_eq!(peer.get_player(0).unwrap().effective_supplies(), 1000);
-    assert_eq!(peer.host_objects().len(), peer_count);
+    assert_eq!(peer.host_objects().registered_len(), peer_count);
     assert_eq!(
         peer.host_object(peer_id).unwrap().dozer_task_build_target,
         None

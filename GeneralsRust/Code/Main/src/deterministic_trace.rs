@@ -299,7 +299,7 @@ impl FrameTrace {
     ) -> Self {
         let objects = game_logic
             .host_objects()
-            .values()
+            .registered_values()
             .map(TraceObject::from_object)
             .collect();
         let players = game_logic

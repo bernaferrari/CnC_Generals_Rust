@@ -407,7 +407,7 @@ impl GameLogic {
 
         let carriers: Vec<(ObjectId, Vec<ObjectId>, f32)> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, obj)| {
                 if !obj.is_alive() {
                     return None;

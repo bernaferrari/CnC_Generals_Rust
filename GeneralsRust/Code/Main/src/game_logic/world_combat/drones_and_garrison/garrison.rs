@@ -64,7 +64,7 @@ impl GameLogic {
         // Pure residual acquire query (fire decision choice phase).
         let candidates: Vec<_> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(id, _)| **id != garrisoned_id && Some(**id) != container_id)
             .map(|(id, obj)| {
                 let combat_kind = crate::game_logic::host_residual_acquire::residual_combat_kind(
@@ -287,7 +287,13 @@ impl GameLogic {
         if !roster.is_populated() {
             return Ok(());
         }
-        if !self.templates.contains_key(&roster.template_name) {
+        // C++ findTemplate resolves the admitted content, not the host's lazy
+        // template cache. Materialize a known receiving child before deciding
+        // it is absent; never consult another world's compatibility catalog.
+        if !self.templates.contains_key(&roster.template_name)
+            && !(self.receiving_module_content.is_some()
+                && self.ensure_host_spawn_template(&roster.template_name))
+        {
             return Ok(());
         }
         let payload_name = roster.template_name;
@@ -298,15 +304,59 @@ impl GameLogic {
                 .objects
                 .get(&container_id)
                 .and_then(|parent| parent.owner_player_id);
-            let Some(occupant_id) = self.create_object_for_owner_or_team_with_effects_checked(
-                &payload_name,
-                team,
-                owner,
-                position,
-                interpreter,
-                ui,
-            )?
-            else {
+            let created = if let Some(owner) = owner {
+                // CPP GarrisonContain1748 uses the controlling Player's default
+                // Team even for a neutral map garrison. The player-command
+                // factory intentionally refuses Neutral and is not this path.
+                let player = self.players.get(&owner).ok_or_else(|| {
+                    gamelogic::GameLogicError::Configuration(
+                        "Garrison controlling Player disappeared".into(),
+                    )
+                })?;
+                let name = self.default_host_team_instance_name(Some(owner), player.team);
+                let identity = {
+                    let factory = self
+                        .team_factory
+                        .lock()
+                        .map_err(|error| gamelogic::GameLogicError::Threading(error.to_string()))?;
+                    let default_team = factory
+                        .find_team_instances(&name)
+                        .into_iter()
+                        .next()
+                        .ok_or_else(|| {
+                            gamelogic::GameLogicError::Configuration(
+                                "Garrison controller has no receiving default Team".into(),
+                            )
+                        })?;
+                    let team = default_team
+                        .read()
+                        .map_err(|error| gamelogic::GameLogicError::Threading(error.to_string()))?;
+                    team.get_id()
+                };
+                // Release Team loans before the nested factory/callback chain.
+                self.create_object_on_exact_script_team_with_effects_checked(
+                    &payload_name,
+                    owner,
+                    &name,
+                    identity,
+                    position,
+                    false,
+                    interpreter,
+                    ui,
+                )?
+            } else {
+                // Unowned standalone/tool actors retain their explicit faction
+                // adapter; an admitted controller never falls back into it.
+                self.create_object_for_owner_or_team_with_effects_checked(
+                    &payload_name,
+                    team,
+                    None,
+                    position,
+                    interpreter,
+                    ui,
+                )?
+            };
+            let Some(occupant_id) = created else {
                 break;
             };
             let added = self
@@ -371,7 +421,7 @@ impl GameLogic {
 
     /// C++ OpenContain::update `m_playerEnteredMask = 0`.
     pub(in crate::game_logic) fn clear_open_contain_player_who_entered(&mut self) {
-        for obj in self.objects.values_mut() {
+        for obj in self.objects.registered_values_mut() {
             if !obj.player_who_entered.is_empty() {
                 obj.player_who_entered.clear();
             }
@@ -380,7 +430,7 @@ impl GameLogic {
 
     /// C++ OpenContain::update door countdown → DOOR_1_CLOSING.
     pub(in crate::game_logic) fn update_open_contain_exit_doors(&mut self) {
-        for obj in self.objects.values_mut() {
+        for obj in self.objects.registered_values_mut() {
             if obj.door_close_countdown == 0 {
                 continue;
             }

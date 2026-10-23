@@ -19,7 +19,7 @@ fn aircraft(id: u32, appearance: LocomotorAppearance, goal: Vec3) -> Object {
 fn adjusted(world: &GameLogic, seeker: ObjectId, dest: Vec3) -> Vec3 {
     world.pathfinding_system.adjust_target_destination(
         seeker.0,
-        &world.objects,
+        world.objects.read(),
         dest,
         dest + Vec3::new(60.0, 0.0, 0.0),
         8.0,
@@ -39,8 +39,8 @@ fn aircraft_goal_projection_uses_half_cell_footprints_on_the_driving_grid() {
     let goal = Vec3::new(36.0, 40.0, 46.0);
     let object = aircraft(7, LocomotorAppearance::Hover, goal);
     assert_eq!(PathfindingGrid::radius_and_center(8.0, 10.0), (1, false));
-    let mut objects = HashMap::from([(object.id, object)]);
-    let claims = grid.aircraft_goal_claims(&objects, 8);
+    let mut objects = registered_path_fixture([(object.id, object)]);
+    let claims = grid.aircraft_goal_claims(objects.read(), 8);
     let expected = HashSet::from([
         GridPos::new(7, 7),
         GridPos::new(7, 8),
@@ -49,7 +49,7 @@ fn aircraft_goal_projection_uses_half_cell_footprints_on_the_driving_grid() {
     ]);
     assert_eq!(claims, expected);
     grid.update_dynamic_obstacles(
-        &objects,
+        objects.read(),
         &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
     );
     for cell in expected {
@@ -58,11 +58,11 @@ fn aircraft_goal_projection_uses_half_cell_footprints_on_the_driving_grid() {
     assert_eq!(grid.goal_aircraft(GridPos::new(6, 6)), 0);
     objects.get_mut(&ObjectId(7)).unwrap().selection_radius = 2.0;
     assert_eq!(
-        grid.aircraft_goal_claims(&objects, 8),
+        grid.aircraft_goal_claims(objects.read(), 8),
         HashSet::from([GridPos::new(7, 7)])
     );
     assert!(
-        grid.aircraft_goal_claims(&objects, 7).is_empty(),
+        grid.aircraft_goal_claims(objects.read(), 7).is_empty(),
         "own reservation is allowed"
     );
 }
@@ -73,7 +73,10 @@ fn aircraft_goal_projection_excludes_non_reserving_runtime_states() {
     let goal = Vec3::new(80.0, 40.0, 80.0);
     let mut object = aircraft(1, LocomotorAppearance::Hover, goal);
     let claims = |object: &Object| {
-        grid.aircraft_goal_claims(&HashMap::from([(object.id, object.clone())]), 2)
+        grid.aircraft_goal_claims(
+            registered_path_fixture([(object.id, object.clone())]).read(),
+            2,
+        )
     };
     assert!(!claims(&object).is_empty());
     object.cur_locomotor_name = None;
@@ -103,19 +106,19 @@ fn aircraft_attack_query_uses_current_goals_instead_of_old_occupancy() {
     let mut world = GameLogic::new();
     world.pathfinding_system = PathfindingSystem::new(300.0, 300.0);
     let dest = Vec3::new(75.0, 40.0, 75.0);
-    world.objects.insert(
+    world.objects.admit(
         ObjectId(1),
         aircraft(1, LocomotorAppearance::Hover, Vec3::new(180.0, 40.0, 180.0)),
     );
     world
         .objects
-        .insert(ObjectId(2), aircraft(2, LocomotorAppearance::Wings, dest));
+        .admit(ObjectId(2), aircraft(2, LocomotorAppearance::Wings, dest));
     ({
         let ground_source = crate::game_logic::pathfinding::PathfindingGround::Flat(0.0);
         world
             .pathfinding_system
             .grid
-            .update_dynamic_obstacles(&world.objects, &ground_source)
+            .update_dynamic_obstacles(world.objects.read(), &ground_source)
     });
     let blocked = adjusted(&world, ObjectId(1), dest);
     world
@@ -131,14 +134,14 @@ fn aircraft_attack_query_uses_current_goals_instead_of_old_occupancy() {
     );
     let mut fresh = PathfindingSystem::new(300.0, 300.0);
     fresh.grid.update_dynamic_obstacles(
-        &world.objects,
+        world.objects.read(),
         &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
     );
     assert_eq!(
         clear,
         fresh.adjust_target_destination(
             1,
-            &world.objects,
+            world.objects.read(),
             dest,
             dest + Vec3::new(60.0, 0.0, 0.0),
             8.0,
@@ -376,7 +379,7 @@ fn authored_same_id_matches_keep_aircraft_goals_and_foreign_core_independent() {
         first
             .pathfinding_system
             .grid
-            .update_dynamic_obstacles(&first.objects, &ground_source)
+            .update_dynamic_obstacles(first.objects.read(), &ground_source)
     });
     assert_eq!(
         foreign_goal(),
@@ -388,13 +391,13 @@ fn authored_same_id_matches_keep_aircraft_goals_and_foreign_core_independent() {
         second
             .pathfinding_system
             .grid
-            .update_dynamic_obstacles(&second.objects, &ground_source)
+            .update_dynamic_obstacles(second.objects.read(), &ground_source)
     });
     let _ = ({
         let ground_source = crate::game_logic::pathfinding::PathfindingGround::Flat(0.0);
         second.pathfinding_system.adjust_landing_destination_for(
             hover_b.0,
-            &second.objects,
+            second.objects.read(),
             Vec3::ZERO,
             dest,
             &ground_source,
@@ -413,7 +416,7 @@ fn authored_same_id_matches_keep_aircraft_goals_and_foreign_core_independent() {
         second
             .pathfinding_system
             .grid
-            .update_dynamic_obstacles(&second.objects, &ground_source)
+            .update_dynamic_obstacles(second.objects.read(), &ground_source)
     });
     assert_eq!(adjusted(&first, hover, dest), reference);
     second.reset();
@@ -437,7 +440,7 @@ fn authored_same_id_matches_keep_aircraft_goals_and_foreign_core_independent() {
         first
             .pathfinding_system
             .grid
-            .aircraft_goal_claims(&first.objects, wings.0)
+            .aircraft_goal_claims(first.objects.read(), wings.0)
             .is_empty()
     );
 }
@@ -454,7 +457,7 @@ fn authored_aircraft_save_load_continues_owned_goal_changes() {
         source
             .pathfinding_system
             .grid
-            .update_dynamic_obstacles(&source.objects, &ground_source)
+            .update_dynamic_obstacles(source.objects.read(), &ground_source)
     });
     // These are mutable locomotor values, different from the authored defaults.
     // Reconstructing immutable appearance must not reapply an entire binding.
@@ -528,14 +531,14 @@ fn authored_aircraft_save_load_continues_owned_goal_changes() {
             source
                 .pathfinding_system
                 .grid
-                .update_dynamic_obstacles(&source.objects, &ground_source)
+                .update_dynamic_obstacles(source.objects.read(), &ground_source)
         });
         ({
             let ground_source = crate::game_logic::pathfinding::PathfindingGround::Flat(0.0);
             restored
                 .pathfinding_system
                 .grid
-                .update_dynamic_obstacles(&restored.objects, &ground_source)
+                .update_dynamic_obstacles(restored.objects.read(), &ground_source)
         });
         assert_eq!(
             adjusted(&restored, hover, dest),
@@ -550,13 +553,13 @@ fn authored_aircraft_save_load_continues_owned_goal_changes() {
         restored
             .pathfinding_system
             .grid
-            .update_dynamic_obstacles(&restored.objects, &ground_source)
+            .update_dynamic_obstacles(restored.objects.read(), &ground_source)
     });
     assert!(
         restored
             .pathfinding_system
             .grid
-            .aircraft_goal_claims(&restored.objects, hover.0)
+            .aircraft_goal_claims(restored.objects.read(), hover.0)
             .is_empty()
     );
     assert_eq!(
@@ -595,7 +598,7 @@ fn authored_aircraft_liveness_ignores_same_id_foreign_shadow_health() {
     let baseline_claims = driving
         .pathfinding_system
         .grid
-        .aircraft_goal_claims(&driving.objects, wings.0);
+        .aircraft_goal_claims(driving.objects.read(), wings.0);
     let baseline_attack = adjusted(&driving, wings, dest);
     let owner = &driving.objects[&hover];
     assert!(
@@ -633,7 +636,7 @@ fn authored_aircraft_liveness_ignores_same_id_foreign_shadow_health() {
                 driving
                     .pathfinding_system
                     .grid
-                    .aircraft_goal_claims(&driving.objects, wings.0),
+                    .aircraft_goal_claims(driving.objects.read(), wings.0),
                 baseline_claims
             );
             assert_eq!(adjusted(&driving, wings, dest), baseline_attack);
@@ -642,7 +645,7 @@ fn authored_aircraft_liveness_ignores_same_id_foreign_shadow_health() {
                 driving
                     .pathfinding_system
                     .grid
-                    .update_dynamic_obstacles(&driving.objects, &ground_source)
+                    .update_dynamic_obstacles(driving.objects.read(), &ground_source)
             });
             for cell in &baseline_claims {
                 assert_eq!(
@@ -682,7 +685,7 @@ fn authored_aircraft_liveness_ignores_same_id_foreign_shadow_health() {
                 driving
                     .pathfinding_system
                     .grid
-                    .aircraft_goal_claims(&driving.objects, wings.0)
+                    .aircraft_goal_claims(driving.objects.read(), wings.0)
                     .is_empty()
             );
             assert_eq!(adjusted(&driving, wings, dest), dead_attack);
@@ -691,7 +694,7 @@ fn authored_aircraft_liveness_ignores_same_id_foreign_shadow_health() {
                 driving
                     .pathfinding_system
                     .grid
-                    .update_dynamic_obstacles(&driving.objects, &ground_source)
+                    .update_dynamic_obstacles(driving.objects.read(), &ground_source)
             });
             for cell in &baseline_claims {
                 assert_eq!(

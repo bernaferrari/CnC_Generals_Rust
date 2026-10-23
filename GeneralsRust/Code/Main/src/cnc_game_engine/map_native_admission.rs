@@ -138,7 +138,7 @@ impl crate::game_logic::NativeMapAdmission for NativeMapCandidate {
     ) -> Result<(), String> {
         // The component receiver has no native constructor service. It may
         // accept an empty roster, never fake admission for a populated save.
-        if !world.host_objects().is_empty() {
+        if !world.host_objects().registered_is_empty() {
             return Err("saved object Drawables require the lexical native map attempt".into());
         }
         self.drawables

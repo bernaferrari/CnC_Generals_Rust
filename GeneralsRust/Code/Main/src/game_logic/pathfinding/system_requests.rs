@@ -56,11 +56,11 @@ impl PathfindingSystem {
     /// C++ `findPath(obj, ...)` — seeker flags come from the mover, not nearest-to-start.
     pub(super) fn bind_seeker_from_mover(
         &mut self,
-        objects: &HashMap<ObjectId, Object>,
+        objects: HostObjectRead<'_>,
         mover: Option<ObjectId>,
     ) {
         if let Some(o) = mover
-            .and_then(|id| objects.get(&id))
+            .and_then(|id| objects.lookup(&id))
             .filter(|o| o.is_alive())
         {
             self.seeker_player = o.owner_player_id.or(Some(o.team as u32));
@@ -176,7 +176,7 @@ impl PathfindingSystem {
     pub fn adjust_target_destination(
         &self,
         seeker: u32,
-        objects: &HashMap<ObjectId, Object>,
+        objects: HostObjectRead<'_>,
         dest: Vec3,
         target_pos: Vec3,
         unit_radius: f32,
@@ -216,7 +216,7 @@ impl PathfindingSystem {
     pub fn adjust_landing_destination_for(
         &mut self,
         seeker: u32,
-        objects: &HashMap<ObjectId, Object>,
+        objects: HostObjectRead<'_>,
         from: Vec3,
         dest: Vec3,
         ground_source: &PathfindingGround<'_>,
@@ -224,7 +224,7 @@ impl PathfindingSystem {
         self.grid.update_dynamic_obstacles(objects, ground_source);
         self.grid.query_seeker_id = seeker;
         let unit_radius = objects
-            .get(&ObjectId(seeker))
+            .lookup(&ObjectId(seeker))
             .map(|o| o.selection_radius)
             .unwrap_or(0.0);
         let adj = self.adjust_to_landing_destination_radius(from, dest, unit_radius, ground_source);
@@ -248,7 +248,7 @@ impl PathfindingSystem {
     #[inline]
     pub(super) fn ensure_dynamic_obstacles(
         &mut self,
-        objects: &HashMap<ObjectId, Object>,
+        objects: HostObjectRead<'_>,
         ground_source: &PathfindingGround<'_>,
     ) {
         if self.ignore_obstacle_id.is_some() {
@@ -1231,7 +1231,7 @@ impl PathfindingSystem {
         unit_radius: f32,
         seeker: ObjectId,
         seeker_player: Option<u32>,
-        objects: &HashMap<ObjectId, Object>,
+        objects: HostObjectRead<'_>,
         ground_source: &PathfindingGround<'_>,
     ) -> Vec3 {
         self.seeker_id = Some(seeker);
@@ -1247,14 +1247,14 @@ impl PathfindingSystem {
     /// C++ `addObjectToPathfindMap` includes scaffolds (DozerAIUpdate.cpp:1698-1699).
     pub fn apply_structure_static_blocks(
         &mut self,
-        objects: &HashMap<ObjectId, Object>,
+        objects: HostObjectRead<'_>,
         wall_height: f32,
         ground_source: &PathfindingGround<'_>,
     ) {
         let mut lo = GridPos::new(i32::MAX, i32::MAX);
         let mut hi = GridPos::new(i32::MIN, i32::MIN);
         let mut did = false;
-        for obj in objects.values() {
+        for obj in objects.registered_values() {
             let rubble = PathfindingGrid::object_is_pathfind_rubble(obj);
             let blast_crater = obj.is_kind_of(KindOf::BlastCrater);
             // C++ classifyObjectFootprint(!insert) returns for BLAST_CRATER.
@@ -1380,14 +1380,10 @@ impl PathfindingSystem {
     }
 
     /// Rebuild wall pieces from live `WALK_ON_TOP_OF_WALL` objects.
-    pub fn sync_wall_pieces_from_objects(
-        &mut self,
-        objects: &HashMap<ObjectId, Object>,
-        wall_height: f32,
-    ) {
+    pub fn sync_wall_pieces_from_objects(&mut self, objects: HostObjectRead<'_>, wall_height: f32) {
         self.grid.wall_pieces.clear();
         self.grid.wall_cells.clear();
-        for obj in objects.values() {
+        for obj in objects.registered_values() {
             if obj.is_alive() && obj.is_kind_of(KindOf::WalkOnTopOfWall) {
                 self.add_wall_piece_from_object(obj, wall_height);
             }

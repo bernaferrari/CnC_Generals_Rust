@@ -62,7 +62,7 @@ impl<'a> NativeRendererViewEffects<'a> {
         self.poses.clear_world();
         // Match this port's existing restore.rs object-construction order.
         // Original archive visitation order is a separate persistence obligation.
-        let mut ids: Vec<_> = world.host_objects().keys().copied().collect();
+        let mut ids: Vec<_> = world.host_objects().registered_keys().copied().collect();
         ids.sort_unstable_by_key(|id| id.0);
         for id in ids {
             world

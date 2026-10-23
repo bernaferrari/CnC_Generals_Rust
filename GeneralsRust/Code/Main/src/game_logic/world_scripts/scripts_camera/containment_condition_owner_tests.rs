@@ -61,7 +61,7 @@ fn containment_conditions_use_actual_zero_dead_and_owned_local_rosters() {
     )));
     let target = owner
         .host_objects()
-        .values()
+        .registered_values()
         .find(|object| object.name == "NamedTarget")
         .unwrap()
         .id;

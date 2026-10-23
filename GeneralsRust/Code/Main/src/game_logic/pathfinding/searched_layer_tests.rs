@@ -11,7 +11,7 @@ fn overlapping_layers(deck_height: f32, wall_height: f32) -> PathfindingSystem {
         from_right: Vec3::new(40.0, deck_height, 0.0),
         to_left: Vec3::new(0.0, deck_height, 40.0),
         to_right: Vec3::new(40.0, deck_height, 40.0),
-        cells: HashMap::from([((1, 1), (PathfindCellType::Clear, 0))]),
+        cells: std::collections::HashMap::from([((1, 1), (PathfindCellType::Clear, 0))]),
         destroyed: false,
         object_id: 10,
         ground_connect_cells: Vec::new(),

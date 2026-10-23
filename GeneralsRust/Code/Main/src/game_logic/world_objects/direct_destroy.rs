@@ -377,13 +377,13 @@ impl GameLogic {
         }
         let targets: Vec<_> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(other, object)| (object.target == Some(id)).then_some(*other))
             .collect();
         for other in targets {
             self.stop_attack_decision_aware(other);
         }
-        for (_other, object) in &mut self.objects {
+        for (_other, object) in self.objects.registered_mut() {
             if object.guard_target == Some(id) {
                 object.guard_target = None;
                 if object.ai_state == AIState::GuardingObject {

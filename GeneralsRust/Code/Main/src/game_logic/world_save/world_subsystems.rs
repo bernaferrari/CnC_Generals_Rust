@@ -818,7 +818,7 @@ impl GameLogic {
             .partition_manager
             .neighbor_object_ids(world_pos.x, world_pos.z);
         if neighbors.is_empty() {
-            for other in self.objects.values() {
+            for other in self.objects.registered_values() {
                 if let Some(h) = structure_height(other) {
                     tallest = tallest.max(h);
                 }
@@ -1127,7 +1127,7 @@ impl GameLogic {
                     &self.pathfinding_system.grid,
                 );
                 self.pathfinding_system.apply_structure_static_blocks(
-                    &self.objects,
+                    self.objects.read(),
                     wall_height,
                     &ground_source,
                 )
@@ -1179,7 +1179,7 @@ impl GameLogic {
                 &self.pathfinding_system.grid,
             );
             self.pathfinding_system.apply_structure_static_blocks(
-                &self.objects,
+                self.objects.read(),
                 wall_height,
                 &ground_source,
             )
@@ -1452,7 +1452,7 @@ impl GameLogic {
     ) -> gamelogic::GameLogicResult<()> {
         let jobs: Vec<(ObjectId, String)> = self
             .objects
-            .values()
+            .registered_values()
             .filter(|obj| Self::host_object_is_landmark_bridge(obj))
             .map(|obj| (obj.id, obj.template_name.clone()))
             .collect();

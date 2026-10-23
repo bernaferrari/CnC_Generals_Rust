@@ -84,7 +84,7 @@ fn invalid_authored_definition_is_rejected_before_actual_object_allocation() {
                 .is_none(),
             "{invalid}"
         );
-        assert_eq!(owner.host_objects().len(), 0);
+        assert_eq!(owner.host_objects().registered_len(), 0);
         let valid = ThingTemplate::new("ValidAfterRejection");
         owner.templates.insert(valid.name.clone(), valid.clone());
         peer.templates.insert(valid.name.clone(), valid);

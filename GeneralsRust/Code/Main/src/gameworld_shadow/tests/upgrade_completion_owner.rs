@@ -15,29 +15,15 @@ const PRODUCER: &str = "AmericaBarracks";
 const INFANTRY: &str = "AuthoredOwnerCaptureInfantry";
 
 fn install_rules(logic: &mut GameLogic, cost: u32, seconds: u32) {
-    // A logical-only save has no map bootstrap to supply its receiving team
-    // definitions. Admit the same ordered, owned roster on source and both
-    // load receivers; saved runtime membership is restored separately.
-    {
-        let mut factory = logic.team_factory.lock().expect("receiving TeamFactory");
-        for (controller, owner_name) in [
-            (OWNER, "Research owner"),
-            (OTHER, "Same faction foreign owner"),
-        ] {
-            let team_name = format!("team{owner_name}");
-            if factory.find_team_prototype(&team_name).is_none() {
-                factory
-                    .init_team_owned(
-                        team_name.into(),
-                        owner_name.into(),
-                        true,
-                        None,
-                        Some(controller),
-                    )
-                    .expect("receiving player default-team definition");
-            }
-        }
-    }
+    // Source and mapless load receivers admit the same actual Players. Their
+    // canonical script identities create exactly the receiving default-Team
+    // definitions; runtime membership and economy are restored by the save.
+    let mut owner = Player::new(OWNER, Team::USA, "Research owner", true);
+    owner.resources.supplies = 5000;
+    logic.add_player(owner);
+    let mut other = Player::new(OTHER, Team::USA, "Same faction foreign owner", true);
+    other.resources.supplies = 7777;
+    logic.add_player(other);
     crate::game_logic::host_upgrade_rules::register_test_upgrade(
         logic,
         UPGRADE_INFANTRY_CAPTURE,
@@ -82,12 +68,6 @@ fn install_rules(logic: &mut GameLogic, cost: u32, seconds: u32) {
 }
 
 fn admit(logic: &mut GameLogic) -> (ObjectId, ObjectId, ObjectId) {
-    let mut owner = Player::new(OWNER, Team::USA, "Research owner", true);
-    owner.resources.supplies = 5000;
-    logic.add_player(owner);
-    let mut other = Player::new(OTHER, Team::USA, "Same faction foreign owner", true);
-    other.resources.supplies = 7777;
-    logic.add_player(other);
     let producer = logic
         .create_object_for_player(PRODUCER, OWNER, Vec3::ZERO)
         .expect("producer");

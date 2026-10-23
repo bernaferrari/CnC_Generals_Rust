@@ -67,7 +67,7 @@ fn checked_known_body_error_remains_distinct_from_unresolved_template() {
                 )
                 .unwrap_err();
             failure(&error);
-            assert!(world.host_objects().is_empty());
+            assert!(world.host_objects().registered_is_empty());
             assert!(
                 world
                     .create_map_object_with_effects_checked(
@@ -83,6 +83,56 @@ fn checked_known_body_error_remains_distinct_from_unresolved_template() {
         },
     );
 }
+#[test]
+fn known_receiving_garrison_child_is_validated_without_a_host_template_cache_entry() {
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "known_receiving_garrison_child_is_validated_without_a_host_template_cache_entry",
+        || {
+            let mut world = world();
+            world.add_player(
+                Player::new(1, Team::USA, "CheckedOwner", true)
+                    .with_script_identity("CheckedOwner"),
+            );
+            world.templates.remove("CheckedBad");
+            assert!(!world.templates.contains_key("CheckedBad"));
+            assert!(
+                world
+                    .receiving_module_content
+                    .as_ref()
+                    .unwrap()
+                    .admitted_template("CheckedBad")
+                    .is_some()
+            );
+            let parent = world.next_object_id_for_snapshot();
+            let error = world
+                .create_map_object_with_effects_checked(
+                    "CheckedParent",
+                    Team::USA,
+                    Some(1),
+                    Vec3::ZERO,
+                    &mut Default::default(),
+                )
+                .unwrap_err();
+            failure(&error);
+            assert_eq!(
+                world.next_object_id_for_snapshot(),
+                ObjectId(parent.0.wrapping_add(1))
+            );
+            assert_eq!(
+                world.host_object(parent).unwrap().template_name,
+                "CheckedParent"
+            );
+            assert!(
+                !world
+                    .host_objects()
+                    .registered_values()
+                    .any(|actor| actor.template_name == "CheckedBad")
+            );
+        },
+    );
+}
+
 #[test]
 fn actual_map_rejects_nested_garrison_body_error_before_later_objects() {
     crate::game_logic::game_logic::pose_owner_tests::isolated_at(
@@ -138,12 +188,13 @@ fn actual_map_rejects_nested_garrison_body_error_before_later_objects() {
                 }
                 fn admit_factory_drawable(
                     &mut self,
-                    _: crate::game_logic::NativeFactoryDrawableSource,
+                    source: crate::game_logic::NativeFactoryDrawableSource,
                     _: game_client::core::game_client::NativeDrawableBirthContext,
                     _: &mut game_engine::common::thing::module_factory::ModuleFactory,
                 ) -> Result<(), String> {
                     panic!(
-                        "Garrison InitialRoster rejection precedes parent native Drawable admission"
+                        "Garrison InitialRoster rejection precedes native Drawable admission; actual template={}",
+                        source.render.template_name
                     )
                 }
                 fn retire_physical_object_drawable(
@@ -243,7 +294,7 @@ fn actual_map_rejects_nested_garrison_body_error_before_later_objects() {
                 );
             }
             assert!(
-                world.host_objects().is_empty(),
+                world.host_objects().registered_is_empty(),
                 "rejected map retires its already constructed parent"
             );
             assert!(world.objects.ordered_ids().is_empty());
@@ -252,13 +303,13 @@ fn actual_map_rejects_nested_garrison_body_error_before_later_objects() {
             assert!(
                 !world
                     .host_objects()
-                    .values()
+                    .registered_values()
                     .any(|object| object.template_name == "CheckedBad")
             );
             assert!(
                 !world
                     .host_objects()
-                    .values()
+                    .registered_values()
                     .any(|object| object.template_name == "CheckedAfter"),
                 "later map objects must not run after constructor failure"
             );
@@ -313,19 +364,19 @@ fn exact_script_propagates_nested_garrison_error_before_following_action() {
             assert!(
                 world
                     .host_objects()
-                    .values()
+                    .registered_values()
                     .any(|object| object.template_name == "CheckedParent")
             );
             assert!(
                 !world
                     .host_objects()
-                    .values()
+                    .registered_values()
                     .any(|object| object.template_name == "CheckedBad")
             );
             assert!(
                 !world
                     .host_objects()
-                    .values()
+                    .registered_values()
                     .any(|object| object.template_name == "CheckedAfter")
             );
             assert_eq!(engine.get_calling_team_id(), None);
@@ -368,7 +419,7 @@ fn native_world_requires_receiver_but_same_id_headless_peer_remains_independent(
                 error.to_string().contains("native Drawable owner"),
                 "{error}"
             );
-            let failed = native.host_objects().values().next().unwrap();
+            let failed = native.host_objects().registered_values().next().unwrap();
             assert_eq!(
                 failed.get_position(),
                 Vec3::ZERO,

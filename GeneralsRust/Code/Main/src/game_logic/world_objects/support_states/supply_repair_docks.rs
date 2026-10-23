@@ -430,7 +430,7 @@ impl GameLogic {
                 }
             }
         }
-        for (id, obj) in &self.objects {
+        for (id, obj) in self.objects.registered() {
             if (obj.dock_active_docker == Some(docker_id)
                 || obj.repair_dock_last_id == Some(docker_id))
                 && !docks.contains(id)
@@ -722,7 +722,7 @@ impl GameLogic {
     // Ordered player-team traversal requires canonical admission/capture closure
     // (hq-g0626). Keep this known lookup gap separate from receiving Body ownership.
     fn find_repair_dock_drone(&self, master_id: ObjectId) -> Option<ObjectId> {
-        self.objects.iter().find_map(|(id, object)| {
+        self.objects.registered().find_map(|(id, object)| {
             (object.is_kind_of(KindOf::Drone) && object.producer_id == Some(master_id))
                 .then_some(*id)
         })
@@ -925,7 +925,7 @@ impl GameLogic {
             }
         }
         let mut best: Option<(f32, ObjectId)> = None;
-        for (&id, obj) in &self.objects {
+        for (&id, obj) in self.objects.registered() {
             if !self.supply_center_accepts_deposit(id, team, owner_player_id) {
                 continue;
             }

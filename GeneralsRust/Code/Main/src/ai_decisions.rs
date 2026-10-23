@@ -67,7 +67,11 @@ impl AIDecisionSystem {
         if !near.is_empty() {
             return near;
         }
-        game_logic.host_objects().keys().copied().collect()
+        game_logic
+            .host_objects()
+            .registered_keys()
+            .copied()
+            .collect()
     }
 
     pub fn find_nearest_enemy(
@@ -398,7 +402,7 @@ impl AIDecisionSystem {
         // Count existing military units for this team
         let military_count = game_logic
             .host_objects()
-            .values()
+            .registered_values()
             .filter(|obj| obj.team == team && obj.is_alive() && obj.can_attack())
             .count();
 
@@ -654,7 +658,7 @@ impl AIDecisionSystem {
     ) -> u32 {
         let mut count = 0;
 
-        for object in game_logic.host_objects().values() {
+        for object in game_logic.host_objects().registered_values() {
             if object.team == team && object.is_alive() {
                 if let Some(current_target) = object.target {
                     if current_target == target_id {

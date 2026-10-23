@@ -188,7 +188,7 @@ impl GameLogic {
     pub(crate) fn rebuild_host_radar_provider_admission(&mut self) {
         self.host_radar.providers = self
             .objects
-            .keys()
+            .registered_keys()
             .map(|&id| (id, self.host_radar_providers(id)))
             .collect();
     }
@@ -346,7 +346,11 @@ impl GameLogic {
                 player.is_alive
                     && !self
                         .victory_conditions
-                        .has_single_player_been_defeated_owned(player, &self.players, &self.objects)
+                        .has_single_player_been_defeated_owned(
+                            player,
+                            &self.players,
+                            self.objects.read(),
+                        )
             });
         if !allowed {
             return;

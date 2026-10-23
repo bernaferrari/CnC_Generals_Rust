@@ -78,7 +78,7 @@ fn dragon_flame_projectile_flies_and_impacts() {
         logic.update_dragon_flame_projectiles();
         if !logic
             .objects
-            .values()
+            .registered_values()
             .any(|o| o.dragon_flame_projectile && o.is_alive())
         {
             break;
@@ -97,7 +97,7 @@ fn dragon_flame_projectile_flies_and_impacts() {
     assert!(
         !logic
             .objects
-            .values()
+            .registered_values()
             .any(|o| o.dragon_flame_projectile && o.is_alive()),
         "flame projectile should detonate"
     );
@@ -225,7 +225,7 @@ fn dragon_tank_residual_flame_and_black_napalm() {
         game_logic.update_dragon_flame_projectiles();
         if !game_logic
             .objects
-            .values()
+            .registered_values()
             .any(|o| o.dragon_flame_projectile && o.is_alive())
         {
             break;
@@ -1403,7 +1403,7 @@ fn crusader_residual_tank_gun_and_composite_armor() {
         game_logic.update_usa_tank_shell_projectiles();
         if !game_logic
             .objects
-            .values()
+            .registered_values()
             .any(|o| o.usa_tank_shell_projectile && o.is_alive())
         {
             break;
@@ -1544,7 +1544,7 @@ fn humvee_tow_missile_projectile_flies_and_impacts() {
         logic.update_humvee_tow_missile_projectiles();
         if !logic
             .objects
-            .values()
+            .registered_values()
             .any(|o| o.humvee_tow_projectile && o.is_alive())
         {
             break;
@@ -1564,7 +1564,7 @@ fn humvee_tow_missile_projectile_flies_and_impacts() {
     assert!(
         !logic
             .objects
-            .values()
+            .registered_values()
             .any(|o| o.humvee_tow_projectile && o.is_alive()),
         "projectile should be gone after impact"
     );
@@ -1714,7 +1714,7 @@ fn humvee_residual_transport_and_air_tow() {
         game_logic.update_humvee_tow_missile_projectiles();
         if !game_logic
             .objects
-            .values()
+            .registered_values()
             .any(|o| o.humvee_tow_projectile && o.is_alive())
         {
             break;

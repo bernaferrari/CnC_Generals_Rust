@@ -204,7 +204,11 @@ pub(super) fn saved_death_started_ids(
 }
 
 fn capture(game_logic: &GameLogic) -> ObjectModuleXferPersistPayload {
-    let mut ids: Vec<ObjectId> = game_logic.host_objects().keys().copied().collect();
+    let mut ids: Vec<ObjectId> = game_logic
+        .host_objects()
+        .registered_keys()
+        .copied()
+        .collect();
     ids.sort();
 
     let mut stun = Vec::new();

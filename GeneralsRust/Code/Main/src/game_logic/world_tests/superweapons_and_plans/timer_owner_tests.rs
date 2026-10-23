@@ -12,12 +12,15 @@ fn run_isolated_owner(test: &str, run: impl FnOnce()) {
 }
 
 fn parsed_owner(world: &mut GameLogic, lifetime: bool) -> ObjectId {
+    // C++ Object always joins an actual controlling Player's default Team.
+    // A bare GameLogic is deliberately not a populated match roster.
+    world.add_player(Player::new(0, Team::USA, "TimerOwner", true));
     let (name, text, class) = if lifetime {
         (
             "TimerOwnershipTimedDemo",
             r#"
 Object TimerOwnershipTimedDemo
-  KindOf = SELECTABLE ATTACKABLE
+  KindOf = INFANTRY SELECTABLE CAN_ATTACK
   Body = ActiveBody ModuleTag_Body
     MaxHealth = 100
     InitialHealth = 100
@@ -35,7 +38,7 @@ End
             "TimerOwnershipPoisonVictim",
             r#"
 Object TimerOwnershipPoisonVictim
-  KindOf = SELECTABLE ATTACKABLE
+  KindOf = INFANTRY SELECTABLE CAN_ATTACK
   Body = ActiveBody ModuleTag_Body
     MaxHealth = 100
     InitialHealth = 100
@@ -49,6 +52,11 @@ End
             "PoisonedBehavior",
         )
     };
+    let module = crate::assets::ReceivingObjectContent::from_sources([(
+        "timer_owner.ini".to_owned(),
+        text.to_owned(),
+    )])
+    .unwrap();
     let mut parser = crate::assets::IniParser::new();
     assert_eq!(
         parser.parse_ini_content(text, "timer_owner.ini").unwrap(),
@@ -77,10 +85,15 @@ End
     }
     // Lifetime admission binds the authored receiving module; no named range
     // or diagnostic shadow owns its clock. Poison retains fixed retail constants.
-    let template = GameLogic::build_template_from_object_definition(name, definition, None);
-    world.templates.insert(name.into(), template);
-    let id = world.create_object(name, Team::USA, Vec3::ZERO).unwrap();
+    world.admit_receiving_module_content(module).unwrap();
+    assert!(world.templates[name].is_kind_of(KindOf::Infantry));
+    let id = world.create_object_for_player(name, 0, Vec3::ZERO).unwrap();
     let owner = world.host_object(id).unwrap();
+    assert_eq!(owner.owner_player_id, Some(0));
+    assert!(
+        owner.team_instance_id.is_some(),
+        "actual receiving default Team"
+    );
     assert_eq!(owner.health.current, 100.0);
     assert_eq!(owner.health.maximum, 100.0);
     assert_eq!(owner.template_name, name);
@@ -138,20 +151,42 @@ fn lifetime_case() {
         );
         assert!(world.objects_to_destroy.iter().all(|event| event.id != id));
     }
-    // Ordinary tick executes frame300, then advances the public clock to301.
+    // LifetimeUpdate::update executes kill() on frame300; C++ kill is lethal
+    // damage, not destroyObject. This definition has no SlowDeath finalizer, so
+    // the dead object remains registered after the one-shot timer fires.
     assert_eq!(owned_update(&mut world, &mut shadow), due);
     assert_eq!(world.getFrame(), due + 1);
-    assert!(
-        world.host_object(id).is_none(),
-        "the real initial-kill path reaches the original destruction queue"
-    );
-    assert!(shadow.entity_for_host(id).is_none());
+    let owner = world
+        .host_object(id)
+        .expect("Lifetime kill does not itself call destroyObject");
+    assert_eq!(owner.health.current, 0.0);
+    assert!(owner.status.on_die_started);
+    assert!(owner.status.effectively_dead);
+    assert!(!owner.is_alive());
+    let crate::game_logic::native_lifecycle::NativeLifecycleState::Lifetime {
+        die_frame,
+        active: false,
+    } = owner.native_lifecycle.as_ref().unwrap().states[0]
+    else {
+        panic!("the original Lifetime deadline is consumed exactly once")
+    };
+    assert_eq!(die_frame, due);
     assert!(world.objects_to_destroy.iter().all(|event| event.id != id));
-    owned_update(&mut world, &mut shadow);
-    assert!(
-        world.host_object(id).is_none(),
-        "no second timer execution resurrects the owner"
-    );
+
+    // A later ordinary update cannot replay the consumed kill deadline or
+    // re-enter onDie. Preserve the actual actor/deadline observations.
+    assert_eq!(owned_update(&mut world, &mut shadow), due + 1);
+    assert_eq!(world.getFrame(), due + 2);
+    let owner = world.host_object(id).expect("no finalizer was authored");
+    assert_eq!(owner.health.current, 0.0);
+    assert!(owner.status.on_die_started && owner.status.effectively_dead);
+    assert!(!owner.is_alive());
+    assert!(matches!(
+        owner.native_lifecycle.as_ref().unwrap().states[0],
+        crate::game_logic::native_lifecycle::NativeLifecycleState::Lifetime {
+            die_frame, active: false
+        } if die_frame == due
+    ));
 }
 
 #[test]

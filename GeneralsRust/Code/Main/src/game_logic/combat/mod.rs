@@ -4,6 +4,7 @@
 //! RNG consumption, frame timing, serialization, and the public API remain unchanged.
 
 use super::*;
+use crate::game_logic::HostObjectRead;
 use glam::Vec3;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

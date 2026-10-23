@@ -90,7 +90,7 @@ impl GameLogic {
             self.pathfinding_system.find_path_ex_surfaces(
                 start_pos,
                 target_position,
-                &self.objects,
+                self.objects.read(),
                 is_aircraft,
                 loco,
                 is_crusher,
@@ -204,7 +204,7 @@ impl GameLogic {
         };
         let nudge_allies =
             self.pathfinding_system
-                .allies_to_nudge_off_path(object_id, &path, &self.objects);
+                .allies_to_nudge_off_path(object_id, &path, self.objects.read());
         let mover_path = path;
         for ally in nudge_allies {
             let prev_path = self
@@ -536,7 +536,7 @@ impl GameLogic {
                                 self.pathfinding_system.find_path_ex_surfaces(
                                     from,
                                     goal,
-                                    &self.objects,
+                                    self.objects.read(),
                                     true,
                                     surfaces,
                                     is_crusher,
@@ -680,7 +680,7 @@ impl GameLogic {
                             &original,
                             surfaces,
                             is_crusher,
-                            &self.objects,
+                            self.objects.read(),
                             Some(id),
                             &ground_source,
                         )
@@ -773,7 +773,7 @@ impl GameLogic {
                             self.pathfinding_system.find_path_ex_surfaces(
                                 from,
                                 goal,
-                                &self.objects,
+                                self.objects.read(),
                                 aircraft,
                                 surfaces,
                                 is_crusher,
@@ -2940,7 +2940,7 @@ impl GameLogic {
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         let mut evac_now: Vec<(ObjectId, bool)> = Vec::new();
-        for (id, obj) in &self.objects {
+        for (id, obj) in self.objects.registered() {
             if !obj.pending_evacuate_on_stop {
                 continue;
             }
@@ -2994,7 +2994,7 @@ impl GameLogic {
         };
         crate::game_logic::combat::drain_pending_projectiles_with_terrain(
             &mut self.combat_system,
-            &self.objects,
+            self.objects.read(),
             self.frame,
             Some(&projectile_terrain),
         );
@@ -3011,7 +3011,7 @@ impl GameLogic {
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> Vec<ObjectId> {
-        self.combat_system.refresh_homing_aims(&self.objects);
+        self.combat_system.refresh_homing_aims(self.objects.read());
         // Use the same installed receiving-owner completion as the ordinary
         // projectile step; zero dt preserves this hit-only admission boundary.
         let hits = self.update_owned_projectile_impacts_with_effects(0.0, effects);

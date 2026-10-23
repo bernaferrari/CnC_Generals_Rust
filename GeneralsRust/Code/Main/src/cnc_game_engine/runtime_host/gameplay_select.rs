@@ -579,7 +579,7 @@ impl CnCGameEngine {
         let uc = self
             .game_logic
             .host_objects()
-            .values()
+            .registered_values()
             .filter(|o| {
                 o.team == team
                     && o.is_alive()

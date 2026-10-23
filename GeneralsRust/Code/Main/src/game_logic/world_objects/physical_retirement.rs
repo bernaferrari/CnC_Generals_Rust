@@ -95,7 +95,7 @@ impl GameLogic {
                 "bulk Object retirement cannot replace an active lifecycle callback".into(),
             ));
         }
-        if self.requires_native_drawable_owner() && !self.objects.is_empty() {
+        if self.requires_native_drawable_owner() && !self.objects.registered_is_empty() {
             #[cfg(feature = "game_client")]
             let has_owner = effects.view.is_some();
             #[cfg(not(feature = "game_client"))]
@@ -113,7 +113,7 @@ impl GameLogic {
             self.destroy_object_with_effects(id, effects);
         }
         self.process_destroy_list_with_effects_checked(effects)?;
-        if !self.objects.is_empty() || self.has_pending_object_removals() {
+        if !self.objects.registered_is_empty() || self.has_pending_object_removals() {
             let remaining: Vec<_> = self
                 .objects
                 .ordered_ids()
@@ -131,7 +131,7 @@ impl GameLogic {
                 .collect();
             return Err(gamelogic::GameLogicError::Configuration(format!(
                 "bulk Object retirement left live or pending objects: live={}, pending={}, registered={}, sample={remaining:?}",
-                self.objects.len(),
+                self.objects.registered_len(),
                 self.objects_to_destroy.len(),
                 self.objects.ordered_ids().len(),
             )));

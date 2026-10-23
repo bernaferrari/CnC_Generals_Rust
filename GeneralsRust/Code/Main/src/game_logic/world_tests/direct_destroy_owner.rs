@@ -57,7 +57,7 @@ fn direct_destroy_clears_goal_and_path_before_physical_removal() {
     assert_eq!(object.locomotor_goal_type, LocoGoalType::None);
     assert!(object.movement.path.is_empty());
     assert_eq!(
-        world.host_objects().len(),
+        world.host_objects().registered_len(),
         1,
         "lookup lifetime ends at the physical drain"
     );
@@ -122,17 +122,65 @@ fn direct_destroy_queue_and_reset_do_not_touch_same_id_in_another_world() {
 }
 
 #[test]
-fn snapshot_rejects_a_pending_physical_removal_instead_of_losing_its_queue() {
+fn snapshot_round_trips_a_pending_physical_removal_and_drains_it_once() {
     let (mut world, id) = world_with_owner();
+    let peer = world_with_owner().0;
+    let second_id = world
+        .create_object(
+            "DirectDestroyOwnerVehicle",
+            Team::USA,
+            Vec3::new(8.0, 0.0, 0.0),
+        )
+        .unwrap();
     world.destroy_object(id);
+    world.destroy_object(second_id);
+    let source_order = world.objects.ordered_ids().to_vec();
     let builder = crate::save_load::snapshot::SnapshotBuilder::new();
-    assert!(
-        builder.create_world_snapshot(&world).is_err(),
-        "the removal queue is not serialized"
+    let snapshot = builder
+        .create_world_snapshot(&world)
+        .expect("NDIE v2 serializes pending removals after callbacks return");
+    let encoded = bincode_legacy::serialize(&snapshot).unwrap();
+    let decoded = crate::save_load::snapshot::decode_bincode_world_snapshot(&encoded).unwrap();
+    let mut receiving = GameLogic::new();
+    receiving.templates.insert(
+        "DirectDestroyOwnerVehicle".into(),
+        world.templates["DirectDestroyOwnerVehicle"].clone(),
     );
-    world.process_destroy_list();
-    let snapshot = builder.create_world_snapshot(&world).unwrap();
-    assert!(!snapshot.objects.contains_key(&id));
+    builder
+        .restore_from_snapshot(&decoded, &mut receiving)
+        .expect("pending removals should restore into an empty receiver");
+    assert_eq!(
+        receiving.objects.ordered_ids(),
+        source_order.into_iter().rev().collect::<Vec<_>>(),
+        "C++ Xfer prepends each loaded record"
+    );
+    let queued = receiving.pending_object_removal_snapshot();
+    assert_eq!(queued.len(), 2);
+    assert_eq!(
+        queued.iter().map(|record| record.id).collect::<Vec<_>>(),
+        [id, second_id]
+    );
+    assert!(queued.iter().all(|record| !record.after_death));
+    for queued_id in [id, second_id] {
+        let restored = receiving
+            .host_object(queued_id)
+            .expect("queued object remains installed");
+        assert!(restored.status.destroyed);
+        assert!(!restored.status.on_die_started);
+    }
+
+    receiving.process_destroy_list();
+    assert!(receiving.host_object(id).is_none());
+    assert!(receiving.host_object(second_id).is_none());
+    assert!(receiving.pending_object_removal_snapshot().is_empty());
+    let audio_events = receiving.queued_audio_events.len();
+    receiving.process_destroy_list();
+    assert!(receiving.pending_object_removal_snapshot().is_empty());
+    assert_eq!(receiving.queued_audio_events.len(), audio_events);
+    assert!(
+        peer.host_object(id)
+            .is_some_and(|object| { object.health.current == 40.0 && !object.status.destroyed })
+    );
 }
 
 #[test]
@@ -213,7 +261,7 @@ fn local_open_contain_direct_delete_cascades_in_list_order_before_removal() {
         assert_eq!(object.contained_by, None);
     }
     world.process_destroy_list();
-    assert!(world.host_objects().is_empty());
+    assert!(world.host_objects().registered_is_empty());
 }
 
 #[test]
@@ -270,7 +318,7 @@ fn direct_tunnel_delete_remaps_then_directly_deletes_last_shared_pool() {
     // is false. Direct tunnel deletion must leave those unrelated units intact.
     let mut unrelated: Vec<_> = world
         .host_objects()
-        .keys()
+        .registered_keys()
         .copied()
         .filter(|id| ![first, second, child].contains(id))
         .collect();
@@ -297,7 +345,7 @@ fn direct_tunnel_delete_remaps_then_directly_deletes_last_shared_pool() {
     for id in [first, second, child] {
         assert!(world.host_object(id).is_none());
     }
-    let mut remaining: Vec<_> = world.host_objects().keys().copied().collect();
+    let mut remaining: Vec<_> = world.host_objects().registered_keys().copied().collect();
     remaining.sort_by_key(|id| id.0);
     assert_eq!(remaining, unrelated);
 }

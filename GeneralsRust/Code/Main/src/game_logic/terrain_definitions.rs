@@ -24,7 +24,7 @@ impl super::GameLogic {
         &mut self,
         catalog: Arc<TerrainTypes>,
     ) -> Result<(), String> {
-        if !self.objects.is_empty() {
+        if !self.objects.registered_is_empty() {
             return Err("Terrain definition admission requires an empty receiving world".into());
         }
         self.terrain_definitions = catalog;

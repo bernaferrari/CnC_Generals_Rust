@@ -95,11 +95,11 @@ fn detached_interpreter_toggle_changes_same_action_chain_birth_and_only_its_owne
         })
         .unwrap();
     assert!(!owner.objects_receive_difficulty_bonus);
-    assert_eq!(owner.host_objects().len(), 2);
+    assert_eq!(owner.host_objects().registered_len(), 2);
     assert!(
         owner
             .host_objects()
-            .values()
+            .registered_values()
             .all(|object| !object.is_receiving_difficulty_bonus)
     );
     assert!(peer.objects_receive_difficulty_bonus);
@@ -116,7 +116,7 @@ fn detached_interpreter_toggle_changes_same_action_chain_birth_and_only_its_owne
     assert!(
         owner
             .host_objects()
-            .values()
+            .registered_values()
             .all(|object| object.is_receiving_difficulty_bonus)
     );
 }

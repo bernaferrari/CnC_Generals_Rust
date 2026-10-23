@@ -29,7 +29,7 @@ fn apply_due(world: &mut GameLogic) {
 fn fire_children(world: &GameLogic) -> Vec<(ObjectId, String, Option<ObjectId>)> {
     let mut children: Vec<_> = world
         .objects
-        .iter()
+        .registered()
         .filter(|(_, child)| {
             matches!(
                 child.template_name.as_str(),

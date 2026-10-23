@@ -257,7 +257,7 @@ impl GameWorldShadow {
     pub fn sync_from_host_with(&mut self, logic: &GameLogic, write_health: bool) {
         self.sync_players(logic);
 
-        let mut obj_ids: Vec<ObjectId> = logic.host_objects().keys().copied().collect();
+        let mut obj_ids: Vec<ObjectId> = logic.host_objects().registered_keys().copied().collect();
         obj_ids.sort_by_key(|id| id.0);
         // C++ GameLogic grows its ObjectID lookup vector when a newly
         // allocated ID exceeds the current size (GameLogic.cpp:3827-3841).
@@ -306,7 +306,7 @@ impl GameWorldShadow {
 
         let mapped: Vec<ObjectId> = self.host_to_entity.keys().copied().map(ObjectId).collect();
         for oid in mapped {
-            let Some(obj) = logic.host_objects().get(&oid) else {
+            let Some(obj) = logic.host_objects().lookup(&oid) else {
                 continue;
             };
             let Some(&eid) = self.host_to_entity.get(&oid.0) else {
@@ -328,7 +328,7 @@ impl GameWorldShadow {
         // Containment is an observation of the receiving Main roster. Rebuild
         // its indexed view after all IDs exist; never admit it back to Main.
         self.world.contain_roster_mut().clear();
-        for (&host, object) in logic.host_objects() {
+        for (&host, object) in logic.host_objects().registered() {
             let Some(&container) = self.host_to_entity.get(&host.0) else {
                 continue;
             };

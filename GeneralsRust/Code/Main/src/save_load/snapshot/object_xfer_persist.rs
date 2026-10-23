@@ -1901,13 +1901,13 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             .map_err(|err| SaveLoadError::Corrupted(format!("OXOB payload decode: {err}")))?
     };
     body_damage_history_persist::validate(game_logic, &payload.body_history)?;
-    if version >= 16 && payload.body_history.len() != game_logic.host_objects().len() {
+    if version >= 16 && payload.body_history.len() != game_logic.host_objects().registered_len() {
         return Err(SaveLoadError::Corrupted(
             "incomplete saved body history owners".into(),
         ));
     }
     transport_movement_persist::validate(game_logic, &payload.transport)?;
-    if version >= 15 && payload.transport.len() != game_logic.host_objects().len() {
+    if version >= 15 && payload.transport.len() != game_logic.host_objects().registered_len() {
         return Err(SaveLoadError::Corrupted(
             "incomplete saved transport movement owners".into(),
         ));
@@ -1923,7 +1923,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             ));
         }
     }
-    if version >= 14 && damage_ids.len() != game_logic.host_objects().len() {
+    if version >= 14 && damage_ids.len() != game_logic.host_objects().registered_len() {
         return Err(SaveLoadError::Corrupted(
             "incomplete saved body damage-info owners".into(),
         ));
@@ -1940,7 +1940,7 @@ fn capture(game_logic: &GameLogic) -> ObjectXferPersistPayload {
     // new_with_logic_frame, which zeros those ranges, so every host object
     // must be captured — residual-only would drop hijack/S&D/shroud overrides.
     let mut objects = Vec::new();
-    for (id, object) in game_logic.host_objects() {
+    for (id, object) in game_logic.host_objects().registered() {
         objects.push(ObjectXferPersist {
             object_id: id.0,
             disabled_held: object.status.disabled_held,
@@ -2017,7 +2017,7 @@ fn capture(game_logic: &GameLogic) -> ObjectXferPersistPayload {
     }
     let script_status = game_logic
         .host_objects()
-        .iter()
+        .registered()
         .map(|(id, object)| ObjectScriptStatusPersist {
             object_id: id.0,
             script_targetable: object.script_targetable,
@@ -2026,7 +2026,7 @@ fn capture(game_logic: &GameLogic) -> ObjectXferPersistPayload {
         .collect();
     let structures = game_logic
         .host_objects()
-        .iter()
+        .registered()
         .filter_map(|(id, object)| {
             object
                 .structure_topple_data
@@ -2040,7 +2040,7 @@ fn capture(game_logic: &GameLogic) -> ObjectXferPersistPayload {
         .collect();
     let mut damage_info: Vec<_> = game_logic
         .host_objects()
-        .iter()
+        .registered()
         .map(|(id, object)| ObjectDamageInfoPersist {
             object_id: id.0,
             last_damage_type: object.last_damage_info_type,
@@ -2121,7 +2121,11 @@ fn validate_structure_records(
 fn reset_object_xfer(game_logic: &mut GameLogic) {
     transport_movement_persist::reset(game_logic);
     body_damage_history_persist::apply(game_logic, Vec::new());
-    let ids: Vec<ObjectId> = game_logic.host_objects().keys().copied().collect();
+    let ids: Vec<ObjectId> = game_logic
+        .host_objects()
+        .registered_keys()
+        .copied()
+        .collect();
     for id in ids {
         let Some(object) = game_logic.host_objects_mut().get_mut(&id) else {
             continue;
@@ -2873,19 +2877,19 @@ mod tests {
         assert!(
             logic
                 .host_objects()
-                .values()
+                .registered_values()
                 .all(|object| object.unit_ai_runtime.guard_scan_deadline().is_none())
         );
         assert!(
             logic
                 .host_objects()
-                .values()
+                .registered_values()
                 .all(|object| object.unit_ai_runtime.hunt_scan_deadline().is_none())
         );
         assert!(
             logic
                 .host_objects()
-                .values()
+                .registered_values()
                 .all(|object| object.unit_ai_runtime.quick_exit_deadline().is_none())
         );
     }
@@ -3469,12 +3473,12 @@ mod tests {
         assert_eq!(loaded.ignore_collisions_until_frame, 0);
         assert!(
             dest.host_objects()
-                .values()
+                .registered_values()
                 .all(|object| object.unit_ai_runtime.guard_scan_deadline().is_none())
         );
         assert!(
             dest.host_objects()
-                .values()
+                .registered_values()
                 .all(|object| object.unit_ai_runtime.hunt_scan_deadline().is_none())
         );
     }

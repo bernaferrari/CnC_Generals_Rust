@@ -88,7 +88,11 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
 }
 
 fn capture(game_logic: &GameLogic) -> TurretAimPersistPayload {
-    let mut object_ids: Vec<ObjectId> = game_logic.host_objects().keys().copied().collect();
+    let mut object_ids: Vec<ObjectId> = game_logic
+        .host_objects()
+        .registered_keys()
+        .copied()
+        .collect();
     object_ids.sort();
     let mut objects = Vec::new();
     for id in object_ids {
@@ -136,7 +140,11 @@ fn object_has_turret_residual(object: &crate::game_logic::Object) -> bool {
 }
 
 fn reset_turret_aim(game_logic: &mut GameLogic) {
-    let ids: Vec<ObjectId> = game_logic.host_objects().keys().copied().collect();
+    let ids: Vec<ObjectId> = game_logic
+        .host_objects()
+        .registered_keys()
+        .copied()
+        .collect();
     for id in ids {
         let Some(object) = game_logic.host_objects_mut().get_mut(&id) else {
             continue;

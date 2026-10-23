@@ -203,8 +203,9 @@ impl GameLogic {
                     ) {
                         Err(phase) => SimulationStepOutcome::CommandBoundary(phase),
                         Ok(ids) => {
-                            let ids =
-                                ids.unwrap_or_else(|| world.objects.keys().copied().collect());
+                            let ids = ids.unwrap_or_else(|| {
+                                world.objects.registered_keys().copied().collect()
+                            });
                             world.update_simulation_after_commands(
                                 dt,
                                 ui.reborrow(),

@@ -506,7 +506,7 @@ impl GameLogic {
         // Upgrades currently researching on a producer building.
         let mut building_researching: std::collections::HashSet<(u32, String)> =
             std::collections::HashSet::new();
-        for obj in self.objects.values() {
+        for obj in self.objects.registered_values() {
             let Some(building) = obj.building_data.as_ref() else {
                 continue;
             };
@@ -692,7 +692,7 @@ impl GameLogic {
         }
         let ids: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, o)| o.is_alive() && recipients.matches_object(o))
             .map(|(id, _)| *id)
             .collect();
@@ -730,7 +730,7 @@ impl GameLogic {
         }
         let ids: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, o)| o.is_alive() && recipients.matches_object(o))
             .filter(|(_, o)| should_enable_passengers_fire(upgrade_name, &o.template_name))
             .map(|(id, _)| *id)
@@ -757,7 +757,7 @@ impl GameLogic {
         use crate::game_logic::host_status_bits_upgrade::collect_status_bits_for_object;
         let ids: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, o)| o.is_alive() && recipients.matches_object(o))
             .map(|(id, _)| *id)
             .collect();
@@ -984,7 +984,7 @@ impl GameLogic {
 
         let owner_ids: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, obj)| obj.is_alive() && recipients.matches_object(obj))
             .map(|(id, _)| *id)
             .collect();
@@ -1273,7 +1273,7 @@ mod live_upgrade_mux_tests {
         assert!(
             logic
                 .objects
-                .values()
+                .registered_values()
                 .any(|obj| obj.template_name == "GLABarracks" && obj.is_alive()),
             "real barracks must spawn from live complete"
         );

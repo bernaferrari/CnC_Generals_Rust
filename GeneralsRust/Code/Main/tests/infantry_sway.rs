@@ -69,7 +69,10 @@ fn admit(
     downhill: bool,
 ) -> (GameLogic, ObjectId) {
     let mut game = GameLogic::new();
-    assert_eq!((game.get_frame(), game.host_objects().len()), (0, 0));
+    assert_eq!(
+        (game.get_frame(), game.host_objects().registered_len()),
+        (0, 0)
+    );
     // Movement is scheduled from frame 1. An empty frame-0 tick is not coverage.
     let warm = game.update_with_dt(DT);
     assert_eq!((warm.frame, warm.steps_run), (1, 1));
@@ -101,7 +104,7 @@ fn admit(
     game.templates.insert(unit.clone(), template);
     let id = game.create_object(&unit, Team::USA, Vec3::ZERO).unwrap();
     let object = game.host_object(id).unwrap();
-    assert_eq!(game.host_objects().len(), 1);
+    assert_eq!(game.host_objects().registered_len(), 1);
     assert_eq!(object.loco_appearance, binding.appearance);
     assert_eq!(object.wander_width_factor, width);
     assert_eq!(object.allow_motive_force_while_airborne, airborne);
@@ -161,7 +164,7 @@ fn tick(game: &mut GameLogic, expected_frame: u32) {
     assert!(!result.budget_hit);
     assert_eq!(result.accumulated_time_seconds, 0.0);
 
-    assert_eq!(game.host_objects().len(), 1);
+    assert_eq!(game.host_objects().registered_len(), 1);
 }
 fn assert_active_result(object: &Object, row: &[&str], before: Vec3, target: Vec3) {
     active_guards(object, LocomotorAppearance::LegsTwo);

@@ -633,7 +633,7 @@ impl GameLogic {
 
         let object_positions: Vec<(ObjectId, Vec3, Team, bool)> = self
             .objects
-            .iter()
+            .registered()
             .map(|(id, obj)| (*id, obj.get_position(), obj.team, obj.is_alive()))
             .collect();
 
@@ -914,7 +914,7 @@ impl GameLogic {
         // Snapshot object xyz + ids for 3D falloff planning.
         let objects: Vec<(ObjectId, f32, f32, f32, bool)> = self
             .objects
-            .iter()
+            .registered()
             .map(|(id, o)| {
                 let p = o.get_position();
                 (*id, p.x, p.y, p.z, o.is_alive())
@@ -1094,7 +1094,7 @@ impl GameLogic {
         // C++ WaveGuideUpdate.cpp:93-101 ctor m_needDisable; update:739-743
         // setDisabled(DISABLED_DEFAULT) on first tick so flood waves stay
         // inert until DamDie::onDie clears the bit.
-        for obj in self.objects.values_mut() {
+        for obj in self.objects.registered_values_mut() {
             let is_wg = obj.is_kind_of(crate::game_logic::KindOf::WaveGuide)
                 || is_wave_guide_template(&obj.template_name);
             if !is_wg {
@@ -1111,7 +1111,7 @@ impl GameLogic {
         // Collect waveguide ids + poses first.
         let guides: Vec<(ObjectId, glam::Vec3, f32)> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, o)| {
                 if o.status.disabled_default {
                     return None;
@@ -1132,7 +1132,7 @@ impl GameLogic {
 
         if guides.is_empty() {
             // Still tick ensure_active for enabled waveguides waiting on delay.
-            for obj in self.objects.values_mut() {
+            for obj in self.objects.registered_values_mut() {
                 if obj.status.disabled_default {
                     continue;
                 }
@@ -1287,7 +1287,7 @@ impl GameLogic {
 
             let victims: Vec<ObjectId> = self
                 .objects
-                .iter()
+                .registered()
                 .filter_map(|(id, o)| {
                     if *id == gid {
                         return None;
@@ -1426,7 +1426,7 @@ impl GameLogic {
     ) {
         let object_positions: Vec<(ObjectId, Vec3, Team, bool)> = self
             .objects
-            .iter()
+            .registered()
             .map(|(id, obj)| (*id, obj.get_position(), obj.team, obj.is_alive()))
             .collect();
 
@@ -1484,7 +1484,7 @@ impl GameLogic {
     ) {
         let object_positions: Vec<(ObjectId, Vec3, Team, bool, bool)> = self
             .objects
-            .iter()
+            .registered()
             .map(|(id, obj)| {
                 (
                     *id,
@@ -1560,7 +1560,7 @@ impl GameLogic {
         let frame = self.frame;
         let pending: Vec<(ObjectId, Vec3, Option<ObjectId>)> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, object)| {
                 if !object.is_alive() || object.is_disabled() {
                     return None;
@@ -1601,7 +1601,7 @@ impl GameLogic {
             }
         }
         let mut saw_gunship = false;
-        for obj in self.objects.values() {
+        for obj in self.objects.registered_values() {
             if obj.producer_id == Some(source) && obj.spectre_gunship_update.is_some() {
                 saw_gunship = true;
                 if obj.is_alive() {
@@ -1630,7 +1630,7 @@ impl GameLogic {
                     .map(|g| g.get_position());
             }
         }
-        self.objects.values().find_map(|obj| {
+        self.objects.registered_values().find_map(|obj| {
             (obj.producer_id == Some(source)
                 && obj.spectre_gunship_update.is_some()
                 && obj.is_alive())
@@ -1658,7 +1658,7 @@ impl GameLogic {
             }
         }
         self.objects
-            .values()
+            .registered_values()
             .find(|obj| {
                 obj.producer_id == Some(source)
                     && obj.spectre_gunship_update.is_some()
@@ -1892,7 +1892,7 @@ impl GameLogic {
                 )
             })
             .collect();
-        let ids: Vec<ObjectId> = self.objects.keys().copied().collect();
+        let ids: Vec<ObjectId> = self.objects.registered_keys().copied().collect();
         ids.into_iter()
             .filter_map(|id| {
                 let (pos, team, alive) = {
@@ -1918,7 +1918,7 @@ impl GameLogic {
     /// gate TARGETING only, they do not shield blast victims. Aircraft are
     /// exempt (SpectreHowitzerGun AntiAirborneVehicle/Infantry = No).
     fn spectre_orbit_blast_positions(&self) -> Vec<(ObjectId, Vec3, Team, bool)> {
-        let ids: Vec<ObjectId> = self.objects.keys().copied().collect();
+        let ids: Vec<ObjectId> = self.objects.registered_keys().copied().collect();
         ids.into_iter()
             .filter_map(|id| {
                 let obj = self.objects.get(&id)?;
@@ -2190,7 +2190,7 @@ impl GameLogic {
         self.apply_pending_special_power_overrides();
         let aborting: std::collections::HashSet<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, obj)| obj.puc_live_beam_abort_disabled())
             .map(|(id, _)| *id)
             .collect();
@@ -2223,7 +2223,7 @@ impl GameLogic {
         self.drain_puc_loop_audio();
         let object_positions: Vec<(ObjectId, Vec3, Team, bool)> = self
             .objects
-            .iter()
+            .registered()
             .map(|(id, obj)| (*id, obj.get_position(), obj.team, obj.is_alive()))
             .collect();
         // C++ SwathOfDeath rotates onto building→target, not world +X.
@@ -2319,7 +2319,7 @@ impl GameLogic {
         // Original range admission occurs after scorch/FX/reveal callbacks.
         let object_positions: Vec<(ObjectId, Vec3, Team, bool)> = self
             .objects
-            .iter()
+            .registered()
             .map(|(id, obj)| (*id, obj.get_position(), obj.team, obj.is_alive()))
             .collect();
 
@@ -2495,7 +2495,7 @@ impl GameLogic {
         // (id, detonation position) for shells that naturally end this frame.
         let due: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, o)| {
                 if !o.spectre_howitzer_shell {
                     return None;
@@ -2883,7 +2883,7 @@ impl GameLogic {
         let frame = self.frame;
         let due: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, o)| {
                 if o.particle_connector_laser {
                     if let Some(exp) = o.particle_connector_laser_expires_frame {
@@ -2993,7 +2993,7 @@ impl GameLogic {
         let frame = self.frame;
         let due: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, o)| {
                 if o.particle_orbital_laser {
                     if let Some(exp) = o.particle_orbital_laser_expires_frame {
@@ -3096,7 +3096,7 @@ impl GameLogic {
         let frame = self.frame;
         let due: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, o)| {
                 if o.particle_trail_remnant {
                     if let Some(exp) = o.particle_trail_remnant_expires_frame {
@@ -3135,7 +3135,7 @@ impl GameLogic {
     ) {
         let object_positions: Vec<(ObjectId, Vec3, Team, bool)> = self
             .objects
-            .iter()
+            .registered()
             .map(|(id, obj)| (*id, obj.get_position(), obj.team, obj.is_alive()))
             .collect();
 

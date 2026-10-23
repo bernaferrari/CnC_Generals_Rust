@@ -27,7 +27,7 @@ pub(super) struct Decoded<'a> {
 pub(super) fn append(bytes: &mut Vec<u8>, world: &GameLogic) -> SaveLoadResult<()> {
     let mut records: Vec<_> = world
         .host_objects()
-        .iter()
+        .registered()
         .map(|(id, object)| Record {
             object_id: id.0,
             kind: match object.thing().template.body_kind {

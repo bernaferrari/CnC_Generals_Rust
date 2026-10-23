@@ -2864,7 +2864,7 @@ fn rebuild_hole_clock_starts_at_death_start_not_topple_done() {
     logic.mark_object_for_destruction(sid, None);
     let hole = logic
         .objects
-        .values()
+        .registered_values()
         .find(|o| o.is_rebuild_hole)
         .map(|o| o.id)
         .expect("hole at death start");

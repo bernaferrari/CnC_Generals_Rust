@@ -147,7 +147,7 @@ fn save_file_absent_lifecycle_tail_loads_empty() {
     SnapshotBuilder::new()
         .restore_from_snapshot(&snapshot, &mut logic)
         .expect("current empty world retains admission metadata");
-    assert!(logic.host_objects().is_empty());
+    assert!(logic.host_objects().registered_is_empty());
     // Historical snapshots can omit the entire tail. Current snapshots must
     // retain the session admission metadata, even without lifecycle records.
     snapshot.version = 25;
@@ -155,7 +155,7 @@ fn save_file_absent_lifecycle_tail_loads_empty() {
     SnapshotBuilder::new()
         .restore_from_snapshot(&snapshot, &mut logic)
         .expect("absent tail");
-    assert!(logic.host_objects().is_empty());
+    assert!(logic.host_objects().registered_is_empty());
     let decoded = decode_lifecycle_tail(&snapshot.lifecycle_tail).expect("empty");
     assert!(decoded.envelopes.is_empty());
 }

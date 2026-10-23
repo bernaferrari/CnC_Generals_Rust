@@ -846,7 +846,7 @@ impl GameLogic {
         let pose_frame = self.frame;
         let living: Vec<(ObjectId, String, Vec3, bool)> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, obj)| {
                 if !obj.is_alive() {
                     return None;
@@ -1196,7 +1196,7 @@ impl GameLogic {
             let us_r = snap.hitch_radius.max(train.physics_collide_circle_radius());
             let victims: Vec<ObjectId> = self
                 .objects
-                .keys()
+                .registered_keys()
                 .copied()
                 .filter(|id| *id != snap.id)
                 .collect();

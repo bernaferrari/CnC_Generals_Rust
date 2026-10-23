@@ -169,7 +169,7 @@ impl GameLogic {
                     let team = self.players.get(&pid).map(|p| p.team);
                     let ids: Vec<ObjectId> = self
                         .objects
-                        .values()
+                        .registered_values()
                         .filter(|obj| {
                             if !obj.is_alive() || obj.status.destroyed {
                                 return false;
@@ -231,7 +231,7 @@ impl GameLogic {
                     let pids = self.host_script_idle_or_resume_player_ids(&player);
                     let ids: Vec<ObjectId> = self
                         .objects
-                        .values()
+                        .registered_values()
                         .filter(|obj| {
                             obj.is_alive()
                                 && !obj.status.destroyed
@@ -256,7 +256,7 @@ impl GameLogic {
                     let pids = self.host_script_idle_or_resume_player_ids(&player);
                     let ids: Vec<ObjectId> = self
                         .objects
-                        .values()
+                        .registered_values()
                         .filter(|obj| {
                             obj.is_alive()
                                 && !obj.status.destroyed
@@ -650,7 +650,7 @@ impl GameLogic {
         let team_set: std::collections::HashSet<_> = ids.iter().copied().collect();
         let mut best = None;
         let mut best_d = f32::MAX;
-        for obj in self.objects.values() {
+        for obj in self.objects.registered_values() {
             if !obj.is_alive() || obj.status.destroyed || obj.status.effectively_dead {
                 continue;
             }
@@ -880,7 +880,7 @@ impl GameLogic {
                         .unwrap_or_default();
                     occupants.extend(
                         self.objects
-                            .values()
+                            .registered_values()
                             .filter(|o| o.contained_by == Some(container) && o.is_alive())
                             .map(|o| o.id),
                     );

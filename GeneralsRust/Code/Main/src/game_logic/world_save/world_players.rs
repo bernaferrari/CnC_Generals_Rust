@@ -1153,8 +1153,8 @@ mod map_singleton_owner_tests {
                 .value,
             12
         );
-        assert_eq!(owner.objects.len(), 1);
-        let created = owner.objects.keys().next().copied().unwrap();
+        assert_eq!(owner.objects.registered_len(), 1);
+        let created = owner.objects.registered_keys().next().copied().unwrap();
         assert_eq!(owner.host_object(created).unwrap().owner_player_id, Some(1));
         assert_eq!(
             owner.team_factory.lock().unwrap().prototype_names(),
@@ -1183,11 +1183,11 @@ mod map_singleton_owner_tests {
             .create_object_for_player("MapCallbackInfantry", 1, Vec3::ZERO)
             .unwrap();
         assert_eq!(
-            owner.objects.len(),
+            owner.objects.registered_len(),
             2,
             "placed objects append after callback-created objects"
         );
-        assert!(peer.objects.is_empty());
+        assert!(peer.objects.registered_is_empty());
         assert_eq!(prototype_identity(&peer), peer_definitions);
         assert_eq!(
             peer.owned_script_engine
@@ -1216,7 +1216,7 @@ mod map_singleton_owner_tests {
             )])
         );
         assert_eq!(prototype_identity(&owner), definitions);
-        assert!(owner.objects.is_empty());
+        assert!(owner.objects.registered_is_empty());
         assert!(!owner.finish_map_script_foundation());
     }
 }

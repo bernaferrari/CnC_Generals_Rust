@@ -56,7 +56,7 @@ impl GameLogic {
 
         let candidates: Vec<(ObjectId, bool, bool, bool, bool, bool, bool)> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, obj)| {
                 if !obj.is_alive() {
                     return None;
@@ -215,7 +215,7 @@ impl GameLogic {
         // Snapshot jammers: alive ECM tank / frequency jammer residual sources.
         let jammers: Vec<(ObjectId, Team, Option<u32>, String, f32, f32)> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, obj)| {
                 if !obj.is_alive() || !is_ecm_jammer(&obj.template_name) {
                     return None;
@@ -244,7 +244,7 @@ impl GameLogic {
 
         if jammers.is_empty() {
             // Linger: C++ SubdualDamageHelper heals then onSubdualChange clears.
-            for obj in self.objects.values_mut() {
+            for obj in self.objects.registered_values_mut() {
                 let vehicle = obj.is_kind_of(KindOf::Vehicle)
                     && !obj.is_kind_of(KindOf::Aircraft)
                     && obj.object_type != ObjectType::Aircraft;
@@ -269,7 +269,7 @@ impl GameLogic {
         // C++ ECMTankVehicleDisabler: ground vehicles only (not infantry/aircraft).
         let candidates: Vec<(ObjectId, Option<u32>, String, f32, f32, bool, bool)> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, obj)| {
                 if !obj.is_alive() {
                     return None;
@@ -375,7 +375,7 @@ impl GameLogic {
         }
 
         // Sync fire-only weapons_jammed + DISABLED_SUBDUED full halt from isSubdued.
-        for obj in self.objects.values_mut() {
+        for obj in self.objects.registered_values_mut() {
             let vehicle = obj.is_kind_of(KindOf::Vehicle)
                 && !obj.is_kind_of(KindOf::Aircraft)
                 && obj.object_type != ObjectType::Aircraft;
@@ -484,7 +484,7 @@ impl GameLogic {
         let frame = self.frame;
         let jammers: Vec<(ObjectId, Team, f32, f32)> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, obj)| {
                 if !obj.is_alive() || !is_ecm_jammer(&obj.template_name) {
                     return None;
@@ -511,7 +511,7 @@ impl GameLogic {
 
         let missiles: Vec<(ObjectId, Team, f32, f32)> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, obj)| {
                 if !obj.is_alive() || obj.ecm_missile_jammed {
                     return None;
@@ -682,7 +682,7 @@ impl GameLogic {
         // Snapshot microwave tanks that are actively attacking.
         let cookers: Vec<(ObjectId, Team, Option<u32>, String, ObjectId, f32, f32)> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, obj)| {
                 if !obj.is_alive() || !is_microwave_tank(&obj.template_name) {
                     return None;
@@ -811,7 +811,7 @@ impl GameLogic {
         // Do not instantly clear when the beam drops — SubdualDamageHelper heals.
         let still_disabled = self
             .objects
-            .values()
+            .registered_values()
             .filter(|o| o.status.disabled_subdued && o.is_alive())
             .count() as u32;
 
@@ -916,7 +916,7 @@ impl GameLogic {
 
         let emitters: Vec<(ObjectId, Option<u32>, String, f32, f32, f32)> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, obj)| {
                 if !obj.is_alive() || !is_microwave_tank(&obj.template_name) {
                     return None;
@@ -948,7 +948,7 @@ impl GameLogic {
 
         let mut hits: Vec<(ObjectId, ObjectId, f32)> = Vec::new();
         for (eid, eowner, eteam_instance, ex, _ey, ez) in &emitters {
-            for (tid, tobj) in &self.objects {
+            for (tid, tobj) in self.objects.registered() {
                 if tid == eid || !tobj.is_alive() {
                     continue;
                 }
@@ -1096,7 +1096,7 @@ impl GameLogic {
 
         let mut inactive: Vec<ObjectId> = Vec::new();
         let mut towers: Vec<TowerSnap> = Vec::new();
-        for (id, obj) in &self.objects {
+        for (id, obj) in self.objects.registered() {
             let is_source = is_propaganda_tower(&obj.template_name)
                 || obj.has_overlord_propaganda_residual()
                 || is_overlord_propaganda_source(
@@ -1169,7 +1169,7 @@ impl GameLogic {
 
         if towers.is_empty() {
             self.propaganda_scan.clear();
-            for obj in self.objects.values_mut() {
+            for obj in self.objects.registered_values_mut() {
                 if obj.weapon_bonus_enthusiastic || obj.weapon_bonus_subliminal {
                     obj.weapon_bonus_enthusiastic = false;
                     obj.weapon_bonus_subliminal = false;
@@ -1180,7 +1180,7 @@ impl GameLogic {
 
         let candidates: Vec<(ObjectId, Team, f32, f32, Option<u32>)> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, obj)| {
                 if !obj.is_alive() || obj.is_kind_of(KindOf::Structure) {
                     return None;
@@ -1345,7 +1345,7 @@ impl GameLogic {
             }
         }
 
-        for (id, obj) in self.objects.iter_mut() {
+        for (id, obj) in self.objects.registered_mut() {
             if covered.contains(id) {
                 continue;
             }
@@ -1398,7 +1398,7 @@ impl GameLogic {
         // Snapshot healers: alive ambulance/medic residual units.
         let healers: Vec<(ObjectId, Team, Option<u32>, f32, f32)> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, obj)| {
                 if !obj.is_alive() || !is_ambulance_healer(&obj.template_name) {
                     return None;
@@ -1415,7 +1415,7 @@ impl GameLogic {
         // Snapshot damaged candidates: infantry (ModuleTag_22) or ground vehicles (ModuleTag_23).
         let candidates: Vec<(ObjectId, Team, Option<u32>, f32, f32, bool, bool, bool)> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, obj)| {
                 if !obj.is_alive() {
                     return None;
@@ -1538,7 +1538,7 @@ impl GameLogic {
         let frame = self.frame as u32;
         let ids: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             // CPP AutoHealBehavior::update uses the explicit dead flag, not
             // an inferred health predicate (construction can start at zero HP).
             .filter(|(_, o)| !o.status.effectively_dead && o.default_auto_heal.is_some())

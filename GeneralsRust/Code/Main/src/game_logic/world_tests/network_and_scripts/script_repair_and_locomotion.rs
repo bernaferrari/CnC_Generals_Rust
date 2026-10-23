@@ -9,7 +9,14 @@ fn live_object_force_select_selects_lowest_id_and_centers() {
     OBJECT_REGISTRY.clear();
     drain_script_act_b_queues();
 
+    let mut peer = GameLogic::new();
+    peer.session_view.target = Vec3::new(200., 0., 300.);
+    let peer_camera = peer.capture_camera_continuation().unwrap();
     let mut logic = GameLogic::new();
+    let previous_camera_target = Vec3::new(5., 0., 6.);
+    logic.session_view.target = previous_camera_target;
+    logic.session_view.camera.camera_yaw_radians = 0.71;
+    let previous_camera_yaw = logic.session_view.camera.camera_yaw_radians;
     logic.add_player(Player::new(1, Team::USA, "PlyrAmerica", true));
     let mut t = ThingTemplate::new("AmericaInfantryRanger");
     t.set_health(100.0);
@@ -53,9 +60,36 @@ fn live_object_force_select_selects_lowest_id_and_centers() {
         vec![older],
         "OBJECT_FORCE_SELECT picks the lowest object ID"
     );
-    let focus = logic.peek_pending_camera_focus().expect("centerInView");
+    // Source moveCameraTo(0) executes one1ms waypoint step. Crossing the
+    // final segment returns before setPosition; the next admitted view commits
+    // the selected actor's exact target. It must not fabricate a LookAt receipt.
+    assert_eq!(
+        logic.session_view.scripted.motion.points[2].world(),
+        Vec3::new(40., 0., 10.)
+    );
+    assert_eq!(logic.session_view.scripted.motion.total_time_ms, 0);
+    assert!(logic.session_view.scripted.motion.active);
+    assert_eq!(logic.session_view.target, previous_camera_target);
+    assert!(logic.peek_pending_camera_focus().is_none());
+    let _candidate = GameLogic::new();
+    assert_eq!(
+        logic.session_view.scripted.motion.points[2].world(),
+        Vec3::new(40., 0., 10.)
+    );
+    logic.headless_camera_view_offer(33).unwrap();
+    let focus = logic.session_view.target;
     assert!((focus.x - 40.0).abs() < 0.1);
     assert!((focus.z - 10.0).abs() < 0.1);
+    assert_eq!(
+        logic.session_view.camera.camera_yaw_radians.to_bits(),
+        previous_camera_yaw.to_bits(),
+        "orientFALSE preserves source angle"
+    );
+    assert_eq!(
+        peer.capture_camera_continuation().unwrap(),
+        peer_camera,
+        "force-select and candidate construction do not change another receiving view"
+    );
     assert!(
         logic
             .queued_audio_events

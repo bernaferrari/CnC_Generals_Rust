@@ -39,7 +39,7 @@ impl GameLogic {
                 let (produced, consumed) =
                     super::super::buildings::BuildingBehavior::calculate_power_for_team(
                         p.team,
-                        &self.objects,
+                        self.objects.read(),
                     );
                 (
                     p.resources.supplies as i32,
@@ -90,7 +90,7 @@ impl GameLogic {
 
         // Get build queues (from all constructing buildings)
         let mut build_queue = Vec::new();
-        for obj in self.objects.values() {
+        for obj in self.objects.registered_values() {
             if obj.status.under_construction {
                 // Estimate time remaining based on construction percent (assuming 30 second build time)
                 let estimated_total_time = 30.0;
@@ -112,7 +112,7 @@ impl GameLogic {
         let viewing_team = player.map(|p| p.team).unwrap_or(Team::Neutral);
         let shroud_snapshot = self.shroud_visibility_snapshot_for_team(viewing_team);
 
-        for (id, obj) in &self.objects {
+        for (id, obj) in self.objects.registered() {
             if obj.is_alive()
                 && (obj.is_kind_of(KindOf::Selectable) || obj.is_kind_of(KindOf::Structure))
                 && Self::is_object_visible_on_minimap_for_team(
@@ -529,7 +529,7 @@ impl GameLogic {
     /// Prefer this over iterating every object key each frame.
     pub fn object_ids_with_active_path(&self) -> Vec<ObjectId> {
         self.objects
-            .iter()
+            .registered()
             .filter(|(_, o)| {
                 o.is_alive()
                     && !o.movement.path.is_empty()
@@ -834,7 +834,7 @@ impl GameLogic {
         let mut supply_sources: Vec<(f32, f32, f32)> = Vec::new();
         let mut stealth_fail_no_bib = false;
         let mut busy_ally_in_way = false;
-        for obj in self.objects.values() {
+        for obj in self.objects.registered_values() {
             if !obj.is_alive() {
                 continue;
             }
@@ -1194,7 +1194,7 @@ impl GameLogic {
             }
         }
         // C++ getLayerForDestination != LAYER_GROUND (bridge deck).
-        for obj in self.objects.values() {
+        for obj in self.objects.registered_values() {
             if !obj.is_alive() {
                 continue;
             }
@@ -1311,7 +1311,7 @@ impl GameLogic {
                 * 1.4;
         let mut any_unmovables = false;
         let mut to_move: Vec<(ObjectId, glam::Vec3)> = Vec::new();
-        for (id, obj) in self.objects.iter() {
+        for (id, obj) in self.objects.registered() {
             if eligible_candidates.is_some_and(|candidates| !candidates.contains(id)) {
                 continue;
             }
@@ -1734,7 +1734,7 @@ impl GameLogic {
     /// Count living/under-construction Superweapon-link-key objects for a team residual.
     pub fn count_superweapon_link_key_owned(&self, team: Team) -> u32 {
         self.objects
-            .values()
+            .registered_values()
             .filter(|o| {
                 o.team == team
                     && o.is_alive()
@@ -1748,7 +1748,7 @@ impl GameLogic {
     /// quota and must not consume a same-faction opponent's allowance.
     pub fn count_superweapon_link_key_owned_by_player(&self, player_id: u32) -> u32 {
         self.objects
-            .values()
+            .registered_values()
             .filter(|obj| {
                 obj.owner_player_id == Some(player_id)
                     && obj.is_alive()
@@ -1783,7 +1783,7 @@ impl GameLogic {
             return 0;
         };
         self.objects
-            .values()
+            .registered_values()
             .filter(|obj| {
                 obj.team == team
                     && obj.is_alive()
@@ -1803,7 +1803,7 @@ impl GameLogic {
             return 0;
         };
         self.objects
-            .values()
+            .registered_values()
             .filter(|obj| {
                 obj.owner_player_id == Some(player_id)
                     && obj.is_alive()
@@ -1817,7 +1817,7 @@ impl GameLogic {
     /// Living constructed template names owned by a team residual (prereq scan).
     pub fn team_owned_constructed_templates(&self, team: Team) -> Vec<String> {
         let mut names = Vec::new();
-        for obj in self.objects.values() {
+        for obj in self.objects.registered_values() {
             if obj.team == team && obj.is_alive() && obj.is_constructed() {
                 names.push(obj.template_name.clone());
             }
@@ -1830,7 +1830,7 @@ impl GameLogic {
     /// and production queues.
     pub fn player_owned_constructed_templates(&self, player_id: u32) -> Vec<String> {
         self.objects
-            .values()
+            .registered_values()
             .filter(|obj| {
                 obj.owner_player_id == Some(player_id) && obj.is_alive() && obj.is_constructed()
             })
@@ -1935,7 +1935,7 @@ impl GameLogic {
             }
             counts[i] = self
                 .objects
-                .values()
+                .registered_values()
                 .filter(|obj| {
                     let owned = match player_id {
                         Some(id) => obj.owner_player_id == Some(id),
@@ -2014,7 +2014,7 @@ impl GameLogic {
         template_name: &str,
     ) -> u32 {
         let mut n = 0u32;
-        for obj in self.objects.values() {
+        for obj in self.objects.registered_values() {
             if obj.team != team || !obj.is_alive() {
                 continue;
             }
@@ -2040,7 +2040,7 @@ impl GameLogic {
         template_name: &str,
     ) -> u32 {
         let mut count = 0u32;
-        for obj in self.objects.values() {
+        for obj in self.objects.registered_values() {
             if obj.owner_player_id != Some(player_id) || !obj.is_alive() {
                 continue;
             }
@@ -2097,7 +2097,7 @@ impl GameLogic {
         };
         let check_queue = !wanted.is_kind_of(KindOf::Structure);
         let mut count = 0u32;
-        for obj in self.objects.values() {
+        for obj in self.objects.registered_values() {
             if obj.owner_player_id != Some(player_id) || !obj.is_alive() {
                 continue;
             }
@@ -2127,7 +2127,7 @@ impl GameLogic {
         };
         let check_queue = !wanted.is_kind_of(KindOf::Structure);
         let mut count = 0u32;
-        for obj in self.objects.values() {
+        for obj in self.objects.registered_values() {
             if obj.team != team || !obj.is_alive() {
                 continue;
             }
@@ -2188,7 +2188,7 @@ impl GameLogic {
         // records too; this `&self` UI query stays deterministic and
         // conservative between ticks.
         let mut occupied_slots = HashSet::new();
-        for obj in self.objects.values() {
+        for obj in self.objects.registered_values() {
             if obj.is_alive()
                 && (obj.is_kind_of(KindOf::Aircraft) || obj.object_type == ObjectType::Aircraft)
                 && obj.producer_id == Some(airfield_id)

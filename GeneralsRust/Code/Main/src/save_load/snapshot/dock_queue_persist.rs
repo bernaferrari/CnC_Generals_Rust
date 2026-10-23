@@ -118,7 +118,11 @@ fn capture(game_logic: &GameLogic) -> DockQueuePersistPayload {
         })
         .collect();
 
-    let mut dock_ids: Vec<ObjectId> = game_logic.host_objects().keys().copied().collect();
+    let mut dock_ids: Vec<ObjectId> = game_logic
+        .host_objects()
+        .registered_keys()
+        .copied()
+        .collect();
     dock_ids.sort();
     let mut active = Vec::new();
     for id in dock_ids {

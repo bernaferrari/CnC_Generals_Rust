@@ -153,7 +153,7 @@ fn hellfire_launch_consumes_once_and_deals_damage_only_at_real_impact_phase() {
     game.tick_nested_attack_machines(&[SOURCE], 31.0 / 30.0, 31);
     crate::game_logic::combat::drain_pending_projectiles(
         &mut game.combat_system,
-        &game.objects,
+        game.objects.read(),
         game.frame,
     );
     assert_eq!(ammo(&game), Some(1));
@@ -175,7 +175,7 @@ fn hellfire_launch_consumes_once_and_deals_damage_only_at_real_impact_phase() {
     game.tick_nested_attack_machines(&[SOURCE], 32.0 / 30.0, 32);
     crate::game_logic::combat::drain_pending_projectiles(
         &mut game.combat_system,
-        &game.objects,
+        game.objects.read(),
         game.frame,
     );
     assert_eq!(ammo(&game), Some(1));

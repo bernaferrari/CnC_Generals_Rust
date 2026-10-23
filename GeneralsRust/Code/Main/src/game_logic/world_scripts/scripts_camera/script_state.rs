@@ -77,9 +77,22 @@ impl GameLogic {
         player_index: Option<i32>,
         priority: u8,
     ) {
-        let Some(event) =
-            crate::game_logic::audio_dispatch_impl::resolve_per_unit_sound(template_name, slot)
-        else {
+        let event = match self.receiving_module_content.as_ref() {
+            Some(content) => content
+                .admitted_template(template_name)
+                .and_then(|template| {
+                    template
+                        .per_unit_sound_event(slot)
+                        .filter(|name| !name.is_empty())
+                        .map(str::to_owned)
+                }),
+            // Explicit unmigrated programmatic-template adapter. Admitted
+            // content never falls through on a missing name or silent slot.
+            None => {
+                crate::game_logic::audio_dispatch_impl::resolve_per_unit_sound(template_name, slot)
+            }
+        };
+        let Some(event) = event else {
             return;
         };
         let mut req = AudioEventRequest::new(&event).with_priority(priority);
@@ -180,7 +193,7 @@ impl GameLogic {
                 },
             );
         }
-        for (id, obj) in &self.objects {
+        for (id, obj) in self.objects.registered() {
             if let Some(pid) = obj.owner_player_id {
                 snap.object_owners.insert(id.0, pid as i32);
             }
@@ -217,7 +230,7 @@ impl GameLogic {
     /// Does **not** populate OBJECT_REGISTRY or wrap crate `Object`s.
     pub fn host_named_unit_id_map(&self) -> std::collections::HashMap<String, u32> {
         let mut map = std::collections::HashMap::new();
-        for (id, obj) in self.host_objects() {
+        for (id, obj) in self.host_objects().registered() {
             if obj.name.is_empty() {
                 continue;
             }
@@ -232,7 +245,7 @@ impl GameLogic {
             return None;
         }
         self.host_objects()
-            .iter()
+            .registered()
             .find(|(_, o)| o.name == name)
             .map(|(id, _)| *id)
     }
@@ -240,7 +253,7 @@ impl GameLogic {
     /// Host team query: live host objects on `team`.
     pub fn host_team_unit_ids(&self, team: crate::game_logic::Team) -> Vec<ObjectId> {
         self.host_objects()
-            .iter()
+            .registered()
             .filter(|(_, o)| o.team == team && o.is_alive() && !o.status.destroyed)
             .map(|(id, _)| *id)
             .collect()
@@ -249,7 +262,7 @@ impl GameLogic {
     /// Host area query: live host objects whose XZ is inside `min..=max`.
     pub fn host_area_unit_ids(&self, min: glam::Vec3, max: glam::Vec3) -> Vec<ObjectId> {
         self.host_objects()
-            .iter()
+            .registered()
             .filter(|(_, o)| {
                 if !o.is_alive() || o.status.destroyed {
                     return false;
@@ -278,7 +291,7 @@ impl GameLogic {
     /// C++ Object.cpp:2563–2635 preserves integer pose, skips and frame edges.
     fn project_host_trigger_flags(&self) {
         let objects = self.host_objects();
-        if objects.is_empty() {
+        if objects.registered_is_empty() {
             return;
         }
         let mut trigger_world = self
@@ -286,7 +299,7 @@ impl GameLogic {
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         trigger_world.set_current_frame(self.frame);
-        for (id, object) in objects {
+        for (id, object) in objects.registered() {
             let skip = object.is_kind_of(crate::game_logic::KindOf::Projectile)
                 || object.is_kind_of(crate::game_logic::KindOf::Inert);
             let team = if object.team_instance_name.is_empty() {
@@ -325,7 +338,7 @@ impl GameLogic {
                     .insert(team as u32, ids.iter().map(|id| id.0).collect());
             }
         }
-        for (id, obj) in self.host_objects() {
+        for (id, obj) in self.host_objects().registered() {
             snap.objects.push(HostScriptQueryObject {
                 id: id.0,
                 name: obj.name.clone(),
@@ -556,7 +569,7 @@ impl GameLogic {
                     crate::game_logic::host_structure_economy_residual::VALUE_PER_SUPPLY_BOX,
                 ..Default::default()
             };
-            for obj in self.host_objects().values() {
+            for obj in self.host_objects().registered_values() {
                 if !self.object_owned_by_player(obj, player.id) {
                     continue;
                 }
@@ -629,7 +642,7 @@ impl GameLogic {
         use gamelogic::scripting::HostTechBuildingCensus;
         let player_census = self.owned_host_player_census();
         let mut tech_buildings = Vec::new();
-        for obj in self.host_objects().values() {
+        for obj in self.host_objects().registered_values() {
             if !obj.is_kind_of(KindOf::TechBuilding) {
                 continue;
             }
@@ -738,7 +751,7 @@ impl GameLogic {
             }
             let ids: Vec<ObjectId> = self
                 .objects
-                .values()
+                .registered_values()
                 .filter(|obj| {
                     (!obj.team_instance_name.is_empty()
                         && obj.team_instance_name.eq_ignore_ascii_case(needle))
@@ -1080,9 +1093,19 @@ impl GameLogic {
                 self.queue_audio_event(crate::game_logic::AudioEventRequest::new(&req.audio));
             }
             if req.center_in_view {
-                if let Err(error) = self.request_camera_focus_with_effects(pos, effects) {
-                    log::error!("camera LookAt admission: {error}");
-                }
+                // ScriptActions.cpp4979: moveCameraTo(pos,0,0,FALSE,0,0).
+                // This is the source1ms waypoint admission, not player LookAt:
+                // preserve orientation and complete on the next admitted view.
+                self.start_camera_move_to_oriented(
+                    crate::game_logic::mission_scripts::CameraMoveToRequest {
+                        position: pos,
+                        seconds: 0.,
+                        camera_stutter_seconds: 0.,
+                        ease_in_seconds: 0.,
+                        ease_out_seconds: 0.,
+                    },
+                    false,
+                );
             }
         }
 
@@ -1094,7 +1117,7 @@ impl GameLogic {
                     };
                     let ids: Vec<ObjectId> = self
                         .objects
-                        .values()
+                        .registered_values()
                         .filter(|obj| {
                             obj.owner_player_id == Some(pid)
                                 && obj.is_alive()
@@ -1171,7 +1194,7 @@ impl GameLogic {
     ) {
         let ids: Vec<ObjectId> = self
             .objects
-            .values()
+            .registered_values()
             .filter(|obj| {
                 obj.owner_player_id == Some(player_id)
                     && obj.template_name.eq_ignore_ascii_case(template_name)
@@ -1421,7 +1444,7 @@ impl GameLogic {
     ) {
         let ids: Vec<ObjectId> = self
             .host_objects()
-            .iter()
+            .registered()
             .filter_map(|(id, obj)| {
                 (obj.owner_player_id == Some(source_player)
                     && obj.is_alive()

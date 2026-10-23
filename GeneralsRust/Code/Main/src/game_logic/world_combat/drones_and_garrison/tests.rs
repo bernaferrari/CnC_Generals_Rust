@@ -2246,7 +2246,7 @@ fn firebase_does_not_spawn_garrison_gun() {
     assert_eq!(guns, 0, "Fire Base must not spawn GarrisonGun drawables");
     let spawned = logic
         .objects
-        .values()
+        .registered_values()
         .filter(|o| o.template_name == "GarrisonGun")
         .count();
     assert_eq!(spawned, 0, "no GarrisonGun object at Fire Base stations");

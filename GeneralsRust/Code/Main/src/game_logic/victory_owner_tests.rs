@@ -149,7 +149,7 @@ struct GameplayObservation {
 fn gameplay_observation(world: &GameLogic) -> GameplayObservation {
     let mut objects: Vec<_> = world
         .host_objects()
-        .values()
+        .registered_values()
         .map(|o| (o.id, o.health.current, o.status.destroyed))
         .collect();
     objects.sort_by_key(|o| o.0);
@@ -322,7 +322,7 @@ fn completed_observation_tracks_each_evaluation_and_game_mode() {
         "completion must not manufacture a Draw result"
     );
     assert_eq!(gameplay_observation(&world), before);
-    let ids: Vec<_> = world.host_objects().keys().copied().collect();
+    let ids: Vec<_> = world.host_objects().registered_keys().copied().collect();
     for id in ids {
         let (object, health_events) = world.host_object_and_health_events_mut(id).unwrap();
         object.take_damage_from_immediate(1_000_000.0, None, health_events);

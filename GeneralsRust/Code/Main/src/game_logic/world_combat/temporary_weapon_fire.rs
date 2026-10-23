@@ -204,7 +204,7 @@ impl GameLogic {
     ) {
         let ids: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, object)| {
                 ((object.status.destroyed || object.health.current <= 0.0)
                     && !(object.status.on_die_started

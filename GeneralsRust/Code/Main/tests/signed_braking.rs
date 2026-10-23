@@ -77,7 +77,7 @@ fn run_case(name: &str) {
     assert_eq!(row.len(), 20);
     let mut game = GameLogic::new();
     assert_eq!(game.get_frame(), 0);
-    assert_eq!(game.host_objects().len(), 0);
+    assert_eq!(game.host_objects().registered_len(), 0);
     // Movement first wakes at frame 1. A frame-0-only tick is not evidence.
     let warm = game.update_with_dt(DT);
     assert_eq!((warm.frame, warm.steps_run), (1, 1));
@@ -111,7 +111,7 @@ fn run_case(name: &str) {
     let id = game
         .create_object(&unit_name, Team::USA, Vec3::ZERO)
         .unwrap();
-    assert_eq!(game.host_objects().len(), 1);
+    assert_eq!(game.host_objects().registered_len(), 1);
     {
         let object = game.host_object_mut(id).unwrap();
         eq_bits(
@@ -163,7 +163,7 @@ fn run_case(name: &str) {
     assert_eq!((tick.frame, tick.steps_run), (2, 1));
     assert!(!tick.budget_hit);
     assert_eq!(tick.accumulated_time_seconds, 0.0);
-    assert_eq!(game.host_objects().len(), 1);
+    assert_eq!(game.host_objects().registered_len(), 1);
     let object = game.host_object(id).unwrap();
     assert_isolated(object);
     assert!(object.is_alive());

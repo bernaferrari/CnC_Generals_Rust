@@ -41,6 +41,20 @@ impl ScriptConditionEvaluator<'_> {
         condition: &Condition,
         driver: &dyn ScriptExecutionDriver,
     ) -> Result<Option<ScriptConditionResult>, ScriptError> {
+        if condition.get_condition_type() == ConditionType::NamedReachedWaypointsEnd {
+            let engine = self.context.borrowed_engine();
+            return Ok(
+                match driver.named_waypoint_complete(
+                    &self.get_condition_string_param(condition, 0)?,
+                    &self.get_condition_string_param(condition, 1)?,
+                    engine.script_object_id(),
+                ) {
+                    ScriptOwnerQuery::Unavailable => None,
+                    ScriptOwnerQuery::Missing => Some(Self::bool_result(false)),
+                    ScriptOwnerQuery::Present(value) => Some(Self::bool_result(value)),
+                },
+            );
+        }
         if condition.get_condition_type() != ConditionType::TeamReachedWaypointsEnd {
             return Ok(None);
         }

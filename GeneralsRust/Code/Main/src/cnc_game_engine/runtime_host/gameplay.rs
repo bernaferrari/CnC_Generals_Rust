@@ -750,7 +750,7 @@ impl CnCGameEngine {
                     let candidates: Vec<_> = self
                         .game_logic
                         .host_objects()
-                        .values()
+                        .registered_values()
                         .filter(|o| o.team == team && o.is_alive() && !o.status.destroyed)
                         .filter(|o| {
                             o.template_name.to_ascii_lowercase().contains("barracks")

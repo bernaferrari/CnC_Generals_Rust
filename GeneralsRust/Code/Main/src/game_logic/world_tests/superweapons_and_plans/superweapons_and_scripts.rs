@@ -75,7 +75,7 @@ fn anthrax_bomb_exits_plane_at_delivery_distance_not_over_click() {
             plane_at_drop = plane_before;
             bomb_pos = logic
                 .host_objects()
-                .values()
+                .registered_values()
                 .find(|o| o.anthrax_bomb_payload)
                 .map(|o| o.get_position());
             break;
@@ -183,7 +183,7 @@ fn cluster_mines_bomb_exits_plane_not_over_click() {
             plane_at_drop = plane_before;
             bomb_pos = logic
                 .host_objects()
-                .values()
+                .registered_values()
                 .find(|o| o.cluster_mines_bomb)
                 .map(|o| o.get_position());
             break;
@@ -431,7 +431,7 @@ fn sneak_attack_residual_spawns_tunnel_and_shockwave() {
 
     let enemy_hp_before = game_logic.host_object(enemy_id).unwrap().health.current;
     let far_hp_before = game_logic.host_object(far_enemy_id).unwrap().health.current;
-    let objects_before = game_logic.host_objects().len();
+    let objects_before = game_logic.host_objects().registered_len();
 
     assert!(!game_logic.honesty_sneak_attack_ok());
 
@@ -468,7 +468,7 @@ fn sneak_attack_residual_spawns_tunnel_and_shockwave() {
     // TunnelStart residual may spawn immediately; real tunnel must not yet exist.
     let real_tunnels = |gl: &GameLogic| {
         gl.host_objects()
-            .values()
+            .registered_values()
             .filter(|o| {
                 o.is_alive()
                     && o.is_kind_of(crate::game_logic::KindOf::Structure)
@@ -481,7 +481,7 @@ fn sneak_attack_residual_spawns_tunnel_and_shockwave() {
         real_tunnels(&game_logic),
         0,
         "no real tunnel before Lifetime delay residual (objects={})",
-        game_logic.host_objects().len()
+        game_logic.host_objects().registered_len()
     );
     assert!(
         game_logic.host_sneak_attacks.tunnel_starts_spawned >= 1,
@@ -1041,7 +1041,7 @@ fn ai_production_does_not_spawn_when_player_cannot_afford_unit() {
     game_logic.update_ai(&[factory_id], 1.0 / 60.0);
 
     assert_eq!(
-        game_logic.objects.len(),
+        game_logic.objects.registered_len(),
         1,
         "AI should not spawn units for free when resources are insufficient"
     );
@@ -1093,7 +1093,7 @@ fn ai_production_queues_units_instead_of_spawning_immediately() {
     game_logic.update_ai(&[factory_id], 1.0 / 60.0);
 
     assert_eq!(
-        game_logic.objects.len(),
+        game_logic.objects.registered_len(),
         1,
         "AI production should queue first instead of instantly spawning a unit"
     );
@@ -1239,7 +1239,7 @@ fn china_barracks_quantity_modifier_spawns_two_redguards_residual() {
     logic.update();
     let before_complete = logic
         .host_objects()
-        .values()
+        .registered_values()
         .filter(|o| o.template_name == "ChinaInfantryRedguard" && o.is_alive())
         .count();
     assert_eq!(
@@ -1260,7 +1260,7 @@ fn china_barracks_quantity_modifier_spawns_two_redguards_residual() {
     logic.update();
     let living = logic
         .host_objects()
-        .values()
+        .registered_values()
         .filter(|o| o.template_name.contains("Redguard") && o.is_alive())
         .count();
     assert_eq!(
@@ -1280,14 +1280,14 @@ fn china_barracks_quantity_modifier_spawns_two_redguards_residual() {
     }
     let held = logic
         .host_objects()
-        .values()
+        .registered_values()
         .filter(|o| o.template_name.contains("Redguard") && o.is_alive())
         .count();
     assert_eq!(held, 1, "Queue must hold the second Red Guard for 8 frames");
     logic.update();
     let released = logic
         .host_objects()
-        .values()
+        .registered_values()
         .filter(|o| o.template_name.contains("Redguard") && o.is_alive())
         .count();
     assert_eq!(
@@ -1303,7 +1303,7 @@ fn china_barracks_quantity_modifier_spawns_two_redguards_residual() {
     // Exit path residual: units should be Moving toward authored natural rally.
     let moving = logic
         .host_objects()
-        .values()
+        .registered_values()
         .filter(|o| {
             o.template_name.contains("Redguard")
                 && o.is_alive()
@@ -1315,7 +1315,7 @@ fn china_barracks_quantity_modifier_spawns_two_redguards_residual() {
         "at least one Redguard should be on exit path residual, moving={moving}"
     );
     assert!(
-        logic.host_objects().values().any(|o| {
+        logic.host_objects().registered_values().any(|o| {
             o.template_name.contains("Redguard") && o.is_alive() && o.can_path_through_units
         }),
         "Queue exit must aiFollowExitProductionPath (can_path_through_units)"
@@ -1920,7 +1920,7 @@ fn parsed_queue_exit_runtime_uses_authored_initial_burst_and_delay() {
     logic.update();
     let living = logic
         .host_objects()
-        .values()
+        .registered_values()
         .filter(|o| o.template_name.contains("Redguard") && o.is_alive())
         .count();
     assert_eq!(
@@ -1938,7 +1938,7 @@ fn parsed_queue_exit_runtime_uses_authored_initial_burst_and_delay() {
     }
     let held = logic
         .host_objects()
-        .values()
+        .registered_values()
         .filter(|o| o.template_name.contains("Redguard") && o.is_alive())
         .count();
     assert_eq!(held, 2, "delay blocks the third member for 8 frames");
@@ -1947,7 +1947,7 @@ fn parsed_queue_exit_runtime_uses_authored_initial_burst_and_delay() {
     // ninth Queue decrement. Keep the actual ninth-frame spawn assertion.
     let living_end = logic
         .host_objects()
-        .values()
+        .registered_values()
         .filter(|o| o.template_name.contains("Redguard") && o.is_alive())
         .count();
     assert_eq!(

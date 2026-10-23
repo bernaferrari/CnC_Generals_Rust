@@ -19,13 +19,13 @@ impl PathfindingSystem {
         &mut self,
         start: Vec3,
         goal: Vec3,
-        objects: &HashMap<ObjectId, Object>,
+        objects: HostObjectRead<'_>,
         aircraft: bool,
         mover: Option<ObjectId>,
         ground_source: &PathfindingGround<'_>,
     ) -> Option<Vec<Vec3>> {
         let surfaces = mover
-            .and_then(|id| objects.get(&id))
+            .and_then(|id| objects.lookup(&id))
             .map(|obj| obj.locomotor_surfaces)
             .filter(|mask| *mask != 0)
             .unwrap_or(if aircraft {
@@ -50,7 +50,7 @@ impl PathfindingSystem {
         &mut self,
         start: Vec3,
         goal: Vec3,
-        objects: &HashMap<ObjectId, Object>,
+        objects: HostObjectRead<'_>,
         aircraft: bool,
         surfaces: u32,
         is_crusher: bool,
@@ -72,7 +72,7 @@ impl PathfindingSystem {
         self.grid.query_seeker_id = self.seeker_id.map(|id| id.0).unwrap_or(0);
         let seeker_adjusts = self
             .seeker_id
-            .and_then(|id| objects.get(&id))
+            .and_then(|id| objects.lookup(&id))
             .is_some_and(PathfindingGrid::is_aircraft_that_adjusts_destination);
         if self.adjust_goal && aircraft && seeker_adjusts {
             self.grid.query_check_for_aircraft = true;
@@ -100,7 +100,7 @@ impl PathfindingSystem {
             // cell center, which can drift past a clamp margin.
             let unit_radius = self
                 .seeker_id
-                .and_then(|id| objects.get(&id))
+                .and_then(|id| objects.lookup(&id))
                 .map(|o| o.selection_radius)
                 .unwrap_or(0.0);
             let cell = self.grid.world_to_grid(goal);
@@ -147,7 +147,7 @@ impl PathfindingSystem {
             .cell_for_unit_position(goal, self.seeker_center_in_cell);
         let start_layer = self
             .seeker_id
-            .and_then(|id| objects.get(&id))
+            .and_then(|id| objects.lookup(&id))
             .map(|o| {
                 self.grid
                     .layer_for_destination(o.get_position(), ground_source)
@@ -198,7 +198,7 @@ impl PathfindingSystem {
                         // then retry computePath (weaker than checkForAdjust).
                         let unit_radius = self
                             .seeker_id
-                            .and_then(|id| objects.get(&id))
+                            .and_then(|id| objects.lookup(&id))
                             .map(|o| o.selection_radius)
                             .unwrap_or(0.0);
                         let mut possible = goal;
@@ -355,7 +355,7 @@ impl PathfindingSystem {
         original: &[Vec3],
         surfaces: u32,
         is_crusher: bool,
-        objects: &HashMap<ObjectId, Object>,
+        objects: HostObjectRead<'_>,
         mover: Option<ObjectId>,
         ground_source: &PathfindingGround<'_>,
     ) -> Option<Vec<Vec3>> {
@@ -380,7 +380,7 @@ impl PathfindingSystem {
         // :10380-10383): infantry get radius 1, not pathDiameter/2 (=0).
         let radius = self
             .seeker_id
-            .and_then(|id| objects.get(&id))
+            .and_then(|id| objects.lookup(&id))
             .map(|o| {
                 PathfindingGrid::radius_and_center(o.selection_radius, self.grid.grid_size()).0
             })
@@ -1421,9 +1421,9 @@ impl PathfindingSystem {
         &self,
         mover_id: ObjectId,
         path: &[Vec3],
-        objects: &HashMap<ObjectId, Object>,
+        objects: HostObjectRead<'_>,
     ) -> Vec<ObjectId> {
-        let Some(mover) = objects.get(&mover_id) else {
+        let Some(mover) = objects.lookup(&mover_id) else {
             return Vec::new();
         };
         if path.len() < 2 {
@@ -1441,7 +1441,7 @@ impl PathfindingSystem {
         let ignore = self.ignore_obstacle_id;
         let blocked_by_ally = path.iter().skip(1).any(|wp| {
             let cell = self.grid.world_to_grid(*wp);
-            objects.values().any(|obj| {
+            objects.registered_values().any(|obj| {
                 if obj.id == mover_id || !obj.is_alive() || ignore == Some(obj.id) {
                     return false;
                 }
@@ -1461,7 +1461,7 @@ impl PathfindingSystem {
         let mut nudged = Vec::new();
         for wp in path.iter().skip(1).rev() {
             let cell = self.grid.world_to_grid(*wp);
-            for obj in objects.values() {
+            for obj in objects.registered_values() {
                 if obj.id == mover_id || !obj.is_alive() {
                     continue;
                 }
@@ -1506,7 +1506,7 @@ impl PathfindingSystem {
     pub fn move_unit_along_path(
         &self,
         object_id: ObjectId,
-        objects: &mut HashMap<ObjectId, Object>,
+        objects: &mut HostObjectStore,
         dt: f32,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) -> bool {
@@ -1552,7 +1552,7 @@ impl PathfindingSystem {
         &mut self,
         goal_object_id: ObjectId,
         goal_pos: Vec3,
-        objects: &HashMap<ObjectId, Object>,
+        objects: HostObjectRead<'_>,
         ground_source: &PathfindingGround<'_>,
     ) {
         // Update obstacles and create flow field (once per logic frame).
@@ -1575,7 +1575,7 @@ impl PathfindingSystem {
         &self,
         goal_object_id: ObjectId,
         unit_ids: &[ObjectId],
-        objects: &mut HashMap<ObjectId, Object>,
+        objects: &mut HostObjectStore,
         dt: f32,
     ) {
         if let Some(flow_field) = self.flow_fields.get(&goal_object_id) {
@@ -1622,7 +1622,7 @@ impl PathfindingSystem {
     pub fn find_paths_batch(
         &mut self,
         path_requests: Vec<(ObjectId, Vec3, Vec3)>, // (unit_id, start, goal)
-        objects: &HashMap<ObjectId, Object>,
+        objects: HostObjectRead<'_>,
         ground_source: &PathfindingGround<'_>,
     ) -> Vec<(ObjectId, Option<Vec<Vec3>>)> {
         self.ensure_dynamic_obstacles(objects, ground_source);
@@ -1667,19 +1667,19 @@ mod closest_path_ignored_footprint_tests {
         victim.owner_player_id = Some(1);
         victim.selection_radius = 25.0;
 
-        let mut objects = HashMap::new();
-        objects.insert(mover.id, mover);
-        objects.insert(victim.id, victim);
+        let mut objects = HostObjectStore::new();
+        objects.admit(mover.id, mover);
+        objects.admit(victim.id, victim);
         system.apply_structure_static_blocks(
-            &objects,
+            objects.read(),
             0.0,
             &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
         );
         system.grid.update_dynamic_obstacles(
-            &objects,
+            objects.read(),
             &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
         );
-        system.bind_seeker_from_mover(&objects, Some(ObjectId(1)));
+        system.bind_seeker_from_mover(objects.read(), Some(ObjectId(1)));
         system.apply_seeker_human_flag();
 
         let goal_cell = system.grid.world_to_grid(goal);

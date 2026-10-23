@@ -297,7 +297,7 @@ impl GameLogic {
                 .geometry_info
                 .bounding_sphere_radius();
             let mut tallest = 0.0f32;
-            for (other_id, other) in &self.objects {
+            for (other_id, other) in self.objects.registered() {
                 if *other_id == id || !other.is_kind_of(KindOf::Structure) {
                     continue;
                 }

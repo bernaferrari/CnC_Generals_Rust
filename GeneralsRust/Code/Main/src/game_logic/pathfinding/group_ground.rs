@@ -21,7 +21,7 @@ impl PathfindingGrid {
         &self,
         from: Vec3,
         to: Vec3,
-        objects: &HashMap<ObjectId, Object>,
+        objects: HostObjectRead<'_>,
         passable: impl Fn(GridPos) -> bool,
         cleanup_cells: &mut usize,
         ground_source: &PathfindingGround<'_>,
@@ -86,7 +86,7 @@ impl PathfindingGrid {
         &self,
         start: GridPos,
         goal: GridPos,
-        objects: &HashMap<ObjectId, Object>,
+        objects: HostObjectRead<'_>,
     ) -> Option<(Vec<GridPos>, u32)> {
         let (cells, cost) = self.group_ground_layer_trace(start, goal, objects)?;
         Some((cells.into_iter().map(|(pos, _)| pos).collect(), cost))
@@ -97,7 +97,7 @@ impl PathfindingGrid {
         &self,
         start: GridPos,
         goal: GridPos,
-        objects: &HashMap<ObjectId, Object>,
+        objects: HostObjectRead<'_>,
     ) -> Option<(Vec<(GridPos, u8)>, u32)> {
         let (cells, cost) = search::find(
             self,
@@ -129,12 +129,7 @@ impl PathfindingGrid {
         Cell { pos, layer }
     }
 
-    fn group_clearance(
-        &self,
-        cell: Cell,
-        diameter: i32,
-        objects: &HashMap<ObjectId, Object>,
-    ) -> i32 {
+    fn group_clearance(&self, cell: Cell, diameter: i32, objects: HostObjectRead<'_>) -> i32 {
         let radius = diameter / 2;
         let above = if radius == 0 { 1 } else { radius };
         let mut clear = true;
@@ -161,7 +156,7 @@ impl PathfindingGrid {
                     && occ.pos_unit != 0
                     && !occ.pos_moving
                     && objects
-                        .get(&ObjectId(occ.pos_unit))
+                        .lookup(&ObjectId(occ.pos_unit))
                         .is_some_and(|o| o.crushable_level > 0)
                 {
                     clear = false;

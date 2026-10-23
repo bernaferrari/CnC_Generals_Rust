@@ -1,8 +1,6 @@
 //! CPP PhysicsUpdate1475/1742 and SquishCollide: attemptDamage completes
 //! score/onDie/Armor before collision processing resumes on installed objects.
-use crate::game_logic::{
-    GameLogic, HostArmorSet, KindOf, Object, ObjectId, Player, Team, ThingTemplate, VeterancyLevel,
-};
+use crate::game_logic::{GameLogic, ObjectId, Player, Team, VeterancyLevel};
 use game_engine::common::ini::{ini_damage_fx as damage, ini_fx_list as fx};
 use gamelogic::common::{Coord3D, Matrix3D, ObjectShroudStatus};
 use gamelogic::helpers::HostFxObjectPose;
@@ -65,20 +63,53 @@ fn install() -> Receiver<(&'static str, Option<u32>)> {
     receive
 }
 fn world(squish: bool) -> (GameLogic, ObjectId) {
-    let mut parser = crate::assets::IniParser::new();
-    parser.parse_ini_content(&format!("Object CrushPhaseVictim\nKindOf = INFANTRY SCORE\nGeometry = CYLINDER\nGeometryMajorRadius = 4\nGeometryMinorRadius = 4\nGeometryHeight = 8\nBody = ActiveBody BodyTag\nMaxHealth = 100\nInitialHealth = 100\nEnd\nBehavior = FXListDie FxTag\nDeathFX = {DIE}\nEnd\nBehavior = CrushDie CrushTag\nEnd\nBehavior = KeepObjectDie KeepTag\nEnd\nEnd"), "crush-phase.ini").unwrap();
-    let mut template = GameLogic::build_template_from_object_definition(
-        "CrushPhaseVictim",
-        parser.get_definition("CrushPhaseVictim").unwrap(),
-        None,
-    );
-    template.experience_value = 100.;
-    template.experience_values = [100.; 4];
-    template.armor_sets.push(HostArmorSet {
-        conditions: 0,
-        armor: None,
-        damage_fx: Some("DamageFX_CrushPhase".into()),
-    });
+    let content = crate::assets::ReceivingObjectContent::from_sources([(
+        "physics_death_phase.ini".into(),
+        format!(
+            r#"
+Object CrushPhaseSource
+  KindOf = VEHICLE SCORE
+  Geometry = CYLINDER
+  GeometryIsSmall = Yes
+  GeometryMajorRadius = 2
+  GeometryMinorRadius = 2
+  GeometryHeight = 4
+  CrusherLevel = 2
+  IsTrainable = Yes
+  ExperienceRequired = 0 1 100000 200000
+  Body = ActiveBody SourceBody
+    MaxHealth = 100
+    InitialHealth = 100
+  End
+End
+Object CrushPhaseVictim
+  KindOf = INFANTRY SCORE
+  Geometry = CYLINDER
+  GeometryMajorRadius = 4
+  GeometryMinorRadius = 4
+  GeometryHeight = 8
+  ExperienceValue = 100 100 100 100
+  Body = ActiveBody BodyTag
+    MaxHealth = 100
+    InitialHealth = 100
+  End
+  ArmorSet
+    Conditions = None
+    Armor = None
+    DamageFX = DamageFX_CrushPhase
+  End
+  Behavior = FXListDie FxTag
+    DeathFX = {DIE}
+  End
+  Behavior = CrushDie CrushTag
+  End
+  Behavior = KeepObjectDie KeepTag
+  End
+End
+"#
+        ),
+    )])
+    .unwrap();
     let mut world = GameLogic::new();
     world.add_player(Player::new(0, Team::Neutral, "Neutral", false));
     for (id, team) in [(1, Team::USA), (2, Team::China)] {
@@ -86,7 +117,7 @@ fn world(squish: bool) -> (GameLogic, ObjectId) {
         player.alliance_team = id as i32;
         world.add_player(player);
     }
-    world.templates.insert(template.name.clone(), template);
+    world.admit_receiving_module_content(content).unwrap();
     let victim = world
         .create_object_for_player("CrushPhaseVictim", 1, Vec3::ZERO)
         .unwrap();
@@ -94,28 +125,19 @@ fn world(squish: bool) -> (GameLogic, ObjectId) {
     object.crushable_level = 0;
     object.selection_radius = 4.;
     object.has_squish_collide = squish;
-    let mut tank = ThingTemplate::new("CrushPhaseSource");
-    tank.add_kind_of(KindOf::Vehicle)
-        .add_kind_of(KindOf::Score)
-        .set_health(100.);
-    tank.is_trainable = true;
-    tank.veterancy_xp_thresholds = [1., 100000., 200000.];
-    tank.geometry_info = crate::game_logic::HostGeometryInfo {
-        geom_type: crate::game_logic::HostGeometryType::Cylinder,
-        is_small: true,
-        height: 4.,
-        major_radius: 2.,
-        minor_radius: 2.,
-        authored: true,
-    };
-    world.templates.insert(tank.name.clone(), tank.clone());
-    let mut crusher = Object::new(tank, CRUSHER, Team::China);
-    crusher.owner_player_id = Some(2);
-    crusher.crusher_level = 2;
-    crusher.set_position(Vec3::new(-20., 0., 0.));
+    world.set_next_object_id_for_restore(CRUSHER);
+    let crusher_id = world
+        .create_object_for_player("CrushPhaseSource", 2, Vec3::new(-20., 0., 0.))
+        .expect("actual receiving high-ID crush source");
+    assert_eq!(crusher_id, CRUSHER);
+    let crusher = world.objects.get_mut(&crusher_id).unwrap();
+    assert!(crusher.thing().template.is_trainable);
+    assert_eq!(
+        crusher.thing().template.veterancy_xp_thresholds,
+        [1., 100000., 200000.]
+    );
     crusher.set_orientation(0.);
     crusher.movement.velocity = Vec3::X * 5.;
-    world.objects.insert(CRUSHER, crusher);
     let mut shroud = world.world_services.shroud().lock().unwrap();
     shroud.init_shroud_grid(128., 128.);
     shroud.reveal_map_for_player_permanently(1).unwrap();
@@ -174,7 +196,7 @@ fn installed_overlap_completes_death_and_promotion_before_armor_in_both_crush_pa
                 );
                 assert_eq!(owner.objects[&CRUSHER].experience.current, 100.);
                 assert_eq!(
-                    owner.objects.len(),
+                    owner.objects.registered_len(),
                     2,
                     "callbacks run with both identities installed"
                 );

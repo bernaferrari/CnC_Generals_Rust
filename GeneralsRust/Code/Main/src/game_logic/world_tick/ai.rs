@@ -914,7 +914,7 @@ impl GameLogic {
         };
         let due: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, obj)| {
                 let data = obj.mine_data.as_ref()?;
                 if should_detonate_when_killed(
@@ -967,14 +967,14 @@ impl GameLogic {
     fn propagate_hacked_to_spawn_slaves(&mut self) {
         let sites: Vec<(ObjectId, u32)> = self
             .objects
-            .values()
+            .registered_values()
             .filter(|o| o.status.disabled_hacked && o.is_spawns_are_the_weapons())
             .map(|o| (o.id, o.status.disabled_hacked_until_frame))
             .collect();
         for (site_id, until) in sites {
             let child_ids: Vec<ObjectId> = self
                 .objects
-                .values()
+                .registered_values()
                 .filter(|o| {
                     o.producer_id == Some(site_id)
                         && (!o.status.disabled_hacked

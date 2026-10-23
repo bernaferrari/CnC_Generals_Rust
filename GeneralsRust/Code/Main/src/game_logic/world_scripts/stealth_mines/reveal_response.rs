@@ -24,7 +24,7 @@ impl GameLogic {
 
         let idle_in_vision: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(&id, o)| {
                 if id == victim_id || !o.is_alive() {
                     return None;

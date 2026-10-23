@@ -17,7 +17,7 @@ fn world() -> GameLogic {
     let mut world = GameLogic::new();
     world.world_min = Vec3::ZERO;
     world.world_max = Vec3::splat(1000.0);
-    world.add_player(Player::new(1, Team::USA, PLAYER, true));
+    world.add_player(Player::new(1, Team::USA, PLAYER, true).with_script_identity(PLAYER));
     let mut template = ThingTemplate::new(CANDIDATE);
     template.add_kind_of(KindOf::Vehicle).set_health(100.0);
     let mut prerequisite = ProductionPrerequisite::new();

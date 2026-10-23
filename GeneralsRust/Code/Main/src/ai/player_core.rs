@@ -726,7 +726,7 @@ impl AIPlayer {
         game_logic: &mut GameLogic,
     ) -> Option<Vec3> {
         let mut found = None;
-        for (&id, object) in game_logic.host_objects() {
+        for (&id, object) in game_logic.host_objects().registered() {
             if !object.is_alive() {
                 continue;
             }
@@ -1323,7 +1323,7 @@ impl AIPlayer {
         player_id: u32,
     ) -> bool {
         let game_logic = &AiWorldView::new(game_logic);
-        game_logic.host_objects().values().any(|object| {
+        game_logic.host_objects().registered_values().any(|object| {
             game_logic.object_owned_by_player(object, player_id)
                 && !Self::object_dead_or_destroyed(object)
                 && !object.is_kind_of(KindOf::Projectile)
@@ -1340,7 +1340,7 @@ impl AIPlayer {
         player_id: u32,
     ) -> bool {
         let game_logic = &AiWorldView::new(game_logic);
-        game_logic.host_objects().values().any(|object| {
+        game_logic.host_objects().registered_values().any(|object| {
             game_logic.object_owned_by_player(object, player_id)
                 && !Self::object_dead_or_destroyed(object)
                 && !object.is_kind_of(KindOf::Structure)
@@ -1359,7 +1359,7 @@ impl AIPlayer {
         build_facilities: &std::collections::HashSet<String>,
     ) -> bool {
         let game_logic = &AiWorldView::new(game_logic);
-        game_logic.host_objects().values().any(|object| {
+        game_logic.host_objects().registered_values().any(|object| {
             game_logic.object_owned_by_player(object, player_id)
                 && !object.status.destroyed
                 && build_facilities.contains(&object.template_name.to_ascii_lowercase())

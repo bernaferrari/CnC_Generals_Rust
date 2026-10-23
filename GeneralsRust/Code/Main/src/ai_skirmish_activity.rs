@@ -157,7 +157,7 @@ fn seed_gla_skirmish_start(logic: &mut GameLogic) {
 fn count_ai_structures(logic: &GameLogic) -> usize {
     logic
         .host_objects()
-        .values()
+        .registered_values()
         .filter(|o| o.team == Team::GLA && o.is_kind_of(KindOf::Structure))
         .count()
 }
@@ -165,7 +165,7 @@ fn count_ai_structures(logic: &GameLogic) -> usize {
 fn count_ai_units_or_queue(logic: &GameLogic) -> usize {
     logic
         .host_objects()
-        .values()
+        .registered_values()
         .filter(|o| {
             o.team == Team::GLA
                 && (o.is_kind_of(KindOf::Infantry)
@@ -469,8 +469,13 @@ mod tests {
             for b in &ai.building_queue {
                 eprintln!(
                     "  PAD {} pos={:?} obj={:?} built={} prio={} auto={} destroyed={:?}",
-                    b.template_name, b.position, b.object_id, b.is_built, b.is_priority,
-                    b.automatic_build, b.destroyed_at_time
+                    b.template_name,
+                    b.position,
+                    b.object_id,
+                    b.is_built,
+                    b.is_priority,
+                    b.automatic_build,
+                    b.destroyed_at_time
                 );
             }
             eprintln!(
@@ -499,8 +504,8 @@ mod tests {
     #[ignore = "temporary probe"]
     fn probe_airborne_hunting_gates() {
         use crate::ai_decisions::{AIDecisionSystem, AttackDecision};
-        use crate::game_logic::{KindOf, Player, ThingTemplate, Weapon};
         use crate::game_logic::AbleToAttackType;
+        use crate::game_logic::{KindOf, Player, ThingTemplate, Weapon};
 
         let mut game_logic = GameLogic::new();
         game_logic.add_player(Player::new(1, Team::USA, "USA AI", false));
@@ -557,8 +562,6 @@ mod tests {
         gates("hunt", true);
         let _ = AttackDecision::Hold;
     }
-
-
 
     #[test]
     fn medium_ai_activity_grows_across_update_windows() {
@@ -672,7 +675,7 @@ mod tests {
         // ArmsDealer must classify as WarFactory so Technical enqueue succeeds.
         let arms_type = logic
             .host_objects()
-            .values()
+            .registered_values()
             .find(|o| o.template_name == "GLA_ArmsDealer")
             .and_then(|o| o.building_data.as_ref().map(|b| b.building_type));
         assert_eq!(arms_type, Some(BuildingType::WarFactory));

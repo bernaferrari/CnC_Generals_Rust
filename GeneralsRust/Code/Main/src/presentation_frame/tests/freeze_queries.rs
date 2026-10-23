@@ -884,7 +884,6 @@ fn local_player_freeze_from_host() {
         p.is_local = true;
         p.is_alive = true;
         p.resources.supplies = 12345;
-        p.power_available = 40;
         p.power_produced = 100;
         p.power_consumed = 55;
         p.radar_count = 2;
@@ -899,7 +898,7 @@ fn local_player_freeze_from_host() {
     let frame = PresentationFrame::build_from_logic(&mut logic, pid);
     assert_eq!(frame.local_player_id, pid);
     assert_eq!(frame.local_supplies, 12345);
-    assert_eq!(frame.local_power, 40);
+    assert_eq!(frame.local_power, 100 - 55);
     assert_eq!(frame.local_power_produced, 100);
     assert_eq!(frame.local_power_consumed, 55);
     assert!(frame.local_is_alive);

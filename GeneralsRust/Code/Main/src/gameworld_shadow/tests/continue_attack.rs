@@ -117,7 +117,7 @@ fn apply_ai_command_logs_and_host_applies_under_authority() {
 
     // Production path is host-immediate engagement + decision log (GameWorld
     // last-write). Shadow writeback re-asserts the same target.
-    let host = logic.host_objects().get(&oid).unwrap();
+    let host = logic.host_objects().lookup(&oid).unwrap();
     assert_eq!(
         host.target,
         Some(vid),
@@ -134,7 +134,7 @@ fn apply_ai_command_logs_and_host_applies_under_authority() {
     // Host already holds the target; writeback is a no-op when equal.
     shadow.sync_from_host(&logic);
 
-    assert_eq!(logic.host_objects().get(&oid).unwrap().target, Some(vid));
+    assert_eq!(logic.host_objects().lookup(&oid).unwrap().target, Some(vid));
 }
 
 #[test]
@@ -179,7 +179,7 @@ fn continue_attack_after_kill_decision_authority() {
     shadow.sync_from_host(&logic);
 
     assert_eq!(
-        logic.host_objects().get(&attacker).unwrap().target,
+        logic.host_objects().lookup(&attacker).unwrap().target,
         Some(next)
     );
 }
@@ -219,7 +219,7 @@ fn assign_unit_attack_path_decision_authority() {
     let ok = logic.assign_unit_attack_path_for_test(uid, Some(vid), tpos);
     assert!(ok, "attack path should assign");
 
-    let host = logic.host_objects().get(&uid).unwrap();
+    let host = logic.host_objects().lookup(&uid).unwrap();
     assert_eq!(
         host.target,
         Some(vid),
@@ -235,7 +235,7 @@ fn assign_unit_attack_path_decision_authority() {
     shadow.sync_from_host(&logic);
     shadow.sync_from_host(&logic);
 
-    assert_eq!(logic.host_objects().get(&uid).unwrap().target, Some(vid));
+    assert_eq!(logic.host_objects().lookup(&uid).unwrap().target, Some(vid));
 }
 
 #[test]
@@ -269,7 +269,7 @@ fn path_approach_with_state_decision_authority() {
     shadow.sync_from_host(&logic);
     shadow.sync_from_host(&logic);
     assert_eq!(
-        logic.host_objects().get(&oid).unwrap().ai_state,
+        logic.host_objects().lookup(&oid).unwrap().ai_state,
         AIState::Gathering
     );
 }
@@ -321,12 +321,12 @@ fn troop_crawler_assault_decision_authority() {
     // Host engagement should stick same-frame for unload residual.
     let host_engaged = logic
         .host_objects()
-        .iter()
+        .registered()
         .any(|(id, o)| *id != enemy && o.target == Some(enemy));
     assert!(
         host_engaged,
         "assault deploy must set host target same-frame; ordered={ordered} occ_target={:?}",
-        logic.host_objects().get(&occ).map(|o| o.target)
+        logic.host_objects().lookup(&occ).map(|o| o.target)
     );
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
@@ -336,7 +336,7 @@ fn troop_crawler_assault_decision_authority() {
     // Writeback should land on whoever logged AttackTarget (occ if ordered, else engagetest).
     let hit = logic
         .host_objects()
-        .iter()
+        .registered()
         .any(|(id, o)| o.target == Some(enemy) && *id != enemy);
     assert!(hit, "writeback must set some unit target to enemy");
 }
@@ -400,13 +400,17 @@ fn missile_defender_laser_guided_decision_authority() {
     }
 
     assert_eq!(
-        logic.host_objects().get(&mid).unwrap().target,
+        logic.host_objects().lookup(&mid).unwrap().target,
         Some(eid),
         "host target applies immediately under decision authority"
     );
     // Weapon slot still host-applied.
     assert_eq!(
-        logic.host_objects().get(&mid).unwrap().active_weapon_slot,
+        logic
+            .host_objects()
+            .lookup(&mid)
+            .unwrap()
+            .active_weapon_slot,
         1
     );
     let mut shadow = GameWorldShadow::new(64);
@@ -414,7 +418,7 @@ fn missile_defender_laser_guided_decision_authority() {
     shadow.sync_from_host(&logic);
     shadow.sync_from_host(&logic);
 
-    assert_eq!(logic.host_objects().get(&mid).unwrap().target, Some(eid));
+    assert_eq!(logic.host_objects().lookup(&mid).unwrap().target, Some(eid));
 }
 
 #[test]
@@ -453,7 +457,7 @@ fn private_attack_object_decision_authority() {
 
     // AIUpdate.cpp:3395 installs the goal before entering the attack state.
     // Diagnostic decision recording does not postpone the host transition.
-    assert_eq!(logic.host_objects().get(&uid).unwrap().target, Some(vid));
+    assert_eq!(logic.host_objects().lookup(&uid).unwrap().target, Some(vid));
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
     shadow.sync_from_host(&logic);
@@ -467,7 +471,7 @@ fn private_attack_object_decision_authority() {
         .attack_target = None;
     shadow.sync_from_host(&logic);
 
-    assert_eq!(logic.host_objects().get(&uid).unwrap().target, Some(vid));
+    assert_eq!(logic.host_objects().lookup(&uid).unwrap().target, Some(vid));
 }
 
 #[test]
@@ -505,7 +509,7 @@ fn transfer_attack_decision_authority() {
 
     // Host retargets immediately (C++ transferAttack / rebuild-hole residual).
     assert_eq!(
-        logic.host_objects().get(&attacker).unwrap().target,
+        logic.host_objects().lookup(&attacker).unwrap().target,
         Some(to),
         "host must retarget immediately"
     );
@@ -515,7 +519,7 @@ fn transfer_attack_decision_authority() {
     shadow.sync_from_host(&logic);
 
     assert_eq!(
-        logic.host_objects().get(&attacker).unwrap().target,
+        logic.host_objects().lookup(&attacker).unwrap().target,
         Some(to)
     );
 }
@@ -547,7 +551,7 @@ fn apply_engagement_decision_aware_writeback() {
 
     // C++ AIAttackState sets the goal on the Object same-frame
     // (AIAttackState.cpp enter/update). Host applies immediately; GW last-writes.
-    assert_eq!(logic.host_objects().get(&uid).unwrap().target, Some(vid));
+    assert_eq!(logic.host_objects().lookup(&uid).unwrap().target, Some(vid));
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
     shadow.sync_from_host(&logic);
@@ -560,7 +564,7 @@ fn apply_engagement_decision_aware_writeback() {
         .attack_target = None;
     shadow.sync_from_host(&logic);
 
-    assert_eq!(logic.host_objects().get(&uid).unwrap().target, Some(vid));
+    assert_eq!(logic.host_objects().lookup(&uid).unwrap().target, Some(vid));
 }
 
 #[test]
@@ -644,7 +648,7 @@ fn mood_auto_acquire_logs_decision_under_authority() {
     logic.tick_mood_auto_acquire_for_test(&[oid]);
 
     // AIStates.cpp:1417-1427 enters the attack during the owning mood update.
-    assert_eq!(logic.host_objects().get(&oid).unwrap().target, Some(vid));
+    assert_eq!(logic.host_objects().lookup(&oid).unwrap().target, Some(vid));
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
     shadow.sync_from_host(&logic);
@@ -657,7 +661,7 @@ fn mood_auto_acquire_logs_decision_under_authority() {
         .attack_target = None;
     shadow.sync_from_host(&logic);
 
-    assert_eq!(logic.host_objects().get(&oid).unwrap().target, Some(vid));
+    assert_eq!(logic.host_objects().lookup(&oid).unwrap().target, Some(vid));
 }
 
 #[test]
@@ -685,7 +689,7 @@ fn support_guard_engage_uses_decision_authority() {
     logic.engage_target_decision_aware_for_test(oid, vid);
 
     assert_eq!(
-        logic.host_objects().get(&oid).unwrap().target,
+        logic.host_objects().lookup(&oid).unwrap().target,
         Some(vid),
         "host engage immediate"
     );
@@ -694,7 +698,7 @@ fn support_guard_engage_uses_decision_authority() {
     shadow.sync_from_host(&logic);
     shadow.sync_from_host(&logic);
 
-    assert_eq!(logic.host_objects().get(&oid).unwrap().target, Some(vid));
+    assert_eq!(logic.host_objects().lookup(&oid).unwrap().target, Some(vid));
 }
 
 #[test]
@@ -739,13 +743,13 @@ fn faction_ai_launch_attack_decision_authority_writeback() {
         .map(|(id, _)| *id);
     let enemy = logic
         .host_objects()
-        .iter()
+        .registered()
         .find(|(_, o)| o.team == Team::GLA)
         .map(|(id, _)| *id)
         .expect("enemy");
     let usa_unit = logic
         .host_objects()
-        .iter()
+        .registered()
         .find(|(_, o)| o.team == Team::USA)
         .map(|(id, _)| *id)
         .expect("usa");
@@ -761,7 +765,7 @@ fn faction_ai_launch_attack_decision_authority_writeback() {
     ai.launch_attack(&mut logic, 1000.0);
 
     assert_eq!(
-        logic.host_objects().get(&usa_unit).unwrap().target,
+        logic.host_objects().lookup(&usa_unit).unwrap().target,
         Some(enemy),
         "launch_attack must engage host target immediately"
     );
@@ -771,7 +775,7 @@ fn faction_ai_launch_attack_decision_authority_writeback() {
     shadow.sync_from_host(&logic);
 
     assert_eq!(
-        logic.host_objects().get(&usa_unit).unwrap().target,
+        logic.host_objects().lookup(&usa_unit).unwrap().target,
         Some(enemy)
     );
 }
@@ -808,7 +812,7 @@ fn stop_attack_decision_authority_clears_via_writeback() {
 
     // Host engagement clears same-frame so combat cannot keep firing.
     assert!(
-        logic.host_objects().get(&oid).unwrap().target.is_none(),
+        logic.host_objects().lookup(&oid).unwrap().target.is_none(),
         "host target must clear immediately on stop"
     );
     let mut shadow = GameWorldShadow::new(64);
@@ -820,7 +824,7 @@ fn stop_attack_decision_authority_clears_via_writeback() {
     shadow.sync_from_host(&logic);
     shadow.sync_from_host(&logic);
 
-    assert!(logic.host_objects().get(&oid).unwrap().target.is_none());
+    assert!(logic.host_objects().lookup(&oid).unwrap().target.is_none());
 }
 
 #[test]
@@ -1012,7 +1016,7 @@ fn ai_decision_authority_applies_host_state_when_shadow_disabled() {
         logic.assign_unit_path(id, Vec3::new(50.0, 0.0, 0.0), &[]),
         "assign_unit_path"
     );
-    let st = logic.host_objects().get(&id).unwrap().ai_state.clone();
+    let st = logic.host_objects().lookup(&id).unwrap().ai_state.clone();
     assert!(
         matches!(st, crate::game_logic::AIState::Moving),
         "host-only must set Moving immediately under AI_DECISION_AUTH, got {st:?}"
@@ -1084,11 +1088,11 @@ fn movement_authority_integrates_host_when_shadow_disabled() {
         o.movement.target_position = Some(Vec3::new(100.0, 0.0, 0.0));
         o.status.moving = true;
     }
-    let pre = logic.host_objects().get(&id).unwrap().get_position();
+    let pre = logic.host_objects().lookup(&id).unwrap().get_position();
     for _ in 0..10 {
         logic.update_with_dt(1.0 / 30.0);
     }
-    let post = logic.host_objects().get(&id).unwrap().get_position();
+    let post = logic.host_objects().lookup(&id).unwrap().get_position();
     let dist = (post - pre).length();
     assert!(
         dist > 0.01,

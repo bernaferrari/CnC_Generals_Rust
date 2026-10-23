@@ -113,21 +113,24 @@ fn overlord_enter_uses_actual_payload_roster_and_preserves_same_id_peer() {
     assert_eq!(owner.host_object(unit).unwrap().contained_by, Some(payload));
     assert_eq!(owner.owned_script_containment(hull).unwrap().count, 1);
     assert_eq!(owner.owned_script_containment(hull).unwrap().max, 5);
-    assert!(peer
-        .host_object(payload)
-        .unwrap()
-        .contained_units()
-        .is_empty());
+    assert!(
+        peer.host_object(payload)
+            .unwrap()
+            .contained_units()
+            .is_empty()
+    );
     owner.host_object_mut(hull).unwrap().status.disabled_subdued = true;
     assert!(!owner.can_unit_enter_normal_target(peer_unit, hull));
     assert!(!owner.evacuate_container_now(hull, false));
     owner.host_object_mut(hull).unwrap().status.disabled_subdued = false;
     assert!(owner.evacuate_container_now(hull, false));
-    assert!(owner
-        .host_object(payload)
-        .unwrap()
-        .contained_units()
-        .is_empty());
+    assert!(
+        owner
+            .host_object(payload)
+            .unwrap()
+            .contained_units()
+            .is_empty()
+    );
     assert_eq!(owner.host_object(unit).unwrap().contained_by, None);
     assert_eq!(
         owner.host_object(hull).unwrap().contained_units(),
@@ -141,17 +144,21 @@ fn overlord_delete_detaches_payload_and_riders_before_physical_removal() {
     owner.destroy_object(hull);
     assert!(owner.host_object(hull).unwrap().status.destroyed);
     assert!(!owner.host_object(hull).unwrap().overlord_redirection_active);
-    assert!(owner
-        .host_object(hull)
-        .unwrap()
-        .contained_units()
-        .is_empty());
+    assert!(
+        owner
+            .host_object(hull)
+            .unwrap()
+            .contained_units()
+            .is_empty()
+    );
     assert!(owner.host_object(payload).unwrap().is_alive());
-    assert!(owner
-        .host_object(payload)
-        .unwrap()
-        .contained_units()
-        .is_empty());
+    assert!(
+        owner
+            .host_object(payload)
+            .unwrap()
+            .contained_units()
+            .is_empty()
+    );
     assert_eq!(owner.host_object(payload).unwrap().contained_by, None);
     assert!(owner.host_object(unit).unwrap().is_alive());
     assert_eq!(owner.host_object(unit).unwrap().contained_by, None);
@@ -196,28 +203,34 @@ fn overlord_redirection_phase_survives_owned_lifecycle_codec() {
 fn overlord_on_die_deactivates_then_completes_installed_payload_before_removal() {
     let (mut owner, unit, hull, payload) = world();
     enter(&mut owner, unit, hull);
-    assert!(owner
-        .objects
-        .get_mut(&hull)
-        .unwrap()
-        .kill(&mut owner.health_events));
+    assert!(
+        owner
+            .objects
+            .get_mut(&hull)
+            .unwrap()
+            .kill(&mut owner.health_events)
+    );
     owner.mark_object_for_destruction(hull, None);
     assert!(!owner.host_object(hull).unwrap().overlord_redirection_active);
     assert_eq!(
         owner.host_object(hull).unwrap().overlord_portable_occupant,
         None
     );
-    assert!(owner
-        .host_object(hull)
-        .unwrap()
-        .contained_units()
-        .is_empty());
+    assert!(
+        owner
+            .host_object(hull)
+            .unwrap()
+            .contained_units()
+            .is_empty()
+    );
     assert!(!owner.host_object(payload).unwrap().is_alive());
-    assert!(owner
-        .host_object(payload)
-        .unwrap()
-        .contained_units()
-        .is_empty());
+    assert!(
+        owner
+            .host_object(payload)
+            .unwrap()
+            .contained_units()
+            .is_empty()
+    );
     assert_eq!(owner.host_object(payload).unwrap().contained_by, None);
     assert_eq!(owner.host_object(unit).unwrap().contained_by, None);
     assert_eq!(
@@ -314,21 +327,23 @@ End
         Some(1.0)
     );
     enter(&mut owner, unit, hull);
-    assert!(owner
-        .objects
-        .get_mut(&hull)
-        .unwrap()
-        .kill(&mut owner.health_events));
+    assert!(
+        owner
+            .objects
+            .get_mut(&hull)
+            .unwrap()
+            .kill(&mut owner.health_events)
+    );
     owner.mark_object_for_destruction(hull, None);
     let rider_witness = owner
         .host_objects()
-        .values()
+        .registered_values()
         .find(|object| object.template_name == "RiderDeathWitness")
         .expect("actual rider InstantDeath OCL")
         .id;
     let payload_witness = owner
         .host_objects()
-        .values()
+        .registered_values()
         .find(|object| object.template_name == "PayloadDeathWitness")
         .expect("actual payload InstantDeath OCL")
         .id;
@@ -337,11 +352,13 @@ End
         "child contain onDie must finish before its later InstantDeath effect"
     );
     assert_eq!(owner.host_object(unit).unwrap().contained_by, None);
-    assert!(owner
-        .host_object(child)
-        .unwrap()
-        .contained_units()
-        .is_empty());
+    assert!(
+        owner
+            .host_object(child)
+            .unwrap()
+            .contained_units()
+            .is_empty()
+    );
 }
 
 #[test]
@@ -405,11 +422,13 @@ fn active_overlord_restore_rejects_wrong_child_and_admits_saved_links() {
     owner.host_object_mut(payload).unwrap().contained_by = None;
     apply_lifecycle_tail_to_host(&saved, &mut owner).unwrap();
     assert_eq!(owner.redirected_containment_owner(hull), payload);
-    assert!(owner
-        .host_object(hull)
-        .unwrap()
-        .contained_units()
-        .contains(&payload));
+    assert!(
+        owner
+            .host_object(hull)
+            .unwrap()
+            .contained_units()
+            .contains(&payload)
+    );
     assert_eq!(owner.host_object(payload).unwrap().contained_by, Some(hull));
     assert_eq!(peer.host_object(peer_unit).unwrap().contained_by, None);
 }

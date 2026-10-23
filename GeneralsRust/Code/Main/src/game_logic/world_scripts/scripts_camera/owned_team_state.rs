@@ -43,7 +43,7 @@ impl GameLogic {
                 let radius_sq = object.vision_range * object.vision_range;
                 observation.enemy_sighted =
                     self.host_objects()
-                        .iter()
+                        .registered()
                         .any(|(&candidate_id, candidate)| {
                             if candidate_id.0 == *id
                                 || !candidate.is_alive()

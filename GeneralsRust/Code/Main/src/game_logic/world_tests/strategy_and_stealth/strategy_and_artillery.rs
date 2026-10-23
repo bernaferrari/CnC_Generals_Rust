@@ -439,7 +439,7 @@ fn post_ai_commands_flushed_inside_game_logic() {
     // policy is a separate parity obligation, not proven by this source check.
     let src = include_str!("../../world_tick/post_command_update.rs");
     let ai = src
-        .find("self.update_ai(&object_ids, dt);")
+        .find("self.update_ai_with_effects(&object_ids, dt, &mut ui);")
         .expect("update_ai call");
     let mgr = src
         .find("self.update_match_ai_with_effects(&mut ui);")

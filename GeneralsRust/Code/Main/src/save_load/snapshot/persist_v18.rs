@@ -579,7 +579,11 @@ fn capture_persist_v18_impl(
         persist.radar_last_event = last.map(|idx| idx as i32).unwrap_or(-1);
     }
 
-    let mut ids: Vec<ObjectId> = game_logic.host_objects().keys().copied().collect();
+    let mut ids: Vec<ObjectId> = game_logic
+        .host_objects()
+        .registered_keys()
+        .copied()
+        .collect();
     ids.sort();
     for id in ids {
         let Some(object) = game_logic.host_object(id) else {

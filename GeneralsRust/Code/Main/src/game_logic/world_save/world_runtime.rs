@@ -203,7 +203,7 @@ impl GameLogic {
     /// Return a representative base position for the given team (e.g., command center/structure).
     pub fn team_base_position(&self, team: Team) -> Option<Vec3> {
         // Prefer structures that look like command centers.
-        for obj in self.objects.values() {
+        for obj in self.objects.registered_values() {
             if obj.team != team {
                 continue;
             }
@@ -214,14 +214,14 @@ impl GameLogic {
             }
         }
         // Fallback to any structure.
-        for obj in self.objects.values() {
+        for obj in self.objects.registered_values() {
             if obj.team == team && obj.is_kind_of(KindOf::Structure) {
                 return Some(obj.get_position());
             }
         }
         // Finally, any object owned by the team.
         self.objects
-            .values()
+            .registered_values()
             .find(|o| o.team == team)
             .map(|o| o.get_position())
     }
@@ -231,7 +231,7 @@ impl GameLogic {
     /// USA would incorrectly share whichever base happens to be visited first.
     pub fn player_base_position(&self, player_id: u32) -> Option<Vec3> {
         let player = self.players.get(&player_id)?;
-        for obj in self.objects.values() {
+        for obj in self.objects.registered_values() {
             if obj.owner_player_id != Some(player_id) {
                 continue;
             }
@@ -241,14 +241,14 @@ impl GameLogic {
                 return Some(obj.get_position());
             }
         }
-        for obj in self.objects.values() {
+        for obj in self.objects.registered_values() {
             if obj.owner_player_id == Some(player_id) && obj.is_kind_of(KindOf::Structure) {
                 return Some(obj.get_position());
             }
         }
         if let Some(position) = self
             .objects
-            .values()
+            .registered_values()
             .find(|obj| obj.owner_player_id == Some(player_id))
             .map(|obj| obj.get_position())
         {

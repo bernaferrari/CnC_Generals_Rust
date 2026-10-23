@@ -711,7 +711,7 @@ impl GameLogic {
         // -----------------------------------------------------------------------
         // Phase 4: Pre-Update / Collect object IDs
         // -----------------------------------------------------------------------
-        let object_ids: Vec<ObjectId> = self.objects.keys().copied().collect();
+        let object_ids: Vec<ObjectId> = self.objects.registered_keys().copied().collect();
 
         // -----------------------------------------------------------------------
         // Phase 5: Command Processing (C++ line 3669)

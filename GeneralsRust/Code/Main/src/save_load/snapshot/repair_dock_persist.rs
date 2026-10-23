@@ -25,7 +25,7 @@ pub(super) struct Decoded<'a> {
 pub(super) fn append(bytes: &mut Vec<u8>, world: &GameLogic) -> SaveLoadResult<()> {
     let mut records: Vec<_> = world
         .host_objects()
-        .iter()
+        .registered()
         .filter_map(|(id, object)| {
             object
                 .thing()
@@ -143,7 +143,7 @@ pub(super) fn validate(
 }
 
 pub(super) fn apply(records: Option<&[Record]>, world: &mut GameLogic) {
-    for object in world.objects.values_mut() {
+    for object in world.objects.registered_values_mut() {
         object.repair_dock_last_id = None;
         object.repair_dock_health_per_frame = 0.0;
     }

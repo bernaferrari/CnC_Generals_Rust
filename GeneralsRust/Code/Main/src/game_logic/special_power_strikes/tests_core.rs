@@ -1470,7 +1470,7 @@ fn friendly_fire_allies_residual_and_source_excluded() {
     assert!(
         owner
             .objects
-            .values()
+            .registered_values()
             .any(|object| object.a10_strike_transport.is_some()
                 && object.producer_id == Some(source))
     );

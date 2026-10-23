@@ -55,7 +55,7 @@ fn canonical_movement_is_projected_from_receiving_owner() {
     }
     shadow.sync_from_host(&logic);
 
-    let o = logic.host_objects().get(&oid).expect("o");
+    let o = logic.host_objects().lookup(&oid).expect("o");
     assert!((o.movement.velocity.x - 3.0).abs() < 1e-5);
     assert!((o.movement.max_speed - 12.5).abs() < 1e-5);
     assert_eq!(o.movement.current_path_index, 1);
@@ -138,7 +138,7 @@ fn canonical_weapon_stats_is_projected_from_receiving_owner() {
     }
     shadow.sync_from_host(&logic);
 
-    let o = logic.host_objects().get(&oid).expect("o");
+    let o = logic.host_objects().lookup(&oid).expect("o");
     let w = o.weapon.as_ref().expect("w");
     assert!((w.damage - 33.0).abs() < 1e-5);
     assert!((w.range - 140.0).abs() < 1e-5);
@@ -193,7 +193,7 @@ fn canonical_vision_camo_projects_without_writeback() {
     }
     shadow.sync_from_host(&logic);
 
-    let o = logic.host_objects().get(&oid).expect("o");
+    let o = logic.host_objects().lookup(&oid).expect("o");
     assert_eq!(o.vision_spied_mask, 0b101);
     assert!((o.camo_friendly_opacity - 0.35).abs() < 1e-5);
     assert_eq!(o.camo_stealth_look, 2);
@@ -240,7 +240,7 @@ fn canonical_disguise_projects_without_writeback() {
     }
     shadow.sync_from_host(&logic);
 
-    let o = logic.host_objects().get(&oid).expect("o");
+    let o = logic.host_objects().lookup(&oid).expect("o");
     assert_eq!(
         o.disguise_as_template.as_deref(),
         Some("AmericaVehicleHumvee")
@@ -296,7 +296,7 @@ fn canonical_overlord_projects_without_writeback() {
     }
     shadow.sync_from_host(&logic);
 
-    let o = logic.host_objects().get(&oid).expect("o");
+    let o = logic.host_objects().lookup(&oid).expect("o");
     assert!(o.has_overlord_gattling_addon && !o.has_overlord_propaganda_addon);
     assert_eq!(o.overlord_bunker_capacity, Some(4));
     assert!(o.is_helix_transport);
@@ -351,7 +351,7 @@ fn canonical_stealth_flags_projects_without_writeback() {
     }
     shadow.sync_from_host(&logic);
 
-    let o = logic.host_objects().get(&oid).expect("o");
+    let o = logic.host_objects().lookup(&oid).expect("o");
     assert!(o.innate_stealth && o.stealth_breaks_on_attack && !o.stealth_breaks_on_move);
     assert!(o.is_tunnel_network && o.passengers_allowed_to_fire);
 }
@@ -397,7 +397,7 @@ fn canonical_hive_state_is_projected_without_observer_writeback() {
     }
     shadow.sync_from_host(&logic);
 
-    let o = logic.host_objects().get(&oid).expect("o");
+    let o = logic.host_objects().lookup(&oid).expect("o");
     assert_eq!(o.hive_slave_count, 3);
     assert!((o.hive_slave_hp - 55.0).abs() < 1e-3);
 }
@@ -444,7 +444,7 @@ fn canonical_contain_capacity_projects_without_writeback() {
         e.max_garrison = 8;
     }
     shadow.sync_from_host(&logic);
-    let o = logic.host_objects().get(&oid).expect("o");
+    let o = logic.host_objects().lookup(&oid).expect("o");
     assert_eq!(o.max_transport, 5);
     assert_eq!(o.building_data.as_ref().map(|bd| bd.max_garrison), Some(8));
 }
@@ -486,7 +486,7 @@ fn canonical_overcharge_projects_without_writeback() {
     }
     shadow.sync_from_host(&logic);
 
-    let o = logic.host_objects().get(&oid).expect("o");
+    let o = logic.host_objects().lookup(&oid).expect("o");
     assert!(o.overcharge_enabled);
 }
 
@@ -529,7 +529,7 @@ fn canonical_weapon_set_is_projected_from_receiving_owner() {
     }
     shadow.sync_from_host(&logic);
 
-    let o = logic.host_objects().get(&oid).expect("o");
+    let o = logic.host_objects().lookup(&oid).expect("o");
     assert!(o.weapon_set_player_upgrade && o.armed_riders_upgrade_weapon_set);
 }
 
@@ -552,7 +552,11 @@ fn host_ai_attitude_is_canonical_and_shadow_only_observes() {
     let (mut second, peer_id) = world();
     assert_eq!(id, peer_id);
     assert_eq!(
-        first.host_objects()[&id].ai_attitude,
+        first
+            .host_objects()
+            .lookup(&id)
+            .expect("admitted host Object")
+            .ai_attitude,
         2,
         "construction must not publish another owner"
     );
@@ -571,8 +575,22 @@ fn host_ai_attitude_is_canonical_and_shadow_only_observes() {
         .unwrap()
         .ai_attitude = -1;
     first.host_object_mut(id).unwrap().set_ai_attitude_i8(1);
-    assert_eq!(first.host_objects()[&id].ai_attitude, 1);
-    assert_eq!(second.host_objects()[&peer_id].ai_attitude, -2);
+    assert_eq!(
+        first
+            .host_objects()
+            .lookup(&id)
+            .expect("admitted host Object")
+            .ai_attitude,
+        1
+    );
+    assert_eq!(
+        second
+            .host_objects()
+            .lookup(&peer_id)
+            .expect("admitted host Object")
+            .ai_attitude,
+        -2
+    );
     shadow.sync_from_host(&first);
     assert_eq!(shadow.world().entity(eid).unwrap().ai_attitude, 1);
     let builder = crate::save_load::SnapshotBuilder::new();
@@ -582,15 +600,40 @@ fn host_ai_attitude_is_canonical_and_shadow_only_observes() {
     builder
         .restore_from_snapshot(&snapshot, &mut restored)
         .unwrap();
-    assert_eq!(restored.host_objects()[&id].ai_attitude, 1);
+    assert_eq!(
+        restored
+            .host_objects()
+            .lookup(&id)
+            .expect("admitted host Object")
+            .ai_attitude,
+        1
+    );
     restored.host_object_mut(id).unwrap().set_ai_attitude_i8(-2);
-    assert_eq!(first.host_objects()[&id].ai_attitude, 1);
+    assert_eq!(
+        first
+            .host_objects()
+            .lookup(&id)
+            .expect("admitted host Object")
+            .ai_attitude,
+        1
+    );
     second.reset();
     drop(second);
-    assert_eq!(first.host_objects()[&id].ai_attitude, 1);
+    assert_eq!(
+        first
+            .host_objects()
+            .lookup(&id)
+            .expect("admitted host Object")
+            .ai_attitude,
+        1
+    );
     first.host_object_mut(id).unwrap().set_ai_attitude_i8(127);
     assert_eq!(
-        first.host_objects()[&id].ai_attitude,
+        first
+            .host_objects()
+            .lookup(&id)
+            .expect("admitted host Object")
+            .ai_attitude,
         2,
         "preserve original attitude bounds"
     );
@@ -598,7 +641,14 @@ fn host_ai_attitude_is_canonical_and_shadow_only_observes() {
         .host_object_mut(id)
         .unwrap()
         .set_ai_attitude(crate::game_logic::host_strategy_center::HostAiAttitude::Passive);
-    assert_eq!(first.host_objects()[&id].ai_attitude, -1);
+    assert_eq!(
+        first
+            .host_objects()
+            .lookup(&id)
+            .expect("admitted host Object")
+            .ai_attitude,
+        -1
+    );
 }
 
 #[test]
@@ -705,7 +755,7 @@ fn canonical_continuous_fire_is_projected_from_receiving_owner() {
     }
     shadow.sync_from_host(&logic);
 
-    let o = logic.host_objects().get(&oid).expect("o");
+    let o = logic.host_objects().lookup(&oid).expect("o");
     assert_eq!(o.continuous_fire_level, 2);
     assert_eq!(o.consecutive_shots_at_target, 9);
     assert_eq!(o.continuous_fire_coast_until_frame, 44);
@@ -753,7 +803,7 @@ fn canonical_detector_projects_without_writeback() {
     }
     shadow.sync_from_host(&logic);
 
-    let o = logic.host_objects().get(&oid).expect("o");
+    let o = logic.host_objects().lookup(&oid).expect("o");
     assert!(o.is_detector);
     assert!((o.detection_range - 175.0).abs() < 1e-3);
     assert_eq!(o.detection_rate_frames, 12);
@@ -799,7 +849,7 @@ fn host_target_location_log_drives_set_target_location_channel() {
     }
     shadow.sync_from_host(&logic);
 
-    let o = logic.host_objects().get(&oid).expect("o");
+    let o = logic.host_objects().lookup(&oid).expect("o");
     let p = o.target_location.expect("host tl");
     assert!((p.x - 11.0).abs() < 1e-3 && (p.z - 13.0).abs() < 1e-3);
 }
@@ -849,7 +899,7 @@ fn canonical_turret_is_projected_from_receiving_owner() {
     }
     shadow.sync_from_host(&logic);
 
-    let o = logic.host_objects().get(&oid).expect("o");
+    let o = logic.host_objects().lookup(&oid).expect("o");
     assert!((o.turret_angle_deg - 33.0).abs() < 1e-3);
     assert!((o.turret_pitch_deg - 12.0).abs() < 1e-3);
     assert!(o.turret_holding);
@@ -895,7 +945,7 @@ fn canonical_entity_power_projects_without_writeback() {
     }
     shadow.sync_from_host(&logic);
 
-    let o = logic.host_objects().get(&oid).expect("o");
+    let o = logic.host_objects().lookup(&oid).expect("o");
     assert_eq!(o.power_provided, 50);
     assert_eq!(o.power_consumed, 5);
 }
@@ -936,7 +986,7 @@ fn canonical_weapon_slot_is_projected_from_receiving_owner() {
     }
     shadow.sync_from_host(&logic);
 
-    let o = logic.host_objects().get(&oid).expect("o");
+    let o = logic.host_objects().lookup(&oid).expect("o");
     assert_eq!(o.active_weapon_slot, 1);
 }
 
@@ -1005,7 +1055,7 @@ fn canonical_weapon_bonus_is_projected_from_receiving_owner() {
     }
     shadow.sync_from_host(&logic);
 
-    let o = logic.host_objects().get(&oid).expect("o");
+    let o = logic.host_objects().lookup(&oid).expect("o");
     assert!(o.weapon_bonus_frenzy && o.weapon_bonus_frenzy_level == 2);
     assert!(o.weapon_bonus_horde && o.weapon_bonus_nationalism);
     assert_eq!(o.weapon_bonus_frenzy_until_frame, 777);
@@ -1060,7 +1110,7 @@ fn canonical_faerie_fire_is_projected_from_receiving_owner() {
     logic.host_object_mut(oid).unwrap().apply_faerie_fire(99);
     shadow.sync_from_host(&logic);
 
-    let o = logic.host_objects().get(&oid).expect("o");
+    let o = logic.host_objects().lookup(&oid).expect("o");
     assert!(o.is_faerie_fire());
     assert_eq!(o.faerie_fire_until_frame, 99);
 }
@@ -1110,7 +1160,7 @@ fn canonical_repulsor_projects_without_writeback() {
         .arm_repulsor_countdown(12);
     shadow.sync_from_host(&logic);
 
-    let o = logic.host_objects().get(&oid).expect("o");
+    let o = logic.host_objects().lookup(&oid).expect("o");
     assert!(o.status.repulsor);
     assert_eq!(o.repulsor_until_frame, 12);
 }

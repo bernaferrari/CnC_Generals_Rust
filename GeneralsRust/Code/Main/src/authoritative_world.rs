@@ -27,7 +27,7 @@ impl AuthorityProbe {
             .unwrap_or(0);
         Self {
             frame: logic.get_frame(),
-            object_count: logic.host_objects().len(),
+            object_count: logic.host_objects().registered_len(),
             player_count: logic.get_players().len(),
             local_supplies,
             match_over: false,

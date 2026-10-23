@@ -142,7 +142,7 @@ impl GameLogic {
     pub fn get_visible_objects(&self, viewing_team: Team) -> Vec<ObjectId> {
         let shroud_snapshot = self.shroud_visibility_snapshot_for_team(viewing_team);
         self.objects
-            .iter()
+            .registered()
             .filter_map(|(id, obj)| {
                 if Self::is_object_visible_for_team(
                     *id,
@@ -165,7 +165,7 @@ impl GameLogic {
     ) -> Vec<(ObjectId, super::super::ObjectVisualInfo)> {
         let shroud_snapshot = self.shroud_visibility_snapshot_for_team(viewing_team);
         self.objects
-            .iter()
+            .registered()
             .filter_map(|(id, obj)| {
                 if Self::is_object_visible_for_team(
                     *id,
@@ -194,7 +194,7 @@ impl GameLogic {
         }
         let selected: Vec<_> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(&id, object)| {
                 if object.owner_player_id != Some(player_id) || !object.is_selectable() {
                     return None;
@@ -226,7 +226,7 @@ impl GameLogic {
             // Per-object selection_radius expands the pick disk (C++ pick residual).
             let candidates: Vec<_> = self
                 .objects
-                .iter()
+                .registered()
                 .filter_map(|(&id, obj)| {
                     if obj.owner_player_id != Some(player_id) || !obj.is_selectable() {
                         return None;
@@ -531,14 +531,14 @@ impl GameLogic {
 
         // Show all objects and their status
         println!("\n📊 CURRENT GAME STATE:");
-        println!("   Total Objects: {}", self.objects.len());
+        println!("   Total Objects: {}", self.objects.registered_len());
         println!("   Players: {}", self.players.len());
 
         // Show objects by team
         for team in [Team::USA, Team::China, Team::GLA, Team::Neutral] {
             let team_objects: Vec<_> = self
                 .objects
-                .iter()
+                .registered()
                 .filter(|(_, obj)| obj.team == team && obj.is_alive())
                 .collect();
 
@@ -572,7 +572,7 @@ impl GameLogic {
         println!("\n🖱️ TESTING SELECTION SYSTEM:");
         let usa_objects: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, obj)| {
                 if obj.team == Team::USA && obj.is_alive() && obj.is_selectable() {
                     Some(*id)
@@ -690,13 +690,13 @@ impl GameLogic {
         for (pid, team) in ai_ids {
             let anchor = self
                 .objects
-                .values()
+                .registered_values()
                 .filter(|o| o.team == team && o.is_alive() && o.is_kind_of(KindOf::CommandCenter))
                 .map(|o| o.get_position())
                 .next()
                 .or_else(|| {
                     self.objects
-                        .values()
+                        .registered_values()
                         .filter(|o| {
                             o.team == team && o.is_alive() && o.is_kind_of(KindOf::Structure)
                         })
@@ -1303,7 +1303,7 @@ impl GameLogic {
             .restore_players_from_save(snapshots, &player_teams);
 
         let valid_object_ids: std::collections::HashSet<ObjectId> =
-            self.objects.keys().copied().collect();
+            self.objects.registered_keys().copied().collect();
         for ai_player in self.ai_manager.ai_players.values_mut() {
             ai_player
                 .defensive_units
@@ -1323,7 +1323,7 @@ impl GameLogic {
     ) {
         self.ai_manager.apply_queue_persist(rows);
         let valid_object_ids: std::collections::HashSet<ObjectId> =
-            self.objects.keys().copied().collect();
+            self.objects.registered_keys().copied().collect();
         for ai_player in self.ai_manager.ai_players.values_mut() {
             ai_player.retain_queue_object_ids(&valid_object_ids);
         }
@@ -1413,7 +1413,7 @@ impl GameLogic {
         }
         let ids: Vec<ObjectId> = self
             .objects
-            .values()
+            .registered_values()
             .filter(|o| o.owner_player_id == Some(player_id) && o.is_alive())
             .map(|o| o.id)
             .collect();

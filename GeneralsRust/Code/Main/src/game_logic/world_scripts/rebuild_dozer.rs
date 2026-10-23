@@ -54,7 +54,7 @@ impl GameLogic {
             )
         };
         let overlaps_object = |p: Vec3| {
-            self.objects.values().any(|o| {
+            self.objects.registered_values().any(|o| {
                 if !o.is_alive() {
                     return false;
                 }
@@ -246,7 +246,7 @@ impl GameLogic {
 
         let remaining_old: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(id, o)| {
                 **id != tunnel_id
                     && o.tunnel_system_key() == old_key
@@ -785,7 +785,7 @@ impl GameLogic {
             if let Some(player_id) = player_id {
                 let tunnel_count = self
                     .objects
-                    .values()
+                    .registered_values()
                     .filter(|o| {
                         o.is_alive()
                             && o.tunnel_system_key() == player_id
@@ -902,7 +902,7 @@ impl GameLogic {
         // C++ sellObject: destroy mines owned by this structure (producerID).
         let mine_ids: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, o)| {
                 if !o.is_alive() {
                     return None;
@@ -1057,7 +1057,7 @@ impl GameLogic {
         let nearby_owner_builders: std::collections::HashSet<ObjectId> = structure_owner
             .map(|owner_player_id| {
                 self.objects
-                    .iter()
+                    .registered()
                     .filter(|(_, object)| {
                         object.is_alive()
                             && object.can_construct()
@@ -1067,7 +1067,7 @@ impl GameLogic {
                     .collect()
             })
             .unwrap_or_default();
-        let ids: Vec<ObjectId> = self.objects.keys().copied().collect();
+        let ids: Vec<ObjectId> = self.objects.registered_keys().copied().collect();
         let mut cancelled = 0u32;
         for id in ids {
             let Some(obj) = self.objects.get_mut(&id) else {
@@ -1248,7 +1248,7 @@ impl GameLogic {
             }
         }
         // Another dozer already actively building this structure.
-        for (id, obj) in &self.objects {
+        for (id, obj) in self.objects.registered() {
             if *id == dozer_id || !obj.is_alive() || !obj.can_construct() {
                 continue;
             }
@@ -1427,7 +1427,7 @@ impl GameLogic {
         // Pure residual service acquire (2D/XZ bored range).
         let candidates: Vec<_> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(&id, obj)| {
                 if !obj.is_alive()
                     || obj.status.effectively_dead
@@ -1487,7 +1487,7 @@ impl GameLogic {
         // Pure residual acquire (enemy/neutral mines in BoredRange, XZ).
         let candidates: Vec<_> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(&id, obj)| {
                 if !obj.is_alive() {
                     return None;
@@ -1650,7 +1650,7 @@ impl GameLogic {
     pub(in super::super) fn update_dozer_bored_repair(&mut self) {
         let now = self.frame;
         let bored = crate::game_logic::host_repair::DOZER_BORED_TIME_FRAMES;
-        let ids: Vec<ObjectId> = self.objects.keys().copied().collect();
+        let ids: Vec<ObjectId> = self.objects.registered_keys().copied().collect();
         for id in ids {
             if self.worker_is_acting_as_supply_truck(id) {
                 continue;
@@ -1874,7 +1874,7 @@ impl GameLogic {
             return 0;
         }
         let mut n = 0usize;
-        let ids: Vec<ObjectId> = self.objects.keys().copied().collect();
+        let ids: Vec<ObjectId> = self.objects.registered_keys().copied().collect();
         for id in ids {
             if id == from_id || id == to_id {
                 continue;
@@ -1962,7 +1962,7 @@ impl GameLogic {
         // Death-start peel + destroy-list fallback: do not spawn a second crater.
         if self
             .objects
-            .values()
+            .registered_values()
             .any(|o| o.is_rebuild_hole && o.rebuild_spawner_id == Some(destroyed_id))
         {
             return None;
@@ -2074,7 +2074,7 @@ impl GameLogic {
         let heal_frac = REBUILD_HOLE_HEALTH_REGEN_PERCENT_PER_SEC * dt;
         let ids: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, o)| o.is_alive() && o.is_rebuild_hole)
             .map(|(id, _)| *id)
             .collect();

@@ -124,7 +124,7 @@ fn nearest_authored_button_uses_first_source_map_status_and_ai_nonheld_center() 
     let (mut owner, source, target, button, _) = fixture();
     let unrelated = owner
         .objects
-        .values()
+        .registered_values()
         .find(|object| object.id != source && object.owner_player_id == Some(1))
         .unwrap()
         .id;

@@ -260,7 +260,7 @@ fn observe(logic: &GameLogic) -> Value {
         "can_build_base":p.can_build_base,"supplies":p.effective_supplies(),"power":p.power_available,
         "ai_active":logic.is_host_ai_active(p.id),"ai_difficulty":format!("{:?}",logic.host_ai_difficulty(p.id))
     })).collect();
-    let mut objects: Vec<_> = logic.host_objects().values().collect();
+    let mut objects: Vec<_> = logic.host_objects().registered_values().collect();
     objects.sort_by_key(|o| o.id.0);
     let objects: Vec<_> = objects.into_iter().map(|o| json!({
         "id":o.id.0,"template":o.get_template().name,"owner":o.owner_player_id,
@@ -289,7 +289,7 @@ fn violations(logic: &GameLogic, case: Case) -> Vec<String> {
         "player count".into(),
     );
     require(
-        logic.host_objects().len() == count as usize,
+        logic.host_objects().registered_len() == count as usize,
         "object count".into(),
     );
     let rows = logic.snapshot_host_ai_players_for_save();
@@ -496,7 +496,7 @@ fn ai_roster_save_process() {
             fs::write(manager.get_save_path("roster"), derived).unwrap();
         }
     } else {
-        assert!(logic.get_players().is_empty() && logic.host_objects().is_empty());
+        assert!(logic.get_players().is_empty() && logic.host_objects().registered_is_empty());
         if case.populated {
             admit_stale_destination(&mut logic);
         }

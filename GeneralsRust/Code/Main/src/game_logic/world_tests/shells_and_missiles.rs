@@ -598,7 +598,7 @@ fn helix_napalm_bomb_special_power_residual_blast_and_firestorm() {
         game_logic.helix_napalm().honesty_projectile_ok()
             || game_logic
                 .objects
-                .values()
+                .registered_values()
                 .any(|o| o.helix_napalm_bomb_projectile),
         "must spawn NapalmBomb SpecialObject residual"
     );
@@ -616,7 +616,7 @@ fn helix_napalm_bomb_special_power_residual_blast_and_firestorm() {
     // HeightDie residual: fall bomb to ground then FireWeaponWhenDead blast.
     let bomb_ids: Vec<_> = game_logic
         .objects
-        .iter()
+        .registered()
         .filter_map(|(id, o)| {
             if o.helix_napalm_bomb_projectile {
                 Some(*id)
@@ -1142,7 +1142,7 @@ fn marauder_residual_salvage_fire_rate_tiers() {
         game_logic.update_marauder_shell_projectiles();
         if !game_logic
             .objects
-            .values()
+            .registered_values()
             .any(|o| o.marauder_shell_projectile && o.is_alive())
         {
             break;
@@ -1355,7 +1355,7 @@ fn scorpion_residual_gun_salvage_and_rocket() {
         game_logic.update_scorpion_missile_projectiles();
         if !game_logic
             .objects
-            .values()
+            .registered_values()
             .any(|o| (o.scorpion_shell_projectile || o.scorpion_missile_projectile) && o.is_alive())
         {
             break;
@@ -1438,7 +1438,7 @@ fn scorpion_residual_gun_salvage_and_rocket() {
         game_logic.update_scorpion_missile_projectiles();
         if !game_logic
             .objects
-            .values()
+            .registered_values()
             .any(|o| o.scorpion_missile_projectile && o.is_alive())
         {
             break;
@@ -1570,7 +1570,7 @@ fn tomahawk_residual_dual_radius_missile() {
         game_logic.update_tomahawk_missile_projectiles();
         if !game_logic
             .objects
-            .values()
+            .registered_values()
             .any(|o| o.tomahawk_missile_projectile && o.is_alive())
         {
             break;
@@ -1720,7 +1720,7 @@ fn mig_residual_napalm_and_black_napalm() {
         game_logic.update_mig_missile_projectiles();
         if !game_logic
             .objects
-            .values()
+            .registered_values()
             .any(|o| o.mig_missile_projectile && o.is_alive())
         {
             break;
@@ -1807,7 +1807,7 @@ fn mig_residual_napalm_and_black_napalm() {
         game_logic.update_mig_missile_projectiles();
         if !game_logic
             .objects
-            .values()
+            .registered_values()
             .any(|o| o.mig_missile_projectile && o.is_alive())
         {
             break;
@@ -1897,7 +1897,7 @@ fn mig_nuke_residual_tactical_nuke() {
         game_logic.update_mig_missile_projectiles();
         if !game_logic
             .objects
-            .values()
+            .registered_values()
             .any(|o| o.mig_missile_projectile && o.is_alive())
         {
             break;
@@ -1956,7 +1956,7 @@ fn mig_nuke_residual_tactical_nuke() {
         game_logic.update_mig_missile_projectiles();
         if !game_logic
             .objects
-            .values()
+            .registered_values()
             .any(|o| o.mig_missile_projectile && o.is_alive())
         {
             break;
@@ -2082,7 +2082,7 @@ fn fire_base_residual_howitzer() {
         game_logic.update_fire_base_shell_projectiles();
         if !game_logic
             .objects
-            .values()
+            .registered_values()
             .any(|o| o.fire_base_shell_projectile && o.is_alive())
         {
             break;
@@ -2217,7 +2217,7 @@ fn raptor_residual_missiles_and_laser_missiles() {
         game_logic.update_raptor_missile_projectiles();
         if !game_logic
             .objects
-            .values()
+            .registered_values()
             .any(|o| o.raptor_missile_projectile && o.is_alive())
         {
             break;
@@ -2397,7 +2397,7 @@ fn stealth_fighter_residual_missiles_and_splash() {
         game_logic.update_stealth_jet_missile_projectiles();
         if !game_logic
             .objects
-            .values()
+            .registered_values()
             .any(|o| o.stealth_jet_missile_projectile && o.is_alive())
         {
             break;
@@ -2788,7 +2788,7 @@ fn inferno_black_napalm_upgraded_fire_field_residual() {
         game_logic.update_inferno_shell_projectiles();
         if !game_logic
             .objects
-            .values()
+            .registered_values()
             .any(|o| o.inferno_shell_projectile && o.is_alive())
         {
             break;
@@ -3096,7 +3096,7 @@ fn overlord_gun_residual_dual_radius_and_uranium() {
         game_logic.update_overlord_shell_projectiles();
         if !game_logic
             .objects
-            .values()
+            .registered_values()
             .any(|o| o.overlord_shell_projectile && o.is_alive())
         {
             break;
@@ -3426,7 +3426,7 @@ fn battlemaster_residual_gun_uranium_and_horde_nationalism() {
         game_logic.update_battlemaster_shell_projectiles();
         if !game_logic
             .objects
-            .values()
+            .registered_values()
             .any(|o| o.battlemaster_shell_projectile && o.is_alive())
         {
             break;
@@ -3774,7 +3774,7 @@ fn tank_hunter_residual_rpg_horde_and_tnt() {
         game_logic.update_tank_hunter_missile_projectiles();
         if !game_logic
             .objects
-            .values()
+            .registered_values()
             .any(|o| o.tank_hunter_missile_projectile && o.is_alive())
         {
             break;
@@ -3849,7 +3849,7 @@ fn tank_hunter_residual_rpg_horde_and_tnt() {
     );
     let charge_count = game_logic
         .host_objects()
-        .values()
+        .registered_values()
         .filter(|o| {
             o.mine_data
                 .as_ref()

@@ -106,7 +106,7 @@ pub(super) fn run_host_session(frames: u32) -> gamelogic::GameLogicResult<HostSe
     // Ensure at least one selectable unit is selected so selection health is exercised.
     let select_id = logic
         .host_objects()
-        .values()
+        .registered_values()
         .find(|o| o.is_alive() && !o.status.destroyed)
         .map(|o| o.id);
     if let Some(id) = select_id {

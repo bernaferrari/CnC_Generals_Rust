@@ -227,7 +227,7 @@ fn place_beacon_spawns_world_object_and_respects_cap() {
     assert_eq!(result, CommandResult::Success);
     let beacons: Vec<_> = logic
         .host_objects()
-        .iter()
+        .registered()
         .filter(|(_, o)| o.template_name.to_ascii_lowercase().contains("beacon"))
         .map(|(id, _)| *id)
         .collect();
@@ -282,7 +282,7 @@ fn set_beacon_text_updates_selected_caption() {
         .unwrap();
     let id = logic
         .host_objects()
-        .iter()
+        .registered()
         .find(|(_, o)| o.template_name.to_ascii_lowercase().contains("beacon"))
         .map(|(id, _)| *id)
         .expect("beacon");
@@ -320,7 +320,7 @@ fn enemy_place_hides_drawable_and_skips_host_beacons() {
     assert_eq!(result, CommandResult::Success);
     let id = logic
         .host_objects()
-        .iter()
+        .registered()
         .find(|(_, o)| o.template_name.to_ascii_lowercase().contains("beacon"))
         .map(|(id, _)| *id)
         .expect("beacon");
@@ -350,7 +350,7 @@ fn remove_beacon_empty_selection_is_noop_and_silent() {
         .unwrap();
     let before = logic
         .host_objects()
-        .values()
+        .registered_values()
         .filter(|o| o.template_name.to_ascii_lowercase().contains("beacon"))
         .count();
     let audio_before = logic.queued_audio_events.len();
@@ -360,7 +360,7 @@ fn remove_beacon_empty_selection_is_noop_and_silent() {
     assert_eq!(result, CommandResult::InvalidCommand);
     let after = logic
         .host_objects()
-        .values()
+        .registered_values()
         .filter(|o| o.template_name.to_ascii_lowercase().contains("beacon"))
         .count();
     assert_eq!(before, after);
@@ -385,7 +385,7 @@ fn remove_selected_beacon_is_silent() {
         .unwrap();
     let id = logic
         .host_objects()
-        .iter()
+        .registered()
         .find(|(_, o)| o.template_name.to_ascii_lowercase().contains("beacon"))
         .map(|(id, _)| *id)
         .expect("beacon");
@@ -838,7 +838,7 @@ fn execute_build_records_build_slot_and_docks_off_center() {
     assert_eq!(result, CommandResult::Success);
     let scaffold = logic
         .host_objects()
-        .iter()
+        .registered()
         .find(|(_, o)| o.template_name == "AmericaBarracksSlot")
         .map(|(id, _)| *id)
         .expect("scaffold");

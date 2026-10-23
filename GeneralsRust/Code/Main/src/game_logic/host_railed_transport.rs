@@ -224,7 +224,7 @@ impl GameLogic {
     pub fn update_railed_transports(&mut self) {
         let ids: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, obj)| {
                 if !obj.is_alive() {
                     return None;

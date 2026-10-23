@@ -407,7 +407,7 @@ impl GameLogic {
         // Both activation entry points are mutually exclusive in normal play,
         // but retain an object-level guard so duplicate completion writeback
         // cannot turn C++ OneShot into a second free collector.
-        if self.host_objects().values().any(|object| {
+        if self.host_objects().registered_values().any(|object| {
             object.producer_id == Some(center_id)
                 && object.template_name.eq_ignore_ascii_case(&spawn_template)
         }) {
@@ -713,7 +713,7 @@ impl GameLogic {
         live_only: bool,
     ) -> u32 {
         self.objects
-            .values()
+            .registered_values()
             .filter(|object| {
                 object.producer_id == Some(parent_id)
                     && (object.template_name.eq_ignore_ascii_case(spawn_template)
@@ -849,7 +849,7 @@ impl GameLogic {
         }
         let existing: Vec<Vec3> = self
             .objects
-            .values()
+            .registered_values()
             .filter(|object| {
                 object.producer_id == Some(parent_id)
                     && object
@@ -953,7 +953,7 @@ impl GameLogic {
         }
         let existing: Vec<Vec3> = self
             .objects
-            .values()
+            .registered_values()
             .filter(|object| {
                 object.producer_id == Some(parent_id)
                     && Self::is_stinger_soldier_template(&object.template_name)
@@ -1034,7 +1034,7 @@ impl GameLogic {
         let frame = self.frame;
         let sites: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, object)| {
                 if is_stinger_site_structure(&object.template_name) && object.is_alive() {
                     Some(*id)
@@ -1055,7 +1055,7 @@ impl GameLogic {
             }
             let soldiers: Vec<(ObjectId, Vec3, bool)> = self
                 .objects
-                .iter()
+                .registered()
                 .filter_map(|(id, object)| {
                     if object.producer_id == Some(site_id)
                         && Self::is_stinger_soldier_template(&object.template_name)
@@ -1140,7 +1140,7 @@ impl GameLogic {
             crate::game_logic::VeterancyLevel,
         )> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, object)| {
                 if object.producer_id == Some(parent_id)
                     && object.is_alive()
@@ -1180,7 +1180,7 @@ impl GameLogic {
     pub(crate) fn sync_all_spawn_behavior_veterancy(&mut self) {
         let masters: Vec<(ObjectId, String)> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, object)| {
                 if !object.is_alive() {
                     return None;
@@ -1218,7 +1218,7 @@ impl GameLogic {
         }
         let victims: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, object)| {
                 if object.producer_id == Some(parent_id)
                     && (object
@@ -3317,7 +3317,7 @@ impl GameLogic {
         &mut self,
         apply: bool,
     ) {
-        let ids: Vec<ObjectId> = self.objects.keys().copied().collect();
+        let ids: Vec<ObjectId> = self.objects.registered_keys().copied().collect();
         for id in ids {
             self.apply_or_strip_difficulty_bonuses_for_object(id, apply);
         }

@@ -894,7 +894,7 @@ impl GameLogic {
         };
         let ready = crate::game_logic::combat::materialize_accepted_projectile(
             &mut self.combat_system,
-            &self.objects,
+            self.objects.read(),
             self.frame,
             pending,
             stream_binding,
@@ -910,7 +910,7 @@ impl GameLogic {
             let limit = game_engine::common::global_data::read().historic_damage_limit;
             let events = self.combat_system.prepare_projectileless_delayed_shot(
                 &shot,
-                &self.objects,
+                self.objects.read(),
                 self.frame,
                 limit,
             );
@@ -938,7 +938,7 @@ impl GameLogic {
         for shot in ready {
             let events = self.combat_system.prepare_projectileless_delayed_shot(
                 &shot,
-                &self.objects,
+                self.objects.read(),
                 self.frame,
                 limit,
             );
@@ -1194,8 +1194,8 @@ impl GameLogic {
         else {
             return;
         };
-        let area = AreaDamage::new(event, &self.objects).expect("Area event");
-        let candidates = area.candidates(&self.objects);
+        let area = AreaDamage::new(event, self.objects.read()).expect("Area event");
+        let candidates = area.candidates(self.objects.read());
         for (victim_id, distance) in candidates {
             let Some(victim) = self.objects.get(&victim_id) else {
                 continue;

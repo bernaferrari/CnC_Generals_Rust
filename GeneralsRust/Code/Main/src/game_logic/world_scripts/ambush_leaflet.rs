@@ -600,7 +600,7 @@ impl GameLogic {
                 };
             let candidates: Vec<(ObjectId, bool, bool, bool, bool)> = self
                 .objects
-                .iter()
+                .registered()
                 .filter_map(|(id, obj)| {
                     if !obj.is_alive() {
                         return None;
@@ -864,7 +864,7 @@ impl GameLogic {
             let center = (pulse.target_position.x, pulse.target_position.z);
             let candidates: Vec<(ObjectId, bool)> = self
                 .objects
-                .iter()
+                .registered()
                 .filter_map(|(id, obj)| {
                     if !obj.is_alive() {
                         return None;
@@ -1131,7 +1131,7 @@ impl GameLogic {
     pub fn is_in_battle(&self) -> bool {
         // Check if any objects are currently in combat
         self.objects
-            .values()
+            .registered_values()
             .any(|obj| obj.status.attacking || obj.ai_state == AIState::Attacking)
     }
 
@@ -1469,7 +1469,7 @@ impl GameLogic {
         match_object_type: bool,
     ) -> Vec<ObjectId> {
         self.objects
-            .iter()
+            .registered()
             .filter_map(|(&id, obj)| {
                 if obj.team == team
                     && obj.is_selectable()
@@ -1494,7 +1494,7 @@ impl GameLogic {
         max_z: f32,
     ) -> Vec<ObjectId> {
         self.objects
-            .iter()
+            .registered()
             .filter_map(|(&id, obj)| {
                 if obj.team != team || !obj.is_selectable() {
                     return None;
@@ -1521,7 +1521,7 @@ impl GameLogic {
         max_z: f32,
     ) -> Vec<ObjectId> {
         self.objects
-            .iter()
+            .registered()
             .filter_map(|(&id, obj)| {
                 if obj.owner_player_id != Some(player_id) || !obj.is_selectable() {
                     return None;
@@ -1539,7 +1539,7 @@ impl GameLogic {
         mut predicate: impl FnMut(ObjectId) -> bool,
     ) -> Vec<ObjectId> {
         self.objects
-            .iter()
+            .registered()
             .filter_map(|(&id, obj)| {
                 if obj.team == team && obj.is_selectable() && predicate(id) {
                     Some(id)
@@ -1558,7 +1558,7 @@ impl GameLogic {
         mut predicate: impl FnMut(ObjectId) -> bool,
     ) -> Vec<ObjectId> {
         self.objects
-            .iter()
+            .registered()
             .filter_map(|(&id, obj)| {
                 (obj.owner_player_id == Some(player_id) && obj.is_selectable() && predicate(id))
                     .then_some(id)
@@ -1573,7 +1573,7 @@ impl GameLogic {
         mut predicate: impl FnMut(ObjectId) -> bool,
     ) -> Vec<ObjectId> {
         self.objects
-            .iter()
+            .registered()
             .filter_map(|(&id, obj)| {
                 if obj.team == team && predicate(id) {
                     Some(id)
@@ -1591,7 +1591,7 @@ impl GameLogic {
         mut predicate: impl FnMut(ObjectId) -> bool,
     ) -> Vec<ObjectId> {
         self.objects
-            .iter()
+            .registered()
             .filter_map(|(&id, obj)| {
                 (obj.owner_player_id == Some(player_id) && predicate(id)).then_some(id)
             })

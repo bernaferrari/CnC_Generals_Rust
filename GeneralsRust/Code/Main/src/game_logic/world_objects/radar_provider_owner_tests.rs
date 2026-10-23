@@ -585,7 +585,7 @@ mod bulk_retirement_order_tests {
             .restore_from_snapshot(&saved, &mut outgoing)
             .unwrap();
         assert_eq!(outgoing.frame, 111);
-        assert!(outgoing.host_objects().is_empty());
+        assert!(outgoing.host_objects().registered_is_empty());
         assert_eq!(outgoing.get_player(1).unwrap().name, "incoming");
         assert_eq!(
             outgoing.get_player(1).unwrap().map_side.map_player_name,

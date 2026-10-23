@@ -10,7 +10,7 @@ pub(super) fn build(
     grid: &PathfindingGrid,
     from: Vec3,
     cells: &[Cell],
-    objects: &HashMap<ObjectId, Object>,
+    objects: HostObjectRead<'_>,
     ground_source: &PathfindingGround<'_>,
 ) -> Vec<Vec3> {
     let mut reversed: Vec<Node> = Vec::new();

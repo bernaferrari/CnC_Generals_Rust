@@ -1164,7 +1164,7 @@ impl crate::game_logic::GameLogic {
         });
         let ids: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, o)| {
                 o.is_alive()
                     && o.thing().template.dock_kind == crate::game_logic::DockKind::SupplyWarehouse

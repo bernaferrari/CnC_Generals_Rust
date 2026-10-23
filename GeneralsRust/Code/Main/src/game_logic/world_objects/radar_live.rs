@@ -490,7 +490,7 @@ impl GameLogic {
         self.radar.new_map_owned(lo, hi, &heights);
         self.radar
             .refresh_owned_terrain_with_source(&self.radar_map, self.radar_map.water_color);
-        let ids: Vec<ObjectId> = self.objects.keys().copied().collect();
+        let ids: Vec<ObjectId> = self.objects.registered_keys().copied().collect();
         for id in ids {
             self.host_radar_add_object_with_effects(id, effects);
         }
@@ -643,7 +643,7 @@ impl GameLogic {
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
-        let ids: Vec<ObjectId> = self.objects.keys().copied().collect();
+        let ids: Vec<ObjectId> = self.objects.registered_keys().copied().collect();
         if let Some(local_id) = self.host_local_player().map(|local| local.id) {
             if let Ok(mut shroud) = self.world_services.shroud().lock() {
                 shroud.refresh_radar_shroud_for_player_into(local_id, self.frame, &mut self.radar);

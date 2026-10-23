@@ -78,7 +78,7 @@ fn world(play_hidden: bool, suspend: u32) -> (GameLogic, ObjectId, ObjectId) {
 fn child(world: &GameLogic, name: &str) -> ObjectId {
     let ids: Vec<_> = world
         .host_objects()
-        .iter()
+        .registered()
         .filter(|(_, o)| o.template_name == name)
         .map(|(id, _)| *id)
         .collect();
@@ -122,7 +122,7 @@ fn normal_fire_ocl_precedes_lethal_body_callback_and_save_never_replays_it() {
     assert!(
         !peer
             .host_objects()
-            .values()
+            .registered_values()
             .any(|o| o.template_name == FIRE_CHILD)
     );
     // Save only at the real settled cleanup boundary. Immediate lethal Body
@@ -266,7 +266,7 @@ fn nested_attack_acceptance_delivers_fire_effects_before_body_and_never_requeues
     owner.frame = frame + 1;
     crate::game_logic::combat::drain_pending_projectiles(
         &mut owner.combat_system,
-        &owner.objects,
+        owner.objects.read(),
         owner.frame,
     );
     owner.apply_owned_projectileless_delayed_damage();
@@ -302,7 +302,7 @@ fn nested_attack_acceptance_delivers_fire_effects_before_body_and_never_requeues
     assert!(
         !peer
             .host_objects()
-            .values()
+            .registered_values()
             .any(|object| object.template_name == FIRE_CHILD)
     );
 }

@@ -220,7 +220,7 @@ impl GameLogic {
                 });
                 let occupants: Vec<_> = self
                     .objects
-                    .iter()
+                    .registered()
                     .filter_map(|(&id, object)| {
                         if layer == gamelogic::path::PathfindLayerEnum::Ground
                             || object.pathfind_layer != layer as u8

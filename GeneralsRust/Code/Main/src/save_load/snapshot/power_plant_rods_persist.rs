@@ -75,7 +75,11 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
 }
 
 fn capture(game_logic: &GameLogic) -> PowerPlantRodsPersistPayload {
-    let mut object_ids: Vec<ObjectId> = game_logic.host_objects().keys().copied().collect();
+    let mut object_ids: Vec<ObjectId> = game_logic
+        .host_objects()
+        .registered_keys()
+        .copied()
+        .collect();
     object_ids.sort();
     let mut plants = Vec::new();
     for id in object_ids {
@@ -95,7 +99,11 @@ fn capture(game_logic: &GameLogic) -> PowerPlantRodsPersistPayload {
 }
 
 fn reset_rods(game_logic: &mut GameLogic) {
-    let ids: Vec<ObjectId> = game_logic.host_objects().keys().copied().collect();
+    let ids: Vec<ObjectId> = game_logic
+        .host_objects()
+        .registered_keys()
+        .copied()
+        .collect();
     for id in ids {
         if let Some(object) = game_logic.host_objects_mut().get_mut(&id) {
             object.power_plant_rods_extended = false;

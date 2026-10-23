@@ -109,7 +109,7 @@ impl GameLogic {
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         let mut carriers: Vec<ObjectId> = self.flight_decks.keys().copied().collect();
-        for (&id, object) in self.objects.iter() {
+        for (&id, object) in self.objects.registered() {
             if object.thing().template.flight_deck.is_some() {
                 carriers.push(id);
             }
@@ -386,7 +386,7 @@ impl GameLogic {
             .unwrap_or_default();
         let mut candidates: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(&id, obj)| {
                 (obj.is_alive()
                     && obj.producer_id == Some(carrier_id)

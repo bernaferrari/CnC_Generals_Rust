@@ -255,7 +255,7 @@ fn land_in_flight_projectiles(logic: &mut crate::game_logic::GameLogic) {
         logic.update_flashbang_grenade_projectiles();
         if !logic
             .objects
-            .values()
+            .registered_values()
             .any(|o| o.flashbang_grenade_projectile && o.is_alive())
         {
             break;

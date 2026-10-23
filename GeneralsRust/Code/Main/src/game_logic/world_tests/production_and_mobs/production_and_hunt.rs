@@ -1417,9 +1417,11 @@ fn contact_attack_ignores_the_victim() {
             logic.pathfinding_height_samples.as_ref(),
             &logic.pathfinding_system.grid,
         );
-        logic
-            .pathfinding_system
-            .apply_structure_static_blocks(&logic.objects, 0.0, &ground_source)
+        logic.pathfinding_system.apply_structure_static_blocks(
+            logic.objects.read(),
+            0.0,
+            &ground_source,
+        )
     });
     ({
         let ground_owner = logic.world_services.terrain();
@@ -1436,7 +1438,7 @@ fn contact_attack_ignores_the_victim() {
         logic
             .pathfinding_system
             .grid
-            .update_dynamic_obstacles(&logic.objects, &ground_source)
+            .update_dynamic_obstacles(logic.objects.read(), &ground_source)
     });
     let target_cell = logic
         .pathfinding_system

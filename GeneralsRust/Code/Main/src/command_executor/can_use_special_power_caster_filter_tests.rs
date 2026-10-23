@@ -357,7 +357,7 @@ fn baikonur_location_does_not_open_door_object_does_not_spend() {
     assert!(
         logic
             .host_objects()
-            .values()
+            .registered_values()
             .any(|o| o.template_name == "BaikonurRocketDetonation")
     );
 

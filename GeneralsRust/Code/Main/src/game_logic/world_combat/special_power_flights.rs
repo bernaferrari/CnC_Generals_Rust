@@ -22,7 +22,7 @@ impl GameLogic {
 
         let tids: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, o)| o.anthrax_bomb_transport.is_some() && o.is_alive())
             .map(|(id, _)| *id)
             .collect();
@@ -98,7 +98,7 @@ impl GameLogic {
 
         let bombs: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, o)| o.anthrax_bomb_payload && o.is_alive())
             .map(|(id, _)| *id)
             .collect();
@@ -351,7 +351,7 @@ impl GameLogic {
 
         let tids: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, o)| o.cluster_mines_transport.is_some() && o.is_alive())
             .map(|(id, _)| *id)
             .collect();
@@ -423,7 +423,7 @@ impl GameLogic {
 
         let bombs: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, o)| o.cluster_mines_bomb && o.is_alive())
             .map(|(id, _)| *id)
             .collect();
@@ -661,7 +661,7 @@ impl GameLogic {
 
         let due: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, o)| {
                 if o.emp_pulse_spheroid {
                     if let Some(exp) = o.emp_pulse_spheroid_expires_frame {
@@ -781,7 +781,7 @@ impl GameLogic {
 
         let tids: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, o)| o.emp_pulse_transport.is_some() && o.is_alive())
             .map(|(id, _)| *id)
             .collect();
@@ -852,7 +852,7 @@ impl GameLogic {
 
         let bombs: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, o)| o.emp_pulse_bomb && o.is_alive())
             .map(|(id, _)| *id)
             .collect();
@@ -1096,7 +1096,7 @@ impl GameLogic {
             let center = (location.x, location.z);
             let candidates: Vec<(ObjectId, bool, bool, bool, bool, bool, bool)> = self
                 .objects
-                .iter()
+                .registered()
                 .filter_map(|(id, obj)| {
                     if !obj.is_alive() {
                         return None;
@@ -1182,7 +1182,7 @@ impl GameLogic {
             .collect();
         let orphans: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, obj)| {
                 (obj.gps_scrambler_marker && obj.is_alive() && !owned.contains(id)).then_some(*id)
             })
@@ -1404,7 +1404,7 @@ impl GameLogic {
         {}
         let crawlers: Vec<(ObjectId, f32, f32)> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, o)| {
                 if !o.firewall_segment || !o.is_alive() {
                     return None;
@@ -1428,7 +1428,7 @@ impl GameLogic {
 
         let due: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, o)| {
                 if o.firewall_segment {
                     if let Some(exp) = o.firewall_segment_expires_frame {
@@ -1531,7 +1531,7 @@ impl GameLogic {
         let range_sq = RADAR_SCAN_STEALTH_DETECTION_RANGE * RADAR_SCAN_STEALTH_DETECTION_RANGE;
         let stealthed: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(id, o)| {
                 *id != &pid
                     && o.is_alive()
@@ -1588,7 +1588,7 @@ impl GameLogic {
         let frame = self.frame;
         let due: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, o)| {
                 if o.radar_van_ping {
                     if let Some(exp) = o.radar_van_ping_expires_frame {
@@ -1700,7 +1700,7 @@ impl GameLogic {
             SPY_SATELLITE_STEALTH_DETECTION_RANGE * SPY_SATELLITE_STEALTH_DETECTION_RANGE;
         let stealthed: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(id, o)| {
                 *id != &pid
                     && o.is_alive()
@@ -1749,7 +1749,7 @@ impl GameLogic {
         let frame = self.frame;
         let due: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, o)| {
                 if o.spy_satellite_ping {
                     if let Some(exp) = o.spy_satellite_ping_expires_frame {
@@ -2061,7 +2061,7 @@ impl GameLogic {
         }
         let pos = self.objects.get(&target_id)?.get_position();
         self.objects
-            .values()
+            .registered_values()
             .filter(|o| {
                 crate::game_logic::host_bridge_behavior::is_bridge_span_template(&o.template_name)
                     || o.is_kind_of(crate::game_logic::KindOf::Bridge)
@@ -2328,7 +2328,7 @@ impl GameLogic {
         }
         let span_ids: Vec<ObjectId> = self
             .objects
-            .values()
+            .registered_values()
             .filter(|o| {
                 crate::game_logic::host_bridge_behavior::is_bridge_span_template(&o.template_name)
                     || o.is_kind_of(crate::game_logic::KindOf::Bridge)
@@ -2390,7 +2390,7 @@ impl GameLogic {
             if rubble {
                 let positions: Vec<(ObjectId, glam::Vec3)> = self
                     .objects
-                    .iter()
+                    .registered()
                     .filter(|(oid, o)| {
                         **oid != id
                             && o.is_alive()
@@ -2528,12 +2528,12 @@ impl GameLogic {
         // must not grant this callback a second movement integration.
         let ids: Vec<_> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, o)| o.chinook_ai.is_some())
             .map(|(id, _)| *id)
             .collect();
         for id in ids {
-            let wanting = self.objects.values().any(|o| {
+            let wanting = self.objects.registered_values().any(|o| {
                 o.target == Some(id)
                     && matches!(
                         o.ai_state,
@@ -2704,7 +2704,7 @@ impl GameLogic {
                         );
                     self.pathfinding_system.adjust_landing_destination_for(
                         id.0,
-                        &self.objects,
+                        self.objects.read(),
                         landing_from,
                         landing_dest,
                         &ground_source,
@@ -3391,7 +3391,7 @@ impl GameLogic {
         // Dying/zero-health and UNDER_CONSTRUCTION are separate source state.
         let carriers: Vec<_> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, object)| {
                 (!object.has_disabled_type()
                     && !object.initial_transport_payload_created
@@ -3480,13 +3480,13 @@ mod initial_transport_payload_owner_tests {
                 for child in children {
                     world.objects.remove(&child);
                 }
-                let before = world.objects.len();
+                let before = world.objects.registered_len();
                 world.frame = 2;
                 world
                     .update_initial_transport_payloads_with_effects(&mut Default::default())
                     .unwrap();
                 assert!(world.objects[&id].occupants.is_empty());
-                assert_eq!(world.objects.len(), before);
+                assert_eq!(world.objects.registered_len(), before);
             },
         );
     }

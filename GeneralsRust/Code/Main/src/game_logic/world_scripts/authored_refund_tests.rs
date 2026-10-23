@@ -489,11 +489,12 @@ fn parsed_upgrade_ledger_cancel_refunds_once() {
 }
 
 #[test]
-fn zero_money_ledger_cancel_reverses_power_without_deposit_cue() {
+fn zero_money_ledger_cancel_leaves_energy_unchanged_without_deposit_cue() {
     {
         let (mut logic, _) = authored_world(250, 1_000);
         let (player, economy_events) = logic.player_and_economy_events_mut(OWNER).unwrap();
-        // Existing public Player ledger edge: zero money still reverses power.
+        // C++ Money::withdraw/deposit only change money. Energy changes through
+        // Object membership in Energy::objectEnteringInfluence / LeavingInfluence.
         // This is a ledger boundary control, not an authored producer admission.
         let zero = Resources {
             supplies: 0,
@@ -506,14 +507,14 @@ fn zero_money_ledger_cancel_reverses_power_without_deposit_cue() {
             gamelogic::upgrade::UpgradeType::Player,
             economy_events,
         ));
-        assert_eq!(player.power_available, before_power - 7);
+        assert_eq!(player.power_available, before_power);
         economy_events.complete_boundary();
         assert_eq!(
             economy_events.take_completed(),
             vec![HostEconomyEvent {
                 player_id: OWNER,
                 supplies: 1_000,
-                power_available: before_power - 7,
+                power_available: before_power,
             }]
         );
         assert!(

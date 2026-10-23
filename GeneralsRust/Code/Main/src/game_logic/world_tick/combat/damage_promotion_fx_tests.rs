@@ -652,7 +652,11 @@ fn normal_ground_without_victim_commits_exactly_one_discharge() {
                 assert!(shooter.is_within_attack_range_pos_for_slot(0, impact));
                 assert_eq!(shooter.weapon.as_ref().unwrap().ammo, Some(8));
             }
-            assert_eq!(world.objects.len(), 1, "actual ground impact has no victim");
+            assert_eq!(
+                world.objects.registered_len(),
+                1,
+                "actual ground impact has no victim"
+            );
             assert!(take_dispatched_armor_damage_fx().is_empty());
             world.update_combat(&[source], 1.0 / 30.0);
             let shooter = &world.objects[&source];

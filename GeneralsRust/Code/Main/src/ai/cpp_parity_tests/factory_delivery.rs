@@ -139,7 +139,7 @@ fn skirmish_queues_a_selected_team_without_waiting_for_team_seconds() {
                 .expect("receiving AI");
             ai.is_active = true;
             assert!(
-                logic.host_objects().values().any(|object| {
+                logic.host_objects().registered_values().any(|object| {
                     object.team == Team::USA
                         && object.producer_id == Some(barracks_id)
                         && object
@@ -247,7 +247,7 @@ fn work_order_waits_for_live_factory_output_before_completing() {
     assert_eq!(pending.num_completed, 0, "door opening is not delivery");
     assert_eq!(pending.queued_count, 1);
     assert!(
-        !logic.host_objects().values().any(|unit| {
+        !logic.host_objects().registered_values().any(|unit| {
             unit.producer_id == Some(factory) && unit.template_name == "AmericaInfantryRanger"
         }),
         "the closed/opening door holds the completed production head"
@@ -259,7 +259,7 @@ fn work_order_waits_for_live_factory_output_before_completing() {
     assert_eq!(delivered.num_completed, 1);
     assert_eq!(delivered.queued_count, 0);
     assert!(
-        logic.host_objects().values().any(|unit| {
+        logic.host_objects().registered_values().any(|unit| {
             unit.producer_id == Some(factory) && unit.template_name == "AmericaInfantryRanger"
         }),
         "the real factory callback delivers after its door opens"
@@ -383,7 +383,7 @@ fn supply_center_spawns_free_collector_then_ai_pays_for_next_collector() {
         .expect("constructed supply center");
     let free_collectors: Vec<ObjectId> = logic
         .host_objects()
-        .iter()
+        .registered()
         .filter_map(|(&id, object)| {
             (object.team == Team::USA
                 && object.producer_id == Some(center_id)
@@ -459,7 +459,7 @@ fn supply_center_spawns_free_collector_then_ai_pays_for_next_collector() {
 
     let paid_collectors: Vec<ObjectId> = logic
         .host_objects()
-        .iter()
+        .registered()
         .filter_map(|(&id, object)| {
             (object.team == Team::USA
                 && object.producer_id == Some(center_id)

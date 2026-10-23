@@ -10,12 +10,12 @@ pub(in crate::game_logic) struct AreaDamage<'a> {
 impl<'a> AreaDamage<'a> {
     pub(in crate::game_logic) fn new(
         event: &'a DamageEvent,
-        objects: &HashMap<ObjectId, Object>,
+        objects: HostObjectRead<'_>,
     ) -> Option<Self> {
         let DamageEvent::Area { shooter_id, .. } = event else {
             return None;
         };
-        let source = objects.get(shooter_id);
+        let source = objects.lookup(shooter_id);
         Some(Self {
             event,
             shooter_pos: source.map(|o| o.get_position()),
@@ -27,7 +27,7 @@ impl<'a> AreaDamage<'a> {
     /// Reentrant victim callbacks must not change another candidate's damage band.
     pub(in crate::game_logic) fn candidates(
         &self,
-        objects: &HashMap<ObjectId, Object>,
+        objects: HostObjectRead<'_>,
     ) -> Vec<(ObjectId, f32)> {
         let DamageEvent::Area {
             position,
@@ -43,7 +43,7 @@ impl<'a> AreaDamage<'a> {
         let dual = secondary_r > *radius + 1e-3 && *secondary_damage > 0.0;
         let outer = if dual { secondary_r } else { *radius };
         objects
-            .iter()
+            .registered()
             .filter_map(|(id, obj)| {
                 let distance = splash_from_bounding_sphere_3d(
                     *position,

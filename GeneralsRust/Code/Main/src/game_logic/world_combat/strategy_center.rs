@@ -180,7 +180,7 @@ impl GameLogic {
         let impact_xz = (impact.x, impact.z);
         let candidates: Vec<(ObjectId, f32, bool)> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, obj)| {
                 if *id == center_id {
                     return None;
@@ -415,7 +415,7 @@ impl GameLogic {
         // Pure residual acquire query (fire decision choice phase).
         let candidates: Vec<_> = self
             .objects
-            .iter()
+            .registered()
             .map(|(&id, obj)| {
                 let combat_kind = crate::game_logic::host_residual_acquire::residual_combat_kind(
                     obj.is_kind_of(KindOf::Attackable),
@@ -865,7 +865,7 @@ impl GameLogic {
         let current_time = self.frame as f32 * LOGIC_FRAME_TIMESTEP;
         let cand_snap: Vec<_> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(&id, obj)| {
                 if id == requester_id || obj.team != requester_team {
                     return None;
@@ -1005,7 +1005,7 @@ impl GameLogic {
         // Snapshot live positions for LaserUpdate residual (avoid borrow conflicts).
         let positions: Vec<(ObjectId, f32, f32, f32, bool)> = self
             .objects
-            .iter()
+            .registered()
             .map(|(id, obj)| {
                 let p = obj.get_position();
                 (*id, p.x, p.y, p.z, obj.is_alive())
@@ -1308,7 +1308,7 @@ impl GameLogic {
             .is_some_and(|o| o.status.airborne_target);
         let victims: Vec<(ObjectId, bool, bool)> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, obj)| {
                 if *id == source_id || !obj.is_alive() {
                     return None;
@@ -1547,7 +1547,7 @@ impl GameLogic {
         let frame = self.frame;
         let due: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, o)| {
                 if o.weapon_laser_beam {
                     if let Some(exp) = o.weapon_laser_beam_expires_frame {
@@ -1676,7 +1676,7 @@ impl GameLogic {
         let frame = self.frame;
         let due: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, o)| {
                 if o.point_defense_laser_beam {
                     if let Some(exp) = o.point_defense_laser_beam_expires_frame {
@@ -1726,7 +1726,7 @@ impl GameLogic {
         // Snapshot carriers first (immutable pass).
         let carriers: Vec<(ObjectId, String, Team, glam::Vec3)> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, obj)| {
                 // C++ PointDefenseLaserBeam objects carry only Draw +
                 // LifetimeUpdate — never a PointDefenseLaserUpdate module — so
@@ -1793,7 +1793,7 @@ impl GameLogic {
                     );
                 let candidates: Vec<_> = self
                     .objects
-                    .iter()
+                    .registered()
                     .map(|(&tid, target)| {
                         let same_team = target.team == team;
                         let stealthed = target.status.stealthed;

@@ -17,7 +17,7 @@ impl GameLogic {
             return this_object.filter(|id| self.host_object(*id).is_some());
         }
         self.host_objects()
-            .values()
+            .registered_values()
             .find(|o| o.name == name)
             .map(|o| o.id)
     }

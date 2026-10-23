@@ -207,7 +207,7 @@ impl GameLogic {
         // Pure residual pilot-vehicle acquire (recrew choice phase).
         let candidates: Vec<_> = self
             .objects
-            .iter()
+            .registered()
             .map(|(&vid, vehicle)| {
                 // RequiredKindOf/ForbiddenKindOf use the authored KindOf
                 // bank, not an ObjectType or basename approximation.
@@ -308,7 +308,7 @@ impl GameLogic {
         // No vehicle: one-shot base-center fallback residual (getAiBaseCenter).
         // Fail-closed: only a real CommandCenter residual (not any structure /
         // unit fallback — avoids stealing AutoFindHealing hospital residual).
-        let base_pos = self.objects.values().find_map(|obj| {
+        let base_pos = self.objects.registered_values().find_map(|obj| {
             if obj.team == pilot_team
                 && obj.is_alive()
                 && (obj.is_kind_of(KindOf::CommandCenter) || obj.is_command_center())
@@ -1001,7 +1001,7 @@ impl GameLogic {
         // Pure residual service-target acquire (heal pad choice phase).
         let candidates: Vec<_> = self
             .objects
-            .iter()
+            .registered()
             .map(|(&hid, pad)| {
                 let under_construction =
                     pad.status.under_construction || pad.construction_percent + 0.001 < 1.0;
@@ -1348,7 +1348,7 @@ impl GameLogic {
 
         let frame = self.frame;
         let mut respawned = 0u32;
-        for obj in self.objects.values_mut() {
+        for obj in self.objects.registered_values_mut() {
             if !is_stinger_site_structure(&obj.template_name) || !obj.is_alive() {
                 continue;
             }
@@ -1555,7 +1555,7 @@ impl GameLogic {
         let mut damage_dealt = 0.0f32;
         let mut blast_hits = 0u32;
         let mut destroy_ids: Vec<(ObjectId, Team)> = Vec::new();
-        let victim_ids: Vec<ObjectId> = self.objects.keys().copied().collect();
+        let victim_ids: Vec<ObjectId> = self.objects.registered_keys().copied().collect();
         for vid in victim_ids {
             if vid == truck_id {
                 continue;
@@ -1696,7 +1696,7 @@ impl GameLogic {
         // Pure residual service-target acquire (repair pad choice phase).
         let candidates: Vec<_> = self
             .objects
-            .iter()
+            .registered()
             .map(|(&pid, pad)| {
                 let name = pad.template_name.to_ascii_lowercase();
                 let is_pad = pad
@@ -1787,7 +1787,7 @@ impl GameLogic {
         // Pure residual service-target acquire (unfinished structure choice phase).
         let candidates: Vec<_> = self
             .objects
-            .iter()
+            .registered()
             .map(
                 |(&sid, st)| crate::game_logic::host_residual_acquire::ResidualAcquireCandidate {
                     id: sid,
@@ -1836,7 +1836,7 @@ impl GameLogic {
     ) {
         let object_positions: Vec<(ObjectId, Vec3, Team, bool, bool)> = self
             .objects
-            .iter()
+            .registered()
             .map(|(id, obj)| {
                 (
                     *id,

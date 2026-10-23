@@ -123,7 +123,7 @@ impl GameLogic {
         let frame = self.frame;
         let due: Vec<_> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, object)| {
                 kind.deadline(object)
                     .filter(|deadline| *deadline <= frame)

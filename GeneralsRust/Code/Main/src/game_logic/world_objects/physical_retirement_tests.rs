@@ -350,7 +350,7 @@ fn bulk_clear_requires_receiving_owner_before_mutation_and_retires_once() {
         })
         .unwrap();
     assert_eq!(probe.calls, 1);
-    assert!(owner.objects.is_empty());
+    assert!(owner.objects.registered_is_empty());
     assert!(!owner.has_pending_destroy_work());
     assert_eq!(owner.next_object_id_for_snapshot(), ObjectId(1));
     assert_ne!(owner.visual_world_epoch, epoch);
@@ -498,7 +498,7 @@ fn bulk_retirement_preserves_prior_queue_then_registration_and_containment_order
             (child, vec![]),
         ]
     );
-    assert!(owner.objects.is_empty());
+    assert!(owner.objects.registered_is_empty());
     assert!(owner.pending_object_removal_snapshot().is_empty());
     assert_eq!(peer_id, queued);
     assert!(!peer.objects[&peer_id].status.destroyed);
@@ -540,20 +540,20 @@ fn admitted_bridge_retirement_world() -> (GameLogic, ObjectId) {
         .admit_map_bridge_geometry(&mut ground.write().unwrap(), map)
         .unwrap();
     assert!(
-        world.objects.is_empty(),
+        world.objects.registered_is_empty(),
         "geometry reserves a slot before one factory birth"
     );
     world
         .seed_pathfinding_from_terrain_with_effects_checked(&mut Default::default())
         .unwrap();
-    assert_eq!(world.objects.len(), 1);
-    let id = *world.objects.keys().next().unwrap();
+    assert_eq!(world.objects.registered_len(), 1);
+    let id = *world.objects.registered_keys().next().unwrap();
     assert_eq!(world.objects[&id].template_name, "GenericBridge");
     assert_ne!(world.objects[&id].visual_object_generation, 0);
     let next_id = world.next_object_id_for_snapshot();
     world.sync_structure_path_blocks();
     assert_eq!(
-        world.objects.len(),
+        world.objects.registered_len(),
         1,
         "ordinary refresh reuses the originally admitted span"
     );
@@ -578,14 +578,14 @@ fn bridge_actor_deletion_refresh_never_resurrects_or_allocates_a_span() {
         .process_destroy_list_with_effects_checked(&mut Default::default())
         .unwrap();
     assert!(
-        owner.objects.is_empty(),
+        owner.objects.registered_is_empty(),
         "physical deletion cannot create a replacement GenericBridge"
     );
     assert!(!owner.has_pending_object_removals());
     assert_eq!(owner.next_object_id_for_snapshot(), next);
     for _ in 0..2 {
         owner.sync_structure_path_blocks();
-        assert!(owner.objects.is_empty());
+        assert!(owner.objects.registered_is_empty());
         assert_eq!(owner.next_object_id_for_snapshot(), next);
         let slots = owner.pathfinding_system.grid.admitted_bridge_states();
         assert_eq!(slots.len(), original_slots.len());
@@ -621,7 +621,7 @@ fn admitted_bridge_bulk_retirement_finishes_in_one_pass_without_factory_reentry(
     owner
         .destroy_all_objects_immediate_with_effects_checked(&mut Default::default())
         .unwrap();
-    assert!(owner.objects.is_empty());
+    assert!(owner.objects.registered_is_empty());
     assert!(owner.objects.ordered_ids().is_empty());
     assert!(!owner.has_pending_object_removals());
     assert_eq!(
@@ -630,7 +630,7 @@ fn admitted_bridge_bulk_retirement_finishes_in_one_pass_without_factory_reentry(
         "one-pass bulk disposal never admits replacement bridge lifetimes"
     );
     owner.sync_structure_path_blocks();
-    assert!(owner.objects.is_empty());
+    assert!(owner.objects.registered_is_empty());
     assert_eq!(owner.next_object_id_for_snapshot(), next);
     assert!(!peer.objects[&peer_id].status.destroyed);
     assert_eq!(peer.next_object_id_for_snapshot(), peer_next);

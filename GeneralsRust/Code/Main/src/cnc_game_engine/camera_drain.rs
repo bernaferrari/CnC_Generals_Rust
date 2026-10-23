@@ -3305,7 +3305,7 @@ mod replay_fast_forward_probe {
                     }
                 };
                 anyhow::ensure!(
-                    prepared.game_logic.host_objects().is_empty(),
+                    prepared.game_logic.host_objects().registered_is_empty(),
                     "startup catalog handoff unexpectedly admitted host Objects"
                 );
                 anyhow::ensure!(
@@ -3572,7 +3572,7 @@ mod replay_fast_forward_probe {
         let old_ids = engine
             .game_logic
             .host_objects()
-            .keys()
+            .registered_keys()
             .copied()
             .collect::<std::collections::HashSet<_>>();
         let old_presentation = engine.last_presentation_frame.clone();
@@ -3613,7 +3613,7 @@ mod replay_fast_forward_probe {
         let births = engine
             .game_logic
             .host_objects()
-            .iter()
+            .registered()
             .filter(|(id, _)| !old_ids.contains(id))
             .map(|(id, _)| *id)
             .collect::<Vec<_>>();
@@ -3627,10 +3627,13 @@ mod replay_fast_forward_probe {
             .presentation_direct_drawable_state(engine.host_direct_visual_world_epoch, births[0].0)
             .unwrap()
             .binding_key;
-        let count_before = engine.game_logic.host_objects().len();
+        let count_before = engine.game_logic.host_objects().registered_len();
         assert!(engine.host_update_shell_with_budget(1. / 30., 4).is_err());
         assert_eq!(engine.game_logic.get_frame(), frame);
-        assert_eq!(engine.game_logic.host_objects().len(), count_before);
+        assert_eq!(
+            engine.game_logic.host_objects().registered_len(),
+            count_before
+        );
         assert_eq!(
             engine
                 .game_client
@@ -3672,7 +3675,7 @@ mod replay_fast_forward_probe {
         );
         assert_eq!(peer.get_frame(), peer_frame);
         assert!(peer.team_creation_error().is_none());
-        assert!(peer.host_objects().is_empty());
+        assert!(peer.host_objects().registered_is_empty());
         println!(
             "actual_team_failure_stops_native_shell_and_fast_forward passed: frame={frame}, TeamID={identity:?}"
         );

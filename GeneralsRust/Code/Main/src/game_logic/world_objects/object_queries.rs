@@ -176,7 +176,7 @@ impl GameLogic {
         // Pure residual acquire: nearest harvestable supply pile (3D distance).
         let candidates: Vec<_> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(&id, obj)| {
                 if !obj.is_alive() || obj.status.destroyed {
                     return None;
@@ -264,7 +264,7 @@ impl GameLogic {
             .unwrap_or_default();
         let candidates: Vec<_> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(&obj_id, obj)| {
                 if obj.team != team
                     || !obj.is_alive()
@@ -348,7 +348,7 @@ impl GameLogic {
 
     /// Wave 958: legacy alias — prefer [`Self::host_objects`].
     #[inline]
-    pub fn get_objects(&self) -> &HashMap<ObjectId, Object> {
+    pub fn get_objects(&self) -> crate::game_logic::HostObjectRead<'_> {
         self.host_objects()
     }
 
@@ -1395,7 +1395,7 @@ impl GameLogic {
     #[inline]
     pub fn uses_legacy_team_ownership_fallback(&self) -> bool {
         self.objects
-            .values()
+            .registered_values()
             .all(|object| object.owner_player_id.is_none())
     }
 
@@ -1580,7 +1580,7 @@ impl GameLogic {
         let mut fallback = None;
         let mut highest_cost = i32::MIN;
 
-        for obj in self.objects.values() {
+        for obj in self.objects.registered_values() {
             if obj.team != team || !obj.is_alive() {
                 continue;
             }
@@ -1780,7 +1780,7 @@ impl GameLogic {
             .count()
             <= 1;
 
-        for obj in self.objects.values() {
+        for obj in self.objects.registered_values() {
             if !obj.is_alive() {
                 continue;
             }
@@ -2137,7 +2137,7 @@ impl GameLogic {
             }
             // Mirror onto living objects owned by the same controlling player.
             // C++ SharedNSync is per-Player, not per-faction.
-            for obj in self.objects.values_mut() {
+            for obj in self.objects.registered_values_mut() {
                 let same_controller = match owner_id {
                     Some(want) => {
                         obj.owner_player_id == Some(want)
@@ -2257,7 +2257,7 @@ impl GameLogic {
         if unit_name.is_empty() {
             return None;
         }
-        self.objects.iter().find_map(|(id, object)| {
+        self.objects.registered().find_map(|(id, object)| {
             (!object.name.is_empty() && object.name == unit_name).then_some(*id)
         })
     }

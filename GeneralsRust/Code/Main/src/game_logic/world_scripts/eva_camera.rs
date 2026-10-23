@@ -60,7 +60,7 @@ impl GameLogic {
             .or_else(|| {
                 // Prefer command center / any structure residual position.
                 self.objects
-                    .values()
+                    .registered_values()
                     .filter(|o| o.team == team && o.is_alive() && o.is_kind_of(KindOf::Structure))
                     .map(|o| o.get_position())
                     .next()

@@ -1,4 +1,5 @@
 use super::*;
+use crate::game_logic::{HostObjectRead, HostObjectStore};
 use glam::Vec3;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
@@ -817,3 +818,12 @@ mod owned_ground_cpp_tests;
 
 #[cfg(test)]
 mod offmap_extent_owner_tests;
+
+#[cfg(test)]
+fn registered_path_fixture(rows: impl IntoIterator<Item = (ObjectId, Object)>) -> HostObjectStore {
+    let mut objects = HostObjectStore::new();
+    for (id, object) in rows {
+        objects.admit(id, object);
+    }
+    objects
+}

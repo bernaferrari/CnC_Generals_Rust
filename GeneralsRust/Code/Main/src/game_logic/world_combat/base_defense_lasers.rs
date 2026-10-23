@@ -1359,7 +1359,7 @@ impl GameLogic {
         let cruise = BUGGY_PROJECTILE_SPEED / 30.0;
         let flying: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, o)| {
                 if o.rocket_buggy_missile_projectile && o.is_alive() {
                     Some(*id)
@@ -1538,7 +1538,7 @@ impl GameLogic {
 
         let candidates: Vec<(ObjectId, f32, bool)> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, obj)| {
                 if source == Some(*id) {
                     return None;
@@ -1806,7 +1806,7 @@ impl GameLogic {
         let speed = SCUD_MISSILE_INITIAL_VELOCITY / 30.0;
         let flying: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, o)| {
                 if o.scud_launcher_missile_projectile && o.is_alive() {
                     Some(*id)
@@ -1908,7 +1908,7 @@ impl GameLogic {
         // HeightDie residual: if freefall/low altitude kills missile, detonate warhead.
         let height_die_ids: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, o)| {
                 if o.scud_launcher_missile_projectile && o.is_alive() {
                     Some(*id)

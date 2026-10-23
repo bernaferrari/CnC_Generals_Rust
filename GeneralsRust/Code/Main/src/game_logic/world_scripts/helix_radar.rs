@@ -125,7 +125,7 @@ impl GameLogic {
         let max_radius = nuclear_tank_death_splash_radius(nuke_general);
         let mut blast_hits = 0u32;
         let mut destroy_ids: Vec<(ObjectId, Team)> = Vec::new();
-        let victim_ids: Vec<ObjectId> = self.objects.keys().copied().collect();
+        let victim_ids: Vec<ObjectId> = self.objects.registered_keys().copied().collect();
         for vid in victim_ids {
             if vid == tank_id {
                 continue;
@@ -226,7 +226,7 @@ impl GameLogic {
     ) {
         let object_positions: Vec<(ObjectId, Vec3, Team, bool)> = self
             .objects
-            .iter()
+            .registered()
             .map(|(id, obj)| (*id, obj.get_position(), obj.team, obj.is_alive()))
             .collect();
 
@@ -424,7 +424,7 @@ impl GameLogic {
         const STICKY_OFFSET_Y: f32 = 8.0;
         let pairs: Vec<(ObjectId, ObjectId)> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, o)| {
                 if o.booby_trap_special {
                     o.booby_trap_attached_to.map(|s| (*id, s))
@@ -533,7 +533,7 @@ impl GameLogic {
         let max_r = booby_trap_splash_radius(plant.geometry_radius);
         let mut hits = 0u32;
         let mut destroy_ids: Vec<(ObjectId, Team)> = Vec::new();
-        let victim_ids: Vec<ObjectId> = self.objects.keys().copied().collect();
+        let victim_ids: Vec<ObjectId> = self.objects.registered_keys().copied().collect();
         for vid in victim_ids {
             let Some(victim) = self.objects.get(&vid) else {
                 continue;
@@ -799,7 +799,7 @@ impl GameLogic {
         let tree_move_frame = self.frame;
         let flying: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, o)| {
                 if o.helix_napalm_bomb_projectile && o.is_alive() {
                     Some(*id)
@@ -886,7 +886,7 @@ impl GameLogic {
             let mut blast_hits = 0u32;
             let mut blast_damage = 0.0f32;
             let mut destroy_ids: Vec<(ObjectId, Team)> = Vec::new();
-            let victim_ids: Vec<ObjectId> = self.objects.keys().copied().collect();
+            let victim_ids: Vec<ObjectId> = self.objects.registered_keys().copied().collect();
             for vid in victim_ids {
                 if vid == source_object {
                     continue;
@@ -977,7 +977,7 @@ impl GameLogic {
         self.helix_napalm.advance_geometry(frame);
         let object_positions: Vec<(ObjectId, Vec3, Team, bool)> = self
             .objects
-            .iter()
+            .registered()
             .map(|(id, obj)| (*id, obj.get_position(), obj.team, obj.is_alive()))
             .collect();
 
@@ -1081,7 +1081,7 @@ impl GameLogic {
 
         let mut damage_dealt = 0.0f32;
         let mut destroy_ids: Vec<(ObjectId, Team)> = Vec::new();
-        let victim_ids: Vec<ObjectId> = self.objects.keys().copied().collect();
+        let victim_ids: Vec<ObjectId> = self.objects.registered_keys().copied().collect();
         for vid in victim_ids {
             if vid == car_id {
                 continue;
@@ -2088,7 +2088,7 @@ impl GameLogic {
         let dt = 1.0 / 30.0;
         let live: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, o)| o.countermeasure_flare)
             .map(|(id, _)| *id)
             .collect();
@@ -2103,7 +2103,7 @@ impl GameLogic {
         }
         let due: Vec<(ObjectId, Option<ObjectId>)> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, o)| {
                 if !o.countermeasure_flare {
                     return None;
@@ -2333,7 +2333,7 @@ impl GameLogic {
     fn refresh_dynamic_shroud_grid_decals(&mut self) {
         let frame = self.frame;
         let mut updates: Vec<(ObjectId, f32, Vec3, Option<u32>)> = Vec::new();
-        for (id, obj) in &self.objects {
+        for (id, obj) in self.objects.registered() {
             if !obj.is_alive() {
                 continue;
             }

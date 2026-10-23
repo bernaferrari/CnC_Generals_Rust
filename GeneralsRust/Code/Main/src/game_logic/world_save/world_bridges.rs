@@ -63,7 +63,7 @@ impl GameLogic {
             let center = (host(info.from_left) + host(info.to_right)) * 0.5;
             let mut ids: Vec<ObjectId> = self
                 .objects
-                .values()
+                .registered_values()
                 .filter(|object| {
                     object.is_kind_of(KindOf::Bridge)
                         && !used.contains(&object.id)
@@ -148,7 +148,7 @@ impl GameLogic {
         );
         refresh_grid_bridge_states(
             &mut self.pathfinding_system.grid,
-            &self.objects,
+            self.objects.read(),
             &self.bridge_behavior,
             &ground,
         );
@@ -162,7 +162,7 @@ impl GameLogic {
     ) {
         refresh_grid_bridge_states(
             &mut self.pathfinding_system.grid,
-            &self.objects,
+            self.objects.read(),
             &self.bridge_behavior,
             ground,
         );
@@ -230,7 +230,7 @@ impl GameLogic {
 
 fn refresh_grid_bridge_states(
     grid: &mut PathfindingGrid,
-    objects: &std::collections::HashMap<ObjectId, Object>,
+    objects: crate::game_logic::HostObjectRead<'_>,
     bridges: &crate::game_logic::host_bridge_behavior::HostBridgeBehaviorRegistry,
     ground: &PathfindingGround<'_>,
 ) {
@@ -238,7 +238,7 @@ fn refresh_grid_bridge_states(
         let destroyed = if id == 0 {
             old_destroyed
         } else {
-            objects.get(&ObjectId(id)).is_none_or(|object| {
+            objects.lookup(&ObjectId(id)).is_none_or(|object| {
                 object.health.current <= 0.0
                     || object.health.maximum <= 0.0
                     || object.body_damage_state

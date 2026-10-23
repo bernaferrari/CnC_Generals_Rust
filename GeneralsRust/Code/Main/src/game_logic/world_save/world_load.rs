@@ -236,7 +236,7 @@ impl GameLogic {
     where
         F: FnMut(f32, &str),
     {
-        if !self.objects.is_empty() || self.has_pending_object_removals() {
+        if !self.objects.registered_is_empty() || self.has_pending_object_removals() {
             log::error!("Map contents require completed outgoing Object retirement");
             return false;
         }
@@ -792,7 +792,7 @@ impl GameLogic {
                         );
                         log::info!(
                             "Spawned {} objects from map placement data for '{}' in {:.2}s",
-                            self.objects.len(),
+                            self.objects.registered_len(),
                             map_name,
                             object_spawn_started.elapsed().as_secs_f32()
                         );
@@ -940,7 +940,7 @@ impl GameLogic {
                                     )
                                 };
                                 self.pathfinding_system.apply_structure_static_blocks(
-                                    &self.objects,
+                                    self.objects.read(),
                                     wall_height,
                                     &ground_source,
                                 )
@@ -1065,7 +1065,7 @@ impl GameLogic {
                                     )
                                 };
                                 self.pathfinding_system.apply_structure_static_blocks(
-                                    &self.objects,
+                                    self.objects.read(),
                                     wall_height,
                                     &ground_source,
                                 )

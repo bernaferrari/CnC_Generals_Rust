@@ -1473,7 +1473,7 @@ mod strict_receiving_source_tests {
         ] {
             let bad = parse("Receiving", malformed);
             assert!(bad.validate_receiving_module_source(&factory).is_err());
-            assert_eq!(world.host_objects().len(), 1);
+            assert_eq!(world.host_objects().registered_len(), 1);
             assert_eq!(
                 world.host_object(id).unwrap().health.current,
                 previous.health.current

@@ -41,7 +41,7 @@ pub(super) fn find(
     grid: &PathfindingGrid,
     start: Cell,
     goal: Cell,
-    objects: &HashMap<ObjectId, Object>,
+    objects: HostObjectRead<'_>,
     passable: &impl Fn(GridPos) -> bool,
     cleanup_cells: &mut usize,
 ) -> Option<(Vec<Cell>, u32)> {

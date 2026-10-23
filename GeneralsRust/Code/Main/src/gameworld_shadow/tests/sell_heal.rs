@@ -301,7 +301,14 @@ fn start_sell_sets_construction_percent_under_authority() {
     // CPP sell start changes the canonical percent immediately to 0.999.
     // Construction authority no longer freezes host percent (stalls multi-frame sell).
     assert!(
-        (logic.host_objects().get(&oid).unwrap().construction_percent - 0.999).abs() < 1e-4,
+        (logic
+            .host_objects()
+            .lookup(&oid)
+            .unwrap()
+            .construction_percent
+            - 0.999)
+            .abs()
+            < 1e-4,
         "host sell start must set 0.999 residual"
     );
 
@@ -611,7 +618,7 @@ fn pending_absolute_health_record_waits_for_admission() {
     // not execute a crate collision or claim to verify the crate behavior.
     perform_owner_health(&mut logic, oid, 100.0);
     assert!(
-        (logic.host_objects().get(&oid).unwrap().health.current - 100.0).abs() < 1e-3,
+        (logic.host_objects().lookup(&oid).unwrap().health.current - 100.0).abs() < 1e-3,
         "actual body healing commits before any observer boundary"
     );
     let evs = logic.health_events.drain_heal();

@@ -2142,7 +2142,7 @@ fn ecm_jam_spawns_disable_stream_laser() {
     );
     let beams = logic
         .objects
-        .values()
+        .registered_values()
         .filter(|o| o.weapon_laser_beam && o.template_name == ECM_DISABLE_STREAM_LASER)
         .count();
     assert!(beams >= 1, "ECMDisableStream beam object expected");
@@ -2502,9 +2502,9 @@ fn china_mines_upgrade_places_structure_minefield() {
             glam::Vec3::new(100.0, 0.0, 100.0),
         )
         .unwrap();
-    let before = logic.objects.len();
+    let before = logic.objects.registered_len();
     logic.apply_upgrade_to_object(id, "Upgrade_ChinaMines");
-    let after = logic.objects.len();
+    let after = logic.objects.registered_len();
     // C++ SmartBorder do/while (GenerateMinefieldBehavior.cpp:366-419):
     // bounding circle of the 36x44 box = sqrt(36^2+44^2) ~= 56.85, ring at
     // +30 -> ceil(2*pi*86.85/60) = 10 mines, then the diameter expand stops.
@@ -2515,7 +2515,7 @@ fn china_mines_upgrade_places_structure_minefield() {
     assert!(logic.structure_minefield_placements >= 10);
     let mines = logic
         .objects
-        .values()
+        .registered_values()
         .filter(|o| o.template_name == "ChinaStandardMine")
         .count();
     assert!(mines >= 10, "mines={mines}");
@@ -2624,7 +2624,7 @@ fn replace_object_upgrade_fake_gla_becomes_real() {
     assert!(logic.has_pending_destroy_work());
     let real = logic
         .objects
-        .values()
+        .registered_values()
         .find(|object| object.template_name == "GLABarracks")
         .unwrap();
     assert_eq!(real.get_transform_matrix(), original_transform);
@@ -2637,7 +2637,7 @@ fn replace_object_upgrade_fake_gla_becomes_real() {
     assert!(
         logic
             .objects
-            .values()
+            .registered_values()
             .any(|o| o.template_name == "GLABarracks" && o.is_alive()),
         "real barracks must spawn"
     );

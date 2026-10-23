@@ -179,7 +179,7 @@ fn ranger_residual_rifle_and_flashbang_splash() {
         game_logic.update_flashbang_grenade_projectiles();
         if !game_logic
             .objects
-            .values()
+            .registered_values()
             .any(|o| o.flashbang_grenade_projectile && o.is_alive())
         {
             break;
@@ -722,7 +722,7 @@ fn rpg_trooper_residual_rocket_and_ap_rockets() {
         game_logic.update_rpg_trooper_missile_projectiles();
         if !game_logic
             .objects
-            .values()
+            .registered_values()
             .any(|o| o.rpg_trooper_missile_projectile && o.is_alive())
         {
             break;
@@ -981,7 +981,7 @@ fn missile_defender_residual_missile_and_laser_guided() {
         game_logic.update_missile_defender_missile_projectiles();
         if !game_logic
             .objects
-            .values()
+            .registered_values()
             .any(|o| o.missile_defender_missile_projectile && o.is_alive())
         {
             break;
@@ -1082,7 +1082,7 @@ fn missile_defender_residual_missile_and_laser_guided() {
         game_logic.update_missile_defender_missile_projectiles();
         if !game_logic
             .objects
-            .values()
+            .registered_values()
             .any(|o| o.missile_defender_missile_projectile && o.is_alive())
         {
             break;
@@ -2369,7 +2369,7 @@ fn create_object_die_spawns_on_lifetime_expiry() {
     logic.update_ai(&[id], 1.0 / 30.0);
     let spawned = logic
         .objects
-        .values()
+        .registered_values()
         .find(|object| object.template_name == "GLASneakAttackTunnelNetwork" && object.id != id)
         .expect("CreateObjectDie should spawn tunnel network");
     // Lifetime kills at full previous HP, so TransferPreviousHealth contributes
@@ -2591,7 +2591,7 @@ fn troop_crawler_residual_assault_deploy_unloads_and_attacks() {
     );
 
     // At least one former occupant ordered to attack residual.
-    let any_attacking = game_logic.objects.values().any(|o| {
+    let any_attacking = game_logic.objects.registered_values().any(|o| {
         o.team == Team::China
             && o.is_kind_of(KindOf::Infantry)
             && o.contained_by.is_none()

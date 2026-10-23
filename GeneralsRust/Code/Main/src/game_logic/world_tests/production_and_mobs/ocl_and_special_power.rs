@@ -579,7 +579,7 @@ fn tunnel_network_oneshot_spawns_two_rpg_world_objects() {
         .expect("tunnel");
     let troopers: Vec<_> = logic
         .objects
-        .values()
+        .registered_values()
         .filter(|o| {
             o.producer_id == Some(tunnel_id)
                 && o.template_name
@@ -616,7 +616,7 @@ fn tunnel_network_oneshot_spawns_two_rpg_world_objects() {
     logic.apply_spawn_behavior_on_build_complete(tunnel_id);
     let again = logic
         .objects
-        .values()
+        .registered_values()
         .filter(|o| {
             o.producer_id == Some(tunnel_id)
                 && o.template_name
@@ -653,7 +653,7 @@ fn stinger_site_spawns_three_soldier_world_objects() {
         .expect("stinger");
     let soldiers: Vec<_> = logic
         .objects
-        .values()
+        .registered_values()
         .filter(|o| {
             o.producer_id == Some(site_id)
                 && o.template_name
@@ -684,7 +684,7 @@ fn stinger_site_spawns_three_soldier_world_objects() {
     logic.mark_object_for_destruction(site_id, None);
     let living = logic
         .objects
-        .values()
+        .registered_values()
         .filter(|o| {
             o.producer_id == Some(site_id)
                 && o.template_name
@@ -748,7 +748,7 @@ fn spawn_point_exit_uses_pristine_bones_and_refuses_full_slots() {
         .expect("stinger");
     let mut soldiers: Vec<(ObjectId, Vec3, f32)> = logic
         .objects
-        .values()
+        .registered_values()
         .filter(|o| {
             o.producer_id == Some(site_id)
                 && o.template_name
@@ -779,7 +779,7 @@ fn spawn_point_exit_uses_pristine_bones_and_refuses_full_slots() {
     logic.apply_spawn_behavior_on_build_complete(site_id);
     let again = logic
         .objects
-        .values()
+        .registered_values()
         .filter(|o| {
             o.producer_id == Some(site_id)
                 && o.template_name

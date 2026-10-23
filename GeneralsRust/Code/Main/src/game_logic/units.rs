@@ -293,7 +293,7 @@ impl UnitBehavior {
     /// Update gathering behavior for worker units
     pub fn update_resource_gathering(
         object_id: ObjectId,
-        objects: &mut HashMap<ObjectId, Object>,
+        objects: &mut crate::game_logic::HostObjectStore,
         _resource_manager: &mut ResourceManager,
         dt: f32,
     ) -> bool {
@@ -318,12 +318,12 @@ impl UnitBehavior {
         // Process gathered resources
         if gathered_amount > 0 && needs_return {
             // Find nearest supply center to deposit
-            if let Some(obj) = objects.get(&object_id) {
+            if let Some(obj) = objects.lookup(&object_id) {
                 let position = obj.get_position();
                 let team = obj.team;
 
                 // Find nearest supply center for this team
-                for (_, other_obj) in objects.iter() {
+                for (_, other_obj) in objects.registered() {
                     if other_obj.team == team
                         && other_obj.is_kind_of(KindOf::SupplyCenter)
                         && other_obj.is_constructed()
@@ -347,12 +347,12 @@ impl UnitBehavior {
     pub(crate) fn update_formation_movement(
         leader_id: ObjectId,
         squad_members: &[ObjectId],
-        objects: &mut HashMap<ObjectId, Object>,
+        objects: &mut crate::game_logic::HostObjectStore,
         _dt: f32,
         movement_events: &mut crate::game_logic::movement_events::MovementEventWriter<'_>,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
-        if let Some(leader) = objects.get(&leader_id) {
+        if let Some(leader) = objects.lookup(&leader_id) {
             let leader_pos = leader.get_position();
             let leader_angle = leader.get_orientation();
 
@@ -389,14 +389,14 @@ impl UnitBehavior {
     /// Update unit AI based on current state and situation
     pub(crate) fn update_unit_ai(
         object_id: ObjectId,
-        objects: &mut HashMap<ObjectId, Object>,
+        objects: &mut crate::game_logic::HostObjectStore,
         dt: f32,
         movement_events: &mut crate::game_logic::movement_events::MovementEventWriter<'_>,
         attack_events: &mut crate::game_logic::host_attack_log::AttackEvents,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
         let ai_state = {
-            if let Some(obj) = objects.get(&object_id) {
+            if let Some(obj) = objects.lookup(&object_id) {
                 obj.ai_state.clone()
             } else {
                 return;
@@ -422,12 +422,12 @@ impl UnitBehavior {
 
     fn find_and_attack_enemies(
         object_id: ObjectId,
-        objects: &mut HashMap<ObjectId, Object>,
+        objects: &mut crate::game_logic::HostObjectStore,
         attack_events: &mut crate::game_logic::host_attack_log::AttackEvents,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
         let (position, team, sight_range) = {
-            if let Some(obj) = objects.get(&object_id) {
+            if let Some(obj) = objects.lookup(&object_id) {
                 if !obj.can_attack() {
                     return;
                 }
@@ -441,7 +441,7 @@ impl UnitBehavior {
         let mut nearest_enemy = None;
         let mut nearest_distance = sight_range;
 
-        for (&other_id, other_obj) in objects.iter() {
+        for (&other_id, other_obj) in objects.registered() {
             // Skip stealthed-undetected enemies (C++ auto-acquire residual).
             if other_id != object_id && other_obj.is_targetable_by_enemy_of(team) {
                 let distance = position.distance(other_obj.get_position());
@@ -462,7 +462,7 @@ impl UnitBehavior {
 
     fn update_patrol_behavior(
         object_id: ObjectId,
-        objects: &mut HashMap<ObjectId, Object>,
+        objects: &mut crate::game_logic::HostObjectStore,
         _dt: f32,
         movement_events: &mut crate::game_logic::movement_events::MovementEventWriter<'_>,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
@@ -491,7 +491,7 @@ impl UnitBehavior {
 
     fn update_guard_behavior(
         object_id: ObjectId,
-        objects: &mut HashMap<ObjectId, Object>,
+        objects: &mut crate::game_logic::HostObjectStore,
         _dt: f32,
         attack_events: &mut crate::game_logic::host_attack_log::AttackEvents,
         audio: &mut crate::game_logic::ObjectAudio<'_>,

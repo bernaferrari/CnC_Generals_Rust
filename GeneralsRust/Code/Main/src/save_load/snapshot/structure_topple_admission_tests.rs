@@ -39,7 +39,7 @@ fn invalid_receiving_definition_rejects_before_live_objects_are_cleared_or_resto
             )
             .is_err()
     );
-    assert_eq!(receiving.host_objects().len(), 1);
+    assert_eq!(receiving.host_objects().registered_len(), 1);
     let retained = receiving.host_object(retained_id).unwrap();
     assert_eq!(retained.template_name, "RetainedLiveOwner");
     assert_eq!(retained.health.current, 37.0);

@@ -686,7 +686,7 @@ fn helix_napalm_bomb_projectile_falls_and_height_dies() {
     assert!(logic.helix_napalm.honesty_projectile_ok());
     let bomb_id = logic
         .objects
-        .iter()
+        .registered()
         .find(|(_, o)| o.helix_napalm_bomb_projectile)
         .map(|(id, _)| *id)
         .expect("bomb");
@@ -812,7 +812,7 @@ fn angry_mob_spawns_member_objects_on_nexus() {
     // exit-delay dues. Advance through the replacement window to SpawnNumber.
     let members: Vec<_> = logic
         .host_objects()
-        .values()
+        .registered_values()
         .filter(|o| o.angry_mob_member && o.angry_mob_nexus_id == Some(nid))
         .collect();
     assert_eq!(
@@ -830,7 +830,7 @@ fn angry_mob_spawns_member_objects_on_nexus() {
         logic.update_angry_mobs();
         let count = logic
             .host_objects()
-            .values()
+            .registered_values()
             .filter(|o| o.angry_mob_member && o.angry_mob_nexus_id == Some(nid))
             .count() as u32;
         if count >= ANGRY_MOB_MAX_MEMBERS {
@@ -840,7 +840,7 @@ fn angry_mob_spawns_member_objects_on_nexus() {
     logic.update_angry_mobs();
     let members: Vec<_> = logic
         .host_objects()
-        .values()
+        .registered_values()
         .filter(|o| o.angry_mob_member && o.angry_mob_nexus_id == Some(nid))
         .collect();
     assert_eq!(
@@ -859,7 +859,7 @@ fn angry_mob_spawns_member_objects_on_nexus() {
     logic.update_angry_mobs();
     let members2 = logic
         .host_objects()
-        .values()
+        .registered_values()
         .filter(|o| o.angry_mob_member && o.angry_mob_nexus_id == Some(nid))
         .count();
     assert_eq!(members2 as u32, ANGRY_MOB_MAX_MEMBERS);
@@ -872,7 +872,7 @@ fn angry_mob_spawns_member_objects_on_nexus() {
     logic.update_angry_mob_member_follow();
     let mid = logic
         .host_objects()
-        .values()
+        .registered_values()
         .find(|o| o.angry_mob_member)
         .unwrap()
         .id;
@@ -942,7 +942,7 @@ fn countermeasures_divert_spawns_flare_objects() {
     assert!(logic.honesty_countermeasure_flare_object_ok());
     let flares: Vec<_> = logic
         .host_objects()
-        .values()
+        .registered_values()
         .filter(|o| o.countermeasure_flare)
         .collect();
     assert!(
@@ -1024,7 +1024,7 @@ fn aurora_fuel_air_impact_spawns_gas_object() {
     assert!(logic.aurora_fuel_air_gas_spawned >= 1);
     let gas = logic
         .host_objects()
-        .values()
+        .registered_values()
         .find(|o| o.template_name == AIRF_AURORA_BOMB_GAS_OBJECT)
         .expect("AirF_AuroraBombGas");
     assert!(gas.fuel_air_gas_slow_death.is_some());
@@ -1340,7 +1340,7 @@ fn plant_timed_demo_charge_command_plants_after_reach() {
 
     let charge_count = game_logic
         .host_objects()
-        .values()
+        .registered_values()
         .filter(|o| {
             o.mine_data
                 .as_ref()
@@ -1425,7 +1425,7 @@ fn plant_and_detonate_remote_demo_charge_residual() {
 
     let charge_id = game_logic
         .host_objects()
-        .iter()
+        .registered()
         .find_map(|(id, o)| {
             o.mine_data.as_ref().and_then(|d| {
                 if d.kind == crate::game_logic::host_mines::HostMineKind::RemoteDemoCharge
@@ -1965,7 +1965,7 @@ fn supply_drop_zone_residual_credits_cash_on_interval() {
         .get_player_mut_by_team(Team::USA)
         .map(|p| p.resources.supplies)
         .unwrap_or(0);
-    let objects_before = game_logic.host_objects().len();
+    let objects_before = game_logic.host_objects().registered_len();
 
     // First observation schedules without flight (C++ m_nextCreationFrame == 0).
     game_logic.frame = 0;
@@ -2013,7 +2013,7 @@ fn supply_drop_zone_residual_credits_cash_on_interval() {
     assert_eq!(flight0.model_name, "AVCargoPln");
     assert!(!game_logic.honesty_supply_drop_zone_ok());
     assert_eq!(
-        game_logic.host_objects().len(),
+        game_logic.host_objects().registered_len(),
         objects_before,
         "no crates before approach delay"
     );
@@ -2039,7 +2039,7 @@ fn supply_drop_zone_residual_credits_cash_on_interval() {
     game_logic.frame = first_item - 1;
     game_logic.update_deliver_payloads();
     assert_eq!(
-        game_logic.host_objects().len(),
+        game_logic.host_objects().registered_len(),
         objects_before,
         "still no crates one frame before first DropDelay item"
     );
@@ -2048,7 +2048,7 @@ fn supply_drop_zone_residual_credits_cash_on_interval() {
     game_logic.frame = first_item;
     game_logic.update_deliver_payloads();
     assert_eq!(
-        game_logic.host_objects().len(),
+        game_logic.host_objects().registered_len(),
         objects_before + 1,
         "first DropDelay item must spawn one crate"
     );
@@ -2108,7 +2108,7 @@ fn supply_drop_zone_residual_credits_cash_on_interval() {
     );
     assert_eq!(game_logic.supply_drop_zones().drops, 1);
     assert_eq!(
-        game_logic.host_objects().len(),
+        game_logic.host_objects().registered_len(),
         objects_before + SUPPLY_DROP_PAYLOAD_COUNT as usize,
         "must spawn residual SupplyDropZoneCrate count"
     );

@@ -51,7 +51,7 @@ impl GameLogic {
         let team = recipients.team();
         use crate::game_logic::host_helix_napalm::is_helix_napalm_caster;
         let mut n = 0u32;
-        let ids: Vec<_> = self.objects.keys().copied().collect();
+        let ids: Vec<_> = self.objects.registered_keys().copied().collect();
         for id in ids {
             let Some(obj) = self.objects.get_mut(&id) else {
                 continue;
@@ -153,7 +153,7 @@ impl GameLogic {
 
         let masters: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, o)| {
                 recipients.matches_object(o)
                     && o.is_alive()
@@ -199,7 +199,7 @@ impl GameLogic {
             upgrade_name,
             UPGRADE_AMERICA_CHEMICAL_SUITS,
         );
-        for obj in self.objects.values_mut() {
+        for obj in self.objects.registered_values_mut() {
             if !recipients.matches_object(obj) || !obj.is_alive() {
                 continue;
             }
@@ -259,7 +259,7 @@ impl GameLogic {
             upgrade_name,
             UPGRADE_AMERICA_COUNTERMEASURES,
         );
-        for obj in self.objects.values_mut() {
+        for obj in self.objects.registered_values_mut() {
             if !recipients.matches_object(obj) || !obj.is_alive() {
                 continue;
             }
@@ -310,7 +310,7 @@ impl GameLogic {
         };
         let add = FORTIFIED_STRUCTURE_ADD_MAX_HEALTH;
         let mut n = 0u32;
-        for obj in self.objects.values_mut() {
+        for obj in self.objects.registered_values_mut() {
             if !recipients.matches_object(obj) || !obj.is_alive() {
                 continue;
             }
@@ -398,7 +398,7 @@ impl GameLogic {
         let mut n = 1u32;
         let ids: Vec<_> = self
             .objects
-            .values()
+            .registered_values()
             .filter(|object| {
                 object.is_alive() && self.player_owner_for_host_object(object) == Some(owner)
             })
@@ -445,7 +445,7 @@ impl GameLogic {
         };
 
         let mut n = 0u32;
-        for obj in self.objects.values_mut() {
+        for obj in self.objects.registered_values_mut() {
             if !recipients.matches_object(obj) || !obj.is_alive() {
                 continue;
             }
@@ -497,7 +497,7 @@ impl GameLogic {
         };
 
         let mut n = 0u32;
-        for obj in self.objects.values_mut() {
+        for obj in self.objects.registered_values_mut() {
             if !recipients.matches_object(obj) || !obj.is_alive() {
                 continue;
             }
@@ -550,7 +550,7 @@ impl GameLogic {
             n = n.saturating_add(1);
         }
         // Tag living USA combat units so XP path can read unit tags residual.
-        for obj in self.objects.values_mut() {
+        for obj in self.objects.registered_values_mut() {
             if !recipients.matches_object(obj) || !obj.is_alive() {
                 continue;
             }
@@ -576,7 +576,7 @@ impl GameLogic {
         use crate::game_logic::host_mig::{UPGRADE_CHINA_TACTICAL_NUKE_MIG, is_nuke_mig_template};
         let ids: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, o)| {
                 recipients.matches_object(o)
                     && o.is_alive()
@@ -616,7 +616,7 @@ impl GameLogic {
         use crate::game_logic::host_toxin_tractor::is_toxin_tractor_template;
 
         let mut n = 0u32;
-        for obj in self.objects.values_mut() {
+        for obj in self.objects.registered_values_mut() {
             if !recipients.matches_object(obj) || !obj.is_alive() {
                 continue;
             }
@@ -654,7 +654,7 @@ impl GameLogic {
         use crate::game_logic::host_upgrades::UPGRADE_GLA_TOXIN_SHELLS;
 
         let mut n = 0u32;
-        for obj in self.objects.values_mut() {
+        for obj in self.objects.registered_values_mut() {
             if !recipients.matches_object(obj) || !obj.is_alive() {
                 continue;
             }
@@ -696,7 +696,7 @@ impl GameLogic {
 
         let ids: Vec<(ObjectId, u8)> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, o)| recipients.matches_object(o) && o.is_alive())
             .filter_map(|(id, o)| {
                 if is_jarmen_kell_template(&o.template_name) {
@@ -771,7 +771,7 @@ impl GameLogic {
 
         let ids: Vec<(ObjectId, u8)> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, o)| recipients.matches_object(o) && o.is_alive())
             .filter_map(|(id, o)| {
                 if is_battlemaster_template(&o.template_name) {
@@ -820,7 +820,7 @@ impl GameLogic {
 
         let ids: Vec<(ObjectId, u8)> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, o)| recipients.matches_object(o) && o.is_alive())
             .filter_map(|(id, o)| {
                 if is_mig_template(&o.template_name) {
@@ -869,7 +869,7 @@ impl GameLogic {
         use crate::game_logic::host_scorpion::{UPGRADE_GLA_SCORPION_ROCKET, is_scorpion_template};
         let ids: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, o)| {
                 recipients.matches_object(o)
                     && o.is_alive()
@@ -903,7 +903,7 @@ impl GameLogic {
 
         let ids: Vec<(ObjectId, u8)> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, o)| recipients.matches_object(o) && o.is_alive())
             .filter_map(|(id, o)| {
                 if is_scorpion_template(&o.template_name) {
@@ -952,7 +952,7 @@ impl GameLogic {
         use crate::game_logic::host_raptor::{UPGRADE_AMERICA_LASER_MISSILES, is_raptor_template};
         let ids: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, o)| {
                 recipients.matches_object(o) && o.is_alive() && is_raptor_template(&o.template_name)
             })
@@ -988,7 +988,7 @@ impl GameLogic {
 
         let ids: Vec<(ObjectId, u8)> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, o)| recipients.matches_object(o) && o.is_alive())
             .filter_map(|(id, o)| {
                 if is_battlemaster_template(&o.template_name) {
@@ -1053,7 +1053,7 @@ impl GameLogic {
 
         let ids: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, o)| recipients.matches_object(o) && o.is_alive())
             .filter_map(|(id, o)| {
                 if is_china_horde_update_unit(&o.template_name) {
@@ -1097,7 +1097,7 @@ impl GameLogic {
 
         let ids: Vec<(ObjectId, u8)> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, o)| recipients.matches_object(o) && o.is_alive())
             .filter_map(|(id, o)| {
                 if is_minigunner_template(&o.template_name) {
@@ -1149,7 +1149,7 @@ impl GameLogic {
             UPGRADE_CHINA_SUBLIMINAL_MESSAGING, is_propaganda_tower,
         };
         let mut affected = 0u32;
-        for obj in self.objects.values_mut() {
+        for obj in self.objects.registered_values_mut() {
             if !recipients.matches_object(obj) || !obj.is_alive() {
                 continue;
             }
@@ -1238,7 +1238,7 @@ impl GameLogic {
         };
 
         let mut plant_ids: Vec<ObjectId> = Vec::new();
-        for (id, obj) in self.objects.iter() {
+        for (id, obj) in self.objects.registered() {
             if !recipients.matches_object(obj) || !obj.is_alive() {
                 continue;
             }
@@ -1287,7 +1287,7 @@ impl GameLogic {
         };
 
         let mut affected = 0u32;
-        for obj in self.objects.values_mut() {
+        for obj in self.objects.registered_values_mut() {
             if !recipients.matches_object(obj) || !obj.is_alive() {
                 continue;
             }
@@ -1328,7 +1328,7 @@ impl GameLogic {
         };
 
         let mut affected = 0u32;
-        for obj in self.objects.values_mut() {
+        for obj in self.objects.registered_values_mut() {
             if !recipients.matches_object(obj) || !obj.is_alive() {
                 continue;
             }
@@ -1366,7 +1366,7 @@ impl GameLogic {
         };
 
         let mut affected = 0u32;
-        for obj in self.objects.values_mut() {
+        for obj in self.objects.registered_values_mut() {
             if !recipients.matches_object(obj) || !obj.is_alive() {
                 continue;
             }
@@ -1402,7 +1402,7 @@ impl GameLogic {
         ensure_host_weapon_store();
         let secondary = ThingTemplate::weapon_from_store(RANGER_SECONDARY_WEAPON);
         let mut affected = 0u32;
-        for obj in self.objects.values_mut() {
+        for obj in self.objects.registered_values_mut() {
             if !recipients.matches_object(obj) || !obj.is_alive() {
                 continue;
             }
@@ -1437,7 +1437,7 @@ impl GameLogic {
         ensure_host_weapon_store();
         let secondary = ThingTemplate::weapon_from_store(HUMVEE_SECONDARY_WEAPON);
         let mut affected = 0u32;
-        for obj in self.objects.values_mut() {
+        for obj in self.objects.registered_values_mut() {
             if !recipients.matches_object(obj) || !obj.is_alive() {
                 continue;
             }
@@ -1480,7 +1480,7 @@ impl GameLogic {
         };
 
         let mut affected = 0u32;
-        for obj in self.objects.values_mut() {
+        for obj in self.objects.registered_values_mut() {
             if !recipients.matches_object(obj) || !obj.is_alive() {
                 continue;
             }
@@ -1535,7 +1535,7 @@ impl GameLogic {
         ensure_host_weapon_store();
         let secondary = ThingTemplate::weapon_from_store(NUKE_CANNON_NEUTRON_WEAPON);
         let mut affected = 0u32;
-        for obj in self.objects.values_mut() {
+        for obj in self.objects.registered_values_mut() {
             if !recipients.matches_object(obj) || !obj.is_alive() {
                 continue;
             }
@@ -1570,7 +1570,7 @@ impl GameLogic {
 
         let tertiary = comanche_rocket_pod_weapon();
         let mut affected = 0u32;
-        for obj in self.objects.values_mut() {
+        for obj in self.objects.registered_values_mut() {
             if !recipients.matches_object(obj) || !obj.is_alive() {
                 continue;
             }
@@ -1621,7 +1621,7 @@ impl GameLogic {
         use crate::game_logic::host_sentry_drone::is_sentry_drone_template;
 
         let mut affected = 0u32;
-        for obj in self.objects.values_mut() {
+        for obj in self.objects.registered_values_mut() {
             if !recipients.matches_object(obj) || !obj.is_alive() {
                 continue;
             }
@@ -1654,7 +1654,7 @@ impl GameLogic {
         ensure_host_weapon_store();
         let primary = ThingTemplate::weapon_from_store(STEALTH_JET_MISSILE_WEAPON);
         let mut affected = 0u32;
-        for obj in self.objects.values_mut() {
+        for obj in self.objects.registered_values_mut() {
             if !recipients.matches_object(obj) || !obj.is_alive() {
                 continue;
             }
@@ -1685,7 +1685,7 @@ impl GameLogic {
         };
 
         let mut affected = 0u32;
-        for obj in self.objects.values_mut() {
+        for obj in self.objects.registered_values_mut() {
             if !recipients.matches_object(obj) || !obj.is_alive() {
                 continue;
             }
@@ -1719,7 +1719,7 @@ impl GameLogic {
 
         let mut affected = 0u32;
         let now = self.frame;
-        for obj in self.objects.values_mut() {
+        for obj in self.objects.registered_values_mut() {
             if !recipients.matches_object(obj) || !obj.is_alive() {
                 continue;
             }
@@ -1764,7 +1764,7 @@ impl GameLogic {
 
         let mut affected = 0u32;
         let now = self.frame;
-        for obj in self.objects.values_mut() {
+        for obj in self.objects.registered_values_mut() {
             if !recipients.matches_object(obj) || !obj.is_alive() {
                 continue;
             }
@@ -1819,7 +1819,7 @@ impl GameLogic {
         };
 
         let mut affected = 0u32;
-        for obj in self.objects.values_mut() {
+        for obj in self.objects.registered_values_mut() {
             if !recipients.matches_object(obj) || !obj.is_alive() {
                 continue;
             }
@@ -1862,7 +1862,7 @@ impl GameLogic {
 
         let mut affected = 0u32;
         let mut command_sets = 0u32;
-        for obj in self.objects.values_mut() {
+        for obj in self.objects.registered_values_mut() {
             if !recipients.matches_object(obj) || !obj.is_alive() {
                 continue;
             }
@@ -1904,7 +1904,7 @@ impl GameLogic {
         use crate::game_logic::host_upgrades::is_supply_center_template;
 
         let mut affected = 0u32;
-        for obj in self.objects.values_mut() {
+        for obj in self.objects.registered_values_mut() {
             if !recipients.matches_object(obj) || !obj.is_alive() {
                 continue;
             }

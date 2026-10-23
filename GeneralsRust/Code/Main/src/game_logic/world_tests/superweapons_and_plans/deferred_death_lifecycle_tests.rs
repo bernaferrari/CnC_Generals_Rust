@@ -2,16 +2,9 @@
 //! (GameLogic.cpp3935–3968) are distinct synchronous lifecycle operations.
 use super::*;
 
-fn parsed_slow_death_owner() -> (GameLogic, ObjectId, u32) {
-    const NAME: &str = "DeferredDestroyBoundaryInfantry";
-    let mut world = GameLogic::new();
-    let mut parser = crate::assets::IniParser::new();
-    assert_eq!(
-        parser
-            .parse_ini_content(
-                r#"
+const DEFERRED_DEATH_SOURCE: &str = r#"
 Object DeferredDestroyBoundaryInfantry
-  KindOf = INFANTRY SELECTABLE ATTACKABLE
+  KindOf = INFANTRY SELECTABLE CAN_ATTACK
   Body = ActiveBody ModuleTag_Body
     MaxHealth = 100
     InitialHealth = 100
@@ -23,11 +16,38 @@ Object DeferredDestroyBoundaryInfantry
     DestructionDelayVariance = 0
   End
 End
-"#,
-                "deferred_destroy_boundary.ini"
-            )
+Object DyingPassengerContainer
+  KindOf = VEHICLE SELECTABLE
+  Body = ActiveBody ModuleTag_Body
+    MaxHealth = 100
+    InitialHealth = 100
+  End
+  Behavior = TransportContain ModuleTag_Contain
+    Slots = 2
+  End
+End
+"#;
+
+fn deferred_death_content() -> crate::assets::ReceivingObjectContent {
+    crate::assets::ReceivingObjectContent::from_sources([(
+        "deferred_destroy_boundary.ini".to_owned(),
+        DEFERRED_DEATH_SOURCE.to_owned(),
+    )])
+    .unwrap()
+}
+
+fn parsed_slow_death_owner() -> (GameLogic, ObjectId, u32) {
+    const NAME: &str = "DeferredDestroyBoundaryInfantry";
+    let mut world = GameLogic::new();
+    world.add_player(Player::new(0, Team::USA, "DeferredDeathOwner", true));
+    let source = DEFERRED_DEATH_SOURCE;
+    let module = deferred_death_content();
+    let mut parser = crate::assets::IniParser::new();
+    assert_eq!(
+        parser
+            .parse_ini_content(source, "deferred_destroy_boundary.ini")
             .unwrap(),
-        1
+        2
     );
     let definition = parser.get_definition(NAME).unwrap();
     let death = definition
@@ -43,10 +63,11 @@ End
     let ini = crate::game_logic::host_slow_death::slow_death_ini_from_behavior_attrs(&attrs);
     assert_eq!(ini.destruction_delay_ms, 300);
     assert_eq!(ini.destruction_delay_variance_ms, 0);
-    let template = GameLogic::build_template_from_object_definition(NAME, definition, None);
-    assert!(template.is_kind_of(KindOf::Infantry));
-    world.templates.insert(NAME.to_string(), template);
-    let id = world.create_object(NAME, Team::USA, Vec3::ZERO).unwrap();
+    world.admit_receiving_module_content(module).unwrap();
+    assert!(world.templates[NAME].is_kind_of(KindOf::Infantry));
+    let id = world.create_object_for_player(NAME, 0, Vec3::ZERO).unwrap();
+    assert_eq!(world.host_object(id).unwrap().owner_player_id, Some(0));
+    assert!(world.host_object(id).unwrap().team_instance_id.is_some());
     // This explicitly invokes the real domain entry with parsed immutable
     // rules. The current Main AssetManager-only lookup cannot install this
     // unique definition without renderer startup: this is not authored
@@ -425,8 +446,16 @@ fn parsed_active_slow_death_snapshot_preserves_latch_and_original_deadline_conti
                 let snapshot = builder
                     .create_world_snapshot(&source)
                     .expect("capture actual active death");
+                let bytes = bincode_legacy::serialize(&snapshot).unwrap();
+                let snapshot = crate::save_load::snapshot::decode_bincode_world_snapshot(&bytes)
+                    .expect("decode actual world save bytes");
                 let mut loaded = GameLogic::new();
-                loaded.templates = source.templates.clone();
+                loaded
+                    .admit_receiving_module_content(deferred_death_content())
+                    .unwrap();
+                // Complete saved Team roster validation requires the same
+                // receiving controller/prototype that was present at birth.
+                loaded.add_player(Player::new(0, Team::USA, "DeferredDeathOwner", true));
                 builder
                     .restore_from_snapshot(&snapshot, &mut loaded)
                     .expect("restore actual active death");
@@ -471,11 +500,9 @@ fn parsed_active_slow_death_snapshot_preserves_latch_and_original_deadline_conti
 #[test]
 fn explicit_container_delete_detaches_a_dying_slow_death_passenger_immediately() {
     let (mut world, child, due) = parsed_slow_death_owner();
-    let mut template = ThingTemplate::new("DyingPassengerContainer");
-    template.add_kind_of(KindOf::Vehicle).set_health(100.0);
-    template.contain_module.kind = ContainModuleKind::Transport;
-    template.contain_module.slots = Some(2);
-    world.templates.insert(template.name.clone(), template);
+    // The container is an admitted authored receiving definition in the same
+    // source as the passenger; post-admission hand-built templates do not pass
+    // the actual factory admission boundary.
     let container = world
         .create_object("DyingPassengerContainer", Team::USA, Vec3::ZERO)
         .unwrap();

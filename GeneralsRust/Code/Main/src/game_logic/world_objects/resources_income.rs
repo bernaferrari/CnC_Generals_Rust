@@ -61,7 +61,7 @@ impl GameLogic {
         eligible: impl Fn(&Object) -> bool,
     ) -> (i32, i32) {
         self.objects
-            .values()
+            .registered_values()
             .filter(|object| object.owner_player_id == Some(player_id))
             .filter(|object| eligible(object))
             .fold((0_i32, 0_i32), |(produced, consumed), object| {
@@ -276,7 +276,7 @@ impl GameLogic {
         let frame = self.frame;
         let markets: Vec<(ObjectId, Team, Option<u32>, Vec3, bool, bool, bool, bool)> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, obj)| {
                 let fake = is_fake_black_market_template(&obj.template_name);
                 let is_bm = fake
@@ -419,7 +419,7 @@ impl GameLogic {
         // Collect all oil derricks (including neutral — need for stale cleanup / capture detect).
         let derricks: Vec<(ObjectId, Team, Option<u32>, Vec3, bool, bool, bool, bool)> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, obj)| {
                 if !is_oil_derrick_template(&obj.template_name) {
                     return None;
@@ -678,7 +678,7 @@ impl GameLogic {
         use crate::game_logic::host_hacker_income::is_legal_hacker_income_source;
         let mut idle_containers: Vec<ObjectId> = Vec::new();
         let mut hack_containers: Vec<ObjectId> = Vec::new();
-        for (id, obj) in &self.objects {
+        for (id, obj) in self.objects.registered() {
             if obj.status.pending_subdual_passenger_idle {
                 idle_containers.push(*id);
             }
@@ -761,7 +761,7 @@ impl GameLogic {
         // Snapshot internet-center membership for container queries.
         let internet_centers: std::collections::HashSet<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, obj)| {
                 if !obj.is_alive() {
                     return None;
@@ -804,7 +804,7 @@ impl GameLogic {
         }
         let hackers: Vec<HackerSnap> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, obj)| {
                 let metadata = obj.thing().template.hack_internet_ai_update?;
                 let container = obj.container_id();
@@ -1109,7 +1109,7 @@ impl GameLogic {
         let frame = self.frame;
         let zones: Vec<(ObjectId, Team, Option<u32>, Vec3, bool)> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, obj)| {
                 if !is_supply_drop_zone_template(&obj.template_name) {
                     return None;

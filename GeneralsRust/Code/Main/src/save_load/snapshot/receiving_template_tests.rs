@@ -82,7 +82,7 @@ fn detached_receiving_definition_preflight_restores_an_uncached_object() {
     );
     assert!(receiver.host_object(id).unwrap().native_lifecycle.is_some());
     assert!(!peer.templates.contains_key(LAZY));
-    assert_eq!(peer.host_objects().len(), 1);
+    assert_eq!(peer.host_objects().registered_len(), 1);
     assert_eq!(
         peer.host_object(peer_id).unwrap().get_position(),
         Vec3::new(7., 8., 9.)
@@ -102,7 +102,7 @@ fn rejected(text: String, message: &str) {
         "unexpected rejection: {error}"
     );
     assert_eq!(receiver.frame, 915);
-    assert_eq!(receiver.host_objects().len(), 1);
+    assert_eq!(receiver.host_objects().registered_len(), 1);
     assert_eq!(
         receiver.host_object(id).unwrap().get_position(),
         Vec3::new(7., 8., 9.)
@@ -115,7 +115,7 @@ fn rejected(text: String, message: &str) {
     );
     assert!(!peer.templates.contains_key(LAZY));
     assert_eq!(peer.frame, 915);
-    assert_eq!(peer.host_objects().len(), 1);
+    assert_eq!(peer.host_objects().registered_len(), 1);
     assert_eq!(
         peer.host_object(peer_id).unwrap().get_position(),
         Vec3::new(7., 8., 9.)

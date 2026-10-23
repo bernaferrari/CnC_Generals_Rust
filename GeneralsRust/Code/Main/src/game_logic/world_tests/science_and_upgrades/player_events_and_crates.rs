@@ -186,14 +186,10 @@ fn eva_low_power_fires_when_local_energy_negative() {
     use crate::game_logic::Team;
     use gamelogic::helpers::EvaEvent;
     let mut logic = GameLogic::new();
-    logic.players.insert(
-        0,
-        crate::game_logic::Player::new(0, Team::USA, "Local", true),
-    );
+    logic.add_player(crate::game_logic::Player::new(0, Team::USA, "Local", true));
+    logic.frame = 1;
     if let Some(p) = logic.players.get_mut(&0) {
-        p.power_available = -50;
-        p.power_produced = 0;
-        p.power_consumed = 50;
+        p.add_template_energy(-50, logic.frame);
     }
     logic.update_eva_low_power();
     assert!(logic.honesty_eva_low_power_ok());
@@ -208,12 +204,12 @@ fn eva_low_power_fires_when_local_energy_negative() {
     assert_eq!(logic.eva_low_power, before);
     // Recovery then re-edge.
     if let Some(p) = logic.players.get_mut(&0) {
-        p.power_available = 10;
+        p.add_template_energy(60, logic.frame);
     }
     logic.update_eva_low_power();
     assert!(!logic.eva_low_power_active);
     if let Some(p) = logic.players.get_mut(&0) {
-        p.power_available = -1;
+        p.remove_template_energy(11, logic.frame);
     }
     logic.frame = logic.eva_low_power_next_frame; // allow immediately after recovery edge
     logic.update_eva_low_power();
@@ -624,7 +620,9 @@ fn assign_unit_path_undeploys_residual() {
     )
     .expect("assign_unit_path_inner");
     assert!(
-        body.contains("is_deployed") && body.contains("set_deployed(false)"),
+        body.contains("begin_undeploy_with_weapon_turret")
+            && body.contains("is_ready_to_move")
+            && body.contains("set_deployed("),
         "assign_unit_path must pack/undeploy before pathing residual"
     );
 }
@@ -707,21 +705,11 @@ pub fn ",
         mbody.contains("VoiceMove"),
         "command_move must queue VoiceMove residual for local player"
     );
-    let astart = src.find("pub fn command_attack").expect("command_attack");
-    let aend = src[astart + 1..]
-        .find(
-            "
-fn allocate_object_id",
-        )
-        .or_else(|| {
-            src[astart + 1..].find(
-                "
-pub fn process_destr",
-            )
-        })
-        .map(|i| astart + 1 + i)
-        .unwrap_or(astart + 7000);
-    let abody = &src[astart..aend];
+    let abody = crate::game_logic::residuals::harness::rust_fn_body(
+        include_str!("../../world_objects/host_ops_writeback.rs"),
+        "command_attack_with_effects",
+    )
+    .expect("actual receiving attack command body");
     assert!(
         abody.contains("VoiceAttack"),
         "command_attack must queue VoiceAttack residual for local player"
@@ -2114,13 +2102,13 @@ fn unit_crate_spawns_units_for_picker_team() {
         o.set_position(glam::Vec3::ZERO);
         o
     });
-    let before = logic.objects.len();
+    let before = logic.objects.registered_len();
     let n = logic.execute_unit_crate_behavior(pid, "AmericaTankCrusader", 2);
     assert_eq!(n, 2);
-    assert_eq!(logic.objects.len(), before + 2);
+    assert_eq!(logic.objects.registered_len(), before + 2);
     let spawned: Vec<_> = logic
         .objects
-        .values()
+        .registered_values()
         .filter(|o| o.template_name.contains("Crusader"))
         .collect();
     assert_eq!(spawned.len(), 2);

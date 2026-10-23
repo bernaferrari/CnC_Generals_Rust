@@ -59,7 +59,7 @@ fn build(
     world.process_commands_with_ui(ui);
     world
         .host_objects()
-        .values()
+        .registered_values()
         .find(|object| object.template_name == "CommandUiScaffold")
         .expect("the actual queued Build must admit a scaffold")
         .id

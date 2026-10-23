@@ -82,7 +82,7 @@ impl HostPhysicsVisualState {
         self.loco.retain(|id, (generation, _)| {
             logic
                 .host_objects()
-                .get(id)
+                .lookup(id)
                 .is_some_and(|object| object.visual_object_generation == *generation)
         });
         let script_frozen = logic.is_script_time_frozen();
@@ -99,7 +99,7 @@ impl HostPhysicsVisualState {
             frozen: script_frozen || camera_frozen,
             objects: logic
                 .host_objects()
-                .iter()
+                .registered()
                 .filter_map(|(id, object)| {
                     if object.drawable_hidden {
                         return None;
@@ -222,7 +222,7 @@ impl HostPhysicsVisualState {
 
 pub(super) fn collect_facts(
     obj: &Object,
-    objects: &std::collections::HashMap<ObjectId, Object>,
+    objects: crate::game_logic::HostObjectRead<'_>,
     script_time_frozen: bool,
     script_camera_time_frozen: bool,
     show_client_physics: &mut Option<bool>,
@@ -315,7 +315,7 @@ fn params_for_object(obj: &Object) -> LocomotorVisualParams {
 /// supplies the current asset adapter; tests supply local authored definitions.
 pub(super) fn body_for_object(
     obj: &Object,
-    objects: &std::collections::HashMap<ObjectId, Object>,
+    objects: crate::game_logic::HostObjectRead<'_>,
     sample_height: impl Fn(glam::Vec3) -> Option<f32>,
     definition: impl Fn(&str) -> ObjectVisualIni,
 ) -> PhysicsVisualBody {
@@ -331,7 +331,7 @@ pub(super) fn body_for_object(
         terrain_normal_zup_from_height_samples(sample_height, pos);
     let overlap = obj
         .physics_current_overlap
-        .and_then(|id| objects.get(&id))
+        .and_then(|id| objects.lookup(&id))
         .map(|other| {
             let other_pos = other.get_position();
             let other_ini = definition(&other.template_name);

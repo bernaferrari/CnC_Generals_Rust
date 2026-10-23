@@ -450,7 +450,10 @@ pub fn run_golden_campaign_ex(
     // Host scripts must see named map units (adapter — no OBJECT_REGISTRY fill).
     logic.inject_host_named_unit_map_into_crate_tracker();
     let named_units_visible = !logic.host_named_unit_id_map().is_empty()
-        || logic.host_objects().values().any(|o| !o.name.is_empty());
+        || logic
+            .host_objects()
+            .registered_values()
+            .any(|o| !o.name.is_empty());
 
     let script_counter_before = logic.mission_script_counter;
     let frame_before = logic.get_frame();
@@ -589,7 +592,7 @@ pub fn run_golden_campaign_ex(
         frames_advanced,
         frame_before,
         frame_after,
-        object_count: logic.host_objects().len(),
+        object_count: logic.host_objects().registered_len(),
         victory_rule_applied,
         victory_eval_ok,
         mission_completed,

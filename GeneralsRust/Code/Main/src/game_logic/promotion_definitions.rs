@@ -55,7 +55,7 @@ impl super::GameLogic {
         &mut self,
         definitions: PromotionDefinitions,
     ) -> Result<(), String> {
-        if !self.objects.is_empty() {
+        if !self.objects.registered_is_empty() {
             return Err("Promotion definitions require an empty receiving world".into());
         }
         if !definitions.rules.display_seconds.is_finite()

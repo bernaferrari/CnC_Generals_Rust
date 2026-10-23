@@ -220,7 +220,7 @@ impl GameLogic {
         let origin = obj.get_position();
         let key = obj.tunnel_system_key();
         self.objects
-            .iter()
+            .registered()
             .filter(|(_, o)| {
                 o.is_alive()
                     && !o.status.sold
@@ -345,7 +345,7 @@ impl GameLogic {
                 HostScriptUnmannedRequest::DeleteAll => {
                     let ids: Vec<ObjectId> = self
                         .objects
-                        .values()
+                        .registered_values()
                         .filter(|obj| obj.status.disabled_unmanned && !obj.status.destroyed)
                         .map(|obj| obj.id)
                         .collect();
@@ -650,7 +650,7 @@ impl GameLogic {
         );
 
         let mut best: Option<(i32, crate::game_logic::ObjectId)> = None;
-        for obj in self.objects.values() {
+        for obj in self.objects.registered_values() {
             if !obj.is_alive() || obj.status.destroyed || obj.status.effectively_dead {
                 continue;
             }
@@ -821,7 +821,7 @@ impl GameLogic {
             }
         }
         if mask == 0 {
-            for obj in self.objects.values() {
+            for obj in self.objects.registered_values() {
                 if !obj.is_alive() {
                     continue;
                 }
@@ -880,7 +880,7 @@ impl GameLogic {
             // it; otherwise fall through to the host BFS like a partition miss.
             let cx = (loc.x / CELL).floor() as i32;
             let cz = (loc.y / CELL).floor() as i32;
-            let live_enemy_in_cell = self.objects.values().any(|obj| {
+            let live_enemy_in_cell = self.objects.registered_values().any(|obj| {
                 if !obj.is_alive()
                     || obj.status.destroyed
                     || obj.status.effectively_dead
@@ -905,7 +905,7 @@ impl GameLogic {
         }
 
         let mut cells: HashMap<(i32, i32), i32> = HashMap::new();
-        for obj in self.objects.values() {
+        for obj in self.objects.registered_values() {
             if !obj.is_alive() || obj.status.destroyed || obj.status.effectively_dead {
                 continue;
             }
@@ -1685,7 +1685,7 @@ impl GameLogic {
         };
         let mut buildings: Vec<(f32, ObjectId)> = self
             .objects
-            .values()
+            .registered_values()
             .filter(|obj| obj.id != leader_id)
             .filter(|obj| {
                 self.host_script_is_garrison_nearest_candidate(
@@ -1751,7 +1751,7 @@ impl GameLogic {
             return;
         };
         let mut best: Option<(f32, ObjectId)> = None;
-        for obj in self.objects.values() {
+        for obj in self.objects.registered_values() {
             if obj.id == unit_id {
                 continue;
             }
@@ -1785,7 +1785,7 @@ impl GameLogic {
         };
         let unit_ids: Vec<ObjectId> = self
             .objects
-            .values()
+            .registered_values()
             .filter(|obj| {
                 obj.is_alive()
                     && !obj.status.destroyed
@@ -1801,7 +1801,7 @@ impl GameLogic {
                 continue;
             };
             let mut best: Option<(f32, ObjectId)> = None;
-            for obj in self.objects.values() {
+            for obj in self.objects.registered_values() {
                 if obj.id == unit_id {
                     continue;
                 }
@@ -1839,7 +1839,7 @@ impl GameLogic {
         };
         let ids: Vec<ObjectId> = self
             .objects
-            .values()
+            .registered_values()
             .filter(|obj| {
                 obj.is_alive()
                     && !obj.status.destroyed
@@ -1961,7 +1961,7 @@ impl GameLogic {
         // controlling player).
         let by_instance: Vec<ObjectId> = self
             .objects
-            .values()
+            .registered_values()
             .filter(|obj| {
                 obj.is_alive()
                     && !obj.status.destroyed
@@ -1975,7 +1975,7 @@ impl GameLogic {
         }
         let faction = Self::resolve_host_team_name(team_name);
         self.objects
-            .values()
+            .registered_values()
             .filter(|obj| {
                 obj.is_alive()
                     && !obj.status.destroyed
@@ -2005,7 +2005,7 @@ impl GameLogic {
             return None;
         }
         let mut best: Option<(ObjectId, f32)> = None;
-        for (id, obj) in self.host_objects() {
+        for (id, obj) in self.host_objects().registered() {
             if *id == source_id || !obj.is_alive() || obj.status.destroyed {
                 continue;
             }

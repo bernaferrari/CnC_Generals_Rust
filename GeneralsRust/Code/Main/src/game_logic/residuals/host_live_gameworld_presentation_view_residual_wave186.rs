@@ -128,7 +128,7 @@ pub fn simulate_live_gameworld_presentation_view_honesty() -> bool {
         }
         None => logic.load_map(map_name),
     };
-    if !loaded || logic.get_objects().is_empty() {
+    if !loaded || logic.get_objects().registered_is_empty() {
         return false;
     }
     logic.update();

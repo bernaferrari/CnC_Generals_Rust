@@ -499,7 +499,7 @@ fn script_state() -> Value {
 
 fn observe(logic: &GameLogic) -> Value {
     let player = logic.get_player(0).unwrap();
-    let mut objects: Vec<_> = logic.host_objects().values().collect();
+    let mut objects: Vec<_> = logic.host_objects().registered_values().collect();
     objects.sort_by_key(|object| object.id.0);
     let objects: Vec<_> = objects.into_iter().map(|object| json!({
         "id":object.id.0,"template":object.get_template().name,"owner":object.owner_player_id,
@@ -536,7 +536,7 @@ fn violations(logic: &GameLogic, case: Case, updates: u32) -> Vec<String> {
         "ordinary frame progression",
     );
     require(
-        logic.get_players().len() == 1 && logic.host_objects().len() == 2,
+        logic.get_players().len() == 1 && logic.host_objects().registered_len() == 2,
         "exact player/object population",
     );
     require(
@@ -675,7 +675,7 @@ fn saved_power_process() {
     if role == "writer" {
         admit_source(&mut logic, case);
     } else {
-        assert!(logic.get_players().is_empty() && logic.host_objects().is_empty());
+        assert!(logic.get_players().is_empty() && logic.host_objects().registered_is_empty());
     }
     let authored_scripts = admit_scripts(&mut logic);
     let inputs = json!({"catalog":catalog(&logic, case),"scripts":authored_scripts,

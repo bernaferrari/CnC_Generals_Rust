@@ -87,7 +87,7 @@ fn renaming_and_actual_snapshot_restore_preserve_history_but_reset_clears_it() {
     builder
         .restore_from_snapshot(&snapshot, &mut restored)
         .unwrap();
-    assert!(restored.host_objects().is_empty());
+    assert!(restored.host_objects().registered_is_empty());
     assert!(
         restored.named_unit_history.contains("Hero"),
         "restored history: {:?}",

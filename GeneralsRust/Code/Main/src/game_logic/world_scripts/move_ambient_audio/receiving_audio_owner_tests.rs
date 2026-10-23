@@ -20,7 +20,13 @@ fn world(audio: &str) -> GameLogic {
     world
 }
 fn spawn(world: &mut GameLogic) -> ObjectId {
-    world.create_object(NAME, Team::USA, Vec3::ZERO).unwrap()
+    let id = world.create_object(NAME, Team::USA, Vec3::ZERO).unwrap();
+    assert!(
+        world.host_object(id).unwrap().ambient_audio.is_none(),
+        "headless birth must not duplicate native Drawable constructor audio"
+    );
+    assert!(world.enable_owned_object_sound(id, true));
+    id
 }
 fn assert_cues(world: &mut GameLogic, id: ObjectId, expected: &[(&str, bool)]) {
     let events = std::mem::take(&mut world.queued_audio_events);

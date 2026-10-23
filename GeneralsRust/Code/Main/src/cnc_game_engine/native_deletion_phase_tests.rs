@@ -217,7 +217,7 @@ fn deletion_phase_scene(recrew: bool) {
                     },
                 )
                 .unwrap();
-            assert!(world.objects.is_empty());
+            assert!(world.objects.registered_is_empty());
             assert!(runtime.drawables.binding_key(EPOCH, vehicle.0).is_none());
         },
     );

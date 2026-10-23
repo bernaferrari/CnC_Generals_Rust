@@ -47,7 +47,7 @@ impl GameLogic {
     ) -> bool {
         let name = trigger.get_trigger_name().as_str();
         let mut current = std::collections::BTreeSet::new();
-        for (id, object) in self.objects.iter() {
+        for (id, object) in self.objects.registered() {
             if Self::host_point_in_guard_area(trigger, object.get_position()) {
                 current.insert(id.0);
             }
@@ -173,7 +173,7 @@ impl GameLogic {
             .unwrap_or((false, None, String::new(), false));
         let radius_sq = acquire_radius * acquire_radius;
         let mut best: Option<(ObjectId, f32)> = None;
-        for (cand_id, cand) in self.objects.iter() {
+        for (cand_id, cand) in self.objects.registered() {
             if *cand_id == object_id || !cand.is_alive() {
                 continue;
             }

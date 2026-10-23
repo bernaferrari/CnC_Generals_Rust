@@ -162,7 +162,7 @@ impl GameLogic {
     pub fn drain_hidden_drawable_selection(&mut self) {
         let hidden: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, obj)| obj.drawable_is_effectively_hidden())
             .map(|(&id, _)| id)
             .collect();
@@ -1007,10 +1007,12 @@ impl GameLogic {
     /// Wave 955/958: host-authority object map borrow (command apply / AI / shadow).
     /// Presentation dual-read paths must use `PresentationFrame`, not this.
     #[inline]
-    pub fn host_objects(
-        &self,
-    ) -> &std::collections::HashMap<ObjectId, crate::game_logic::object::Object> {
-        self.objects.map()
+    pub fn host_objects(&self) -> crate::game_logic::HostObjectRead<'_> {
+        self.objects.read()
+    }
+
+    pub(crate) fn has_unregistered_host_objects(&self) -> bool {
+        self.objects.has_unregistered_lookup()
     }
 
     /// Wave 955/958: host-authority mutable object map borrow.
@@ -1018,7 +1020,7 @@ impl GameLogic {
     pub fn host_objects_mut(&mut self) -> &mut HostObjectStore {
         self.named_unit_history.extend(
             self.objects
-                .values()
+                .registered_values()
                 .filter_map(|object| (!object.name.is_empty()).then(|| object.name.clone())),
         );
         &mut self.objects

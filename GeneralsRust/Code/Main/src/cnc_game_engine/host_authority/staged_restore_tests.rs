@@ -568,7 +568,7 @@ fn forced_post_restore_failure_restores_globals_and_tls_effect_queues() {
             let live_objects = |world: &GameLogic| {
                 let mut values: Vec<_> = world
                     .host_objects()
-                    .iter()
+                    .registered()
                     .map(|(id, object)| {
                         (
                             id.0,
@@ -650,7 +650,7 @@ fn forced_post_restore_failure_restores_globals_and_tls_effect_queues() {
                     assert_eq!(staged.production_energy_rules().min_speed, 0.5);
                     assert!(gamelogic::runtime_world_transaction::world_runtime_staging_active());
                     assert!(
-                        staged.host_objects().is_empty(),
+                        staged.host_objects().registered_is_empty(),
                         "map foundation Objects retire before saved Object admission"
                     );
                     assert!(
@@ -1664,7 +1664,7 @@ End
                             )
                         }
                     }
-                    let source_count = source.get_objects().len();
+                    let source_count = source.get_objects().registered_len();
                     let source_rng = source.logic_random.seed_words();
                     let source_player_count = source.get_players().len();
                     let mut terminal_native =
@@ -1749,7 +1749,7 @@ End
                         .failed_retirement_object()
                         .expect("physical native failure keeps exact Object outside lookup");
                     let failed_id = failed_object.id;
-                    assert!(!failed_world.get_objects().contains_key(&failed_id));
+                    assert!(failed_world.get_objects().lookup(&failed_id).is_none());
                     let failed_binding = terminal_native.drawable_owners().0.binding_key(900, failed_id.0)
                         .expect("failed original native actor stays associated with its matching logical owner");
                     assert_eq!(failed_binding.host_epoch, 900);
@@ -1769,7 +1769,7 @@ End
                         "same IDs never select another world's Object lifetime"
                     );
                     assert!(!terminal_native.retirement_complete());
-                    assert_eq!(source.get_objects().len(), source_count);
+                    assert_eq!(source.get_objects().registered_len(), source_count);
                     assert_eq!(source.get_players().len(), source_player_count);
                     assert_eq!(source.logic_random.seed_words(), source_rng);
                     assert!(Arc::ptr_eq(source.world_services.terrain(), &live_terrain));
@@ -2143,7 +2143,7 @@ End
             assert!(source.load_map(&map_name));
             let container_id = source
                 .get_objects()
-                .iter()
+                .registered()
                 .find(|(_, object)| object.template_name == "ContainmentStageContainer")
                 .map(|(id, _)| *id)
                 .expect("actual placed container");
@@ -2246,7 +2246,7 @@ End
                         // audio owner, but its foundation Objects must retire
                         // before the saved roster can replace their IDs.
                         assert!(
-                            candidate.get_objects().is_empty(),
+                            candidate.get_objects().registered_is_empty(),
                             "snapshot callback follows foundation retirement"
                         );
                         assert!(!candidate.has_pending_object_removals());

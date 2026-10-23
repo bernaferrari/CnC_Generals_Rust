@@ -20,7 +20,7 @@ fn world() -> (GameLogic, ObjectId, ObjectId) {
 fn state(world: &GameLogic) -> Vec<(u32, bool, bool, bool)> {
     let mut values: Vec<_> = world
         .host_objects()
-        .values()
+        .registered_values()
         .map(|o| {
             (
                 o.id.0,

@@ -15,7 +15,7 @@ impl GameLogic {
         // C++ GameLogic.cpp:3783-3792 walks the current live object list after
         // destruction and victory. Release each Object borrow before admitting
         // its Player callbacks; no object is temporarily removed from its store.
-        let ids: Vec<_> = self.objects.keys().copied().collect();
+        let ids: Vec<_> = self.objects.registered_keys().copied().collect();
         for id in ids {
             let Some(object) = self.objects.get(&id) else {
                 continue;
@@ -85,7 +85,7 @@ impl GameLogic {
         // Player.cpp:3232-3241 changes only this owner's KINDOF_POWERED objects.
         let powered: Vec<_> = self
             .objects
-            .values()
+            .registered_values()
             .filter(|object| {
                 object.is_kind_of(KindOf::Powered)
                     && self.player_owner_for_host_object(object) == Some(player_id)

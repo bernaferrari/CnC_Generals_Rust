@@ -116,7 +116,7 @@ pub fn run_host_only_combat_victory() -> gamelogic::GameLogicResult<(bool, Strin
         .expect("enemy");
 
     // Bridge must stay unused on host authority path.
-    let any_bridged = logic.host_objects().values().any(|_o| false);
+    let any_bridged = logic.host_objects().registered_values().any(|_o| false);
     if any_bridged {
         return Ok((
             false,

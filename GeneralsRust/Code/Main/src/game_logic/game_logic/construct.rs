@@ -61,6 +61,9 @@ impl GameLogic {
 
         let ai_definitions =
             crate::game_logic::ai_definitions::AiDefinitions::from_engine_baseline();
+        // The same existing playback namespace also binds lookup registration.
+        // Hoisting this one allocation creates no additional identity owner.
+        let live_draw_playback_world = std::sync::Arc::new(());
         let mut instance = Self {
             w3d_ghosts: Default::default(),
             host_ghosts: Default::default(),
@@ -101,7 +104,7 @@ impl GameLogic {
             retaliate_friends_radius: 120.0,
             max_retaliate_distance: 210.0,
             host_logic_step_active: false,
-            objects: HostObjectStore::new(),
+            objects: HostObjectStore::new_for_world(&live_draw_playback_world),
             warehouse_crippling_states: HashMap::new(),
             vision_last_looks: HashMap::new(),
             vision_last_reveal_all: HashMap::new(),
@@ -124,7 +127,7 @@ impl GameLogic {
                 crate::game_logic::host_weapon_discharge_log::HostWeaponDischargeLog::default(),
             visual_world_epoch: 1,
             next_visual_object_generation: 1,
-            live_draw_playback_world: std::sync::Arc::new(()),
+            live_draw_playback_world,
             game_mode: GameMode::None,
             skirmish_rules: SkirmishRulesState::default(),
             world_width,
@@ -785,6 +788,10 @@ impl GameLogic {
 
     /// Reset method - matching C++ GameLogic interface
     pub fn reset(&mut self) {
+        assert!(
+            !self.has_unregistered_host_objects(),
+            "GameLogic reset cannot discard an unfinished Object constructor"
+        );
         // A partial native destructor is terminal. Replacing that session and
         // its native owner is a separate operation, never a successful reset.
         assert!(

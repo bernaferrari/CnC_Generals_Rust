@@ -264,7 +264,7 @@ impl CnCGameEngine {
         let template_names: Vec<String> = self
             .game_logic
             .host_objects()
-            .values()
+            .registered_values()
             .map(|object| object.template_name.trim())
             .filter(|name| !name.is_empty())
             .map(ToOwned::to_owned)
@@ -275,7 +275,7 @@ impl CnCGameEngine {
         let active_selections: Vec<(String, u128)> = self
             .game_logic
             .host_objects()
-            .values()
+            .registered_values()
             .filter_map(|object| {
                 let name = object.template_name.trim();
                 (!name.is_empty()).then(|| (name.to_string(), object.model_condition_bits))

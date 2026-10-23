@@ -571,7 +571,7 @@ fn failed_actual_team_script_retains_partial_script_team_owner_without_publishin
     let mut world = energy_admission_world();
     let peer = energy_admission_world();
     let incoming = prepare_scripted_external_energy(&mut world, true);
-    let before = world.host_objects().len();
+    let before = world.host_objects().registered_len();
     let error = world.try_add_object(incoming).unwrap_err();
     assert!(
         error.to_string().contains("BadEnergyChild") && error.to_string().contains("MaxHealth")
@@ -582,7 +582,7 @@ fn failed_actual_team_script_retains_partial_script_team_owner_without_publishin
             .is_none()
     );
     assert_eq!(
-        world.host_objects().len(),
+        world.host_objects().registered_len(),
         before,
         "failed child Body is rejected before its own birth too"
     );
@@ -612,7 +612,7 @@ fn failed_actual_team_script_retains_partial_script_team_owner_without_publishin
     drop(factory);
     let template = world
         .host_objects()
-        .values()
+        .registered_values()
         .next()
         .unwrap()
         .thing()

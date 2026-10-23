@@ -55,7 +55,7 @@ impl GameLogic {
                 );
             }
         }
-        let can_move = match self.objects.get(&unit_id) {
+        let can_move = match self.objects.lookup(&unit_id) {
             Some(unit) => unit.is_alive() && unit.can_move(),
             None => return false,
         };
@@ -118,7 +118,7 @@ impl GameLogic {
         if started {
             let stamp = self
                 .objects
-                .get(&unit_id)
+                .lookup(&unit_id)
                 .is_some_and(|unit| unit.is_final_goal);
             if stamp {
                 if let Some(last) = last_node {
@@ -138,7 +138,7 @@ impl GameLogic {
     ) -> bool {
         let ignore = self
             .objects
-            .get(&unit_id)
+            .lookup(&unit_id)
             .and_then(|unit| unit.ignored_obstacle_id);
         self.assign_unit_path_ignoring(unit_id, destination, waypoints, ignore)
     }
@@ -159,7 +159,7 @@ impl GameLogic {
         }
         let goal_object = self
             .objects
-            .get(&unit_id)
+            .lookup(&unit_id)
             .and_then(Object::movement_goal_object);
         self.pathfinding_system.set_ignore_obstacle(ignore_obstacle);
         let ok = self.assign_unit_path_inner(unit_id, destination, waypoints, false);
@@ -310,7 +310,7 @@ impl GameLogic {
             self.start_move_sound(unit_id);
             return true;
         }
-        let quick_installed = self.objects.get(&unit_id).is_some_and(|unit| {
+        let quick_installed = self.objects.lookup(&unit_id).is_some_and(|unit| {
             // Only the empty-waypoint request above can install a quick path.
             // An explicit route may replace another order in this same frame;
             // its predecessor's timestamp does not validate the new route.
@@ -326,7 +326,7 @@ impl GameLogic {
             return true;
         }
         let (start, can_move, quick_aircraft, surfaces, is_crusher) =
-            match self.objects.get(&unit_id) {
+            match self.objects.lookup(&unit_id) {
                 Some(unit) => {
                     let surfaces = unit.locomotor_surfaces;
                     let quick = (surfaces & crate::game_logic::object::LOCO_SURFACE_AIR) != 0
@@ -368,7 +368,7 @@ impl GameLogic {
                     ignore_obstacle: self.pathfinding_system.ignore_obstacle(),
                     adjust_destinations: self
                         .objects
-                        .get(&unit_id)
+                        .lookup(&unit_id)
                         .is_some_and(|unit| unit.adjust_destinations),
                     restore_adjust_on_install: restore_adjust,
                 });
@@ -441,7 +441,7 @@ impl GameLogic {
             }
             let closest_ran = self
                 .objects
-                .get(&unit_id)
+                .lookup(&unit_id)
                 .is_some_and(|unit| unit.movement.path.is_empty());
             self.note_compute_path_failed(unit_id);
             if closest_ran {
@@ -470,7 +470,7 @@ impl GameLogic {
         unit_id: ObjectId,
         destination: Vec3,
     ) -> bool {
-        let Some(unit) = self.objects.get(&unit_id) else {
+        let Some(unit) = self.objects.lookup(&unit_id) else {
             return false;
         };
         let air_surface =
@@ -516,7 +516,7 @@ impl GameLogic {
                 self.pathfinding_system.find_path_ex_surfaces(
                     start,
                     destination,
-                    &self.objects,
+                    self.objects.read(),
                     true,
                     surfaces,
                     crusher,
@@ -601,7 +601,7 @@ impl GameLogic {
 
         if !self
             .objects
-            .get(&unit_id)
+            .lookup(&unit_id)
             .is_some_and(|unit| unit.is_blocked_and_stuck)
         {
             if let Some(unit) = self.objects.get_mut(&unit_id) {
@@ -625,7 +625,10 @@ impl GameLogic {
         } else {
             gamelogic::ai::pathfind_complete::SURFACE_GROUND
         };
-        let request_is_final = self.objects.get(&unit_id).is_some_and(|u| u.is_final_goal);
+        let request_is_final = self
+            .objects
+            .lookup(&unit_id)
+            .is_some_and(|u| u.is_final_goal);
         let ignore = self.pathfinding_system.ignore_obstacle();
         let saved_adjust = self.pathfinding_system.adjusts_goal();
         let goal_count = goals.len();
@@ -682,7 +685,7 @@ impl GameLogic {
             let straight = horiz(segment_start, goal);
             let (live_adjust, projectile) = self
                 .objects
-                .get(&unit_id)
+                .lookup(&unit_id)
                 .map(|unit| {
                     (
                         unit.adjust_destinations,
@@ -696,7 +699,7 @@ impl GameLogic {
             let stuck_path = if flying {
                 None
             } else {
-                self.objects.get(&unit_id).and_then(|unit| {
+                self.objects.lookup(&unit_id).and_then(|unit| {
                     if unit.is_blocked_and_stuck && unit.movement.path.len() >= 2 {
                         Some(unit.movement.path.clone())
                     } else {
@@ -760,7 +763,7 @@ impl GameLogic {
                         &original,
                         loco,
                         is_crusher,
-                        &self.objects,
+                        self.objects.read(),
                         Some(unit_id),
                         &ground_source,
                     )
@@ -782,7 +785,7 @@ impl GameLogic {
                     self.pathfinding_system.find_path_ex_surfaces(
                         segment_start,
                         goal,
-                        &self.objects,
+                        self.objects.read(),
                         flying,
                         loco,
                         is_crusher,
@@ -986,7 +989,7 @@ impl GameLogic {
             return false;
         }
         for &(id, _) in goals {
-            let Some(unit) = self.objects.get(&id) else {
+            let Some(unit) = self.objects.lookup(&id) else {
                 continue;
             };
             let old = unit.pathfind_goal_cell;
@@ -1007,7 +1010,7 @@ impl GameLogic {
         let mut cz = 0.0f32;
         let mut count = 0.0f32;
         for &(id, _) in goals {
-            if let Some(o) = self.objects.get(&id) {
+            if let Some(o) = self.objects.lookup(&id) {
                 if o.status.disabled_held || !(o.is_mobile() || o.can_attack()) {
                     continue;
                 }
@@ -1025,7 +1028,7 @@ impl GameLogic {
         let leader = goals
             .iter()
             .filter_map(|(id, _)| {
-                self.objects.get(id).and_then(|o| {
+                self.objects.lookup(id).and_then(|o| {
                     let aircraft = o.is_kind_of(crate::game_logic::KindOf::Aircraft)
                         || o.object_type == crate::game_logic::ObjectType::Aircraft;
                     let infantry = o.is_kind_of(crate::game_logic::KindOf::Infantry);
@@ -1066,7 +1069,7 @@ impl GameLogic {
             self.pathfinding_system.find_group_ground_path(
                 start,
                 destination,
-                &self.objects,
+                self.objects.read(),
                 &ground_source,
             )
         }) else {
@@ -1085,11 +1088,11 @@ impl GameLogic {
         let lanes = if dir == Vec3::ZERO {
             std::collections::HashMap::new()
         } else {
-            Self::group_march_lanes(&self.objects, goals, destination, (dir.x, dir.z))
+            Self::group_march_lanes(self.objects.read(), goals, destination, (dir.x, dir.z))
         };
         let mob_column_blocked = goals.iter().any(|(id, _)| {
             self.objects
-                .get(id)
+                .lookup(id)
                 .is_some_and(|o| o.is_kind_of(crate::game_logic::KindOf::MobNexus))
         });
         let mut any = false;
@@ -1097,19 +1100,19 @@ impl GameLogic {
             if mob_column_blocked
                 && self
                     .objects
-                    .get(&unit_id)
+                    .lookup(&unit_id)
                     .is_some_and(|o| o.is_kind_of(crate::game_logic::KindOf::Infantry))
             {
                 continue;
             }
-            if self.objects.get(&unit_id).is_some_and(|o| {
+            if self.objects.lookup(&unit_id).is_some_and(|o| {
                 o.status.disabled_held
                     || !(o.is_mobile() || o.can_attack())
                     || o.is_kind_of(crate::game_logic::KindOf::MobNexus)
             }) {
                 continue;
             }
-            let airborne_aircraft = self.objects.get(&unit_id).is_some_and(|o| {
+            let airborne_aircraft = self.objects.lookup(&unit_id).is_some_and(|o| {
                 let aircraft = o.is_kind_of(crate::game_logic::KindOf::Aircraft)
                     || o.object_type == crate::game_logic::ObjectType::Aircraft;
                 o.is_kind_of(crate::game_logic::KindOf::Vehicle)
@@ -1122,14 +1125,14 @@ impl GameLogic {
                 }
                 continue;
             }
-            let ground_member = self.objects.get(&unit_id).is_some_and(|o| {
+            let ground_member = self.objects.lookup(&unit_id).is_some_and(|o| {
                 o.is_kind_of(crate::game_logic::KindOf::Infantry)
                     || o.is_kind_of(crate::game_logic::KindOf::Vehicle)
             });
             if !ground_member {
                 continue;
             }
-            let Some(unit_start) = self.objects.get(&unit_id).map(|o| o.get_position()) else {
+            let Some(unit_start) = self.objects.lookup(&unit_id).map(|o| o.get_position()) else {
                 continue;
             };
             let legacy_spine = || {
@@ -1174,7 +1177,7 @@ impl GameLogic {
     /// order reproduces the pack order and each member recovers the marching
     /// lane its goal was packed into.
     fn group_march_lanes(
-        objects: &std::collections::HashMap<ObjectId, Object>,
+        objects: crate::game_logic::HostObjectRead<'_>,
         goals: &[(ObjectId, Vec3)],
         destination: Vec3,
         dir: (f32, f32),
@@ -1186,7 +1189,7 @@ impl GameLogic {
         let mut infantry: Vec<(ObjectId, f32)> = Vec::new();
         let mut vehicles: Vec<(ObjectId, f32)> = Vec::new();
         for &(id, goal) in goals {
-            let Some(o) = objects.get(&id) else {
+            let Some(o) = objects.lookup(&id) else {
                 continue;
             };
             if o.status.disabled_held || !(o.is_mobile() || o.can_attack()) {
@@ -1205,7 +1208,7 @@ impl GameLogic {
         }
         if goals.iter().any(|(id, _)| {
             objects
-                .get(id)
+                .lookup(id)
                 .is_some_and(|o| o.is_kind_of(crate::game_logic::KindOf::MobNexus))
         }) {
             infantry.clear();
@@ -1356,7 +1359,7 @@ impl GameLogic {
     pub(crate) fn reissue_pending_moves(&mut self) {
         let ready: Vec<(ObjectId, Vec3, AIState, Option<ObjectId>, bool)> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, unit)| {
                 if !Self::pending_move_ready(unit) {
                     return None;
@@ -1439,7 +1442,7 @@ impl GameLogic {
                 if set_state {
                     let already = self
                         .objects
-                        .get(&id)
+                        .lookup(&id)
                         .is_some_and(|unit| unit.ai_state == task);
                     if !already {
                         self.set_ai_state_decision_aware(id, task);
@@ -1601,7 +1604,7 @@ impl GameLogic {
 
     /// C++ `computePath` when `findPath` returns null (AIUpdate.cpp:1731-1754).
     pub(in super::super) fn note_compute_path_failed(&mut self, unit_id: ObjectId) {
-        let Some(unit) = self.objects.get(&unit_id) else {
+        let Some(unit) = self.objects.lookup(&unit_id) else {
             return;
         };
         let stuck_with_path = !unit.movement.path.is_empty() && unit.is_blocked_and_stuck;
@@ -1692,7 +1695,7 @@ impl GameLogic {
     /// (AIStates.cpp:1782-1786). Adjusting units `updateGoal` the last node.
     /// The others `removeGoal`.
     pub(crate) fn on_waited_path_arrived(&mut self, unit_id: ObjectId) {
-        let Some(unit) = self.objects.get(&unit_id) else {
+        let Some(unit) = self.objects.lookup(&unit_id) else {
             return;
         };
         let goal = unit.requested_destination;
@@ -1753,7 +1756,7 @@ impl GameLogic {
     /// Aircraft / non-LOS kinds always clear. Fail-closed: not full weapon terrain LOS.
     /// C++ `Pathfinder::adjustToPossibleDestination` for a live unit.
     pub fn adjust_to_possible_destination(&self, unit_id: ObjectId, dest: &mut Vec3) -> bool {
-        let Some(obj) = self.objects.get(&unit_id) else {
+        let Some(obj) = self.objects.lookup(&unit_id) else {
             return false;
         };
         ({
@@ -1794,7 +1797,7 @@ impl GameLogic {
         // C++ computeAttackPath (AIUpdate.cpp:1803–1809) cannot search
         // without a current weapon. doPathfind then computes ordinary fallback.
         if !compute_fallback
-            && self.objects.get(&unit_id).is_none_or(|unit| {
+            && self.objects.lookup(&unit_id).is_none_or(|unit| {
                 unit.selected_weapon_slot()
                     .and_then(|slot| unit.weapon_slot(slot))
                     .is_none()
@@ -1802,7 +1805,7 @@ impl GameLogic {
         {
             return false;
         }
-        let (from, range, can_move, contact, is_crusher) = match self.objects.get(&unit_id) {
+        let (from, range, can_move, contact, is_crusher) = match self.objects.lookup(&unit_id) {
             Some(u) => {
                 let slot = u.selected_weapon_slot();
                 let weapon = slot.and_then(|s| u.weapon_slot(s));
@@ -1851,11 +1854,11 @@ impl GameLogic {
         }
         let owner = self
             .objects
-            .get(&unit_id)
+            .lookup(&unit_id)
             .and_then(|unit| unit.owner_player_id);
         let surfaces = self
             .objects
-            .get(&unit_id)
+            .lookup(&unit_id)
             .map(|unit| unit.locomotor_surfaces)
             .unwrap_or(0);
         let is_human = owner
@@ -1902,7 +1905,7 @@ impl GameLogic {
                     from,
                     target_pos,
                     path_range,
-                    &self.objects,
+                    self.objects.read(),
                     is_crusher,
                     Some(unit_id),
                     &ground_source,
@@ -1919,11 +1922,11 @@ impl GameLogic {
                 if let Some(&goal) = full_path.last() {
                     let eye_r = self
                         .objects
-                        .get(&unit_id)
+                        .lookup(&unit_id)
                         .map(|o| o.selection_radius.max(5.0) * 0.5)
                         .unwrap_or(5.0);
                     let eye_to = target_id
-                        .and_then(|tid| self.objects.get(&tid))
+                        .and_then(|tid| self.objects.lookup(&tid))
                         .map(|o| o.selection_radius.max(5.0) * 0.5)
                         .unwrap_or(5.0);
                     let a_eye = Vec3::new(goal.x, goal.y + eye_r, goal.z);
@@ -2114,7 +2117,7 @@ impl GameLogic {
         target_id: Option<ObjectId>,
         target_pos: Vec3,
     ) -> bool {
-        let Some(attacker) = self.objects.get(&attacker_id) else {
+        let Some(attacker) = self.objects.lookup(&attacker_id) else {
             return false;
         };
         // C++ KINDOF_ATTACK_NEEDS_LINE_OF_SIGHT gate.
@@ -2130,7 +2133,7 @@ impl GameLogic {
         // C++ computeAttackPath: no obstacle LOS when the victim is
         // significantly above terrain. KindOf::Aircraft alone is not that.
         if let Some(tid) = target_id {
-            if let Some(t) = self.objects.get(&tid) {
+            if let Some(t) = self.objects.lookup(&tid) {
                 if t.is_significantly_above_terrain() {
                     return false;
                 }
@@ -2152,7 +2155,7 @@ impl GameLogic {
             let eye_from = from.y + attacker.selection_radius.max(5.0) * 0.5;
             let eye_to = {
                 let th = target_id
-                    .and_then(|tid| self.objects.get(&tid))
+                    .and_then(|tid| self.objects.lookup(&tid))
                     .map(|t| t.selection_radius.max(5.0) * 0.5)
                     .unwrap_or(5.0);
                 target_pos.y + th
@@ -2227,7 +2230,7 @@ impl GameLogic {
         let attack_moving = matches!(state, AIState::AttackMoving);
         let already = self
             .objects
-            .get(&object_id)
+            .lookup(&object_id)
             .is_some_and(|obj| obj.ai_state == state);
         let mut assigned = false;
         if self.assign_unit_path_ignoring(object_id, goal, &[], ignore_obstacle) {
@@ -2246,7 +2249,7 @@ impl GameLogic {
             }
             let already = self
                 .objects
-                .get(&object_id)
+                .lookup(&object_id)
                 .is_some_and(|obj| obj.ai_state == state);
             {}
             if let Some(obj) = self.objects.get_mut(&object_id) {
@@ -2296,7 +2299,7 @@ impl GameLogic {
     }
 
     pub fn append_unit_waypoint(&mut self, unit_id: ObjectId, waypoint: Vec3) -> bool {
-        let (unit_pos, current_path, can_move) = match self.objects.get(&unit_id) {
+        let (unit_pos, current_path, can_move) = match self.objects.lookup(&unit_id) {
             Some(unit) => (
                 unit.get_position(),
                 unit.movement.path.clone(),
@@ -2322,8 +2325,12 @@ impl GameLogic {
                 self.pathfinding_height_samples.as_ref(),
                 &self.pathfinding_system.grid,
             );
-            self.pathfinding_system
-                .find_path(last_goal, waypoint, &self.objects, &ground_source)
+            self.pathfinding_system.find_path(
+                last_goal,
+                waypoint,
+                self.objects.read(),
+                &ground_source,
+            )
         });
 
         let mut appended = current_path;
@@ -2521,7 +2528,7 @@ mod group_lane_tests {
             logic.pathfinding_system.find_group_ground_path(
                 start,
                 destination,
-                &logic.objects,
+                logic.objects.read(),
                 &ground_source,
             )
         })
@@ -2617,7 +2624,7 @@ mod group_lane_tests {
             logic
                 .pathfinding_system
                 .grid
-                .update_dynamic_obstacles(&logic.objects, &ground_source)
+                .update_dynamic_obstacles(logic.objects.read(), &ground_source)
         });
         logic
     }

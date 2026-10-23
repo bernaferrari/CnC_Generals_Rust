@@ -140,7 +140,7 @@ pub fn simulate_presentation_client_boundary_honesty() -> bool {
 
     // Live: empty host ObjectId store before map.
     let mut logic = GameLogic::new();
-    if !logic.host_objects().is_empty() {
+    if !logic.host_objects().registered_is_empty() {
         return false;
     }
 
@@ -165,7 +165,7 @@ pub fn simulate_presentation_client_boundary_honesty() -> bool {
     if !loaded {
         return false;
     }
-    if logic.host_objects().is_empty() {
+    if logic.host_objects().registered_is_empty() {
         return false;
     }
 

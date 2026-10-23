@@ -115,7 +115,7 @@ impl GameLogic {
             _ => None,
         };
         let mut nearest: Option<(ObjectId, f32)> = None;
-        for object in self.objects.values() {
+        for object in self.objects.registered_values() {
             if object.status.destroyed || off_map(object) != source_off_map {
                 continue;
             }

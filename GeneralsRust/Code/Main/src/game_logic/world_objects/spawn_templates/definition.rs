@@ -67,7 +67,7 @@ impl GameLogic {
         &mut self,
         source: crate::assets::ReceivingObjectContent,
     ) -> Result<(), String> {
-        if self.receiving_module_content.is_some() || !self.objects.is_empty() {
+        if self.receiving_module_content.is_some() || !self.objects.registered_is_empty() {
             return Err("Receiving module content must be admitted before live Objects".into());
         }
         // The opaque producer pairs both projections from identical ordered

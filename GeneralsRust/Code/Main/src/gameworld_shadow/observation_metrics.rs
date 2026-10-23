@@ -9,7 +9,7 @@ impl GameWorldShadow {
     pub fn health_parity(&self, logic: &GameLogic) -> (bool, usize) {
         let mut checked = 0usize;
         for (&hid, &eid) in &self.host_to_entity {
-            let Some(host_obj) = logic.host_objects().get(&ObjectId(hid)) else {
+            let Some(host_obj) = logic.host_objects().lookup(&ObjectId(hid)) else {
                 return (false, checked);
             };
             let Some(ent) = self.world.entity(eid) else {
@@ -28,7 +28,7 @@ impl GameWorldShadow {
         host_ids.sort_unstable();
         for hid in host_ids {
             let eid = self.host_to_entity[&hid];
-            let Some(host_obj) = logic.host_objects().get(&ObjectId(hid)) else {
+            let Some(host_obj) = logic.host_objects().lookup(&ObjectId(hid)) else {
                 return Some(format!("host_id={hid} missing_host_object"));
             };
             let Some(ent) = self.world.entity(eid) else {
@@ -53,7 +53,7 @@ impl GameWorldShadow {
     fn pose_parity(&self, logic: &GameLogic) -> bool {
         const EPS: f32 = 0.05;
         for (&hid, &eid) in &self.host_to_entity {
-            let Some(host_obj) = logic.host_objects().get(&ObjectId(hid)) else {
+            let Some(host_obj) = logic.host_objects().lookup(&ObjectId(hid)) else {
                 return false;
             };
             let Some(ent) = self.world.entity(eid) else {
@@ -74,7 +74,7 @@ impl GameWorldShadow {
 
     fn attack_target_parity(&self, logic: &GameLogic) -> bool {
         for (&hid, &eid) in &self.host_to_entity {
-            let Some(host_obj) = logic.host_objects().get(&ObjectId(hid)) else {
+            let Some(host_obj) = logic.host_objects().lookup(&ObjectId(hid)) else {
                 return false;
             };
             let Some(ent) = self.world.entity(eid) else {
@@ -91,7 +91,7 @@ impl GameWorldShadow {
     fn move_target_parity(&self, logic: &GameLogic) -> bool {
         const EPS: f32 = 0.05;
         for (&hid, &eid) in &self.host_to_entity {
-            let Some(host_obj) = logic.host_objects().get(&ObjectId(hid)) else {
+            let Some(host_obj) = logic.host_objects().lookup(&ObjectId(hid)) else {
                 return false;
             };
             let Some(ent) = self.world.entity(eid) else {
@@ -115,7 +115,7 @@ impl GameWorldShadow {
 
     fn weapon_parity(&self, logic: &GameLogic) -> bool {
         for (&hid, &eid) in &self.host_to_entity {
-            let Some(host_obj) = logic.host_objects().get(&ObjectId(hid)) else {
+            let Some(host_obj) = logic.host_objects().lookup(&ObjectId(hid)) else {
                 return false;
             };
             let Some(ent) = self.world.entity(eid) else {
@@ -170,7 +170,7 @@ impl GameWorldShadow {
 
     fn contain_parity(&self, logic: &GameLogic) -> bool {
         for (&hid, &eid) in &self.host_to_entity {
-            let Some(host_obj) = logic.host_objects().get(&ObjectId(hid)) else {
+            let Some(host_obj) = logic.host_objects().lookup(&ObjectId(hid)) else {
                 return false;
             };
             let Some(ent) = self.world.entity(eid) else {
@@ -209,7 +209,7 @@ impl GameWorldShadow {
 
     fn production_parity(&self, logic: &GameLogic) -> bool {
         for (&hid, &eid) in &self.host_to_entity {
-            let Some(host_obj) = logic.host_objects().get(&ObjectId(hid)) else {
+            let Some(host_obj) = logic.host_objects().lookup(&ObjectId(hid)) else {
                 return false;
             };
             let Some(ent) = self.world.entity(eid) else {
@@ -236,7 +236,7 @@ impl GameWorldShadow {
 
     fn destroy_visibility_parity(&self, logic: &GameLogic) -> bool {
         for (&hid, &eid) in &self.host_to_entity {
-            let host_obj = logic.host_objects().get(&ObjectId(hid));
+            let host_obj = logic.host_objects().lookup(&ObjectId(hid));
             let ent = self.world.entity(eid);
             match (host_obj, ent) {
                 (None, None) => {}
@@ -253,7 +253,7 @@ impl GameWorldShadow {
 
     pub fn probe(&self, logic: &GameLogic) -> GameWorldShadowProbe {
         let snap: WorldSnapshot = self.world.snapshot();
-        let host_objects = logic.host_objects().len().min(self.max_entities);
+        let host_objects = logic.host_objects().registered_len().min(self.max_entities);
         let host_players = logic.get_players().len();
         let shadow_entities = snap.entities.len();
         let shadow_players = snap.players.len();
@@ -315,7 +315,7 @@ impl GameWorldShadow {
         GameWorldShadowProbe {
             host_frame,
             shadow_frame,
-            host_objects: logic.host_objects().len(),
+            host_objects: logic.host_objects().registered_len(),
             shadow_entities,
             host_players,
             shadow_players,

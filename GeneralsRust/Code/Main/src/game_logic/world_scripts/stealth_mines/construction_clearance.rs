@@ -88,7 +88,7 @@ impl GameLogic {
         }
         let building_identity = self.live_draw_playback_identity(building);
         let mut hits = Vec::new();
-        for (id, obj) in &self.objects {
+        for (id, obj) in self.objects.registered() {
             if *id == building_id || obj.status.destroyed {
                 continue;
             }

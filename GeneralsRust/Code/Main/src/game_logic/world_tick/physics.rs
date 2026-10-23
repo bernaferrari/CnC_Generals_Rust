@@ -132,14 +132,14 @@ impl GameLogic {
         if damage_amount <= 0.0 {
             return 0;
         }
-        let ids = self.objects.keys().copied().collect();
+        let ids = self.objects.registered_keys().copied().collect();
         self.damage_owned_water_candidates_with_effects(ids, damage_amount, presentation_effects)
     }
 
     /// Refresh underwater/cliff cells. C++ never damages on dry→wet walk-in;
     /// DAMAGE_WATER only runs from leftover setWaterHeight rise (`apply_water_rise_damage`).
     pub fn refresh_surface_cells_and_water_edge_damage(&mut self, _edge_damage: f32) -> u32 {
-        let ids: Vec<ObjectId> = self.objects.keys().copied().collect();
+        let ids: Vec<ObjectId> = self.objects.registered_keys().copied().collect();
         for id in ids {
             let pos = match self.objects.get(&id) {
                 Some(o) => o.get_position(),
@@ -1233,7 +1233,7 @@ impl GameLogic {
     pub fn sync_all_contained_items_mass(&mut self) {
         let ids: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, o)| !o.contained_units().is_empty())
             .map(|(id, _)| *id)
             .collect();
@@ -1428,7 +1428,7 @@ impl GameLogic {
         }
 
         let mut transferred = 0usize;
-        let ids: Vec<ObjectId> = self.objects.keys().copied().collect();
+        let ids: Vec<ObjectId> = self.objects.registered_keys().copied().collect();
         for id in ids {
             if id == from_id || id == to_id {
                 continue;

@@ -831,7 +831,7 @@ impl crate::game_logic::GameLogic {
     /// instance. Stable ObjectID order mirrors the hard-difficulty squad pick.
     fn attack_team_identity_for_faction(&self, faction: crate::game_logic::Team) -> String {
         self.host_objects()
-            .iter()
+            .registered()
             .filter(|(_, candidate)| candidate.team == faction && candidate.is_alive())
             .min_by_key(|(id, _)| **id)
             .map(|(_, candidate)| {
@@ -919,7 +919,7 @@ impl crate::game_logic::GameLogic {
             .map(ObjectId)
             .collect();
         let mut live: Vec<(ObjectId, Vec3, bool)> = Vec::new();
-        for (cid, cand) in self.host_objects().iter() {
+        for (cid, cand) in self.host_objects().registered() {
             if !team_members.contains(cid) || !cand.is_alive() {
                 continue;
             }
@@ -1058,7 +1058,7 @@ impl crate::game_logic::GameLogic {
         let prio = self.attack_priority_info_for(unit_id);
         let mut best_dist: Option<(ObjectId, f32)> = None;
         let mut best_prio: Option<(ObjectId, i32)> = None;
-        for (cid, cand) in self.host_objects().iter() {
+        for (cid, cand) in self.host_objects().registered() {
             if *cid == unit_id || !cand.is_alive() || !cand.is_targetable_by_enemy_of(team) {
                 continue;
             }

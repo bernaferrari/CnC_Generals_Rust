@@ -60,7 +60,7 @@ fn resident_crush_zero_then_huge_uses_receiving_player_source_and_frame() {
     assert!(receiving.players[&1].get_attacked_by(2));
     assert_eq!(receiving.players[&1].attacked_frame, 32);
     assert_eq!(
-        receiving.objects.len(),
+        receiving.objects.registered_len(),
         2,
         "both canonical participants remain resident through the Body/Player operation"
     );

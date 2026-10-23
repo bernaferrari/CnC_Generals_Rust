@@ -288,8 +288,8 @@ fn create_object_uses_exact_team_controller_before_factory_admission() {
         .add_parameter(Parameter::with_real(ParameterType::Angle, 1.5))
         .unwrap();
     let engine = ScriptEngine::new().unwrap();
-    let peer_count = peer.objects.len();
-    let before = owner.objects.len();
+    let peer_count = peer.objects.registered_len();
+    let before = owner.objects.registered_len();
     let mut driver = HostScriptExecutionDriver::new(&mut owner);
     engine.friend_execute_action_with_driver(
         &action,
@@ -297,10 +297,10 @@ fn create_object_uses_exact_team_controller_before_factory_admission() {
         gamelogic::scripting::executor::ScriptContext::at_frame(0),
         &mut driver,
     );
-    assert_eq!(owner.objects.len(), before + 1);
+    assert_eq!(owner.objects.registered_len(), before + 1);
     let object = owner
         .objects
-        .values()
+        .registered_values()
         .find(|object| object.team_instance_name == "CreatedSquad")
         .unwrap();
     assert_eq!(object.owner_player_id, Some(2));
@@ -317,7 +317,7 @@ fn create_object_uses_exact_team_controller_before_factory_admission() {
             .unwrap()
             .has_member(id.0)
     );
-    assert_eq!(peer.objects.len(), peer_count);
+    assert_eq!(peer.objects.registered_len(), peer_count);
     assert!(
         peer.team_factory
             .lock()

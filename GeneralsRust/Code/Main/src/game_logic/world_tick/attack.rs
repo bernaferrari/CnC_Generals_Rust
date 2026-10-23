@@ -2727,7 +2727,7 @@ impl GameLogic {
                 self.pathfinding_system.find_path_ex_surfaces(
                     start,
                     dest,
-                    &self.objects,
+                    self.objects.read(),
                     is_aircraft,
                     loco,
                     is_crusher,
@@ -2784,7 +2784,7 @@ impl GameLogic {
                         self.pathfinding_system.find_path_ex_surfaces(
                             start,
                             dest,
-                            &self.objects,
+                            self.objects.read(),
                             is_aircraft,
                             loco,
                             is_crusher,
@@ -2827,7 +2827,7 @@ impl GameLogic {
     ) -> crate::save_load::SaveLoadResult<()> {
         // Scalar TRAI/OXOB tails run after component decoding. Validate their
         // final combined goal before deriving any team or admitting the candidate.
-        for owner in self.objects.values() {
+        for owner in self.objects.registered_values() {
             if owner.turret_target_id.is_some() && owner.turret_runtime.target_pos.is_some() {
                 return Err(crate::save_load::SaveLoadError::Corrupted(format!(
                     "object {} has both turret object and position goals",
@@ -2837,7 +2837,7 @@ impl GameLogic {
         }
         let teams: Vec<_> = self
             .objects
-            .iter()
+            .registered()
             .map(|(id, owner)| {
                 (
                     *id,

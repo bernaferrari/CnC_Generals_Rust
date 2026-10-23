@@ -23,7 +23,7 @@ impl GameLogic {
         if let Some(error) = self.object_retirement_error() {
             return Err(error);
         }
-        if !self.host_objects().is_empty() || self.has_pending_object_removals() {
+        if !self.host_objects().registered_is_empty() || self.has_pending_object_removals() {
             return Err(invalid(
                 "direct map Player admission requires the retired outgoing Object roster",
             ));

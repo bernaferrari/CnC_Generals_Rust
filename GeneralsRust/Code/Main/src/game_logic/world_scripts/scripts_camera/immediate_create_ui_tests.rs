@@ -74,8 +74,8 @@ fn immediate_creation_callback_inherits_ui_before_parent_next_action() {
                 true,
             ));
             let interpreter = engine(peer.mission_scripts.clone(), list);
-            let before = owner.host_objects().len();
-            let peer_before = peer.host_objects().len();
+            let before = owner.host_objects().registered_len();
+            let peer_before = peer.host_objects().registered_len();
             let mut ui = RecordingUi::default();
             {
                 let mut driver =
@@ -92,11 +92,11 @@ fn immediate_creation_callback_inherits_ui_before_parent_next_action() {
                 [true, false],
                 "nested create callback must run before the parent's next UI action"
             );
-            assert_eq!(owner.host_objects().len(), before + 1);
+            assert_eq!(owner.host_objects().registered_len(), before + 1);
             assert!(
                 owner
                     .host_objects()
-                    .values()
+                    .registered_values()
                     .any(|object| object.team_instance_name == "UiCreationTeam")
             );
             assert!(
@@ -104,7 +104,7 @@ fn immediate_creation_callback_inherits_ui_before_parent_next_action() {
                 "delivered nested UI cannot be replayed by native drain"
             );
             assert!(!owner.cinematic_letterbox);
-            assert_eq!(peer.host_objects().len(), peer_before);
+            assert_eq!(peer.host_objects().registered_len(), peer_before);
             assert!(peer.session_view.pending_letterbox_visibility.is_empty());
             assert_camera_queues_empty(&peer.mission_scripts);
         },

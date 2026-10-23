@@ -61,7 +61,7 @@ impl GameLogic {
 
         let mut nudged = Vec::new();
         for (cx, cy) in cells {
-            for obj in self.objects.values() {
+            for obj in self.objects.registered_values() {
                 if obj.id == unit_id || !obj.is_alive() || ignore == Some(obj.id) {
                     continue;
                 }

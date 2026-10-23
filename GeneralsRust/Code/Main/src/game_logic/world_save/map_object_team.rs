@@ -353,7 +353,7 @@ mod tests {
         let parent = parent.id;
         let child = world
             .host_objects()
-            .values()
+            .registered_values()
             .find(|actor| actor.thing().template.name == "MapCallbackWitness")
             .unwrap();
         assert!(
@@ -374,7 +374,7 @@ mod tests {
                 .value),
             Some(1)
         );
-        assert!(peer.host_objects().is_empty());
+        assert!(peer.host_objects().registered_is_empty());
         assert_eq!(peer.get_player(2).unwrap().power_produced, 0);
     }
 
@@ -513,8 +513,8 @@ mod tests {
                 .unwrap()
                 .find_team_instances("ExactMapTeam")[0]
                 .clone();
-            assert_eq!(world.host_objects().len(), 1);
-            let actor = world.host_objects().values().next().unwrap();
+            assert_eq!(world.host_objects().registered_len(), 1);
+            let actor = world.host_objects().registered_values().next().unwrap();
             assert_eq!(actor.id, peer_id, "same-ID peer is independently owned");
             assert_eq!(actor.owner_player_id, Some(0));
             assert_eq!(actor.team, Team::Neutral);
@@ -748,7 +748,7 @@ mod tests {
         assert_eq!(world.get_player(2).unwrap().power_produced, 20);
         assert_eq!(peer.get_player(1).unwrap().power_produced, 0);
         assert_eq!(peer.get_player(2).unwrap().power_produced, 0);
-        assert!(peer.host_objects().is_empty());
+        assert!(peer.host_objects().registered_is_empty());
     }
 
     #[test]

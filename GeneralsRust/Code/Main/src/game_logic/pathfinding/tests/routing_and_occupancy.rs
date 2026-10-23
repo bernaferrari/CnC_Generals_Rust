@@ -63,7 +63,7 @@ fn optimize_caps_bridge_layer_steps() {
 fn optimize_respects_occupancy_and_unpinched_cliff() {
     use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
     let mut g = open_grid(16, 16);
-    let mut objects = HashMap::new();
+    let mut objects = HostObjectStore::new();
     let mut tmpl = ThingTemplate::new("Ranger");
     tmpl.add_kind_of(KindOf::Infantry);
     let mut ally = Object::new(tmpl, ObjectId(4), Team::USA);
@@ -72,9 +72,9 @@ fn optimize_respects_occupancy_and_unpinched_cliff() {
         &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
     ));
     ally.owner_player_id = Some(0);
-    objects.insert(ally.id, ally);
+    objects.admit(ally.id, ally);
     g.update_dynamic_obstacles(
-        &objects,
+        objects.read(),
         &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
     );
     let start = g.grid_to_world(
@@ -136,16 +136,16 @@ fn optimize_respects_occupancy_and_unpinched_cliff() {
 fn fence_width_not_name_classifies_fence() {
     use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
     let mut sys = PathfindingSystem::new(200.0, 200.0);
-    let mut objects = HashMap::new();
+    let mut objects = HostObjectStore::new();
     let mut named = ThingTemplate::new("DecorativeFenceProp");
     named.add_kind_of(KindOf::Structure);
     named.fence_width = 0.0;
     let mut prop = Object::new(named, ObjectId(1), Team::Neutral);
     prop.set_position(Vec3::new(40.0, 0.0, 40.0));
     prop.selection_radius = 20.0;
-    objects.insert(prop.id, prop);
+    objects.admit(prop.id, prop);
     sys.apply_structure_static_blocks(
-        &objects,
+        objects.read(),
         0.0,
         &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
     );
@@ -161,9 +161,9 @@ fn fence_width_not_name_classifies_fence() {
     let mut fence = Object::new(real, ObjectId(2), Team::China);
     fence.set_position(Vec3::new(120.0, 0.0, 40.0));
     fence.set_orientation(0.0);
-    objects.insert(fence.id, fence);
+    objects.admit(fence.id, fence);
     sys.apply_structure_static_blocks(
-        &objects,
+        objects.read(),
         0.0,
         &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
     );
@@ -180,16 +180,16 @@ fn fence_width_not_name_classifies_fence() {
 fn under_construction_structure_blocks_path() {
     use crate::game_logic::{GameLogic, KindOf, Object, ObjectId, Team, ThingTemplate};
     let mut sys = PathfindingSystem::new(200.0, 200.0);
-    let mut objects = HashMap::new();
+    let mut objects = HostObjectStore::new();
     let mut tmpl = ThingTemplate::new("AmericaWarFactory");
     tmpl.add_kind_of(KindOf::Structure);
     let mut factory = Object::new_under_construction(tmpl, ObjectId(4), Team::USA);
     factory.set_position(Vec3::new(80.0, 0.0, 80.0));
     factory.selection_radius = 20.0;
     assert!(factory.status.under_construction);
-    objects.insert(factory.id, factory);
+    objects.admit(factory.id, factory);
     sys.apply_structure_static_blocks(
-        &objects,
+        objects.read(),
         0.0,
         &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
     );
@@ -314,11 +314,11 @@ fn internal_astar_routes_infantry_and_vehicle_through_single_cell_opening() {
         let mut unit = Object::new(template, ObjectId(id), Team::USA);
         unit.set_position(start);
         unit.selection_radius = if is_vehicle { 15.0 } else { 8.0 };
-        let objects = HashMap::from([(unit.id, unit)]);
+        let objects = registered_path_fixture([(unit.id, unit)]);
         let path = sys.find_path_ex_surfaces(
             start,
             goal,
-            &objects,
+            objects.read(),
             false,
             SURFACE_GROUND,
             false,
@@ -730,18 +730,18 @@ fn move_allies_skips_deploy_style_busy() {
     use crate::game_logic::host_deploy_style::{HostDeployStyleData, HostDeployStyleState};
     use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
     let sys = PathfindingSystem::new(200.0, 200.0);
-    let mut objects = HashMap::new();
+    let mut objects = HostObjectStore::new();
     let mut mover_t = ThingTemplate::new("Ranger");
     mover_t.add_kind_of(KindOf::Infantry);
     let mut mover = Object::new(mover_t, ObjectId(1), Team::USA);
     mover.set_position(Vec3::new(10.0, 0.0, 10.0));
-    objects.insert(mover.id, mover);
+    objects.admit(mover.id, mover);
 
     let mut idle_t = ThingTemplate::new("Humvee");
     idle_t.add_kind_of(KindOf::Vehicle);
     let mut idle = Object::new(idle_t, ObjectId(2), Team::USA);
     idle.set_position(Vec3::new(50.0, 0.0, 10.0));
-    objects.insert(idle.id, idle);
+    objects.admit(idle.id, idle);
 
     let mut busy_t = ThingTemplate::new("NukeCannon");
     busy_t.add_kind_of(KindOf::Vehicle);
@@ -750,14 +750,14 @@ fn move_allies_skips_deploy_style_busy() {
     let mut style = HostDeployStyleData::default();
     style.state = HostDeployStyleState::Deploying;
     busy.deploy_style = Some(style);
-    objects.insert(busy.id, busy);
+    objects.admit(busy.id, busy);
 
     let path = vec![
         Vec3::new(10.0, 0.0, 10.0),
         Vec3::new(50.0, 0.0, 10.0),
         Vec3::new(60.0, 0.0, 10.0),
     ];
-    let nudged = sys.allies_to_nudge_off_path(ObjectId(1), &path, &objects);
+    let nudged = sys.allies_to_nudge_off_path(ObjectId(1), &path, objects.read());
     assert!(
         nudged.contains(&ObjectId(2)),
         "idle ally on the path must scoot"
@@ -832,7 +832,7 @@ fn infantry_paths_along_classified_wall() {
     }
     sys.grid
         .add_wall_piece(7, Vec3::new(85.0, 0.0, 85.0), 0.0, 50.0, 25.0);
-    let objects = HashMap::new();
+    let objects = HostObjectStore::new();
     let from = Vec3::new(50.0, 12.0, 85.0);
     let to = Vec3::new(110.0, 12.0, 85.0);
     assert_eq!(
@@ -852,7 +852,7 @@ fn infantry_paths_along_classified_wall() {
     let path = sys.find_path(
         from,
         to,
-        &objects,
+        objects.read(),
         &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
     );
     assert!(
@@ -868,18 +868,18 @@ fn destroy_wall_piece_splats_units_on_deck() {
     sys.set_wall_height(12.0);
     sys.grid
         .add_wall_piece(1, Vec3::new(80.0, 0.0, 50.0), 0.0, 20.0, 8.0);
-    let mut objects = HashMap::new();
+    let mut objects = HostObjectStore::new();
     let mut inf_t = ThingTemplate::new("RedGuard");
     inf_t.add_kind_of(KindOf::Infantry);
     let mut on_deck = Object::new(inf_t, ObjectId(10), Team::China);
     on_deck.set_position(Vec3::new(80.0, 12.0, 50.0));
-    objects.insert(on_deck.id, on_deck);
+    objects.admit(on_deck.id, on_deck);
     let mut ground_t = ThingTemplate::new("Battlemaster");
     ground_t.add_kind_of(KindOf::Vehicle);
     let mut on_ground = Object::new(ground_t, ObjectId(11), Team::China);
     on_ground.set_position(Vec3::new(80.0, 0.0, 50.0));
-    objects.insert(on_ground.id, on_ground);
-    let splat = sys.splat_units_on_wall_piece(ObjectId(1), &objects);
+    objects.admit(on_ground.id, on_ground);
+    let splat = sys.splat_units_on_wall_piece(ObjectId(1), objects.read());
     assert!(splat.contains(&ObjectId(10)), "deck unit must splat");
     assert!(
         !splat.contains(&ObjectId(11)),
@@ -892,16 +892,16 @@ fn destroy_wall_piece_splats_units_on_deck() {
 fn infantry_occupancy_is_single_cell() {
     use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
     let mut g = open_grid(16, 16);
-    let mut objects = HashMap::new();
+    let mut objects = HostObjectStore::new();
     let mut tmpl = ThingTemplate::new("Ranger");
     tmpl.add_kind_of(KindOf::Infantry);
     let mut inf = Object::new(tmpl, ObjectId(1), Team::USA);
     inf.set_position(Vec3::new(55.0, 0.0, 55.0));
     inf.owner_player_id = Some(0);
     inf.selection_radius = 5.0;
-    objects.insert(inf.id, inf);
+    objects.admit(inf.id, inf);
     g.update_dynamic_obstacles(
-        &objects,
+        objects.read(),
         &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
     );
     let center = g.world_to_grid(Vec3::new(55.0, 0.0, 55.0));
@@ -999,21 +999,21 @@ fn move_allies_uses_allies_radius_and_ignore() {
     masks[1] = 1u16 << 0 | 1u16 << 1;
     sys.set_player_ally_masks(masks);
 
-    let mut objects = HashMap::new();
+    let mut objects = HostObjectStore::new();
     let mut mover_t = ThingTemplate::new("Overlord");
     mover_t.add_kind_of(KindOf::Vehicle);
     let mut mover = Object::new(mover_t, ObjectId(1), Team::USA);
     mover.set_position(Vec3::new(10.0, 0.0, 10.0));
     mover.selection_radius = 25.0;
     mover.owner_player_id = Some(0);
-    objects.insert(mover.id, mover);
+    objects.admit(mover.id, mover);
 
     let mut ally_t = ThingTemplate::new("Battlemaster");
     ally_t.add_kind_of(KindOf::Vehicle);
     let mut ally = Object::new(ally_t, ObjectId(2), Team::China);
     ally.set_position(Vec3::new(70.0, 0.0, 10.0));
     ally.owner_player_id = Some(1);
-    objects.insert(ally.id, ally);
+    objects.admit(ally.id, ally);
 
     let mut ignored_t = ThingTemplate::new("Dozer");
     ignored_t.add_kind_of(KindOf::Vehicle);
@@ -1021,18 +1021,18 @@ fn move_allies_uses_allies_radius_and_ignore() {
     let mut ignored = Object::new(ignored_t, ObjectId(3), Team::USA);
     ignored.set_position(Vec3::new(80.0, 0.0, 10.0));
     ignored.owner_player_id = Some(0);
-    objects.insert(ignored.id, ignored);
+    objects.admit(ignored.id, ignored);
 
     let mut off_t = ThingTemplate::new("Humvee");
     off_t.add_kind_of(KindOf::Vehicle);
     let mut off = Object::new(off_t, ObjectId(4), Team::USA);
     off.set_position(Vec3::new(70.0, 0.0, 40.0));
     off.owner_player_id = Some(0);
-    objects.insert(off.id, off);
+    objects.admit(off.id, off);
 
     let path = vec![Vec3::new(10.0, 0.0, 10.0), Vec3::new(80.0, 0.0, 10.0)];
     sys.set_ignore_obstacle(Some(ObjectId(3)));
-    let nudged = sys.allies_to_nudge_off_path(ObjectId(1), &path, &objects);
+    let nudged = sys.allies_to_nudge_off_path(ObjectId(1), &path, objects.read());
     assert!(
         nudged.contains(&ObjectId(2)),
         "allied other-player unit on the Overlord radius must scoot"
@@ -1054,7 +1054,7 @@ fn structure_box_footprint_is_not_clamped_square() {
         HostGeometryInfo, HostGeometryType, KindOf, Object, ObjectId, Team, ThingTemplate,
     };
     let mut sys = PathfindingSystem::new(200.0, 200.0);
-    let mut objects = HashMap::new();
+    let mut objects = HostObjectStore::new();
     let mut tmpl = ThingTemplate::new("LongThinFactory");
     tmpl.add_kind_of(KindOf::Structure);
     tmpl.geometry_info = HostGeometryInfo {
@@ -1068,9 +1068,9 @@ fn structure_box_footprint_is_not_clamped_square() {
     let mut factory = Object::new(tmpl, ObjectId(1), Team::USA);
     factory.set_position(Vec3::new(80.0, 0.0, 80.0));
     factory.set_orientation(0.0);
-    objects.insert(factory.id, factory);
+    objects.admit(factory.id, factory);
     sys.apply_structure_static_blocks(
-        &objects,
+        objects.read(),
         0.0,
         &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
     );
@@ -1093,15 +1093,15 @@ fn structure_box_footprint_is_not_clamped_square() {
 fn structure_placement_runs_pinch_pass() {
     use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
     let mut sys = PathfindingSystem::new(200.0, 200.0);
-    let mut objects = HashMap::new();
+    let mut objects = HostObjectStore::new();
     let mut tmpl = ThingTemplate::new("AmericaWarFactory");
     tmpl.add_kind_of(KindOf::Structure);
     let mut factory = Object::new(tmpl, ObjectId(2), Team::USA);
     factory.set_position(Vec3::new(80.0, 0.0, 80.0));
     factory.selection_radius = 15.0;
-    objects.insert(factory.id, factory);
+    objects.admit(factory.id, factory);
     sys.apply_structure_static_blocks(
-        &objects,
+        objects.read(),
         0.0,
         &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
     );
@@ -1165,7 +1165,7 @@ fn adjust_destination_rejects_disconnected_pocket() {
 fn grounded_aircraft_do_not_stamp_unit_present() {
     use crate::game_logic::{KindOf, Object, ObjectId, ObjectType, Team, ThingTemplate};
     let mut g = open_grid(16, 16);
-    let mut objects = HashMap::new();
+    let mut objects = HostObjectStore::new();
     let mut tmpl = ThingTemplate::new("AmericaJetRaptor");
     tmpl.add_kind_of(KindOf::Aircraft);
     tmpl.add_kind_of(KindOf::Vehicle);
@@ -1177,9 +1177,9 @@ fn grounded_aircraft_do_not_stamp_unit_present() {
     jet.status.airborne_target = false;
     jet.set_position(Vec3::new(55.0, 0.0, 55.0));
     jet.owner_player_id = Some(0);
-    objects.insert(jet.id, jet);
+    objects.admit(jet.id, jet);
     g.update_dynamic_obstacles(
-        &objects,
+        objects.read(),
         &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
     );
     let center = g.world_to_grid(Vec3::new(55.0, 0.0, 55.0));
@@ -1238,22 +1238,22 @@ fn ground_movement_requires_live_ground_locomotor_and_not_held_or_falling() {
 #[test]
 fn tall_building_detour_requires_aircraft_path_around() {
     use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
-    let mut objects = HashMap::new();
+    let mut objects = HostObjectStore::new();
     let mut tmpl = ThingTemplate::new("WideBarracks");
     tmpl.add_kind_of(KindOf::Structure);
     let mut bldg = Object::new(tmpl, ObjectId(3), Team::USA);
     bldg.set_position(Vec3::new(50.0, 0.0, 0.0));
     bldg.selection_radius = 30.0;
-    objects.insert(bldg.id, bldg);
+    objects.admit(bldg.id, bldg);
     let from = Vec3::new(0.0, 40.0, 0.0);
     let to = Vec3::new(100.0, 40.0, 0.0);
-    let path = PathfindingSystem::detour_path_around_tall_buildings(&[from, to], &objects);
+    let path = PathfindingSystem::detour_path_around_tall_buildings(&[from, to], objects.read());
     assert_eq!(
         path.len(),
         2,
         "without AIRCRAFT_PATH_AROUND, no invented tall detour"
     );
-    let adj = PathfindingSystem::circle_clips_tall_building(from, to, 80.0, &objects, None);
+    let adj = PathfindingSystem::circle_clips_tall_building(from, to, 80.0, objects.read(), None);
     assert!(adj.is_none(), "circleClips is AIRCRAFT_PATH_AROUND only");
 }
 
@@ -1311,17 +1311,17 @@ fn human_units_stay_in_logical_extent() {
     );
     assert!(ai.is_some(), "computer players may leave the logical map");
 
-    let mut objects = HashMap::new();
+    let mut objects = HostObjectStore::new();
     let tmpl = ThingTemplate::new("Ranger");
     let mut unit = Object::new(tmpl, ObjectId(1), Team::USA);
     unit.set_position(Vec3::new(20.0, 0.0, 20.0));
     unit.owner_player_id = Some(0);
-    objects.insert(unit.id, unit);
+    objects.admit(unit.id, unit);
     sys.grid.set_query_is_human(true);
     let path = sys.find_path_ex(
         Vec3::new(20.0, 0.0, 20.0),
         Vec3::new(180.0, 0.0, 20.0),
-        &objects,
+        objects.read(),
         false,
         Some(ObjectId(1)),
         &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
@@ -1355,14 +1355,14 @@ fn dozer_hack_reaches_live_astar() {
         Some(Team::USA),
     );
 
-    let mut objects = HashMap::new();
+    let mut objects = HostObjectStore::new();
     let mut dozer_t = ThingTemplate::new("AmericaDozer");
     dozer_t.add_kind_of(KindOf::Dozer);
     dozer_t.add_kind_of(KindOf::Vehicle);
     let mut dozer = Object::new(dozer_t, ObjectId(1), Team::USA);
     dozer.set_position(Vec3::new(20.0, 0.0, 35.0));
     dozer.owner_player_id = Some(0);
-    objects.insert(dozer.id, dozer);
+    objects.admit(dozer.id, dozer);
 
     let start = Vec3::new(20.0, 0.0, 35.0);
     let goal = Vec3::new(90.0, 0.0, 35.0);
@@ -1370,7 +1370,7 @@ fn dozer_hack_reaches_live_astar() {
         .find_path_ex(
             start,
             goal,
-            &objects,
+            objects.read(),
             false,
             Some(ObjectId(1)),
             &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
@@ -1383,12 +1383,12 @@ fn dozer_hack_reaches_live_astar() {
     let mut inf = Object::new(inf_t, ObjectId(2), Team::USA);
     inf.set_position(start);
     inf.owner_player_id = Some(0);
-    let mut inf_objects = HashMap::new();
-    inf_objects.insert(inf.id, inf);
+    let mut inf_objects = HostObjectStore::new();
+    inf_objects.admit(inf.id, inf);
     let blocked = sys.find_path_ex(
         start,
         goal,
-        &inf_objects,
+        inf_objects.read(),
         false,
         Some(ObjectId(2)),
         &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
@@ -1409,7 +1409,7 @@ fn dozer_hack_reaches_live_astar() {
     let enemy = sys.find_path_ex(
         start,
         goal,
-        &objects,
+        objects.read(),
         false,
         Some(ObjectId(1)),
         &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
@@ -1474,24 +1474,38 @@ fn downhill_only_will_not_step_up_a_sampled_ridge() {
         origin: sys.grid.origin(),
         cell_size: sys.grid.grid_size(),
     };
-    let mut objects = HashMap::new();
+    let mut objects = HostObjectStore::new();
     let mut tmpl = ThingTemplate::new("Ski");
     tmpl.add_kind_of(KindOf::Infantry);
     let mut unit = Object::new(tmpl, ObjectId(3), Team::USA);
     unit.downhill_only = true;
     unit.loco_appearance = crate::game_logic::LocomotorAppearance::LegsTwo;
-    objects.insert(unit.id, unit);
+    objects.admit(unit.id, unit);
     let from = sys.grid.grid_to_world(GridPos::new(1, 1), &ground_source);
     let to = sys.grid.grid_to_world(GridPos::new(5, 1), &ground_source);
     assert!(
-        sys.find_path_ex(from, to, &objects, false, Some(ObjectId(3)), &ground_source)
-            .is_none(),
+        sys.find_path_ex(
+            from,
+            to,
+            objects.read(),
+            false,
+            Some(ObjectId(3)),
+            &ground_source
+        )
+        .is_none(),
         "downhill-only must not cross a 20-high ridge"
     );
     objects.get_mut(&ObjectId(3)).unwrap().downhill_only = false;
     assert!(
-        sys.find_path_ex(from, to, &objects, false, Some(ObjectId(3)), &ground_source)
-            .is_some(),
+        sys.find_path_ex(
+            from,
+            to,
+            objects.read(),
+            false,
+            Some(ObjectId(3)),
+            &ground_source
+        )
+        .is_some(),
         "the same ridge is walkable when downhill-only is off"
     );
 }
@@ -1636,14 +1650,14 @@ fn find_attack_path_goes_around_partial_wall() {
         sys.grid
             .set_cell_type(GridPos::new(10, y), PathfindCellType::Impassable);
     }
-    let objects = HashMap::new();
+    let objects = HostObjectStore::new();
     let from = Vec3::new(20.0, 0.0, 50.0);
     let victim = Vec3::new(150.0, 0.0, 50.0);
     if let Some(p) = sys.find_attack_firing_position(
         from,
         victim,
         80.0,
-        &objects,
+        objects.read(),
         false,
         None,
         &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
@@ -1677,7 +1691,7 @@ fn seed_line_aborts_allied_fixed_and_crushable_enemies() {
     masks[1] = 1u16 << 0 | 1u16 << 1;
     g.set_player_ally_masks(masks);
 
-    let mut objects = HashMap::new();
+    let mut objects = HostObjectStore::new();
     let mut ally_t = ThingTemplate::new("AllyTank");
     ally_t.add_kind_of(KindOf::Vehicle);
     let mut ally = Object::new(ally_t, ObjectId(2), Team::China);
@@ -1687,7 +1701,7 @@ fn seed_line_aborts_allied_fixed_and_crushable_enemies() {
     ));
     ally.owner_player_id = Some(1);
     ally.crushable_level = 1;
-    objects.insert(ally.id, ally);
+    objects.admit(ally.id, ally);
 
     let mut car_t = ThingTemplate::new("CivilianCar");
     car_t.add_kind_of(KindOf::Vehicle);
@@ -1698,10 +1712,10 @@ fn seed_line_aborts_allied_fixed_and_crushable_enemies() {
     ));
     car.owner_player_id = Some(2);
     car.crushable_level = 1;
-    objects.insert(car.id, car);
+    objects.admit(car.id, car);
 
     g.update_dynamic_obstacles(
-        &objects,
+        objects.read(),
         &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
     );
     let layer = PathfindLayerEnum::Ground;
@@ -1723,7 +1737,7 @@ fn seed_line_aborts_allied_fixed_and_crushable_enemies() {
 fn final_position_stamps_only_after_the_path_is_cleared() {
     use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
     let mut g = open_grid(24, 24);
-    let mut objects = HashMap::new();
+    let mut objects = HostObjectStore::new();
     let mut tmpl = ThingTemplate::new("Ranger");
     tmpl.add_kind_of(KindOf::Infantry);
     let mut inf = Object::new(tmpl, ObjectId(7), Team::USA);
@@ -1746,9 +1760,9 @@ fn final_position_stamps_only_after_the_path_is_cleared() {
     inf.movement.current_path_index = 1;
     inf.do_final_position = true;
     inf.final_position = planted;
-    objects.insert(inf.id, inf);
+    objects.admit(inf.id, inf);
     g.update_dynamic_obstacles(
-        &objects,
+        objects.read(),
         &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
     );
     let path_cell = g.cell_for_unit_position(path_end, true);
@@ -1766,7 +1780,7 @@ fn final_position_stamps_only_after_the_path_is_cleared() {
     );
     objects.get_mut(&ObjectId(7)).unwrap().movement.path.clear();
     g.update_dynamic_obstacles(
-        &objects,
+        objects.read(),
         &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
     );
     assert_eq!(
@@ -1786,7 +1800,7 @@ fn final_position_stamps_only_after_the_path_is_cleared() {
 fn aircraft_final_cell_stamps_only_after_the_path_is_cleared() {
     use crate::game_logic::{KindOf, LocomotorAppearance, Object, ObjectId, Team, ThingTemplate};
     let mut g = open_grid(24, 24);
-    let mut objects = HashMap::new();
+    let mut objects = HostObjectStore::new();
     let mut tmpl = ThingTemplate::new("Raptor");
     tmpl.add_kind_of(KindOf::Aircraft);
     let mut jet = Object::new(tmpl, ObjectId(8), Team::USA);
@@ -1810,9 +1824,9 @@ fn aircraft_final_cell_stamps_only_after_the_path_is_cleared() {
     jet.movement.path = vec![stand, path_end];
     jet.do_final_position = true;
     jet.final_position = planted;
-    objects.insert(jet.id, jet);
+    objects.admit(jet.id, jet);
     g.update_dynamic_obstacles(
-        &objects,
+        objects.read(),
         &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
     );
     let path_cell = g.cell_for_unit_position(path_end, true);
@@ -1821,7 +1835,7 @@ fn aircraft_final_cell_stamps_only_after_the_path_is_cleared() {
     assert_eq!(g.goal_aircraft(final_cell), 0);
     objects.get_mut(&ObjectId(8)).unwrap().movement.path.clear();
     g.update_dynamic_obstacles(
-        &objects,
+        objects.read(),
         &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
     );
     assert_eq!(g.goal_aircraft(final_cell), 8);

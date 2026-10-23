@@ -91,7 +91,11 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
 }
 
 fn capture(game_logic: &GameLogic) -> AbilityHijackPersistPayload {
-    let mut object_ids: Vec<ObjectId> = game_logic.host_objects().keys().copied().collect();
+    let mut object_ids: Vec<ObjectId> = game_logic
+        .host_objects()
+        .registered_keys()
+        .copied()
+        .collect();
     object_ids.sort();
     let mut abilities = Vec::new();
     let mut hijackers = Vec::new();

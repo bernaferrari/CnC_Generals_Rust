@@ -221,7 +221,7 @@ impl GameLogic {
         // Production admission attaches immediately in source order. This
         // canonical host ID roster also covers direct diagnostic insertions;
         // it never changes an already saved/installed manager list order.
-        let mut eligible: Vec<_> = self.objects.keys().copied().collect();
+        let mut eligible: Vec<_> = self.objects.registered_keys().copied().collect();
         eligible.sort_unstable();
         for id in eligible {
             self.attach_host_fog_ghost(id);

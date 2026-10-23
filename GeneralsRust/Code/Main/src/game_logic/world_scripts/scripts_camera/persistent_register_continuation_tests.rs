@@ -84,7 +84,7 @@ fn actual_same_instance_reset_retains_initialized_payload_and_v8_scalar_future()
         .unwrap();
     source.reset();
     assert!(
-        source.objects.is_empty(),
+        source.objects.registered_is_empty(),
         "exercise actual world reset, not only camera cancellation"
     );
     assert!(!source.session_view.camera.rotation_registers.active());

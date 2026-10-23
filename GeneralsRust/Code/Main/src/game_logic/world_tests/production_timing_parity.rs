@@ -363,7 +363,7 @@ fn finish_worker_production(world: &mut GameLogic, producer: ObjectId, already_e
         assert!(
             !world
                 .objects
-                .values()
+                .registered_values()
                 .any(|object| object.template_name == "TestInfantry")
         );
     }
@@ -391,7 +391,7 @@ fn finish_worker_production(world: &mut GameLogic, producer: ObjectId, already_e
     );
     let produced = world
         .objects
-        .values()
+        .registered_values()
         .find(|object| object.template_name == "TestInfantry")
         .expect("real Main completion creates the unit at frame77");
     assert_eq!(produced.owner_player_id, Some(0));
@@ -1010,7 +1010,7 @@ fn queued_upgrade_restore_rejects_missing_definition_from_foreign_catalog() {
                     "{error}"
                 );
                 assert!(
-                    candidate.host_objects().is_empty(),
+                    candidate.host_objects().registered_is_empty(),
                     "reject before admitting the producer queue"
                 );
                 drop(candidate);

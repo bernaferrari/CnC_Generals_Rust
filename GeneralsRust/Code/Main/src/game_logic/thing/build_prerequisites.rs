@@ -157,7 +157,7 @@ impl ThingTemplate {
                     // CPP Team::countObjectsByThingTemplate counts an object
                     // only for its first matching entry, even for duplicate
                     // or equivalent prerequisite templates.
-                    for object in world.host_objects().values() {
+                    for object in world.host_objects().registered_values() {
                         if object.owner_player_id != Some(player.id)
                             || object.status.under_construction
                             || (ignore_dead

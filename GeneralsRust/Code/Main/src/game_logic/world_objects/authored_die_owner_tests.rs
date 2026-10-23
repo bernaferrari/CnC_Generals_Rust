@@ -427,7 +427,7 @@ fn duplicate_create_slots_interleave_with_fx_and_transfer_previous_body_history(
             );
             let children: Vec<_> = owner
                 .objects
-                .values()
+                .registered_values()
                 .filter(|o| o.template_name == "AuthoredDieChild")
                 .collect();
             assert_eq!(children.len(), 2, "each authored Create slot executes once");

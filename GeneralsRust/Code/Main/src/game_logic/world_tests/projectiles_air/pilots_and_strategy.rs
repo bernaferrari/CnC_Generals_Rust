@@ -728,7 +728,7 @@ fn eject_pilot_air_ocl_parachute_residual() {
 
     let pilot_id = game_logic
         .objects
-        .iter()
+        .registered()
         .find(|(_, o)| o.is_alive() && o.template_name == EJECT_PILOT_TEMPLATE)
         .map(|(id, _)| *id)
         .expect("ejected pilot");
@@ -831,7 +831,7 @@ fn eject_pilot_air_ocl_parachute_residual() {
     assert_eq!(ground_logic.usa_pilot_residual().air_ejections, 0);
     let g_pilot = ground_logic
         .objects
-        .values()
+        .registered_values()
         .find(|o| o.is_alive() && o.template_name == EJECT_PILOT_TEMPLATE)
         .expect("ground pilot");
     assert!(

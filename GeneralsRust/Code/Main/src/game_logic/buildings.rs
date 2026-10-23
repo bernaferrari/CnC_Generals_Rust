@@ -1016,7 +1016,7 @@ impl BuildingBehavior {
     /// Update building production
     pub fn update_production(
         object_id: ObjectId,
-        objects: &mut HashMap<ObjectId, Object>,
+        objects: &mut crate::game_logic::HostObjectStore,
         game_logic: &mut GameLogic,
         dt: f32,
     ) {
@@ -1087,11 +1087,11 @@ impl BuildingBehavior {
     pub fn garrison_unit(
         building_id: ObjectId,
         unit_id: ObjectId,
-        objects: &mut HashMap<ObjectId, Object>,
+        objects: &mut crate::game_logic::HostObjectStore,
         ownership_events: &mut crate::game_logic::host_owner_log::OwnershipEvents,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) -> bool {
-        let occupant_snap = objects.get(&unit_id).map(|unit| {
+        let occupant_snap = objects.lookup(&unit_id).map(|unit| {
             (
                 unit.team,
                 unit.owner_player_id,
@@ -1100,7 +1100,7 @@ impl BuildingBehavior {
             )
         });
         let can_garrison = if let (Some(building), Some(unit)) =
-            (objects.get(&building_id), objects.get(&unit_id))
+            (objects.lookup(&building_id), objects.lookup(&unit_id))
         {
             building.is_alive()
                 && building.is_constructed()
@@ -1158,7 +1158,7 @@ impl BuildingBehavior {
     /// Handle ungarrison mechanics
     pub fn ungarrison_unit(
         building_id: ObjectId,
-        objects: &mut HashMap<ObjectId, Object>,
+        objects: &mut crate::game_logic::HostObjectStore,
         ownership_events: &mut crate::game_logic::host_owner_log::OwnershipEvents,
     ) -> Option<ObjectId> {
         let (unit_id, building_pos, forward) = {
@@ -1204,12 +1204,12 @@ impl BuildingBehavior {
         ownership_events: &mut crate::game_logic::host_owner_log::OwnershipEvents,
     ) -> Vec<ObjectId> {
         let mut dead: Vec<(ObjectId, ObjectId)> = Vec::new();
-        for (&cid, container) in objects.iter() {
+        for (&cid, container) in objects.registered() {
             if !container.is_garrison_contain() {
                 continue;
             }
             for occ in container.contained_units() {
-                let gone = objects.get(&occ).map(|o| !o.is_alive()).unwrap_or(true);
+                let gone = objects.lookup(&occ).map(|o| !o.is_alive()).unwrap_or(true);
                 if gone {
                     dead.push((cid, occ));
                 }
@@ -1233,12 +1233,12 @@ impl BuildingBehavior {
     /// Update defensive buildings (turrets, etc.)
     pub fn update_defense_behavior(
         object_id: ObjectId,
-        objects: &mut HashMap<ObjectId, Object>,
+        objects: &mut crate::game_logic::HostObjectStore,
         attack_events: &mut crate::game_logic::host_attack_log::AttackEvents,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
         let (position, team, range) = {
-            if let Some(building) = objects.get(&object_id) {
+            if let Some(building) = objects.lookup(&object_id) {
                 if !building.is_alive()
                     || !building.is_constructed()
                     || !building.is_kind_of(KindOf::Attackable)
@@ -1259,7 +1259,7 @@ impl BuildingBehavior {
         let mut nearest_enemy = None;
         let mut nearest_distance = range;
 
-        for (&other_id, other_obj) in objects.iter() {
+        for (&other_id, other_obj) in objects.registered() {
             if other_id != object_id
                 && other_obj.team != team
                 && other_obj.is_alive()
@@ -1282,11 +1282,14 @@ impl BuildingBehavior {
     }
 
     /// Calculate power output/consumption for buildings
-    pub fn calculate_power_for_team(team: Team, objects: &HashMap<ObjectId, Object>) -> (i32, i32) {
+    pub fn calculate_power_for_team(
+        team: Team,
+        objects: crate::game_logic::HostObjectRead<'_>,
+    ) -> (i32, i32) {
         let mut power_produced = 0;
         let mut power_consumed = 0;
 
-        for obj in objects.values() {
+        for obj in objects.registered_values() {
             if obj.team == team && obj.is_constructed() && obj.is_alive() {
                 power_produced += obj.power_provided;
                 power_consumed += obj.power_consumed.abs();
@@ -1297,7 +1300,10 @@ impl BuildingBehavior {
     }
 
     /// Check if a team has sufficient power
-    pub fn has_sufficient_power(team: Team, objects: &HashMap<ObjectId, Object>) -> bool {
+    pub fn has_sufficient_power(
+        team: Team,
+        objects: crate::game_logic::HostObjectRead<'_>,
+    ) -> bool {
         let (produced, consumed) = Self::calculate_power_for_team(team, objects);
         produced >= consumed
     }
@@ -1498,7 +1504,7 @@ mod tests {
         objects.insert(live.id, live);
         BuildingBehavior::sweep_dead_garrison_occupants(&mut objects, 0, &mut _ownership_output);
         let bd = objects
-            .get(&ObjectId(1))
+            .lookup(&ObjectId(1))
             .unwrap()
             .building_data
             .as_ref()
@@ -1509,7 +1515,7 @@ mod tests {
             vec![None, Some(ObjectId(11)), None]
         );
         assert_eq!(
-            objects.get(&ObjectId(10)).unwrap().safe_occlusion_frame,
+            objects.lookup(&ObjectId(10)).unwrap().safe_occlusion_frame,
             30_000,
             "dead garrison occupant must stamp HUGE_FRAME_IN_FUTURE"
         );

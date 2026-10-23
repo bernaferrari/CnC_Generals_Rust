@@ -118,22 +118,34 @@ End
 fn line_world(stem: &str, funds: u32) -> (GameLogic, ObjectId, ObjectId) {
     let mut world = GameLogic::new();
     admit_retail_line_build_rules(&mut world);
-    let mut parser = crate::assets::IniParser::new();
-    parser
-        .parse_ini_content(CHINA_WALL, "owner61_china_wall.ini")
+    // Admit every receiving factory definition once, before either builder
+    // exists. Projections alone do not supply the typed Body/Behavior owner.
+    let mut source = CHINA_WALL.to_string();
+    source.push_str("Object TestDozer\nKindOf = VEHICLE SELECTABLE DOZER SCORE\nBuildCost = 1000\nBody = ActiveBody DozerBody\nMaxHealth = 300\nInitialHealth = 300\nEnd\nBehavior = DozerAIUpdate DozerAI\nEnd\nEnd\n");
+    for (name, radius) in [
+        ("Owner61WallStartBlocker", 20.),
+        ("Owner61OrdinaryStartBlocker", 20.),
+        ("Owner67FacingBlocker0", 1.),
+        ("Owner67FacingBlocker1", 1.),
+    ] {
+        source.push_str(&format!("Object {name}\nKindOf = STRUCTURE IMMOBILE\nBody = ActiveBody BlockerBody\nMaxHealth = 1000\nInitialHealth = 1000\nEnd\nGeometry = BOX\nGeometryIsSmall = No\nGeometryHeight = 20\nGeometryMajorRadius = {radius}\nGeometryMinorRadius = {radius}\nEnd\n"));
+    }
+    source.push_str("Object Owner61PriorScaffold\nKindOf = STRUCTURE IMMOBILE\nBuildCost = 500\nBody = ActiveBody ScaffoldBody\nMaxHealth = 1200\nInitialHealth = 1200\nEnd\nGeometry = CYLINDER\nGeometryIsSmall = No\nGeometryHeight = 20\nGeometryMajorRadius = 6\nGeometryMinorRadius = 6\nEnd\n");
+    world
+        .admit_receiving_module_content(
+            crate::assets::ReceivingObjectContent::from_sources([(
+                "owner61_china_wall.ini".into(),
+                source,
+            )])
+            .expect("parse complete receiving line-build fixture"),
+        )
         .unwrap();
-    let wall = GameLogic::build_template_from_object_definition(
-        "Owner61ChinaWall",
-        parser.get_definition("Owner61ChinaWall").unwrap(),
-        None,
-    );
+    let wall = world.templates.get("Owner61ChinaWall").unwrap();
     assert!(wall.is_kind_of(KindOf::Structure));
     assert!(wall.is_kind_of(KindOf::Immobile));
     assert!(wall.is_kind_of(KindOf::LineBuild));
     assert_eq!(wall.geometry_info.major_radius, 4.0);
     assert_eq!(wall.geometry_info.minor_radius, 6.0);
-    world.templates.insert("Owner61ChinaWall".into(), wall);
-    ensure_test_dozer_template(&mut world);
     ensure_test_player_for_team(&mut world, Team::USA);
     world.get_player_mut(0).unwrap().resources.supplies = funds;
     let first = world
@@ -166,7 +178,7 @@ fn order(world: &mut GameLogic, selected: Vec<ObjectId>) {
 fn wall_count(world: &GameLogic) -> usize {
     world
         .host_objects()
-        .values()
+        .registered_values()
         .filter(|object| object.template_name == "Owner61ChinaWall")
         .count()
 }
@@ -180,7 +192,7 @@ fn china_wall_linebuild_uses_first_constructor_full_body_and_no_cash_debit() {
     order(&mut a, vec![first, second]);
     let mut walls = a
         .host_objects()
-        .values()
+        .registered_values()
         .filter(|object| object.template_name == "Owner61ChinaWall")
         .collect::<Vec<_>>();
     walls.sort_by(|a, b| a.get_position().x.total_cmp(&b.get_position().x));
@@ -267,20 +279,15 @@ fn admit_existing_line_blocker_with_radius(
     name: &str,
     radius: f32,
 ) -> ObjectId {
-    let mut template = ThingTemplate::new(name);
-    template
-        .add_kind_of(KindOf::Structure)
-        .add_kind_of(KindOf::Immobile)
-        .set_health(1000.0);
-    template.geometry_info = crate::game_logic::HostGeometryInfo {
-        geom_type: crate::game_logic::HostGeometryType::Box,
-        is_small: false,
-        height: 20.0,
-        major_radius: radius,
-        minor_radius: radius,
-        authored: true,
-    };
-    world.templates.insert(name.into(), template);
+    let template = world
+        .templates
+        .get(name)
+        .expect("pre-admitted blocker definition");
+    assert!(template.is_kind_of(KindOf::Structure));
+    assert!(template.is_kind_of(KindOf::Immobile));
+    assert_eq!(template.geometry_info.major_radius, radius);
+    assert_eq!(template.geometry_info.minor_radius, radius);
+    assert_eq!(template.geometry_info.height, 20.);
     world
         .create_object_for_player(name, 0, location)
         .expect("admit preexisting immobile blocker")
@@ -323,21 +330,12 @@ fn instant_linebuild_still_rejects_a_preexisting_immobile_start_blocker() {
 fn blocked_ordinary_line_preserves_the_prior_real_dozer_task_and_order() {
     let (mut world, first, second) = line_world("Owner61OrdinaryPriorSetup", 10_000);
     const TEMPLATE: &str = "Owner61PriorScaffold";
-    let mut template = ThingTemplate::new(TEMPLATE);
-    template
-        .add_kind_of(KindOf::Structure)
-        .add_kind_of(KindOf::Immobile)
-        .set_health(1200.0)
-        .set_cost(500, 0);
-    template.geometry_info = crate::game_logic::HostGeometryInfo {
-        geom_type: crate::game_logic::HostGeometryType::Cylinder,
-        is_small: false,
-        height: 20.0,
-        major_radius: 6.0,
-        minor_radius: 6.0,
-        authored: true,
-    };
-    world.templates.insert(TEMPLATE.into(), template);
+    let template = world
+        .templates
+        .get(TEMPLATE)
+        .expect("pre-admitted scaffold definition");
+    assert_eq!(template.build_cost.supplies, 500);
+    assert_eq!(template.geometry_info.major_radius, 6.);
     admit_constructor_commands(&mut world, first, "Owner61OrdinaryPriorTask", TEMPLATE);
     world.queue_command(crate::command_system::GameCommand {
         command_type: crate::command_system::CommandType::DozerConstruct {
@@ -394,7 +392,7 @@ fn blocked_ordinary_line_preserves_the_prior_real_dozer_task_and_order() {
     assert_eq!(
         world
             .host_objects()
-            .values()
+            .registered_values()
             .filter(|object| object.template_name == TEMPLATE)
             .count(),
         1
@@ -436,7 +434,7 @@ fn parsed_signed_line_limit_is_consumed_by_actual_wall_command() {
         );
         for wall in world
             .host_objects()
-            .values()
+            .registered_values()
             .filter(|object| object.template_name == "Owner61ChinaWall")
         {
             assert!(wall.status.under_construction);
@@ -512,7 +510,7 @@ fn linebuild_authored_facing_controls_rotated_footprints_in_the_driving_world() 
         world.process_commands();
         let mut walls = world
             .host_objects()
-            .values()
+            .registered_values()
             .filter(|object| object.template_name == "Owner61ChinaWall")
             .collect::<Vec<_>>();
         walls.sort_by(|a, b| a.get_position().x.total_cmp(&b.get_position().x));
@@ -601,7 +599,7 @@ fn linebuild_diagonal_positions_preserve_cpp_division_and_product_order() {
     world.process_commands();
     let mut actual = world
         .host_objects()
-        .values()
+        .registered_values()
         .filter(|object| object.template_name == "Owner61ChinaWall")
         .map(|object| object.get_position())
         .collect::<Vec<_>>();

@@ -883,11 +883,11 @@ fn daisy_bomb_create_object_die_spawns_gas() {
     logic.apply_pending_create_object_die(id);
     let gas = logic
         .objects
-        .values()
+        .registered_values()
         .any(|o| o.template_name.contains("FuelAirGas") || o.template_name.contains("Gas"));
     let debris = logic
         .objects
-        .values()
+        .registered_values()
         .any(|o| o.template_name.contains("Debris"));
     assert!(
         gas,
@@ -978,7 +978,7 @@ fn daisy_science_moab_upgrades_b52_to_b3() {
     );
     let b3 = logic
         .host_objects()
-        .values()
+        .registered_values()
         .any(|o| o.template_name == "AmericaJetB3");
     assert!(
         b3,
@@ -1158,7 +1158,7 @@ fn leaflet_b52_drops_container() {
     assert_eq!(vo.duration_frames(), 900);
     let jet = logic
         .host_objects()
-        .iter()
+        .registered()
         .find(|(_, o)| o.leaflet_transport_target.is_some())
         .map(|(id, _)| *id);
     if let Some(jid) = jet {
@@ -1301,7 +1301,7 @@ fn a10_missiles_drop_from_jet_when_close_not_on_timer() {
         if logic.a10_strike_flight_reg.missiles_dropped >= 1 {
             first_drop_xz = logic
                 .host_objects()
-                .values()
+                .registered_values()
                 .find(|o| o.template_name == A10_PAYLOAD_TEMPLATE)
                 .map(|o| o.get_position());
             break;
@@ -1360,7 +1360,7 @@ fn artillery_barrage_flight_drops_shells() {
     );
     let cannons: Vec<_> = logic
         .host_objects()
-        .values()
+        .registered_values()
         .filter(|o| o.artillery_barrage_transport.is_some())
         .collect();
     assert_eq!(
@@ -1419,7 +1419,7 @@ fn artillery_barrage_l3_spawns_formation_size_36() {
         .expect("cannon");
     let n = logic
         .host_objects()
-        .values()
+        .registered_values()
         .filter(|o| o.artillery_barrage_transport.is_some())
         .count();
     assert_eq!(n, 36, "C++ SUPERWEAPON_ArtilleryBarrage3 FormationSize 36");
@@ -2317,7 +2317,7 @@ fn fire_spread_spawns_burning_embers_and_uses_3d_range() {
     assert!(
         logic
             .objects
-            .values()
+            .registered_values()
             .any(|o| o.template_name.eq_ignore_ascii_case("BurningEmbers")
                 || o.template_name.contains("Ember"))
             || logic

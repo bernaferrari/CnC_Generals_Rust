@@ -20,7 +20,7 @@ impl GameLogic {
         let frame = self.frame;
         let flying: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, o)| {
                 if o.technical_rpg_missile_projectile && o.is_alive() {
                     Some(*id)
@@ -266,7 +266,7 @@ impl GameLogic {
         let frame = self.frame;
         let flying: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, o)| {
                 if o.technical_cannon_shell_projectile && o.is_alive() {
                     Some(*id)
@@ -400,7 +400,7 @@ impl GameLogic {
         let mut any_destroyed = false;
         let victims: Vec<(ObjectId, f32)> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, obj)| {
                 if !obj.is_alive() {
                     return None;
@@ -557,7 +557,7 @@ impl GameLogic {
             // Dual-radius flashbang residual (Primary 35/10 + Secondary 10/40).
             let victims: Vec<(ObjectId, f32, bool)> = self
                 .objects
-                .iter()
+                .registered()
                 .filter_map(|(id, obj)| {
                     if obj.team == source_team {
                         return None;
@@ -1367,7 +1367,7 @@ impl GameLogic {
         let cruise = RPG_TROOPER_PROJECTILE_SPEED / 30.0;
         let flying: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, o)| {
                 if o.rpg_trooper_missile_projectile && o.is_alive() {
                     Some(*id)
@@ -1548,7 +1548,7 @@ impl GameLogic {
 
         let candidates: Vec<(ObjectId, f32, bool)> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, obj)| {
                 if source == Some(*id) {
                     return None;
@@ -1697,7 +1697,7 @@ impl GameLogic {
 
         let candidates: Vec<(ObjectId, f32)> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, obj)| {
                 if *id == source_id {
                     return None;
@@ -1966,7 +1966,7 @@ impl GameLogic {
         let cruise = MISSILE_DEFENDER_PROJECTILE_SPEED / 30.0;
         let flying: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, o)| {
                 if o.missile_defender_missile_projectile && o.is_alive() {
                     Some(*id)
@@ -2167,7 +2167,7 @@ impl GameLogic {
 
         let candidates: Vec<(ObjectId, f32, bool)> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, obj)| {
                 if source == Some(*id) {
                     return None;

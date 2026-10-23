@@ -109,7 +109,7 @@ impl GameLogic {
         let radius_squared = width * width + height * height;
         let mut ids = Vec::new();
         // Use the same canonical store visitation as the Main object phase.
-        let order: Vec<_> = self.objects.keys().copied().collect();
+        let order: Vec<_> = self.objects.registered_keys().copied().collect();
         for id in order {
             let Some(object) = self.objects.get_mut(&id) else {
                 continue;

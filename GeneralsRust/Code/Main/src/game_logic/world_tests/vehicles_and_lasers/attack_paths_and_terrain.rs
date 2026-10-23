@@ -51,10 +51,10 @@ End
     NAME
 }
 
-fn authored_los_attacker(name: &str, health: f32, locomotor: &str) -> ThingTemplate {
+fn authored_los_attacker(name: &str, health: f32, locomotor: &str) -> (ThingTemplate, String) {
     let mut parser = crate::assets::IniParser::new();
     let ini = format!(
-        "Object {name}\n  KindOf = INFANTRY ATTACKABLE ATTACK_NEEDS_LINE_OF_SIGHT\n  Body = ActiveBody ModuleTag_Body\n    MaxHealth = {health}\n  End\n  Behavior = AIUpdate ModuleTag_AI\n  End\n  Locomotor = SET_NORMAL {locomotor}\nEnd\n"
+        "Object {name}\n  KindOf = INFANTRY ATTACK_NEEDS_LINE_OF_SIGHT\n  Body = ActiveBody ModuleTag_Body\n    MaxHealth = {health}\n    InitialHealth = {health}\n  End\n  Behavior = AIUpdateInterface ModuleTag_AI\n  End\n  Locomotor = SET_NORMAL {locomotor}\nEnd\n"
     );
     assert_eq!(
         parser
@@ -67,11 +67,27 @@ fn authored_los_attacker(name: &str, health: f32, locomotor: &str) -> ThingTempl
         definition
             .behavior_modules
             .iter()
-            .any(|m| m.class_name == "AIUpdate")
+            .any(|m| m.class_name == "AIUpdateInterface")
     );
     let template = GameLogic::build_template_from_object_definition(name, definition, None);
     assert!(template.is_kind_of(KindOf::Infantry));
-    template
+    (template, ini)
+}
+
+fn admit_los_fixture_content(logic: &mut GameLogic, prefix: &str, health: f32, locomotor: &str) {
+    let (_, attacker) = authored_los_attacker(&format!("{prefix}Atk"), health, locomotor);
+    let companions = format!(
+        "Object {prefix}Tgt\nKindOf = INFANTRY\nBody = ActiveBody TargetBody\nMaxHealth = {health}\nInitialHealth = {health}\nEnd\nEnd\nObject {prefix}Wall\nKindOf = STRUCTURE\nBody = ActiveBody WallBody\nMaxHealth = {health}\nInitialHealth = {health}\nEnd\nEnd\n"
+    );
+    logic
+        .admit_receiving_module_content(
+            crate::assets::ReceivingObjectContent::from_sources([
+                ("los-attacker.ini".into(), attacker),
+                ("los-companions.ini".into(), companions),
+            ])
+            .unwrap(),
+        )
+        .unwrap();
 }
 
 #[test]
@@ -83,6 +99,7 @@ fn host_attack_los_gates_fire_through_building() {
             use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
             let locomotor = authored_ground_los_locomotor();
             let mut logic = GameLogic::new();
+            admit_los_fixture_content(&mut logic, "Los", 200., locomotor);
             for (name, kinds) in [
                 (
                     "LosAtk",
@@ -97,7 +114,7 @@ fn host_attack_los_gates_fire_through_building() {
             ] {
                 if !logic.templates.contains_key(name) {
                     let mut tmpl = if name == "LosAtk" {
-                        authored_los_attacker(name, 200.0, locomotor)
+                        authored_los_attacker(name, 200.0, locomotor).0
                     } else {
                         ThingTemplate::new(name)
                     };
@@ -493,6 +510,7 @@ fn structure_footprint_blocks_attack_los() {
             use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
             let locomotor = authored_ground_los_locomotor();
             let mut logic = GameLogic::new();
+            admit_los_fixture_content(&mut logic, "Sf", 500., locomotor);
             for (name, kinds) in [
                 (
                     "SfAtk",
@@ -507,7 +525,7 @@ fn structure_footprint_blocks_attack_los() {
             ] {
                 if !logic.templates.contains_key(name) {
                     let mut tmpl = if name == "SfAtk" {
-                        authored_los_attacker(name, 500.0, locomotor)
+                        authored_los_attacker(name, 500.0, locomotor).0
                     } else {
                         ThingTemplate::new(name)
                     };

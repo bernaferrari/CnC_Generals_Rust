@@ -24,7 +24,7 @@ impl GameLogic {
         // Sync host objects: host ObjectId is the script-engine key.
         let object_ids: Vec<(ObjectId, Option<u32>)> = self
             .objects
-            .iter()
+            .registered()
             .map(|(id, _o)| (*id, Some(id.0)))
             .collect();
 
@@ -59,7 +59,7 @@ impl GameLogic {
         drop(engine_arc);
         let need_inherit: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, o)| o.attack_priority_set.is_none() && o.is_alive())
             .map(|(id, _)| *id)
             .collect();
@@ -173,7 +173,7 @@ impl GameLogic {
         let mut best_dist: Option<(ObjectId, f32)> = None;
         let mut best_prio: Option<(ObjectId, i32, i32)> = None; // id, eff, actual
 
-        for (&oid, obj) in self.objects.iter() {
+        for (&oid, obj) in self.objects.registered() {
             if oid == unit_id {
                 continue;
             }
@@ -1182,7 +1182,7 @@ impl GameLogic {
             }
             let contain_count = self
                 .objects
-                .values()
+                .registered_values()
                 .filter(|o| o.contained_by == Some(v.id))
                 .count() as u32;
             let current_is_primary = if source.is_weapon_locked() {
@@ -1389,7 +1389,7 @@ impl GameLogic {
         let hive_alive = source.hive_slaves.iter().any(|s| s.alive);
         let slave_ids: Vec<ObjectId> = self
             .objects
-            .values()
+            .registered_values()
             .filter(|o| o.producer_id == Some(source_id) && o.id != source_id && o.can_attack())
             .map(|o| o.id)
             .collect();
@@ -2022,7 +2022,7 @@ mod common_target_parity {
             logic
                 .pathfinding_system
                 .grid
-                .update_dynamic_obstacles(&logic.objects, &ground_source)
+                .update_dynamic_obstacles(logic.objects.read(), &ground_source)
         });
         assert_eq!(
             logic.pathfinding_system.grid.ground_goal_unit(cell),
@@ -2119,7 +2119,7 @@ mod common_target_parity {
             logic
                 .pathfinding_system
                 .grid
-                .update_dynamic_obstacles(&logic.objects, &ground_source)
+                .update_dynamic_obstacles(logic.objects.read(), &ground_source)
         });
         assert_eq!(
             logic.pathfinding_system.grid.ground_goal_unit(idle_cell),
@@ -2146,7 +2146,7 @@ mod common_target_parity {
             logic
                 .pathfinding_system
                 .grid
-                .update_dynamic_obstacles(&logic.objects, &ground_source)
+                .update_dynamic_obstacles(logic.objects.read(), &ground_source)
         });
         assert_eq!(
             logic.pathfinding_system.grid.ground_goal_unit(idle_cell),

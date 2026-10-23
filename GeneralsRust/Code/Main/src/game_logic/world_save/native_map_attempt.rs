@@ -93,6 +93,9 @@ impl GameLogic {
     }
 
     pub(crate) fn validate_map_replacement_preflight(&self) -> Result<(), String> {
+        if self.has_unregistered_host_objects() {
+            return Err("map admission cannot replace an unfinished Object constructor".into());
+        }
         if self.receiving_module_content.is_some() && self.receiving_template_baseline.is_none() {
             return Err("Receiving map admission has no accepted host template baseline".into());
         }
@@ -112,7 +115,7 @@ impl GameLogic {
         &mut self,
         native: &mut Option<&mut dyn crate::game_logic::NativeMapAdmission>,
     ) -> Result<(), String> {
-        if self.objects.is_empty() && !self.has_pending_object_removals() {
+        if self.objects.registered_is_empty() && !self.has_pending_object_removals() {
             return Ok(());
         }
         if let Some(native) = native.as_mut() {
@@ -238,7 +241,7 @@ mod loading_gate_failure_tests {
             vec![1, 1],
             "both discard observations follow logical retirement"
         );
-        assert!(owner.objects.is_empty());
+        assert!(owner.objects.registered_is_empty());
         assert!(!owner.has_pending_object_removals());
         assert_eq!(owner.frame, 91);
         assert_eq!(

@@ -140,7 +140,7 @@ fn missile_defender_laser_guided_spawns_laser_beam_object() {
     assert!(logic.missile_defender_laser_beams_spawned >= 1);
     let beam = logic
         .host_objects()
-        .values()
+        .registered_values()
         .find(|o| o.missile_defender_laser_beam)
         .expect("LaserBeam special object");
     assert_eq!(beam.template_name, LASER_GUIDED_SPECIAL_OBJECT);
@@ -850,7 +850,7 @@ fn superweapon_crate_drop_spawns_ten_200_dollar_crates() {
     }
     let crates = logic
         .host_objects()
-        .values()
+        .registered_values()
         .filter(|o| o.template_name.contains("200Dollar") && o.is_alive())
         .count();
     assert_eq!(crates as u32, SUPERWEAPON_CRATE_DROP_COUNT);
@@ -926,7 +926,7 @@ fn napalm_strike_and_general_paradrop_terror_cell_map_host_residuals() {
         logic.ocl_special_power_reg.last_ocl,
         "SUPERWEAPON_DaisyCutter"
     );
-    let spawned_daisy_b52 = logic.objects.values().any(|o| {
+    let spawned_daisy_b52 = logic.objects.registered_values().any(|o| {
         o.template_name.contains("AmericaJetB52") || o.template_name.contains("DaisyCutterBomb")
     });
     assert!(
@@ -936,7 +936,7 @@ fn napalm_strike_and_general_paradrop_terror_cell_map_host_residuals() {
     assert!(
         logic
             .objects
-            .values()
+            .registered_values()
             .any(|o| o.template_name.contains("ChinaJetCargoPlane"))
     );
     assert!(
@@ -1522,7 +1522,7 @@ fn a10_science_tier_spawns_ocl_jets_from_map_edge() {
     );
     let jets: Vec<_> = logic
         .host_objects()
-        .values()
+        .registered_values()
         .filter(|o| o.a10_strike_transport.is_some())
         .collect();
     assert_eq!(jets.len(), 3, "science 3 must spawn FormationSize 3 jets");
@@ -1911,7 +1911,7 @@ fn host_upgrade_complete_slave_drone_attaches_to_humvee() {
     // Scout drone object should exist.
     let drones: Vec<_> = logic
         .objects
-        .values()
+        .registered_values()
         .filter(|o| {
             o.template_name.to_ascii_lowercase().contains("scoutdrone")
                 || o.template_name.contains("ScoutDrone")
@@ -2333,14 +2333,14 @@ fn ocl_science_tiers_use_controlling_player_not_faction_union() {
     );
     let jets = logic
         .host_objects()
-        .values()
+        .registered_values()
         .filter(|o| o.a10_strike_transport.is_some())
         .count();
     assert_eq!(jets, 1, "ally A10-3 must not upgrade this player's strike");
     assert!(
         logic
             .host_objects()
-            .values()
+            .registered_values()
             .filter(|o| o.a10_strike_transport.is_some())
             .all(|o| o.template_name == A10_TRANSPORT)
     );

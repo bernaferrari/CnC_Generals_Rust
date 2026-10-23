@@ -39,7 +39,7 @@ impl GameLogic {
         // One active LaserBeam special object per shooter residual.
         let stale: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, o)| {
                 if o.missile_defender_laser_beam && o.producer_id == Some(shooter_id) {
                     Some(*id)
@@ -129,7 +129,7 @@ impl GameLogic {
         let frame = self.frame;
         let due: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, o)| {
                 if !o.missile_defender_laser_beam {
                     return None;
@@ -749,7 +749,7 @@ impl GameLogic {
             let center = bike_pos;
             let candidates: Vec<(ObjectId, f32)> = self
                 .objects
-                .iter()
+                .registered()
                 .filter_map(|(id, obj)| {
                     if source == Some(*id) {
                         return None;
@@ -816,7 +816,7 @@ impl GameLogic {
             let impact_xz = (impact.x, impact.z);
             let candidates: Vec<(ObjectId, f32, bool)> = self
                 .objects
-                .iter()
+                .registered()
                 .filter_map(|(id, obj)| {
                     if source == Some(*id) {
                         return None;
@@ -1018,7 +1018,7 @@ impl GameLogic {
 
         let candidates: Vec<(ObjectId, f32, bool)> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, obj)| {
                 if source == Some(*id) {
                     return None;
@@ -1174,7 +1174,7 @@ impl GameLogic {
 
         let candidates: Vec<(ObjectId, f32)> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, obj)| {
                 if source == Some(*id) {
                     return None;
@@ -1287,7 +1287,7 @@ impl GameLogic {
         let frame = self.frame;
         let ids: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, o)| {
                 o.fire_ocl_after_cooldown
                     .as_ref()
@@ -1370,7 +1370,7 @@ impl GameLogic {
     ) {
         let object_positions: Vec<(ObjectId, Vec3, Team, bool, bool)> = self
             .objects
-            .iter()
+            .registered()
             .map(|(id, obj)| {
                 (
                     *id,
@@ -1531,7 +1531,7 @@ impl GameLogic {
         let frame = self.frame;
         let flying: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, o)| {
                 if o.comanche_rocket_pod_projectile && o.is_alive() {
                     Some(*id)
@@ -1549,7 +1549,7 @@ impl GameLogic {
         }
         let due: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, o)| {
                 if o.comanche_rocket_pod_projectile {
                     if let Some(exp) = o.comanche_rocket_pod_projectile_expires_frame {
@@ -1612,7 +1612,7 @@ impl GameLogic {
 
         let candidates: Vec<(ObjectId, f32)> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, obj)| {
                 if source == Some(*id) {
                     return None;
@@ -1755,7 +1755,7 @@ impl GameLogic {
         // Pure residual acquire query (fire decision choice phase).
         let candidates: Vec<_> = self
             .objects
-            .iter()
+            .registered()
             .map(|(&id, obj)| {
                 let combat_kind = crate::game_logic::host_residual_acquire::residual_combat_kind(
                     obj.is_kind_of(KindOf::Attackable),

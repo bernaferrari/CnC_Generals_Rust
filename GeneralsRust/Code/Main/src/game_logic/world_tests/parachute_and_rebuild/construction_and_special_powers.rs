@@ -2146,17 +2146,27 @@ fn kill_grants_player_skill_points_residual() {
             glam::Vec3::new(10.0, 0.0, 0.0),
         )
         .expect("victim");
-    // Attribute kill to USA team residual (scoreTheKill killer team).
-    if let Some(v) = logic.host_object_mut(victim) {
-        v.last_damage_source = Some(killer);
-    }
     let skill_before = logic
         .get_player_by_team(Team::USA)
         .map(|p| p.skill_points)
         .unwrap_or(0);
 
-    // C++ destroy path: mark with killer team then process_destroy_list.
-    logic.mark_object_for_destruction(victim, Some(Team::USA));
+    // C++ kill scoring runs through lethal Body damage, not direct destruction.
+    logic.frame = 1;
+    assert!(
+        logic
+            .apply_owned_damage(
+                victim,
+                1000.0,
+                Some(killer),
+                crate::game_logic::combat::DamageType::Bullet,
+                crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+                None,
+                &crate::game_logic::object::DamageHitContext::default(),
+            )
+            .expect("lethal owned damage")
+            .destroyed
+    );
     logic.process_destroy_list();
 
     let p = logic.get_player_by_team(Team::USA).expect("usa");
@@ -2166,7 +2176,6 @@ fn kill_grants_player_skill_points_residual() {
         p.skill_points,
         skill_before + 20
     );
-    let _ = killer;
 }
 
 #[test]
@@ -2524,7 +2533,7 @@ fn spy_drone_dynamic_shroud_grow_pulse_residual() {
     assert!(
         logic
             .host_objects()
-            .values()
+            .registered_values()
             .any(|o| o.template_name == SPY_DRONE_TEMPLATE)
     );
 }
@@ -2568,14 +2577,14 @@ fn spy_drone_special_power_spawns_vehicle_residual() {
         p.unlock_science(SPY_DRONE_REQUIRED_SCIENCE);
     }
     assert!(logic.is_special_power_ready_for(cc1, &SpecialPowerType::SpyDrone));
-    let before = logic.host_objects().len();
+    let before = logic.host_objects().registered_len();
     assert!(logic.activate_spy_drone(0, Team::USA, glam::Vec3::new(50.0, 0.0, 50.0), Some(cc1),));
     assert!(logic.honesty_spy_drone_activate_ok());
     assert!(logic.honesty_spy_drone_spawn_ok());
-    assert!(logic.host_objects().len() > before);
+    assert!(logic.host_objects().registered_len() > before);
     let drone = logic
         .host_objects()
-        .values()
+        .registered_values()
         .find(|o| o.template_name == SPY_DRONE_TEMPLATE)
         .expect("drone spawned");
     assert!(drone.is_alive());

@@ -111,7 +111,11 @@ fn capture_player_timers(game_logic: &GameLogic) -> Vec<(u32, Vec<(String, f32)>
 }
 
 fn capture_object_maps(game_logic: &GameLogic) -> Vec<(u32, Vec<(String, f32)>)> {
-    let mut object_ids: Vec<ObjectId> = game_logic.host_objects().keys().copied().collect();
+    let mut object_ids: Vec<ObjectId> = game_logic
+        .host_objects()
+        .registered_keys()
+        .copied()
+        .collect();
     object_ids.sort();
     let mut out = Vec::new();
     for id in object_ids {
@@ -167,7 +171,11 @@ fn apply_object_maps(game_logic: &mut GameLogic, table: &[(u32, Vec<(String, f32
 }
 
 fn capture_object_pauses(game_logic: &GameLogic) -> Vec<(u32, Vec<(String, f32)>)> {
-    let mut object_ids: Vec<ObjectId> = game_logic.host_objects().keys().copied().collect();
+    let mut object_ids: Vec<ObjectId> = game_logic
+        .host_objects()
+        .registered_keys()
+        .copied()
+        .collect();
     object_ids.sort();
     let mut out = Vec::new();
     for id in object_ids {

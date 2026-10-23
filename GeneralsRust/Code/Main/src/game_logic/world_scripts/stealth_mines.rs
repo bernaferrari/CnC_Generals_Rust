@@ -32,7 +32,7 @@ impl GameLogic {
         // C++ StealthUpdate.cpp:725-780 cloak/destalth/detect SoundStealthOn/Off.
         let stealth_snap: Vec<(ObjectId, bool, bool)> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, o)| o.is_alive())
             .map(|(id, o)| (*id, o.status.stealthed, o.status.detected))
             .collect();
@@ -41,7 +41,7 @@ impl GameLogic {
         // C++ StealthUpdate.cpp:768-801 — DETECTED clear on a garrison rider
         // refreshes the container's apparent controller / hide flag.
         let mut garrison_detect_recalc: Vec<ObjectId> = Vec::new();
-        for obj in self.objects.values_mut() {
+        for obj in self.objects.registered_values_mut() {
             if obj.status.detected
                 && obj.detection_expires_frame > 0
                 && frame >= obj.detection_expires_frame
@@ -59,7 +59,7 @@ impl GameLogic {
         {
             let destalth: Vec<ObjectId> = self
                 .objects
-                .iter()
+                .registered()
                 .filter_map(|(id, obj)| {
                     if !obj.is_alive() {
                         return None;
@@ -87,7 +87,7 @@ impl GameLogic {
             use crate::game_logic::host_bomb_truck_disguise::should_reveal_disguise_by_distance;
             let disguised: Vec<(ObjectId, Option<ObjectId>, Vec3)> = self
                 .objects
-                .iter()
+                .registered()
                 .filter(|(_, o)| o.status.disguised && o.is_alive())
                 .map(|(id, o)| (*id, o.target, o.get_position()))
                 .collect();
@@ -126,7 +126,7 @@ impl GameLogic {
             // Class bit set at spawn — no per-frame template-name scan.
             let pf_ids: Vec<ObjectId> = self
                 .objects
-                .iter()
+                .registered()
                 .filter(|(_, o)| o.is_pathfinder_unit && o.is_alive())
                 .map(|(id, _)| *id)
                 .collect();
@@ -172,7 +172,7 @@ impl GameLogic {
             };
             let sentry_ids: Vec<ObjectId> = self
                 .objects
-                .iter()
+                .registered()
                 .filter(|(_, o)| o.is_alive() && is_sentry_drone_template(&o.template_name))
                 .map(|(id, _)| *id)
                 .collect();
@@ -216,7 +216,7 @@ impl GameLogic {
             // Style bit installed at spawn for LO templates — no name scan.
             let lo_ids: Vec<ObjectId> = self
                 .objects
-                .iter()
+                .registered()
                 .filter(|(_, o)| o.is_alive() && o.is_listening_outpost_style_container())
                 .map(|(id, _)| *id)
                 .collect();
@@ -285,7 +285,7 @@ impl GameLogic {
             // Upgrade tag is only applied to camouflage-eligible units at unlock.
             let camo_ids: Vec<ObjectId> = self
                 .objects
-                .iter()
+                .registered()
                 .filter(|(_, o)| {
                     o.innate_stealth
                         && o.is_alive()
@@ -335,7 +335,7 @@ impl GameLogic {
 
             let live_markets: Vec<(Team, Option<u32>)> = self
                 .objects
-                .values()
+                .registered_values()
                 .filter(|o| {
                     crate::game_logic::object::is_live_stealth_black_market(
                         o.is_kind_of(KindOf::FSBlackMarket)
@@ -351,7 +351,7 @@ impl GameLogic {
                 .collect();
             let struct_ids: Vec<ObjectId> = self
                 .objects
-                .iter()
+                .registered()
                 .filter(|(_, o)| {
                     o.innate_stealth
                         && o.is_alive()
@@ -489,7 +489,7 @@ impl GameLogic {
                 let v_pos = victim.get_position();
                 let candidates: Vec<(ObjectId, f32, f32, bool)> = self
                     .objects
-                    .iter()
+                    .registered()
                     .filter(|(_, o)| {
                         o.is_alive()
                             && o.team != v_team
@@ -568,7 +568,7 @@ impl GameLogic {
             use crate::game_logic::host_radar_stealth_vision_residual::hero_stealth_delay_frames_residual;
             let hero_ids: Vec<ObjectId> = self
                 .objects
-                .iter()
+                .registered()
                 .filter(|(_, o)| {
                     o.innate_stealth
                         && o.is_alive()
@@ -625,7 +625,7 @@ impl GameLogic {
             };
             let bike_ids: Vec<ObjectId> = self
                 .objects
-                .iter()
+                .registered()
                 .filter(|(_, o)| {
                     o.is_alive()
                         && (is_combat_cycle_template(&o.template_name)
@@ -710,7 +710,7 @@ impl GameLogic {
             use crate::game_logic::host_stealth_fighter::is_stealth_fighter_template;
             let sf_ids: Vec<ObjectId> = self
                 .objects
-                .iter()
+                .registered()
                 .filter(|(_, o)| o.is_alive() && is_stealth_fighter_template(&o.template_name))
                 .map(|(id, _)| *id)
                 .collect();
@@ -747,7 +747,7 @@ impl GameLogic {
             };
             let mine_ids: Vec<ObjectId> = self
                 .objects
-                .iter()
+                .registered()
                 .filter(|(_, o)| {
                     o.is_alive()
                         && is_mine_stealth_kind_residual(
@@ -780,7 +780,7 @@ impl GameLogic {
             use crate::game_logic::host_upgrades::is_camo_netting_structure_template;
             let live_markets: Vec<(Team, Option<u32>)> = self
                 .objects
-                .values()
+                .registered_values()
                 .filter(|o| {
                     crate::game_logic::object::is_live_stealth_black_market(
                         o.is_kind_of(KindOf::FSBlackMarket)
@@ -796,7 +796,7 @@ impl GameLogic {
                 .collect();
             let grant_ids: Vec<ObjectId> = self
                 .objects
-                .iter()
+                .registered()
                 .filter(|(_, o)| {
                     o.innate_stealth
                         && o.is_alive()
@@ -895,7 +895,7 @@ impl GameLogic {
         let mut detectors: Vec<(ObjectId, Team, Option<u32>, Vec3, f32, DetFlags, u32)> =
             Vec::new();
         let mut scanned_detector_ids: Vec<ObjectId> = Vec::new();
-        for (id, o) in &self.objects {
+        for (id, o) in self.objects.registered() {
             if !(o.is_detector
                 && o.is_alive()
                 && !o.status.under_construction
@@ -1011,7 +1011,7 @@ impl GameLogic {
         // Collect stealthed targets first to avoid borrow conflicts.
         let stealthed_ids: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, o)| o.is_alive() && (o.status.stealthed || o.status.disguised))
             .map(|(id, _)| *id)
             .collect();
@@ -1143,7 +1143,7 @@ impl GameLogic {
         // GarrisonContain hide / capture so enemies see GARRISONED.
         let garrison_detect_recalc: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(_, o)| {
                 if o.status.detected {
                     o.contained_by
@@ -1160,7 +1160,7 @@ impl GameLogic {
             use crate::game_logic::host_radar_stealth_vision_residual::spotter_mark_detected_garrison_rider_frames_residual;
             let buildings: Vec<ObjectId> = self
                 .objects
-                .iter()
+                .registered()
                 .filter(|(_, o)| o.is_alive() && o.is_garrison_contain())
                 .map(|(id, _)| *id)
                 .collect();
@@ -1410,7 +1410,7 @@ impl GameLogic {
             .unwrap_or(true);
         let ids: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter(|(_, o)| o.is_alive())
             .map(|(id, _)| *id)
             .collect();
@@ -1812,7 +1812,7 @@ impl GameLogic {
         let producer_set: std::collections::HashSet<ObjectId> = producers.iter().copied().collect();
         let due: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, obj)| {
                 let data = obj.mine_data.as_ref()?;
                 if !data.is_active() || !obj.is_alive() {
@@ -1854,7 +1854,7 @@ impl GameLogic {
                 return true;
             }
         }
-        self.objects.values().any(|obj| {
+        self.objects.registered_values().any(|obj| {
             obj.is_alive()
                 && obj.is_kind_of(KindOf::Structure)
                 && mine_spot_under_structure(
@@ -1962,7 +1962,7 @@ impl GameLogic {
         if is_china_emp_mines_upgrade(upgrade) {
             let old: Vec<ObjectId> = self
                 .objects
-                .iter()
+                .registered()
                 .filter_map(|(id, o)| {
                     let md = o.mine_data.as_ref()?;
                     if o.is_alive()
@@ -1984,7 +1984,7 @@ impl GameLogic {
                 }
             }
         } else {
-            let already = self.objects.values().any(|o| {
+            let already = self.objects.registered_values().any(|o| {
                 o.is_alive()
                     && o.mine_data.as_ref().is_some_and(|md| {
                         matches!(md.kind, HostMineKind::LandMine)
@@ -2049,7 +2049,7 @@ impl GameLogic {
         let tree_move_frame = self.frame;
         let ids: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, o)| {
                 let md = o.mine_data.as_ref()?;
                 if md.is_scooting() && o.is_alive() {
@@ -2151,7 +2151,7 @@ impl GameLogic {
             if let Some(pid) = producer {
                 let mut timed_n = 0u32;
                 let mut remote_n = 0u32;
-                for o in self.objects.values() {
+                for o in self.objects.registered_values() {
                     if !o.is_alive() {
                         continue;
                     }
@@ -2183,7 +2183,7 @@ impl GameLogic {
             }
             if BURTON_UNIQUE_CHARGE_TARGETS {
                 if let Some(tid) = attach_to {
-                    let dup = self.objects.values().any(|o| {
+                    let dup = self.objects.registered_values().any(|o| {
                         o.is_alive()
                             && o.mine_data
                                 .as_ref()
@@ -2359,7 +2359,7 @@ impl GameLogic {
         let frame = self.frame;
         let sticky_ids: Vec<(ObjectId, Option<ObjectId>)> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, obj)| {
                 let md = obj.mine_data.as_ref()?;
                 if !md.is_active() || !obj.is_alive() {
@@ -2530,7 +2530,7 @@ impl GameLogic {
         use crate::game_logic::host_mines::HostMineKind;
         let due: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, obj)| {
                 let md = obj.mine_data.as_ref()?;
                 if md.detonated || !obj.is_alive() {
@@ -2578,7 +2578,7 @@ impl GameLogic {
         let frame = self.frame;
         let ids: Vec<ObjectId> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, obj)| {
                 let data = obj.mine_data.as_ref()?;
                 if data.detonated
@@ -2709,7 +2709,7 @@ impl GameLogic {
         // C++ isClearingMines() && getGoalObject() != NULL keeps them immune while engaged.
         let mut windup: Vec<(ObjectId, ObjectId)> = Vec::new();
         // C++ DemoTrapUpdate.cpp:124-130 isEffectivelyDead + DetonateWhenKilled.
-        for (id, obj) in &self.objects {
+        for (id, obj) in self.objects.registered() {
             let Some(data) = obj.mine_data.as_ref() else {
                 continue;
             };
@@ -2736,7 +2736,7 @@ impl GameLogic {
             HostMineKind,
         )> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, obj)| {
                 let data = obj.mine_data.as_ref()?;
                 if !data.is_active() || !obj.is_alive() {
@@ -2762,7 +2762,7 @@ impl GameLogic {
         // Mine clearers: only after player/AI issued MINE_CLEARING_DETAIL.
         let clearers: Vec<(ObjectId, Team, Vec3, bool)> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, obj)| {
                 if !obj.is_alive() || obj.mine_data.is_some() {
                     return None;
@@ -2791,7 +2791,7 @@ impl GameLogic {
         // Potential victims: dozers skip only DISARM + IS_ATTACKING (C++ :181-191).
         let victims: Vec<(ObjectId, Team, Vec3, f32)> = self
             .objects
-            .iter()
+            .registered()
             .filter_map(|(id, obj)| {
                 if !obj.is_alive() || obj.mine_data.is_some() {
                     return None;
@@ -3511,7 +3511,7 @@ impl GameLogic {
         if neutron_blast {
             destroy_ids = self.apply_neutron_mine_blast(mine_id, blast_pos, mine_team);
         } else {
-            let victim_ids: Vec<ObjectId> = self.objects.keys().copied().collect();
+            let victim_ids: Vec<ObjectId> = self.objects.registered_keys().copied().collect();
             for vid in victim_ids {
                 if vid == mine_id {
                     continue;
@@ -3682,7 +3682,7 @@ impl GameLogic {
                 | crate::game_logic::host_mines::HostMineKind::RemoteDemoCharge
         );
         let mut destroy_ids: Vec<(ObjectId, Team)> = Vec::new();
-        let victim_ids: Vec<ObjectId> = self.objects.keys().copied().collect();
+        let victim_ids: Vec<ObjectId> = self.objects.registered_keys().copied().collect();
         for vid in victim_ids {
             if vid == mine_id
                 || (matches!(kind, crate::game_logic::host_mines::HostMineKind::LandMine)
@@ -3788,7 +3788,7 @@ impl GameLogic {
         use crate::game_logic::host_mines::{NeutronMineVictimEffect, neutron_mine_victim_effect};
         let mut destroy_ids: Vec<(ObjectId, Team)> = Vec::new();
         let mut contained_kill: Vec<ObjectId> = Vec::new();
-        let victim_ids: Vec<ObjectId> = self.objects.keys().copied().collect();
+        let victim_ids: Vec<ObjectId> = self.objects.registered_keys().copied().collect();
         for vid in victim_ids {
             if vid == mine_id {
                 continue;

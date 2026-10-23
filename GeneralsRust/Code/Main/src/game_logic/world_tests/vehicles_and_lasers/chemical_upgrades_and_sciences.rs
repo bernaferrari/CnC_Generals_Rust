@@ -87,7 +87,7 @@ fn anthrax_gamma_residual_toxin_stream_and_field() {
         game_logic.update_toxin_stream_projectiles();
         if !game_logic
             .objects
-            .values()
+            .registered_values()
             .any(|o| o.toxin_stream_projectile && o.is_alive())
         {
             break;
@@ -205,7 +205,7 @@ fn anthrax_gamma_residual_toxin_stream_and_field() {
         game_logic.update_toxin_stream_projectiles();
         if !game_logic
             .objects
-            .values()
+            .registered_values()
             .any(|o| o.toxin_stream_projectile && o.is_alive())
         {
             break;
@@ -521,7 +521,7 @@ fn stealth_fighter_science_production_gate_residual() {
         game_logic.honesty_stealth_fighter_science_spawn_ok()
             || game_logic
                 .objects
-                .values()
+                .registered_values()
                 .any(|o| o.template_name.contains("StealthFighter")
                     && o.is_kind_of(KindOf::Aircraft)),
         "science-gated Stealth Fighter must spawn from production"

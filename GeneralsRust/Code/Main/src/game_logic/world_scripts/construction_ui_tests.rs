@@ -104,7 +104,7 @@ fn ordinary_completion_runs_attached_ui_synchronously_without_pending_delivery()
     let (mut world, id) = fixture();
     let (peer, peer_id) = fixture();
     assert_eq!(id, peer_id);
-    let ids: Vec<_> = world.objects.keys().copied().collect();
+    let ids: Vec<_> = world.objects.registered_keys().copied().collect();
     let mut ui = Ui::default();
     world.update_construction_with_ui(&ids, 1., &mut Some(&mut ui));
     assert_eq!(
