@@ -1213,9 +1213,9 @@ impl GameLogic {
         };
         if let Some(obj) = self.objects.get_mut(&id) {
             obj.set_orientation(angle);
-            if !team_name.trim().is_empty() {
-                obj.team_instance_name = team_name.to_string();
-            }
+            // The semantic factory admitted the actual resident Team; a dead
+            // controller may have redirected it to neutral. Never overwrite
+            // that canonical name from the original requested script string.
             if let Some(unit_name) = name.filter(|n| !n.is_empty()) {
                 obj.name = unit_name.to_string();
             }

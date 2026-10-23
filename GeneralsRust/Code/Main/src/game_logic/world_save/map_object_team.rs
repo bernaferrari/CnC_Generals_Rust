@@ -377,4 +377,163 @@ mod tests {
         assert!(peer.host_objects().is_empty());
         assert_eq!(peer.get_player(2).unwrap().power_produced, 0);
     }
+
+    #[test]
+    fn inactive_map_controller_redirects_actor_but_map_activates_original_selected_team() {
+        for observer in [false, true] {
+            let mut world = fixture_world();
+            let peer = fixture_world();
+            named(&mut world, false);
+            if observer {
+                world.get_player_mut(2).unwrap().is_observer = true;
+            } else {
+                world.get_player_mut(2).unwrap().is_alive = false;
+            }
+            let neutral = world.host_default_team_id(0).unwrap();
+            let birth = world
+                .create_placed_map_object_with_effects_checked(
+                    &placed("ExactMapTeam"),
+                    Vec3::ZERO,
+                    &mut Default::default(),
+                )
+                .unwrap()
+                .unwrap();
+            let id = birth.id;
+            let selected = world
+                .team_factory
+                .lock()
+                .unwrap()
+                .find_team_instances("ExactMapTeam")[0]
+                .clone();
+            let actor = world.host_object(id).unwrap();
+            assert_eq!(actor.owner_player_id, Some(0));
+            assert_eq!(actor.team, Team::Neutral);
+            assert_eq!(actor.team_instance_name, "team");
+            assert_eq!(actor.team_instance_id, Some(neutral));
+            assert!(!selected.read().unwrap().has_member(id.0));
+            assert!(!selected.read().unwrap().is_active());
+            birth.activate(&world).unwrap();
+            assert!(
+                selected.read().unwrap().is_active(),
+                "GameLogic map loop activates its retained validateTeam pointer, not the redirected actor's Team"
+            );
+            assert_eq!(world.get_player(0).unwrap().power_produced, 20);
+            assert_eq!(world.get_player(2).unwrap().power_produced, 0);
+            assert_eq!(peer.get_player(0).unwrap().power_produced, 0);
+            assert!(peer.host_object(id).is_none());
+        }
+    }
+
+    #[test]
+    fn ordinary_player_factory_redirects_inactive_owner_without_rejecting_birth() {
+        let mut world = fixture_world();
+        world.get_player_mut(2).unwrap().is_alive = false;
+        let id = world
+            .create_object_for_player("ChinaMapPlant", 2, Vec3::ZERO)
+            .unwrap();
+        let actor = world.host_object(id).unwrap();
+        assert_eq!(actor.owner_player_id, Some(0));
+        assert_eq!(actor.team_instance_name, "team");
+        assert_eq!(world.get_player(0).unwrap().power_produced, 20);
+        assert_eq!(world.get_player(2).unwrap().power_produced, 0);
+    }
+
+    #[test]
+    fn encoded_restore_preserves_existing_dead_owner_instead_of_replaying_birth_redirect() {
+        let mut source = fixture_world();
+        let actor = source
+            .create_object_for_player("ChinaMapPlant", 2, Vec3::ZERO)
+            .unwrap();
+        let team = source.host_object(actor).unwrap().team_instance_id;
+        source.get_player_mut(2).unwrap().is_alive = false;
+        let builder = crate::save_load::snapshot::SnapshotBuilder::new();
+        let snapshot = builder.create_world_snapshot(&source).unwrap();
+        let bytes = bincode_legacy::serialize(&snapshot).unwrap();
+        let decoded = crate::save_load::snapshot::decode_bincode_world_snapshot(&bytes).unwrap();
+        let mut receiving = fixture_world();
+        builder
+            .restore_from_snapshot(&decoded, &mut receiving)
+            .unwrap();
+        assert!(!receiving.get_player(2).unwrap().is_alive);
+        let restored = receiving.host_object(actor).unwrap();
+        assert_eq!(restored.owner_player_id, Some(2));
+        assert_eq!(restored.team, Team::USA);
+        assert_eq!(restored.team_instance_name, "teamMapTwo");
+        assert_eq!(restored.team_instance_id, team);
+        assert_eq!(receiving.get_player(0).unwrap().power_produced, 0);
+    }
+    #[test]
+    fn script_create_object_redirects_dead_and_observer_teams_without_restamping_requested_name() {
+        use gamelogic::scripting::core::{
+            Parameter, ParameterType, ScriptAction, ScriptActionType,
+        };
+        for observer in [false, true] {
+            let mut world = fixture_world();
+            let mut peer = fixture_world();
+            named(&mut world, false);
+            if observer {
+                world.get_player_mut(2).unwrap().is_observer = true;
+            } else {
+                world.get_player_mut(2).unwrap().is_alive = false;
+            }
+            let peer_id = peer
+                .create_object_for_player("ChinaMapPlant", 2, Vec3::ZERO)
+                .unwrap();
+            let peer_team = peer.host_object(peer_id).unwrap().team_instance_id;
+            let neutral = world.host_default_team_id(0).unwrap();
+            let mut action = ScriptAction::new(ScriptActionType::CreateObject);
+            for parameter in [
+                Parameter::with_string(ParameterType::ObjectType, "ChinaMapPlant".into()),
+                Parameter::with_string(ParameterType::Team, "ExactMapTeam".into()),
+                Parameter::with_coord(
+                    ParameterType::Coord3D,
+                    gamelogic::common::Coord3D::new(12., 0., 34.),
+                ),
+                Parameter::with_real(ParameterType::Real, 0.),
+            ] {
+                action.add_parameter(parameter).unwrap();
+            }
+            world.install_owned_script_engine(
+                gamelogic::scripting::engine::ScriptEngine::new().unwrap(),
+            );
+            world
+                .with_owned_script_engine(|engine, world| {
+                    world.execute_script_team_actions_with_effects_checked(
+                        engine,
+                        &action,
+                        None,
+                        &mut Default::default(),
+                    )
+                })
+                .unwrap()
+                .unwrap();
+            let selected = world
+                .team_factory
+                .lock()
+                .unwrap()
+                .find_team_instances("ExactMapTeam")[0]
+                .clone();
+            assert_eq!(world.host_objects().len(), 1);
+            let actor = world.host_objects().values().next().unwrap();
+            assert_eq!(actor.id, peer_id, "same-ID peer is independently owned");
+            assert_eq!(actor.owner_player_id, Some(0));
+            assert_eq!(actor.team, Team::Neutral);
+            assert_eq!(actor.team_instance_id, Some(neutral));
+            assert_eq!(
+                actor.team_instance_name, "team",
+                "script action must not overwrite the factory's redirected canonical Team name"
+            );
+            assert!(!selected.read().unwrap().has_member(actor.id.0));
+            assert_eq!(world.get_player(0).unwrap().power_produced, 20);
+            assert_eq!(world.get_player(2).unwrap().power_produced, 0);
+            let other = peer.host_object(peer_id).unwrap();
+            assert_eq!(other.owner_player_id, Some(2));
+            assert_eq!(other.team_instance_id, peer_team);
+            assert_eq!(other.team_instance_name, "teamMapTwo");
+            assert_eq!(peer.get_player(0).unwrap().power_produced, 0);
+            assert_eq!(peer.get_player(2).unwrap().power_produced, 20);
+            assert!(peer.get_player(2).unwrap().is_alive);
+            assert!(!peer.get_player(2).unwrap().is_observer);
+        }
+    }
 }

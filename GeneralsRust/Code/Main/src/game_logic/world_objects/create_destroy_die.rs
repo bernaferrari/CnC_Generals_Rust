@@ -1960,6 +1960,89 @@ impl GameLogic {
                     "Object '{template_name}' structure topple: {error}"
                 )));
             }
+            if let Some((name, identity, _)) = initial_team {
+                let factory = self
+                    .team_factory
+                    .lock()
+                    .map_err(|error| gamelogic::GameLogicError::Threading(error.to_string()))?;
+                let selected = factory.find_team_by_id(identity).ok_or_else(|| {
+                    gamelogic::GameLogicError::Configuration(
+                        "constructor exact Team identity is missing".into(),
+                    )
+                })?;
+                let selected = selected
+                    .read()
+                    .map_err(|error| gamelogic::GameLogicError::Threading(error.to_string()))?;
+                if selected.get_name().as_str() != name
+                    || selected.get_controlling_player_id() != owner_player_id
+                {
+                    return Err(gamelogic::GameLogicError::Configuration(
+                        "constructor exact Team/controller does not match its receiving arguments"
+                            .into(),
+                    ));
+                }
+            }
+            // C++ Object::setTeam (Object.cpp806-814): semantic creation still
+            // succeeds for a dead/observer controller, but its ACTUAL actor joins
+            // the receiving neutral default Team. Snapshot field restoration does
+            // not call this semantic factory and must not apply this rule.
+            let neutral_redirect = if owner_player_id
+                .and_then(|id| self.players.get(&id))
+                .is_some_and(|player| !player.is_alive || player.is_observer)
+            {
+                let invalid =
+                    |reason: &str| gamelogic::GameLogicError::Configuration(reason.into());
+                let mut neutrals = self
+                    .players
+                    .values()
+                    .filter(|player| player.is_reserved_neutral());
+                let neutral = neutrals.next().ok_or_else(|| invalid("inactive constructor controller requires the receiving reserved neutral Player"))?;
+                if neutrals.next().is_some() {
+                    return Err(invalid(
+                        "inactive constructor controller has ambiguous reserved neutral Players",
+                    ));
+                }
+                let owner = neutral.id;
+                let faction = neutral.team;
+                let name = self.default_host_team_instance_name(Some(owner), faction);
+                let identity = self.host_default_team_id(owner).ok_or_else(|| {
+                    invalid(
+                        "inactive constructor controller requires an admitted neutral default Team",
+                    )
+                })?;
+                let factory = self
+                    .team_factory
+                    .lock()
+                    .map_err(|error| gamelogic::GameLogicError::Threading(error.to_string()))?;
+                let selected = factory
+                    .find_team_by_id(identity)
+                    .ok_or_else(|| invalid("neutral constructor Team disappeared"))?;
+                let selected = selected
+                    .read()
+                    .map_err(|error| gamelogic::GameLogicError::Threading(error.to_string()))?;
+                if selected.get_name().as_str() != name
+                    || selected.get_controlling_player_id() != Some(owner)
+                {
+                    return Err(invalid(
+                        "neutral constructor Team does not belong to the receiving neutral Player",
+                    ));
+                }
+                Some((faction, owner, name, identity))
+            } else {
+                None
+            };
+            let (team, owner_player_id, initial_team) = match neutral_redirect.as_ref() {
+                Some((faction, owner, name, identity)) => (
+                    *faction,
+                    Some(*owner),
+                    Some((
+                        name.as_str(),
+                        *identity,
+                        initial_team.is_none_or(|(_, _, activate)| activate),
+                    )),
+                ),
+                None => (team, owner_player_id, initial_team),
+            };
             // C++ Object.cpp asks the controlling Player for the exact
             // `ProductionVeterancyLevel` while constructing every Object.
             // Resolve it before moving the ThingTemplate into Object so a
