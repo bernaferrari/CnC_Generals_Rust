@@ -20,6 +20,8 @@ pub(crate) struct NativeMapCandidate {
     // from a template/ObjectId and never rebased after callback observations.
     epoch: Option<u64>,
     #[cfg(feature = "game_client")]
+    time_of_day: Option<game_client::system::TimeOfDay>,
+    #[cfg(feature = "game_client")]
     visual: Option<game_client::terrain::terrain_visual::TerrainVisualImpl>,
 }
 impl NativeMapCandidate {
@@ -149,9 +151,12 @@ impl crate::game_logic::NativeMapAdmission for NativeMapCandidate {
         Ok(())
     }
     fn on_level_start(&mut self) -> Result<(), String> {
+        let tod = self
+            .time_of_day
+            .ok_or_else(|| "native candidate requires receiving time of day".to_owned())?;
         self.drawables
             .borrow_native()
-            .on_level_start()
+            .on_level_start_at(tod)
             .map_err(|error| error.to_string())
     }
     fn prepare(
@@ -159,6 +164,7 @@ impl crate::game_logic::NativeMapAdmission for NativeMapCandidate {
         world: &crate::game_logic::GameLogic,
         metadata: Option<&crate::game_logic::script_loader::MapMetadata>,
     ) -> Result<(), String> {
+        self.time_of_day = world.native_lighting_time_of_day();
         prepare_native_map_visual(&mut self.visual, world, metadata)
     }
     fn admit_restored_heights(
@@ -404,6 +410,7 @@ impl crate::game_logic::NativeMapAdmission for NativeMapAttempt<'_> {
         if !matches!(*self.retirement, CandidateRetirement::Failed) {
             *self.retirement = CandidateRetirement::MayOwnResources;
         }
+        self.view.admit_lighting_policy(world);
         prepare_native_map_visual(self.visual, world, metadata)
     }
     fn admit_restored_heights(

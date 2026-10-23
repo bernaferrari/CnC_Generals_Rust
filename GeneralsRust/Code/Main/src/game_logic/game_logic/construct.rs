@@ -72,6 +72,7 @@ impl GameLogic {
             weapon_definition_base: None,
             weapon_definitions: None,
             projectile_definitions: Default::default(),
+            lighting_definitions: Default::default(),
             physics_definitions: Default::default(),
             object_lifecycle_callback_depth: 0,
             terrain_definitions: Default::default(),
@@ -832,6 +833,7 @@ impl GameLogic {
         self.ai_definitions.reset();
         self.production_energy.effective = self.production_energy.base;
         self.physics_definitions.effective = self.physics_definitions.base;
+        self.lighting_definitions.effective = self.lighting_definitions.base.clone();
         self.reset_ocl_map_definitions();
         self.apply_aidata_enable_repulsors();
         self.refresh_pathfinding_ai_definitions();

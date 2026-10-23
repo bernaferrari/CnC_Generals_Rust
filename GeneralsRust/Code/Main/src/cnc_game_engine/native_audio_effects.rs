@@ -45,3 +45,28 @@ impl crate::game_logic::NativeAudioEffects for PendingNativeAudio {
         self.0.push((event.clone(), *locality));
     }
 }
+
+#[cfg(feature = "game_client")]
+impl game_client::drawable::drawable::NativeAmbientAudio for NativeAudioService {
+    fn restart_ambient(
+        &mut self,
+        drawable: &mut game_client::drawable::drawable::BasicDrawable,
+        state: gamelogic::common::types::BodyDamageType,
+        time_of_day: game_client::system::TimeOfDay,
+        locality: &AudioSubmissionLocality,
+    ) -> Result<(), String> {
+        // Only local stop/select/admit touches the mixer; native model-condition
+        // callback traversal has completed before this loan is acquired.
+        let mut audio = self
+            .0
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        drawable.start_ambient_sound_for_state_with_audio(
+            state,
+            time_of_day,
+            false,
+            &mut audio,
+            locality,
+        )
+    }
+}

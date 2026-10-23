@@ -1209,7 +1209,8 @@ impl CnCGameEngine {
         let mut native_candidate =
             super::map_native_admission::NativeMapCandidate::with_epoch(epoch);
         #[cfg(feature = "game_client")]
-        let policy = super::native_view_effects::receiving_native_drawable_policy();
+        let policy =
+            super::native_view_effects::receiving_native_drawable_policy_for(&self.game_logic);
         #[cfg(feature = "game_client")]
         let mut retirement = game_client::core::game_client::NativeParticleRetirementService;
         #[cfg(feature = "game_client")]
@@ -1360,7 +1361,9 @@ impl CnCGameEngine {
             Err((error, mut rejected)) => {
                 let cleanup = (|| -> Result<(), String> {
                     use crate::game_logic::NativeMapAdmission;
-                    let policy = super::native_view_effects::receiving_native_drawable_policy();
+                    let policy = super::native_view_effects::receiving_native_drawable_policy_for(
+                        &self.game_logic,
+                    );
                     let mut retirement =
                         game_client::core::game_client::NativeParticleRetirementService;
                     let mut attempt = rejected.attempt(
@@ -1531,7 +1534,8 @@ impl CnCGameEngine {
             .render_pipeline
             .borrow_native_installed_poses_and_terrain();
         #[cfg(feature = "game_client")]
-        let policy = super::native_view_effects::receiving_native_drawable_policy();
+        let policy =
+            super::native_view_effects::receiving_native_drawable_policy_for(&self.game_logic);
         #[cfg(feature = "game_client")]
         let mut retirement = game_client::core::game_client::NativeParticleRetirementService;
         #[cfg(feature = "game_client")]

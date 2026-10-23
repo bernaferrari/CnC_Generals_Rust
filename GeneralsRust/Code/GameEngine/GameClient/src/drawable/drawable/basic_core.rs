@@ -126,6 +126,43 @@ impl BasicDrawable {
         self.start_ambient_sound_for_state(dt, tod, only_if_permanent);
     }
 
+    /// Transitional mixer adapter with the receiving session TOD explicit.
+    /// Preserves the existing service/playing-handle behavior; discovers no TOD.
+    pub(crate) fn start_ambient_sound_at(&mut self, only_if_permanent: bool, tod: TimeOfDay) {
+        if !self.ambient_sound_enabled || !self.ambient_sound_enabled_from_script {
+            return;
+        }
+        self.stop_ambient_sound();
+        let state = self.current_body_damage_type();
+        self.start_ambient_sound_for_state(state, tod, only_if_permanent);
+    }
+
+    pub(crate) fn on_level_start_at(&mut self, tod: TimeOfDay) {
+        if self.receiving_template.is_some() {
+            self.admit_receiving_time_of_day(Some(tod));
+        }
+        if self.ambient_sound_enabled
+            && self.ambient_sound_enabled_from_script
+            && (self.ambient_sound_event.is_none()
+                || self.ambient_sound_event.as_ref().is_some_and(|event| {
+                    !event.get_event_name().is_empty() && !event.is_currently_playing()
+                }))
+        {
+            self.start_ambient_sound_at(false, tod);
+        }
+    }
+
+    pub(crate) fn finish_native_constructor_ambient_at(
+        &mut self,
+        loading_map: bool,
+        in_load_game: bool,
+        tod: TimeOfDay,
+    ) {
+        if !loading_map && !in_load_game {
+            self.start_ambient_sound_at(false, tod);
+        }
+    }
+
     /// C++ `Drawable::onLevelStart` (`Drawable.cpp:1320-1331`).
     pub fn on_level_start(&mut self) {
         if self.ambient_sound_enabled
@@ -200,7 +237,15 @@ impl BasicDrawable {
             .unwrap_or(BodyDamageType::Pristine)
     }
 
+    pub(crate) fn admit_receiving_time_of_day(&mut self, tod: Option<TimeOfDay>) {
+        // Value-only presentation restamp. Repeated snapshots never restart audio.
+        self.receiving_time_of_day = tod;
+    }
+
     fn current_time_of_day(&self) -> TimeOfDay {
+        if let Some(tod) = self.receiving_time_of_day {
+            return tod;
+        }
         get_global_data()
             .map(|data| data.read().time_of_day)
             .map(|tod| match tod {
@@ -355,6 +400,13 @@ impl BasicDrawable {
     }
 
     pub(super) fn apply_pending_time_of_day(&mut self) {
+        if self.receiving_time_of_day.is_some() {
+            // Compatibility Core messages cannot override receiving session TOD
+            // or restart its audio. Snapshot policy is the receiving projection.
+            self.pending_time_of_day
+                .store(0, std::sync::atomic::Ordering::Relaxed);
+            return;
+        }
         let tod = match self
             .pending_time_of_day
             .swap(0, std::sync::atomic::Ordering::Relaxed)
@@ -1231,5 +1283,32 @@ impl BasicDrawable {
             object.get_indicator_color()
         };
         Some((color.r, color.g, color.b))
+    }
+}
+
+#[cfg(test)]
+mod receiving_tod_tests {
+    use super::*;
+    #[test]
+    fn receiving_tod_projection_survives_peer_and_core_pending_message_without_audio() {
+        let mut owner = BasicDrawable::new(DrawableId(17));
+        let mut peer = BasicDrawable::new(DrawableId(17));
+        owner.admit_receiving_time_of_day(Some(TimeOfDay::Night));
+        peer.admit_receiving_time_of_day(Some(TimeOfDay::Morning));
+        assert_eq!(owner.current_time_of_day(), TimeOfDay::Night);
+        assert_eq!(peer.current_time_of_day(), TimeOfDay::Morning);
+        owner
+            .pending_time_of_day
+            .store(2, std::sync::atomic::Ordering::Relaxed);
+        owner.apply_pending_time_of_day();
+        assert_eq!(owner.current_time_of_day(), TimeOfDay::Night);
+        assert!(owner.ambient_sound_event.is_none());
+        for _ in 0..120 {
+            owner.admit_receiving_time_of_day(Some(TimeOfDay::Night));
+        }
+        assert!(owner.ambient_sound_event.is_none());
+        peer.admit_receiving_time_of_day(Some(TimeOfDay::Evening));
+        assert_eq!(owner.current_time_of_day(), TimeOfDay::Night);
+        assert_eq!(peer.current_time_of_day(), TimeOfDay::Evening);
     }
 }

@@ -349,34 +349,37 @@ impl GameLogic {
         pos: glam::Vec3,
         on: bool,
     ) {
-        if on {
-            let Some(event) = crate::game_logic::audio_dispatch_impl::resolve_per_unit_sound(
+        // CPP JetAIUpdate1696 captures the actual Object's immutable template,
+        // not whichever same-name template is globally published later.
+        let receiving = self
+            .objects
+            .get(&object_id)
+            .and_then(|object| object.thing().template.receiving_client_template.as_ref());
+        let event = match receiving {
+            Some(template) => template
+                .per_unit_sound_event(crate::game_logic::object::JET_AFTERBURNER_SOUND)
+                .and_then(crate::game_logic::host_move_ambient_audio::nonempty_audio_event_name),
+            None => crate::game_logic::audio_dispatch_impl::resolve_per_unit_sound(
                 template_name,
                 crate::game_logic::object::JET_AFTERBURNER_SOUND,
-            ) else {
-                return;
-            };
-            self.queue_audio_event(
-                crate::game_logic::AudioEventRequest::new(&event)
-                    .with_object(object_id)
-                    .with_position(pos)
-                    .looping(),
-            );
+            ),
+        };
+        // Missing receiving slots are authoritative silence on start AND stop.
+        // Keep the old token only for the unmigrated programmatic adapter.
+        let Some(event) = event.or_else(|| {
+            (!on && receiving.is_none())
+                .then(|| crate::game_logic::object::JET_AFTERBURNER_SOUND_STOP.to_string())
+        }) else {
+            return;
+        };
+        let request = crate::game_logic::AudioEventRequest::new(&event)
+            .with_object(object_id)
+            .with_position(pos);
+        self.queue_audio_event(if on {
+            request.looping()
         } else {
-            // C++ `TheAudio->removeAudioEvent(m_afterburnerSound)` uses the
-            // same per-unit event that start queued — never only the slot token.
-            let stop_name = crate::game_logic::audio_dispatch_impl::resolve_per_unit_sound(
-                template_name,
-                crate::game_logic::object::JET_AFTERBURNER_SOUND,
-            )
-            .unwrap_or_else(|| crate::game_logic::object::JET_AFTERBURNER_SOUND_STOP.to_string());
-            self.queue_audio_event(
-                crate::game_logic::AudioEventRequest::new(&stop_name)
-                    .with_object(object_id)
-                    .with_position(pos)
-                    .stopping(),
-            );
-        }
+            request.stopping()
+        });
     }
 
     /// C++ `JetTakeoffOrLandingState::update` first-contact MiscAudio
@@ -3397,3 +3400,7 @@ mod owned_out_of_ammo_tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "afterburner_owner_tests.rs"]
+mod afterburner_owner_tests;

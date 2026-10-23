@@ -3276,7 +3276,7 @@ mod entity_lifecycle_audit;
 mod entity_lifecycle_envelope;
 mod entity_lifecycle_flight;
 mod entity_lifecycle_inventory;
-mod entity_lifecycle_projectiles;
+pub(crate) mod entity_lifecycle_projectiles;
 mod entity_lifecycle_residuals;
 mod entity_lifecycle_tags;
 mod entity_lifecycle_weapon_slots;

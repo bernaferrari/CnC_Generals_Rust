@@ -75,6 +75,7 @@ pub struct SideBuildEntry {
 /// Top-level metadata parsed from a map file.
 #[derive(Debug, Clone, Default)]
 pub struct MapMetadata {
+    pub(crate) lighting: Option<crate::game_logic::lighting_rules::MapLighting>,
     pub(crate) armor_definitions:
         Option<std::sync::Arc<gamelogic::object::armor::ArmorDefinitions>>,
     pub(crate) terrain_definitions:

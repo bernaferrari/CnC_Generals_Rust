@@ -667,11 +667,8 @@ fn capture(game_logic: &GameLogic) -> AIPlayerQueuePersistPayload {
 /// New snapshots place the AI queue frame immediately before the outer
 /// Academy/construction frames. Payload strings never select a frame.
 pub(super) fn suffix_start(bytes: &[u8]) -> SaveLoadResult<usize> {
-    let end = super::construction_completion_persist::suffix_start(bytes)?;
-    let mut boundary = &bytes[..end];
-    if boundary.ends_with(b"APRO") {
-        boundary = strip_owner_frame(boundary, b"APRO")?.0;
-    }
+    let end = super::a10_flight_persist::suffix_start(bytes)?;
+    let boundary = &bytes[..end];
     if boundary.ends_with(FRAME_MAGIC) {
         // The exact framed header and payload length must be valid before
         // exposing its prefix to another owner's decoder.
@@ -683,11 +680,8 @@ pub(super) fn suffix_start(bytes: &[u8]) -> SaveLoadResult<usize> {
 }
 
 fn find_aitq_suffix(bytes: &[u8]) -> SaveLoadResult<Option<&[u8]>> {
-    let end = super::construction_completion_persist::suffix_start(bytes)?;
-    let mut boundary = &bytes[..end];
-    if boundary.ends_with(b"APRO") {
-        boundary = strip_owner_frame(boundary, b"APRO")?.0;
-    }
+    let end = super::a10_flight_persist::suffix_start(bytes)?;
+    let boundary = &bytes[..end];
     if boundary.ends_with(FRAME_MAGIC) {
         let (_, payload) = strip_owner_frame(boundary, FRAME_MAGIC)?;
         if payload.len() < 12 || !payload.starts_with(AITQ_MAGIC) {

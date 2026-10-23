@@ -1450,12 +1450,23 @@ fn falloff_two_stage_matches_fab_shape() {
 fn friendly_fire_allies_residual_and_source_excluded() {
     // A10 no longer applies a delayed circle blast — OCL jets do the damage.
     let mut owner = crate::game_logic::GameLogic::new();
-    owner.templates.insert(
-        "LiveA10Source".into(),
-        crate::game_logic::ThingTemplate::new("LiveA10Source"),
+    let content = format!(
+        "Object LiveA10Source\nKindOf = STRUCTURE\nBody = ActiveBody Body\nMaxHealth = 5000\nInitialHealth = 5000\nEnd\nEnd\nObject {A10_TRANSPORT}\nKindOf = VEHICLE AIRCRAFT\nBody = ActiveBody Body\nMaxHealth = 600\nInitialHealth = 600\nEnd\nEnd\nObject {A10_PAYLOAD_TEMPLATE}\nKindOf = PROJECTILE\nBody = ActiveBody Body\nMaxHealth = 40\nInitialHealth = 40\nEnd\nEnd\n"
     );
+    owner
+        .admit_receiving_module_content(
+            crate::assets::ReceivingObjectContent::from_sources([(
+                "a10_strike_test.ini".into(),
+                content,
+            )])
+            .unwrap(),
+        )
+        .unwrap();
+    let mut player = crate::game_logic::Player::new(1, Team::USA, "A10 Owner", true);
+    player.alliance_team = 1;
+    owner.add_player(player);
     let source = owner
-        .create_object("LiveA10Source", Team::USA, Vec3::ZERO)
+        .create_object_for_player("LiveA10Source", 1, Vec3::ZERO)
         .unwrap();
     let strike = owner
         .queue_special_power_strike(&SpecialPowerType::Airstrike, source, Vec3::ZERO)
@@ -1500,6 +1511,73 @@ fn friendly_fire_allies_residual_and_source_excluded() {
     assert!(plans[0].hits.iter().any(|h| h.target_id == ObjectId(3)));
     // Source launcher still excluded.
     assert!(!plans[0].hits.iter().any(|h| h.target_id == ObjectId(1)));
+}
+
+#[test]
+fn a10_exact_delivery_credit_does_not_select_oldest_queued_strike() {
+    let mut reg = HostSpecialPowerStrikeRegistry::new();
+    let older = reg.queue(
+        HostSuperweaponKind::A10Strike,
+        ObjectId(1),
+        Team::USA,
+        Vec3::ZERO,
+        0,
+    );
+    let newer = reg.queue(
+        HostSuperweaponKind::A10Strike,
+        ObjectId(2),
+        Team::USA,
+        Vec3::X,
+        0,
+    );
+    assert!(reg.credit_live_a10_delivery_impact(newer, 12.0, 1, 0, false, Vec3::X));
+    assert_eq!(reg.get(older).unwrap().multi_strike_applied, 0);
+    assert_eq!(reg.get(newer).unwrap().multi_strike_applied, 1);
+    // The older strike remains untouched because credit names the newer ID;
+    // zero-damage admitted A10 shots are still real events and must be allowed.
+}
+
+#[test]
+fn a10_without_live_delivery_never_creates_registry_circle_damage() {
+    let mut reg = HostSpecialPowerStrikeRegistry::new();
+    let id = reg.queue(
+        HostSuperweaponKind::A10Strike,
+        ObjectId(1),
+        Team::USA,
+        Vec3::ZERO,
+        0,
+    );
+    let plans = reg.plan_due_impacts(60, &[(ObjectId(2), Vec3::ZERO, Team::GLA, true)]);
+    assert_eq!(plans.len(), 1);
+    assert!(plans[0].hits.is_empty());
+    assert_eq!(reg.get(id).unwrap().phase, HostStrikePhase::Queued);
+}
+
+#[test]
+fn a10_empty_delivery_cancels_without_impact_but_prior_effect_completes() {
+    let mut reg = HostSpecialPowerStrikeRegistry::new();
+    let empty = reg.queue(
+        HostSuperweaponKind::A10Strike,
+        ObjectId(1),
+        Team::USA,
+        Vec3::ZERO,
+        0,
+    );
+    let effected = reg.queue(
+        HostSuperweaponKind::A10Strike,
+        ObjectId(2),
+        Team::USA,
+        Vec3::ZERO,
+        0,
+    );
+    assert!(reg.finish_live_a10_delivery_without_more_effects(empty));
+    assert_eq!(reg.get(empty).unwrap().phase, HostStrikePhase::Cancelled);
+    assert_eq!(reg.get(empty).unwrap().multi_strike_applied, 0);
+    assert!(reg.credit_live_a10_delivery_impact(effected, 0.0, 0, 0, false, Vec3::ZERO));
+    assert_eq!(reg.get(effected).unwrap().multi_strike_applied, 1);
+    assert!(reg.finish_live_a10_delivery_without_more_effects(effected));
+    assert_eq!(reg.get(effected).unwrap().phase, HostStrikePhase::Completed);
+    assert_eq!(reg.get(effected).unwrap().multi_strike_applied, 1);
 }
 
 #[test]

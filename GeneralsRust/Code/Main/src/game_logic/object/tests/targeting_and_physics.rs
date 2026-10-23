@@ -2357,20 +2357,40 @@ fn jet_stop_and_enter_airfield_land() {
 
 #[test]
 fn jet_hangar_taxi_then_afterburner_at_runway_head_and_rtb_approach() {
-    use crate::game_logic::audio_dispatch_impl::{
-        clear_test_template_voices, set_test_per_unit_sound,
-    };
     use crate::game_logic::object::JET_AFTERBURNER_SOUND_STOP;
     use crate::game_logic::{GameLogic, KindOf, ParkingPlaceMetadata, Team, ThingTemplate};
     use glam::Vec3;
-    clear_test_template_voices();
     const AFTERBURNER_EVENT: &str = "RaptorAfterburner";
-    set_test_per_unit_sound("AmericaJetRaptor", "Afterburner", AFTERBURNER_EVENT);
     let mut logic = GameLogic::new();
-    let mut af_t = ThingTemplate::new("AmericaAirfield");
-    af_t.add_kind_of(KindOf::Structure)
-        .add_kind_of(KindOf::FSAirfield)
-        .set_health(1000.0);
+    logic
+        .admit_receiving_module_content(
+            crate::assets::ReceivingObjectContent::from_sources([(
+                "runway-afterburner-owner.ini".into(),
+                format!(
+                    r#"
+Object AmericaAirfield
+  KindOf = STRUCTURE FS_AIRFIELD
+  Body = ActiveBody BodyTag
+    MaxHealth = 1000
+    InitialHealth = 1000
+  End
+End
+Object AmericaJetRaptor
+  KindOf = AIRCRAFT
+  UnitSpecificSounds
+    Afterburner = {AFTERBURNER_EVENT}
+  End
+  Body = ActiveBody BodyTag
+    MaxHealth = 80
+    InitialHealth = 80
+  End
+End
+"#
+                ),
+            )])
+            .unwrap(),
+        )
+        .unwrap();
     // Ownerless legacy objects need a unique alive player per team for the
     // (None, None) relationship branch to read Allies (same-team USA).
     if logic.get_player(0).is_none() {
@@ -2381,7 +2401,11 @@ fn jet_hangar_taxi_then_afterburner_at_runway_head_and_rtb_approach() {
             true,
         ));
     }
-    af_t.parking_place = Some(ParkingPlaceMetadata {
+    logic
+        .templates
+        .get_mut("AmericaAirfield")
+        .unwrap()
+        .parking_place = Some(ParkingPlaceMetadata {
         num_rows: 2,
         num_cols: 2,
         approach_height: 50.0,
@@ -2390,10 +2414,6 @@ fn jet_hangar_taxi_then_afterburner_at_runway_head_and_rtb_approach() {
         park_in_hangars: false,
         heal_amount_per_second: 10.0,
     });
-    logic.templates.insert("AmericaAirfield".into(), af_t);
-    let mut jet_t = ThingTemplate::new("AmericaJetRaptor");
-    jet_t.add_kind_of(KindOf::Aircraft).set_health(80.0);
-    logic.templates.insert("AmericaJetRaptor".into(), jet_t);
     let af = logic
         .create_object("AmericaAirfield", Team::USA, Vec3::ZERO)
         .expect("af");

@@ -461,6 +461,26 @@ impl NativeDrawableOwner<'_> {
         Ok(())
     }
 
+    pub fn on_level_start_at(&mut self, tod: crate::system::TimeOfDay) -> GameClientResult<()> {
+        for &id in &self.drawables.native_drawable_order {
+            let drawable = self
+                .drawables
+                .drawable_map
+                .get_mut(&id)
+                .expect("native Drawable roster references a live receiver");
+            let basic = drawable
+                .as_any_mut()
+                .downcast_mut::<BasicDrawable>()
+                .ok_or_else(|| {
+                    GameClientError::InvalidOperation(
+                        "native onLevelStart requires its actual BasicDrawable receiver".into(),
+                    )
+                })?;
+            basic.on_level_start_at(tod);
+        }
+        Ok(())
+    }
+
     /// Failed constructor retirement selects only its actual Drawable identity.
     /// Required service validation precedes unlink; unrelated peers survive.
     pub fn try_remove_for_map_attempt(

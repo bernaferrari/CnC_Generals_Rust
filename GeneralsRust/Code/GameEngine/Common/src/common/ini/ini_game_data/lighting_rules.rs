@@ -1,0 +1,65 @@
+//! Receiving GameData lighting definitions, never a published GlobalData owner.
+use super::*;
+#[derive(Debug, Clone)]
+pub struct LightingContentRules {
+    pub time_of_day: TimeOfDay,
+    pub terrain: [[TerrainLighting; MAX_GLOBAL_LIGHTS]; TIME_OF_DAY_COUNT],
+    pub objects: [[TerrainLighting; MAX_GLOBAL_LIGHTS]; TIME_OF_DAY_COUNT],
+    pub num_global_lights: i32,
+    pub infantry_light_scale: [f32; TIME_OF_DAY_COUNT],
+    pub infantry_override: f32,
+    pub force_models_to_follow_weather: bool,
+    pub use_draw_module_lod: bool,
+    pub use_tree_sway: bool,
+}
+impl Default for LightingContentRules {
+    fn default() -> Self {
+        Self::from_global_data(&GlobalData::new())
+    }
+}
+impl LightingContentRules {
+    pub fn from_global_data(data: &GlobalData) -> Self {
+        Self {
+            time_of_day: data.time_of_day,
+            terrain: data.terrain_lighting.clone(),
+            objects: data.terrain_objects_lighting.clone(),
+            num_global_lights: data.num_global_lights,
+            infantry_light_scale: data.infantry_light_scale,
+            infantry_override: data.script_override_infantry_light_scale,
+            force_models_to_follow_weather: data.force_models_to_follow_weather,
+            use_draw_module_lod: data.use_draw_module_lod,
+            use_tree_sway: data.use_tree_sway,
+        }
+    }
+    /// Same GameData field table and original source order; no singleton writes.
+    pub fn overlay_ini_text(&self, text: &str) -> Result<Self, String> {
+        let mut draft = GlobalData::new();
+        draft.time_of_day = self.time_of_day;
+        draft.terrain_lighting = self.terrain.clone();
+        draft.terrain_objects_lighting = self.objects.clone();
+        draft.num_global_lights = self.num_global_lights;
+        draft.infantry_light_scale = self.infantry_light_scale;
+        draft.script_override_infantry_light_scale = self.infantry_override;
+        draft.force_models_to_follow_weather = self.force_models_to_follow_weather;
+        draft.use_draw_module_lod = self.use_draw_module_lod;
+        draft.use_tree_sway = self.use_tree_sway;
+        let mut ini = INI::new();
+        ini.with_inline_source(text, |ini| {
+            loop {
+                ini.read_line()?;
+                if ini.is_eof() {
+                    break;
+                }
+                if ini
+                    .get_next_token_or_null()
+                    .is_some_and(|key| key.eq_ignore_ascii_case("GameData"))
+                {
+                    parse_game_data_block(ini, &mut draft)?;
+                }
+            }
+            Ok(())
+        })
+        .map_err(|error| error.to_string())?;
+        Ok(Self::from_global_data(&draft))
+    }
+}

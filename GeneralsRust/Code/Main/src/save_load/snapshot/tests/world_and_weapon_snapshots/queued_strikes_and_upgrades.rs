@@ -128,82 +128,186 @@ fn special_power_daisy_cutter_mid_flight_save_load_still_impacts() {
 #[test]
 fn special_power_a10_mid_flight_save_load_still_impacts() {
     use crate::command_system::SpecialPowerType;
+    use crate::game_logic::special_power_strikes::{A10_PAYLOAD_TEMPLATE, A10_TRANSPORT};
 
-    let mut source = GameLogic::new();
-    ensure_strike_test_tank(&mut source);
-
-    let caster_id = source
-        .create_object("StrikeTestTank", Team::USA, Vec3::ZERO)
-        .expect("caster");
-    let enemy_id = source
-        .create_object("StrikeTestTank", Team::GLA, Vec3::new(15.0, 0.0, 0.0))
-        .expect("enemy");
-    {
-        let enemy = source.host_object_mut(enemy_id).expect("enemy");
-        enemy.health.current = 200.0;
-        enemy.health.maximum = 200.0;
-        enemy.template_mut().armor = 0.0;
+    fn receiving_world() -> GameLogic {
+        let mut world = GameLogic::new();
+        let sources = format!(
+            "Object StrikeCaster\nKindOf = STRUCTURE\nBody = ActiveBody Body\nMaxHealth = 5000\nInitialHealth = 5000\nEnd\nEnd\nObject StrikeTestTank\nKindOf = VEHICLE\nBody = ActiveBody Body\nMaxHealth = 200\nInitialHealth = 200\nEnd\nEnd\nObject {A10_TRANSPORT}\nKindOf = VEHICLE AIRCRAFT\nBody = ActiveBody Body\nMaxHealth = 600\nInitialHealth = 600\nEnd\nEnd\nObject {A10_PAYLOAD_TEMPLATE}\nKindOf = PROJECTILE\nBody = ActiveBody Body\nMaxHealth = 40\nInitialHealth = 40\nEnd\nEnd\n"
+        );
+        world
+            .admit_receiving_module_content(
+                crate::assets::ReceivingObjectContent::from_sources([(
+                    "a10_snapshot.ini".into(),
+                    sources,
+                )])
+                .unwrap(),
+            )
+            .unwrap();
+        world.override_world_size(4000., 4000.);
+        let mut owner = crate::game_logic::Player::new(1, Team::USA, "A10 Owner", true);
+        owner.alliance_team = 1;
+        world.add_player(owner);
+        let mut enemy = crate::game_logic::Player::new(2, Team::GLA, "A10 Enemy", false);
+        enemy.alliance_team = 2;
+        world.add_player(enemy);
+        world
     }
+    let mut source = receiving_world();
+    let caster_id = source
+        .create_object_for_player("StrikeCaster", 1, Vec3::ZERO)
+        .unwrap();
+    let target = Vec3::new(180., 0., 0.);
+    let enemy_id = source
+        .create_object_for_player("StrikeTestTank", 2, target)
+        .unwrap();
+    assert_eq!(source.host_object(enemy_id).unwrap().health.current, 200.);
+    let mut peer = receiving_world();
+    assert_eq!(
+        peer.create_object_for_player("StrikeCaster", 1, Vec3::ZERO),
+        Some(caster_id)
+    );
+    assert_eq!(
+        peer.create_object_for_player("StrikeTestTank", 2, target),
+        Some(enemy_id)
+    );
 
-    // A10 delay is 60 frames.
     source.set_current_frame(100);
     let strike_id = source
-        .queue_special_power_strike(
-            &SpecialPowerType::Airstrike,
-            caster_id,
-            Vec3::new(15.0, 0.0, 0.0),
-        )
-        .expect("A10 must queue");
+        .queue_special_power_strike(&SpecialPowerType::Airstrike, caster_id, target)
+        .expect("receiving controller admits actual A10 delivery");
+    let jet = source
+        .host_objects()
+        .registered_values()
+        .find(|actor| actor.a10_strike_transport.is_some() && actor.producer_id == Some(caster_id))
+        .map(|actor| actor.id)
+        .expect("queued A10 must have an actual aircraft");
+    let delivery = source
+        .a10_strike_flight_reg
+        .delivery_for_transport(jet)
+        .unwrap();
+    assert_eq!(
+        source.a10_strike_flight_reg.delivery_strike_id(delivery),
+        Some(strike_id)
+    );
+    // C++ OCL delivery owns aircraft, visible payload and weapon timing. The
+    // registry's old 60-frame circle is not an A10 impact oracle. Advance the
+    // actual airborne producer, then save before its first damaging effect.
+    for frame in 101..=130 {
+        source.set_current_frame(frame);
+        source.update_special_power_strikes();
+        source.update_a10_strike_flights();
+        assert_eq!(source.host_object(enemy_id).unwrap().health.current, 200.);
+    }
+    assert!(
+        source
+            .a10_strike_flight_reg
+            .delivery_missile_ids(delivery)
+            .is_empty()
+    );
     assert_eq!(
         source
             .special_power_strikes()
             .get(strike_id)
             .unwrap()
-            .impact_frame,
-        160
+            .multi_strike_applied,
+        0
     );
-
-    source.set_current_frame(130);
     let builder = SnapshotBuilder::new();
     let snapshot = builder
         .create_world_snapshot(&source)
-        .expect("A10 mid-flight snapshot");
-
-    let mut restored = GameLogic::new();
-    restored.templates = source.templates.clone();
+        .expect("actual A10 mid-flight snapshot");
+    let bytes = bincode_legacy::serialize(&snapshot).unwrap();
+    let decoded = crate::save_load::snapshot::decode_bincode_world_snapshot(&bytes).unwrap();
+    let mut restored = receiving_world();
     builder
-        .restore_from_snapshot(&snapshot, &mut restored)
-        .expect("A10 restore");
-
+        .restore_from_snapshot(&decoded, &mut restored)
+        .expect("actual A10 restore");
     assert_eq!(restored.get_current_frame(), 130);
     assert!(
         restored
             .special_power_strikes()
             .honesty_queue_ok(HostSuperweaponKind::A10Strike)
     );
+    assert_eq!(restored.host_object(enemy_id).unwrap().health.current, 200.);
+    assert_eq!(
+        restored.a10_strike_flight_reg.delivery_for_transport(jet),
+        Some(delivery)
+    );
+    assert!(
+        restored.a10_strike_flight_reg.transport_lifetime_matches(
+            delivery,
+            jet,
+            &restored
+                .host_object(jet)
+                .unwrap()
+                .visual_draw_identity_token
+        )
+    );
 
-    restored.set_current_frame(159);
-    restored.update_special_power_strikes();
-    assert!((restored.host_object(enemy_id).unwrap().health.current - 200.0).abs() < 0.1);
-
-    restored.set_current_frame(160);
-    restored.update_special_power_strikes();
+    for frame in 131..=500 {
+        for world in [&mut source, &mut restored] {
+            world.set_current_frame(frame);
+            world.update_special_power_strikes();
+            world.update_a10_strike_flights();
+        }
+        let a = source.special_power_strikes().get(strike_id).unwrap();
+        let b = restored.special_power_strikes().get(strike_id).unwrap();
+        assert_eq!(
+            (
+                a.phase,
+                a.multi_strike_applied,
+                a.objects_hit,
+                a.objects_destroyed
+            ),
+            (
+                b.phase,
+                b.multi_strike_applied,
+                b.objects_hit,
+                b.objects_destroyed
+            ),
+            "actual delivery continuation differs at frame {frame}"
+        );
+        assert_eq!(
+            source
+                .host_object(enemy_id)
+                .map(|actor| actor.health.current),
+            restored
+                .host_object(enemy_id)
+                .map(|actor| actor.health.current)
+        );
+        assert_eq!(
+            source.a10_strike_flight_reg.deliveries[&delivery].impacts,
+            restored.a10_strike_flight_reg.deliveries[&delivery].impacts
+        );
+        if a.phase == HostStrikePhase::Completed {
+            break;
+        }
+    }
     assert!(
         restored
             .special_power_strikes()
             .honesty_complete_ok(HostSuperweaponKind::A10Strike),
-        "A10 must complete after mid-flight load"
+        "actual aircraft/payload delivery must complete after restored continuation"
+    );
+    let strike = restored.special_power_strikes().get(strike_id).unwrap();
+    assert!(strike.multi_strike_applied > 0);
+    assert!(strike.objects_hit > 0);
+    assert!(
+        restored.a10_strike_flight_reg.deliveries[&delivery].impacts > 0,
+        "completion requires an actual visible missile impact, not a registry circle"
     );
     let health = restored
         .host_object(enemy_id)
-        .map(|o| o.health.current)
-        .unwrap_or(0.0);
+        .map(|actor| actor.health.current)
+        .unwrap_or(0.);
     assert!(
-        health < 200.0 || restored.host_object(enemy_id).is_none(),
-        "A10 residual damage must apply post-load (health={health})"
+        health < 200.,
+        "real post-load A10 weapon damage must apply (health={health})"
     );
+    assert_eq!(peer.host_object(enemy_id).unwrap().health.current, 200.);
+    assert_eq!(peer.special_power_strikes().pending_count(), 0);
 }
-
 #[test]
 fn save_file_roundtrip_preserves_pending_special_power_strike() {
     use crate::command_system::SpecialPowerType;

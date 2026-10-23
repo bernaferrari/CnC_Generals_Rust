@@ -1445,3 +1445,39 @@ fn actual_tree_prop_render_collection_preserves_constructor_retirement_and_peer(
         );
     }
 }
+
+#[test]
+fn native_constructor_policy_keeps_receiving_tod_across_peer_changes_and_invalid_values() {
+    use game_client::system::TimeOfDay as Native;
+    use game_engine::common::ini::TimeOfDay as Source;
+    let mut owner = GameLogic::new();
+    let mut peer = GameLogic::new();
+    owner.set_receiving_time_of_day(Source::Night);
+    peer.set_receiving_time_of_day(Source::Morning);
+    assert_eq!(
+        receiving_native_drawable_policy_for(&owner).time_of_day,
+        Some(Native::Night)
+    );
+    assert_eq!(
+        receiving_native_drawable_policy_for(&peer).time_of_day,
+        Some(Native::Morning)
+    );
+    peer.set_receiving_time_of_day(Source::Evening);
+    assert_eq!(
+        receiving_native_drawable_policy_for(&owner).time_of_day,
+        Some(Native::Night)
+    );
+    assert_eq!(
+        receiving_native_drawable_policy_for(&peer).time_of_day,
+        Some(Native::Evening)
+    );
+    peer.set_receiving_time_of_day(Source::Invalid);
+    assert_eq!(
+        receiving_native_drawable_policy_for(&peer).time_of_day,
+        None
+    );
+    assert_eq!(
+        receiving_native_drawable_policy_for(&owner).time_of_day,
+        Some(Native::Night)
+    );
+}

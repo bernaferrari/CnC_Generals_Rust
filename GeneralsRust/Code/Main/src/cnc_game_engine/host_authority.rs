@@ -140,6 +140,7 @@ mod restore_viewport_owner_tests;
 /// a detached saved-world candidate. This borrow cannot select another world.
 #[derive(Clone, Copy)]
 pub(super) struct RestoreTemplateCatalog<'a> {
+    lighting_baseline: &'a crate::game_logic::lighting_rules::LightingContentRules,
     templates: &'a std::collections::HashMap<String, crate::game_logic::ThingTemplate>,
     modules:
         &'a Option<game_engine::common::thing::receiving_module_content::ReceivingModuleContent>,
@@ -154,6 +155,7 @@ impl<'a> RestoreTemplateCatalog<'a> {
             modules: &world.receiving_module_content,
             object_definitions: &world.receiving_object_definitions,
             baseline: &world.receiving_template_baseline,
+            lighting_baseline: world.lighting_rules_baseline(),
         }
     }
 }
@@ -182,7 +184,7 @@ impl CnCGameEngine {
         if candidate.retirement_failed() {
             return Err("native candidate destructor previously failed; retry prohibited".into());
         }
-        let policy = super::native_view_effects::receiving_native_drawable_policy();
+        let policy = super::native_view_effects::receiving_native_drawable_policy_for(world);
         let mut retirement = game_client::core::game_client::NativeParticleRetirementService;
         let mut attempt = candidate.attempt(
             self.render_pipeline.borrow_native_draw_services(),
@@ -2212,6 +2214,7 @@ impl CnCGameEngine {
                 modules: &live.receiving_module_content,
                 object_definitions: &live.receiving_object_definitions,
                 baseline: &live.receiving_template_baseline,
+                lighting_baseline: live.lighting_rules_baseline(),
             },
             &live.weapon_definition_base,
             &live.projectile_definitions,
@@ -2344,6 +2347,7 @@ impl CnCGameEngine {
             candidate.set_ai_definition_base(live.ai_definitions.baseline().clone());
             candidate.admit_production_energy_base(live.production_energy_baseline());
             candidate.admit_physics_rules_base(live.physics_rules_baseline())?;
+            candidate.admit_lighting_rules_base(live.lighting_rules_baseline().clone());
             candidate
                 .admit_terrain_definitions(Arc::clone(live.effective_terrain_definitions()))?;
             if let Some(catalog) = live.current_armor_definitions() {
@@ -2602,6 +2606,7 @@ impl CnCGameEngine {
         staged.set_ai_definition_base(ai_definition_base.clone());
         staged.admit_production_energy_base(production_energy_base);
         staged.admit_physics_rules_base(physics_rules_base)?;
+        staged.admit_lighting_rules_base(template_catalog.lighting_baseline.clone());
         staged.admit_terrain_definitions(Arc::clone(terrain_definition_seed))?;
         if let Some(catalog) = armor_definition_seed {
             staged.admit_armor_definitions(Arc::clone(catalog));
@@ -2793,7 +2798,8 @@ impl CnCGameEngine {
         #[cfg(feature = "game_client")]
         let staged_result = (|| -> Result<StagedRestoreWorld, String> {
             use crate::game_logic::NativeMapAdmission;
-            let policy = super::native_view_effects::receiving_native_drawable_policy();
+            let policy =
+                super::native_view_effects::receiving_native_drawable_policy_for(&self.game_logic);
             let mut candidate = super::map_native_admission::NativeMapCandidate::with_epoch(
                 self.next_native_world_epoch(),
             );
@@ -2814,6 +2820,7 @@ impl CnCGameEngine {
                     modules: &self.game_logic.receiving_module_content,
                     object_definitions: &self.game_logic.receiving_object_definitions,
                     baseline: &self.game_logic.receiving_template_baseline,
+                    lighting_baseline: self.game_logic.lighting_rules_baseline(),
                 },
                 &self.game_logic.weapon_definition_base,
                 &self.game_logic.projectile_definitions,
@@ -2851,6 +2858,7 @@ impl CnCGameEngine {
                 modules: &self.game_logic.receiving_module_content,
                 object_definitions: &self.game_logic.receiving_object_definitions,
                 baseline: &self.game_logic.receiving_template_baseline,
+                lighting_baseline: self.game_logic.lighting_rules_baseline(),
             },
             &self.game_logic.weapon_definition_base,
             &self.game_logic.projectile_definitions,

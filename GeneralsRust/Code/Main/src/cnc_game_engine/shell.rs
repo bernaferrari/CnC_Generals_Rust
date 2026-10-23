@@ -1655,6 +1655,7 @@ impl CnCGameEngine {
                     game_logic.admit_camera_application_input(camera_input_base);
                     game_logic.admit_camera_application_shake(camera_shake_base)?;
                     game_logic.admit_camera_application_rules(camera_rule_base)?;
+                    game_logic.admit_lighting_rules_base(runtime.block_on(Self::load_lighting_rules_baseline())?);
                     game_logic.admit_physics_rules_base(runtime.block_on(Self::load_physics_rules_baseline())?)?;
                     game_logic.admit_production_energy_base(runtime.block_on(Self::load_production_energy_baseline())?);
                     // Explicit engine-content admission before this session loads a map.
@@ -1856,6 +1857,7 @@ impl CnCGameEngine {
                 let policy = {
                     let data = game_engine::common::global_data::read();
                     game_client::core::game_client::ReceivingDrawablePolicy {
+                        time_of_day: game_logic.native_lighting_time_of_day(),
                         use_draw_module_lod: data.use_draw_module_lod,
                         use_tree_sway: data.use_tree_sway,
                         static_game_lod: match current.to_ascii_uppercase().as_str() {

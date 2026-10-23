@@ -244,6 +244,9 @@ impl SnapshotBuilder {
                     &mut bytes, game_logic,
                 );
 
+                // A10 registry capsule is framed immediately before the APRO
+                // / particle / CPAD footer chain; actor payload schemas stay unchanged.
+                super::super::a10_flight_persist::append_to_lifecycle_tail(&mut bytes, game_logic)?;
                 // Framed completion footer is last; its parser never scans
                 // arbitrary object/template payload bytes for a marker.
                 super::super::player_academy_persist::append_to_lifecycle_tail(
@@ -426,6 +429,15 @@ impl SnapshotBuilder {
             &body_kinds,
         )?;
         let lifecycle_tail = native_die.legacy_tail.as_ref();
+        let lifecycle_for_a10 =
+            super::super::lifecycle_tail::decode_lifecycle_tail(lifecycle_tail)?;
+        let a10_delivery_candidate = super::super::a10_flight_persist::decode_and_validate(
+            lifecycle_tail,
+            &snapshot.objects,
+            &snapshot.special_power_strikes.strikes,
+            &lifecycle_for_a10,
+            game_logic,
+        )?;
         // Reject malformed companion bytes before this API mutates its receiver.
         // Production map loading then restores this candidate world atomically.
         let ghosts = snapshot
@@ -492,6 +504,12 @@ impl SnapshotBuilder {
 
         // Restore frame number
         game_logic.set_current_frame(snapshot.frame_number);
+
+        // Lighting was validated with every other capsule before retirement.
+        // Commit the prepared rules before Players and Objects are rebuilt.
+        if let Some(rules) = a10_delivery_candidate.lighting.clone() {
+            game_logic.install_validated_lighting_rules(rules);
+        }
 
         // C++ Object.cpp:4218-4246 writes trigger slots after pose. Restore
         // HOST_TRIGGER_WORLD (including m_iPos) before recreate/set_position
@@ -626,6 +644,21 @@ impl SnapshotBuilder {
 
         let tail = super::super::lifecycle_tail::decode_lifecycle_tail(lifecycle_tail)?;
         super::super::lifecycle_tail::apply_lifecycle_tail_to_host(&tail, game_logic)?;
+        let mut restored_a10_registry = a10_delivery_candidate.registry;
+        for id in &a10_delivery_candidate.live_transport_bindings {
+            let actor = game_logic
+                .objects
+                .get(id)
+                .expect("A10 preflight validated every live transport object record");
+            assert!(
+                restored_a10_registry
+                    .restore_transport_lifetime(*id, &actor.visual_draw_identity_token,)
+            );
+        }
+        game_logic.a10_strike_flight_reg = restored_a10_registry;
+        game_logic
+            .special_power_strikes_mut()
+            .reconcile_a10_delivery_ownership(&a10_delivery_candidate.live_strike_ids);
         super::super::special_power_cooldown_persist::apply_from_lifecycle_tail(
             lifecycle_tail,
             game_logic,

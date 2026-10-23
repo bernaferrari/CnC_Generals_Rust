@@ -22,6 +22,7 @@ pub(crate) mod crate_object_bridge;
 #[path = "game_logic/mod.rs"]
 pub mod game_logic;
 pub mod host_transport_return;
+pub(crate) mod lighting_rules;
 pub(crate) mod native_die_definition;
 pub(crate) mod native_lifecycle;
 pub(crate) mod native_lifecycle_definition;

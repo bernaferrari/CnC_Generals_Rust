@@ -20,6 +20,8 @@ use std::collections::HashSet;
 /// Original Drawable constructor options, captured from the receiving application.
 #[derive(Debug, Clone, Copy)]
 pub struct ReceivingDrawablePolicy {
+    /// Receiving session value; Invalid has no native representation.
+    pub time_of_day: Option<crate::system::TimeOfDay>,
     pub use_draw_module_lod: bool,
     pub static_game_lod: StaticGameLodLevel,
     pub use_tree_sway: bool,

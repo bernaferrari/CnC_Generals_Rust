@@ -292,6 +292,7 @@ impl GameLogic {
         }
         self.refresh_receiving_client_templates();
         self.physics_definitions.effective = self.physics_definitions.base;
+        self.lighting_definitions.effective = self.lighting_definitions.base.clone();
         self.reset_ocl_map_definitions();
         self.named_unit_history.clear();
         self.construction_events.reset();
@@ -365,6 +366,10 @@ impl GameLogic {
                     .iter()
                     .map(|(_, text)| text.clone())
                     .collect();
+                if let Err(error) = self.admit_lighting_companion_sources(&weapon_overrides) {
+                    log::error!("Cannot admit receiving map lighting rules: {error}");
+                    return false;
+                }
                 if let Err(error) = self.apply_receiving_module_overrides(&weapon_overrides) {
                     log::error!("Cannot admit receiving map Object modules: {error}");
                     return false;
@@ -421,6 +426,9 @@ impl GameLogic {
                 let parsed_settings = match parsed {
                     Ok(meta) => match self.admit_ai_map_overrides(ai_draft) {
                         Ok(()) => {
+                            if let Some(lighting) = &meta.lighting {
+                                self.apply_map_lighting(lighting);
+                            }
                             if let Some(definitions) = &meta.armor_definitions {
                                 self.admit_armor_definitions(Arc::clone(definitions));
                             }

@@ -104,6 +104,11 @@ impl PartialEq for ReceivingClientTemplate {
 }
 
 impl ReceivingClientTemplate {
+    /// Immutable sound slot of this actor's admitted receiving definition.
+    pub(crate) fn per_unit_sound_event(&self, slot: &str) -> Option<&str> {
+        self.0.per_unit_sound_event(slot)
+    }
+
     pub(crate) fn new(
         template: std::sync::Arc<
             game_engine::common::thing::thing_template::AdmittedReceivingTemplate,

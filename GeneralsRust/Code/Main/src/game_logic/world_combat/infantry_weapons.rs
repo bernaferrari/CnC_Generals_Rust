@@ -1558,8 +1558,31 @@ impl GameLogic {
         damage_type: crate::game_logic::combat::DamageType,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> (f32, u32, u32) {
+        self.apply_radius_damage_from_source_with_effects(
+            source_id,
+            producer.or(Some(source_id)),
+            epicenter,
+            damage,
+            radius,
+            damage_type,
+            presentation_effects,
+        )
+    }
+
+    /// Weapon damage provenance is independent of the actor excluded from its
+    /// own blast. DeliverPayload's visible missile has no launcher ID; unlike
+    /// normal launched projectiles its damage source must remain absent.
+    pub(crate) fn apply_radius_damage_from_source_with_effects(
+        &mut self,
+        source_id: ObjectId,
+        killer: Option<ObjectId>,
+        epicenter: Vec3,
+        damage: f32,
+        radius: f32,
+        damage_type: crate::game_logic::combat::DamageType,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> (f32, u32, u32) {
         let r2 = radius * radius;
-        let killer = producer.or(Some(source_id));
         let victims: Vec<ObjectId> = self
             .objects
             .registered()

@@ -56,7 +56,6 @@ impl GameWorldShadow {
             map_min_z: 0.0,
             map_max_x: 0.0,
             map_max_z: 0.0,
-            a10_pending_drops: Vec::new(),
             artillery_pending_drops: Vec::new(),
             carpet_pending_drops: Vec::new(),
         }
@@ -321,7 +320,6 @@ impl GameWorldShadow {
         self.map_max_x = map_max.x;
         self.map_max_z = map_max.z;
         // Wave 792: mirror A10 pending missile drops for GW sole-tick.
-        self.a10_pending_drops = logic.a10_strike_flight_reg.pending_drops.clone();
         self.artillery_pending_drops = logic.artillery_barrage_flight_reg.pending_drops.clone();
         self.carpet_pending_drops = logic.carpet_bomb_flight_reg.pending_drops.clone();
 

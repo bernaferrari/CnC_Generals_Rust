@@ -22,6 +22,25 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, world: &GameLogic) {
     bytes.extend_from_slice(MAGIC);
 }
 
+/// Boundary for the preceding owner continuation. Only peel known outer
+/// footers; APRO bytes inside arbitrary payloads never select a capsule.
+pub(super) fn suffix_start(bytes: &[u8]) -> SaveLoadResult<usize> {
+    let end = super::construction_completion_persist::suffix_start(bytes)?;
+    let prefix = &bytes[..end];
+    if !prefix.ends_with(MAGIC) {
+        return Ok(end);
+    }
+    let invalid = || SaveLoadError::Corrupted("invalid APRO Academy framing".into());
+    let footer = end.checked_sub(12).ok_or_else(invalid)?;
+    let version = u32::from_le_bytes(prefix[footer..footer + 4].try_into().unwrap());
+    let length = u32::from_le_bytes(prefix[footer + 4..footer + 8].try_into().unwrap()) as usize;
+    let start = footer.checked_sub(length).ok_or_else(invalid)?;
+    if version != 1 || length < 4 || prefix[..start].ends_with(MAGIC) {
+        return Err(invalid());
+    }
+    Ok(start)
+}
+
 pub fn apply_from_lifecycle_tail(bytes: &[u8], world: &mut GameLogic) -> SaveLoadResult<()> {
     let end = super::construction_completion_persist::suffix_start(bytes)?;
     let bytes = &bytes[..end];

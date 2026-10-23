@@ -58,6 +58,7 @@
 // Wave 956: host_object/host_objects authority dual-read seal.
 //! Wave 957: host_object/host_objects authority dual-read seal.
 
+mod a10_flight_persist;
 mod ai;
 mod battle_plan_persist;
 mod builder;

@@ -406,6 +406,7 @@ fn actual_receiving_factory_frame_installs_typed_client_data_and_authored_empty_
     let mut peer_receiver = game_client::core::game_client::GameClient::new().unwrap();
     let mut empty_receiver = game_client::core::game_client::GameClient::new().unwrap();
     let policy = game_client::core::game_client::ReceivingDrawablePolicy {
+        time_of_day: Some(game_client::system::TimeOfDay::Afternoon),
         use_draw_module_lod: true,
         static_game_lod: game_engine::common::thing::module::StaticGameLodLevel::High,
         use_tree_sway: true,

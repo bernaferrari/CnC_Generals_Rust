@@ -247,11 +247,15 @@ impl GameLogic {
     fn host_player_color(&self, player_id: Option<u32>, team: Team) -> u32 {
         if let Some(id) = player_id {
             if let Some(player) = self.players.get(&id) {
-                return pack_player_color_argb(player.house_color_rgb());
+                return pack_player_color_argb(
+                    player.house_color_rgb_at(self.lighting_rules().time_of_day),
+                );
             }
         }
         if let Some(player) = self.players.values().find(|p| p.team == team) {
-            return pack_player_color_argb(player.house_color_rgb());
+            return pack_player_color_argb(
+                player.house_color_rgb_at(self.lighting_rules().time_of_day),
+            );
         }
         0xFFC8_C8C8
     }
@@ -335,7 +339,11 @@ impl GameLogic {
                 let color = self
                     .players
                     .get(&pid)
-                    .map(|p| pack_player_color_argb(p.house_color_rgb()))
+                    .map(|p| {
+                        pack_player_color_argb(
+                            p.house_color_rgb_at(self.lighting_rules().time_of_day),
+                        )
+                    })
                     .unwrap_or(owner_color);
                 return (Some(pid as i32), Some(color));
             }
@@ -355,7 +363,9 @@ impl GameLogic {
             let color = self
                 .players
                 .get(&pid)
-                .map(|p| pack_player_color_argb(p.house_color_rgb()))
+                .map(|p| {
+                    pack_player_color_argb(p.house_color_rgb_at(self.lighting_rules().time_of_day))
+                })
                 .unwrap_or(owner_color);
             (Some(pid as i32), Some(color))
         } else {

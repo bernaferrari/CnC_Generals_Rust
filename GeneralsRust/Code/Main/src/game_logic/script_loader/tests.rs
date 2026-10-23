@@ -35,9 +35,6 @@ mod tests {
     #[test]
     fn global_lighting_keeps_objects_row_for_units_and_shadows() {
         // C++ WorldHeightMap.cpp:772-804 — terrain[0] then objects[0] per TOD.
-        use game_engine::common::ini::ini_game_data::ensure_global_data;
-        let handle = ensure_global_data();
-        let previous = handle.read().clone();
         let mut payload = Vec::new();
         payload.extend_from_slice(&4i32.to_le_bytes()); // Night
         for tod in 0..4 {
@@ -60,10 +57,11 @@ mod tests {
         assert_eq!(meta.objects_ambient_color, Some([0.9, 0.8, 0.7]));
         assert_eq!(meta.objects_sun_color, Some([0.15, 0.25, 0.35]));
         assert_eq!(meta.objects_sun_direction, Some([9.0, 8.0, 7.0]));
-        let objects = handle.read().terrain_objects_lighting[4][0].clone();
+        let mut world = crate::game_logic::GameLogic::new();
+        world.apply_map_lighting(meta.lighting.as_ref().unwrap());
+        let objects = &world.lighting_rules().objects[4][0];
         assert!((objects.ambient.r - 0.9).abs() < 1e-5);
         assert!((objects.light_pos.x - 9.0).abs() < 1e-5);
-        *handle.write() = previous;
     }
 
     #[test]

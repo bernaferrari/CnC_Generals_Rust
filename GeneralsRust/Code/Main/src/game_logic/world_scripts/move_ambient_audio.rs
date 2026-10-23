@@ -10,52 +10,28 @@ use crate::game_logic::host_move_ambient_audio::{
 /// as parity debt hq-rei1p. AudioSettings supplies its configured interval.
 const DEFAULT_DRAWABLE_AMBIENT_RETRY_FRAMES: u32 = 30;
 
-/// Live `drawable_ambient_frames` from THE_AUDIO AudioSettings (retail
-/// `TimeBetweenDrawableSounds`), defaulting to 30 frames.
-fn drawable_ambient_retry_frames() -> u32 {
-    game_engine::common::audio::game_audio::get_global_audio_manager()
-        .and_then(|manager| {
-            // Nest so the guard dies inside the closure (E0515 otherwise).
-            manager
-                .lock()
-                .ok()
-                .map(|guard| guard.get_audio_settings().drawable_ambient_frames)
-        })
-        .filter(|frames| *frames > 0)
-        .unwrap_or(DEFAULT_DRAWABLE_AMBIENT_RETRY_FRAMES)
-}
-
-fn leftover_ambient_is_playing(object_id: ObjectId, name: &str) -> bool {
-    let Some(manager) = game_engine::common::audio::game_audio::get_global_audio_manager() else {
-        return false;
-    };
-    manager
-        .lock()
-        .ok()
-        .map(|guard| guard.is_named_event_playing_for_object(object_id.0, name))
-        .unwrap_or(false)
-}
-
-fn leftover_ambient_is_permanent(name: &str) -> bool {
-    // C++ Drawable::update: `eventInfo == NULL || isPermanentSound()`.
-    let Some(manager) = game_engine::common::audio::game_audio::get_global_audio_manager() else {
-        return true;
-    };
-    manager
-        .lock()
-        .ok()
-        .and_then(|guard| guard.find_audio_event_info(name))
-        .map(|info| info.is_permanent_sound())
-        .unwrap_or(true)
-}
-
 impl GameLogic {
     /// C++ `Drawable::update` (`Drawable.cpp:1290-1314`): permanent (loop-forever)
     /// SoundAmbient is re-added when Miles / leftover TheAudio culls it out of range.
     pub(crate) fn retry_dropped_ambient_sounds(&mut self) {
-        if !crate::assets::audio::leftover_the_audio_is_live() {
+        let Some(manager) = game_engine::common::audio::game_audio::get_global_audio_manager()
+        else {
             return;
-        }
+        };
+        // Capture the existing application service once. The borrowed kernel
+        // performs only local reads, pacing updates, and Vec queue insertion;
+        // no callback or playback dispatch occurs while this guard is held.
+        let guard = manager.lock().ok();
+        self.retry_dropped_ambient_sounds_with_audio(guard.as_deref());
+    }
+
+    /// Explicit receiving mixer observation. `None` preserves the compatibility
+    /// adapter's historical poisoned-lock policy: not playing, unknown permanent
+    /// resource, and the default retry interval. No ambient service discovery.
+    fn retry_dropped_ambient_sounds_with_audio(
+        &mut self,
+        audio: Option<&game_engine::common::audio::AudioManager>,
+    ) {
         let candidates: Vec<(ObjectId, String, glam::Vec3)> = self
             .objects
             .registered()
@@ -72,7 +48,10 @@ impl GameLogic {
         self.ambient_sound_retries
             .retain_objects(|id| candidates.iter().any(|(candidate, _, _)| *candidate == id));
         let now = self.frame;
-        let retry_frames = drawable_ambient_retry_frames();
+        let retry_frames = audio
+            .map(|audio| audio.get_audio_settings().drawable_ambient_frames)
+            .filter(|frames| *frames > 0)
+            .unwrap_or(DEFAULT_DRAWABLE_AMBIENT_RETRY_FRAMES);
         for (id, name, pos) in candidates {
             if self.queued_audio_events.iter().any(|event| {
                 event.object_id == Some(id)
@@ -87,8 +66,13 @@ impl GameLogic {
                 &name,
                 now,
                 retry_frames,
-                || leftover_ambient_is_playing(id, &name),
-                || leftover_ambient_is_permanent(&name),
+                || audio.is_some_and(|audio| audio.is_named_event_playing_for_object(id.0, &name)),
+                || {
+                    audio
+                        .and_then(|audio| audio.find_audio_event_info(&name))
+                        .map(|info| info.is_permanent_sound())
+                        .unwrap_or(true)
+                },
             );
             if should_restart {
                 self.queue_audio_event(

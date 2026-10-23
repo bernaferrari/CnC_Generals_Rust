@@ -560,6 +560,20 @@ impl HostSpecialPowerStrikeRegistry {
         }
     }
 
+    /// Restore A10 live-flight ownership only for strike IDs whose actual
+    /// delivery ledger and incoming actors passed snapshot preflight. Other
+    /// weapon ownership flags retain the existing failback policy.
+    pub fn reconcile_a10_delivery_ownership(
+        &mut self,
+        live_strike_ids: &std::collections::HashSet<u32>,
+    ) {
+        for strike in self.strikes.values_mut() {
+            strike.live_a10_delivery = strike.kind == HostSuperweaponKind::A10Strike
+                && strike.phase == HostStrikePhase::Queued
+                && live_strike_ids.contains(&strike.id);
+        }
+    }
+
     pub fn radiation_fields_spawned_total(&self) -> u32 {
         self.radiation_fields_spawned_total
     }

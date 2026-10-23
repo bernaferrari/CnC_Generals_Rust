@@ -120,33 +120,22 @@ fn parse_lighting_payload_for_settings(
     meta: &mut MapMetadata,
 ) -> LoaderResult<()> {
     let mut reader = BinaryReader::new(payload);
-    if reader.remaining() < 4 {
-        return Ok(());
-    }
     let time_of_day = reader.read_i32()?;
 
     // C++ writes both arrays for Morning..Night (WorldHeightMap.cpp:772-820).
-    let mut terrain_lights = [[[0.0f32; 9]; 3]; 4];
-    let mut objects_lights = [[[0.0f32; 9]; 3]; 4];
+    let empty = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -1.0];
+    let mut terrain_lights = [[empty; 3]; 4];
+    let mut objects_lights = [[empty; 3]; 4];
     for tod in 0..4 {
-        if reader.remaining() < 9 * 4 * 2 {
-            break;
-        }
         terrain_lights[tod][0] = read_global_lighting_row(&mut reader)?;
         objects_lights[tod][0] = read_global_lighting_row(&mut reader)?;
         if version >= 2 {
             for extra in 1..3 {
-                if reader.remaining() < 9 * 4 {
-                    break;
-                }
                 objects_lights[tod][extra] = read_global_lighting_row(&mut reader)?;
             }
         }
         if version >= 3 {
             for extra in 1..3 {
-                if reader.remaining() < 9 * 4 {
-                    break;
-                }
                 terrain_lights[tod][extra] = read_global_lighting_row(&mut reader)?;
             }
         }
@@ -177,7 +166,18 @@ fn parse_lighting_payload_for_settings(
         meta.terrain_extra_lights =
             vec![terrain_lights[row_index][1], terrain_lights[row_index][2]];
     }
-    apply_map_lighting_to_global_data(time_of_day, version, &terrain_lights, &objects_lights);
+    use game_engine::common::ini::ini_game_data::TimeOfDay;
+    meta.lighting = Some(crate::game_logic::lighting_rules::MapLighting {
+        time_of_day: match time_of_day {
+            1 => TimeOfDay::Morning,
+            2 => TimeOfDay::Afternoon,
+            3 => TimeOfDay::Evening,
+            4 => TimeOfDay::Night,
+            _ => TimeOfDay::Invalid,
+        },
+        terrain: terrain_lights,
+        objects: objects_lights,
+    });
     // Never invent fog/sky from this chunk — C++ FogEnabled defaults false
     // and GlobalLighting has no fog fields.
     meta.fog_color = None;
@@ -199,60 +199,6 @@ fn read_global_lighting_row(reader: &mut BinaryReader<'_>) -> LoaderResult<[f32;
         reader.read_f32()?,
         reader.read_f32()?,
     ])
-}
-
-fn lighting_row_to_authored(
-    row: [f32; 9],
-) -> game_engine::common::ini::ini_game_data::TerrainLighting {
-    use game_engine::common::ini::ini_game_data::{Coord3D, RGBColor, TerrainLighting};
-    TerrainLighting {
-        ambient: RGBColor::new(row[0], row[1], row[2]),
-        diffuse: RGBColor::new(row[3], row[4], row[5]),
-        light_pos: Coord3D::new(row[6], row[7], row[8]),
-    }
-}
-
-/// C++ `WorldHeightMap::ParseLightingDataChunk` writes both lighting arrays
-/// into `TheWritableGlobalData` for every TOD slot.
-fn apply_map_lighting_to_global_data(
-    time_of_day: i32,
-    version: u16,
-    terrain_lights: &[[[f32; 9]; 3]; 4],
-    objects_lights: &[[[f32; 9]; 3]; 4],
-) {
-    use game_engine::common::ini::ini_game_data::{
-        MAX_GLOBAL_LIGHTS, TIME_OF_DAY_FIRST, TimeOfDay, ensure_global_data,
-    };
-    let handle = ensure_global_data();
-    let mut data = handle.write();
-    data.time_of_day = match time_of_day {
-        1 => TimeOfDay::Morning,
-        2 => TimeOfDay::Afternoon,
-        3 => TimeOfDay::Evening,
-        4 => TimeOfDay::Night,
-        _ => data.time_of_day,
-    };
-    for tod in 0..4 {
-        let dest_tod = tod + TIME_OF_DAY_FIRST;
-        if dest_tod >= data.terrain_lighting.len() {
-            continue;
-        }
-        data.terrain_lighting[dest_tod][0] = lighting_row_to_authored(terrain_lights[tod][0]);
-        data.terrain_objects_lighting[dest_tod][0] =
-            lighting_row_to_authored(objects_lights[tod][0]);
-        if version >= 2 {
-            for light in 1..MAX_GLOBAL_LIGHTS {
-                data.terrain_objects_lighting[dest_tod][light] =
-                    lighting_row_to_authored(objects_lights[tod][light]);
-            }
-        }
-        if version >= 3 {
-            for light in 1..MAX_GLOBAL_LIGHTS {
-                data.terrain_lighting[dest_tod][light] =
-                    lighting_row_to_authored(terrain_lights[tod][light]);
-            }
-        }
-    }
 }
 
 /// C++ GameLogic::loadMapINI — pull `ParticleSystem` blocks out of mixed map.ini.

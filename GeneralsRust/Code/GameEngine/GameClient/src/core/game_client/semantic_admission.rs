@@ -105,6 +105,45 @@ impl NativeDrawableOwner<'_> {
             .presentation_direct_drawable_state(epoch, object)
             .map(|state| state.binding_key)
     }
+    /// Immediate original Body observation on the exact receiving native lifetime.
+    /// Snapshot restamping does not call this operation.
+    pub fn body_state_changed_with_audio(
+        &mut self,
+        key: PresentationDirectDrawableBindingKey,
+        state: gamelogic::common::types::BodyDamageType,
+        loading_map: bool,
+        time_of_day: crate::system::TimeOfDay,
+        audio: &mut dyn crate::drawable::drawable::NativeAmbientAudio,
+        locality: &game_engine::common::audio::AudioSubmissionLocality,
+    ) -> GameClientResult<()> {
+        if self.binding_key(key.host_epoch, key.object_id) != Some(key) {
+            return Err(GameClientError::InvalidOperation(
+                "native Body visual receiver has a stale binding".into(),
+            ));
+        }
+        let receiver = self
+            .drawables
+            .drawable_map
+            .get_mut(&key.drawable_id)
+            .and_then(|drawable| drawable.as_any_mut().downcast_mut::<BasicDrawable>())
+            .ok_or_else(|| {
+                GameClientError::InvalidOperation(
+                    "native Body visual receiver is not its BasicDrawable".into(),
+                )
+            })?;
+        receiver
+            .preflight_native_ambient()
+            .map_err(GameClientError::InvalidOperation)?;
+        // Flags may invoke Draw modules. No AudioManager guard spans that walk.
+        receiver.react_to_body_damage_state_change(state);
+        if !loading_map {
+            audio
+                .restart_ambient(receiver, state, time_of_day, locality)
+                .map_err(GameClientError::InvalidOperation)?;
+        }
+        Ok(())
+    }
+
     /// One factory birth, independent of GPU/presentation residency. Never prunes
     /// another actor. The caller supplies the original pre-placement pose.
     pub fn admit_semantic_drawable_with_content(
@@ -147,6 +186,19 @@ impl NativeDrawableOwner<'_> {
         retirement: &mut dyn NativeDrawableRetirement,
         observe: &mut impl FnMut(PresentationDrawableMutation<'_>) -> GameClientResult<()>,
     ) -> GameClientResult<PresentationDirectDrawableBindingKey> {
+        let receiving_tod = if e.module_admission.authored_template().is_some() {
+            Some(
+                policy
+                    .and_then(|policy| policy.time_of_day)
+                    .ok_or_else(|| {
+                        GameClientError::InvalidOperation(
+                            "authored Drawable requires receiving time of day".into(),
+                        )
+                    })?,
+            )
+        } else {
+            None
+        };
         if self
             .drawables
             .drawable_object_map
@@ -166,6 +218,7 @@ impl NativeDrawableOwner<'_> {
         let visual_template_name = GameClient::presentation_visual_template_name(e).to_string();
         let id = self.drawables.alloc_drawable_id();
         let mut drawable = BasicDrawable::new(id);
+        drawable.admit_receiving_time_of_day(receiving_tod);
         if let Some(opacity) = inherited_material_opacity {
             drawable.set_second_material_pass_opacity(opacity);
         }
@@ -233,13 +286,27 @@ impl NativeDrawableOwner<'_> {
             }
             match ambient {
                 NativeConstructorAmbientPolicy::Observed(birth) => {
-                    drawable
-                        .finish_native_constructor_ambient(birth.loading_map, birth.in_load_game);
+                    if let Some(tod) = receiving_tod {
+                        drawable.finish_native_constructor_ambient_at(
+                            birth.loading_map,
+                            birth.in_load_game,
+                            tod,
+                        );
+                    } else {
+                        drawable.finish_native_constructor_ambient(
+                            birth.loading_map,
+                            birth.in_load_game,
+                        );
+                    }
                 }
                 NativeConstructorAmbientPolicy::PresentationStartup => {
                     // Keep the existing late presentation startup behavior.
                     // This is not a claim about an unobserved factory phase.
-                    drawable.start_ambient_sound(false);
+                    if let Some(tod) = receiving_tod {
+                        drawable.start_ambient_sound_at(false, tod);
+                    } else {
+                        drawable.start_ambient_sound(false);
+                    }
                 }
             }
             // GameLogic::sendObjectCreated binds only after newDrawable returns.
@@ -383,6 +450,7 @@ mod semantic_admission_tests {
     }
     fn policy() -> ReceivingDrawablePolicy {
         ReceivingDrawablePolicy {
+            time_of_day: Some(crate::system::TimeOfDay::Afternoon),
             use_draw_module_lod: true,
             static_game_lod: StaticGameLodLevel::High,
             use_tree_sway: true,

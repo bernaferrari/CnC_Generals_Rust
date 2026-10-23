@@ -54,6 +54,7 @@ impl<'a> NativeRendererViewEffects<'a> {
                     .into(),
             );
         }
+        self.admit_lighting_policy(world);
         // Retain prepared terrain and pending map audio. Only the superseded
         // base-map native object world is retired, using its actual services.
         self.retirement
@@ -122,9 +123,51 @@ impl<'a> NativeRendererViewEffects<'a> {
             )),
         }
     }
-    pub(super) fn on_level_start(&mut self) -> Result<(), String> {
+    /// Explicit receiving native boundary for the canonical early HP callback.
+    /// Its caller supplies the session TOD/map gate and captured audio service.
+    pub(super) fn react_owned_body_state(
+        &mut self,
+        identity: &crate::assets::LiveDrawPlaybackIdentity,
+        state: gamelogic::common::types::BodyDamageType,
+        loading_map: bool,
+        time_of_day: game_client::system::TimeOfDay,
+        audio: &mut dyn game_client::drawable::drawable::NativeAmbientAudio,
+        locality: &game_engine::common::audio::AudioSubmissionLocality,
+    ) -> Result<bool, String> {
+        let Some(key) = self
+            .drawables
+            .binding_key(self.host_epoch, identity.object_id())
+        else {
+            if self.drawables.has_object_drawable(identity.object_id())
+                || self.poses.has_drawable_lifetime(identity.object_id())
+            {
+                return Err("native Body visual receiver lost its installed binding".into());
+            }
+            return Ok(false); // CPP Object::getDrawable == NULL before birth.
+        };
+        // Existing pure validation checks constructor identity and full binding;
+        // it performs no retirement or object/registry mutation.
+        self.poses
+            .validate_object_retirement(identity, key)
+            .map_err(str::to_owned)?;
         self.drawables
-            .on_level_start()
+            .body_state_changed_with_audio(key, state, loading_map, time_of_day, audio, locality)
+            .map_err(|error| error.to_string())?;
+        Ok(true)
+    }
+
+    pub(super) fn admit_lighting_policy(&mut self, world: &crate::game_logic::GameLogic) {
+        self.policy.use_draw_module_lod = world.lighting_rules().use_draw_module_lod;
+        self.policy.use_tree_sway = world.lighting_rules().use_tree_sway;
+        self.policy.time_of_day = world.native_lighting_time_of_day();
+    }
+    pub(super) fn on_level_start(&mut self) -> Result<(), String> {
+        let tod = self
+            .policy
+            .time_of_day
+            .ok_or_else(|| "native level start requires receiving time of day".to_owned())?;
+        self.drawables
+            .on_level_start_at(tod)
             .map_err(|error| error.to_string())
     }
 }
@@ -281,7 +324,7 @@ impl CnCGameEngine {
         let mut audio = super::native_audio_effects::NativeAudioService::live();
         #[cfg(feature = "game_client")]
         {
-            let policy = receiving_native_drawable_policy();
+            let policy = receiving_native_drawable_policy_for(&self.game_logic);
             let mut retirement = game_client::core::game_client::NativeParticleRetirementService;
             let (frame, _, drawables) = self.game_client.split_frame_snow_and_drawable_owner();
             let input = super::mouse::CameraInputLoan::new(
@@ -343,6 +386,7 @@ pub(super) fn receiving_native_drawable_policy()
     let current = game_engine::common::game_lod::get_static_lod();
     let data = game_engine::common::global_data::read();
     game_client::core::game_client::ReceivingDrawablePolicy {
+        time_of_day: native_time_of_day(data.time_of_day),
         use_draw_module_lod: data.use_draw_module_lod,
         use_tree_sway: data.use_tree_sway,
         static_game_lod: match current.to_ascii_uppercase().as_str() {
@@ -351,4 +395,38 @@ pub(super) fn receiving_native_drawable_policy()
             _ => StaticGameLodLevel::Medium,
         },
     }
+}
+
+#[cfg(feature = "game_client")]
+pub(super) fn receiving_native_drawable_policy_for(
+    world: &crate::game_logic::GameLogic,
+) -> game_client::core::game_client::ReceivingDrawablePolicy {
+    use game_engine::common::thing::module::StaticGameLodLevel;
+    let current = game_engine::common::game_lod::get_static_lod();
+    let rules = world.lighting_rules();
+    game_client::core::game_client::ReceivingDrawablePolicy {
+        time_of_day: world.native_lighting_time_of_day(),
+        use_draw_module_lod: rules.use_draw_module_lod,
+        use_tree_sway: rules.use_tree_sway,
+        static_game_lod: match current.to_ascii_uppercase().as_str() {
+            "LOW" => StaticGameLodLevel::Low,
+            "HIGH" => StaticGameLodLevel::High,
+            _ => StaticGameLodLevel::Medium,
+        },
+    }
+}
+
+#[cfg(feature = "game_client")]
+pub(super) fn native_time_of_day(
+    value: game_engine::common::global_data::TimeOfDay,
+) -> Option<game_client::system::TimeOfDay> {
+    use game_client::system::TimeOfDay as Native;
+    use game_engine::common::global_data::TimeOfDay as Source;
+    Some(match value {
+        Source::Morning => Native::Morning,
+        Source::Afternoon => Native::Afternoon,
+        Source::Evening => Native::Evening,
+        Source::Night => Native::Night,
+        Source::Invalid => return None,
+    })
 }

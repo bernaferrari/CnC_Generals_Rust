@@ -33,6 +33,7 @@ fn admit(factory: &mut ModuleFactory, body: &str) -> Arc<AdmittedReceivingTempla
 }
 fn policy() -> ReceivingDrawablePolicy {
     ReceivingDrawablePolicy {
+        time_of_day: Some(crate::system::TimeOfDay::Afternoon),
         use_draw_module_lod: true,
         static_game_lod: StaticGameLodLevel::High,
         use_tree_sway: true,
@@ -241,6 +242,7 @@ fn actual_authored_native_lod_and_shrub_sway_filter_use_receiving_policy() {
         0,
         &mut content,
         ReceivingDrawablePolicy {
+            time_of_day: Some(crate::system::TimeOfDay::Afternoon),
             use_draw_module_lod: true,
             static_game_lod: StaticGameLodLevel::Low,
             use_tree_sway: false,
@@ -811,5 +813,48 @@ fn authored_science_uses_received_player_and_definition_identity_with_foreign_fa
                 &mut empty_facts
             )
             .is_err()
+    );
+}
+
+#[test]
+fn receiving_night_restamp_uses_session_bits_but_compatibility_and_snow_remain_client_owned() {
+    use game_engine::common::bit_flags::{ModelConditionFlags, create_model_condition_flags};
+    let content = ambient_content("LightingOwner", "SoundAmbient = NoSound");
+    let plan = content.admitted_template("AmericaTankCrusader").unwrap();
+    let mut value = entry(Arc::clone(&plan));
+    let mut draw = BasicDrawable::new(DrawableId(741));
+    draw.initialize_native_constructor_template(Some("AmericaTankCrusader".into()), Some(plan));
+    let mut flags = create_model_condition_flags();
+    flags.set(ModelConditionFlags::SNOW, true);
+    draw.clear_and_set_model_condition_flags(&create_model_condition_flags(), &flags);
+    value.model_condition_bits = 1u128 << ModelConditionFlags::NIGHT;
+    GameClient::stamp_presentation_object_residual(&mut draw, &value, false);
+    assert!(
+        draw.get_model_condition_flags()
+            .test(ModelConditionFlags::NIGHT)
+    );
+    assert!(
+        draw.get_model_condition_flags()
+            .test(ModelConditionFlags::SNOW)
+    );
+    value.model_condition_bits = 0;
+    GameClient::stamp_presentation_object_residual(&mut draw, &value, false);
+    assert!(
+        !draw
+            .get_model_condition_flags()
+            .test(ModelConditionFlags::NIGHT)
+    );
+    assert!(
+        draw.get_model_condition_flags()
+            .test(ModelConditionFlags::SNOW)
+    );
+    value.module_admission = PresentationModuleAdmission::Compatibility;
+    value.model_condition_bits = 1u128 << ModelConditionFlags::NIGHT;
+    GameClient::stamp_presentation_object_residual(&mut draw, &value, false);
+    assert!(
+        !draw
+            .get_model_condition_flags()
+            .test(ModelConditionFlags::NIGHT),
+        "compatibility entry cannot select a different Core client TOD"
     );
 }

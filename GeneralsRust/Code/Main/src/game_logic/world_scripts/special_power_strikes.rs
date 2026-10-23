@@ -238,10 +238,11 @@ impl GameLogic {
         // C++ A10Thunderbolt DeliverPayload residual (jet + staggered missiles).
         if kind == HostSuperweaponKind::A10Strike {
             if self
-                .spawn_a10_strike_flight_with_effects(
+                .spawn_a10_strike_flight_for_strike_with_effects(
                     source_object,
                     target_position,
                     a10_tier,
+                    id,
                     effects,
                 )
                 .is_some()

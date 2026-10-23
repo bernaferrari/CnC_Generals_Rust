@@ -37,6 +37,7 @@ pub struct GameLogic {
     pub(crate) armor_definitions:
         Option<std::sync::Arc<gamelogic::object::armor::ArmorDefinitions>>,
     pub(crate) object_lifecycle_callback_depth: u32,
+    pub(crate) lighting_definitions: crate::game_logic::lighting_rules::LightingDefinitions,
     pub(crate) physics_definitions: crate::game_logic::physics_rules::PhysicsDefinitions,
     pub(super) weapon_effect_definitions:
         super::world_combat::weapon_effect_definitions::WeaponEffectDefinitions,

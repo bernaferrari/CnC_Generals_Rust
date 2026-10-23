@@ -117,6 +117,7 @@ impl CnCGameEngine {
                 modules: &self.game_logic.receiving_module_content,
                 object_definitions: &self.game_logic.receiving_object_definitions,
                 baseline: &self.game_logic.receiving_template_baseline,
+                lighting_baseline: self.game_logic.lighting_rules_baseline(),
             },
             &self.game_logic.weapon_definition_base,
             &self.game_logic.projectile_definitions,

@@ -133,10 +133,29 @@ pub(crate) fn freeze_primary_game_data_lighting(
     Some((frozen.object[0], frozen.terrain[0]))
 }
 
-fn freeze_current_all_game_data_lighting() -> Option<FrozenGlobalLights> {
-    let global_data = get_global_data()?;
-    let global_data = global_data.read();
-    freeze_all_game_data_lighting(&global_data)
+fn freeze_receiving_lighting(logic: &GameLogic) -> Option<FrozenGlobalLights> {
+    let rules = logic.lighting_rules();
+    let index = match rules.time_of_day {
+        TimeOfDay::Invalid => return None,
+        time => time as usize,
+    };
+    let count = rules.num_global_lights.clamp(0, MAX_GLOBAL_LIGHTS as i32) as usize;
+    let object = std::array::from_fn(|i| {
+        PresentationPrimaryGlobalLight::from_authored(&rules.objects[index][i], i < count)
+    });
+    let terrain = std::array::from_fn(|i| {
+        PresentationPrimaryGlobalLight::from_authored(&rules.terrain[index][i], i < count)
+    });
+    let infantry_scale = if (rules.infantry_override - (-1.0)).abs() > f32::EPSILON {
+        rules.infantry_override
+    } else {
+        rules.infantry_light_scale[index]
+    };
+    Some(FrozenGlobalLights {
+        object,
+        terrain,
+        infantry_scale,
+    })
 }
 
 fn light_from_map_channels(
@@ -686,7 +705,7 @@ impl PresentationWorldEnv {
         // C++ W3DDisplay::setTimeOfDay applies all 3 object lights; TerrainVisual
         // uses the terrain array. Map objects-lighting wins for units/shadows.
         let (object_global_lights, terrain_global_lights, infantry_light_scale) =
-            merge_map_and_frozen_lights(meta.as_ref(), freeze_current_all_game_data_lighting());
+            merge_map_and_frozen_lights(None, freeze_receiving_lighting(logic));
         let primary_object_lighting = object_global_lights[0];
         let primary_terrain_lighting = terrain_global_lights[0];
         // Units/shadows: C++ W3DDisplay.cpp:2128 uses objects lighting, not terrain.
@@ -960,17 +979,13 @@ mod water_area_tests {
 #[cfg(test)]
 mod lighting_parity_tests {
     use super::*;
-    use game_engine::common::ini::ini_game_data::{
-        Coord3D, RGBColor, TimeOfDay, ensure_global_data,
-    };
+    use game_engine::common::ini::ini_game_data::{Coord3D, RGBColor, TimeOfDay};
 
     #[test]
     fn freeze_applies_three_global_lights_and_infantry_scale() {
         // C++ W3DDisplay.cpp:2136 loops 3 lights; W3DScene.cpp:856-881 scales infantry.
-        let handle = ensure_global_data();
-        let previous = handle.read().clone();
+        let mut data = AuthoredGlobalData::new();
         {
-            let mut data = handle.write();
             data.time_of_day = TimeOfDay::Night;
             data.num_global_lights = 3;
             data.infantry_light_scale[TimeOfDay::Night as usize] = 1.5;
@@ -987,7 +1002,7 @@ mod lighting_parity_tests {
                     RGBColor::new(0.01 * f, 0.0, 0.0);
             }
         }
-        let frozen = freeze_all_game_data_lighting(&handle.read()).expect("night lights");
+        let frozen = freeze_all_game_data_lighting(&data).expect("night lights");
         assert!(frozen.object[0].object_light_active);
         assert!(frozen.object[1].object_light_active);
         assert!(frozen.object[2].object_light_active);
@@ -996,7 +1011,6 @@ mod lighting_parity_tests {
         assert!((frozen.infantry_scale - 1.5).abs() < 1e-5);
         let scaled = frozen.object[0].scaled_for_infantry(frozen.infantry_scale);
         assert!((scaled.ambient[0] - 0.15).abs() < 1e-5);
-        *handle.write() = previous;
     }
 
     #[test]
@@ -1024,43 +1038,30 @@ mod lighting_parity_tests {
     }
 
     #[test]
-    fn world_env_night_follows_global_time_of_day_not_weather_string() {
+    fn world_env_night_follows_receiving_time_of_day_not_weather_string() {
         use crate::game_logic::GameLogic;
-        let handle = ensure_global_data();
-        let previous = handle.read().clone();
-        {
-            let mut data = handle.write();
-            data.time_of_day = TimeOfDay::Night;
-        }
-        let logic = GameLogic::new();
+        let mut logic = GameLogic::new();
+        let mut rules = crate::game_logic::lighting_rules::LightingContentRules::default();
+        rules.time_of_day = TimeOfDay::Night;
+        logic.admit_lighting_rules_base(rules);
+        let peer = GameLogic::new();
         let night = PresentationWorldEnv::from_logic(&logic);
         assert!(
             night.is_night,
-            "TIME_OF_DAY_NIGHT must stamp MODELCONDITION_NIGHT"
+            "TIME_OF_DAY_NIGHT stamps MODELCONDITION_NIGHT"
         );
-        {
-            let mut data = handle.write();
-            data.time_of_day = TimeOfDay::Afternoon;
-        }
-        let day = PresentationWorldEnv::from_logic(&logic);
-        assert!(!day.is_night);
-        *handle.write() = previous;
+        assert!(!PresentationWorldEnv::from_logic(&peer).is_night);
+        logic.set_receiving_time_of_day(TimeOfDay::Afternoon);
+        assert!(!PresentationWorldEnv::from_logic(&logic).is_night);
     }
 }
 
 /// Model condition weather/time observation, without a full presentation freeze.
 pub(super) fn current_model_environment(logic: &GameLogic) -> (bool, bool) {
     let weather = logic.weather_state().current_weather.to_ascii_lowercase();
-    let (follow_weather, is_night) = get_global_data()
-        .map(|global| {
-            let global = global.read();
-            (
-                global.force_models_to_follow_weather,
-                // C++ Drawable::setTimeOfDay / Object bind: NIGHT iff tod==TIME_OF_DAY_NIGHT.
-                matches!(global.time_of_day, TimeOfDay::Night),
-            )
-        })
-        .unwrap_or((true, false));
+    let rules = logic.lighting_rules();
+    let follow_weather = rules.force_models_to_follow_weather;
+    let is_night = matches!(rules.time_of_day, TimeOfDay::Night);
     let is_snow = weather.contains("snow") && follow_weather;
     (is_snow, is_night)
 }

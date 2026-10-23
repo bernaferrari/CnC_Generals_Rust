@@ -462,7 +462,19 @@ impl Player {
 
     /// C++ `Object::getNightIndicatorColor` / `getIndicatorColor` by TOD.
     pub fn house_color_rgb(&self) -> (u8, u8, u8) {
-        if crate::game_logic::host_radar::host_time_of_day_is_night() {
+        self.house_color_rgb_at(
+            if crate::game_logic::host_radar::host_time_of_day_is_night() {
+                game_engine::common::ini::TimeOfDay::Night
+            } else {
+                game_engine::common::ini::TimeOfDay::Afternoon
+            },
+        )
+    }
+    pub(crate) fn house_color_rgb_at(
+        &self,
+        time: game_engine::common::ini::TimeOfDay,
+    ) -> (u8, u8, u8) {
+        if matches!(time, game_engine::common::ini::TimeOfDay::Night) {
             self.color_night_rgb
         } else {
             self.color_rgb

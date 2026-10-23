@@ -5,6 +5,13 @@ use super::super::*;
 
 mod garrison_exit;
 
+#[path = "a10_delivery.rs"]
+mod a10_delivery;
+
+#[cfg(test)]
+#[path = "a10_delivery_tests.rs"]
+mod a10_delivery_tests;
+
 #[cfg(test)]
 #[path = "rappel_kill_owner_tests.rs"]
 mod rappel_kill_owner_tests;
@@ -2606,10 +2613,11 @@ impl GameLogic {
         target: Vec3,
         tier: crate::game_logic::special_power_strikes::A10StrikeScienceTier,
     ) -> Option<ObjectId> {
-        self.spawn_a10_strike_flight_with_effects(
+        self.spawn_a10_strike_flight_for_delivery_with_effects(
             source_id,
             target,
             tier,
+            None,
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )
     }
@@ -2621,20 +2629,54 @@ impl GameLogic {
         tier: crate::game_logic::special_power_strikes::A10StrikeScienceTier,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> Option<ObjectId> {
+        self.spawn_a10_strike_flight_for_delivery_with_effects(
+            source_id,
+            target,
+            tier,
+            None,
+            presentation_effects,
+        )
+    }
+
+    pub(crate) fn spawn_a10_strike_flight_for_strike_with_effects(
+        &mut self,
+        source_id: ObjectId,
+        target: Vec3,
+        tier: crate::game_logic::special_power_strikes::A10StrikeScienceTier,
+        strike_id: u32,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> Option<ObjectId> {
+        self.spawn_a10_strike_flight_for_delivery_with_effects(
+            source_id,
+            target,
+            tier,
+            Some(strike_id),
+            presentation_effects,
+        )
+    }
+
+    fn spawn_a10_strike_flight_for_delivery_with_effects(
+        &mut self,
+        source_id: ObjectId,
+        target: Vec3,
+        tier: crate::game_logic::special_power_strikes::A10StrikeScienceTier,
+        strike_id: Option<u32>,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> Option<ObjectId> {
         use crate::game_logic::host_a10_strike_flight::HostA10StrikeFlightData;
         use crate::game_logic::special_power_strikes::{A10_FORMATIONION_SPACING, A10_TRANSPORT};
         use crate::game_logic::{KindOf, ThingTemplate};
 
-        let team = self
+        let source = self
             .objects
             .get(&source_id)
-            .map(|o| o.team)
-            .unwrap_or(Team::Neutral);
-        let source_pos = self
-            .objects
-            .get(&source_id)
-            .map(|o| o.get_position())
-            .unwrap_or(target);
+            .filter(|source| source.is_alive())?;
+        source.owner_player_id?;
+        let source_identity = source.visual_draw_identity_token.clone();
+        let source_pos = source.get_position();
+        let delivery_id = self
+            .a10_strike_flight_reg
+            .begin_delivery(source_id, tier, strike_id)?;
         let edge = self.closest_map_edge_point(source_pos);
         let dx = target.x - edge.x;
         let dz = target.z - edge.z;
@@ -2650,7 +2692,7 @@ impl GameLogic {
         let dist = (dx * dx + dz * dz).sqrt().max(1.0);
         let px = -dz / dist;
         let pz = dx / dist;
-        if !self.templates.contains_key(A10_TRANSPORT) {
+        if self.receiving_module_content.is_none() && !self.templates.contains_key(A10_TRANSPORT) {
             let mut t = ThingTemplate::new(A10_TRANSPORT);
             t.set_health(600.0)
                 .add_kind_of(KindOf::Aircraft)
@@ -2663,13 +2705,28 @@ impl GameLogic {
         for j in 0..jets {
             let lat = (j as f32 - half) * A10_FORMATIONION_SPACING;
             let launch = Vec3::new(edge.x + px * lat, 160.0, edge.z + pz * lat);
-            let tid = self.create_object_with_script_effects(
+            // A partial successful formation remains a real partial delivery;
+            // the launch_complete bit prevents snapshots during this callback
+            // cohort from claiming its factory stack can be resumed.
+            let Some(owner) = self
+                .objects
+                .get(&source_id)
+                .filter(|source| {
+                    std::sync::Arc::ptr_eq(&source.visual_draw_identity_token, &source_identity)
+                })
+                .and_then(|source| source.owner_player_id)
+            else {
+                break;
+            };
+            let Some(tid) = self.create_object_for_player_with_effects(
                 A10_TRANSPORT,
-                team,
+                owner,
                 launch,
                 None,
                 presentation_effects,
-            )?;
+            ) else {
+                continue;
+            };
             if let Some(o) = self.objects.get_mut(&tid) {
                 o.note_producer(source_id);
                 let mut data = HostA10StrikeFlightData::start_with_exit(launch, target, exit, tier);
@@ -2678,35 +2735,30 @@ impl GameLogic {
                 o.a10_strike_transport = Some(data);
                 o.set_orientation(dz.atan2(dx));
             }
-            self.a10_strike_flight_reg.record_transport();
+            let bound = self.a10_strike_flight_reg.bind_transport(delivery_id, tid);
+            assert!(bound, "new A10 transport ID must bind exactly once");
+            let identity = &self
+                .objects
+                .get(&tid)
+                .expect("newly bound A10 actor")
+                .visual_draw_identity_token;
+            assert!(
+                self.a10_strike_flight_reg
+                    .bind_transport_lifetime(delivery_id, tid, identity),
+                "new A10 transport lifetime must bind exactly once"
+            );
             if first.is_none() {
                 first = Some(tid);
-                // C++ only formation index 0 gets a DeliveryDecal ring.
                 let _ = self.create_delivery_radius_decal_with_radius(
                     tid,
                     target,
                     crate::game_logic::special_power_strikes::A10_DELIVERY_DECAL_RADIUS,
                 );
             }
-            for i in 0..crate::game_logic::host_a10_strike_flight::A10_NUM_BONES {
-                let pair = i / crate::game_logic::host_a10_strike_flight::A10_ITEMS_PER_DROP;
-                let drop_frame = self.frame.saturating_add(pair.saturating_mul(
-                    crate::game_logic::host_a10_strike_flight::A10_DROP_DELAY_FRAMES,
-                ));
-                self.a10_strike_flight_reg.pending_drops.push(
-                    crate::game_logic::host_a10_strike_flight::PendingA10MissileDrop {
-                        drop_frame,
-                        target,
-                        source_id: tid.0,
-                        missile_index: i,
-                    },
-                );
-                self.a10_strike_flight_reg.missiles_scheduled = self
-                    .a10_strike_flight_reg
-                    .missiles_scheduled
-                    .saturating_add(1);
-            }
         }
+        let _ = self
+            .a10_strike_flight_reg
+            .finish_delivery_launch(delivery_id);
         first
     }
 
@@ -2734,221 +2786,6 @@ impl GameLogic {
         self.update_a10_strike_flights_with_effects(
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )
-    }
-
-    pub(crate) fn update_a10_strike_flights_with_effects(
-        &mut self,
-        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
-        use crate::game_logic::combat::DamageType;
-        use crate::game_logic::host_a10_strike_flight::{
-            A10_START_DIVE_SOUND, A10_VULCAN_DELAY_FRAMES, tick_a10_dive,
-        };
-        use crate::game_logic::special_power_strikes::{
-            A10_MISSILE_PRIMARY_DAMAGE, A10_MISSILE_PRIMARY_RADIUS, A10_PAYLOAD_TEMPLATE,
-            A10_TRANSPORT, A10_VULCAN_PRIMARY_DAMAGE, A10_VULCAN_PRIMARY_RADIUS,
-        };
-        use crate::game_logic::{KindOf, ThingTemplate};
-
-        let tids: Vec<ObjectId> = self
-            .objects
-            .registered()
-            .filter(|(_, o)| o.a10_strike_transport.is_some() && o.is_alive())
-            .map(|(id, _)| *id)
-            .collect();
-        let mut leave = Vec::new();
-        let mut vulcan: Vec<(ObjectId, Option<ObjectId>, crate::game_logic::Team, Vec3)> =
-            Vec::new();
-        let mut dive_starts: Vec<(ObjectId, Vec3)> = Vec::new();
-        let mut payload_drops: Vec<(ObjectId, crate::game_logic::Team, Vec3, Vec3, Vec3)> =
-            Vec::new();
-        for id in tids {
-            let Some(o) = self.objects.get_mut(&id) else {
-                continue;
-            };
-            let pos = o.get_position();
-            let Some(data) = o.a10_strike_transport.as_mut() else {
-                continue;
-            };
-            let target = data.target;
-            let (mut new_pos, mut vel, at_exit) = data.tick_transport(pos);
-            let dive = tick_a10_dive(&mut data.dive_state, new_pos, target, vel, 22.0);
-            new_pos.y = dive.new_y;
-            vel.y = new_pos.y - pos.y;
-            if dive.start_dive {
-                dive_starts.push((id, new_pos));
-            }
-            let due_vulcan = dive.should_strafe
-                && self.frame.saturating_sub(data.last_vulcan_frame) >= A10_VULCAN_DELAY_FRAMES;
-            if due_vulcan {
-                data.last_vulcan_frame = self.frame;
-                vulcan.push((id, o.producer_id, o.team, dive.strafe_point));
-            }
-            // C++ DeliveringState::update — drop VisiblePayload from the jet
-            // only while isCloseEnoughToTarget (DeliveryDistance 450).
-            if data.is_close_enough_to_target(new_pos) {
-                let remaining_before = data.missiles_remaining;
-                let n = data.take_visible_payload_drops(self.frame);
-                let team = o.team;
-                let yaw = o.get_orientation();
-                let inherit = vel;
-                for k in 0..n {
-                    let slot = crate::game_logic::host_a10_strike_flight::A10_NUM_BONES
-                        .saturating_sub(remaining_before)
-                        .saturating_add(k)
-                        .saturating_add(1);
-                    let spawn = crate::game_logic::host_a10_strike_drop_log::a10_weapon_a_world_pos(
-                        new_pos, yaw, slot,
-                    );
-                    payload_drops.push((id, team, spawn, target, inherit));
-                }
-            }
-            o.set_position_with_effects(new_pos, self.frame, presentation_effects);
-            o.movement.velocity = vel;
-            if vel.length_squared() > 1e-6 {
-                o.set_orientation(vel.z.atan2(vel.x));
-            }
-            if at_exit {
-                leave.push(id);
-            }
-        }
-        for (id, producer, team, pos) in vulcan {
-            let (dmg, hits, destroyed) = self.apply_fuel_air_radius_damage_with_effects(
-                id,
-                producer,
-                team,
-                pos,
-                A10_VULCAN_PRIMARY_DAMAGE,
-                A10_VULCAN_PRIMARY_RADIUS,
-                DamageType::Bullet,
-                presentation_effects,
-            );
-            // Credit the live strafe warhead onto the queued strike
-            // (C++ JetAIUpdate vulcan fires its own weapon).
-            self.special_power_strikes.credit_live_flight_impact(
-                crate::game_logic::special_power_strikes::HostSuperweaponKind::A10Strike,
-                dmg,
-                hits,
-                destroyed,
-                0,
-                false,
-                pos,
-            );
-        }
-        for (id, pos) in dive_starts {
-            use crate::game_logic::audio_dispatch_impl::resolve_per_unit_sound;
-            if let Some(name) = resolve_per_unit_sound(A10_TRANSPORT, A10_START_DIVE_SOUND) {
-                self.queue_audio_event(
-                    crate::game_logic::AudioEventRequest::new(&name)
-                        .with_object(id)
-                        .with_position(pos)
-                        .with_priority(160),
-                );
-            }
-        }
-        for id in leave {
-            self.mark_object_for_destruction_with_effects(id, None, presentation_effects);
-        }
-
-        if !payload_drops.is_empty() {
-            if !self.templates.contains_key(A10_PAYLOAD_TEMPLATE) {
-                let mut t = ThingTemplate::new(A10_PAYLOAD_TEMPLATE);
-                t.set_health(40.0).add_kind_of(KindOf::Projectile);
-                self.templates.insert(A10_PAYLOAD_TEMPLATE.to_string(), t);
-            }
-            for (jet_id, team, drop_pos, target, inherit) in payload_drops {
-                // C++ DeliverPayloadAIUpdate.cpp:822-832: when the payload
-                // inherits the transport velocity it is spawned at a BACK
-                // position one frame of movement behind the drop bone, so the
-                // same-frame integration lands the payload at the jet instead
-                // of a full velocity step ahead of it.
-                let velocity =
-                    crate::game_logic::host_a10_strike_drop_log::a10_missile_fire_velocity(
-                        drop_pos, target, inherit,
-                    );
-                let back_pos = drop_pos - velocity;
-                if let Some(mid) = self.create_object_with_script_effects(
-                    A10_PAYLOAD_TEMPLATE,
-                    team,
-                    back_pos,
-                    None,
-                    presentation_effects,
-                ) {
-                    if let Some(o) = self.objects.get_mut(&mid) {
-                        o.producer_id = Some(jet_id);
-                        o.a10_strike_missile = true;
-                        o.movement.velocity = velocity;
-                        let _ = o.set_smart_bomb_target(target);
-                    }
-                    self.a10_strike_flight_reg.record_drop();
-                }
-            }
-        }
-
-        let missiles: Vec<ObjectId> = self
-            .objects
-            .registered()
-            .filter(|(_, o)| o.a10_strike_missile && o.is_alive())
-            .map(|(id, _)| *id)
-            .collect();
-        let mut destroy = Vec::new();
-        for id in missiles {
-            let (pos, producer, team) = {
-                let Some(o) = self.objects.get_mut(&id) else {
-                    continue;
-                };
-                let mut p = o.get_position();
-                p += o.movement.velocity;
-                o.set_position_with_effects(p, self.frame, presentation_effects);
-                (p, o.producer_id, o.team)
-            };
-            if pos.y <= 5.0 {
-                let (dmg, hits, destroyed) = self.apply_fuel_air_radius_damage_with_effects(
-                    id,
-                    producer,
-                    team,
-                    Vec3::new(pos.x, 0.0, pos.z),
-                    A10_MISSILE_PRIMARY_DAMAGE,
-                    A10_MISSILE_PRIMARY_RADIUS,
-                    DamageType::Explosive,
-                    presentation_effects,
-                );
-                let _ = self.combat_particles.spawn(
-                    CombatParticleKind::DeathExplosion,
-                    pos,
-                    self.frame,
-                    Some(id),
-                    None,
-                );
-                self.a10_strike_flight_reg.record_impact();
-                // Delivery ended: every missile impacted, or the jets have
-                // left the map (C++ HeadOffMapState destroys the transport
-                // with any contained remainder — payload delivery is over).
-                let alive_transports = self
-                    .objects
-                    .registered_values()
-                    .filter(|o| o.a10_strike_transport.is_some() && o.is_alive())
-                    .count();
-                let final_wave = self.a10_strike_flight_reg.impacts
-                    >= self.a10_strike_flight_reg.missiles_scheduled
-                    || alive_transports == 0;
-                // Credit the live missile warhead onto the queued strike
-                // (C++ DeliverPayload missile fires its own weapon on impact).
-                self.special_power_strikes.credit_live_flight_impact(
-                    crate::game_logic::special_power_strikes::HostSuperweaponKind::A10Strike,
-                    dmg,
-                    hits,
-                    destroyed,
-                    1,
-                    final_wave,
-                    Vec3::new(pos.x, 0.0, pos.z),
-                );
-                destroy.push(id);
-            }
-        }
-        for id in destroy {
-            self.mark_object_for_destruction_with_effects(id, None, presentation_effects);
-        }
     }
 
     /// C++ SUPERWEAPON_LeafletDrop AmericaJetB52 + LeafletContainer residual.

@@ -228,3 +228,7 @@ fn push_unique(vec: &mut Vec<PathBuf>, candidate: PathBuf) {
         vec.push(candidate);
     }
 }
+
+#[cfg(test)]
+#[path = "script_loader/lighting_owner_tests.rs"]
+mod lighting_owner_tests;

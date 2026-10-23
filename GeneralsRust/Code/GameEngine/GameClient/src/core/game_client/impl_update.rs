@@ -735,6 +735,20 @@ impl GameClient {
         let mut live_bindings = std::collections::HashSet::new();
 
         for e in entries {
+            let receiving_tod = if e.module_admission.authored_template().is_some() {
+                Some(
+                    policy
+                        .and_then(|policy| policy.time_of_day)
+                        .ok_or_else(|| {
+                            GameClientError::InvalidOperation(
+                                "authored Drawable requires receiving time of day".into(),
+                            )
+                        })?,
+                )
+            } else {
+                None
+            };
+
             let semantic_lifetime = self
                 .drawables
                 .drawable_object_map
@@ -835,6 +849,7 @@ impl GameClient {
                         });
                     }
                     if let Some(basic) = drawable.downcast_mut::<BasicDrawable>() {
+                        basic.admit_receiving_time_of_day(receiving_tod);
                         if !visual_template_name.is_empty() {
                             basic.set_template_name_with_receiving(
                                 Some(visual_template_name.clone()),
@@ -987,15 +1002,12 @@ impl GameClient {
         let mut set = create_model_condition_flags();
         let mut clear_all = create_model_condition_flags();
         let n = bit_names.len().min(128);
-        // C++ Drawable::setTimeOfDay owns NIGHT on the client
-        // (Drawable.cpp:4344-4356 rewrites m_conditionState in place); SNOW is
-        // set the same way and the logic sync never clears either. Keep both
-        // client-owned bits out of the wipe so restamping a presentation
-        // object cannot flash night/snow models for one frame.
-        const CLIENT_OWNED_CONDITION_BITS: [usize; 2] =
-            [ModelConditionFlags::NIGHT, ModelConditionFlags::SNOW];
+        // Main's authored receiving entry carries its session TOD. Core-only
+        // compatibility Drawables retain the original ambient client NIGHT.
+        // SNOW remains client-owned until its separate producer migration.
+        let receiving = e.module_admission.authored_template().is_some();
         for i in 0..n {
-            if CLIENT_OWNED_CONDITION_BITS.contains(&i) {
+            if i == ModelConditionFlags::SNOW || (i == ModelConditionFlags::NIGHT && !receiving) {
                 continue;
             }
             clear_all.set(i, true);

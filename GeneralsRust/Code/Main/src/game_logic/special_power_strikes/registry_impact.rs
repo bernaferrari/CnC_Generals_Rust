@@ -67,19 +67,6 @@ impl HostSpecialPowerStrikeRegistry {
         }
     }
 
-    /// Authored missile-table blast for the A10 registry impact fallback.
-    /// The public `damage_at_distance*` helpers keep returning 0 (the live
-    /// contract: OCL jets, not a host blob); this fallback only serves the
-    /// post-load impact path in `plan_due_impacts`.
-    fn a10_restore_fallback_damage(distance: f32, tier: A10StrikeScienceTier) -> f32 {
-        if distance >= A10_MISSILE_PRIMARY_RADIUS {
-            return 0.0;
-        }
-        A10_MISSILE_PRIMARY_DAMAGE
-            * tier.formation_size() as f32
-            * (1.0 - distance / A10_MISSILE_PRIMARY_RADIUS)
-    }
-
     /// Build impact damage plans for all strikes whose impact frame has arrived.
     /// Does not mutate object health — GameLogic applies hits.
     ///
@@ -204,15 +191,6 @@ impl HostSpecialPowerStrikeRegistry {
                             strike.scud_anthrax_tier,
                             strike.a10_tier,
                         );
-                        // A10 restore fallback: the registry impact path must
-                        // honor the persisted contract after load (the live
-                        // jets that own delivery do not survive a snapshot).
-                        // Uses the authored missile table per jet; live A10
-                        // strikes are skipped above, so only restored (or
-                        // failed-spawn) strikes ever reach this arm.
-                        if primary == 0.0 && strike.kind == HostSuperweaponKind::A10Strike {
-                            primary = Self::a10_restore_fallback_damage(dist, strike.a10_tier);
-                        }
                         // MOABFlameWeapon secondary residual (DaisyCutter / CruiseMissile).
                         // Fail-closed: not full SlowDeath MIDPOINT timing / tree burn state.
                         let flame = if strike.kind.spawns_moab_flame() && dist <= MOAB_FLAME_RADIUS
@@ -713,9 +691,8 @@ impl HostSpecialPowerStrikeRegistry {
         }
     }
 
-    /// Live DeliverPayload flight credit: accumulate one bomb/missile impact
-    /// onto the oldest queued strike of `kind` (C++ DeliverPayloadAIUpdate
-    /// payloads fire their own weapons; the strike ledger reflects it).
+    /// Live non-A10 DeliverPayload flight credit. A10 uses the exact delivery
+    /// ID path below because simultaneous A10 OCL launches must not alias.
     /// Returns the strike id credited, if any.
     pub fn credit_live_flight_impact(
         &mut self,
@@ -744,5 +721,55 @@ impl HostSpecialPowerStrikeRegistry {
             &[epicenter],
         );
         Some(strike_id)
+    }
+
+    /// Credit a live A10 warhead to its exact queued strike ID.
+    pub fn credit_live_a10_delivery_impact(
+        &mut self,
+        strike_id: u32,
+        total_damage: f32,
+        objects_hit: u32,
+        objects_destroyed: u32,
+        is_final_wave: bool,
+        epicenter: Vec3,
+    ) -> bool {
+        let Some(strike) = self.strikes.get(&strike_id) else {
+            return false;
+        };
+        if strike.kind != HostSuperweaponKind::A10Strike || strike.phase != HostStrikePhase::Queued
+        {
+            return false;
+        }
+        self.record_impact_wave(
+            strike_id,
+            total_damage,
+            objects_hit,
+            objects_destroyed,
+            1,
+            is_final_wave,
+            &[epicenter],
+        );
+        true
+    }
+
+    /// End an actual A10 delivery after its transports and missiles are gone.
+    /// With no previously credited effect, cancel it without inventing an
+    /// impact. If a real strafe/missile event was already credited, complete
+    /// that strike without adding a synthetic final wave.
+    pub fn finish_live_a10_delivery_without_more_effects(&mut self, strike_id: u32) -> bool {
+        let Some(strike) = self.strikes.get_mut(&strike_id) else {
+            return false;
+        };
+        if strike.kind != HostSuperweaponKind::A10Strike || strike.phase != HostStrikePhase::Queued
+        {
+            return false;
+        }
+        if strike.multi_strike_applied == 0 {
+            strike.phase = HostStrikePhase::Cancelled;
+        } else {
+            strike.phase = HostStrikePhase::Completed;
+            self.completed_this_frame.push(strike_id);
+        }
+        true
     }
 }

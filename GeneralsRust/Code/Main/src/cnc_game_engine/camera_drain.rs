@@ -1881,6 +1881,7 @@ impl CnCGameEngine {
             let current = game_engine::common::game_lod::get_static_lod();
             let data = game_engine::common::global_data::read();
             game_client::core::game_client::ReceivingDrawablePolicy {
+                time_of_day: self.game_logic.native_lighting_time_of_day(),
                 use_draw_module_lod: data.use_draw_module_lod,
                 use_tree_sway: data.use_tree_sway,
                 static_game_lod: match current.to_ascii_uppercase().as_str() {

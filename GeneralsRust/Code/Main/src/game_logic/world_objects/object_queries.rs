@@ -1842,7 +1842,9 @@ impl GameLogic {
     /// Wave 240: UI color without exposing `&Player`.
     #[inline]
     pub fn player_color_rgb(&self, id: u32) -> Option<(u8, u8, u8)> {
-        self.players.get(&id).map(|p| p.house_color_rgb())
+        self.players
+            .get(&id)
+            .map(|p| p.house_color_rgb_at(self.lighting_rules().time_of_day))
     }
 
     /// C++ Object::getIndicatorColor → controlling Player::getPlayerColor.

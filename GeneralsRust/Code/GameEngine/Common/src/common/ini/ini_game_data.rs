@@ -1325,6 +1325,10 @@ impl ProductionEnergyRules {
     }
 }
 
+#[path = "ini_game_data/lighting_rules.rs"]
+mod lighting_rules;
+pub use lighting_rules::LightingContentRules;
+
 #[path = "ini_game_data/camera_rules.rs"]
 mod camera_rules;
 #[path = "ini_game_data/physics_rules.rs"]

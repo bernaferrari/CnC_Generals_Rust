@@ -14,7 +14,9 @@ use game_engine::common::audio::dynamic_audio_event_info::DynamicAudioEventInfo;
 use game_engine::common::bit_flags::{ModelConditionBitFlags, create_model_condition_flags};
 use gamelogic::object::registry::OBJECT_REGISTRY;
 
+mod ambient_services;
 mod basic_core;
+pub use ambient_services::NativeAmbientAudio;
 mod basic_drawable_trait;
 mod basic_modules;
 mod basic_overlay;
@@ -141,6 +143,8 @@ pub struct BasicDrawable {
     ambient_sound_event: Option<AudioEventRts>,
     /// C++ `setTimeOfDay` is invoked via `&self` iterate; applied on next `update()`.
     pending_time_of_day: AtomicU8,
+    // Presentation copy of the receiving session policy, never a simulation owner.
+    receiving_time_of_day: Option<crate::system::TimeOfDay>,
 
     current_frame: u32,
     /// C++ `m_isModelDirty` (`DIRTY_CONDITION_FLAGS`).
@@ -290,6 +294,7 @@ impl BasicDrawable {
             custom_sound_ambient_dynamic_info: None,
             ambient_sound_event: None,
             pending_time_of_day: AtomicU8::new(0),
+            receiving_time_of_day: None,
 
             current_frame: 0,
             is_model_dirty: true,

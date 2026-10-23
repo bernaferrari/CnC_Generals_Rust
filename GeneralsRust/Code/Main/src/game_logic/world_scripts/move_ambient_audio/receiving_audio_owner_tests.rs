@@ -164,3 +164,47 @@ fn receiving_damage_fallbacks_use_effective_owner_not_foreign_slots() {
         },
     );
 }
+
+#[test]
+fn receiving_retry_borrows_exact_audio_manager_for_same_id_and_event_name() {
+    use game_engine::common::audio::{AC_LOOP, AudioEventInfo, AudioManager};
+    let mut first = world("SoundAmbient = BorrowedSameName");
+    let mut peer = world("SoundAmbient = BorrowedSameName");
+    let a = first.create_object(NAME, Team::USA, Vec3::ZERO).unwrap();
+    let b = peer.create_object(NAME, Team::USA, Vec3::ZERO).unwrap();
+    assert_eq!(a, b);
+    // Actual receiving cue admission, without publishing an audio manager or
+    // parsing any global audio definitions. Birth remains ambient-inactive.
+    assert!(first.host_object(a).unwrap().ambient_audio.is_none());
+    first.start_ambient_sound(a);
+    peer.start_ambient_sound(b);
+    assert_cues(&mut first, a, &[("BorrowedSameName", true)]);
+    assert_cues(&mut peer, b, &[("BorrowedSameName", true)]);
+    let mut audio = AudioManager::new();
+    audio.register_audio_event_info(AudioEventInfo {
+        audio_name: "BorrowedSameName".into(),
+        control: AC_LOOP,
+        loop_count: 0,
+        ..Default::default()
+    });
+    let mut peer_audio = AudioManager::new();
+    peer_audio.register_audio_event_info(AudioEventInfo {
+        audio_name: "BorrowedSameName".into(),
+        loop_count: 1,
+        ..Default::default()
+    });
+    first.frame = 100;
+    peer.frame = 100;
+    first.retry_dropped_ambient_sounds_with_audio(Some(&audio));
+    assert_cues(&mut first, a, &[("BorrowedSameName", true)]);
+    peer.retry_dropped_ambient_sounds_with_audio(Some(&peer_audio));
+    assert_cues(&mut peer, b, &[]);
+    first.frame = 129;
+    first.retry_dropped_ambient_sounds_with_audio(Some(&audio));
+    assert_cues(&mut first, a, &[]);
+    first.frame = 130;
+    first.retry_dropped_ambient_sounds_with_audio(Some(&audio));
+    assert_cues(&mut first, a, &[("BorrowedSameName", true)]);
+    peer.retry_dropped_ambient_sounds_with_audio(Some(&peer_audio));
+    assert_cues(&mut peer, b, &[]);
+}
