@@ -513,7 +513,8 @@ impl GameLogic {
                         }
                     }
                     if !ev.particles.is_empty() {
-                        let ids = crate::game_logic::host_transition_damage_fx::spawn_transition_particles_at_pose(
+                        let is_shrouded = self.host_fx_object_is_shrouded(object_id.0);
+                        let ids = crate::game_logic::host_transition_damage_fx::spawn_transition_particles_at_pose_with_visibility(
                             &mut self.combat_particles,
                             &ev.particles,
                             pos,
@@ -521,8 +522,8 @@ impl GameLogic {
                             &model,
                             scale,
                             self.frame,
-                            object_id,
-                        );
+                            object_id, is_shrouded
+);
                         if let Some(cfg) = self
                             .objects
                             .get_mut(&object_id)

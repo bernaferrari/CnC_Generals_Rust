@@ -63,6 +63,16 @@ impl<'a> AiWorldView<'a> {
     pub(super) fn script_engine(&self) -> Option<&'a gamelogic::scripting::engine::ScriptEngine> {
         self.world.owned_script_engine.as_ref()
     }
+    pub(super) fn player_is_skirmish_ai(&self, id: u32) -> bool {
+        self.world
+            .get_player(id)
+            .is_some_and(|player| player.map_side.is_skirmish_ai)
+    }
+    pub(super) fn control_bar_overrides(
+        &self,
+    ) -> &crate::game_logic::game_logic::command_overrides::ControlBarOverrides {
+        self.world.control_bar_overrides()
+    }
     pub(super) fn host_objects(&self) -> HostObjectRead<'a> {
         self.world.host_objects()
     }

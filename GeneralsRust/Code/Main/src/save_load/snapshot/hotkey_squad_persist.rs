@@ -1,4 +1,4 @@
-//! Persist C++ `Player::m_squads` onto the live host.
+//! Persist the driving native client's C++ `Player::m_squads` values.
 //!
 //! C++ `Player::xfer` (`Player.cpp:4440-4463`) writes `NUM_HOTKEY_SQUADS`
 //! plus each `Squad::xfer` object-id list. Leftover `Player` already does
@@ -7,9 +7,9 @@
 //!
 //! Append a tagged suffix after the historical v9 contain/producer payload
 //! (and after SPCD / BPPL / SUBD) so older decoders ignore the extra bytes.
-//! No world snapshot version bump. Restore writes leftover
-//! `process_create_team_game_message`; explicit decoding supplies the live
-//! host `control_groups` admission through its detached save candidate.
+//! No world snapshot version bump. Explicit decoding supplies native
+//! `control_groups` admission through its detached save candidate; generic
+//! world capture and restore never read or write a process PlayerList.
 
 use crate::game_logic::GameLogic;
 use crate::save_load::{SaveLoadError, SaveLoadResult};
@@ -104,11 +104,8 @@ fn write_control_groups_prefix(
     append_u32(&mut record, HSQD_VERSION);
     append_u32(&mut record, encoded.len() as u32);
     record.extend_from_slice(&encoded);
-    if let Some(start) = bytes.windows(4).rposition(|w| w == HSQD_MAGIC) {
-        let mut rest = &bytes[start + 4..];
-        take_u32(&mut rest)?;
-        let len = take_u32(&mut rest)? as usize;
-        bytes.splice(start..start + 12 + len, record);
+    if let Some(range) = find_hsqd_record(bytes)? {
+        bytes.splice(range, record);
     } else {
         // Footer-based continuations must remain terminal for their readers.
         // A first HSQD belongs before that chain, just like builder capture.
@@ -141,37 +138,12 @@ pub fn read_control_groups(
     }))
 }
 
-pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, _game_logic: &GameLogic) {
-    let payload = capture();
-    if payload
-        .players
-        .iter()
-        .all(|player| player.squads.iter().all(|ids| ids.is_empty()))
-    {
-        return;
-    }
-    let Ok(encoded) = bincode_legacy::serialize(&payload) else {
-        return;
-    };
-    bytes.extend_from_slice(HSQD_MAGIC);
-    append_u32(bytes, HSQD_VERSION);
-    append_u32(bytes, encoded.len() as u32);
-    bytes.extend_from_slice(&encoded);
-}
-
-pub fn apply_from_lifecycle_tail(bytes: &[u8], _game_logic: &mut GameLogic) -> SaveLoadResult<()> {
-    if let Some(payload) = decode_payload(bytes)? {
-        apply_payload(payload);
-    }
-    Ok(())
-}
-
 fn decode_payload(bytes: &[u8]) -> SaveLoadResult<Option<HotkeySquadPersistPayload>> {
     let bytes = super::player_team_chunks::lifecycle_prefix(bytes)?;
-    let Some(suffix) = find_hsqd_suffix(bytes) else {
+    let Some(range) = find_hsqd_record(bytes)? else {
         return Ok(None);
     };
-    let mut rest = suffix;
+    let mut rest = &bytes[range.start + 4..range.end];
     let version = take_u32(&mut rest)?;
     if version != HSQD_VERSION {
         return Err(SaveLoadError::Corrupted(format!(
@@ -195,64 +167,68 @@ fn decode_payload(bytes: &[u8]) -> SaveLoadResult<Option<HotkeySquadPersistPaylo
     Ok(Some(payload))
 }
 
-fn capture() -> HotkeySquadPersistPayload {
-    let mut by_index: HashMap<i32, [Vec<u32>; NUM_HOTKEY_SQUADS]> = HashMap::new();
-    if let Ok(list) = gamelogic::player::ThePlayerList().read() {
-        for arc in list.iter() {
-            let Ok(player) = arc.read() else {
-                continue;
-            };
-            let index = player.get_player_index();
-            let mut squads: [Vec<u32>; NUM_HOTKEY_SQUADS] = Default::default();
-            for slot in 0..NUM_HOTKEY_SQUADS {
-                if let Some(squad) = player.get_hotkey_squad_const(slot as i32) {
-                    squads[slot] = squad.get_object_ids().clone();
-                }
-            }
-            by_index.insert(index, squads);
+/// Traverse record boundaries, never payload bytes. Later framed continuations
+/// are removed first; an object's name/timer/module blob cannot become HSQD.
+fn find_hsqd_record(bytes: &[u8]) -> SaveLoadResult<Option<std::ops::Range<usize>>> {
+    let end = super::named_unit_history_persist::suffix_start(bytes)?;
+    let bytes = &bytes[..end];
+    let mut at = if bytes.starts_with(HSQD_MAGIC) || bytes.is_empty() {
+        0
+    } else {
+        match super::combat_projectile_persist::prefix_len(bytes) {
+            Ok(at) => at,
+            // Historical callers may supply no lifecycle envelope at all.
+            // Such opaque bytes do not establish a typed-record boundary.
+            Err(_) => return Ok(None),
         }
-    }
-    let mut players: Vec<PlayerHotkeySquadPersist> = by_index
-        .into_iter()
-        .map(|(player_index, squads)| PlayerHotkeySquadPersist {
-            player_index,
-            squads: squads.into_iter().collect(),
-        })
-        .collect();
-    players.sort_by_key(|player| player.player_index);
-    HotkeySquadPersistPayload { players }
-}
-
-fn apply_payload(payload: HotkeySquadPersistPayload) {
-    let arcs: Vec<_> = {
-        let Ok(list) = gamelogic::player::ThePlayerList().read() else {
-            return;
-        };
-        list.iter().cloned().collect()
     };
-    for entry in &payload.players {
-        let Some(arc) = arcs.iter().find(|arc| {
-            arc.read()
-                .ok()
-                .is_some_and(|player| player.get_player_index() == entry.player_index)
-        }) else {
+    let mut found = None;
+    while at < bytes.len() {
+        let rest = &bytes[at..];
+        if rest.starts_with(b"SPCD") {
+            at += super::special_power_cooldown_persist::record_len(rest)?;
             continue;
-        };
-        let Ok(mut player) = arc.write() else {
-            continue;
-        };
-        for slot in 0..NUM_HOTKEY_SQUADS {
-            let ids = entry.squads.get(slot).map(Vec::as_slice).unwrap_or(&[]);
-            player.process_create_team_game_message(slot as i32, ids);
         }
+        let known = [
+            b"CPRJ", b"BDKD", b"NLFC", b"ODIS", b"RDCK", b"OLST", b"NDIE", b"BPPL", b"SUBD",
+            b"HSQD", b"BTRY", b"CBPD", b"PDRP", b"DZRP", b"RHBH", b"WSFL", b"SABL", b"TMAI",
+            b"DCKQ", b"MSRT", b"DPLS", b"OXFR", b"ADPS", b"OCLT", b"JTAI", b"CHNK", b"HKIN",
+            b"WHCR", b"FSGM", b"MCRT", b"GPSG", b"DSCR", b"AMOB", b"PPRD", b"CLHA", b"PDLS",
+            b"PJST", b"TXEB", b"BRBH", b"OXOB", b"INFR", b"FWAL", b"NMSD", b"TRAI", b"STLG",
+            b"WLCH", b"SCKP", b"GFPT", b"SDEN", b"AITQ",
+        ]
+        .iter()
+        .any(|tag| rest.starts_with(*tag));
+        if !known {
+            break;
+        } // Preserve opaque later extensions.
+        if rest.len() < 12 {
+            return Err(SaveLoadError::Corrupted(
+                "lifecycle record header truncated".into(),
+            ));
+        }
+        let len = u32::from_le_bytes(rest[8..12].try_into().unwrap()) as usize;
+        let next = at
+            .checked_add(12)
+            .and_then(|n| n.checked_add(len))
+            .filter(|&n| n <= bytes.len())
+            .ok_or_else(|| SaveLoadError::Corrupted("lifecycle record payload truncated".into()))?;
+        if rest.starts_with(HSQD_MAGIC) {
+            if found.is_some() {
+                return Err(SaveLoadError::Corrupted("duplicate HSQD record".into()));
+            }
+            found = Some(at..next);
+        }
+        at = next;
     }
+    Ok(found)
 }
 
 fn find_hsqd_suffix(bytes: &[u8]) -> Option<&[u8]> {
-    bytes
-        .windows(4)
-        .rposition(|window| window == HSQD_MAGIC)
-        .map(|idx| &bytes[idx + 4..])
+    find_hsqd_record(bytes)
+        .ok()
+        .flatten()
+        .map(|range| &bytes[range.start + 4..range.end])
 }
 
 fn append_u32(out: &mut Vec<u8>, value: u32) {
@@ -272,15 +248,23 @@ fn take_u32(rest: &mut &[u8]) -> SaveLoadResult<u32> {
 mod tests {
     use super::*;
     use gamelogic::player::Player;
-    use std::sync::{Arc, RwLock};
 
-    fn reset_leftover(index: i32) -> Arc<RwLock<Player>> {
-        let player = Arc::new(RwLock::new(Player::new(index)));
-        player.write().expect("player").init_from_dict_defaults();
-        if let Ok(mut list) = gamelogic::player::ThePlayerList().write() {
-            list.clear();
-            list.add_player(Arc::clone(&player));
-            list.set_local_player_index(index);
+    fn fixture_player(index: i32) -> Player {
+        let mut player = Player::new(index);
+        player.init_from_dict_defaults();
+        player
+    }
+    fn restore_fixture_player(bytes: &[u8], index: i32) -> Player {
+        let mut player = fixture_player(index);
+        if let Some(payload) = decode_payload(bytes).unwrap() {
+            for entry in payload.players {
+                if entry.player_index != index {
+                    continue;
+                }
+                for (slot, ids) in entry.squads.iter().enumerate() {
+                    player.process_create_team_game_message(slot as i32, ids);
+                }
+            }
         }
         player
     }
@@ -291,22 +275,32 @@ mod tests {
             module_path!(),
             "leftover_hotkey_squads_round_trip_lifecycle_tail",
             || {
-                let player = reset_leftover(0);
-                player
-                    .write()
-                    .expect("player")
-                    .process_create_team_game_message(1, &[10, 20, 30]);
+                let mut player = fixture_player(0);
+                player.process_create_team_game_message(1, &[10, 20, 30]);
 
-                let mut bytes = b"HIST".to_vec();
-                append_to_lifecycle_tail(&mut bytes, &GameLogic::new());
+                let mut bytes =
+                    super::super::lifecycle_tail::encode_lifecycle_tail(&Default::default());
+                write_control_groups(
+                    &mut bytes,
+                    &ControlGroupSave {
+                        player_index: 0,
+                        groups: HashMap::from([(
+                            1,
+                            player
+                                .get_hotkey_squad_const(1)
+                                .unwrap()
+                                .get_object_ids()
+                                .clone(),
+                        )]),
+                    },
+                )
+                .unwrap();
                 assert!(
                     find_hsqd_suffix(&bytes).is_some(),
                     "HSQD suffix must be appended"
                 );
 
-                let restored = reset_leftover(0);
-                apply_from_lifecycle_tail(&bytes, &mut GameLogic::new()).expect("apply");
-                let loaded = restored.read().expect("player");
+                let loaded = restore_fixture_player(&bytes, 0);
                 let squad = loaded.get_hotkey_squad_const(1).expect("squad 1");
                 assert_eq!(squad.get_object_ids(), &vec![10, 20, 30]);
                 let groups = read_control_groups(&bytes).unwrap().unwrap();
@@ -322,11 +316,9 @@ mod tests {
             module_path!(),
             "explicit_engine_groups_replace_only_their_detached_owner",
             || {
-                reset_leftover(0);
                 let mut groups = HashMap::new();
                 groups.insert(3, vec![7, 8]);
                 let mut bytes = Vec::new();
-                append_to_lifecycle_tail(&mut bytes, &GameLogic::new());
                 write_control_groups(
                     &mut bytes,
                     &ControlGroupSave {
@@ -336,9 +328,7 @@ mod tests {
                 )
                 .unwrap();
 
-                let restored = reset_leftover(0);
-                apply_from_lifecycle_tail(&bytes, &mut GameLogic::new()).expect("apply");
-                let loaded = restored.read().expect("player");
+                let loaded = restore_fixture_player(&bytes, 0);
                 let squad = loaded.get_hotkey_squad_const(3).expect("squad 3");
                 assert_eq!(squad.get_object_ids(), &vec![7, 8]);
             },
@@ -373,26 +363,39 @@ mod tests {
             module_path!(),
             "snapshot_round_trips_leftover_hotkey_squads",
             || {
-                let player = reset_leftover(0);
-                player
-                    .write()
-                    .expect("player")
-                    .process_create_team_game_message(2, &[42, 43]);
+                let mut player = fixture_player(0);
+                player.process_create_team_game_message(2, &[42, 43]);
 
                 let source = GameLogic::new();
                 let builder = super::super::SnapshotBuilder::new();
-                let snapshot = builder.create_world_snapshot(&source).expect("snapshot");
+                let mut snapshot = builder.create_world_snapshot(&source).expect("snapshot");
+                write_control_groups(
+                    &mut snapshot.lifecycle_tail,
+                    &ControlGroupSave {
+                        player_index: 0,
+                        groups: HashMap::from([(
+                            2,
+                            player
+                                .get_hotkey_squad_const(2)
+                                .unwrap()
+                                .get_object_ids()
+                                .clone(),
+                        )]),
+                    },
+                )
+                .unwrap();
+                let encoded = bincode_legacy::serialize(&snapshot).unwrap();
+                let snapshot = super::super::decode_bincode_world_snapshot(&encoded).unwrap();
                 assert!(
                     find_hsqd_suffix(&snapshot.lifecycle_tail).is_some(),
                     "HSQD suffix must be appended to lifecycle tail"
                 );
 
-                let restored = reset_leftover(0);
                 let mut dest = GameLogic::new();
                 builder
                     .restore_from_snapshot(&snapshot, &mut dest)
                     .expect("restore");
-                let loaded = restored.read().expect("player");
+                let loaded = restore_fixture_player(&snapshot.lifecycle_tail, 0);
                 let squad = loaded.get_hotkey_squad_const(2).expect("squad 2");
                 assert_eq!(squad.get_object_ids(), &vec![42, 43]);
             },

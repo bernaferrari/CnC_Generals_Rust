@@ -206,3 +206,5 @@ pub(crate) mod containment_audio_test_support;
 
 #[cfg(test)]
 pub(crate) use game_logic::containment_audio_owner_tests;
+
+pub(crate) mod player_controllers;

@@ -263,16 +263,13 @@ mod sides_host_apply_tests {
             "only ReplayObserver is local"
         );
         assert!(logic.radar_forced);
-        if let Ok(list) = ThePlayerList().read() {
-            if let Some(local) = list.get_local_player() {
-                if let Ok(guard) = local.read() {
-                    assert_eq!(
-                        guard.get_player_name_key(),
-                        NameKeyGenerator::name_to_key("ReplayObserver")
-                    );
-                }
-            }
-        }
+        assert_eq!(
+            logic
+                .get_player(logic.local_player_id().unwrap())
+                .unwrap()
+                .script_identity(),
+            Some("ReplayObserver")
+        );
     }
 }
 

@@ -69,7 +69,6 @@ impl GameLogic {
         self.apply_host_set_train_held_requests();
         self.apply_host_money_script_requests();
         self.apply_host_can_build_script_requests();
-        self.apply_host_buildable_override_script_requests();
         self.apply_host_rank_script_requests();
         self.apply_host_transfer_script_requests_with_effects(&mut ui);
         self.apply_host_player_relates_script_requests();

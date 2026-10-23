@@ -246,6 +246,7 @@ impl<'a> CommandExecutor<'a> {
                     // C++ ProductionUpdate::queueUpgrade — STOP cheaters:
                     // Object::canProduceUpgrade CommandSet walk.
                     if !crate::game_logic::host_upgrades::object_can_produce_upgrade(
+                        self.game_logic.control_bar_overrides(),
                         source,
                         upgrade_name,
                     ) {

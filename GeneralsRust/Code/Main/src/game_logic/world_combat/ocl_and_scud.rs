@@ -299,12 +299,16 @@ impl GameLogic {
                 // C++ ObjectCreationList.cpp:962-969 — ParticleSystem is extra
                 // attached fire/smoke. The object still spawns.
                 if let Some(particle) = usable_ocl_particle_sys_name(&generic.particle_sys_name) {
-                    let _ = self.combat_particles.attach_named_to_object(
-                        created_id,
-                        spawn_position,
-                        self.frame,
-                        particle,
-                    );
+                    let is_shrouded = self.host_fx_object_is_shrouded(created_id.0);
+                    let _ = self
+                        .combat_particles
+                        .attach_named_to_object_with_visibility(
+                            created_id,
+                            spawn_position,
+                            self.frame,
+                            particle,
+                            is_shrouded,
+                        );
                 }
                 created.push(created_id);
             }

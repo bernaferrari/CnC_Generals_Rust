@@ -228,6 +228,7 @@ pub struct ThingTemplate {
     /// C++ `ThingTemplate::m_buildable` (`BSTATUS_YES` = 0).
     #[serde(default)]
     pub buildable_status: u32,
+    pub command_set_name: String,
     /// C++ `ThingTemplate::m_refundValue` from Object INI `RefundValue`.
     /// A zero value means "use BuildCost × GlobalData::SellPercentage";
     /// a non-zero value is an exact sale refund.
@@ -799,6 +800,7 @@ impl ThingTemplate {
             build_cost: Resources::default(),
             build_time: 1.0,
             buildable_status: 0,
+            command_set_name: String::new(),
             refund_value: 0,
             threat_value: 0,
             model_name: None,
@@ -1607,15 +1609,6 @@ impl ThingTemplate {
 
     /// C++ ControlBarCommand.cpp:1119-1121 / 1175-1177 — hide for humans.
     /// `ThingTemplate::getBuildable` consults GameLogic override first.
-    pub fn human_control_bar_buildable_hidden(&self) -> bool {
-        let status = gamelogic::helpers::TheGameLogic::find_buildable_status_override(&self.name)
-            .map(|s| s.max(0) as u32)
-            .unwrap_or(self.buildable_status);
-        !crate::game_logic::host_production_buildable_command_residual::buildable_status_allows_human_residual(
-            status,
-        )
-    }
-
     /// C++ `ThingTemplate::parsePrerequisites` via leftover parse_prerequisites_block.
     pub fn parse_prerequisites_from_ini_lines(&mut self, lines: &[String]) {
         let mut scratch = game_engine::common::thing::thing_template::ThingTemplate::new();

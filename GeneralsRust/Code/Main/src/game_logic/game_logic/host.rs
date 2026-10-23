@@ -82,6 +82,8 @@ pub struct GameLogic {
     /// Prepared map definitions in authored order, owned by this match. Runtime
     /// script state belongs to owned_script_engine; no ambient SidesList.
     pub(crate) prepared_map_sides: gamelogic::sides_list::SidesList,
+    pub(crate) prepared_player_controllers:
+        crate::game_logic::player_controllers::PreparedControllers,
     /// Named AttackPriorityInfo residual map (script sets).
     pub attack_priority_sets: std::collections::HashMap<String, AttackPriorityInfo>,
     /// C++ `Team::m_commonAttackTarget` residual, keyed by team instance name.
@@ -117,6 +119,8 @@ pub struct GameLogic {
     pub(super) rank_level_limit: i32,
     // C++ GameLogic::m_rankPointsToAddAtGameStart, retained for restart/Xfer.
     pub(super) rank_points_to_add_at_game_start: i32,
+    pub(super) buildable_status_overrides: HashMap<String, i32>,
+    pub(in crate::game_logic) control_bar_overrides: command_overrides::ControlBarOverrides,
     /// Exact Campaign/Challenge PlayerTemplate binding for each host player.
     ///
     /// This is deliberately GameLogic session state rather than a `Player`

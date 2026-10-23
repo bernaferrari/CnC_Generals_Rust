@@ -44,6 +44,49 @@ impl CombatSystem {
         historic_damage_limit: u32,
         fx: &mut dyn FnMut(&str, ProjectileFxObject<'_>),
     ) -> (Vec<DamageEvent>, Vec<ObjectId>) {
+        self.prepare_projectile_impact_with_fx_and_pose(
+            proj_id,
+            dt,
+            objects,
+            countermeasures,
+            frame,
+            terrain,
+            ownership_events,
+            historic_damage_limit,
+            fx,
+            &mut |projectile| {
+                crate::game_logic::host_fx_list_dispatch::publish_host_fx_object_with_visibility(
+                    projectile.id.0,
+                    projectile.position,
+                    projectile.velocity.z.atan2(projectile.velocity.x),
+                    projectile
+                        .source_owner_player_id
+                        .map(|id| id as i32)
+                        .unwrap_or(-1),
+                    0.0,
+                    crate::game_logic::host_fx_list_dispatch::host_object_is_shrouded_for_local(
+                        projectile.id.0,
+                    ),
+                );
+            },
+        )
+    }
+
+    pub(in crate::game_logic) fn prepare_projectile_impact_with_fx_and_pose(
+        &mut self,
+        proj_id: ObjectId,
+        dt: f32,
+        objects: &mut crate::game_logic::HostObjectStore,
+        mut countermeasures: Option<
+            &mut crate::game_logic::host_countermeasures::HostCountermeasuresRegistry,
+        >,
+        frame: u32,
+        terrain: Option<&crate::game_logic::game_logic::FlightTerrainView<'_>>,
+        ownership_events: &mut crate::game_logic::host_owner_log::OwnershipEvents,
+        historic_damage_limit: u32,
+        fx: &mut dyn FnMut(&str, ProjectileFxObject<'_>),
+        publish: &mut dyn FnMut(&Projectile),
+    ) -> (Vec<DamageEvent>, Vec<ObjectId>) {
         let mut damage_events = Vec::new();
         let mut projectiles_to_remove = Vec::new();
         if let Some(projectile) = self.projectiles.get_mut(&proj_id) {
@@ -87,7 +130,13 @@ impl CombatSystem {
                     }
                 }
             }
-            match projectile.update_with_terrain_and_fx(dt, target_exists, terrain, fx) {
+            match projectile.update_with_terrain_fx_and_pose(
+                dt,
+                target_exists,
+                terrain,
+                fx,
+                publish,
+            ) {
                 ProjectileStep::Alive => {
                     if !projectile.is_warhead_armed() {
                         return (damage_events, projectiles_to_remove);

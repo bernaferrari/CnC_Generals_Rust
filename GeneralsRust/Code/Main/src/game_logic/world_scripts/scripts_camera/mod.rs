@@ -393,3 +393,9 @@ mod waypoint_routes;
 
 #[cfg(test)]
 mod waypoint_identity_owner_tests;
+
+#[cfg(test)]
+mod victory_condition_owner_tests;
+
+#[cfg(test)]
+mod buildability_owner_tests;

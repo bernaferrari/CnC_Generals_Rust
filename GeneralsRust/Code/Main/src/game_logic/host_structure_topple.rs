@@ -917,7 +917,19 @@ mod tests {
             .1;
         assert!(update.contains("dispatch_owned_structure_topple_fx"));
         assert!(update.contains("execute_owned_structure_topple_fx"));
-        assert!(owner.contains("dispatch_fx_list_at_host_object(&effect.name, id, None)"));
-        assert!(owner.contains("dispatch_fx_list_at_host_position"));
+        let delivery = owner
+            .split_once("fn execute_owned_structure_topple_fx_with_effects(")
+            .expect("receiving FX executor")
+            .1
+            .split_once("pub(crate) fn update_owned_structure_topple(")
+            .expect("next operation boundary")
+            .0;
+        let delivery: String = delivery.chars().filter(|c| !c.is_whitespace()).collect();
+        assert!(delivery.contains(
+            "dispatch_fx_list_at_host_object_with_effects(&effect.name,id,None,presentation_effects,)"
+        ));
+        assert!(delivery.contains(
+            "dispatch_fx_list_at_host_position_with_effects(&effect.name,glam::Vec3::new(effect.x,effect.y,effect.z),presentation_effects,)"
+        ));
     }
 }

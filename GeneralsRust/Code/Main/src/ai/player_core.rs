@@ -335,7 +335,7 @@ impl AIPlayer {
         current_time: f32,
         ai_data: &AiDataView,
     ) {
-        let skirmish = self.leftover_is_skirmish_ai();
+        let skirmish = self.receiving_is_skirmish_ai(game_logic);
         self.update_with_ai_data_and_team_owner(
             game_logic,
             current_time,

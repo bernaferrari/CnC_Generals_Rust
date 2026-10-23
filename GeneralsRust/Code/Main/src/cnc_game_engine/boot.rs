@@ -327,6 +327,8 @@ impl CnCGameEngine {
             },
         )
         .await?;
+        let application_assets = crate::assets::manager::get_asset_manager()
+            .ok_or_else(|| anyhow::anyhow!("initialized application archive service is absent"))?;
         let asset_duration = asset_timer.elapsed();
 
         if let Err(err) = crate::assets::archive::init_big_archive_file_reader() {
@@ -565,6 +567,8 @@ impl CnCGameEngine {
             StartupLoadState::Complete
         } else {
             Self::spawn_startup_map_load(
+                Arc::clone(&application_assets),
+                super::startup_definition_source::StartupSimulationRules::capture(&game_logic),
                 receiving_object_sources,
                 start_in_menu,
                 map_to_load,
@@ -681,6 +685,7 @@ impl CnCGameEngine {
         };
 
         let mut engine = Self {
+            application_assets,
             window: window.clone(),
             command_line,
 

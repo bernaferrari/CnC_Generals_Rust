@@ -278,6 +278,7 @@ impl Projectile {
         &mut self,
         frame: u32,
         fx: &mut dyn FnMut(&str, ProjectileFxObject<'_>),
+        publish: &mut dyn FnMut(&Projectile),
     ) -> bool {
         let Some(crate::game_logic::weapon_bootstrap::HostProjectileFlight::Missile(missile)) =
             &self.flight
@@ -291,7 +292,7 @@ impl Projectile {
             return false;
         }
         let ignition_fx = missile.ignition_fx.clone();
-        self.play_missile_ignition(&ignition_fx, fx);
+        self.play_missile_ignition(&ignition_fx, fx, publish);
         self.flight_runtime.missile_armed = true;
         self.flight_runtime.missile_phase =
             crate::game_logic::weapon_bootstrap::HostMissilePhase::Attack;
@@ -302,12 +303,14 @@ impl Projectile {
         self.velocity.z.atan2(self.velocity.x)
     }
 
-    fn publish_missile_fx_pose(&self) {
-        crate::game_logic::publish_host_fx_object(
+    fn publish_missile_fx_pose(&self, is_shrouded: bool) {
+        crate::game_logic::host_fx_list_dispatch::publish_host_fx_object_with_visibility(
             self.id.0,
             self.position,
             self.missile_fx_yaw(),
             self.source_owner_player_id.map(|p| p as i32).unwrap_or(-1),
+            0.0,
+            is_shrouded,
         );
     }
 
@@ -316,8 +319,9 @@ impl Projectile {
         &mut self,
         ignition_fx: &str,
         fx: &mut dyn FnMut(&str, ProjectileFxObject<'_>),
+        publish: &mut dyn FnMut(&Projectile),
     ) {
-        self.publish_missile_fx_pose();
+        publish(self);
         if !ignition_fx.is_empty() {
             fx(ignition_fx, ProjectileFxObject::Projectile(self));
         }
@@ -350,9 +354,9 @@ impl Projectile {
         }
     }
 
-    pub fn publish_attached_exhaust_pose(&self) {
+    pub fn publish_attached_exhaust_pose(&self, is_shrouded: bool) {
         if self.leftover_exhaust_id != 0 {
-            self.publish_missile_fx_pose();
+            self.publish_missile_fx_pose(is_shrouded);
         }
     }
 
@@ -467,13 +471,30 @@ impl Projectile {
         terrain: Option<&crate::game_logic::game_logic::FlightTerrainView<'_>>,
         fx: &mut dyn FnMut(&str, ProjectileFxObject<'_>),
     ) -> ProjectileStep {
+        self.update_with_terrain_fx_and_pose(dt, target_is_live, terrain, fx, &mut |projectile| {
+            projectile.publish_missile_fx_pose(
+                crate::game_logic::host_fx_list_dispatch::host_object_is_shrouded_for_local(
+                    projectile.id.0,
+                ),
+            );
+        })
+    }
+
+    pub(in crate::game_logic) fn update_with_terrain_fx_and_pose(
+        &mut self,
+        dt: f32,
+        target_is_live: bool,
+        terrain: Option<&crate::game_logic::game_logic::FlightTerrainView<'_>>,
+        fx: &mut dyn FnMut(&str, ProjectileFxObject<'_>),
+        publish: &mut dyn FnMut(&Projectile),
+    ) -> ProjectileStep {
         if dt.is_finite() && dt > 0.0 {
             self.lifetime += dt;
         }
 
         // C++ runs LAUNCH/IGNITION before airborneTargetGone (doAttackState).
         let frame = self.elapsed_logic_frames();
-        if !self.try_enter_missile_ignition(frame, fx) {
+        if !self.try_enter_missile_ignition(frame, fx, publish) {
             return ProjectileStep::Alive;
         }
 

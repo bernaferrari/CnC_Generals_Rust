@@ -340,14 +340,16 @@ impl GameLogic {
         radius: f32,
     ) -> bool {
         let frame = self.frame as u32;
+        let owner = self
+            .objects
+            .get(&host_id)
+            .and_then(|object| object.owner_player_id);
+        let players = self.radius_decal_player_view(owner);
         let Some(obj) = self.objects.get_mut(&host_id) else {
             return false;
         };
-        let ok = if radius > 0.0 {
-            obj.create_delivery_radius_decal_with_radius(target_pos, frame, radius)
-        } else {
-            obj.create_delivery_radius_decal(target_pos, frame)
-        };
+        let ok =
+            obj.create_delivery_radius_decal_with_player_view(target_pos, frame, radius, players);
         if ok {
             self.radius_decal_update_reg.record_create();
             obj.status.attacking = true;
@@ -506,11 +508,16 @@ impl GameLogic {
                 target_pos,
                 Some(crate::command_system::SpecialPowerType::SpectreGunship),
             );
+        }
+        let gunship_owner = self
+            .objects
+            .get(&gunship_id)
+            .and_then(|object| object.owner_player_id);
+        let gunship_players = self.radius_decal_player_view(gunship_owner);
+        if let Some(g) = self.objects.get_mut(&gunship_id) {
             g.install_spectre_gunship_update_if_needed();
             let mut flight =
-                crate::game_logic::host_spectre_gunship_update::HostSpectreGunshipUpdateData::initiate_at(
-                    target_pos,
-                );
+                crate::game_logic::host_spectre_gunship_update::HostSpectreGunshipUpdateData::default();
             if let Some(existing) = g.spectre_gunship_update.as_ref() {
                 flight.orbit_radius = existing.orbit_radius;
                 flight.orbit_frames = existing.orbit_frames;
@@ -518,8 +525,13 @@ impl GameLogic {
                 flight.attack_area_radius = existing.attack_area_radius;
                 flight.targeting_reticle_radius = existing.targeting_reticle_radius;
                 flight.preferred_elevation = existing.preferred_elevation;
-                flight.initiate(target_pos);
             }
+            flight.initiate_with_player_view(
+                target_pos,
+                self.frame,
+                gunship_owner.map(|id| id as i32),
+                gunship_players,
+            );
             // C++ GUNSHIP_STATUS_ORBITING transition:
             // m_orbitEscapeFrame = frame + m_orbitFrames where m_orbitFrames
             // is the spawning module's OrbitTime (.cpp:450) — the ship departs
@@ -592,6 +604,12 @@ impl GameLogic {
         let mut destroy = Vec::new();
         let mut audio: Vec<(ObjectId, String, Vec3, bool)> = Vec::new();
         for id in ids {
+            let owner = self
+                .objects
+                .get(&id)
+                .and_then(|object| object.owner_player_id);
+            let players = self.radius_decal_player_view(owner);
+
             let Some(o) = self.objects.get_mut(&id) else {
                 continue;
             };
@@ -610,7 +628,14 @@ impl GameLogic {
                 continue;
             };
             let was_ab = data.afterburners_on;
-            let tick = data.tick(pos, facing, frame, draw_icon_ui);
+            let tick = data.tick_with_player_view(
+                pos,
+                facing,
+                frame,
+                draw_icon_ui,
+                owner.map(|id| id as i32),
+                players,
+            );
             o.set_position_with_effects(tick.pos, self.frame, presentation_effects);
             o.movement.velocity = tick.vel;
             if tick.vel.length_squared() > 1.0e-6 {
@@ -795,6 +820,11 @@ impl GameLogic {
             None,
             presentation_effects,
         )?;
+        let decal_players = self.radius_decal_player_view(
+            self.objects
+                .get(&id)
+                .and_then(|object| object.owner_player_id),
+        );
         if let Some(o) = self.objects.get_mut(&id) {
             o.note_producer(source_id);
             let yaw = (secondary.z - primary.z).atan2(secondary.x - primary.x);
@@ -804,7 +834,12 @@ impl GameLogic {
             if o.neutron_missile_update.is_some() {
                 self.neutron_missile_update_reg.record_launch();
                 // C++ NeutronMissileUpdate DeliveryDecal residual on launcher/missile.
-                let _ = o.create_delivery_radius_decal(secondary, self.frame);
+                let _ = o.create_delivery_radius_decal_with_player_view(
+                    secondary,
+                    self.frame,
+                    0.0,
+                    decal_players,
+                );
             } else {
                 // Non-neutron projectiles: smart-bomb course residual.
                 let mut p = o.get_position();

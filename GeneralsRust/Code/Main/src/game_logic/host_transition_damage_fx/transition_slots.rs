@@ -122,6 +122,8 @@ impl crate::game_logic::GameLogic {
         source: Option<&HostDamageFxVictim>,
         particles: &mut crate::game_logic::combat_particles::CombatParticleRegistry,
         frame: u32,
+        player: Option<u32>,
+        shroud: &std::sync::Arc<std::sync::Mutex<gamelogic::system::shroud_manager::ShroudManager>>,
         view: &mut game_client::fx_list::FxViewServices<'_>,
     ) {
         // C++ destroys all old-state systems BEFORE testing/playing the worse state.
@@ -173,7 +175,8 @@ impl crate::game_logic::GameLogic {
                     return;
                 }
                 let local = host_local(object, definition);
-                if let Some(id) = particles.attach_named_to_object_local(
+                let is_shrouded = Self::host_fx_visibility_for(player, shroud, object.id.0);
+                if let Some(id) = particles.attach_named_to_object_local_with_visibility(
                     object.id,
                     object.get_position(),
                     object.get_orientation(),
@@ -182,6 +185,7 @@ impl crate::game_logic::GameLogic {
                     &definition.name,
                     crate::game_logic::combat_particles::CombatParticleKind::DeathSmoke,
                     None,
+                    is_shrouded,
                 ) {
                     if let Some(ids) = object
                         .transition_damage_fx

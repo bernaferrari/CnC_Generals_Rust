@@ -232,6 +232,10 @@ fn native_transition_creates_and_retires_sparse_attachments_inline_without_repla
                     None,
                     &mut registry,
                     9,
+                    None,
+                    &std::sync::Arc::new(std::sync::Mutex::new(
+                        gamelogic::system::shroud_manager::ShroudManager::new(),
+                    )),
                     &mut view,
                 );
                 assert!(
@@ -274,6 +278,10 @@ fn native_transition_creates_and_retires_sparse_attachments_inline_without_repla
                     None,
                     &mut registry,
                     10,
+                    None,
+                    &std::sync::Arc::new(std::sync::Mutex::new(
+                        gamelogic::system::shroud_manager::ShroudManager::new(),
+                    )),
                     &mut view,
                 );
                 assert_eq!(

@@ -480,7 +480,8 @@ impl GameLogic {
                 sides.add_team(&team);
             }
         }
-
+        // Temporary adapter for the still-live native observer/score consumers.
+        // All identity and color facts came from this receiving Main Player.
         let core_colors = (
             gamelogic::common::Color::rgb(day.0, day.1, day.2),
             gamelogic::common::Color::rgb(night.0, night.1, night.2),
@@ -488,39 +489,35 @@ impl GameLogic {
         let existing = ThePlayerList()
             .read()
             .ok()
-            .and_then(|list| list.find_player_by_name("ReplayObserver"));
+            .and_then(|list| list.get_player(host_id as i32).cloned());
         if let Some(existing) = existing {
             if let Ok(mut player) = existing.write() {
                 player.set_colors(core_colors.0, core_colors.1);
             }
-            return;
-        }
-
-        let mut logic_player = LogicPlayer::new(host_id as i32);
-        logic_player.set_player_name_key(NameKeyGenerator::name_to_key("ReplayObserver"));
-        logic_player.set_display_name("Observer");
-        logic_player.set_side("Observer");
-        logic_player.set_base_side("Observer");
-        logic_player.set_observer(true);
-        logic_player.set_player_type(LogicPlayerType::Observer, false);
-        game_engine::common::ini::ensure_player_templates_loaded();
-        let observer_template = {
-            let templates = get_player_template_store();
-            templates
-                .find_template("FactionObserver")
-                .map(|common| std::sync::Arc::new(LogicPlayerTemplate::from_common(common)))
-        };
-        // Player::init hydrates its template through this catalog again.
-        // Release the read before that callback: a queued loader writer would
-        // otherwise block the recursive read while waiting on our first one.
-        if let Some(template) = observer_template {
-            logic_player.init(template);
+        } else {
+            let mut logic_player = LogicPlayer::new(host_id as i32);
+            logic_player.set_player_name_key(NameKeyGenerator::name_to_key("ReplayObserver"));
+            logic_player.set_display_name("Observer");
+            logic_player.set_side("Observer");
+            logic_player.set_base_side("Observer");
             logic_player.set_observer(true);
             logic_player.set_player_type(LogicPlayerType::Observer, false);
-        }
-        logic_player.set_colors(core_colors.0, core_colors.1);
-        if let Ok(mut list) = ThePlayerList().write() {
-            list.add_player(std::sync::Arc::new(std::sync::RwLock::new(logic_player)));
+            game_engine::common::ini::ensure_player_templates_loaded();
+            let observer_template = {
+                let templates = get_player_template_store();
+                templates
+                    .find_template("FactionObserver")
+                    .map(|common| std::sync::Arc::new(LogicPlayerTemplate::from_common(common)))
+            };
+            if let Some(template) = observer_template {
+                logic_player.init(template);
+                logic_player.set_observer(true);
+                logic_player.set_player_type(LogicPlayerType::Observer, false);
+            }
+            logic_player.set_colors(core_colors.0, core_colors.1);
+            if let Ok(mut list) = ThePlayerList().write() {
+                list.add_player(std::sync::Arc::new(std::sync::RwLock::new(logic_player)));
+            }
         }
     }
 
@@ -549,11 +546,10 @@ impl GameLogic {
         for player in self.players.values_mut() {
             player.is_local = player.id == observer_id;
         }
+        // Temporary native consumer adapter; Main selected the identity above.
         if let Ok(mut list) = ThePlayerList().write() {
-            if let Some(observer) = list.find_player_by_name("ReplayObserver") {
-                if let Ok(guard) = observer.read() {
-                    list.set_local_player_index(guard.get_player_index());
-                }
+            if list.get_player(observer_id as i32).is_some() {
+                list.set_local_player_index(observer_id as i32);
             }
         }
         self.set_radar_forced(true);
@@ -1761,3 +1757,7 @@ impl GameLogic {
 #[cfg(test)]
 #[path = "terrain_height_owner_tests.rs"]
 mod terrain_height_owner_tests;
+
+#[cfg(test)]
+#[path = "native_player_owner_tests.rs"]
+mod native_player_owner_tests;

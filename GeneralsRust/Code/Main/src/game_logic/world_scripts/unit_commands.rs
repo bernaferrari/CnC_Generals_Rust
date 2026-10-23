@@ -2910,7 +2910,11 @@ impl GameLogic {
         }
         // C++ ProductionUpdate::queueUpgrade — STOP cheaters:
         // Object::canProduceUpgrade CommandSet walk.
-        if !crate::game_logic::host_upgrades::object_can_produce_upgrade(obj, upgrade_name) {
+        if !crate::game_logic::host_upgrades::object_can_produce_upgrade(
+            &self.control_bar_overrides,
+            obj,
+            upgrade_name,
+        ) {
             return false;
         }
 

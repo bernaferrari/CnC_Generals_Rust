@@ -334,23 +334,8 @@ impl AIPlayer {
             .unwrap_or(false)
     }
 
-    pub(super) fn leftover_default_team_arc(
-        player_id: u32,
-    ) -> Option<std::sync::Arc<std::sync::RwLock<gamelogic::team::Team>>> {
-        gamelogic::player::player_list()
-            .read()
-            .ok()
-            .and_then(|list| list.get_player(player_id as i32).cloned())
-            .and_then(|player| player.read().ok().and_then(|p| p.get_default_team()))
-    }
-
-    pub(super) fn leftover_is_skirmish_ai(&self) -> bool {
-        gamelogic::player::player_list()
-            .read()
-            .ok()
-            .and_then(|list| list.get_player(self.player_id as i32).cloned())
-            .and_then(|player| player.read().ok().map(|p| p.is_skirmish_ai()))
-            .unwrap_or(false)
+    pub(super) fn receiving_is_skirmish_ai(&self, source: &(impl AiReadSource + ?Sized)) -> bool {
+        AiWorldView::new(source).player_is_skirmish_ai(self.player_id)
     }
 
     /// C++ `Object::setTeam` onto the destination leftover instance.
@@ -384,7 +369,7 @@ impl AIPlayer {
 
     /// C++ `TeamInQueue::disband` (`AIPlayer.cpp:3554-3566`).
     pub(super) fn disband_queued_team(&mut self, game_logic: &mut GameLogic, team: &AITeamQueue) {
-        let skirmish = self.leftover_is_skirmish_ai();
+        let skirmish = self.receiving_is_skirmish_ai(game_logic);
         self.disband_queued_team_with_owner(
             game_logic,
             team,
@@ -892,7 +877,7 @@ impl AIPlayer {
 
     /// C++ `AIPlayer::checkQueuedTeams` (`AIPlayer.cpp:2810-2870`).
     pub(super) fn check_queued_teams(&mut self, game_logic: &mut GameLogic, current_time: f32) {
-        let skirmish = self.leftover_is_skirmish_ai();
+        let skirmish = self.receiving_is_skirmish_ai(game_logic);
         self.check_queued_teams_with_owner(
             game_logic,
             current_time,
@@ -1289,7 +1274,7 @@ impl AIPlayer {
             }
             // C++ AIPlayer.cpp:2944-2948 — only AISkirmishPlayer randomizes.
             // Campaign/script AIPlayer always buys SkillSet1 (selector 0).
-            if self.leftover_is_skirmish_ai() {
+            if self.receiving_is_skirmish_ai(game_logic) {
                 self.skillset_selector = self.placement_rng.next_int(0, limit);
             } else {
                 self.skillset_selector = 0;
@@ -1346,6 +1331,7 @@ impl AIPlayer {
     }
 
     pub(super) fn building_can_queue_upgrade(
+        overrides: &crate::game_logic::game_logic::command_overrides::ControlBarOverrides,
         object: &crate::game_logic::Object,
         upgrade_name: &str,
         upgrade_type: gamelogic::upgrade::UpgradeType,
@@ -1364,7 +1350,11 @@ impl AIPlayer {
         {
             return false;
         }
-        if !crate::game_logic::host_upgrades::object_can_produce_upgrade(object, upgrade_name) {
+        if !crate::game_logic::host_upgrades::object_can_produce_upgrade(
+            overrides,
+            object,
+            upgrade_name,
+        ) {
             return false;
         }
 
@@ -1397,7 +1387,12 @@ impl AIPlayer {
                 });
                 (game_logic.object_owned_by_player(object, self.player_id)
                     && name_ok
-                    && Self::building_can_queue_upgrade(object, upgrade_name, upgrade_type))
+                    && Self::building_can_queue_upgrade(
+                        game_logic.control_bar_overrides(),
+                        object,
+                        upgrade_name,
+                        upgrade_type,
+                    ))
                 .then_some(id)
             })
     }
@@ -1696,21 +1691,15 @@ impl AIPlayer {
     }
 
     pub(super) fn player_team_prototype_candidates(&self) -> Vec<(String, i32)> {
-        let Ok(list) = gamelogic::player::player_list().read() else {
-            return Vec::new();
-        };
-        let Some(player) = list.get_player(self.player_id as i32) else {
-            return Vec::new();
-        };
-        let Ok(pg) = player.read() else {
-            return Vec::new();
-        };
-        pg.get_player_team_prototypes()
-            .iter()
-            .map(|proto| {
+        self.team_factory
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .owned_team_prototypes_for_controller(self.player_id)
+            .into_iter()
+            .map(|prototype| {
                 (
-                    proto.get_name().to_string(),
-                    proto.get_production_priority(),
+                    prototype.get_name().to_string(),
+                    prototype.get_production_priority(),
                 )
             })
             .collect()
@@ -1884,53 +1873,25 @@ impl AIPlayer {
     }
 
     pub(super) fn collect_auto_reinforce_candidates(&self) -> Vec<ReinforceCandidate> {
-        let mut out = Vec::new();
-        if let Ok(list) = gamelogic::player::player_list().read() {
-            if let Some(player) = list.get_player(self.player_id as i32) {
-                if let Ok(pg) = player.read() {
-                    for proto in pg.get_player_team_prototypes() {
-                        if !proto.automatically_reinforce() {
-                            continue;
-                        }
-                        out.push(ReinforceCandidate {
-                            name: proto.get_name().to_string(),
-                            priority: proto.get_production_priority(),
-                            units: proto
-                                .units_info()
-                                .iter()
-                                .map(|u| ReinforceUnit {
-                                    thing: u.unit_thing_name.to_string(),
-                                    max_units: u.max_units,
-                                })
-                                .collect(),
-                        });
-                    }
-                }
-            }
-        }
-        if out.is_empty() {
-            if let Ok(factory) = self.team_factory.lock() {
-                // Host tests / unsynced player list: scan factory prototypes.
-                for proto in factory.list_team_prototypes() {
-                    if !proto.automatically_reinforce() {
-                        continue;
-                    }
-                    out.push(ReinforceCandidate {
-                        name: proto.get_name().to_string(),
-                        priority: proto.get_production_priority(),
-                        units: proto
-                            .units_info()
-                            .iter()
-                            .map(|u| ReinforceUnit {
-                                thing: u.unit_thing_name.to_string(),
-                                max_units: u.max_units,
-                            })
-                            .collect(),
-                    });
-                }
-            }
-        }
-        out
+        self.team_factory
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .owned_team_prototypes_for_controller(self.player_id)
+            .into_iter()
+            .filter(|prototype| prototype.automatically_reinforce())
+            .map(|prototype| ReinforceCandidate {
+                name: prototype.get_name().to_string(),
+                priority: prototype.get_production_priority(),
+                units: prototype
+                    .units_info()
+                    .iter()
+                    .map(|unit| ReinforceUnit {
+                        thing: unit.unit_thing_name.to_string(),
+                        max_units: unit.max_units,
+                    })
+                    .collect(),
+            })
+            .collect()
     }
 
     pub(super) fn count_owned_template_units(

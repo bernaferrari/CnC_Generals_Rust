@@ -64,24 +64,18 @@ struct PlayerArmyState {
 
 /// C++ `Player::getRelationship(const Team*)` (`Player.cpp:542-572`).
 /// Team-id override (`PLAYER_SET_OVERRIDE_RELATION_TO_TEAM`) wins first,
-/// then leftover `m_teamRelations`, then player->player map, then lobby
+/// then the receiving player->player map, then lobby
 /// `alliance_team` as the initial slot-team default.
 fn live_player_relationship(
     source: &Player,
     target: &Player,
-    team_factory: Option<&gamelogic::team::TeamFactoryHandle>,
+    _team_factory: Option<&gamelogic::team::TeamFactoryHandle>,
 ) -> gamelogic::common::Relationship {
     use gamelogic::common::Relationship;
     if source.id == target.id {
         return Relationship::Allies;
     }
-    if let Some(rel) = leftover_relationship_to_default_team(source, target) {
-        return rel;
-    }
     for name in default_team_instance_names(target) {
-        if let Some(rel) = leftover_player_team_relationship_override(team_factory, source, &name) {
-            return rel;
-        }
         if let Some(rel) = source.team_relationship_override(&name) {
             return rel;
         }
@@ -113,8 +107,10 @@ fn default_team_instance_names(player: &Player) -> Vec<String> {
             names.push(name.to_string());
         }
     };
-    if let Some(name) = leftover_default_team_instance_name(player) {
-        push(&mut names, name);
+    // Authored receiving identity determines the real default singleton Team.
+    // Editable display labels and foreign Core slots cannot replace it.
+    if let Some(identity) = player.script_identity().filter(|name| !name.is_empty()) {
+        return vec![format!("team{identity}")];
     }
     let host_name = player.name.trim();
     if !host_name.is_empty() {
@@ -126,64 +122,6 @@ fn default_team_instance_names(player: &Player) -> Vec<String> {
     }
     push(&mut names, format!("teamplayer{}", player.id));
     names
-}
-
-fn leftover_default_team_instance_name(player: &Player) -> Option<String> {
-    let arc = leftover_player_arc_for_host(player.id, &player.name, false)?;
-    let team = {
-        let guard = arc.read().ok()?;
-        guard.get_default_team()?
-    };
-    let name = team.read().ok()?.get_name().to_string();
-    if name.trim().is_empty() {
-        None
-    } else {
-        Some(name)
-    }
-}
-
-/// C++ `p1->getRelationship(p2->getDefaultTeam())` leftover `m_teamRelations` tier.
-fn leftover_relationship_to_default_team(
-    source: &Player,
-    target: &Player,
-) -> Option<gamelogic::common::Relationship> {
-    let source_arc = leftover_player_arc_for_host(source.id, &source.name, false)?;
-    let target_arc = leftover_player_arc_for_host(target.id, &target.name, false)?;
-    let team = {
-        let target_guard = target_arc.read().ok()?;
-        target_guard.get_default_team()?
-    };
-    let team_guard = team.read().ok()?;
-    let source_guard = source_arc.read().ok()?;
-    source_guard.override_relationship_for_team(&team_guard)
-}
-
-/// C++ leftover `Player::m_teamRelations` keyed by named team instance.
-fn leftover_player_team_relationship_override(
-    team_factory: Option<&gamelogic::team::TeamFactoryHandle>,
-    source: &Player,
-    team_name: &str,
-) -> Option<gamelogic::common::Relationship> {
-    if team_name.trim().is_empty() {
-        return None;
-    }
-    let team = {
-        let Some(team_factory) = team_factory else {
-            return None;
-        };
-        let Ok(factory) = team_factory.lock() else {
-            return None;
-        };
-        factory.find_team_instances(team_name).into_iter().next()?
-    };
-    let player_arc = leftover_player_arc_for_host(source.id, &source.name, false)?;
-    let Ok(player) = player_arc.read() else {
-        return None;
-    };
-    let Ok(team_guard) = team.read() else {
-        return None;
-    };
-    player.override_relationship_for_team(&team_guard)
 }
 
 /// C++ `VictoryConditions::areAllies`.
@@ -280,62 +218,6 @@ fn is_playable_victory_player(
         }
     }
     true
-}
-
-fn leftover_player_is_markable(player: &gamelogic::player::Player) -> bool {
-    !player.is_player_observer()
-        && player.get_player_type() != gamelogic::player::PlayerType::Neutral
-}
-
-fn leftover_player_arc_for_host(
-    player_id: u32,
-    host_name: &str,
-    markable_only: bool,
-) -> Option<std::sync::Arc<std::sync::RwLock<gamelogic::player::Player>>> {
-    let Ok(list) = gamelogic::player::ThePlayerList().read() else {
-        return None;
-    };
-    let named = format!("player{player_id}");
-    if let Some(player) = list.find_player_by_name(&named) {
-        return Some(player);
-    }
-    if !host_name.is_empty() {
-        if let Some(player) = list.find_player_by_name(host_name) {
-            return Some(player);
-        }
-    }
-    if let Some(player) = list.get_player(player_id as gamelogic::player::PlayerIndex) {
-        if !markable_only
-            || player
-                .read()
-                .ok()
-                .is_some_and(|guard| leftover_player_is_markable(&guard))
-        {
-            return Some(std::sync::Arc::clone(player));
-        }
-    }
-    for arc in list.iter() {
-        if arc.read().ok().is_some_and(|guard| {
-            guard.get_player_index() as u32 == player_id
-                && (!markable_only || leftover_player_is_markable(&guard))
-        }) {
-            return Some(std::sync::Arc::clone(arc));
-        }
-    }
-    None
-}
-
-fn mark_leftover_player_defeated(player_id: u32, host: &Player) {
-    let Some(arc) = leftover_player_arc_for_host(player_id, &host.name, true) else {
-        return;
-    };
-    if let Ok(mut guard) = arc.write() {
-        guard.set_defeated(true);
-        guard.set_player_dead(true);
-    }
-    if host.is_local {
-        gamelogic::helpers::TheVictoryConditions::set_local_player_defeated(true);
-    }
 }
 
 /// C++ `Team::hasAnyBuildings(KINDOF_MP_COUNT_FOR_VICTORY)` — STRUCTURE is
@@ -448,12 +330,6 @@ impl VictoryConditions {
         self.winning_alliance = None;
         self.pending_kills.clear();
         self.player_templates.clear();
-        // C++ VictoryConditions::reset clears m_singleAllianceRemaining.
-        gamelogic::helpers::TheVictoryConditions::set_local_allied_victory(false);
-        gamelogic::helpers::TheVictoryConditions::set_local_allied_defeat(false);
-        gamelogic::helpers::TheVictoryConditions::set_single_alliance_remaining(false);
-        gamelogic::helpers::TheVictoryConditions::set_victory_flags_from_live(false);
-        gamelogic::helpers::TheVictoryConditions::set_local_player_defeated(false);
     }
 
     pub fn set_victory_conditions(&mut self, config: VictoryType) {
@@ -555,7 +431,6 @@ impl VictoryConditions {
                         self.defeat_events.push(player_id);
                     }
                     self.pending_kills.push(player_id);
-                    mark_leftover_player_defeated(player_id, player);
                 }
                 continue;
             }
@@ -569,7 +444,6 @@ impl VictoryConditions {
             self.end_frame.get_or_insert(frame);
             self.winning_alliance = None;
             self.refresh_alliance_states(players);
-            self.sync_leftover_victory_flags(players);
 
             return Some(VictoryCondition::Draw);
         }
@@ -593,7 +467,6 @@ impl VictoryConditions {
             self.end_frame.get_or_insert(frame);
         }
         self.refresh_alliance_states(players);
-        self.sync_leftover_victory_flags(players);
 
         if single_alliance {
             return Some(VictoryCondition::Winner(living_players[0]));
@@ -632,21 +505,15 @@ impl VictoryConditions {
         !self.is_local_allied_victory(players)
     }
 
-    fn sync_leftover_victory_flags(&self, players: &HashMap<u32, Player>) {
-        gamelogic::helpers::TheVictoryConditions::set_local_allied_victory(
-            self.is_local_allied_victory(players),
-        );
-        gamelogic::helpers::TheVictoryConditions::set_local_allied_defeat(
-            self.is_local_allied_defeat(players),
-        );
-        gamelogic::helpers::TheVictoryConditions::set_single_alliance_remaining(
-            self.is_single_alliance_remaining(),
-        );
-        let local_defeated = players
-            .values()
-            .any(|player| player.is_local && self.defeated_players.contains(&player.id));
-        gamelogic::helpers::TheVictoryConditions::set_local_player_defeated(local_defeated);
-        gamelogic::helpers::TheVictoryConditions::set_victory_flags_from_live(true);
+    /// Receiving VictoryConditions is the sole defeat-status owner.
+    pub fn is_player_defeated(&self, player_id: u32) -> bool {
+        self.defeated_players.contains(&player_id)
+    }
+
+    pub(crate) fn local_player_defeated(&self, players: &HashMap<u32, Player>) -> bool {
+        players.values().any(|player| {
+            player.is_local && !player.is_observer && self.is_player_defeated(player.id)
+        })
     }
 
     pub(crate) fn has_single_player_been_defeated_owned(
@@ -973,7 +840,7 @@ mod tests {
             vc.is_local_allied_victory(&mixed),
             "C++ isLocalAlliedVictory is true for the living local alliance"
         );
-        assert!(gamelogic::helpers::TheVictoryConditions::is_local_allied_victory());
+        assert!(vc.is_local_allied_victory(&mixed));
         vc.reset();
     }
 
@@ -1128,7 +995,7 @@ mod tests {
             "wall-only STRUCTURE without MP_COUNT must not stall, got {outcome:?}"
         );
         assert!(vc.take_pending_kills().contains(&1));
-        assert!(gamelogic::helpers::TheVictoryConditions::is_local_allied_victory());
+        assert!(vc.is_local_allied_victory(&players));
         vc.reset();
     }
 
@@ -1158,7 +1025,7 @@ mod tests {
     }
 
     #[test]
-    fn evaluate_marks_leftover_player_list_defeated() {
+    fn evaluate_marks_receiving_player_defeated_without_mutating_foreign_list() {
         static PLAYER_LIST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
         let _lock = PLAYER_LIST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         {
@@ -1184,15 +1051,16 @@ mod tests {
             matches!(outcome, Some(VictoryCondition::Winner(0))),
             "local should win when the other army is gone, got {outcome:?}"
         );
-        let leftover_defeated = leftover_player_arc_for_host(1, "P1", true)
-            .and_then(|arc| arc.read().ok().map(|g| g.is_defeated()))
-            .unwrap_or(false);
+        let leftover_defeated = vc.is_player_defeated(1);
+        let foreign = gamelogic::player::ThePlayerList().read().unwrap();
+        assert!(!foreign.get_player(1).unwrap().read().unwrap().is_defeated());
+        drop(foreign);
         assert!(
             leftover_defeated,
             "C++ VictoryConditions::update writes Player::setDefeated"
         );
-        assert!(gamelogic::helpers::TheVictoryConditions::is_local_allied_victory());
-        assert!(!gamelogic::helpers::TheVictoryConditions::is_local_allied_defeat());
+        assert!(vc.is_local_allied_victory(&players));
+        assert!(!vc.is_local_allied_defeat(&players));
 
         vc.reset();
         if let Ok(mut list) = gamelogic::player::ThePlayerList().write() {
@@ -1223,7 +1091,7 @@ mod tests {
             !vc.is_local_allied_defeat(&players),
             "C++ isLocalAlliedDefeat is false while multiple alliances remain"
         );
-        assert!(!gamelogic::helpers::TheVictoryConditions::is_local_allied_defeat());
+        assert!(!vc.is_local_allied_defeat(&players));
         vc.reset();
     }
 

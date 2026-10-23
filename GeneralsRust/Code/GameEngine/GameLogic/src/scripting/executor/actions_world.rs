@@ -1340,9 +1340,14 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_techtree_modify_buildability_object(
         &mut self,
         action: &ScriptAction,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let object_type = self.get_string_param(action, 0)?;
         let buildable_status = self.get_int_param(action, 1)?;
+        if let Some(result) = driver.set_buildable_status_override(&object_type, buildable_status) {
+            result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
+            return Ok(ScriptActionResult::Success);
+        }
         // Live leftover ThingFactory is empty. Always write the override by
         // the script object-type name so host can_make_unit can read it.
         TheGameLogic::set_buildable_status_override(&object_type, buildable_status);
@@ -1407,10 +1412,15 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_command_bar_remove_button_object_type(
         &mut self,
         action: &ScriptAction,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let button_name = self.get_string_param(action, 0)?;
         let object_type = self.get_string_param(action, 1)?;
 
+        if let Some(result) = driver.command_bar_override(&button_name, &object_type, None) {
+            result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
+            return Ok(ScriptActionResult::Success);
+        }
         let Some(template) = TheObjectFactory::find_template(&object_type) else {
             return Ok(ScriptActionResult::Success);
         };
@@ -1445,11 +1455,18 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_command_bar_add_button_object_type_slot(
         &mut self,
         action: &ScriptAction,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let button_name = self.get_string_param(action, 0)?;
         let object_type = self.get_string_param(action, 1)?;
         let slot_num = self.get_int_param(action, 2)?;
 
+        if let Some(result) =
+            driver.command_bar_override(&button_name, &object_type, Some(slot_num))
+        {
+            result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
+            return Ok(ScriptActionResult::Success);
+        }
         let Some(template) = TheObjectFactory::find_template(&object_type) else {
             return Ok(ScriptActionResult::Success);
         };

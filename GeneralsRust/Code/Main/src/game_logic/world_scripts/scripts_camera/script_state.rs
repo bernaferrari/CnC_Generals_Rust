@@ -1190,19 +1190,6 @@ impl GameLogic {
         }
     }
 
-    /// C++ TECHTREE_MODIFY_BUILDABILITY_OBJECT drain.
-    pub(super) fn apply_host_buildable_override_script_requests(&mut self) {
-        for req in gamelogic::scripting::take_host_buildable_status_override_requests() {
-            gamelogic::helpers::TheGameLogic::set_buildable_status_override(
-                &req.template,
-                req.status,
-            );
-            if let Some(template) = self.template_mut_by_name(&req.template) {
-                template.buildable_status = req.status.max(0) as u32;
-            }
-        }
-    }
-
     pub(super) fn template_mut_by_name(&mut self, name: &str) -> Option<&mut ThingTemplate> {
         if self.templates.contains_key(name) {
             return self.templates.get_mut(name);

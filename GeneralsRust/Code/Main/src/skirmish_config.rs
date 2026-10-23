@@ -1992,14 +1992,12 @@ mod tests {
                     "human vs AI is two teams"
                 );
 
-                {
-                    use gamelogic::player::ThePlayerList;
-                    let list = ThePlayerList().read().expect("crate player list");
-                    assert!(
-                        list.find_player_by_name("ReplayObserver").is_some(),
-                        "crate PlayerList must name ReplayObserver"
-                    );
-                }
+                assert!(
+                    logic
+                        .get_player(observer.id)
+                        .is_some_and(|player| player.map_side.map_player_name == "ReplayObserver"),
+                    "receiving roster must retain the exact ReplayObserver identity"
+                );
             },
         );
     }

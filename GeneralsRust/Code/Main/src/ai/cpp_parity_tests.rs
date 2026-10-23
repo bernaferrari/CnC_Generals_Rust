@@ -24,7 +24,7 @@ fn install_player_team_prototype(
                 engine.set_script_list_for_player(leftover_index as usize, Some(Box::new(list)));
         }
     }
-    let proto_arc = {
+    {
         let mut tf = logic.team_factory.lock().expect("world team factory");
         let mut proto = gamelogic::team::TeamPrototype::new(team_name.into());
         proto.set_production_priority(priority);
@@ -40,22 +40,15 @@ fn install_player_team_prototype(
                 },
             );
         }
+        tf.init_team_owned(
+            team_name.into(),
+            "FixtureOwner".into(),
+            false,
+            None,
+            Some(leftover_index as u32),
+        );
         tf.replace_team_prototype(proto);
-        tf.find_team_prototype(team_name).expect("registered proto")
-    };
-    let mut list = gamelogic::player::player_list()
-        .write()
-        .expect("player list");
-    list.clear();
-    for i in 0..=leftover_index {
-        let p = Arc::new(RwLock::new(gamelogic::player::Player::new(i)));
-        if i == leftover_index {
-            if let Ok(mut pg) = p.write() {
-                pg.set_can_build_units(true);
-                pg.add_team_to_list(proto_arc.clone());
-            }
-        }
-        list.add_player(p);
+        assert!(tf.find_team_prototype(team_name).is_some());
     }
 }
 
@@ -74,21 +67,48 @@ fn clear_player_team_prototypes() {
     }
 }
 
-fn install_leftover_computer_player(player_id: i32, skirmish: bool) {
-    use std::sync::{Arc, RwLock};
-    let mut list = gamelogic::player::player_list()
-        .write()
-        .expect("player list");
-    list.clear();
-    for i in 0..=player_id {
-        let p = Arc::new(RwLock::new(gamelogic::player::Player::new(i)));
-        if i == player_id {
-            if let Ok(mut pg) = p.write() {
-                pg.set_player_type(gamelogic::player::PlayerType::Computer, skirmish);
-            }
-        }
-        list.add_player(p);
-    }
+fn admit_receiving_computer_class(world: &mut GameLogic, player_id: u32, skirmish: bool) {
+    use game_engine::common::{dict::Dict, well_known_keys::*};
+    let faction = match world.get_player(player_id).unwrap().team {
+        Team::China => "FactionChina",
+        Team::GLA => "FactionGLA",
+        _ => "FactionAmerica",
+    };
+    let name = format!("OwnedPlayer{player_id}");
+    world
+        .get_player_mut(player_id)
+        .unwrap()
+        .map_side
+        .map_player_name = name.clone();
+    world.prepare_native_command_mode(if skirmish {
+        GameMode::Skirmish
+    } else {
+        GameMode::SinglePlayer
+    });
+    let mut row = Dict::new();
+    row.set_ascii_string(
+        key_player_name(),
+        if skirmish {
+            "TemplateSource".to_string()
+        } else {
+            name
+        },
+    );
+    row.set_ascii_string(key_player_faction(), faction);
+    row.set_bool(key_player_is_human(), false);
+    let catalog = [
+        (faction.to_string(), "ExactSide".to_string()),
+        ("FactionCivilian".to_string(), "Civilian".to_string()),
+    ]
+    .into_iter()
+    .collect();
+    world.sync_legacy_sides_list_from_dicts_with_controller_catalog(
+        &[row],
+        &[],
+        &[],
+        &[],
+        &catalog,
+    );
 }
 
 #[test]
@@ -382,6 +402,13 @@ fn select_team_to_build_reinforce_does_not_arm_timer() {
 
     {
         let mut tf = logic.team_factory.lock().expect("world team factory");
+        tf.init_team_owned(
+            "HQ_Timer_TankTeam".into(),
+            "FixtureOwner".into(),
+            false,
+            None,
+            Some(1),
+        );
         let mut proto = gamelogic::team::TeamPrototype::new("HQ_Timer_TankTeam".into());
         proto.set_automatically_reinforce(true);
         proto.set_production_priority(50);
@@ -2001,6 +2028,13 @@ fn select_team_to_reinforce_tops_up_short_auto_team() {
     let mut inst_id = None;
     {
         let mut tf = logic.team_factory.lock().expect("world team factory");
+        tf.init_team_owned(
+            "HQ_V3_TankTeam".into(),
+            "FixtureOwner".into(),
+            false,
+            None,
+            Some(1),
+        );
         let mut proto = gamelogic::team::TeamPrototype::new("HQ_V3_TankTeam".into());
         proto.set_automatically_reinforce(true);
         proto.set_production_priority(50);
@@ -2045,6 +2079,13 @@ fn select_team_to_reinforce_tops_up_short_auto_team() {
     // Empty instance is skipped even if the player owns units elsewhere.
     {
         let mut tf = logic.team_factory.lock().expect("world team factory");
+        tf.init_team_owned(
+            "HQ_V3_EmptyTeam".into(),
+            "FixtureOwner".into(),
+            false,
+            None,
+            Some(1),
+        );
         let mut proto = gamelogic::team::TeamPrototype::new("HQ_V3_EmptyTeam".into());
         proto.set_automatically_reinforce(true);
         proto.set_production_priority(80);
@@ -3254,14 +3295,14 @@ fn non_skirmish_ai_skillset_defaults_to_skillset1() {
         "non_skirmish_ai_skillset_defaults_to_skillset1",
         || {
             // C++ AIPlayer.cpp:2944-2948 — isSkirmishAI() false → selector 0.
-            install_leftover_computer_player(1, false);
             let mut logic = crate::game_logic::GameLogic::new();
             logic.frame = 2;
             let mut player = crate::game_logic::Player::new(1, Team::China, "China AI", false);
             player.science_purchase_points = 1;
             logic.add_player(player);
             let mut ai = AIPlayer::new(1, Team::China, AIDifficulty::Medium);
-            assert!(!ai.leftover_is_skirmish_ai());
+            admit_receiving_computer_class(&mut logic, 1, false);
+            assert!(!ai.receiving_is_skirmish_ai(&logic));
             ai.try_purchase_skillset_science(&mut logic);
             assert_eq!(ai.skillset_selector, 0);
             assert_eq!(ai.side_skillsets()[0][0], "SCIENCE_NukeLauncher");
@@ -3277,14 +3318,14 @@ fn skirmish_ai_skillset_randomizes_like_cpp() {
         "skirmish_ai_skillset_randomizes_like_cpp",
         || {
             // C++ AIPlayer.cpp:2944-2945 — isSkirmishAI() true → GameLogicRandomValue(0, limit).
-            install_leftover_computer_player(1, true);
             let mut logic = crate::game_logic::GameLogic::new();
             logic.frame = 2;
             let mut player = crate::game_logic::Player::new(1, Team::China, "China AI", false);
             player.science_purchase_points = 1;
             logic.add_player(player);
             let mut ai = AIPlayer::new(1, Team::China, AIDifficulty::Medium);
-            assert!(ai.leftover_is_skirmish_ai());
+            admit_receiving_computer_class(&mut logic, 1, true);
+            assert!(ai.receiving_is_skirmish_ai(&logic));
             let sets = ai.live_side_skillsets(&logic);
             let mut limit = 0i32;
             if !sets[1].is_empty() {

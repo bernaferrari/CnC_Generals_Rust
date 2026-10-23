@@ -702,7 +702,14 @@ pub fn play_bone_fx_event(
     let Some(ps) = ev.particle_system.as_deref() else {
         return None;
     };
-    crate::game_logic::publish_host_fx_object(owner, origin, yaw, -1);
+    crate::game_logic::host_fx_list_dispatch::publish_host_fx_object_with_visibility(
+        owner,
+        origin,
+        yaw,
+        -1,
+        0.0,
+        world.host_fx_object_is_shrouded(owner),
+    );
     let cpp_local = host_local_to_cpp(local);
     let leftover_id = gamelogic::helpers::attach_particle_system_to_object_local(
         ps,

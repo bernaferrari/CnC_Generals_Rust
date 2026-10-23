@@ -50,20 +50,20 @@ pub const GAME_ENGINE_INI_CRC_PATHS: &[&str] = &[
 ];
 
 /// Hash the retail init table (plus Object directory after Default/Object.ini).
-pub fn calculate_game_engine_ini_crc(load_text: impl Fn(&str) -> Option<String>) -> u32 {
+pub fn calculate_game_engine_ini_crc(load_text: impl FnMut(&str) -> Option<String>) -> u32 {
     calculate_ini_crc(load_text, None)
 }
 
 /// Production Object CRC uses the same captured stream as strict admission.
 pub(super) fn calculate_game_engine_ini_crc_with_object_sources(
-    load_text: impl Fn(&str) -> Option<String>,
+    load_text: impl FnMut(&str) -> Option<String>,
     object_sources: &[(String, String)],
 ) -> u32 {
     calculate_ini_crc(load_text, Some(object_sources))
 }
 
 fn calculate_ini_crc(
-    load_text: impl Fn(&str) -> Option<String>,
+    mut load_text: impl FnMut(&str) -> Option<String>,
     object_sources: Option<&[(String, String)]>,
 ) -> u32 {
     let inner = XferLoad::new(Cursor::new(Vec::new()), 1);
@@ -85,20 +85,20 @@ fn calculate_ini_crc(
                 continue;
             }
         }
-        feed_ini_path(&mut ini, path, &load_text);
+        feed_ini_path(&mut ini, path, &mut load_text);
         if *path == "Data/INI/Default/Object.ini" {
             for object_path in super::object_ini_boot::collect_object_ini_virtual_paths() {
                 if object_path.eq_ignore_ascii_case("Data/INI/Default/Object.ini") {
                     continue;
                 }
-                feed_ini_path(&mut ini, &object_path, &load_text);
+                feed_ini_path(&mut ini, &object_path, &mut load_text);
             }
         }
     }
 
     #[cfg(any(debug_assertions, feature = "internal"))]
     {
-        feed_ini_path(&mut ini, "Data/INI/GameDataDebug.ini", &load_text);
+        feed_ini_path(&mut ini, "Data/INI/GameDataDebug.ini", &mut load_text);
     }
 
     let crc = ini.take_xfer().and_then(|mut xfer_crc| {
@@ -109,7 +109,7 @@ fn calculate_ini_crc(
     crc.unwrap_or(0)
 }
 
-fn feed_ini_path(ini: &mut INI, path: &str, load_text: &impl Fn(&str) -> Option<String>) {
+fn feed_ini_path(ini: &mut INI, path: &str, load_text: &mut impl FnMut(&str) -> Option<String>) {
     if Path::new(path).exists() {
         match ini.with_file_source(path, INILoadType::Overwrite, INI::consume_remaining_lines) {
             Ok(()) => debug!("XferCRC INI loaded: {path}"),

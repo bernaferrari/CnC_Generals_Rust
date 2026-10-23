@@ -161,6 +161,12 @@ impl AdmittedReceivingTemplate {
     pub fn name(&self) -> &str {
         self.template.get_name().as_str()
     }
+    pub fn command_set_name(&self) -> &str {
+        self.template.get_command_set_string().as_str()
+    }
+    pub fn buildable_status(&self) -> u32 {
+        self.template.get_buildable() as u32
+    }
     pub fn template_id(&self) -> u16 {
         self.template.get_template_id()
     }

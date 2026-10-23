@@ -938,6 +938,27 @@ impl CombatParticleRegistry {
         )
     }
 
+    pub fn attach_named_to_object_with_visibility(
+        &mut self,
+        owner: ObjectId,
+        position: Vec3,
+        frame: u32,
+        template_name: &str,
+        is_shrouded: bool,
+    ) -> Option<u32> {
+        self.attach_named_to_object_local_with_visibility(
+            owner,
+            position,
+            0.0,
+            Vec3::ZERO,
+            frame,
+            template_name,
+            CombatParticleKind::ParticleSysBone,
+            None,
+            is_shrouded,
+        )
+    }
+
     /// C++ create + `setPosition` (local) + `attachToObject` [+ `setSystemLifetime`].
     pub fn attach_named_to_object_local(
         &mut self,
@@ -950,6 +971,31 @@ impl CombatParticleRegistry {
         kind: CombatParticleKind,
         lifetime: Option<u32>,
     ) -> Option<u32> {
+        self.attach_named_to_object_local_with_visibility(
+            owner,
+            origin,
+            yaw,
+            local,
+            frame,
+            template_name,
+            kind,
+            lifetime,
+            crate::game_logic::host_fx_list_dispatch::host_object_is_shrouded_for_local(owner.0),
+        )
+    }
+
+    pub fn attach_named_to_object_local_with_visibility(
+        &mut self,
+        owner: ObjectId,
+        origin: Vec3,
+        yaw: f32,
+        local: Vec3,
+        frame: u32,
+        template_name: &str,
+        kind: CombatParticleKind,
+        lifetime: Option<u32>,
+        is_shrouded: bool,
+    ) -> Option<u32> {
         Some(spawn_attached_system(
             self,
             kind,
@@ -961,6 +1007,7 @@ impl CombatParticleRegistry {
             frame,
             lifetime,
             0.0,
+            is_shrouded,
         ))
     }
 
@@ -1029,6 +1076,11 @@ impl CombatParticleRegistry {
                     frame,
                     None,
                     z_rot,
+                    pose.is_shrouded.unwrap_or_else(|| {
+                        crate::game_logic::host_fx_list_dispatch::host_object_is_shrouded_for_local(
+                            owner.0,
+                        )
+                    }),
                 );
             }
         }
@@ -1051,6 +1103,7 @@ impl CombatParticleRegistry {
             body_ordinal,
             aflame,
             pose.yaw,
+            pose.is_shrouded,
             |prefix, max| body_prefix_bone_locals(pose.model, pose.scale, prefix, max),
         );
     }
@@ -1072,6 +1125,7 @@ impl CombatParticleRegistry {
             body_ordinal,
             aflame,
             0.0,
+            None,
             |prefix, _max| {
                 prefix_bones
                     .iter()
@@ -1090,6 +1144,7 @@ impl CombatParticleRegistry {
         body_ordinal: u8,
         aflame: bool,
         yaw: f32,
+        is_shrouded: Option<bool>,
         resolve_locals: impl Fn(&str, usize) -> Vec<Vec3>,
     ) {
         let stale: Vec<u32> = self
@@ -1127,6 +1182,11 @@ impl CombatParticleRegistry {
                 frame,
                 spec.max_systems,
                 &locals,
+                is_shrouded.unwrap_or_else(|| {
+                    crate::game_logic::host_fx_list_dispatch::host_object_is_shrouded_for_local(
+                        owner.0,
+                    )
+                }),
             );
         }
     }
@@ -1233,11 +1293,25 @@ pub struct BodyAutoParticlePose<'a> {
     pub model: &'a str,
     pub scale: f32,
     pub yaw: f32,
+    pub is_shrouded: Option<bool>,
 }
 
 impl<'a> BodyAutoParticlePose<'a> {
     pub fn new(model: &'a str, scale: f32, yaw: f32) -> Self {
-        Self { model, scale, yaw }
+        Self {
+            model,
+            scale,
+            yaw,
+            is_shrouded: None,
+        }
+    }
+    pub fn with_visibility(model: &'a str, scale: f32, yaw: f32, is_shrouded: bool) -> Self {
+        Self {
+            model,
+            scale,
+            yaw,
+            is_shrouded: Some(is_shrouded),
+        }
     }
 }
 
@@ -1544,6 +1618,7 @@ fn spawn_attached_system(
     frame: u32,
     lifetime: Option<u32>,
     local_z_rot: f32,
+    is_shrouded: bool,
 ) -> u32 {
     let world = rotate_yaw_host(origin, yaw, local);
     let id = registry.next_id;
@@ -1551,7 +1626,14 @@ fn spawn_attached_system(
     registry.current_frame = registry.current_frame.max(frame);
     // Existing host attachment pose bridge remains until particle simulation
     // itself receives the driving Object pose explicitly.
-    crate::game_logic::publish_host_fx_object(owner.0, origin, yaw, -1);
+    crate::game_logic::host_fx_list_dispatch::publish_host_fx_object_with_visibility(
+        owner.0,
+        origin,
+        yaw,
+        -1,
+        0.0,
+        is_shrouded,
+    );
     let mut entry = CombatParticleSystemEntry {
         id,
         kind,
@@ -1592,6 +1674,7 @@ fn spawn_body_systems_on_bones(
     frame: u32,
     max_systems: i32,
     bone_locals: &[Vec3],
+    is_shrouded: bool,
 ) {
     if max_systems <= 0 || bone_locals.is_empty() {
         return;
@@ -1630,6 +1713,7 @@ fn spawn_body_systems_on_bones(
             frame,
             None,
             0.0,
+            is_shrouded,
         );
     }
 }

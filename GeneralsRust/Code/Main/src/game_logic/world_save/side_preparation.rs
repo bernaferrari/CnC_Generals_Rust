@@ -83,6 +83,40 @@ impl GameLogic {
         side_builds: &[super::script_loader::SideBuildEntry],
         script_lists: &[ScriptList],
     ) -> Vec<Dict> {
+        // Capture one immutable catalog view at the actual definition-input
+        // boundary. Player and AI queries never rediscover this process store.
+        let catalog = {
+            let templates = get_player_template_store();
+            (0..templates.get_player_template_count())
+                .filter_map(|index| {
+                    templates
+                        .get_nth_player_template_signed(index)
+                        .map(|template| {
+                            (
+                                template.get_name().to_string(),
+                                template.get_side().to_string(),
+                            )
+                        })
+                })
+                .collect::<HashMap<_, _>>()
+        };
+        self.sync_legacy_sides_list_from_dicts_with_controller_catalog(
+            side_dicts,
+            team_dicts,
+            side_builds,
+            script_lists,
+            &catalog,
+        )
+    }
+
+    pub(crate) fn sync_legacy_sides_list_from_dicts_with_controller_catalog(
+        &mut self,
+        side_dicts: &[Dict],
+        team_dicts: &[Dict],
+        side_builds: &[super::script_loader::SideBuildEntry],
+        script_lists: &[ScriptList],
+        catalog: &HashMap<String, String>,
+    ) -> Vec<Dict> {
         // Preparation may load faction scripts. Neither that IO nor host admission
         // needs to hold, or discover its owner through, the compatibility registry.
         let prepared = self.prepare_map_sides(side_dicts, team_dicts, side_builds, script_lists);
@@ -143,6 +177,16 @@ impl GameLogic {
                     .map(|team| team.get_dict().clone())
             })
             .collect();
+        self.prepared_player_controllers =
+            crate::game_logic::player_controllers::PreparedControllers::capture(&prepared, catalog);
+        for player in self.players.values_mut() {
+            if let Some(controller) = self
+                .prepared_player_controllers
+                .for_side(&player.map_side.map_player_name)
+            {
+                controller.apply(player);
+            }
+        }
         self.prepared_map_sides = prepared;
         team_definitions
     }

@@ -9,8 +9,10 @@ use std::collections::HashMap;
 fn owned_control_groups_actual_archives_keep_empty_and_peer_groups_detached() {
     let directory = tempfile::tempdir().unwrap();
     let mut saves = SaveFileManager::with_save_directory(directory.path());
-    let a = GameLogic::new();
-    let b = GameLogic::new();
+    let mut a = GameLogic::new();
+    let mut b = GameLogic::new();
+    a.add_player(Player::new(0, Team::USA, "OwnedGroupPlayer", true));
+    b.add_player(Player::new(0, Team::USA, "OwnedGroupPlayer", true));
     let info = fixture_save_info();
     for (name, world, ids) in [
         ("groups_a", &a, vec![42, 43]),
@@ -177,6 +179,70 @@ fn owned_control_groups_new_record_preserves_terminal_player_team_capsule() {
             assert_eq!(
                 receiving.get_player(0).unwrap().academy_stats.serialize(),
                 source.get_player(0).unwrap().academy_stats.serialize()
+            );
+        },
+    );
+}
+
+#[test]
+fn generic_snapshot_never_imports_or_restores_foreign_core_squads() {
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "generic_snapshot_never_imports_or_restores_foreign_core_squads",
+        || {
+            let mut foreign = gamelogic::player::Player::new(0);
+            foreign.init_from_dict_defaults();
+            foreign.process_create_team_game_message(3, &[99, 98]);
+            let foreign = std::sync::Arc::new(std::sync::RwLock::new(foreign));
+            {
+                let mut list = gamelogic::player::ThePlayerList().write().unwrap();
+                list.clear();
+                list.add_player(std::sync::Arc::clone(&foreign));
+            }
+            let mut owner = GameLogic::new();
+            let mut peer = GameLogic::new();
+            owner.add_player(Player::new(0, Team::USA, "GroupsOwner", true));
+            peer.add_player(Player::new(0, Team::USA, "GroupsOwner", true));
+            let builder = SnapshotBuilder::new();
+            let mut saved = builder.create_world_snapshot(&owner).unwrap();
+            assert!(
+                read_control_groups(&saved.lifecycle_tail)
+                    .unwrap()
+                    .is_none()
+            );
+            crate::save_load::snapshot::write_control_groups(
+                &mut saved.lifecycle_tail,
+                &ControlGroupSave {
+                    player_index: 0,
+                    groups: HashMap::from([(3, vec![42, 43])]),
+                },
+            )
+            .unwrap();
+            let encoded = bincode_legacy::serialize(&saved).unwrap();
+            let decoded =
+                crate::save_load::snapshot::decode_bincode_world_snapshot(&encoded).unwrap();
+            builder.restore_from_snapshot(&decoded, &mut peer).unwrap();
+            assert_eq!(
+                read_control_groups(&decoded.lifecycle_tail)
+                    .unwrap()
+                    .unwrap()[&0][&3],
+                [42, 43]
+            );
+            assert_eq!(
+                foreign
+                    .read()
+                    .unwrap()
+                    .get_hotkey_squad_const(3)
+                    .unwrap()
+                    .get_object_ids(),
+                &vec![99, 98]
+            );
+            owner.reset();
+            assert_eq!(
+                read_control_groups(&decoded.lifecycle_tail)
+                    .unwrap()
+                    .unwrap()[&0][&3],
+                [42, 43]
             );
         },
     );

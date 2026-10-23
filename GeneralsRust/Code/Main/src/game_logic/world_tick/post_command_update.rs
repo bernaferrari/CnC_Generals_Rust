@@ -745,7 +745,7 @@ impl GameLogic {
             let frame = self.frame;
             let snaps = self.combat_system.projectiles_snapshot();
             for p in &snaps {
-                p.publish_attached_exhaust_pose();
+                p.publish_attached_exhaust_pose(self.host_fx_object_is_shrouded(p.id.0));
             }
             let mut exhausts: Vec<_> = snaps
                 .into_iter()

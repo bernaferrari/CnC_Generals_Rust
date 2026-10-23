@@ -4,6 +4,9 @@ use crate::fow_rendering::ProjectedShroudSnapshot;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PresentationFrame {
     pub frame: LogicFrame,
+    #[serde(skip)]
+    pub(crate) control_bar_overrides:
+        crate::game_logic::game_logic::command_overrides::ControlBarOverrides,
     /// Frozen C++ disabled-state callbacks from the receiving body owner.
     #[serde(skip)]
     pub(crate) disable_audio_receipts:

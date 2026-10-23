@@ -70,7 +70,20 @@ impl GameLogic {
             let team = identity
                 .base_team()
                 .ok_or_else(|| invalid("authored map PlayerTemplate has no supported base side"))?;
-            let human = row.get_bool(key_player_is_human());
+            let controller = match self.prepared_player_controllers.for_side(&name) {
+                Some(controller) => controller,
+                None if !row.get_bool(key_player_is_skirmish()) => {
+                    crate::game_logic::player_controllers::ControllerClass::ordinary(
+                        row.get_bool(key_player_is_human()),
+                    )
+                }
+                None => {
+                    return Err(invalid(
+                        "requested skirmish player has no receiving controller definition admission",
+                    ));
+                }
+            };
+            let human = controller.human;
             let mut player = Player::new(
                 next,
                 team,
@@ -78,6 +91,7 @@ impl GameLogic {
                 human,
             );
             player.apply_map_side_identity_from_dict(row);
+            controller.apply(&mut player);
             player.resources.supplies = self.skirmish_rules.starting_cash;
             player.is_local = false;
             let local_key = game_engine::common::name_key_generator::NameKeyGenerator::name_to_key(

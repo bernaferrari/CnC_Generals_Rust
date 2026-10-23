@@ -96,6 +96,7 @@ impl GameLogic {
             host_trigger_world,
             team_factory: team_factory.clone(),
             prepared_map_sides: gamelogic::sides_list::SidesList::new(),
+            prepared_player_controllers: Default::default(),
             #[cfg(feature = "game_client")]
             host_physics_visuals: Default::default(),
             drawable_tint_envelopes: crate::game_logic::DrawableTintEnvelopes::default(),
@@ -115,6 +116,8 @@ impl GameLogic {
             players: HashMap::new(),
             rank_level_limit: crate::game_logic::host_rank_ui_residual::RANK_LEVEL_LIMIT_DEFAULT_RESIDUAL,
             rank_points_to_add_at_game_start: 0,
+            buildable_status_overrides: HashMap::new(),
+            control_bar_overrides: HashMap::new(),
             player_template_bindings: HashMap::new(),
             initial_skirmish_admission: None,
             next_object_id: ObjectId(1), // Start at 1, 0 is invalid
@@ -900,9 +903,12 @@ impl GameLogic {
         self.rank_level_limit =
             crate::game_logic::host_rank_ui_residual::RANK_LEVEL_LIMIT_DEFAULT_RESIDUAL;
         self.rank_points_to_add_at_game_start = 0;
+        self.buildable_status_overrides.clear();
+        self.control_bar_overrides.clear();
         self.player_template_bindings.clear();
         self.initial_skirmish_admission = None;
         self.prepared_map_sides.reset();
+        self.prepared_player_controllers = Default::default();
         self.next_object_id = ObjectId(1);
         self.next_formation_id = 1;
         self.frame = 0;

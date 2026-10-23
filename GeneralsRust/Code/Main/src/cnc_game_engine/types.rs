@@ -1009,6 +1009,9 @@ mod evidence_tests;
 
 /// Main C&C game engine with full RTS functionality - restructured to match C++ SAGE architecture
 pub struct CnCGameEngine {
+    /// Application archive service shared with actual loading workers. Mutable
+    /// match state never belongs to this service.
+    pub(crate) application_assets: Arc<std::sync::Mutex<crate::assets::manager::AssetManager>>,
     pub(crate) camera_rule_base: game_engine::common::ini::ini_game_data::CameraContentRules,
     pub(crate) window: Arc<Window>,
     #[allow(dead_code)] // C++ parity: stored for future command-line query access

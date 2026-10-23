@@ -805,6 +805,28 @@ pub trait ScriptExecutionDriver {
 
     /// CPP ScriptConditions872: BUILT_BY_PLAYER requires a literal definition
     /// before resolving an ObjectTypes list with the same name.
+    /// CPP VictoryConditions local allied victory, allied defeat, local defeat.
+    /// The live owner derives these facts synchronously; no process flag mirror.
+    fn local_victory_state(&self) -> ScriptOwnerQuery<(bool, bool, bool)> {
+        ScriptOwnerQuery::Unavailable
+    }
+
+    fn set_buildable_status_override(
+        &mut self,
+        _template: &str,
+        _status: i32,
+    ) -> Option<GameLogicResult<()>> {
+        None
+    }
+    fn command_bar_override(
+        &mut self,
+        _button: &str,
+        _template: &str,
+        _designer_slot: Option<i32>,
+    ) -> Option<GameLogicResult<()>> {
+        None
+    }
+
     fn literal_template_exists(&self, _name: &str) -> ScriptOwnerQuery<bool> {
         ScriptOwnerQuery::Unavailable
     }

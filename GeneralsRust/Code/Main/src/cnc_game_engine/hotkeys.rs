@@ -52,7 +52,7 @@ impl CnCGameEngine {
     }
 
     /// C++ `Player::processCreateTeamGameMessage` leftover `m_squads` / Squad xfer.
-    pub(crate) fn write_leftover_player_create_team(&mut self, group_num: u8, ids: &[ObjectId]) {
+    pub(crate) fn record_control_group_create(&mut self, group_num: u8, ids: &[ObjectId]) {
         if let Some(local_player) = self.game_logic.local_player_id() {
             self.game_logic.replay_pending.record_team_slot_owned(
                 local_player as i32,
@@ -61,26 +61,10 @@ impl CnCGameEngine {
                 ids,
             );
         }
-        let object_ids: Vec<u32> = ids.iter().map(|id| id.0).collect();
-        let Ok(list) = gamelogic::player::ThePlayerList().read() else {
-            return;
-        };
-        let player_arc = list
-            .get_local_player()
-            .cloned()
-            .or_else(|| list.get_player(self.current_player_id as i32).cloned());
-        let Some(player_arc) = player_arc else {
-            return;
-        };
-        drop(list);
-        let Ok(mut player) = player_arc.write() else {
-            return;
-        };
-        player.process_create_team_game_message(group_num as i32, &object_ids);
     }
 
     /// C++ `Player::processSelectTeamGameMessage` / `processAddTeamGameMessage`.
-    fn write_leftover_player_select_team(&mut self, group_num: u8, add: bool) {
+    fn record_control_group_select(&mut self, group_num: u8, add: bool) {
         if let Some(local_player) = self.game_logic.local_player_id() {
             self.game_logic.replay_pending.record_team_slot_owned(
                 local_player as i32,
@@ -88,25 +72,6 @@ impl CnCGameEngine {
                 if add { 2 } else { 1 },
                 &[],
             );
-        }
-        let Ok(list) = gamelogic::player::ThePlayerList().read() else {
-            return;
-        };
-        let player_arc = list
-            .get_local_player()
-            .cloned()
-            .or_else(|| list.get_player(self.current_player_id as i32).cloned());
-        let Some(player_arc) = player_arc else {
-            return;
-        };
-        drop(list);
-        let Ok(mut player) = player_arc.write() else {
-            return;
-        };
-        if add {
-            player.process_add_team_game_message(group_num as i32);
-        } else {
-            player.process_select_team_game_message(group_num as i32);
         }
     }
 
@@ -165,12 +130,12 @@ impl CnCGameEngine {
         let ids = self.locally_controlled_selected_ids();
         if ids.is_empty() {
             self.control_groups.remove(&group_num);
-            self.write_leftover_player_create_team(group_num, &[]);
+            self.record_control_group_create(group_num, &[]);
             info!("Cleared control group {}", group_num);
             return;
         }
         self.evict_ids_from_other_control_groups(&ids, group_num);
-        self.write_leftover_player_create_team(group_num, &ids);
+        self.record_control_group_create(group_num, &ids);
         let count = ids.len();
         self.control_groups.insert(group_num, ids);
         info!("Assigned {} units to control group {}", count, group_num);
@@ -212,7 +177,7 @@ impl CnCGameEngine {
         // C++ MSG_ADD_TEAM0..9 — m_teamExists only, no pickAndPlay (hq-xbyf3).
         self.host_set_selection_no_sound(self.current_player_id, selection);
         self.play_sound_effect(SoundType::Select);
-        self.write_leftover_player_select_team(group_num, true);
+        self.record_control_group_select(group_num, true);
     }
 
     /// C++ `MSG_META_VIEW_TEAM`: `if (group >= 1 && group <= 10) getHotkeySquad(group)`.
@@ -270,7 +235,7 @@ impl CnCGameEngine {
         }
         self.host_set_selection(self.current_player_id, selection);
         self.play_sound_effect(SoundType::Select);
-        self.write_leftover_player_select_team(group_num, false);
+        self.record_control_group_select(group_num, false);
     }
 
     pub(super) fn handle_key_press(&mut self, key: &Key) {

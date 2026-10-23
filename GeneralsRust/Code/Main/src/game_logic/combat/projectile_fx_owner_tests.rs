@@ -261,3 +261,63 @@ fn native_garrison_hit_uses_building_pose_and_suppresses_normal_detonation() {
         },
     );
 }
+
+#[test]
+fn no_authored_ignition_fx_still_observes_pose_without_an_effect_callback() {
+    let mut p = missile(ObjectId(9002), 0);
+    if let Some(HostProjectileFlight::Missile(flight)) = &mut p.flight {
+        flight.ignition_fx.clear();
+    }
+    let mut poses = Vec::new();
+    let mut effects = Vec::new();
+    p.update_with_terrain_fx_and_pose(
+        1.0 / 30.0,
+        true,
+        None,
+        &mut |name, _| effects.push(name.to_string()),
+        &mut |projectile| {
+            assert!(!projectile.flight_runtime.missile_armed);
+            assert_eq!(projectile.leftover_exhaust_id, 0);
+            poses.push(projectile.position);
+        },
+    );
+    assert_eq!(poses, vec![Vec3::new(10.0, 4.0, 12.0)]);
+    assert!(effects.is_empty());
+    assert!(p.flight_runtime.missile_armed);
+}
+
+#[test]
+fn native_no_fx_ignition_pose_uses_receiving_visibility_for_colliding_ids() {
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "native_no_fx_ignition_pose_uses_receiving_visibility_for_colliding_ids",
+        || {
+            let id = ObjectId(9002);
+            let mut source = world();
+            let mut peer = world();
+            reveal_object(&source, id);
+            peer.world_services
+                .shroud()
+                .lock()
+                .unwrap()
+                .set_host_object_shroud_status(1, id.0, ObjectShroudStatus::Fogged);
+            let mut p = missile(id, 0);
+            if let Some(HostProjectileFlight::Missile(flight)) = &mut p.flight {
+                flight.ignition_fx.clear();
+            }
+            source.combat_system.projectiles.insert(id, p.clone());
+            peer.combat_system.projectiles.insert(id, p);
+            source.update_owned_projectile_impacts(1.0 / 30.0);
+            let pose = gamelogic::helpers::host_fx_object_pose(id.0).unwrap();
+            assert!(!pose.is_shrouded);
+            assert_eq!(pose.position.x, 10.0);
+            assert_eq!(pose.position.z, 4.0);
+            peer.update_owned_projectile_impacts(1.0 / 30.0);
+            assert!(
+                gamelogic::helpers::host_fx_object_pose(id.0)
+                    .unwrap()
+                    .is_shrouded
+            );
+        },
+    );
+}

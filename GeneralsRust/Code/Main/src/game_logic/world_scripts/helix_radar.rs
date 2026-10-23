@@ -2373,6 +2373,7 @@ impl GameLogic {
         use crate::game_logic::host_radius_decal_update::{
             HostRadiusDecalTemplate, HostRadiusDecalUpdateData,
         };
+        let players = self.radius_decal_player_view(owner);
         let Some(obj) = self.objects.get_mut(&id) else {
             return;
         };
@@ -2400,7 +2401,14 @@ impl GameLogic {
             only_visible_to_owner: true,
             color: 0,
         };
-        rd.create_radius_decal_for_owner(tmpl, radius, pos, frame, owner.map(|id| id as i32));
+        rd.create_radius_decal_with_player_view(
+            tmpl,
+            radius,
+            pos,
+            frame,
+            owner.map(|id| id as i32),
+            players,
+        );
     }
 }
 

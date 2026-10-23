@@ -1019,6 +1019,30 @@ pub fn spawn_transition_particles_at_pose(
     frame: u32,
     owner: crate::game_logic::ObjectId,
 ) -> Vec<u32> {
+    spawn_transition_particles_at_pose_with_visibility(
+        registry,
+        particles,
+        position,
+        yaw,
+        model,
+        scale,
+        frame,
+        owner,
+        crate::game_logic::host_fx_list_dispatch::host_object_is_shrouded_for_local(owner.0),
+    )
+}
+
+pub fn spawn_transition_particles_at_pose_with_visibility(
+    registry: &mut crate::game_logic::combat_particles::CombatParticleRegistry,
+    particles: &[HostTransitionParticle],
+    position: glam::Vec3,
+    yaw: f32,
+    model: &str,
+    scale: f32,
+    frame: u32,
+    owner: crate::game_logic::ObjectId,
+    is_shrouded: bool,
+) -> Vec<u32> {
     let leftover_owner = crate::game_logic::crate_object_bridge::crate_object(owner.0);
     let leftover_guard = leftover_owner.as_ref().and_then(|h| h.read().ok());
     let leftover_yaw = leftover_guard
@@ -1038,7 +1062,7 @@ pub fn spawn_transition_particles_at_pose(
         let leftover_local =
             leftover_local_effect_pos_live(p, leftover_drawable.as_deref(), model, scale);
         let host_local = leftover_to_host_local(leftover_local);
-        if let Some(id) = registry.attach_named_to_object_local(
+        if let Some(id) = registry.attach_named_to_object_local_with_visibility(
             owner,
             position,
             leftover_yaw,
@@ -1047,6 +1071,7 @@ pub fn spawn_transition_particles_at_pose(
             &p.name,
             crate::game_logic::combat_particles::CombatParticleKind::DeathSmoke,
             None,
+            is_shrouded,
         ) {
             ids.push(id);
             continue;

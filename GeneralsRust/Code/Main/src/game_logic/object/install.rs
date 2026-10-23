@@ -546,6 +546,23 @@ impl Object {
         frame: u32,
         radius: f32,
     ) -> bool {
+        self.create_delivery_radius_decal_with_player_view(pos, frame, radius, Default::default())
+    }
+
+    pub(crate) fn create_delivery_radius_decal_with_player_view(
+        &mut self,
+        pos: glam::Vec3,
+        frame: u32,
+        radius: f32,
+        players: crate::game_logic::host_radius_decal_update::RadiusDecalPlayerView,
+    ) -> bool {
+        let radius = if radius > 0.0 {
+            radius
+        } else {
+            crate::game_logic::host_radius_decal_update::default_delivery_decal_radius_for_template(
+                &self.template_name,
+            )
+        };
         self.install_radius_decal_update_if_needed();
         if self.radius_decal_update.is_none() {
             self.radius_decal_update = Some(
@@ -559,7 +576,14 @@ impl Object {
             crate::game_logic::host_radius_decal_update::default_delivery_decal_template_for_host(
                 &self.template_name,
             );
-        rd.create_radius_decal(tmpl, radius.max(1.0), pos, frame);
+        rd.create_radius_decal_with_player_view(
+            tmpl,
+            radius.max(1.0),
+            pos,
+            frame,
+            self.owner_player_id.map(|id| id as i32),
+            players,
+        );
         // C++ DeliverPayloadAIUpdate keeps the ring until HeadOffMapState::onEnter.
         // killWhenNoLongerAttacking is the Scud AttackNugget / RadiusDecalUpdate path.
         rd.set_kill_when_no_longer_attacking(self.anthrax_bomb_transport.is_none());

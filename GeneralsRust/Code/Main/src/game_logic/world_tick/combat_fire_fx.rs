@@ -167,8 +167,12 @@ impl GameLogic {
                 obj.get_orientation(),
             )
         };
-        let pose =
-            crate::game_logic::combat_particles::BodyAutoParticlePose::new(&model, scale, yaw);
+        let pose = crate::game_logic::combat_particles::BodyAutoParticlePose::with_visibility(
+            &model,
+            scale,
+            yaw,
+            self.host_fx_object_is_shrouded(object_id.0),
+        );
         self.combat_particles
             .replace_body_auto_particles(object_id, pos, self.frame, ordinal, true, pose);
     }
@@ -190,8 +194,12 @@ impl GameLogic {
         let scale = obj.thing().template.asset_scale;
         let yaw = obj.get_orientation();
         let frame = self.frame;
-        let pose =
-            crate::game_logic::combat_particles::BodyAutoParticlePose::new(&model, scale, yaw);
+        let pose = crate::game_logic::combat_particles::BodyAutoParticlePose::with_visibility(
+            &model,
+            scale,
+            yaw,
+            self.host_fx_object_is_shrouded(object_id.0),
+        );
         self.combat_particles
             .sync_particle_sys_bones(frame, object_id, pos, &bones, pose);
     }
@@ -228,8 +236,12 @@ impl GameLogic {
             let bones = crate::game_logic::combat_particles::particle_sys_bones_for_template(
                 &template, bits,
             );
-            let pose =
-                crate::game_logic::combat_particles::BodyAutoParticlePose::new(&model, scale, yaw);
+            let pose = crate::game_logic::combat_particles::BodyAutoParticlePose::with_visibility(
+                &model,
+                scale,
+                yaw,
+                self.host_fx_object_is_shrouded(id.0),
+            );
             self.combat_particles
                 .sync_particle_sys_bones(frame, id, pos, &bones, pose);
             let wants_body = ordinal > 0 || aflame;

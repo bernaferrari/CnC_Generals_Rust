@@ -502,18 +502,23 @@ impl WeaponTemplate {
                     // (`ConvertVelocityInSecsToFrames`, multiply by rounded 1/30). The ctor
                     // default 999999 is already in that unit and is not scaled.
                     let token = value.split_whitespace().next().unwrap_or(value);
-                    self.projectile_speed = super::INI::parse_velocity_real(token).map_err(|_| {
-                        WeaponError::ParseError(format!(
-                            "Invalid {} value '{}': expected distance per second",
-                            base_key, value
-                        ))
-                    })?;
+                    self.projectile_speed =
+                        super::INI::parse_velocity_real(token).map_err(|_| {
+                            WeaponError::ParseError(format!(
+                                "Invalid {} value '{}': expected distance per second",
+                                base_key, value
+                            ))
+                        })?;
                 }
                 "AcceptableAimDelta" => {
                     let token = value.split_whitespace().next().unwrap_or(value);
-                    self.acceptable_aim_delta = super::INI::parse_angle_real(token).map_err(|_| {
-                        WeaponError::ParseError(format!("Invalid AcceptableAimDelta '{}'", value))
-                    })?;
+                    self.acceptable_aim_delta =
+                        super::INI::parse_angle_real(token).map_err(|_| {
+                            WeaponError::ParseError(format!(
+                                "Invalid AcceptableAimDelta '{}'",
+                                value
+                            ))
+                        })?;
                 }
                 "AntiAirborneVehicle"
                 | "AntiGround"
@@ -527,9 +532,10 @@ impl WeaponTemplate {
                 }
                 "MinWeaponSpeed" => {
                     let token = value.split_whitespace().next().unwrap_or(value);
-                    self.min_weapon_speed = super::INI::parse_velocity_real(token).map_err(|_| {
-                        WeaponError::ParseError(format!("Invalid MinWeaponSpeed '{}'", value))
-                    })?;
+                    self.min_weapon_speed =
+                        super::INI::parse_velocity_real(token).map_err(|_| {
+                            WeaponError::ParseError(format!("Invalid MinWeaponSpeed '{}'", value))
+                        })?;
                 }
                 "ScaleWeaponSpeed" => {
                     self.scale_weapon_speed = parse_bool(value).map_err(WeaponError::ParseError)?;
@@ -554,15 +560,22 @@ impl WeaponTemplate {
                 }
                 "RadiusDamageAngle" => {
                     let token = value.split_whitespace().next().unwrap_or(value);
-                    self.radius_damage_angle = super::INI::parse_angle_real(token).map_err(|_| {
-                        WeaponError::ParseError(format!("Invalid RadiusDamageAngle '{}'", value))
-                    })?;
+                    self.radius_damage_angle =
+                        super::INI::parse_angle_real(token).map_err(|_| {
+                            WeaponError::ParseError(format!(
+                                "Invalid RadiusDamageAngle '{}'",
+                                value
+                            ))
+                        })?;
                 }
                 "FireSoundLoopTime" => {
                     let token = value.split_whitespace().next().unwrap_or(value);
                     self.fire_sound_loop_time = super::INI::parse_duration_unsigned_int(token)
                         .map_err(|_| {
-                            WeaponError::ParseError(format!("Invalid FireSoundLoopTime '{}'", value))
+                            WeaponError::ParseError(format!(
+                                "Invalid FireSoundLoopTime '{}'",
+                                value
+                            ))
                         })?;
                 }
                 "ContinuousFireCoast" => {
@@ -645,7 +658,10 @@ impl WeaponTemplate {
                     let token = value.split_whitespace().next().unwrap_or(value);
                     self.historic_bonus_time = super::INI::parse_duration_unsigned_int(token)
                         .map_err(|_| {
-                            WeaponError::ParseError(format!("Invalid HistoricBonusTime '{}'", value))
+                            WeaponError::ParseError(format!(
+                                "Invalid HistoricBonusTime '{}'",
+                                value
+                            ))
                         })?;
                 }
                 "HistoricBonusRadius" => {
@@ -702,11 +718,8 @@ impl WeaponTemplate {
                         parse_bool(value).map_err(WeaponError::ParseError)?;
                 }
                 "AutoReloadsClip" => {
-                    self.reload_type = scan_index(
-                        value,
-                        &["YES", "NO", "RETURN_TO_BASE"],
-                        "AutoReloadsClip",
-                    )?;
+                    self.reload_type =
+                        scan_index(value, &["YES", "NO", "RETURN_TO_BASE"], "AutoReloadsClip")?;
                 }
                 "RadiusDamageAffects" => {
                     self.affects_mask = parse_bit_string(
@@ -759,13 +772,15 @@ impl WeaponTemplate {
                     self.shockwave_taper_off = parse_f32_field(base_key, value)?;
                 }
                 "ProjectileStreamName" => {
-                    self.projectile_stream_name = value.split_whitespace().next().unwrap_or("").to_string();
+                    self.projectile_stream_name =
+                        value.split_whitespace().next().unwrap_or("").to_string();
                 }
                 "LaserName" => {
                     self.laser_name = value.split_whitespace().next().unwrap_or("").to_string();
                 }
                 "LaserBoneName" => {
-                    self.laser_bone_name = value.split_whitespace().next().unwrap_or("").to_string();
+                    self.laser_bone_name =
+                        value.split_whitespace().next().unwrap_or("").to_string();
                 }
                 "HistoricBonusWeapon" => {
                     let name = value.split_whitespace().next().unwrap_or("");
@@ -1086,10 +1101,27 @@ fn scan_index(value: &str, names: &[&str], field: &str) -> WeaponResult<i32> {
     )))
 }
 
+/// C++ INI::scanInt uses sscanf("%d"), including its decimal-prefix rule.
+/// Reject overflow instead of reproducing the C conversion's undefined result.
+fn shot_delay_msecs(token: &str) -> WeaponResult<i32> {
+    let token = token.trim_start_matches(|c: char| c.is_ascii_whitespace());
+    let sign = usize::from(matches!(token.as_bytes().first(), Some(b'+' | b'-')));
+    let digits = token.as_bytes()[sign..]
+        .iter()
+        .take_while(|byte| byte.is_ascii_digit())
+        .count();
+    if digits == 0 {
+        return Err(WeaponError::ParseError(format!(
+            "Invalid DelayBetweenShots '{token}'"
+        )));
+    }
+    token[..sign + digits]
+        .parse()
+        .map_err(|_| WeaponError::ParseError(format!("Invalid DelayBetweenShots '{token}'")))
+}
+
 fn delay_frames(token: &str) -> WeaponResult<i32> {
-    let msecs: i32 = token.parse().map_err(|_| {
-        WeaponError::ParseError(format!("Invalid DelayBetweenShots '{}'", token))
-    })?;
+    let msecs = shot_delay_msecs(token)?;
     Ok(super::INI::convert_duration_msecs_to_frames(msecs as f32).ceil() as i32)
 }
 
@@ -1110,7 +1142,10 @@ fn parse_shot_delay(value: &str) -> WeaponResult<(i32, i32)> {
             ));
         };
         let min_delay = delay_frames(min_token)?;
-        if tokens.get(2).is_some_and(|token| token.eq_ignore_ascii_case("Max")) {
+        if tokens
+            .get(2)
+            .is_some_and(|token| token.eq_ignore_ascii_case("Max"))
+        {
             let Some(max_token) = tokens.get(3) else {
                 return Err(WeaponError::ParseError(
                     "Invalid DelayBetweenShots: missing Max".to_string(),
@@ -1127,12 +1162,33 @@ fn parse_shot_delay(value: &str) -> WeaponResult<(i32, i32)> {
 }
 
 const WEAPON_BONUS_CONDITIONS: &[&str] = &[
-    "GARRISONED", "HORDE", "CONTINUOUS_FIRE_MEAN", "CONTINUOUS_FIRE_FAST", "NATIONALISM",
-    "PLAYER_UPGRADE", "DRONE_SPOTTING", "DEMORALIZED_OBSOLETE", "ENTHUSIASTIC", "VETERAN",
-    "ELITE", "HERO", "BATTLEPLAN_BOMBARDMENT", "BATTLEPLAN_HOLDTHELINE",
-    "BATTLEPLAN_SEARCHANDDESTROY", "SUBLIMINAL", "SOLO_HUMAN_EASY", "SOLO_HUMAN_NORMAL",
-    "SOLO_HUMAN_HARD", "SOLO_AI_EASY", "SOLO_AI_NORMAL", "SOLO_AI_HARD", "TARGET_FAERIE_FIRE",
-    "FANATICISM", "FRENZY_ONE", "FRENZY_TWO", "FRENZY_THREE",
+    "GARRISONED",
+    "HORDE",
+    "CONTINUOUS_FIRE_MEAN",
+    "CONTINUOUS_FIRE_FAST",
+    "NATIONALISM",
+    "PLAYER_UPGRADE",
+    "DRONE_SPOTTING",
+    "DEMORALIZED_OBSOLETE",
+    "ENTHUSIASTIC",
+    "VETERAN",
+    "ELITE",
+    "HERO",
+    "BATTLEPLAN_BOMBARDMENT",
+    "BATTLEPLAN_HOLDTHELINE",
+    "BATTLEPLAN_SEARCHANDDESTROY",
+    "SUBLIMINAL",
+    "SOLO_HUMAN_EASY",
+    "SOLO_HUMAN_NORMAL",
+    "SOLO_HUMAN_HARD",
+    "SOLO_AI_EASY",
+    "SOLO_AI_NORMAL",
+    "SOLO_AI_HARD",
+    "TARGET_FAERIE_FIRE",
+    "FANATICISM",
+    "FRENZY_ONE",
+    "FRENZY_TWO",
+    "FRENZY_THREE",
 ];
 const WEAPON_BONUS_FIELDS: &[&str] = &["DAMAGE", "RADIUS", "RANGE", "RATE_OF_FIRE", "PRE_ATTACK"];
 
@@ -1162,36 +1218,117 @@ fn parse_scatter_coord(value: &str) -> WeaponResult<(f32, f32)> {
 }
 
 const DAMAGE_TYPE_NAMES: &[&str] = &[
-    "EXPLOSION", "CRUSH", "ARMOR_PIERCING", "SMALL_ARMS", "GATTLING", "RADIATION", "FLAME",
-    "LASER", "SNIPER", "POISON", "HEALING", "UNRESISTABLE", "WATER", "DEPLOY", "SURRENDER",
-    "HACK", "KILL_PILOT", "PENALTY", "FALLING", "MELEE", "DISARM", "HAZARD_CLEANUP",
-    "PARTICLE_BEAM", "TOPPLING", "INFANTRY_MISSILE", "AURORA_BOMB", "LAND_MINE", "JET_MISSILES",
-    "STEALTHJET_MISSILES", "MOLOTOV_COCKTAIL", "COMANCHE_VULCAN", "SUBDUAL_MISSILE",
-    "SUBDUAL_VEHICLE", "SUBDUAL_BUILDING", "SUBDUAL_UNRESISTABLE", "MICROWAVE", "KILL_GARRISONED",
+    "EXPLOSION",
+    "CRUSH",
+    "ARMOR_PIERCING",
+    "SMALL_ARMS",
+    "GATTLING",
+    "RADIATION",
+    "FLAME",
+    "LASER",
+    "SNIPER",
+    "POISON",
+    "HEALING",
+    "UNRESISTABLE",
+    "WATER",
+    "DEPLOY",
+    "SURRENDER",
+    "HACK",
+    "KILL_PILOT",
+    "PENALTY",
+    "FALLING",
+    "MELEE",
+    "DISARM",
+    "HAZARD_CLEANUP",
+    "PARTICLE_BEAM",
+    "TOPPLING",
+    "INFANTRY_MISSILE",
+    "AURORA_BOMB",
+    "LAND_MINE",
+    "JET_MISSILES",
+    "STEALTHJET_MISSILES",
+    "MOLOTOV_COCKTAIL",
+    "COMANCHE_VULCAN",
+    "SUBDUAL_MISSILE",
+    "SUBDUAL_VEHICLE",
+    "SUBDUAL_BUILDING",
+    "SUBDUAL_UNRESISTABLE",
+    "MICROWAVE",
+    "KILL_GARRISONED",
     "STATUS",
 ];
 const DEATH_TYPE_NAMES: &[&str] = &[
-    "NORMAL", "NONE", "CRUSHED", "BURNED", "EXPLODED", "POISONED", "TOPPLED", "FLOODED",
-    "SUICIDED", "LASERED", "DETONATED", "SPLATTED", "POISONED_BETA", "EXTRA_2", "EXTRA_3",
-    "EXTRA_4", "EXTRA_5", "EXTRA_6", "EXTRA_7", "EXTRA_8", "POISONED_GAMMA",
+    "NORMAL",
+    "NONE",
+    "CRUSHED",
+    "BURNED",
+    "EXPLODED",
+    "POISONED",
+    "TOPPLED",
+    "FLOODED",
+    "SUICIDED",
+    "LASERED",
+    "DETONATED",
+    "SPLATTED",
+    "POISONED_BETA",
+    "EXTRA_2",
+    "EXTRA_3",
+    "EXTRA_4",
+    "EXTRA_5",
+    "EXTRA_6",
+    "EXTRA_7",
+    "EXTRA_8",
+    "POISONED_GAMMA",
 ];
 const OBJECT_STATUS_NAMES: &[&str] = &[
-    "NONE", "DESTROYED", "CAN_ATTACK", "UNDER_CONSTRUCTION", "UNSELECTABLE", "NO_COLLISIONS",
-    "NO_ATTACK", "AIRBORNE_TARGET", "PARACHUTING", "REPULSOR", "HIJACKED", "AFLAME", "BURNED",
-    "WET", "IS_FIRING_WEAPON", "IS_BRAKING", "STEALTHED", "DETECTED", "CAN_STEALTH", "SOLD",
-    "UNDERGOING_REPAIR", "RECONSTRUCTING", "MASKED", "IS_ATTACKING", "USING_ABILITY",
-    "IS_AIMING_WEAPON", "NO_ATTACK_FROM_AI", "IGNORING_STEALTH", "IS_CARBOMB", "DECK_HEIGHT_OFFSET",
-    "STATUS_RIDER1", "STATUS_RIDER2", "STATUS_RIDER3", "STATUS_RIDER4", "STATUS_RIDER5",
-    "STATUS_RIDER6", "STATUS_RIDER7", "STATUS_RIDER8", "FAERIE_FIRE", "KILLING_SELF",
-    "REASSIGN_PARKING", "BOOBY_TRAPPED", "IMMOBILE", "DISGUISED", "DEPLOYED",
+    "NONE",
+    "DESTROYED",
+    "CAN_ATTACK",
+    "UNDER_CONSTRUCTION",
+    "UNSELECTABLE",
+    "NO_COLLISIONS",
+    "NO_ATTACK",
+    "AIRBORNE_TARGET",
+    "PARACHUTING",
+    "REPULSOR",
+    "HIJACKED",
+    "AFLAME",
+    "BURNED",
+    "WET",
+    "IS_FIRING_WEAPON",
+    "IS_BRAKING",
+    "STEALTHED",
+    "DETECTED",
+    "CAN_STEALTH",
+    "SOLD",
+    "UNDERGOING_REPAIR",
+    "RECONSTRUCTING",
+    "MASKED",
+    "IS_ATTACKING",
+    "USING_ABILITY",
+    "IS_AIMING_WEAPON",
+    "NO_ATTACK_FROM_AI",
+    "IGNORING_STEALTH",
+    "IS_CARBOMB",
+    "DECK_HEIGHT_OFFSET",
+    "STATUS_RIDER1",
+    "STATUS_RIDER2",
+    "STATUS_RIDER3",
+    "STATUS_RIDER4",
+    "STATUS_RIDER5",
+    "STATUS_RIDER6",
+    "STATUS_RIDER7",
+    "STATUS_RIDER8",
+    "FAERIE_FIRE",
+    "KILLING_SELF",
+    "REASSIGN_PARKING",
+    "BOOBY_TRAPPED",
+    "IMMOBILE",
+    "DISGUISED",
+    "DEPLOYED",
 ];
 
-fn parse_bit_string(
-    value: &str,
-    names: &[&str],
-    mut bits: u32,
-    field: &str,
-) -> WeaponResult<u32> {
+fn parse_bit_string(value: &str, names: &[&str], mut bits: u32, field: &str) -> WeaponResult<u32> {
     let mut found_normal = false;
     let mut found_add_or_sub = false;
     for token in value.split_whitespace() {
@@ -1297,7 +1434,7 @@ fn apply_anti_mask_bit(mask: &mut u32, field: &str, value: &str) -> WeaponResult
             return Err(WeaponError::ParseError(format!(
                 "Unknown anti mask '{}'",
                 field
-            )))
+            )));
         }
     };
     let token = value.split_whitespace().next().unwrap_or(value);
@@ -1308,7 +1445,7 @@ fn apply_anti_mask_bit(mask: &mut u32, field: &str, value: &str) -> WeaponResult
             return Err(WeaponError::ParseError(format!(
                 "Invalid {} value '{}': expected Yes or No",
                 field, value
-            )))
+            )));
         }
     }
     Ok(())
@@ -1345,7 +1482,7 @@ fn vet_fx_list(value: &str) -> WeaponResult<(usize, String)> {
             return Err(WeaponError::ParseError(format!(
                 "Invalid veterancy '{}'",
                 level
-            )))
+            )));
         }
     };
     if name.is_empty() {
@@ -1379,13 +1516,8 @@ fn weapon_property_order(key: &str) -> (u32, &str) {
             | "VeterancyProjectileDetonationOCL"
             | "VeterancyProjectileExhaust"
     );
-    if slot {
-        (index, "")
-    } else {
-        (index, key)
-    }
+    if slot { (index, "") } else { (index, key) }
 }
-
 
 /// INI parsing functions for weapons
 pub struct IniWeapon;
@@ -1476,6 +1608,54 @@ impl IniWeapon {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shot_delay_integer_prefix_matches_original_defined_scan() {
+        for (token, expected) in [
+            ("250.0", 250),
+            ("250.99", 250),
+            ("+250junk", 250),
+            ("-250.0", -250),
+            ("1e3", 1),
+            ("0x10", 0),
+            (" 34.9", 34),
+            ("2147483647", i32::MAX),
+            ("-2147483648", i32::MIN),
+        ] {
+            let actual = shot_delay_msecs(token).unwrap();
+            assert_eq!(actual, expected, "{token}");
+            println!("SHOT_DELAY_SCAN={actual}");
+        }
+        for invalid in ["", "+", "-", ".25", "word", "2147483648", "-2147483649"] {
+            assert!(shot_delay_msecs(invalid).is_err(), "{invalid}");
+        }
+    }
+
+    #[test]
+    fn decimal_shot_delay_retains_weapon_and_original_min_max_frame_conversion() {
+        let mut store = WeaponStore::new();
+        let name = AsciiString::from("BattleShipGunReal");
+        let properties = HashMap::from([
+            ("PrimaryDamage".to_owned(), "1000".to_owned()),
+            ("DelayBetweenShots".to_owned(), "250.0".to_owned()),
+        ]);
+        store
+            .register_definition(name.clone(), &properties, INILoadType::Overwrite)
+            .unwrap();
+        let weapon = store.find_template(&name).unwrap();
+        assert_eq!(weapon.primary_damage, 1000.0);
+        assert_eq!(
+            (
+                weapon.min_delay_between_shots,
+                weapon.max_delay_between_shots
+            ),
+            (8, 8)
+        );
+        assert_eq!(parse_shot_delay("Min: 34.99 Max: 250.9").unwrap(), (2, 8));
+        assert_eq!(parse_shot_delay("Min: 34.99").unwrap(), (2, 2));
+        assert!(parse_shot_delay("Min:").is_err());
+        assert!(parse_shot_delay("Min: 34 Max:").is_err());
+    }
 
     #[test]
     fn test_damage_type_parsing() {

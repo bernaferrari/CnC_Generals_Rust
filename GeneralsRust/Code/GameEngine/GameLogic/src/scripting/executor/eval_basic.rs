@@ -185,6 +185,28 @@ impl ScriptConditionEvaluator<'_> {
             .unwrap_or(crate::scripting::engine::ScriptOwnerQuery::Missing);
 
         let condition_type = condition.get_condition_type();
+        if matches!(
+            condition_type,
+            ConditionType::MultiplayerAlliedVictory
+                | ConditionType::MultiplayerAlliedDefeat
+                | ConditionType::MultiplayerPlayerDefeat
+        ) {
+            use crate::scripting::engine::ScriptOwnerQuery;
+            let owned = match driver.local_victory_state() {
+                ScriptOwnerQuery::Present((victory, allied_defeat, local_defeat)) => {
+                    Some(match condition_type {
+                        ConditionType::MultiplayerAlliedVictory => victory,
+                        ConditionType::MultiplayerAlliedDefeat => allied_defeat,
+                        _ => local_defeat && !allied_defeat,
+                    })
+                }
+                ScriptOwnerQuery::Missing => Some(false),
+                ScriptOwnerQuery::Unavailable => None,
+            };
+            if let Some(value) = owned {
+                return Ok(Self::bool_result(value));
+            }
+        }
 
         if condition_type == ConditionType::NamedSelected {
             use crate::scripting::engine::ScriptOwnerQuery;

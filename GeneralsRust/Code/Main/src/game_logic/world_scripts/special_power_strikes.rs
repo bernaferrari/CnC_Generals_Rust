@@ -2132,14 +2132,6 @@ impl GameLogic {
         use gamelogic::system::shroud_manager::get_shroud_manager;
 
         let frame = self.frame;
-        let local = gamelogic::player::player_list()
-            .read()
-            .ok()
-            .map(|list| list.get_local_player_index())
-            .filter(|&idx| idx >= 0)
-            .map(|idx| idx as u32)
-            .or_else(|| self.local_player_id());
-
         let shots: Vec<(ObjectId, Vec3)> = self
             .special_power_strikes
             .orbit_fields()
@@ -2149,7 +2141,7 @@ impl GameLogic {
             .collect();
 
         for (source, aim) in shots {
-            let shroud = local.and_then(|pid| {
+            let shroud = self.local_player_id().and_then(|pid| {
                 std::sync::Arc::clone(self.world_services.shroud())
                     .lock()
                     .ok()

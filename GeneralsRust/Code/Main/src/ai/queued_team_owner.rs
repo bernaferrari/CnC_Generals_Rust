@@ -465,6 +465,7 @@ impl GameLogic {
         now: f32,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
+        let skirmish = AiWorldView::new(self).player_is_skirmish_ai(player);
         let Some(ai) = self.ai_manager.ai_players.get_mut(&player) else {
             return;
         };
@@ -479,7 +480,6 @@ impl GameLogic {
         }
         // Node identities survive synchronous insertion/removal. Promotion
         // restarts at the head, exactly as the original linked-list iterator.
-        let skirmish = ai.leftover_is_skirmish_ai();
         loop {
             let decision = self.ai_manager.ai_players.get(&player).and_then(|ai| {
                 ai.team_queue.iter().enumerate().find_map(|(index, team)| {

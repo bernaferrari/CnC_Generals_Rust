@@ -618,16 +618,21 @@ impl GameLogic {
                 crate::game_logic::host_hero_abilities::leftover_disable_fx_footprint_offset(&geom);
             offset.y = leftover_emp_spark_z(height);
             offset = leftover_emp_spark_dome_clamp(offset, height);
-            let Some(pid) = self.combat_particles.attach_named_to_object_local(
-                victim_id,
-                pos,
-                yaw,
-                offset,
-                frame,
-                EMP_SPHEROID_DISABLE_FX,
-                CombatParticleKind::DisableFx,
-                Some(lifetime),
-            ) else {
+            let is_shrouded = self.host_fx_object_is_shrouded(victim_id.0);
+            let Some(pid) = self
+                .combat_particles
+                .attach_named_to_object_local_with_visibility(
+                    victim_id,
+                    pos,
+                    yaw,
+                    offset,
+                    frame,
+                    EMP_SPHEROID_DISABLE_FX,
+                    CombatParticleKind::DisableFx,
+                    Some(lifetime),
+                    is_shrouded,
+                )
+            else {
                 continue;
             };
             if let Some(client_id) = self

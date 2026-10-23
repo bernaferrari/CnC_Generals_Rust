@@ -131,6 +131,8 @@ impl ThingTemplate {
         let definitions = PrerequisiteDefinitions::admit_receiving(&mut prereqs, content)?;
         self.production_prerequisites = prereqs;
         self.prerequisite_definitions = definitions;
+        self.command_set_name = plan.command_set_name().to_string();
+        self.buildable_status = plan.buildable_status();
         self.reskinned_from = plan.reskin_name().map(str::to_owned);
         self.build_variations = plan.build_variations().map(str::to_owned).collect();
         Ok(())

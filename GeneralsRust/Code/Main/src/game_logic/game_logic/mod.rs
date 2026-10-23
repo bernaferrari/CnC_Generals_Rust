@@ -15,6 +15,7 @@ mod ambient_sound_retries;
 mod authority;
 mod beacon_client_state;
 mod camera_continuation;
+pub(crate) mod command_overrides;
 mod construct;
 mod crate_tick;
 mod host;

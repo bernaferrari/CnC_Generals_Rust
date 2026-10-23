@@ -111,6 +111,7 @@ mod input;
 #[cfg(feature = "game_client")]
 mod minimap_bridge;
 mod mouse;
+mod startup_definition_source;
 mod startup_ini_content;
 #[cfg(test)]
 pub(crate) use mouse::live_view_height_clamp;

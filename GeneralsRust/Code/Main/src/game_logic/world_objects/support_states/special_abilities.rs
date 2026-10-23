@@ -1407,16 +1407,20 @@ impl GameLogic {
                     effect_duration_frames,
                     interleave,
                 );
-            let pid = self.combat_particles.attach_named_to_object_local(
-                target_id,
-                pos,
-                yaw,
-                offset,
-                self.frame,
-                template_name,
-                crate::game_logic::combat_particles::CombatParticleKind::DisableFx,
-                Some(lifetime),
-            );
+            let is_shrouded = self.host_fx_object_is_shrouded(target_id.0);
+            let pid = self
+                .combat_particles
+                .attach_named_to_object_local_with_visibility(
+                    target_id,
+                    pos,
+                    yaw,
+                    offset,
+                    self.frame,
+                    template_name,
+                    crate::game_logic::combat_particles::CombatParticleKind::DisableFx,
+                    Some(lifetime),
+                    is_shrouded,
+                );
             let _ = caster_id;
             if let Some(pid) = pid {
                 self.hero_abilities

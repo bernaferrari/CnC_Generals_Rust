@@ -355,7 +355,7 @@ impl GameLogic {
             }
         }
         self.sync_legacy_player_list_from_sides();
-        self.stash_side_builds_on_host(&sides_data.side_builds);
+        self.transfer_side_build_lists_to_players();
         let mut effects = native
             .as_mut()
             .map(|native| native.effects())
@@ -376,7 +376,6 @@ impl GameLogic {
         if !self.finish_map_script_foundation() {
             return false;
         }
-        self.transfer_side_build_lists_to_players();
 
         let waypoint_count = self
             .world_services
@@ -410,6 +409,9 @@ impl GameLogic {
         true
     }
 
+    // Temporary compatibility publication while actual native ScoreScreen,
+    // honors, science/rank and observer readers still consume Core PlayerList.
+    // Receiving Main Player remains authoritative; remove only with those readers.
     pub(in super::super) fn sync_legacy_player_list_from_side_dicts(&self, side_dicts: &[Dict]) {
         let mut logic_list = LogicPlayerList::new();
 
@@ -469,7 +471,10 @@ impl GameLogic {
             } else {
                 LogicPlayerType::Computer
             };
-            player.set_player_type(player_type, false);
+            player.set_player_type(
+                player_type,
+                admitted.is_some_and(|player| player.map_side.is_skirmish_ai),
+            );
             player.init(Arc::new(template));
             player.init_from_dict_defaults();
             player.apply_handicap_from_dict(dict);
@@ -524,6 +529,19 @@ impl GameLogic {
                 );
             }
         }
+    }
+
+    pub(in super::super) fn sync_legacy_player_list_from_sides(&self) {
+        let sides_guard = &self.prepared_map_sides;
+
+        let side_dicts: Vec<Dict> = (0..sides_guard.get_num_sides())
+            .filter_map(|index| {
+                sides_guard
+                    .get_side_info(index)
+                    .map(|side| side.get_dict().clone())
+            })
+            .collect();
+        self.sync_legacy_player_list_from_side_dicts(&side_dicts);
     }
 
     pub(in super::super) fn add_host_players_as_sides(
@@ -622,24 +640,36 @@ impl GameLogic {
     }
 
     pub(in super::super) fn transfer_side_build_lists_to_players(&mut self) {
-        let sides = &mut self.prepared_map_sides;
-        let player_list = ThePlayerList();
-        let Ok(mut players) = player_list.try_write() else {
-            return;
-        };
-        for index in 0..sides.get_num_sides() {
-            let Some(side) = sides.get_side_info_mut(index) else {
+        let owners: Vec<_> = (0..self.prepared_map_sides.get_num_sides())
+            .map(|index| self.host_player_id_for_side_index(index as u32))
+            .collect();
+        for (index, owner) in owners.into_iter().enumerate() {
+            let Some(side) = self.prepared_map_sides.get_side_info_mut(index) else {
                 continue;
             };
-            let Some(build_list) = side.take_build_list() else {
-                continue;
-            };
-            if let Some(player) = players.get_player(index as i32) {
-                if let Ok(mut player) = player.write() {
-                    player.set_build_list(Some(*build_list));
-                }
+            let mut node = side.take_build_list();
+            let mut list = Vec::new();
+            while let Some(mut entry) = node {
+                let location = entry.get_location();
+                list.push(HostAuthoredBuild {
+                    template: entry.get_template_name().to_string(),
+                    position: (location.x, location.y, location.z),
+                    num_rebuilds: entry.get_num_rebuilds(),
+                    initially_built: entry.is_initially_built(),
+                    completion: crate::ai::AuthoredStructureCompletion {
+                        name: entry.get_building_name().to_string(),
+                        script: entry.get_script().to_string(),
+                        health_percent: entry.get_health(),
+                        unsellable: entry.get_unsellable(),
+                    },
+                });
+                node = entry.take_next_build_list();
+            }
+            if let Some(player) = owner.and_then(|id| self.players.get_mut(&id)) {
+                player.map_side.build_list = list;
             }
         }
+        self.feed_host_ai_from_authored_build_lists();
     }
 
     pub(in super::super) fn host_player_id_for_side_index(&self, side_index: u32) -> Option<u32> {
@@ -697,6 +727,7 @@ impl GameLogic {
             let Some(pid) = pid else {
                 continue;
             };
+            let controller = self.prepared_player_controllers.for_side(&name);
             if let Some(player) = self.players.get_mut(&pid) {
                 // Retained Civilians were initialized and received the authored
                 // deposit above. The relationship pass must not deposit twice.
@@ -708,6 +739,9 @@ impl GameLogic {
                         replace_default_money,
                         &mut self.economy_events,
                     );
+                }
+                if let Some(controller) = controller {
+                    controller.apply(player);
                 }
             }
         }
@@ -883,19 +917,6 @@ impl GameLogic {
                 }
             }
         }
-    }
-
-    pub(in super::super) fn sync_legacy_player_list_from_sides(&self) {
-        let sides_guard = &self.prepared_map_sides;
-
-        let side_dicts: Vec<Dict> = (0..sides_guard.get_num_sides())
-            .filter_map(|index| {
-                sides_guard
-                    .get_side_info(index)
-                    .map(|side| side.get_dict().clone())
-            })
-            .collect();
-        self.sync_legacy_player_list_from_side_dicts(&side_dicts);
     }
 
     pub(in super::super) fn sync_legacy_team_factory_from_team_dicts(

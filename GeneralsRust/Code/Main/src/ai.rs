@@ -471,3 +471,7 @@ mod player_identity_tests;
 mod player_slot_order_tests;
 
 pub use manager::AIManager;
+
+#[cfg(test)]
+#[path = "ai/team_candidate_owner_tests.rs"]
+mod team_candidate_owner_tests;

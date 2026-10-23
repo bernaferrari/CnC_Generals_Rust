@@ -44,38 +44,6 @@ fn object_has_special_power_module(
         || obj.special_power_cooldowns.contains_key(power)
 }
 
-/// C++ `Player::getRelationship(const Team*)` leftover map written by
-/// `PLAYER_SET_OVERRIDE_RELATION_TO_TEAM`.
-fn leftover_team_relationship_override(
-    team_factory: &gamelogic::team::TeamFactoryHandle,
-    source_player_id: u32,
-    team_name: &str,
-) -> Option<gamelogic::common::Relationship> {
-    if team_name.trim().is_empty() {
-        return None;
-    }
-    let team = {
-        let Ok(factory) = team_factory.lock() else {
-            return None;
-        };
-        factory.find_team_instances(team_name).into_iter().next()?
-    };
-    let Ok(list) = gamelogic::player::ThePlayerList().read() else {
-        return None;
-    };
-    let player_arc = list
-        .get_player(source_player_id as gamelogic::player::PlayerIndex)
-        .cloned()?;
-    drop(list);
-    let Ok(player) = player_arc.read() else {
-        return None;
-    };
-    let Ok(team_guard) = team.read() else {
-        return None;
-    };
-    player.override_relationship_for_team(&team_guard)
-}
-
 /// C++ `Team::getRelationship` team/player override maps written by
 /// `TEAM_SET_OVERRIDE_RELATION_TO_TEAM` / `_TO_PLAYER`.
 fn leftover_source_team_override(
@@ -636,13 +604,6 @@ impl GameLogic {
 
         if let Some(source_player_id) = source_owner {
             if !target_team_instance.is_empty() {
-                if let Some(rel) = leftover_team_relationship_override(
-                    team_factory,
-                    source_player_id,
-                    target_team_instance,
-                ) {
-                    return rel;
-                }
                 if let Some(source_player) = players.get(&source_player_id) {
                     if let Some(rel) =
                         source_player.team_relationship_override(target_team_instance)
@@ -3727,3 +3688,92 @@ mod dock_approach_owner_tests {
 #[cfg(test)]
 #[path = "object_queries/script_name_owner_tests.rs"]
 mod script_name_owner_tests;
+
+#[cfg(test)]
+mod receiving_player_team_relationship_owner_tests {
+    use super::*;
+    use gamelogic::common::Relationship;
+
+    fn world(relationship: Relationship) -> GameLogic {
+        let mut world = GameLogic::new();
+        let mut player = Player::new(0, Team::USA, "SameOwner", true);
+        player.set_map_relationship(1, Relationship::Enemies);
+        player.set_team_relationship_override("SameTeam", relationship);
+        world.add_player(player);
+        world.add_player(Player::new(1, Team::GLA, "SameTarget", false));
+        {
+            let mut factory = world.team_factory.lock().unwrap();
+            factory.replace_team_prototype(gamelogic::team::TeamPrototype::new("SameTeam".into()));
+            factory.create_team("SameTeam").unwrap();
+        }
+        world
+    }
+    fn relation(world: &GameLogic, team: &str) -> Relationship {
+        GameLogic::object_relationship_from_owners(
+            &world.team_factory,
+            &world.players,
+            Some(0),
+            "",
+            Some(1),
+            team,
+        )
+    }
+    #[test]
+    fn receiving_relationship_ignores_foreign_core_team_override() {
+        crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+            module_path!(),
+            "receiving_relationship_ignores_foreign_core_team_override",
+            || {
+                let source = world(Relationship::Allies);
+                let peer = world(Relationship::Neutral);
+                let team = source
+                    .team_factory
+                    .lock()
+                    .unwrap()
+                    .find_team_instances("SameTeam")
+                    .into_iter()
+                    .next()
+                    .unwrap();
+                let mut foreign = gamelogic::player::Player::new(0);
+                foreign.init_from_dict_defaults();
+                foreign.set_team_relationship(&team.read().unwrap(), Relationship::Enemies);
+                let foreign = std::sync::Arc::new(std::sync::RwLock::new(foreign));
+                {
+                    let mut list = gamelogic::player::ThePlayerList().write().unwrap();
+                    list.clear();
+                    list.add_player(std::sync::Arc::clone(&foreign));
+                }
+                assert_eq!(relation(&source, "SameTeam"), Relationship::Allies);
+                assert_eq!(relation(&peer, "SameTeam"), Relationship::Neutral);
+                assert_eq!(
+                    foreign
+                        .read()
+                        .unwrap()
+                        .override_relationship_for_team(&team.read().unwrap()),
+                    Some(Relationship::Enemies)
+                );
+            },
+        );
+    }
+    #[test]
+    fn actual_relationship_owner_survives_encoded_restore_and_peer_reset() {
+        let source = world(Relationship::Allies);
+        let mut peer = world(Relationship::Neutral);
+        assert_eq!(relation(&source, "SameTeam"), Relationship::Allies);
+        assert_eq!(relation(&peer, "SameTeam"), Relationship::Neutral);
+        assert_eq!(relation(&source, "OtherTeam"), Relationship::Enemies);
+        let builder = crate::save_load::SnapshotBuilder::new();
+        let saved = builder.create_world_snapshot(&source).unwrap();
+        let bytes = bincode_legacy::serialize(&saved).unwrap();
+        let saved = crate::save_load::decode_bincode_world_snapshot(&bytes).unwrap();
+        let mut restored = world(Relationship::Neutral);
+        builder
+            .restore_from_snapshot(&saved, &mut restored)
+            .unwrap();
+        assert_eq!(relation(&restored, "SameTeam"), Relationship::Allies);
+        assert_eq!(relation(&restored, "OtherTeam"), Relationship::Enemies);
+        peer.reset();
+        assert_eq!(relation(&source, "SameTeam"), Relationship::Allies);
+        assert_eq!(relation(&restored, "SameTeam"), Relationship::Allies);
+    }
+}

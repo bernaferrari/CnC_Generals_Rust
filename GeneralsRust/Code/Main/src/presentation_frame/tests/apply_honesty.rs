@@ -2166,8 +2166,8 @@ fn command_set_strip_keeps_authored_holes() {
         src.contains("command_set_slots_from_ini")
             && src.contains("intersect_command_set_slots")
             && src.contains("leftover_evaluate_named_command")
-            && src.contains("find_control_bar_override")
-            && src.contains("apply_leftover_control_bar_overrides")
+            && src.contains("control_bar_override_key")
+            && src.contains("apply_receiving_control_bar_overrides")
             && !src.contains(".take(14)\n            .flatten()"),
         "live strip must keep holes, intersect multi-select, leftover availability, and leftover GameLogic commandbar overrides"
     );
@@ -2237,27 +2237,9 @@ fn leftover_control_bar_override_hides_and_replaces_strip_slots() {
             .collect::<Vec<_>>()
     );
 
-    {
-        let mut leftover = gamelogic::system::game_logic::lock_game_logic()
-            .expect("leftover GameLogic required for commandbar override");
-        leftover.set_control_bar_override(FIXTURE_SET, 0, None);
-        leftover.set_control_bar_override(FIXTURE_SET, 2, Some("Command_Guard"));
-    }
-
+    logic.set_control_bar_override(FIXTURE_SET, 0, None);
+    logic.set_control_bar_override(FIXTURE_SET, 2, Some("Command_Guard"));
     let cmds = PresentationFrame::build_from_logic(&mut logic, 0).unit_command_buttons();
-    // Neutralize only this fixture's two keys. Never restore a stale snapshot
-    // of another test's or session's overrides. The production override owner
-    // remains shared and is tracked separately by hq-gn8sl.
-    {
-        let mut leftover = gamelogic::system::game_logic::lock_game_logic()
-            .expect("leftover GameLogic required for private-key cleanup");
-        leftover.set_control_bar_override(
-            FIXTURE_SET,
-            0,
-            Some("Command_AmericaRangerCaptureBuilding"),
-        );
-        leftover.set_control_bar_override(FIXTURE_SET, 2, None);
-    }
     assert!(
         cmds.len() >= 14,
         "override strip must keep 14 WND slots: {:?}",

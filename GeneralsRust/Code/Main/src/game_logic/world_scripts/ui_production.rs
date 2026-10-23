@@ -2223,16 +2223,6 @@ impl GameLogic {
         (occupied_slots.len() as u32).saturating_add(queued)
     }
 
-    /// C++ `ThingTemplate::getBuildable` — leftover GameLogic override first.
-    fn effective_buildable_status(&self, template_name: &str, ini_status: u32) -> u32 {
-        if let Some(status) =
-            gamelogic::helpers::TheGameLogic::find_buildable_status_override(template_name)
-        {
-            return status.max(0) as u32;
-        }
-        ini_status
-    }
-
     /// C++ `Player::canBuild` allowedToBuild + BuildableStatus (not prereqs).
     /// Returns `(player_may_build, ignore_prerequisites)`.
     fn host_player_can_build(
@@ -2306,13 +2296,10 @@ impl GameLogic {
         // The small residual table remains only while that catalog has not
         // supplied a producer identity (for example test-only factories).
         let producer_template = producer.template_name.as_str();
-        let command_set_ok = match gamelogic::control_bar::parsed_unit_build_authorization(
-            producer_template,
-            template_name,
-        ) {
-            gamelogic::control_bar::ParsedUnitBuildAuthorization::Rejected => false,
-            gamelogic::control_bar::ParsedUnitBuildAuthorization::Authorized => true,
-            gamelogic::control_bar::ParsedUnitBuildAuthorization::Unavailable => {
+        let command_set_ok = match self.receiving_build_authorized(producer, template_name, "UNIT_BUILD") {
+            Some(false) => false,
+            Some(true) => true,
+            None => {
                 match crate::game_logic::host_production_buildable_command_residual::command_set_allows_unit(
                     producer_template,
                     template_name,
@@ -2443,10 +2430,14 @@ impl GameLogic {
         if !producer.is_alive() {
             return CANMAKE_NO_PREREQ;
         }
-        let command_set_ok = !matches!(
-            command_set_allows_unit(&producer.template_name, template_name),
-            Some(false)
-        );
+        let command_set_ok = self
+            .receiving_build_authorized(producer, template_name, "DOZER_CONSTRUCT")
+            .unwrap_or_else(|| {
+                !matches!(
+                    command_set_allows_unit(&producer.template_name, template_name),
+                    Some(false)
+                )
+            });
         let team = producer.team;
         let owner_player_id = producer.owner_player_id;
         // C++ ControlBarCommand.cpp:1139-1141 — pending BUILD greys every construct cameo.

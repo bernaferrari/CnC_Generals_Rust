@@ -2986,7 +2986,7 @@ pub(in crate::game_logic) mod tests {
             .expect("next ignition method boundary");
         let body = &src[start..end];
         assert!(body.contains("missile.ignition_fx"));
-        assert!(body.contains("self.play_missile_ignition(&ignition_fx, fx)"));
+        assert!(body.contains("self.play_missile_ignition(&ignition_fx, fx, publish)"));
         let play_start = src
             .find("    fn play_missile_ignition(")
             .expect("ignition FX operation");
@@ -2998,6 +2998,10 @@ pub(in crate::game_logic) mod tests {
         let invoke = play
             .find("fx(ignition_fx, ProjectileFxObject::Projectile(self))")
             .expect("synchronous authored object callback");
+        assert!(
+            play.find("publish(self)").unwrap() < invoke,
+            "original unconditional pose observation precedes authored FX"
+        );
         assert!(
             invoke < play.find("create_attached_particle_system_id").unwrap(),
             "CPP ignition FX precedes exhaust attachment"
@@ -3013,7 +3017,7 @@ pub(in crate::game_logic) mod tests {
         let native = &native[native_start..native_end];
         assert!(native.contains("Self::with_host_fx_view_parts_and_terrain("));
         assert!(native.contains("&mut self.session_view"));
-        assert!(native.contains("prepare_projectile_impact_with_fx("));
+        assert!(native.contains("prepare_projectile_impact_with_fx_and_pose("));
         assert!(
             native.contains("Self::dispatch_fx_list_at_object_with_view(name, &pose, None, view)")
         );

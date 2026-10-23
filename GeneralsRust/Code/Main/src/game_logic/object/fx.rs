@@ -263,7 +263,7 @@ impl crate::game_logic::GameLogic {
             // never by this later DamageModule/particle FX boundary.
             BodyStateFx::NativeVisualState(_) => {}
             BodyStateFx::Transition(event) => Self::execute_transition_damage_fx_with_view(
-                object, event, source, particles, frame, view,
+                object, event, source, particles, frame, player, shroud, view,
             ),
             BodyStateFx::ArmorDamage {
                 damage_type,

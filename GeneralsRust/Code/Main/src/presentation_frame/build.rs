@@ -1022,11 +1022,12 @@ impl PresentationFrame {
                 turret_holding: obj.turret_holding,
                 last_damage_source_host: obj.last_damage_source.map(|id| id.0).unwrap_or(0),
                 command_set_override: obj.command_set_override.clone().unwrap_or_default(),
-                command_set_name: crate::ui::construction_panel::resolve_command_set_name(
-                    &obj.template_name,
-                    obj.command_set_override.as_deref(),
-                )
-                .unwrap_or_default(),
+                command_set_name: obj
+                    .command_set_override
+                    .clone()
+                    .filter(|name| !name.is_empty())
+                    .or_else(|| logic.command_set_for_template(&obj.template_name))
+                    .unwrap_or_default(),
                 is_detector: obj.is_detector,
                 active_weapon_slot: obj.active_weapon_slot,
                 // Wave 517: weapon fire status + panic/backwards for slot-aware mesh bits.
@@ -1616,10 +1617,7 @@ impl PresentationFrame {
                         available: status
                             == crate::game_logic::host_production_buildable_command_residual::CANMAKE_OK,
                         help_status: help,
-                        buildable_hidden: logic
-                            .templates
-                            .get(*name)
-                            .is_some_and(|t| t.human_control_bar_buildable_hidden()),
+                        buildable_hidden: logic.human_control_bar_buildable_hidden(*name),
                     });
                 }
                 if let Some(o) = logic.host_object(pid) {
@@ -1646,10 +1644,29 @@ impl PresentationFrame {
                                 available: status
                                     == crate::game_logic::host_production_buildable_command_residual::CANMAKE_OK,
                                 help_status: help,
-                                buildable_hidden: logic
-                                    .templates
-                                    .get(*producible)
-                                    .is_some_and(|t| t.human_control_bar_buildable_hidden()),
+                                buildable_hidden: logic.human_control_bar_buildable_hidden(*producible),
+                            });
+                        }
+                    }
+                }
+                if let Some(producer) = logic.host_object(pid) {
+                    if let Some(targets) = logic.build_command_targets(producer) {
+                        for (_, target) in targets {
+                            if can_make_cameos
+                                .iter()
+                                .any(|cameo| cameo.template_name == target)
+                            {
+                                continue;
+                            }
+                            let status = logic.can_make_unit(pid, &target);
+                            let is_struct = logic.templates.get(&target).is_some_and(|template| {
+                                template.is_kind_of(crate::game_logic::KindOf::Structure)
+                            });
+                            can_make_cameos.push(PresentationCanMakeCameo {
+                                template_name: target.clone(), can_make: status,
+                                available: status == crate::game_logic::host_production_buildable_command_residual::CANMAKE_OK,
+                                help_status: can_make_type_help_box_message_residual(status,is_struct).map(str::to_string),
+                                buildable_hidden: logic.human_control_bar_buildable_hidden(&target),
                             });
                         }
                     }
@@ -2023,6 +2040,7 @@ impl PresentationFrame {
             can_make_cameos,
             can_make_producer_id,
             restrict_a: PresentationRestrictA::default(),
+            control_bar_overrides: logic.control_bar_overrides().clone(),
             local_queued_upgrades,
             selected,
             events,

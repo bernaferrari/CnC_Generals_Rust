@@ -17,9 +17,11 @@ impl PresentationFrame {
         let Some(id) = panel.primary_object_id else {
             return Vec::new();
         };
-        let Some(ro) = self.objects.iter().find(|o| {
-            o.id == id && !o.destroyed && !o.sold && !o.unselectable && !o.masked
-        }) else {
+        let Some(ro) = self
+            .objects
+            .iter()
+            .find(|o| o.id == id && !o.destroyed && !o.sold && !o.unselectable && !o.masked)
+        else {
             return Vec::new();
         };
         if !self.is_owned_by_local(ro) {
@@ -70,10 +72,14 @@ impl PresentationFrame {
         let selected = self.command_strip_selected_objects();
         let multi = selected.len() > 1;
         let slots = if multi {
-            intersect_command_set_slots(&self.selected_command_set_names())
+            intersect_command_set_slots(
+                &self.selected_command_set_names(),
+                &self.control_bar_overrides,
+            )
         } else {
             let cs_name = command_set_name_for_object(ro);
-            command_set_slots_for(&cs_name, &ro.template_name).unwrap_or_default()
+            command_set_slots_for(&cs_name, &ro.template_name, &self.control_bar_overrides)
+                .unwrap_or_default()
         };
         if slots.is_empty() {
             return Vec::new();
@@ -116,9 +122,8 @@ impl PresentationFrame {
     }
 
     fn command_strip_selected_objects(&self) -> Vec<&RenderableObject> {
-        let usable = |o: &&RenderableObject| {
-            !o.destroyed && !o.sold && !o.unselectable && !o.masked
-        };
+        let usable =
+            |o: &&RenderableObject| !o.destroyed && !o.sold && !o.unselectable && !o.masked;
         if !self.selected.is_empty() {
             self.selected
                 .iter()
@@ -388,18 +393,24 @@ impl PresentationFrame {
             == crate::game_logic::host_production_buildable_command_residual::MAX_BUILD_QUEUE_BUTTONS_RESIDUAL;
         for cmd in cmds.iter_mut() {
             let cn = cmd.command_name.to_ascii_lowercase();
-            if !cn.contains("construct") {
+            let target = command_button_build_target(&cmd.command_name);
+            if target.is_none() && !cn.contains("construct") {
                 continue;
             }
             if self.can_make_cameos.iter().any(|cameo| {
-                cameo.buildable_hidden && cn.contains(&cameo.template_name.to_ascii_lowercase())
+                cameo.buildable_hidden
+                    && target.as_deref().map_or_else(
+                        || cn.contains(&cameo.template_name.to_ascii_lowercase()),
+                        |target| target == cameo.template_name,
+                    )
             }) {
                 *cmd = UnitCommandButton::default();
             }
         }
         for cmd in cmds.iter_mut() {
             let cn = cmd.command_name.to_ascii_lowercase();
-            if !cn.contains("construct") {
+            let target = command_button_build_target(&cmd.command_name);
+            if target.is_none() && !cn.contains("construct") {
                 continue;
             }
             if ro.is_dozer_task_pending {
@@ -410,21 +421,18 @@ impl PresentationFrame {
                 cmd.enabled = false;
                 continue;
             }
-            if let Some(cameo) = self
-                .can_make_cameos
-                .iter()
-                .find(|cameo| cn.contains(&cameo.template_name.to_ascii_lowercase()))
-            {
+            if let Some(cameo) = self.can_make_cameos.iter().find(|cameo| {
+                target.as_deref().map_or_else(
+                    || cn.contains(&cameo.template_name.to_ascii_lowercase()),
+                    |target| target == cameo.template_name,
+                )
+            }) {
                 cmd.enabled = cameo.available;
             }
         }
     }
 
-    fn overlay_command_set_occupants(
-        &self,
-        cmds: &mut [UnitCommandButton],
-        ro: &RenderableObject,
-    ) {
+    fn overlay_command_set_occupants(&self, cmds: &mut [UnitCommandButton], ro: &RenderableObject) {
         // C++ doTransportInventoryUI: empty EXIT_CONTAINER starts disabled;
         // extraSlotsInUse hides overflow slots; unmanned hides all exits.
         let extra_slots: usize = ro
@@ -490,8 +498,8 @@ impl PresentationFrame {
         }
         contained
             .iter()
-            .map(|id| {
-                match self.objects.iter().find(|o| o.id == *id && !o.destroyed) {
+            .map(
+                |id| match self.objects.iter().find(|o| o.id == *id && !o.destroyed) {
                     Some(occ) => game_client::gui::control_bar::occupant_from_presentation(
                         occ.id.0,
                         &occ.template_name,
@@ -501,16 +509,16 @@ impl PresentationFrame {
                         object_id: id.0,
                         ..Default::default()
                     },
-                }
-            })
+                },
+            )
             .collect()
     }
 
     /// C++ `populateOCLTimer` — countdown display plus Sell or SetRallyPoint.
     fn populate_ocl_timer_strip(&self, ro: &RenderableObject) -> Vec<UnitCommandButton> {
         use game_client::gui::control_bar::control_bar_ocl_timer::{
-            format_ocl_timer_display, ocl_timer_button_kind, ocl_timer_kind_for_object,
-            OclTimerButtonKind,
+            OclTimerButtonKind, format_ocl_timer_display, ocl_timer_button_kind,
+            ocl_timer_kind_for_object,
         };
         let leftover_kind = ocl_timer_kind_for_object(ro.id.0);
         let kind = if leftover_kind != OclTimerButtonKind::Hidden {
@@ -552,10 +560,10 @@ impl PresentationFrame {
     /// C++ `populateStructureInventory` — slots 0-9 StructureExit + Stop/Evacuate.
     fn populate_structure_inventory_strip(&self, ro: &RenderableObject) -> Vec<UnitCommandButton> {
         use game_client::gui::control_bar::{
-            StructureInventoryOccupant, MAX_STRUCTURE_INVENTORY_BUTTONS,
-            STRUCTURE_INVENTORY_EVACUATE_COMMAND_NAME, STRUCTURE_INVENTORY_EVACUATE_ID,
-            STRUCTURE_INVENTORY_EXIT_COMMAND_NAME, STRUCTURE_INVENTORY_STOP_COMMAND_NAME,
-            STRUCTURE_INVENTORY_STOP_ID,
+            MAX_STRUCTURE_INVENTORY_BUTTONS, STRUCTURE_INVENTORY_EVACUATE_COMMAND_NAME,
+            STRUCTURE_INVENTORY_EVACUATE_ID, STRUCTURE_INVENTORY_EXIT_COMMAND_NAME,
+            STRUCTURE_INVENTORY_STOP_COMMAND_NAME, STRUCTURE_INVENTORY_STOP_ID,
+            StructureInventoryOccupant,
         };
         let mut occupants = self.presentation_inventory_occupants(ro);
         let max_capacity = ro.max_garrison.max(occupants.len());
@@ -577,12 +585,8 @@ impl PresentationFrame {
                     cmds.push(UnitCommandButton {
                         command_name: STRUCTURE_INVENTORY_EXIT_COMMAND_NAME.into(),
                         enabled: occ.is_some(),
-                        exit_object_id: occ.and_then(|o| {
-                            (o.object_id != 0).then_some(o.object_id)
-                        }),
-                        button_image: occ
-                            .map(|o| o.button_image.clone())
-                            .unwrap_or_default(),
+                        exit_object_id: occ.and_then(|o| (o.object_id != 0).then_some(o.object_id)),
+                        button_image: occ.map(|o| o.button_image.clone()).unwrap_or_default(),
                         overlay_image: occ.and_then(|o| o.overlay_image.clone()),
                         ..Default::default()
                     });
@@ -632,11 +636,7 @@ fn leftover_merge_command_availability(
         Active => 4,
         Available => 5,
     };
-    if rank(b) > rank(a) {
-        b
-    } else {
-        a
-    }
+    if rank(b) > rank(a) { b } else { a }
 }
 
 fn leftover_to_unit_availability(
@@ -668,23 +668,33 @@ fn command_set_name_for_object(ro: &RenderableObject) -> String {
 /// C++ `ControlBar::populateCommand` — 14 WND slots, empty/SCRIPT_ONLY stay holes.
 /// `CommandSet::getCommandButton` consults leftover `GameLogic::findControlBarOverride`
 /// before INI / residual buttons so COMMANDBAR_ADD/REMOVE hide or replace slots.
-fn command_set_slots_for(set_name: &str, template_name: &str) -> Option<Vec<Option<String>>> {
+fn command_set_slots_for(
+    set_name: &str,
+    template_name: &str,
+    overrides: &crate::game_logic::game_logic::command_overrides::ControlBarOverrides,
+) -> Option<Vec<Option<String>>> {
     let mut slots = command_set_slots_from_ini(set_name)
         .or_else(|| residual_command_set_slots(set_name, template_name))?;
-    apply_leftover_control_bar_overrides(set_name, &mut slots);
+    apply_receiving_control_bar_overrides(set_name, &mut slots, overrides);
     Some(slots)
 }
 
 /// C++ `CommandSet::getCommandButton` (`ControlBar.cpp:810-817`).
-fn apply_leftover_control_bar_overrides(set_name: &str, slots: &mut [Option<String>]) {
+fn apply_receiving_control_bar_overrides(
+    set_name: &str,
+    slots: &mut [Option<String>],
+    overrides: &crate::game_logic::game_logic::command_overrides::ControlBarOverrides,
+) {
     if set_name.is_empty() {
         return;
     }
-    let Ok(logic) = gamelogic::system::game_logic::lock_game_logic() else {
-        return;
-    };
     for (i, slot) in slots.iter_mut().enumerate() {
-        match logic.find_control_bar_override(set_name, i as i32) {
+        match crate::game_logic::game_logic::command_overrides::control_bar_override_key(
+            set_name, i as i32,
+        )
+        .and_then(|key| overrides.get(&key))
+        .map(|value| value.as_deref())
+        {
             None => {}
             Some(None) => *slot = None,
             Some(Some(name)) => {
@@ -754,7 +764,10 @@ fn residual_command_set_slots(set_name: &str, template_name: &str) -> Option<Vec
 }
 
 /// C++ `ControlBar::addCommonCommands` — slot intersection, OK_FOR_MULTI_SELECT only.
-fn intersect_command_set_slots(set_names: &[String]) -> Vec<Option<String>> {
+fn intersect_command_set_slots(
+    set_names: &[String],
+    overrides: &crate::game_logic::game_logic::command_overrides::ControlBarOverrides,
+) -> Vec<Option<String>> {
     let mut common = vec![None; 14];
     let mut saw_first = false;
     for name in set_names {
@@ -762,7 +775,7 @@ fn intersect_command_set_slots(set_names: &[String]) -> Vec<Option<String>> {
         if name.is_empty() {
             continue;
         }
-        let Some(slots) = command_set_slots_for(name, name) else {
+        let Some(slots) = command_set_slots_for(name, name, overrides) else {
             // C++ clears the shared set when a selected object has no CommandSet.
             return vec![None; 14];
         };
@@ -816,22 +829,16 @@ fn command_ok_for_multi_select(name: &str) -> bool {
         return button.options.ok_for_multi_select;
     }
     let n = name.to_ascii_lowercase();
-    n.contains("attackmove")
-        || n.contains("guard")
-        || n.ends_with("stop")
-        || n.contains("evacuate")
+    n.contains("attackmove") || n.contains("guard") || n.ends_with("stop") || n.contains("evacuate")
 }
 
 fn command_set_buttons_for(set_name: &str) -> Option<Vec<String>> {
-    command_set_slots_from_ini(set_name).map(|slots| {
-        slots.into_iter().flatten().collect()
-    })
+    command_set_slots_from_ini(set_name).map(|slots| slots.into_iter().flatten().collect())
 }
 
 fn residual_command_set_buttons(set_name: &str, template_name: &str) -> Option<Vec<String>> {
-    residual_command_set_slots(set_name, template_name).map(|slots| {
-        slots.into_iter().flatten().collect()
-    })
+    residual_command_set_slots(set_name, template_name)
+        .map(|slots| slots.into_iter().flatten().collect())
 }
 
 fn command_is_script_only(name: &str) -> bool {
@@ -1051,3 +1058,10 @@ const HUD_COMMAND_SET_RESIDUAL_PACKS: &[(&str, &str, &[(u8, &str)])] = &[
         ],
     ),
 ];
+
+fn command_button_build_target(name: &str) -> Option<String> {
+    let bar = game_engine::common::ini::ini_command_button::get_control_bar()?;
+    let button = bar.find_command_button_resolved(name)?;
+    matches!(button.command.as_str(), "UNIT_BUILD" | "DOZER_CONSTRUCT")
+        .then(|| button.object.clone())
+}

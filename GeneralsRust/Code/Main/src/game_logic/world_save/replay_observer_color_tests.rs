@@ -31,19 +31,9 @@ fn synthetic_observer_projects_authored_zero_day_and_night_to_host_sides_and_cor
                 .get_dict();
             assert_eq!(side.get_int(key_player_color()) as u32, 0xff1f_2f3b);
             assert_eq!(side.get_int(key_player_night_color()) as u32, 0xff47_5361);
-            {
-                let list = ThePlayerList().read().unwrap();
-                let core = list.find_player_by_name("ReplayObserver").unwrap();
-                let core = core.read().unwrap();
-                assert_eq!(
-                    core.get_player_color(),
-                    gamelogic::common::Color::rgb(31, 47, 59)
-                );
-                assert_eq!(
-                    core.get_player_night_color(),
-                    gamelogic::common::Color::rgb(71, 83, 97)
-                );
-            }
+            let owned = world.get_player(observer).unwrap();
+            assert_eq!(owned.color_rgb, (31, 47, 59));
+            assert_eq!(owned.color_night_rgb, (71, 83, 97));
             let other = GameLogic::new();
             assert!(
                 other.replay_observer_player_id().is_none(),

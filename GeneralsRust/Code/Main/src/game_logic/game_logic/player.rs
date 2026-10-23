@@ -30,6 +30,8 @@ pub(crate) enum PlayerSideRole {
 #[derive(Debug, Clone)]
 pub struct PlayerMapSideState {
     pub(crate) role: PlayerSideRole,
+    /// C++ admitted Player/AISkirmishPlayer class; stable until reinitialization.
+    pub(crate) is_skirmish_ai: bool,
     /// Dict `playerName` used to resolve playerAllies / playerEnemies tokens.
     pub map_player_name: String,
     /// Explicit overrides. Missing entries default Neutral (C++ PlayerRelationMap).
@@ -60,6 +62,7 @@ impl Default for PlayerMapSideState {
     fn default() -> Self {
         Self {
             role: PlayerSideRole::Participant,
+            is_skirmish_ai: false,
             map_player_name: String::new(),
             relations: HashMap::new(),
             handicap_build_cost_generic: 1.0,

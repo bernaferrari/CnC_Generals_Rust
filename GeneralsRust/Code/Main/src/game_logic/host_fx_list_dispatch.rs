@@ -135,13 +135,32 @@ pub fn publish_host_fx_object_ex(
     player_index: i32,
     bounding_circle_radius: f32,
 ) {
-    publish_host_fx_object_pose(
+    publish_host_fx_object_with_visibility(
         id,
         pos,
         orientation,
         player_index,
         bounding_circle_radius,
         host_object_is_shrouded_for_local(id),
+    );
+}
+
+/// Native emission uses the receiving observer's answer, including false.
+pub fn publish_host_fx_object_with_visibility(
+    id: u32,
+    pos: Vec3,
+    orientation: f32,
+    player_index: i32,
+    bounding_circle_radius: f32,
+    is_shrouded: bool,
+) {
+    publish_host_fx_object_pose(
+        id,
+        pos,
+        orientation,
+        player_index,
+        bounding_circle_radius,
+        is_shrouded,
     );
 }
 
@@ -187,7 +206,7 @@ fn host_fx_object_pose(
     }
 }
 
-fn host_object_is_shrouded_for_local(id: u32) -> bool {
+pub(crate) fn host_object_is_shrouded_for_local(id: u32) -> bool {
     use gamelogic::common::types::ObjectShroudStatus;
     // C++ PartitionManager.cpp:3017-3023 fails closed: a negative player index
     // or a missing cell reports SHROUDED. An unanswerable query here must
@@ -496,6 +515,23 @@ impl crate::game_logic::GameLogic {
         })
     }
 
+    /// Same fail-closed policy as the original emission boundary; no Core local identity.
+    pub(crate) fn host_fx_object_is_shrouded(&self, id: u32) -> bool {
+        Self::host_fx_visibility_for(self.local_player_id(), self.world_services.shroud(), id)
+    }
+    pub(crate) fn host_fx_visibility_for(
+        player: Option<u32>,
+        shroud: &std::sync::Arc<std::sync::Mutex<gamelogic::system::shroud_manager::ShroudManager>>,
+        id: u32,
+    ) -> bool {
+        use gamelogic::common::types::ObjectShroudStatus;
+        match (player, shroud.lock()) {
+            (Some(player), Ok(shroud)) => shroud
+                .get_host_object_shroud_status(player, id)
+                .is_some_and(|status| (status as u8) >= ObjectShroudStatus::Fogged as u8),
+            _ => true,
+        }
+    }
     /// Capture the receiving object's event-time pose before any FX callback.
     pub(crate) fn observe_host_fx_object(
         object: &crate::game_logic::Object,
@@ -718,7 +754,10 @@ mod tests {
         );
         assert!(death.contains("dispatch_fx_list_at_object(&name, self.id.0, killer)"));
         let tick = include_str!("world_tick/ai.rs");
-        assert!(tick.contains("dispatch_fx_list_at_host_object(&fx, object_id, death_killer)"));
+        let tick: String = tick.chars().filter(|c| !c.is_whitespace()).collect();
+        assert!(tick.contains(
+            "dispatch_fx_list_at_host_object_with_effects(&fx,object_id,death_killer,presentation_effects,)"
+        ));
         let shadow = include_str!("../gameworld_shadow/session.rs");
         assert!(
             !shadow.contains("dispatch_fx_list_at_host_object"),
@@ -803,15 +842,24 @@ mod tests {
     fn crushing_fx_uses_terrain_height() {
         let src = include_str!("world_objects/create_destroy_die/death.rs");
         let wrapper = src
-            .find("pub(crate) fn apply_structure_topple_crush_samples")
-            .expect("crush entry");
+            .split_once("pub(crate) fn apply_structure_topple_crush_samples(")
+            .expect("crush entry")
+            .1
+            .split_once("pub(super) fn preflight_owned_structure_topple_crushing(")
+            .expect("crush admission boundary")
+            .0;
+        assert!(wrapper.contains("self.apply_structure_topple_crush_samples_with_effects("));
+        assert!(wrapper.contains("self.preflight_owned_structure_topple_crushing(building_id)?"));
         assert!(
-            src[wrapper..wrapper + 700].contains("apply_prepared_structure_topple_crush_samples")
+            wrapper.contains("self.apply_prepared_structure_topple_crush_samples_with_effects(")
         );
-        let start = src
-            .find("pub(super) fn apply_prepared_structure_topple_crush_samples")
-            .expect("actual shared crush body");
-        let body = &src[start..start + 2700];
+        let body = src
+            .split_once("pub(super) fn apply_prepared_structure_topple_crush_samples_with_effects(")
+            .expect("actual shared crush body")
+            .1
+            .split_once("pub fn apply_pending_create_object_die(")
+            .expect("next operation boundary")
+            .0;
         assert!(
             body.contains("terrain_ground_height_at"),
             "CrushingFX must sit on terrain, not height 0"
@@ -842,26 +890,44 @@ mod tests {
         assert!(chinook.contains("COMBAT_DROP_KILL_FX_KEY"));
         let regs = include_str!("world_combat/registries.rs");
         assert!(regs.contains("leftover_combat_drop_kill_fx_name"));
-        assert!(regs.contains("dispatch_fx_list_at_host_object(&fx, bldg_id, None)"));
+        let regs: String = regs.chars().filter(|c| !c.is_whitespace()).collect();
+        assert!(regs.contains(
+            "dispatch_fx_list_at_host_object_with_effects(&fx,bldg_id,None,presentation_effects,)"
+        ));
         let gps = include_str!("world_combat/gps_and_fields.rs");
-        let pulse = gps.find("if do_fx {").expect("propaganda pulse");
-        let pulse_body = &gps[pulse..pulse + 450];
+        let pulse_body = gps
+            .split_once("if do_fx {")
+            .expect("propaganda pulse")
+            .1
+            .split_once("let mut coverage:")
+            .expect("next coverage phase")
+            .0;
+        let pulse_body: String = pulse_body.chars().filter(|c| !c.is_whitespace()).collect();
         assert!(
-            pulse_body.contains("dispatch_fx_list_at_host_object(fx, tower.id, None)"),
+            pulse_body.contains(
+                "dispatch_fx_list_at_host_object_with_effects(fx,tower.id,None,presentation_effects,)"
+            ),
             "Propaganda PulseFX must doFXObj the tower object"
         );
         let bunker = include_str!("world_combat/missile_defenders.rs");
-        let bust = bunker
-            .find("fn apply_bunker_buster_to_target")
-            .expect("apply_bunker_buster_to_target");
-        let bust_body = &bunker[bust..bust + 6200];
+        let bust_body = bunker
+            .split_once("fn apply_bunker_buster_to_target_with_effects(")
+            .expect("receiving bunker-buster body")
+            .1
+            .split_once("fn flush_pending_kill_garrisoned(")
+            .expect("next operation boundary")
+            .0;
         assert!(
             bust_body.contains("BUNKER_BUSTER_DETONATION_FX"),
             "bust must play leftover DetonationFX on the bunker"
         );
         assert!(
-            bust_body.contains("dispatch_fx_list_at_host_object"),
-            "DetonationFX must use doFXObj on the bunker object"
+            bust_body
+                .chars()
+                .filter(|c| !c.is_whitespace())
+                .collect::<String>()
+                .contains("dispatch_fx_list_at_host_object_with_effects(crate::game_logic::host_bunker_buster::BUNKER_BUSTER_DETONATION_FX,target_id,None,presentation_effects,)"),
+            "DetonationFX must use doFXObj on the bunker object with the receiving effects"
         );
         let stealth = include_str!("world_combat/air_and_mig.rs");
         assert!(
@@ -932,5 +998,95 @@ mod tests {
         let leftover_missile =
             include_str!("../../../GameEngine/GameLogic/src/object/update/missile_ai_update.rs");
         assert!(leftover_missile.contains("do_fx_obj(&other_arc, None)"));
+    }
+}
+
+#[cfg(test)]
+mod emission_player_owner_tests {
+    use super::*;
+    use crate::game_logic::{GameLogic, ObjectId, Player, Team, ThingTemplate};
+    use gamelogic::common::types::ObjectShroudStatus;
+    fn world(status: ObjectShroudStatus) -> (GameLogic, ObjectId) {
+        let mut world = GameLogic::new();
+        world.add_player(Player::new(1, Team::USA, "SameLocal", true));
+        let template = ThingTemplate::new("FxEmissionPlayerOwnerProbe");
+        world.templates.insert(template.name.clone(), template);
+        let id = world
+            .create_object(
+                "FxEmissionPlayerOwnerProbe",
+                Team::USA,
+                Vec3::new(11.0, 0.0, 22.0),
+            )
+            .unwrap();
+        world.host_object_mut(id).unwrap().owner_player_id = Some(1);
+        let mut shroud = world.world_services.shroud().lock().unwrap();
+        shroud.init_shroud_grid(128.0, 128.0);
+        shroud.set_host_object_shroud_status(1, id.0, status);
+        drop(shroud);
+        (world, id)
+    }
+    fn emit(world: &mut GameLogic, id: ObjectId) -> gamelogic::helpers::HostFxObjectPose {
+        world.spawn_emp_sparks_on_victim(id, 30);
+        gamelogic::helpers::host_fx_object_pose(id.0)
+            .expect("actual particle create publishes its attachment pose")
+    }
+    #[test]
+    fn actual_emp_attachment_observes_each_receiving_world_and_encoded_restore() {
+        crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+            module_path!(),
+            "actual_emp_attachment_observes_each_receiving_world_and_encoded_restore",
+            || {
+                let (mut source, id) = world(ObjectShroudStatus::Clear);
+                let (mut peer, peer_id) = world(ObjectShroudStatus::Fogged);
+                assert_eq!(id, peer_id);
+                {
+                    let mut foreign = gamelogic::player::ThePlayerList().write().unwrap();
+                    foreign.clear();
+                    foreign.set_local_player_index(77);
+                }
+                assert!(!emit(&mut source, id).is_shrouded);
+                assert!(emit(&mut peer, id).is_shrouded);
+                // A change immediately before another emission must be visible in that operation.
+                source
+                    .world_services
+                    .shroud()
+                    .lock()
+                    .unwrap()
+                    .set_host_object_shroud_status(1, id.0, ObjectShroudStatus::Shrouded);
+                assert!(emit(&mut source, id).is_shrouded);
+                source
+                    .world_services
+                    .shroud()
+                    .lock()
+                    .unwrap()
+                    .set_host_object_shroud_status(1, id.0, ObjectShroudStatus::Clear);
+                assert!(!emit(&mut source, id).is_shrouded);
+                let builder = crate::save_load::SnapshotBuilder::new();
+                let saved = builder.create_world_snapshot(&source).unwrap();
+                let bytes = bincode_legacy::serialize(&saved).unwrap();
+                let saved = crate::save_load::decode_bincode_world_snapshot(&bytes).unwrap();
+                let (mut restored, prepared_id) = world(ObjectShroudStatus::Clear);
+                assert_eq!(prepared_id, id);
+                restored.templates = source.templates.clone();
+                builder
+                    .restore_from_snapshot(&saved, &mut restored)
+                    .unwrap();
+                assert!(!emit(&mut restored, id).is_shrouded);
+                peer.reset();
+                assert!(!emit(&mut source, id).is_shrouded);
+                assert!(!emit(&mut restored, id).is_shrouded);
+            },
+        );
+    }
+    #[test]
+    fn receiving_missing_viewer_fails_closed_but_missing_object_status_retains_original_clear_result()
+     {
+        let world = GameLogic::new();
+        assert!(world.host_fx_object_is_shrouded(999));
+        assert!(!GameLogic::host_fx_visibility_for(
+            Some(1),
+            world.world_services.shroud(),
+            999
+        ));
     }
 }

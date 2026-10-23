@@ -198,7 +198,7 @@ impl AIManager {
             };
             // Existing Core player-class compatibility input, resolved at the
             // outer phase. hq-tctn5 tracks admitting this class into Main state.
-            let skirmish = ai_player.leftover_is_skirmish_ai();
+            let skirmish = ai_player.receiving_is_skirmish_ai(game_logic);
             ai_player.update_with_ai_data_and_team_owner(
                 game_logic,
                 current_time,

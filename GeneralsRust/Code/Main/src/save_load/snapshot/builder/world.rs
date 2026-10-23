@@ -14,6 +14,8 @@ impl SnapshotBuilder {
         candidate: &mut GameLogic,
     ) -> SaveLoadResult<()> {
         validate_direct_world_snapshot_version(snapshot.version)?;
+        // Native input owns squads; validate its detached wire before world mutation.
+        let _ = super::super::hotkey_squad_persist::read_control_groups(&snapshot.lifecycle_tail)?;
         if candidate.object_lifecycle_callback_depth != 0
             || candidate.host_objects().registered_values().any(|object| {
                 object.kill_score_phase == crate::game_logic::kill_credit::KillScorePhase::Running
@@ -141,9 +143,6 @@ impl SnapshotBuilder {
                 );
                 super::super::battle_plan_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
                 super::super::subdual_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
-                super::super::hotkey_squad_persist::append_to_lifecycle_tail(
-                    &mut bytes, game_logic,
-                );
                 super::super::booby_trap_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
                 super::super::carpet_bomb_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
                 super::super::production_door_persist::append_to_lifecycle_tail(
@@ -345,6 +344,8 @@ impl SnapshotBuilder {
         game_logic: &mut GameLogic,
     ) -> SaveLoadResult<()> {
         validate_direct_world_snapshot_version(snapshot.version)?;
+        // Native input owns squads; validate its detached wire before world mutation.
+        let _ = super::super::hotkey_squad_persist::read_control_groups(&snapshot.lifecycle_tail)?;
         // Validate the original ScriptEngine continuation before mutating the
         // receiving world, including callers that deserialize the typed body directly.
         let mut receiving_persist = snapshot.persist_v18.clone();
@@ -817,7 +818,6 @@ impl SnapshotBuilder {
         // The receiving interpreter tail is now restored; rebind object names
         // and definitions before the first AI/script observer can select a target.
         game_logic.sync_attack_priority_from_script_engine();
-        super::super::hotkey_squad_persist::apply_from_lifecycle_tail(lifecycle_tail, game_logic)?;
         super::super::garrison_firepoint_persist::apply_from_lifecycle_tail(
             lifecycle_tail,
             game_logic,

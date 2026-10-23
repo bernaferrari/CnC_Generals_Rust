@@ -19,32 +19,30 @@
 use glam::Vec3;
 use serde::{Deserialize, Serialize};
 
-fn game_make_color(color: gamelogic::common::Color) -> u32 {
-    ((color.a as u32) << 24) | ((color.r as u32) << 16) | ((color.g as u32) << 8) | (color.b as u32)
+/// Event-time receiving player facts, borrowed by value for one create call.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct RadiusDecalPlayerView {
+    pub local_player_index: Option<i32>,
+    pub owner_player_index: Option<i32>,
+    pub owner_argb: u32,
 }
 
-fn local_player_index() -> Option<i32> {
-    gamelogic::player::ThePlayerList()
-        .read()
-        .ok()
-        .map(|list| list.get_local_player_index())
-}
-
-fn player_argb_for_index(index: Option<i32>) -> u32 {
-    let Some(index) = index.or_else(local_player_index) else {
-        return 0;
-    };
-    gamelogic::player::ThePlayerList()
-        .read()
-        .ok()
-        .and_then(|list| list.get_player(index).cloned())
-        .and_then(|player| {
-            player
-                .read()
-                .ok()
-                .map(|p| game_make_color(p.get_player_color()))
-        })
-        .unwrap_or(0)
+impl crate::game_logic::GameLogic {
+    pub(crate) fn radius_decal_player_view(&self, owner: Option<u32>) -> RadiusDecalPlayerView {
+        let local = self.local_player_id();
+        let admitted_owner = owner.and_then(|id| self.get_player(id));
+        let owner_argb = admitted_owner
+            .map(|player| {
+                let (r, g, b) = player.color_rgb;
+                0xff00_0000 | ((r as u32) << 16) | ((g as u32) << 8) | b as u32
+            })
+            .unwrap_or(0);
+        RadiusDecalPlayerView {
+            local_player_index: local.map(|id| id as i32),
+            owner_player_index: admitted_owner.map(|player| player.id as i32),
+            owner_argb,
+        }
+    }
 }
 
 pub const RADIUS_DECAL_LOGIC_FPS: f32 = 30.0;
@@ -181,7 +179,20 @@ impl HostRadiusDecal {
     }
 
     pub fn create(tmpl: HostRadiusDecalTemplate, radius: f32, pos: Vec3, frame: u32) -> Self {
-        Self::create_with_owner(tmpl, radius, pos, frame, None)
+        // Detached component/preview convenience has an explicit synthetic
+        // local identity. Actual world creates use create_with_player_view.
+        Self::create_with_player_view(
+            tmpl,
+            radius,
+            pos,
+            frame,
+            Some(0),
+            RadiusDecalPlayerView {
+                local_player_index: Some(0),
+                owner_player_index: Some(0),
+                owner_argb: 0,
+            },
+        )
     }
 
     /// C++ `createRadiusDecal`: `m_empty = false` first, then addDecal only when
@@ -193,8 +204,33 @@ impl HostRadiusDecal {
         frame: u32,
         owner_index: Option<i32>,
     ) -> Self {
+        Self::create_with_player_view(
+            tmpl,
+            radius,
+            pos,
+            frame,
+            owner_index,
+            RadiusDecalPlayerView {
+                owner_player_index: owner_index,
+                ..Default::default()
+            },
+        )
+    }
+
+    pub fn create_with_player_view(
+        tmpl: HostRadiusDecalTemplate,
+        radius: f32,
+        pos: Vec3,
+        frame: u32,
+        owner_index: Option<i32>,
+        players: RadiusDecalPlayerView,
+    ) -> Self {
         let radius = radius.max(0.0);
-        if !tmpl.valid() || radius <= 0.0 {
+        if owner_index.is_none()
+            || owner_index != players.owner_player_index
+            || !tmpl.valid()
+            || radius <= 0.0
+        {
             return Self {
                 empty: true,
                 position: pos,
@@ -208,16 +244,16 @@ impl HostRadiusDecal {
         }
 
         let opacity = tmpl.opacity_min;
-        let local_index = local_player_index();
+        let local_index = players.local_player_index;
         let allow_decal = if !tmpl.only_visible_to_owner {
             true
         } else if let Some(owner) = owner_index {
             local_index == Some(owner)
         } else {
-            true
+            false
         };
         let color = if tmpl.color == 0 {
-            player_argb_for_index(owner_index)
+            players.owner_argb
         } else {
             tmpl.color
         };
@@ -325,7 +361,18 @@ impl HostRadiusDecalUpdateData {
         pos: Vec3,
         frame: u32,
     ) {
-        self.create_radius_decal_for_owner(tmpl, radius, pos, frame, None);
+        self.create_radius_decal_with_player_view(
+            tmpl,
+            radius,
+            pos,
+            frame,
+            Some(0),
+            RadiusDecalPlayerView {
+                local_player_index: Some(0),
+                owner_player_index: Some(0),
+                owner_argb: 0,
+            },
+        );
     }
 
     pub fn create_radius_decal_for_owner(
@@ -336,8 +383,36 @@ impl HostRadiusDecalUpdateData {
         frame: u32,
         owner_index: Option<i32>,
     ) {
-        self.delivery_decal =
-            HostRadiusDecal::create_with_owner(tmpl, radius, pos, frame, owner_index);
+        self.create_radius_decal_with_player_view(
+            tmpl,
+            radius,
+            pos,
+            frame,
+            owner_index,
+            RadiusDecalPlayerView {
+                owner_player_index: owner_index,
+                ..Default::default()
+            },
+        );
+    }
+
+    pub fn create_radius_decal_with_player_view(
+        &mut self,
+        tmpl: HostRadiusDecalTemplate,
+        radius: f32,
+        pos: Vec3,
+        frame: u32,
+        owner_index: Option<i32>,
+        players: RadiusDecalPlayerView,
+    ) {
+        self.delivery_decal = HostRadiusDecal::create_with_player_view(
+            tmpl,
+            radius,
+            pos,
+            frame,
+            owner_index,
+            players,
+        );
         self.awake = !self.delivery_decal.is_empty();
     }
 
@@ -571,5 +646,251 @@ mod tests {
         );
         assert!(!decal.is_empty());
         assert!(!decal.has_projected_shadow());
+    }
+}
+
+#[cfg(test)]
+mod player_owner_tests {
+    use super::*;
+    use crate::game_logic::{GameLogic, Player, Team, ThingTemplate};
+
+    fn world(rgb: (u8, u8, u8), local: u32) -> (GameLogic, crate::game_logic::ObjectId) {
+        let mut world = GameLogic::new();
+        let mut owner = Player::new(0, Team::USA, "SameOwner", local == 0);
+        owner.color_rgb = rgb;
+        world.add_player(owner);
+        world.add_player(Player::new(1, Team::GLA, "SameViewer", local == 1));
+        let template = ThingTemplate::new("GLAScudStormOwnedColorProbe");
+        world.templates.insert(template.name.clone(), template);
+        let object = world
+            .create_object("GLAScudStormOwnedColorProbe", Team::USA, Vec3::ZERO)
+            .unwrap();
+        world.host_object_mut(object).unwrap().owner_player_id = Some(0);
+        (world, object)
+    }
+    #[test]
+    fn delivery_create_uses_receiving_local_identity_and_color_after_restore_and_peer_reset() {
+        let (mut source, object) = world((11, 22, 33), 0);
+        let (mut peer, peer_object) = world((77, 88, 99), 1);
+        assert_eq!(object, peer_object);
+        assert_eq!(
+            source.radius_decal_player_view(Some(0)).owner_argb,
+            0xff0b1621
+        );
+        assert_eq!(
+            peer.radius_decal_player_view(Some(0)).owner_argb,
+            0xff4d5863
+        );
+        assert!(source.create_delivery_radius_decal(object, Vec3::new(111.0, 0.0, 222.0)));
+        assert!(peer.create_delivery_radius_decal(peer_object, Vec3::new(333.0, 0.0, 444.0)));
+        let decal = |world: &GameLogic| {
+            world
+                .host_object(object)
+                .unwrap()
+                .radius_decal_update
+                .as_ref()
+                .unwrap()
+                .delivery_decal
+                .has_projected_shadow()
+        };
+        #[cfg(feature = "game_client")]
+        {
+            assert!(decal(&source));
+            assert!(!decal(&peer));
+            let items = game_client::radius_decal::get_projected_shadow_manager()
+                .read()
+                .collect_render_items();
+            let ring = items
+                .iter()
+                .find(|item| {
+                    (item.position.x - 111.0).abs() < 0.01 && (item.position.z - 222.0).abs() < 0.01
+                })
+                .unwrap();
+            assert!((ring.color[0] - 11.0 / 255.0).abs() < 0.001);
+            assert!((ring.color[1] - 22.0 / 255.0).abs() < 0.001);
+            assert!((ring.color[2] - 33.0 / 255.0).abs() < 0.001);
+            assert!(
+                !items
+                    .iter()
+                    .any(|item| (item.position.x - 333.0).abs() < 0.01
+                        && (item.position.z - 444.0).abs() < 0.01)
+            );
+        }
+        let builder = crate::save_load::SnapshotBuilder::new();
+        let saved = builder.create_world_snapshot(&source).unwrap();
+        let bytes = bincode_legacy::serialize(&saved).unwrap();
+        let saved = crate::save_load::decode_bincode_world_snapshot(&bytes).unwrap();
+        let (mut restored, prepared_object) = world((11, 22, 33), 0);
+        assert_eq!(prepared_object, object);
+        restored.templates = source.templates.clone();
+        builder
+            .restore_from_snapshot(&saved, &mut restored)
+            .unwrap();
+        assert_eq!(
+            restored.radius_decal_player_view(Some(0)).owner_argb,
+            0xff0b1621
+        );
+        assert_eq!(
+            restored
+                .radius_decal_player_view(Some(0))
+                .local_player_index,
+            Some(0)
+        );
+        peer.reset();
+        assert_eq!(
+            source.radius_decal_player_view(Some(0)).owner_argb,
+            0xff0b1621
+        );
+        assert_eq!(
+            restored.radius_decal_player_view(Some(0)).owner_argb,
+            0xff0b1621
+        );
+    }
+    #[test]
+    fn null_owner_clears_fixed_color_and_public_decal_without_local_color_fallback() {
+        let (source, _) = world((11, 22, 33), 0);
+        let view = source.radius_decal_player_view(None);
+        assert_eq!(view.owner_argb, 0);
+        assert_eq!(view.owner_player_index, None);
+        let mut template = HostRadiusDecalTemplate::scud_storm();
+        template.color = 0xff123456;
+        template.only_visible_to_owner = false;
+        let decal =
+            HostRadiusDecal::create_with_player_view(template, 50.0, Vec3::ZERO, 7, None, view);
+        assert!(decal.is_empty());
+        assert!(!decal.has_projected_shadow());
+        let unresolved = source.radius_decal_player_view(Some(99));
+        assert_eq!(unresolved.owner_player_index, None);
+        assert!(
+            HostRadiusDecal::create_with_player_view(
+                HostRadiusDecalTemplate::anthrax_bomb(),
+                50.0,
+                Vec3::ZERO,
+                7,
+                Some(99),
+                unresolved
+            )
+            .is_empty()
+        );
+        assert!(
+            HostRadiusDecal::create_with_owner(
+                HostRadiusDecalTemplate::anthrax_bomb(),
+                50.0,
+                Vec3::ZERO,
+                7,
+                None
+            )
+            .is_empty()
+        );
+    }
+
+    #[test]
+    fn actual_spectre_create_uses_actor_owner_and_encoded_lazy_recreation_uses_receiver() {
+        fn deployment(local: u32) -> (GameLogic, crate::game_logic::ObjectId) {
+            let mut world = GameLogic::new();
+            world.add_player(Player::new(0, Team::USA, "Owner", local == 0));
+            world.add_player(Player::new(1, Team::GLA, "Viewer", local == 1));
+            let template = ThingTemplate::new("AmericaCommandCenter");
+            world.templates.insert(template.name.clone(), template);
+            let caster = world
+                .create_object("AmericaCommandCenter", Team::USA, Vec3::ZERO)
+                .unwrap();
+            (world, caster)
+        }
+        let (mut source, caster) = deployment(0);
+        let (mut peer, peer_caster) = deployment(1);
+        let ship = source
+            .initiate_spectre_gunship_deployment(caster, Vec3::new(120.0, 0.0, 220.0))
+            .unwrap();
+        let peer_ship = peer
+            .initiate_spectre_gunship_deployment(peer_caster, Vec3::new(320.0, 0.0, 420.0))
+            .unwrap();
+        assert_eq!(ship, peer_ship);
+        assert_eq!(source.host_object(ship).unwrap().owner_player_id, Some(0));
+        let data = source
+            .host_object(ship)
+            .unwrap()
+            .spectre_gunship_update
+            .as_ref()
+            .unwrap();
+        assert!(!data.attack_area_decal.is_empty());
+        #[cfg(feature = "game_client")]
+        {
+            assert!(data.attack_area_decal.has_projected_shadow());
+            let items = game_client::radius_decal::get_projected_shadow_manager()
+                .read()
+                .collect_render_items();
+            let ring = items
+                .iter()
+                .find(|item| {
+                    (item.position.x - 120.0).abs() < 0.01 && (item.position.z - 220.0).abs() < 0.01
+                })
+                .unwrap();
+            assert!((ring.color[0] - 127.0 / 255.0).abs() < 0.001);
+            assert!((ring.color[1] - 177.0 / 255.0).abs() < 0.001);
+            assert!((ring.color[2] - 222.0 / 255.0).abs() < 0.001);
+            let enemy = peer
+                .host_object(peer_ship)
+                .unwrap()
+                .spectre_gunship_update
+                .as_ref()
+                .unwrap();
+            assert!(!enemy.attack_area_decal.is_empty());
+            assert!(!enemy.attack_area_decal.has_projected_shadow());
+        }
+        let builder = crate::save_load::SnapshotBuilder::new();
+        let saved = builder.create_world_snapshot(&source).unwrap();
+        let encoded = bincode_legacy::serialize(&saved).unwrap();
+        let decoded = crate::save_load::decode_bincode_world_snapshot(&encoded).unwrap();
+        let (mut restored, prepared_caster) = deployment(0);
+        assert_eq!(prepared_caster, caster);
+        restored.templates = source.templates.clone();
+        builder
+            .restore_from_snapshot(&decoded, &mut restored)
+            .unwrap();
+        #[cfg(feature = "game_client")]
+        assert!(
+            !restored
+                .host_object(ship)
+                .unwrap()
+                .spectre_gunship_update
+                .as_ref()
+                .unwrap()
+                .attack_area_decal
+                .has_projected_shadow()
+        );
+        // Actual receiving flight update lazily creates the derived projection.
+        restored.update();
+        #[cfg(feature = "game_client")]
+        assert!(
+            restored
+                .host_object(ship)
+                .unwrap()
+                .spectre_gunship_update
+                .as_ref()
+                .unwrap()
+                .attack_area_decal
+                .has_projected_shadow()
+        );
+        // An authoritative missing actor owner suppresses both fixed-color rings.
+        restored.host_object_mut(ship).unwrap().owner_player_id = None;
+        restored
+            .host_object_mut(ship)
+            .unwrap()
+            .spectre_gunship_update
+            .as_mut()
+            .unwrap()
+            .clean_up_decals();
+        restored.update();
+        let data = restored
+            .host_object(ship)
+            .unwrap()
+            .spectre_gunship_update
+            .as_ref()
+            .unwrap();
+        assert!(data.attack_area_decal.is_empty());
+        assert!(data.targeting_reticle_decal.is_empty());
+        peer.reset();
+        assert_eq!(source.host_object(ship).unwrap().owner_player_id, Some(0));
     }
 }

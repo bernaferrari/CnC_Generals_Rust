@@ -1088,6 +1088,8 @@ impl CnCGameEngine {
     }
 
     pub(super) fn spawn_startup_map_load(
+        application_assets: Arc<std::sync::Mutex<crate::assets::manager::AssetManager>>,
+        simulation_rules: super::startup_definition_source::StartupSimulationRules,
         receiving_object_sources: super::object_ini_boot::ObjectSourceSnapshot,
         start_in_menu: bool,
         map_to_load: Option<String>,
@@ -1131,48 +1133,16 @@ impl CnCGameEngine {
                     let mut start_in_menu = start_in_menu;
                     let mut map_to_load = map_to_load;
                     let replay_startup_requested = replay_to_load.is_some();
-                    let runtime = tokio::runtime::Builder::new_current_thread()
-                        .enable_all()
-                        .build()
-                        .map_err(|err| {
-                            format!("failed to create startup tokio runtime for archive access: {err}")
-                        })?;
                     Self::emit_startup_load_progress(&sender, 0.14, "Startup archives ready");
 
-                    let extract_ini_text_from_archives = |virtual_path: &str| -> Option<String> {
-                        // Prefer extracted INIZH on disk — archive extract holds the
-                        // asset-manager mutex and can stall Loading for minutes.
+                    let extract_ini_text_from_archives = |virtual_path: &str| -> std::result::Result<Option<String>, String> {
                         if let Some(text) = Self::read_startup_ini_from_disk(virtual_path) {
-                            return Some(text);
+                            return Ok(Some(text));
                         }
-                        runtime.block_on(async {
-                            let Some(manager_arc) = crate::assets::manager::get_asset_manager()
-                            else {
-                                return None;
-                            };
-                            let Ok(mut manager) = manager_arc.try_lock() else {
-                                warn!(
-                                    "Asset manager busy while extracting '{}'; skipping",
-                                    virtual_path
-                                );
-                                return None;
-                            };
-                            match manager.extract_file(virtual_path).await {
-                                Ok(bytes) => {
-                                    match String::from_utf8(bytes) {
-                                        Ok(text) => Some(text),
-                                        Err(err) => {
-                                            warn!(
-                                                "INI file '{}' was not valid UTF-8: {err}; skipping",
-                                                virtual_path
-                                            );
-                                            None
-                                        }
-                                    }
-                                }
-                                Err(_) => None,
-                            }
-                        })
+                        super::startup_definition_source::read_optional_text(
+                            &application_assets,
+                            virtual_path,
+                        )
                     };
 
                     // C++ parity: force eager initialization of the lazy stores/managers that
@@ -1213,7 +1183,7 @@ impl CnCGameEngine {
                     // into the global ScienceStore via the general INI block parser.
                     {
                         for sci_path in ["Data/INI/Default/Science.ini", "Data/INI/Science.ini"] {
-                            if let Some(content) = extract_ini_text_from_archives(sci_path) {
+                            if let Some(content) = extract_ini_text_from_archives(sci_path)? {
                                 let mut ini = game_engine::common::ini::INI::new();
                                 match ini.with_inline_source(&content, |ini| ini.parse_current_file()) {
                                     Ok(()) => info!("Loaded science definitions from {}", sci_path),
@@ -1226,7 +1196,7 @@ impl CnCGameEngine {
                     // C++ parity: GameEngine.cpp:427 — load Rank.ini into TheRankInfoStore.
                     // No Default/ prefix variant exists for Rank.ini.
                     {
-                        if let Some(content) = extract_ini_text_from_archives("Data/INI/Rank.ini") {
+                        if let Some(content) = extract_ini_text_from_archives("Data/INI/Rank.ini")? {
                             let mut ini = game_engine::common::ini::INI::new();
                             match ini.with_inline_source(&content, |ini| ini.parse_current_file()) {
                                 Ok(()) => {
@@ -1247,7 +1217,7 @@ impl CnCGameEngine {
                     // C++ parity: GameEngine.cpp:428 — load PlayerTemplate.ini (Default + override)
                     {
                         for pt_path in ["Data/INI/Default/PlayerTemplate.ini", "Data/INI/PlayerTemplate.ini"] {
-                            if let Some(content) = extract_ini_text_from_archives(pt_path) {
+                            if let Some(content) = extract_ini_text_from_archives(pt_path)? {
                                 let mut ini = game_engine::common::ini::INI::new();
                                 match ini.with_inline_source(&content, |ini| ini.parse_current_file()) {
                                     Ok(()) => info!("Loaded player template definitions from {}", pt_path),
@@ -1269,7 +1239,7 @@ impl CnCGameEngine {
                     // C++ parity: GameEngine.cpp:401 — load Roads.ini (Default + override)
                     {
                         for roads_path in ["Data/INI/Default/Roads.ini", "Data/INI/Roads.ini"] {
-                            if let Some(content) = extract_ini_text_from_archives(roads_path) {
+                            if let Some(content) = extract_ini_text_from_archives(roads_path)? {
                                 let mut ini = game_engine::common::ini::INI::new();
                                 match ini.with_inline_source(&content, |ini| ini.parse_current_file()) {
                                     Ok(()) => info!("Loaded road definitions from {}", roads_path),
@@ -1284,7 +1254,7 @@ impl CnCGameEngine {
                     // C++ parity: GameEngine.cpp:439 — load FXList.ini (Default + override)
                     {
                         for fxl_path in ["Data/INI/Default/FXList.ini", "Data/INI/FXList.ini"] {
-                            if let Some(content) = extract_ini_text_from_archives(fxl_path) {
+                            if let Some(content) = extract_ini_text_from_archives(fxl_path)? {
                                 let mut ini = game_engine::common::ini::INI::new();
                                 match ini.with_inline_source(&content, |ini| ini.parse_current_file()) {
                                     Ok(()) => info!("Loaded FX list definitions from {}", fxl_path),
@@ -1299,7 +1269,7 @@ impl CnCGameEngine {
                     worker_stop_if_abandoned()?;
                     game_engine::common::ini::ini_weapon::initialize_weapon_store();
                     {
-                        if let Some(content) = extract_ini_text_from_archives("Data/INI/Weapon.ini") {
+                        if let Some(content) = extract_ini_text_from_archives("Data/INI/Weapon.ini")? {
                             let mut ini = game_engine::common::ini::INI::new();
                             match ini.with_inline_source(&content, |ini| ini.parse_current_file()) {
                                 Ok(()) => info!("Loaded weapon definitions from Data/INI/Weapon.ini"),
@@ -1318,7 +1288,7 @@ impl CnCGameEngine {
                             "Data/INI/Default/SpecialPower.ini",
                             "Data/INI/SpecialPower.ini",
                         ] {
-                            if let Some(content) = extract_ini_text_from_archives(sp_path) {
+                            if let Some(content) = extract_ini_text_from_archives(sp_path)? {
                                 let mut ini = game_engine::common::ini::INI::new();
                                 match ini.with_inline_source(&content, |ini| {
                                     ini.parse_current_file()
@@ -1346,7 +1316,7 @@ impl CnCGameEngine {
                     // C++ parity: GameEngine.cpp:444 — load DamageFX.ini into TheDamageFXStore.
                     // No Default/ prefix variant exists for DamageFX.ini.
                     {
-                        if let Some(content) = extract_ini_text_from_archives("Data/INI/DamageFX.ini") {
+                        if let Some(content) = extract_ini_text_from_archives("Data/INI/DamageFX.ini")? {
                             let mut ini = game_engine::common::ini::INI::new();
                             match ini.with_inline_source(&content, |ini| ini.parse_current_file()) {
                                 Ok(()) => {
@@ -1376,7 +1346,7 @@ impl CnCGameEngine {
                             "Data/INI/Default/ObjectCreationList.ini",
                             "Data/INI/ObjectCreationList.ini",
                         ] {
-                            if let Some(content) = extract_ini_text_from_archives(ocl_path) {
+                            if let Some(content) = extract_ini_text_from_archives(ocl_path)? {
                                 match gamelogic::object_creation_list::store::load_object_creation_lists_from_str(&content) {
                                     Ok(count) => {
                                         loaded_any_ocl |= count > 0;
@@ -1413,7 +1383,7 @@ impl CnCGameEngine {
                             "Data/INI/Default/Locomotor.ini",
                             "Data/INI/Locomotor.ini",
                         ] {
-                            if let Some(content) = extract_ini_text_from_archives(loco_path) {
+                            if let Some(content) = extract_ini_text_from_archives(loco_path)? {
                                 match game_engine::common::ini::ini_locomotor::load_locomotors_from_str(&content) {
                                     Ok(count) => {
                                         loaded_any_locomotor |= count > 0;
@@ -1448,7 +1418,7 @@ impl CnCGameEngine {
                         .unwrap_or(true);
                     if !upgrade_ini_loaded {
                         for upgrade_path in ["Data/INI/Default/Upgrade.ini", "Data/INI/Upgrade.ini"] {
-                            if let Some(content) = extract_ini_text_from_archives(upgrade_path) {
+                            if let Some(content) = extract_ini_text_from_archives(upgrade_path)? {
                                 match crate::assets::ini_template_loader::load_upgrade_ini_text(&content) {
                                     Ok(()) => info!("Loaded upgrade definitions from {}", upgrade_path),
                                     Err(err) => warn!("Failed parsing Upgrade.ini '{}': {}", upgrade_path, err),
@@ -1461,7 +1431,7 @@ impl CnCGameEngine {
                     {
                         let mut loaded_any = false;
                         for ai_path in Self::startup_ai_data_ini_paths() {
-                            if let Some(content) = extract_ini_text_from_archives(ai_path) {
+                            if let Some(content) = extract_ini_text_from_archives(ai_path)? {
                                 let mut ini = game_engine::common::ini::INI::new();
                                 ini.set_ai_data_store_target(
                                     game_engine::common::ini::ini_ai_data::process_lifetime_ai_data_store(),
@@ -1499,7 +1469,7 @@ impl CnCGameEngine {
                             "Data/INI/Default/Crate.ini",
                             "Data/INI/Crate.ini",
                         ] {
-                            if let Some(content) = extract_ini_text_from_archives(crate_ini_path) {
+                            if let Some(content) = extract_ini_text_from_archives(crate_ini_path)? {
                                 let mut ini = game_engine::common::ini::INI::new();
                                 match ini.with_inline_source(&content, |ini| ini.parse_current_file()) {
                                     Ok(()) => {
@@ -1529,10 +1499,20 @@ impl CnCGameEngine {
                     info!("Bootstrapped {} receiving object templates from ordered archive sources", total_loaded);
 
                     {
+                        let mut read_error = None;
                         let crc = super::ini_crc_boot::calculate_game_engine_ini_crc_with_object_sources(
-                            |path| extract_ini_text_from_archives(path),
+                            |path| match extract_ini_text_from_archives(path) {
+                                Ok(text) => text,
+                                Err(error) => {
+                                    read_error.get_or_insert(error);
+                                    None
+                                }
+                            },
                             receiving_object_sources.sources(),
                         );
+                        if let Some(error) = read_error {
+                            return Err(error);
+                        }
                         recorder_inputs.ini_crc = crc;
                         super::ini_crc_boot::publish_ini_crc(crc);
                         info!("GameEngine init-table INI CRC: {crc:08X}");
@@ -1548,7 +1528,7 @@ impl CnCGameEngine {
                         "Data/INI/Default/CommandButton.ini",
                         "Data/INI/CommandButton.ini",
                     ] {
-                        if let Some(content) = extract_ini_text_from_archives(button_path) {
+                        if let Some(content) = extract_ini_text_from_archives(button_path)? {
                             let mut ini = game_engine::common::ini::INI::new();
                             match ini.with_inline_source(&content, |ini| ini.parse_current_file()) {
                                 Ok(()) => {
@@ -1570,7 +1550,7 @@ impl CnCGameEngine {
                     let mut command_sets_parsed = false;
                     if command_buttons_parsed {
                         for set_path in ["Data/INI/Default/CommandSet.ini", "Data/INI/CommandSet.ini"] {
-                            if let Some(content) = extract_ini_text_from_archives(set_path) {
+                            if let Some(content) = extract_ini_text_from_archives(set_path)? {
                                 let mut ini = game_engine::common::ini::INI::new();
                                 match ini.with_inline_source(&content, |ini| ini.parse_current_file()) {
                                     Ok(()) => {
@@ -1626,7 +1606,7 @@ impl CnCGameEngine {
                         let language = game_engine::common::ini::ini_webpage_url::get_registry_language();
                         let lang_path = format!("Data/{}/CommandMap.ini", language.as_str());
                         for cmd_path in &[lang_path.as_str(), "Data/INI/CommandMap.ini"] {
-                            if let Some(content) = extract_ini_text_from_archives(cmd_path) {
+                            if let Some(content) = extract_ini_text_from_archives(cmd_path)? {
                                 let mut ini = game_engine::common::ini::INI::new();
                                 match ini.with_inline_source(&content, |ini| ini.parse_current_file()) {
                                     Ok(()) => info!("Loaded command map from {}", cmd_path),
@@ -1655,10 +1635,7 @@ impl CnCGameEngine {
                     game_logic.admit_camera_application_input(camera_input_base);
                     game_logic.admit_camera_application_shake(camera_shake_base)?;
                     game_logic.admit_camera_application_rules(camera_rule_base)?;
-                    game_logic.admit_body_damage_baseline(runtime.block_on(Self::load_body_damage_baseline())?);
-                    game_logic.admit_lighting_rules_base(runtime.block_on(Self::load_lighting_rules_baseline())?);
-                    game_logic.admit_physics_rules_base(runtime.block_on(Self::load_physics_rules_baseline())?)?;
-                    game_logic.admit_production_energy_base(runtime.block_on(Self::load_production_energy_baseline())?);
+                    simulation_rules.admit(&mut game_logic)?;
                     // Explicit engine-content admission before this session loads a map.
                     let definitions = crate::game_logic::ai_definitions::AiDefinitions::from_engine_baseline();
                     game_logic.set_ai_definition_base(definitions.baseline().clone());

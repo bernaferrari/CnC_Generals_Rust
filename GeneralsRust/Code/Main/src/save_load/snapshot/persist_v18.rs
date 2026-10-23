@@ -450,14 +450,12 @@ fn capture_persist_v18_impl(
     persist.show_dynamic_lod = TheGameLogic::get_show_dynamic_lod();
     persist.script_hulk_max_lifetime_override = game_logic.native_hulk_max_lifetime_override;
     persist.rank_points_to_add_at_game_start = game_logic.rank_points_to_add_at_game_start();
-    if let Ok(leftover) = gamelogic::system::game_logic::get_game_logic().lock() {
-        persist.buildable_overrides = leftover.snapshot_buildable_status_overrides();
-        persist.control_bar_overrides = leftover
-            .snapshot_control_bar_overrides_raw()
-            .into_iter()
-            .map(|(key, value)| (key, value.unwrap_or_default()))
-            .collect();
-    }
+    persist.buildable_overrides = game_logic.snapshot_buildable_status_overrides();
+    persist.control_bar_overrides = game_logic
+        .snapshot_control_bar_overrides_raw()
+        .into_iter()
+        .map(|(key, value)| (key, value.unwrap_or_default()))
+        .collect();
 
     persist.named_timer_display_shown = game_logic.peek_script_named_timer_display_shown();
     persist.named_timers = {
@@ -781,25 +779,23 @@ pub(super) fn restore_persist_v18_with_scale_encoding(
     TheGameLogic::set_show_dynamic_lod(persist.show_dynamic_lod);
     game_logic.native_hulk_max_lifetime_override = persist.script_hulk_max_lifetime_override;
     game_logic.set_rank_points_to_add_at_game_start(persist.rank_points_to_add_at_game_start);
-    if let Ok(mut leftover) = gamelogic::system::game_logic::get_game_logic().lock() {
-        leftover.restore_buildable_status_overrides(persist.buildable_overrides.clone());
-        leftover.restore_control_bar_overrides_raw(
-            persist
-                .control_bar_overrides
-                .iter()
-                .map(|(key, value)| {
-                    (
-                        key.clone(),
-                        if value.is_empty() {
-                            None
-                        } else {
-                            Some(value.clone())
-                        },
-                    )
-                })
-                .collect(),
-        );
-    }
+    game_logic.restore_buildable_status_overrides(persist.buildable_overrides.clone());
+    game_logic.restore_control_bar_overrides_raw(
+        persist
+            .control_bar_overrides
+            .iter()
+            .map(|(key, value)| {
+                (
+                    key.clone(),
+                    if value.is_empty() {
+                        None
+                    } else {
+                        Some(value.clone())
+                    },
+                )
+            })
+            .collect(),
+    );
 
     game_logic.restore_script_named_timers(
         persist

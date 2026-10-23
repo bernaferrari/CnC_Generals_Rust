@@ -223,6 +223,37 @@ impl HostScriptExecutionDriver<'_> {
 }
 
 impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
+    fn set_buildable_status_override(
+        &mut self,
+        template: &str,
+        status: i32,
+    ) -> Option<gamelogic::GameLogicResult<()>> {
+        self.world.script_set_buildable_override(template, status);
+        Some(Ok(()))
+    }
+    fn command_bar_override(
+        &mut self,
+        button: &str,
+        template: &str,
+        slot: Option<i32>,
+    ) -> Option<gamelogic::GameLogicResult<()>> {
+        self.world
+            .script_command_bar_override(button, template, slot);
+        Some(Ok(()))
+    }
+
+    fn local_victory_state(
+        &self,
+    ) -> gamelogic::scripting::engine::ScriptOwnerQuery<(bool, bool, bool)> {
+        let victory = &self.world.victory_conditions;
+        let players = &self.world.players;
+        gamelogic::scripting::engine::ScriptOwnerQuery::Present((
+            victory.is_local_allied_victory(players),
+            victory.is_local_allied_defeat(players),
+            victory.local_player_defeated(players),
+        ))
+    }
+
     fn set_draw_icon_ui(&mut self, enabled: bool) -> Option<gamelogic::GameLogicResult<()>> {
         self.world.set_draw_icon_ui(enabled);
         Some(Ok(()))

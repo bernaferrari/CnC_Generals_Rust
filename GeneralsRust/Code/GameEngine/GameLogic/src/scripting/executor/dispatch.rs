@@ -1676,14 +1676,14 @@ impl ScriptActionDispatcher<'_> {
                 self.do_set_base_construction_speed(action, driver)
             }
             ScriptActionType::TechtreeModifyBuildabilityObject => {
-                self.do_techtree_modify_buildability_object(action)
+                self.do_techtree_modify_buildability_object(action, driver)
             }
             ScriptActionType::WarehouseSetValue => self.do_warehouse_set_value(action),
             ScriptActionType::CommandbarRemoveButtonObjecttype => {
-                self.do_command_bar_remove_button_object_type(action)
+                self.do_command_bar_remove_button_object_type(action, driver)
             }
             ScriptActionType::CommandbarAddButtonObjecttypeSlot => {
-                self.do_command_bar_add_button_object_type_slot(action)
+                self.do_command_bar_add_button_object_type_slot(action, driver)
             }
 
             // ============================================================================

@@ -71,6 +71,28 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
     Ok(())
 }
 
+/// Structural boundary for the following legacy lifecycle records. Reuse the
+/// original decoder, including its supported v1 optional-pauses convention.
+pub(super) fn record_len(bytes: &[u8]) -> SaveLoadResult<usize> {
+    let mut rest = bytes
+        .get(4..)
+        .ok_or_else(|| SaveLoadError::Corrupted("SPCD tag truncated".into()))?;
+    let version = take_u32(&mut rest)?;
+    if version == 0 || version > SPCD_VERSION {
+        return Err(SaveLoadError::Corrupted(format!(
+            "unknown SPCD suffix version {version}"
+        )));
+    }
+    decode_table(&mut rest)?;
+    decode_table(&mut rest)?;
+    if version >= 2 {
+        decode_table(&mut rest)?;
+    } else if let Some(table) = v1_optional_pauses_table(&mut rest) {
+        table?;
+    }
+    Ok(bytes.len() - rest.len())
+}
+
 /// v1 pauses-table presence probe. `None` = table absent; the remainder
 /// belongs to later lifecycle-tail suffixes and must not be consumed.
 fn v1_optional_pauses_table(

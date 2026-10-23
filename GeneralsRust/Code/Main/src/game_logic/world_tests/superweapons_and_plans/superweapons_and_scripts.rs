@@ -2342,12 +2342,12 @@ fn can_make_unit_reports_disabled_and_maxed_before_prereq() {
             crate::game_logic::host_production_buildable_command_residual::BSTATUS_YES;
     }
     let _ = gamelogic::scripting::take_host_buildable_status_override_requests();
-    gamelogic::helpers::TheGameLogic::set_buildable_status_override("TestInfantry", 2);
+    logic.set_buildable_status_override("TestInfantry", 2);
     assert_eq!(
         logic.can_make_unit(barracks, "TestInfantry"),
         CANMAKE_NO_PREREQ
     );
-    gamelogic::helpers::TheGameLogic::set_buildable_status_override("TestInfantry", 0);
+    logic.set_buildable_status_override("TestInfantry", 0);
 }
 
 #[test]
@@ -2415,20 +2415,14 @@ fn script_disable_unit_construction_and_techtree_override_write_live() {
     logic.evaluate_and_execute_scripts(0.0);
 
     let _ = gamelogic::scripting::take_host_buildable_status_override_requests();
-    gamelogic::scripting::request_host_buildable_status_override("TestInfantry", BSTATUS_NO as i32);
+    logic.set_buildable_status_override("TestInfantry", BSTATUS_NO as i32);
     logic.evaluate_and_execute_scripts(0.0);
     assert_eq!(
         logic.can_make_unit(barracks, "TestInfantry"),
         CANMAKE_NO_PREREQ
     );
-    assert!(
-        logic
-            .templates
-            .get("TestInfantry")
-            .expect("tmpl")
-            .human_control_bar_buildable_hidden()
-    );
-    gamelogic::helpers::TheGameLogic::set_buildable_status_override("TestInfantry", 0);
+    assert!(logic.human_control_bar_buildable_hidden("TestInfantry"));
+    logic.set_buildable_status_override("TestInfantry", 0);
 }
 
 #[test]

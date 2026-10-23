@@ -21,7 +21,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::game_logic::ObjectId;
 use crate::game_logic::host_radius_decal_update::{
-    HostRadiusDecal, HostRadiusDecalTemplate, radius_decal_ms_to_frames,
+    HostRadiusDecal, HostRadiusDecalTemplate, RadiusDecalPlayerView, radius_decal_ms_to_frames,
 };
 use crate::game_logic::host_spectre_gunship_deployment::{
     SPECTRE_PREFERRED_ELEVATION, default_map_extents,
@@ -163,6 +163,24 @@ impl HostSpectreGunshipUpdateData {
 
     /// C++ `initiateIntentToDoSpecialPower` insertion latch.
     pub fn initiate(&mut self, target: Vec3) {
+        self.initiate_with_player_view(
+            target,
+            0,
+            Some(0),
+            RadiusDecalPlayerView {
+                local_player_index: Some(0),
+                owner_player_index: Some(0),
+                owner_argb: 0,
+            },
+        );
+    }
+    pub fn initiate_with_player_view(
+        &mut self,
+        target: Vec3,
+        frame: u32,
+        owner: Option<i32>,
+        players: RadiusDecalPlayerView,
+    ) {
         self.initial_target = target;
         self.override_target = target;
         self.satellite_position = target;
@@ -171,7 +189,7 @@ impl HostSpectreGunshipUpdateData {
         self.status = HostGunshipStatus::Inserting;
         self.afterburners_on = true;
         self.door_opening = false;
-        self.create_engagement_decals(target, 0);
+        self.create_engagement_decals(target, frame, owner, players);
     }
 
     pub fn initiate_at(target: Vec3) -> Self {
@@ -255,31 +273,67 @@ impl HostSpectreGunshipUpdateData {
         );
     }
 
-    fn create_engagement_decals(&mut self, pos: Vec3, frame: u32) {
-        self.attack_area_decal = HostRadiusDecal::create_with_owner(
+    fn create_engagement_decals(
+        &mut self,
+        pos: Vec3,
+        frame: u32,
+        owner: Option<i32>,
+        players: RadiusDecalPlayerView,
+    ) {
+        self.attack_area_decal = HostRadiusDecal::create_with_player_view(
             spectre_attack_area_decal_template(),
             self.attack_area_radius,
             pos,
             frame,
-            None,
+            owner,
+            players,
         );
-        self.targeting_reticle_decal = HostRadiusDecal::create_with_owner(
+        self.targeting_reticle_decal = HostRadiusDecal::create_with_player_view(
             spectre_targeting_reticle_decal_template(),
             self.targeting_reticle_radius,
             pos,
             frame,
-            None,
+            owner,
+            players,
         );
     }
 
-    fn ensure_engagement_decals(&mut self, frame: u32) {
-        if self.attack_area_decal.is_empty() || self.targeting_reticle_decal.is_empty() {
-            self.create_engagement_decals(self.initial_target, frame);
+    fn ensure_engagement_decals(
+        &mut self,
+        frame: u32,
+        owner: Option<i32>,
+        players: RadiusDecalPlayerView,
+    ) {
+        let projection_missing = {
+            #[cfg(feature = "game_client")]
+            {
+                owner.is_some()
+                    && owner == players.owner_player_index
+                    && owner == players.local_player_index
+                    && (!self.attack_area_decal.has_projected_shadow()
+                        || !self.targeting_reticle_decal.has_projected_shadow())
+            }
+            #[cfg(not(feature = "game_client"))]
+            {
+                false
+            }
+        };
+        if projection_missing
+            || self.attack_area_decal.is_empty()
+            || self.targeting_reticle_decal.is_empty()
+        {
+            self.create_engagement_decals(self.initial_target, frame, owner, players);
         }
     }
 
-    fn update_engagement_decals(&mut self, frame: u32, draw_icon_ui: bool) {
-        self.ensure_engagement_decals(frame);
+    fn update_engagement_decals(
+        &mut self,
+        frame: u32,
+        draw_icon_ui: bool,
+        owner: Option<i32>,
+        players: RadiusDecalPlayerView,
+    ) {
+        self.ensure_engagement_decals(frame, owner, players);
         self.attack_area_decal.update(frame, draw_icon_ui);
         self.targeting_reticle_decal.update(frame, draw_icon_ui);
     }
@@ -304,6 +358,28 @@ impl HostSpectreGunshipUpdateData {
         frame: u32,
         draw_icon_ui: bool,
     ) -> SpectreGunshipTick {
+        self.tick_with_player_view(
+            pos,
+            facing,
+            frame,
+            draw_icon_ui,
+            Some(0),
+            RadiusDecalPlayerView {
+                local_player_index: Some(0),
+                owner_player_index: Some(0),
+                owner_argb: 0,
+            },
+        )
+    }
+    pub fn tick_with_player_view(
+        &mut self,
+        pos: Vec3,
+        facing: f32,
+        frame: u32,
+        draw_icon_ui: bool,
+        owner: Option<i32>,
+        players: RadiusDecalPlayerView,
+    ) -> SpectreGunshipTick {
         let (min_x, min_z, max_x, max_z) = default_map_extents();
         match self.status {
             HostGunshipStatus::Idle => {
@@ -319,7 +395,7 @@ impl HostSpectreGunshipUpdateData {
             }
             HostGunshipStatus::Inserting | HostGunshipStatus::Orbiting => {
                 self.satellite_position = self.compute_satellite(pos);
-                self.update_engagement_decals(frame, draw_icon_ui);
+                self.update_engagement_decals(frame, draw_icon_ui, owner, players);
                 self.constrain_override();
                 self.place_engagement_decals();
                 let (new_pos, vel) =

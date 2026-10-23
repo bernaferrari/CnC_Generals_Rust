@@ -1380,9 +1380,10 @@ pub fn tick_live_beacon_client_updates(logic: &mut GameLogic) {
                         Some(color),
                     )
                 });
+            let is_shrouded = logic.host_fx_object_is_shrouded(id.0);
             if let Some(smoke_id) = logic
                 .combat_particles_mut()
-                .attach_named_to_object(id, pos, frame, &template)
+                .attach_named_to_object_with_visibility(id, pos, frame, &template, is_shrouded)
             {
                 if let Some(tint) = tint {
                     if let Some(client_id) = logic

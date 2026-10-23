@@ -979,6 +979,11 @@ impl SaveFileManager {
         }
         if let Some(groups) = &state.control_groups {
             groups.validate()?;
+            if game_logic.get_player(groups.player_index as u32).is_none() {
+                return Err(SaveLoadError::Corrupted(
+                    "control-group owner absent from receiving roster".into(),
+                ));
+            }
         }
         let native_camera = state
             .camera_continuation
