@@ -126,6 +126,8 @@ fn main() -> anyhow::Result<()> {
 #[cfg(feature = "internal")]
 #[tokio::main]
 async fn run_probe_child() -> anyhow::Result<()> {
+    let _ = env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn"))
+        .try_init();
     generals_main::cnc_game_engine::run_replay_fast_forward_engine_probe()
 }
 

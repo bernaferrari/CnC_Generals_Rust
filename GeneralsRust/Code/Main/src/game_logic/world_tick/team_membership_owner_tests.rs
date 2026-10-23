@@ -13,7 +13,9 @@ fn owner() -> GameLogic {
             },
         )
         .unwrap();
-    world.add_player(Player::new(1, Team::USA, "RosterOwner", true));
+    world.add_player(
+        Player::new(1, Team::USA, "RosterOwner", true).with_script_identity("RosterOwner"),
+    );
     let mut template = ThingTemplate::new("RosterUnit");
     template.add_kind_of(KindOf::Vehicle).set_health(100.0);
     world.templates.insert(template.name.clone(), template);
@@ -79,7 +81,9 @@ fn existing_authored_default_identity_survives_player_admission() {
         .read()
         .unwrap()
         .get_id();
-    world.add_player(Player::new(1, Team::USA, "RosterOwner", true));
+    world.add_player(
+        Player::new(1, Team::USA, "RosterOwner", true).with_script_identity("RosterOwner"),
+    );
     let teams = world
         .team_factory
         .lock()

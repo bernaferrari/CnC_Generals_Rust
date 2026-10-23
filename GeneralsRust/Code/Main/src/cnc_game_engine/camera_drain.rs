@@ -2810,21 +2810,38 @@ mod replay_fast_forward_probe {
                     .with_visible(false),
             )?,
         );
+        let private_root = std::path::PathBuf::from(
+            std::env::var_os("GENERALS_REPLAY_PROBE_PRIVATE_ROOT")
+                .ok_or_else(|| anyhow::anyhow!("probe requires private launch root"))?,
+        );
+        // The probe does not run Engine startup. Admit the captured startup
+        // GameData bytes into this receiving owner before any mini-world/map.
+        let mut movement = game_engine::common::ini::ini_game_data::CameraMovementRules::default();
+        for relative in [
+            "Data/INI/Default/GameData.ini",
+            "Data/INI/GameData.ini",
+            "Data/INI/GameDataDebug.ini",
+        ] {
+            let path = private_root.join("cwd").join(relative);
+            let text = match std::fs::read_to_string(&path) {
+                Ok(text) => text,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(error) => return Err(anyhow::anyhow!("{}: {error}", path.display())),
+            };
+            movement = movement
+                .overlay_ini_text(&text)
+                .map_err(|error| anyhow::anyhow!("{}: {error}", path.display()))?;
+        }
         let args = CommandLineArgs::parse_from_args(vec![
             "replay-fast-forward-test".to_string(),
             "--runtime_host=headless".to_string(),
             "--noaudio".to_string(),
-            format!(
-                "--userdata={}",
-                std::path::PathBuf::from(
-                    std::env::var_os("GENERALS_REPLAY_PROBE_PRIVATE_ROOT")
-                        .ok_or_else(|| anyhow::anyhow!("probe requires private launch root"))?
-                )
-                .join("userdata")
-                .display()
-            ),
+            format!("--userdata={}", private_root.join("userdata").display()),
         ])?;
-        let engine = pollster::block_on(CnCGameEngine::new(window, Arc::new(args)))?;
+        let mut engine = pollster::block_on(CnCGameEngine::new(window, Arc::new(args)))?;
+        engine
+            .game_logic
+            .admit_camera_application_movement(movement);
         Ok((event_loop, engine))
     }
 
@@ -2849,7 +2866,14 @@ mod replay_fast_forward_probe {
     }
 
     fn install_replay_factory(engine: &mut CnCGameEngine) -> ObjectId {
+        let movement = engine
+            .game_logic
+            .session_view
+            .camera
+            .movement_policy
+            .reset_seed();
         engine.game_logic = GameLogic::new();
+        engine.game_logic.session_view.camera.movement_policy = movement;
         engine.gameworld_shadow = Some(GameWorldShadow::new(64));
         engine.last_frame_timing = None;
         engine.last_presentation_frame = None;
@@ -3186,12 +3210,15 @@ mod replay_fast_forward_probe {
     /// Opt-in licensed-content gate. A requested gate never substitutes a map
     /// or reports success without traversing the actual parked Loading path.
     #[cfg(feature = "game_client")]
-    fn source_shell_load_engine_witness(engine: &mut CnCGameEngine) -> anyhow::Result<()> {
+    fn source_shell_load_engine_witness(
+        engine: &mut CnCGameEngine,
+        startup_catalogs: super::super::StartupLoadState,
+    ) -> anyhow::Result<bool> {
         use crate::cnc_game_engine::GameState;
         use crate::game_logic::GameMode;
         use game_engine::common::message_stream::{GameMessage, GameMessageType};
         if std::env::var_os("GENERALS_SHELL_LOAD_GATE").is_none() {
-            return Ok(());
+            return Ok(false);
         }
         anyhow::ensure!(
             std::env::var("GENERALS_SHELL_LOAD_GATE").as_deref() == Ok("1"),
@@ -3249,7 +3276,52 @@ mod replay_fast_forward_probe {
             save_stats: false,
             stats_directory: directory.join("Stats"),
         };
-        install_replay_factory(engine);
+        // The preceding queue fixtures have no native births. Move the real
+        // prepared application owner only when this map gate needs it, rather
+        // than mixing synthetic queue templates into its strict catalog.
+        anyhow::ensure!(
+            !engine.game_logic.requires_native_drawable_owner(),
+            "Shell probe cannot discard a preceding native world"
+        );
+        // Consume the actual captured Object/Science producer, stopping
+        // before native map admission or any actor constructors.
+        match startup_catalogs {
+            super::super::StartupLoadState::InProgress { receiver, .. } => {
+                let deadline = std::time::Instant::now() + std::time::Duration::from_secs(180);
+                let prepared = loop {
+                    anyhow::ensure!(
+                        std::time::Instant::now() < deadline,
+                        "probe startup catalogs exceeded admission deadline"
+                    );
+                    let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+                    let message = receiver
+                        .recv_timeout(remaining)
+                        .map_err(|error| anyhow::anyhow!("probe startup catalogs: {error}"))?;
+                    match message {
+                        super::super::StartupLoadMessage::Progress { .. } => {}
+                        super::super::StartupLoadMessage::Prepared(result) => {
+                            break result.map_err(anyhow::Error::msg)?;
+                        }
+                    }
+                };
+                anyhow::ensure!(
+                    prepared.game_logic.host_objects().is_empty(),
+                    "startup catalog handoff unexpectedly admitted host Objects"
+                );
+                anyhow::ensure!(
+                    !prepared.game_logic.requires_native_drawable_owner(),
+                    "startup catalog handoff unexpectedly admitted native ownership"
+                );
+                anyhow::ensure!(
+                    prepared.game_logic.receiving_module_content.is_some()
+                        && prepared.game_logic.receiving_object_definitions.is_some()
+                        && prepared.game_logic.receiving_template_baseline.is_some(),
+                    "requested Shell probe requires paired startup Object content"
+                );
+                engine.game_logic = prepared.game_logic;
+            }
+            _ => anyhow::bail!("requested Shell probe requires startup catalog producer"),
+        }
         engine
             .game_logic
             .prepare_native_command_mode(GameMode::Skirmish);
@@ -3388,7 +3460,7 @@ mod replay_fast_forward_probe {
             "source_shell_load_engine_witness passed: map={map}, terrain={}x{}, difficulty=Hard, frame=1",
             expected.width, expected.height
         );
-        Ok(())
+        Ok(true)
     }
 
     fn actual_team_failure_stops_native_shell_and_fast_forward(engine: &mut CnCGameEngine) {
@@ -3601,6 +3673,9 @@ mod replay_fast_forward_probe {
         assert_eq!(peer.get_frame(), peer_frame);
         assert!(peer.team_creation_error().is_none());
         assert!(peer.host_objects().is_empty());
+        println!(
+            "actual_team_failure_stops_native_shell_and_fast_forward passed: frame={frame}, TeamID={identity:?}"
+        );
     }
 
     pub(super) fn run_replay_fast_forward_engine_probe() -> anyhow::Result<()> {
@@ -3609,6 +3684,12 @@ mod replay_fast_forward_probe {
             "replay fast-forward probe requires shadow enabled at process launch"
         );
         let (_event_loop, mut engine) = replay_fixture_engine()?;
+        // Keep the real startup producer owned outside synthetic command fixtures,
+        // whose reset paths legitimately cancel their own pending startup work.
+        let startup_catalogs = std::mem::replace(
+            &mut engine.startup_load_state,
+            super::super::StartupLoadState::Complete,
+        );
         #[cfg(feature = "game_client")]
         engine
             .probe_skirmish_local_command_owner()
@@ -3681,9 +3762,11 @@ mod replay_fast_forward_probe {
         #[cfg(feature = "game_client")]
         source_command_phase_engine_witness(&mut engine);
         #[cfg(feature = "game_client")]
-        source_shell_load_engine_witness(&mut engine)?;
-        #[cfg(feature = "game_client")]
-        actual_team_failure_stops_native_shell_and_fast_forward(&mut engine);
+        if source_shell_load_engine_witness(&mut engine, startup_catalogs)? {
+            // This witness requires the actual admitted native Shell/map owner.
+            // An unrequested licensed-content gate does not claim its coverage.
+            actual_team_failure_stops_native_shell_and_fast_forward(&mut engine);
+        }
         Ok(())
     }
 
