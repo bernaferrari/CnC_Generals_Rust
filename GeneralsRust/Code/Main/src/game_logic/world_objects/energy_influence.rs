@@ -6,6 +6,12 @@ impl GameLogic {
     /// Only the explicit receiving Player owns this mutation; faction is not a
     /// fallback and loading has a separate inert roster-admission operation.
     pub(in crate::game_logic) fn admit_object_energy_influence(&mut self, id: ObjectId) {
+        self.adjust_object_team_energy(id, true);
+    }
+
+    /// Object::setOrRestoreTeam calls the old controller after removing its
+    /// membership, then the new controller after admitting its membership.
+    pub(super) fn adjust_object_team_energy(&mut self, id: ObjectId, incoming: bool) {
         let Some((owner, energy)) = self.objects.get(&id).and_then(|object| {
             let owner = object.owner_player_id?;
             let energy = object.thing().template.energy_production.unwrap_or(0);
@@ -16,11 +22,12 @@ impl GameLogic {
         }) else {
             return;
         };
-        let brownout = self
-            .players
-            .get_mut(&owner)
-            .unwrap()
-            .add_template_energy(energy, self.frame);
+        let player = self.players.get_mut(&owner).unwrap();
+        let brownout = if incoming {
+            player.add_template_energy(energy, self.frame)
+        } else {
+            player.remove_template_energy(energy, self.frame)
+        };
         if let Some(brownout) = brownout {
             self.admit_player_energy_brownout(owner, brownout);
         }

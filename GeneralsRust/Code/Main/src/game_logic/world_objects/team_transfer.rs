@@ -2,7 +2,69 @@
 //! release the roster borrow before running capture and containment callbacks.
 use super::super::*;
 
+/// Owned continuation data: no Team guard survives into callbacks.
+pub(super) struct HostNeutralTeam {
+    pub(super) team: Team,
+    pub(super) owner: u32,
+    pub(super) name: String,
+    pub(super) identity: u32,
+}
+
 impl GameLogic {
+    pub(super) fn inactive_controller_neutral_team(
+        &self,
+        owner: u32,
+    ) -> gamelogic::GameLogicResult<Option<HostNeutralTeam>> {
+        let invalid = |reason: &str| gamelogic::GameLogicError::Configuration(reason.into());
+        let player = self
+            .players
+            .get(&owner)
+            .ok_or_else(|| invalid("requested Team controller is missing"))?;
+        // Player.cpp:3923, shared by semantic birth and subsequent Team changes.
+        if player.is_alive && !player.is_observer {
+            return Ok(None);
+        }
+        let mut neutrals = self
+            .players
+            .values()
+            .filter(|player| player.is_reserved_neutral());
+        let neutral = neutrals.next().ok_or_else(|| {
+            invalid("inactive controller requires the receiving reserved neutral Player")
+        })?;
+        if neutrals.next().is_some() {
+            return Err(invalid(
+                "inactive controller has ambiguous reserved neutral Players",
+            ));
+        }
+        let name = self.default_host_team_instance_name(Some(neutral.id), neutral.team);
+        let factory = self
+            .team_factory
+            .lock()
+            .map_err(|error| gamelogic::GameLogicError::Threading(error.to_string()))?;
+        let instance = factory
+            .find_team_instances(&name)
+            .into_iter()
+            .next()
+            .ok_or_else(|| {
+                invalid("inactive controller requires an admitted neutral default Team")
+            })?;
+        let instance = instance
+            .read()
+            .map_err(|error| gamelogic::GameLogicError::Threading(error.to_string()))?;
+        if instance.get_name().as_str() != name
+            || instance.get_controlling_player_id() != Some(neutral.id)
+        {
+            return Err(invalid(
+                "neutral Team does not belong to the receiving neutral Player",
+            ));
+        }
+        Ok(Some(HostNeutralTeam {
+            team: neutral.team,
+            owner: neutral.id,
+            name,
+            identity: instance.get_id(),
+        }))
+    }
     pub(in crate::game_logic) fn host_default_team_id(&self, player_id: u32) -> Option<u32> {
         let player = self.players.get(&player_id)?;
         let name = self.default_host_team_instance_name(Some(player_id), player.team);
@@ -80,35 +142,28 @@ impl GameLogic {
                 .get_controlling_player_id();
             owner
         };
-        let Some(destination_player) = destination_owner.and_then(|owner| self.players.get(&owner))
-        else {
+        let Some(owner) = destination_owner else {
             return false;
         };
-        let destination = if destination_player.is_alive {
-            requested
-        } else {
-            // Object::setTeam redirects an inactive controller to neutral's default.
-            let neutral = self
-                .players
-                .iter()
-                .filter_map(|(id, p)| p.is_reserved_neutral().then_some(*id))
-                .min();
-            let Some(identity) = neutral.and_then(|id| self.host_default_team_id(id)) else {
+        let destination = match self.inactive_controller_neutral_team(owner) {
+            Ok(Some(neutral)) => neutral.identity,
+            Ok(None) => requested,
+            Err(error) => {
+                log::error!("Cannot resolve receiving Team transfer: {error}");
                 return false;
-            };
-            identity
+            }
         };
         if old_identity == Some(destination) {
             return true;
         }
-        let (name, owner, faction, attitude, priority) = {
+        let (name, owner, faction, attitude, priority, destination_team, previous_teams) = {
             let factory = self.team_factory.lock().unwrap_or_else(|e| e.into_inner());
             let Some(team) = factory.find_team_by_id(destination) else {
                 return false;
             };
-            let mut team = team.write().unwrap_or_else(|e| e.into_inner());
-            let name = team.get_name().as_str().to_owned();
-            let Some(owner) = team.get_controlling_player_id() else {
+            let selected = team.read().unwrap_or_else(|e| e.into_inner());
+            let name = selected.get_name().as_str().to_owned();
+            let Some(owner) = selected.get_controlling_player_id() else {
                 return false;
             };
             let Some(player) = self.players.get(&owner) else {
@@ -125,33 +180,39 @@ impl GameLogic {
                 gamelogic::team::AttitudeType::Aggressive => 2,
             };
             let priority = prototype.get_attack_priority_name().as_str().to_owned();
-            if let Some(previous) =
+            let previous_teams = if let Some(previous) =
                 old_identity.and_then(|identity| factory.find_team_by_id(identity))
             {
-                previous
-                    .write()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .remove_member(id.0);
+                vec![previous]
             } else {
-                // Unbound fixtures/older admission routes carry no exact identity.
-                // Remove existing membership only; never create a lookup instance.
-                for previous in factory.get_all_teams() {
-                    if !std::sync::Arc::ptr_eq(
-                        &previous,
-                        &factory
-                            .find_team_by_id(destination)
-                            .expect("resolved destination"),
-                    ) {
-                        previous
-                            .write()
-                            .unwrap_or_else(|e| e.into_inner())
-                            .remove_member(id.0);
-                    }
-                }
-            }
-            team.add_member(id.0);
-            (name, owner, player.team, attitude, priority)
+                // Preserve cleanup of unbound older fixtures without inventing
+                // an old controlling Team or charging an unadmitted object.
+                factory
+                    .get_all_teams()
+                    .into_iter()
+                    .filter(|previous| !std::sync::Arc::ptr_eq(previous, &team))
+                    .collect()
+            };
+            drop(selected);
+            (
+                name,
+                owner,
+                player.team,
+                attitude,
+                priority,
+                team,
+                previous_teams,
+            )
         };
+        let mut left_previous = false;
+        for previous in previous_teams {
+            let mut previous = previous.write().unwrap_or_else(|error| error.into_inner());
+            left_previous |= previous.has_member(id.0);
+            previous.remove_member(id.0);
+        }
+        if left_previous && old_identity.is_some() {
+            self.adjust_object_team_energy(id, false);
+        }
         let object = self
             .objects
             .get_mut(&id)
@@ -161,6 +222,18 @@ impl GameLogic {
         object.team = faction;
         object.team_color = faction.get_color();
         object.owner_player_id = Some(owner);
+        let joined = {
+            let mut team = destination_team
+                .write()
+                .unwrap_or_else(|error| error.into_inner());
+            let joined = !team.has_member(id.0);
+            team.add_member(id.0);
+            joined
+        };
+        if joined {
+            self.adjust_object_team_energy(id, true);
+        }
+        let object = self.objects.get_mut(&id).expect("receiving Team member");
         if object.has_ai_update_interface() {
             object.set_ai_attitude_i8(attitude);
             if !priority.is_empty() && self.attack_priority_sets.contains_key(&priority) {

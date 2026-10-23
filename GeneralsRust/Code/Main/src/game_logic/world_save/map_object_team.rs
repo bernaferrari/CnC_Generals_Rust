@@ -157,7 +157,7 @@ mod tests {
     fn fixture_world() -> GameLogic {
         let content = crate::assets::ReceivingObjectContent::from_sources([(
             "map-owner.ini".into(),
-            "Object ChinaMapPlant\nKindOf = STRUCTURE\nEnergyProduction = 20\nBody = ActiveBody BodyTag\nMaxHealth = 100\nInitialHealth = 100\nEnd\nEnd\nObject MapCallbackWitness\nKindOf = VEHICLE\nBody = ActiveBody BodyTag\nMaxHealth = 100\nInitialHealth = 100\nEnd\nEnd\n".into(),
+            "Object ChinaMapPlant\nKindOf = STRUCTURE\nEnergyProduction = 20\nBody = ActiveBody BodyTag\nMaxHealth = 100\nInitialHealth = 100\nEnd\nEnd\nObject MapPoweredConsumer\nKindOf = STRUCTURE POWERED\nEnergyProduction = -10\nBody = ActiveBody BodyTag\nMaxHealth = 100\nInitialHealth = 100\nEnd\nEnd\nObject MapCallbackWitness\nKindOf = VEHICLE\nBody = ActiveBody BodyTag\nMaxHealth = 100\nInitialHealth = 100\nEnd\nEnd\n".into(),
         )]).unwrap();
         let mut world = GameLogic::new();
         world.admit_receiving_module_content(content).unwrap();
@@ -535,5 +535,242 @@ mod tests {
             assert!(peer.get_player(2).unwrap().is_alive);
             assert!(!peer.get_player(2).unwrap().is_observer);
         }
+    }
+    fn assert_transfer_destination_policy(dead: bool, observer: bool) {
+        let mut world = fixture_world();
+        let mut peer = fixture_world();
+        named(&mut world, false);
+        let id = world
+            .create_object_for_player("ChinaMapPlant", 1, Vec3::ZERO)
+            .unwrap();
+        let peer_id = peer
+            .create_object_for_player("ChinaMapPlant", 1, Vec3::ZERO)
+            .unwrap();
+        assert_eq!(id, peer_id);
+        let old_team = world.host_object(id).unwrap().team_instance_id.unwrap();
+        let peer_team = peer.host_object(peer_id).unwrap().team_instance_id;
+        let (destination, effects) = world
+            .team_factory
+            .lock()
+            .unwrap()
+            .find_team_with_owned_effects("ExactMapTeam")
+            .unwrap();
+        assert!(effects.is_empty());
+        let destination = destination.read().unwrap().get_id();
+        world.get_player_mut(2).unwrap().is_alive = !dead;
+        world.get_player_mut(2).unwrap().is_observer = observer;
+        let inactive = dead || observer;
+        let expected_team = if inactive {
+            world.host_default_team_id(0).unwrap()
+        } else {
+            destination
+        };
+        let expected_owner = if inactive { 0 } else { 2 };
+        assert!(world.set_host_object_team(id, destination));
+        let actor = world.host_object(id).unwrap();
+        assert_eq!(actor.owner_player_id, Some(expected_owner));
+        assert_eq!(actor.team_instance_id, Some(expected_team));
+        assert_eq!(
+            actor.team_instance_name,
+            if inactive { "team" } else { "ExactMapTeam" }
+        );
+        assert_eq!(actor.team, if inactive { Team::Neutral } else { Team::USA });
+        {
+            let factory = world.team_factory.lock().unwrap();
+            assert!(
+                !factory
+                    .find_team_by_id(old_team)
+                    .unwrap()
+                    .read()
+                    .unwrap()
+                    .has_member(id.0)
+            );
+            assert!(
+                factory
+                    .find_team_by_id(expected_team)
+                    .unwrap()
+                    .read()
+                    .unwrap()
+                    .has_member(id.0)
+            );
+            if inactive {
+                assert!(
+                    !factory
+                        .find_team_by_id(destination)
+                        .unwrap()
+                        .read()
+                        .unwrap()
+                        .has_member(id.0)
+                );
+            }
+        }
+        assert_eq!(world.get_player(1).unwrap().power_produced, 0);
+        assert_eq!(
+            world.get_player(0).unwrap().power_produced,
+            if inactive { 20 } else { 0 }
+        );
+        assert_eq!(
+            world.get_player(2).unwrap().power_produced,
+            if inactive { 0 } else { 20 }
+        );
+        let other = peer.host_object(peer_id).unwrap();
+        assert_eq!(other.owner_player_id, Some(1));
+        assert_eq!(other.team_instance_id, peer_team);
+        assert_eq!(other.team_instance_name, "teamMapOne");
+        assert_eq!(peer.get_player(1).unwrap().power_produced, 20);
+        assert_eq!(peer.get_player(0).unwrap().power_produced, 0);
+        assert_eq!(peer.get_player(2).unwrap().power_produced, 0);
+    }
+
+    #[test]
+    fn dead_destination_team_transfer_redirects_to_neutral() {
+        assert_transfer_destination_policy(true, false);
+    }
+    #[test]
+    fn living_observer_destination_team_transfer_redirects_to_neutral() {
+        assert_transfer_destination_policy(false, true);
+    }
+    #[test]
+    fn active_destination_team_transfer_keeps_exact_selected_instance() {
+        assert_transfer_destination_policy(false, false);
+    }
+    #[test]
+    fn ambiguous_reserved_neutral_transfer_rejects_before_membership_or_energy_mutation() {
+        let mut world = fixture_world();
+        let mut peer = fixture_world();
+        named(&mut world, false);
+        let id = world
+            .create_object_for_player("ChinaMapPlant", 1, Vec3::ZERO)
+            .unwrap();
+        let peer_id = peer
+            .create_object_for_player("ChinaMapPlant", 1, Vec3::ZERO)
+            .unwrap();
+        assert_eq!(id, peer_id);
+        let old_team = world.host_object(id).unwrap().team_instance_id.unwrap();
+        let (destination, effects) = world
+            .team_factory
+            .lock()
+            .unwrap()
+            .find_team_with_owned_effects("ExactMapTeam")
+            .unwrap();
+        assert!(effects.is_empty());
+        let destination = destination.read().unwrap().get_id();
+        let neutral = world.host_default_team_id(0).unwrap();
+        world.get_player_mut(2).unwrap().is_alive = false;
+        // Deliberately corrupt the already-admitted roster; ordinary admission
+        // rejects this duplicate role before publication.
+        world.get_player_mut(1).unwrap().map_side.role = PlayerSideRole::Neutral;
+        assert!(!world.set_host_object_team(id, destination));
+        let actor = world.host_object(id).unwrap();
+        assert_eq!(actor.owner_player_id, Some(1));
+        assert_eq!(actor.team, Team::USA);
+        assert_eq!(actor.team_instance_name, "teamMapOne");
+        assert_eq!(actor.team_instance_id, Some(old_team));
+        {
+            let factory = world.team_factory.lock().unwrap();
+            assert!(
+                factory
+                    .find_team_by_id(old_team)
+                    .unwrap()
+                    .read()
+                    .unwrap()
+                    .has_member(id.0)
+            );
+            for team in [neutral, destination] {
+                assert!(
+                    !factory
+                        .find_team_by_id(team)
+                        .unwrap()
+                        .read()
+                        .unwrap()
+                        .has_member(id.0)
+                );
+            }
+        }
+        assert_eq!(world.get_player(1).unwrap().power_produced, 20);
+        assert_eq!(world.get_player(0).unwrap().power_produced, 0);
+        assert_eq!(world.get_player(2).unwrap().power_produced, 0);
+        assert_eq!(peer.host_object(peer_id).unwrap().owner_player_id, Some(1));
+        assert_eq!(peer.get_player(1).unwrap().power_produced, 20);
+        assert_eq!(peer.get_player(0).unwrap().power_produced, 0);
+        assert_eq!(peer.get_player(2).unwrap().power_produced, 0);
+    }
+    #[test]
+    fn team_transfer_moves_energy_and_brownout_to_exact_players_before_returning() {
+        let mut world = fixture_world();
+        let peer = fixture_world();
+        let plant = world
+            .create_object_for_player("ChinaMapPlant", 1, Vec3::ZERO)
+            .unwrap();
+        let old_consumer = world
+            .create_object_for_player("MapPoweredConsumer", 1, Vec3::ZERO)
+            .unwrap();
+        let new_consumer = world
+            .create_object_for_player("MapPoweredConsumer", 2, Vec3::ZERO)
+            .unwrap();
+        assert!(
+            !world
+                .host_object(old_consumer)
+                .unwrap()
+                .status
+                .disabled_underpowered
+        );
+        assert!(
+            world
+                .host_object(new_consumer)
+                .unwrap()
+                .status
+                .disabled_underpowered
+        );
+        let destination = world.host_default_team_id(2).unwrap();
+        assert!(world.set_host_object_team(plant, destination));
+        assert_eq!(world.get_player(1).unwrap().power_produced, 0);
+        assert_eq!(world.get_player(2).unwrap().power_produced, 20);
+        assert!(
+            world
+                .host_object(old_consumer)
+                .unwrap()
+                .status
+                .disabled_underpowered
+        );
+        assert!(
+            !world
+                .host_object(new_consumer)
+                .unwrap()
+                .status
+                .disabled_underpowered
+        );
+        assert!(
+            world.set_host_object_team(plant, destination),
+            "exact Team no-op"
+        );
+        assert_eq!(world.get_player(1).unwrap().power_produced, 0);
+        assert_eq!(world.get_player(2).unwrap().power_produced, 20);
+        assert_eq!(peer.get_player(1).unwrap().power_produced, 0);
+        assert_eq!(peer.get_player(2).unwrap().power_produced, 0);
+        assert!(peer.host_objects().is_empty());
+    }
+
+    #[test]
+    fn team_transfer_of_scaffold_never_charges_either_player_energy() {
+        let mut world = fixture_world();
+        let scaffold = world
+            .create_object_under_construction_for_player("ChinaMapPlant", 1, Vec3::ZERO, 0.)
+            .unwrap();
+        let destination = world.host_default_team_id(2).unwrap();
+        assert!(world.set_host_object_team(scaffold, destination));
+        assert_eq!(
+            world.host_object(scaffold).unwrap().owner_player_id,
+            Some(2)
+        );
+        assert!(
+            world
+                .host_object(scaffold)
+                .unwrap()
+                .status
+                .under_construction
+        );
+        assert_eq!(world.get_player(1).unwrap().power_produced, 0);
+        assert_eq!(world.get_player(2).unwrap().power_produced, 0);
     }
 }
