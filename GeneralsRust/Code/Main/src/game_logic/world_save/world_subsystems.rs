@@ -526,6 +526,21 @@ impl GameLogic {
 
     /// C++ GameLogic.cpp:2222-2230 GAME_REPLAY: setLocalPlayer(ReplayObserver),
     /// TheRadar->forceOn(TRUE), refreshShroudForLocalPlayer, observer control bar.
+    /// Select only an already admitted observer on a detached restore owner.
+    /// No default Player, Core publication, UI, or shroud mutation occurs here.
+    pub(crate) fn select_admitted_replay_observer_local(&mut self) -> Result<(), String> {
+        if !matches!(self.game_mode, GameMode::Replay) {
+            return Ok(());
+        }
+        let id = self
+            .replay_observer_player_id()
+            .ok_or_else(|| "Replay restore has no admitted ReplayObserver Player".to_string())?;
+        for player in self.players.values_mut() {
+            player.is_local = player.id == id;
+        }
+        Ok(())
+    }
+
     pub fn apply_replay_observer_as_local_player(&mut self) {
         if !matches!(self.game_mode, GameMode::Replay) {
             return;

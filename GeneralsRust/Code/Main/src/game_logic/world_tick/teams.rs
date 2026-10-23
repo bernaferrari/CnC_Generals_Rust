@@ -1,6 +1,7 @@
 //! Host tick `impl GameLogic` — `teams`.
 #![allow(unused_imports, non_snake_case)]
 mod admission;
+mod member_admission;
 mod panic;
 #[cfg(test)]
 mod retaliation_owner_tests;
@@ -8,17 +9,9 @@ mod retaliation_owner_tests;
 mod wander_owner_tests;
 use super::super::*;
 
-/// Script identity used by C++ Player::setDefaultTeam. Display labels only
-/// supply pre-map fixtures which have not admitted an authored side identity.
+/// Canonical CPP playerName, never the separately editable display label.
 pub(super) fn default_team_owner_name(player: &Player) -> Option<&str> {
-    if player.is_reserved_neutral() {
-        return Some("");
-    }
-    if !player.map_side.map_player_name.is_empty() {
-        return Some(&player.map_side.map_player_name);
-    }
-    let display = player.name.trim();
-    (!display.is_empty()).then_some(display)
+    player.script_identity()
 }
 
 #[cfg(test)]
@@ -521,7 +514,7 @@ impl GameLogic {
     pub fn default_host_team_instance_name(
         &self,
         owner_player_id: Option<u32>,
-        team: crate::game_logic::Team,
+        _team: crate::game_logic::Team,
     ) -> String {
         if let Some(pid) = owner_player_id {
             if let Some(player) = self.players.get(&pid) {
@@ -530,7 +523,9 @@ impl GameLogic {
                 }
             }
         }
-        format!("team{}", team.get_name())
+        // NULL is not the reserved neutral Player's actual default Team.
+        // No controller or missing controller means no Team selection at all.
+        String::new()
     }
 
     /// Live Team member ids for leftover TEAM_* census (includes dead, no faction bleed).
@@ -3091,3 +3086,7 @@ mod terrain_owner_tests;
 #[cfg(test)]
 #[path = "default_team_identity_tests.rs"]
 mod default_team_identity_tests;
+
+#[cfg(test)]
+#[path = "team_identity_owner_tests.rs"]
+mod identity_owner_tests;

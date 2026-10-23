@@ -41,6 +41,10 @@ impl GameLogic {
         }
         // Original creates even with no matching units. No AI/factory borrow
         // survives its null-team action, which may modify either owner.
+        if let Err(error) = self.require_owned_team_creation_interpreter(name, true, interpreter) {
+            log::error!("AI recruit Team creation failed: {error}");
+            return false;
+        }
         let Some((created, effects)) = factory
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -49,14 +53,10 @@ impl GameLogic {
             return false;
         };
         let identity = created.read().unwrap_or_else(|e| e.into_inner()).get_id();
-        for effect in effects {
-            if let Some(engine) = interpreter {
-                self.execute_owned_ai_condition_with_effects(engine, &effect, None, ui);
-            } else {
-                self.with_owned_script_engine(|engine, world| {
-                    world.execute_owned_ai_condition_with_effects(engine, &effect, None, ui)
-                });
-            }
+        if let Err(error) = self.run_owned_team_creation_actions(&created, effects, interpreter, ui)
+        {
+            log::error!("AI recruit Team creation failed: {error}");
+            return false;
         }
         let prototype = {
             let definitions = factory.lock().unwrap_or_else(|e| e.into_inner());

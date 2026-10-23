@@ -52,6 +52,8 @@ mod lobby_side_identity_tests;
 #[path = "world_save/side_role_owner_tests.rs"]
 mod side_role_owner_tests;
 
+#[path = "world_save/map_player_identity.rs"]
+mod map_player_identity;
 #[path = "world_save/side_admission.rs"]
 mod side_admission;
 
@@ -79,3 +81,6 @@ mod attack_path_requests;
 #[cfg(test)]
 #[path = "world_save/partition_grid_owner_tests.rs"]
 mod partition_grid_owner_tests;
+
+#[path = "world_save/map_object_team.rs"]
+mod map_object_team;

@@ -9,8 +9,12 @@ mod sides_host_apply_tests {
     #[test]
     fn map_side_dict_sets_host_money_color_and_enemies() {
         let mut logic = GameLogic::new();
-        logic.add_player(Player::new(0, Team::USA, "PlyrAmerica", true));
-        logic.add_player(Player::new(1, Team::GLA, "PlyrGLA", false));
+        logic.add_player(
+            Player::new(0, Team::USA, "PlyrAmerica", true).with_script_identity("PlyrAmerica"),
+        );
+        logic.add_player(
+            Player::new(1, Team::GLA, "PlyrGLA", false).with_script_identity("PlyrGLA"),
+        );
 
         let mut america = Dict::new();
         america.set_ascii_string(key_player_name(), "PlyrAmerica");

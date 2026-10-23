@@ -406,6 +406,9 @@ impl GameLogic {
         if let Some(error) = self.object_retirement_error() {
             return Err(error);
         }
+        if let Some(error) = self.team_creation_error() {
+            return Err(error);
+        }
         // An already-started source step is completed even if one of its
         // commands changed pause. Ordinary entry keeps its original guard.
         if self.is_paused && resumed_counts.is_none() {
@@ -453,7 +456,16 @@ impl GameLogic {
                     }
                     break;
                 }
-                match run_step(self, FIXED_TIMESTEP) {
+                if let Some(error) = self.team_creation_error() {
+                    failure = Some(error);
+                    break;
+                }
+                let outcome = run_step(self, FIXED_TIMESTEP);
+                if let Some(error) = self.team_creation_error() {
+                    failure = Some(error);
+                    break;
+                }
+                match outcome {
                     SimulationStepOutcome::Failed(error) => {
                         failure = Some(error);
                         break;
@@ -473,6 +485,10 @@ impl GameLogic {
                         // before the next host ingress. Keep the RNG owner
                         // published through any factory/audio/effect draws.
                         after_step(self);
+                        if let Some(error) = self.team_creation_error() {
+                            failure = Some(error);
+                            break;
+                        }
                     }
                     SimulationStepOutcome::CommandBoundary(phase) => {
                         suspended = Some(NativeTickContinuation {
@@ -640,6 +656,9 @@ impl GameLogic {
         // Scripts run BEFORE everything else so they can react to the previous
         // frame's state and issue commands for this frame.
         self.evaluate_and_execute_scripts_with_effects(dt, ui.reborrow());
+        if let Some(error) = self.team_creation_error() {
+            return SimulationStepOutcome::Failed(error);
+        }
 
         // -----------------------------------------------------------------------
         // Phase 2: Time Freeze Check (C++ lines 3603-3617)

@@ -323,6 +323,10 @@ impl GameLogic {
         let Some((factory, orders, execute)) = prepared else {
             return false;
         };
+        if let Err(error) = self.require_owned_team_creation_interpreter(name, true, interpreter) {
+            log::error!("AI queued Team creation failed: {error}");
+            return false;
+        }
         // CPP AIPlayer.cpp2480 admits the work-order node before the
         // factory's null-team action. Nested actions must observe that node.
         let mut team = AITeamQueue::new(name.to_owned(), orders, priority, self.frame);
@@ -353,14 +357,10 @@ impl GameLogic {
         let Some(team_id) = created.read().ok().map(|team| team.get_id()) else {
             return false;
         };
-        for script in effects {
-            if let Some(engine) = interpreter {
-                self.execute_owned_ai_condition_with_effects(engine, &script, None, ui);
-            } else {
-                self.with_owned_script_engine(|engine, world| {
-                    world.execute_owned_ai_condition_with_effects(engine, &script, None, ui);
-                });
-            }
+        if let Err(error) = self.run_owned_team_creation_actions(&created, effects, interpreter, ui)
+        {
+            log::error!("AI queued Team creation failed: {error}");
+            return false;
         }
         // Never attach a removed/replaced team or another node after a callback.
         let admitted_actions = factory.lock().ok().and_then(|definitions| {

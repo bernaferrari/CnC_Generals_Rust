@@ -2378,6 +2378,7 @@ impl CnCGameEngine {
             manager
                 .restore_game_snapshot(&decoded.snapshot, &mut candidate)
                 .map_err(|error| error.to_string())?;
+            candidate.select_admitted_replay_observer_local()?;
             if let Some(terrain) = &terrain {
                 crate::save_load::snapshot::admit_receiving_terrain_visual(&mut candidate, terrain)
                     .map_err(|error| error.to_string())?;

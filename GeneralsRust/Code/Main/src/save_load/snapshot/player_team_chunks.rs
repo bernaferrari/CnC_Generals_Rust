@@ -336,6 +336,9 @@ pub(super) fn validate_definitions(
     world: &GameLogic,
     chunks: &PlayerTeamChunks,
 ) -> SaveLoadResult<()> {
+    for player in chunks.players.iter().flat_map(|p| &p.players) {
+        legacy_identity_from_receiving_catalog(world, chunks, player)?;
+    }
     let Some(saved) = &chunks.teams else {
         return Ok(());
     };
@@ -436,7 +439,11 @@ pub(super) fn apply_before_objects(
     );
     if let Some(players) = &chunks.players {
         for player in &players.players {
-            apply_player_to_live(world, player);
+            let mut admitted = player.clone();
+            if let Some(identity) = legacy_identity_from_receiving_catalog(world, chunks, player)? {
+                admitted.host_side_identity = Some(identity);
+            }
+            apply_player_to_live(world, &admitted);
         }
     }
     if let Some(teams) = &chunks.teams {
@@ -499,3 +506,68 @@ pub fn apply_pending(world: &mut GameLogic, chunks: &PlayerTeamChunks) -> SaveLo
 #[cfg(test)]
 #[path = "player_team_chunks_tests.rs"]
 mod tests;
+
+/// Historical host capsules omitted playerName. Recover only from the exact
+/// receiving default-Team definition and saved instance controller, never a
+/// display label. Ambiguous/absent provenance is explicitly unsupported.
+fn legacy_identity_from_receiving_catalog(
+    world: &GameLogic,
+    chunks: &PlayerTeamChunks,
+    player: &PlayerRuntimePersist,
+) -> SaveLoadResult<Option<HostSideIdentityPersist>> {
+    if player.host_side_identity.as_ref().is_some_and(|identity| {
+        identity.role != PlayerSideRole::Participant || !identity.authored_name.is_empty()
+    }) {
+        return Ok(None);
+    }
+    let factory = world
+        .team_factory
+        .lock()
+        .map_err(|e| SaveLoadError::Corrupted(e.to_string()))?;
+    let owned = factory.owned_team_prototypes_for_controller(player.player_id);
+    let mut candidates = Vec::new();
+    for saved in chunks
+        .teams
+        .iter()
+        .flat_map(|teams| &teams.teams)
+        .filter(|team| team.controller == Some(player.player_id))
+    {
+        let Some(prototype) = factory.find_team_prototype(&saved.team_name) else {
+            continue;
+        };
+        let owner = prototype.get_owner_name().as_str();
+        if prototype.is_singleton()
+            && saved.team_name == format!("team{owner}")
+            && owned
+                .iter()
+                .any(|candidate| std::sync::Arc::ptr_eq(candidate, &prototype))
+        {
+            if !candidates
+                .iter()
+                .any(|candidate: &String| candidate == owner)
+            {
+                candidates.push(owner.to_owned());
+            }
+        }
+    }
+    if candidates.len() != 1 {
+        return Err(SaveLoadError::Corrupted(format!(
+            "Legacy Player {} has no exact saved default Team identity/controller in receiving definitions; migration is unsupported",
+            player.player_id
+        )));
+    }
+    let name = candidates.pop().unwrap();
+    let role = match name.as_str() {
+        "" => PlayerSideRole::Neutral,
+        "ReplayObserver" => PlayerSideRole::ReplayObserver,
+        _ => PlayerSideRole::Participant,
+    };
+    Ok(Some(HostSideIdentityPersist {
+        role,
+        authored_name: name,
+        start_position: player
+            .host_side_identity
+            .as_ref()
+            .map_or(-1, |identity| identity.start_position),
+    }))
+}

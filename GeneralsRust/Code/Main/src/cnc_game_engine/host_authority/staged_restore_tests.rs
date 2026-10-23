@@ -2098,7 +2098,15 @@ fn native_initial_roster_audio_survives_staging_and_discards_late_client_failure
             }
             map.write_int(0);
             map.write_ascii_string("ContainmentStageContainer");
-            let properties = game_engine::common::dict::Dict::new();
+            let mut properties = game_engine::common::dict::Dict::new();
+            // The map's authored owner is the configured slot's canonical
+            // default Team, independently of its display label and faction.
+            properties.set_ascii_string(
+                game_engine::common::name_key_generator::NameKeyGenerator::name_to_key(
+                    "originalOwner",
+                ),
+                "teamplayer0",
+            );
             map.write_dict(&properties);
             map.close_data_chunk();
             map.close_data_chunk();

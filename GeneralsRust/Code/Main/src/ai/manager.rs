@@ -107,6 +107,9 @@ impl AIManager {
         }
         for id in ids {
             game_logic.initialize_owned_skirmish_ai_with_effects(id, &ai_data, ui);
+            if game_logic.team_creation_error().is_some() {
+                return;
+            }
             let peers = game_logic
                 .ai_manager
                 .ai_players
@@ -128,9 +131,18 @@ impl AIManager {
                 continue;
             }
             game_logic.update_owned_ai_economy_with_effects(id, current_time, &ai_data, ui);
+            if game_logic.team_creation_error().is_some() {
+                return;
+            }
             game_logic.check_owned_ai_ready_teams(id);
             game_logic.check_owned_ai_queued_teams_with_effects(id, current_time, ui);
+            if game_logic.team_creation_error().is_some() {
+                return;
+            }
             game_logic.update_owned_ai_military_with_effects(id, current_time, &ai_data, ui);
+            if game_logic.team_creation_error().is_some() {
+                return;
+            }
             game_logic.update_owned_ai_postmilitary(id, current_time, &ai_data);
         }
     }

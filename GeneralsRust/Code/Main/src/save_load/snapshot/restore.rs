@@ -504,9 +504,11 @@ impl SnapshotBuilder {
         // that boundary, without reentering states or computing paths.
         let id = object.id;
         let saved_runtime = std::mem::take(&mut object.unit_ai_runtime);
-        game_logic.try_admit_host_object(object).map_err(|error| {
-            SaveLoadError::Corrupted(format!("saved Object admission: {error}"))
-        })?;
+        game_logic
+            .try_admit_restored_host_object(object)
+            .map_err(|error| {
+                SaveLoadError::Corrupted(format!("saved Object admission: {error}"))
+            })?;
         game_logic
             .host_object_mut(id)
             .expect("admitted saved object")

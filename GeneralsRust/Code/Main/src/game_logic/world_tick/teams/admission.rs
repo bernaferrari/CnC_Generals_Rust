@@ -46,117 +46,6 @@ impl GameLogic {
         }
     }
 
-    pub(crate) fn admit_team_for_host_object_with_effects_checked(
-        &mut self,
-        id: ObjectId,
-        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
-        activate: bool,
-        ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
-        let Some(obj) = self.objects.get(&id) else {
-            return Ok(());
-        };
-        let team_name = obj.team_instance_name.trim().to_string();
-        let previous_identity = obj.team_instance_id;
-        let generation = obj.visual_object_generation;
-        if team_name.is_empty() {
-            return Ok(());
-        }
-        let Ok(mut factory) = self.team_factory.lock() else {
-            return Ok(());
-        };
-        if let Some(player_id) = obj.owner_player_id {
-            if let Some(player) = self.players.get(&player_id) {
-                if team_name == self.default_host_team_instance_name(Some(player_id), obj.team) {
-                    super::super::team_membership::ensure_default_team_definition(
-                        &mut factory,
-                        &team_name,
-                        default_team_owner_name(player).unwrap_or(&player.name),
-                        player_id,
-                    );
-                }
-            }
-        }
-        let team = match obj.team_instance_id {
-            Some(identity) => {
-                // A missing exact identity cannot become another same-name
-                // instance. Only an explicit authored-name change selects anew.
-                let Some(existing) = factory.find_team_by_id(identity) else {
-                    return Ok(());
-                };
-                let same_definition = existing
-                    .read()
-                    .unwrap_or_else(|error| error.into_inner())
-                    .get_name()
-                    .as_str()
-                    == team_name;
-                if same_definition {
-                    Some((existing, Vec::new()))
-                } else {
-                    factory
-                        .find_team_with_owned_effects(&team_name)
-                        .or_else(|| factory.create_inactive_team_with_owned_effects(&team_name))
-                }
-            }
-            None => factory
-                .find_team_with_owned_effects(&team_name)
-                .or_else(|| factory.create_inactive_team_with_owned_effects(&team_name)),
-        };
-        let Some((team, effects)) = team else {
-            return Ok(());
-        };
-        let identity = team
-            .read()
-            .unwrap_or_else(|error| error.into_inner())
-            .get_id();
-        drop(factory);
-        self.run_team_creation_effects_with_effects(effects, interpreter, ui)?;
-        // A synchronous create action may delete/reassign the object or retire
-        // the admitted instance. Never attach through a stale captured handle.
-        if !self.objects.get(&id).is_some_and(|object| {
-            object.team_instance_name.trim() == team_name
-                && object.team_instance_id == previous_identity
-                && object.visual_object_generation == generation
-        }) {
-            return Ok(());
-        }
-        let factory = self
-            .team_factory
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
-        let Some(current) = factory.find_team_by_id(identity) else {
-            return Ok(());
-        };
-        if !std::sync::Arc::ptr_eq(&current, &team) {
-            return Ok(());
-        }
-        // A map/script admission may replace the initial default team. Move
-        // the member before adding it; this operation is not a frame-end repair.
-        for previous in factory.get_all_teams() {
-            if !std::sync::Arc::ptr_eq(&previous, &team) {
-                previous
-                    .write()
-                    .unwrap_or_else(|error| error.into_inner())
-                    .remove_member(id.0);
-            }
-        }
-        let identity = {
-            let mut guard = team.write().unwrap_or_else(|error| error.into_inner());
-            guard.add_member(id.0);
-            if activate {
-                guard.set_active();
-            }
-            guard.get_id()
-        };
-        drop(factory);
-        self.objects
-            .get_mut(&id)
-            .expect("admitted receiving object")
-            .team_instance_id = Some(identity);
-
-        Ok(())
-    }
-
     pub(crate) fn run_team_creation_effects(
         &mut self,
         effects: Vec<String>,
@@ -338,6 +227,7 @@ impl GameLogic {
                 None => {
                     // Only the destination fallback calls TeamFactory::findTeam;
                     // singleton absence stays absent. Callback runs while inactive.
+                    self.require_owned_team_creation_interpreter(destination, false, interpreter)?;
                     let found = self
                         .team_factory
                         .lock()
@@ -350,16 +240,7 @@ impl GameLogic {
                         .read()
                         .unwrap_or_else(|error| error.into_inner())
                         .get_id();
-                    if !effects.is_empty() {
-                        let engine = interpreter.ok_or_else(|| {
-                            gamelogic::GameLogicError::Configuration(
-                                "team-create callback requires the driving interpreter".into(),
-                            )
-                        })?;
-                        for name in effects {
-                            self.execute_owned_ai_condition_with_effects(engine, &name, None, ui);
-                        }
-                    }
+                    self.run_owned_team_creation_actions(&team, effects, interpreter, ui)?;
                     let current = self
                         .team_factory
                         .lock()

@@ -29,8 +29,22 @@ impl GameLogic {
         object: Object,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<ObjectId> {
-        let id = object.id;
-        self.try_admit_host_object(object)?;
+        self.try_add_object_with_team_interpreter(object, None, effects)
+    }
+
+    pub(crate) fn try_add_object_with_team_interpreter(
+        &mut self,
+        mut object: Object,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<ObjectId> {
+        if object.team_instance_name.trim().is_empty() && object.owner_player_id.is_some() {
+            object.team_instance_name =
+                self.default_host_team_instance_name(object.owner_player_id, object.team);
+        }
+        self.validate_host_object_admission(object.id)?;
+        let prepared = self.prepare_external_host_object_team(&object, interpreter, effects)?;
+        let id = self.admit_external_object_to_prepared_team(object, prepared)?;
         self.host_radar_add_object_with_effects(id, effects);
         Ok(id)
     }
@@ -65,6 +79,22 @@ impl GameLogic {
     /// ordinary callbacks and physical removal. Detached/query clone state is
     /// not a birth constructor; preserve its scalars, including score receipts.
     pub(crate) fn try_admit_host_object(
+        &mut self,
+        object: Object,
+    ) -> gamelogic::GameLogicResult<()> {
+        self.admit_host_object_storage(object)
+    }
+
+    /// Snapshot owns the subsequent whole-roster Energy reconstruction. It
+    /// must not publish partial Player callbacks while saved tails are absent.
+    pub(crate) fn try_admit_restored_host_object(
+        &mut self,
+        object: Object,
+    ) -> gamelogic::GameLogicResult<()> {
+        self.admit_host_object_storage(object)
+    }
+
+    pub(in crate::game_logic) fn admit_host_object_storage(
         &mut self,
         mut object: Object,
     ) -> gamelogic::GameLogicResult<()> {

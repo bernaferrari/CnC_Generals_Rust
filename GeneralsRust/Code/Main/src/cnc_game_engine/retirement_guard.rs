@@ -24,6 +24,8 @@ impl CnCGameEngine {
     ) -> std::result::Result<(), NativeBoundaryFailure> {
         let failure = if let Some(reason) = self.game_logic.object_retirement_error() {
             Some(NativeBoundaryFailure::InstalledWorld(reason.to_string()))
+        } else if let Some(reason) = self.game_logic.team_creation_error() {
+            Some(NativeBoundaryFailure::InstalledWorld(reason.to_string()))
         } else {
             self.rejected_native_worlds
                 .validate_admission()

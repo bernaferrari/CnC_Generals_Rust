@@ -157,6 +157,9 @@ impl GameLogic {
         if let Some(error) = self.object_retirement_error() {
             return NativeTickProgress::Failed(error);
         }
+        if let Some(error) = self.team_creation_error() {
+            return NativeTickProgress::Failed(error);
+        }
         assert!(
             std::sync::Weak::ptr_eq(
                 &pending.receiving_services,
@@ -215,6 +218,9 @@ impl GameLogic {
                 .expect("source continuation enters its receiving phase once")
             })
         });
+        if let Some(error) = self.team_creation_error() {
+            return NativeTickProgress::Failed(error);
+        }
         let outcome = match outcome {
             SimulationStepOutcome::Failed(error) => return NativeTickProgress::Failed(error),
             outcome => outcome,
@@ -289,6 +295,9 @@ impl GameLogic {
         // completed-frame callback. Reset/start termination must do so too.
         let random = self.logic_random.clone();
         game_engine::common::random_value::with_session_random(&random, || after(self));
+        if let Some(error) = self.team_creation_error() {
+            return NativeTickProgress::Failed(error);
+        }
         NativeTickProgress::Complete(self.sim_timing_snapshot())
     }
 }

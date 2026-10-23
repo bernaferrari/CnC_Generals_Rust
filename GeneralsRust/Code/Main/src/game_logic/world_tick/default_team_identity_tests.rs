@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-fn canonical_default_identity_precedes_display_and_retains_fixture_fallbacks() {
+fn canonical_default_identity_precedes_display_and_preserves_explicit_authored_names() {
     let mut first = GameLogic::new();
     let mut player = Player::new(1, Team::USA, "Visible Label", true);
     player.map_side.map_player_name = "player3".into();
@@ -22,19 +22,21 @@ fn canonical_default_identity_precedes_display_and_retains_fixture_fallbacks() {
         first.default_host_team_instance_name(Some(1), Team::USA),
         "teamplayer3"
     );
-    first.add_player(Player::new(2, Team::China, "  Pre Map  ", false));
+    first.add_player(
+        Player::new(2, Team::China, "  Pre Map  ", false).with_script_identity("Pre Map"),
+    );
     assert_eq!(
         first.default_host_team_instance_name(Some(2), Team::China),
         "teamPre Map"
     );
-    first.add_player(Player::new(4, Team::GLA, "", false));
+    first.add_player(Player::new(4, Team::GLA, "", false).with_script_identity("GLA"));
     assert_eq!(
         first.default_host_team_instance_name(Some(4), Team::GLA),
         "teamGLA"
     );
     assert_eq!(
         first.default_host_team_instance_name(None, Team::Neutral),
-        "teamNeutral"
+        ""
     );
     let mut neutral = Player::new(9, Team::Neutral, "Neutral Display", false);
     neutral.map_side.role = PlayerSideRole::Neutral;

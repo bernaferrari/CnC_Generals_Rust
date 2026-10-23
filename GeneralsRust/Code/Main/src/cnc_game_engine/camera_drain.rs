@@ -3391,6 +3391,218 @@ mod replay_fast_forward_probe {
         Ok(())
     }
 
+    fn actual_team_failure_stops_native_shell_and_fast_forward(engine: &mut CnCGameEngine) {
+        use game_engine::common::{dict::Dict, well_known_keys::*};
+        use gamelogic::scripting::core::{
+            Condition, ConditionType, OrCondition, Parameter, ParameterType, Script, ScriptAction,
+            ScriptActionType, ScriptList,
+        };
+        let peer = crate::game_logic::GameLogic::new();
+        let peer_frame = peer.get_frame();
+        assert!(engine.game_logic.requires_native_drawable_owner());
+        assert!(
+            engine.game_logic.get_player(14).is_none(),
+            "probe needs unoccupied valid receiving Player slot14"
+        );
+        let mut player = crate::game_logic::Player::new(14, Team::USA, "DriverFailureOwner", false);
+        player.map_side.map_player_name = "DriverFailureOwner".into();
+        engine.game_logic.add_player(player);
+        let mut dict = Dict::new();
+        dict.set_bool(key_team_executes_actions_on_create(), true);
+        dict.set_ascii_string(key_team_production_condition(), "DriverFailureCreate");
+        engine
+            .game_logic
+            .team_factory
+            .lock()
+            .unwrap()
+            .init_team_owned(
+                "DriverFailureTeam".into(),
+                "DriverFailureOwner".into(),
+                false,
+                Some(&dict),
+                Some(14),
+            )
+            .unwrap();
+        fn count(name: &str) -> ScriptAction {
+            let mut action = ScriptAction::new(ScriptActionType::IncrementCounter);
+            action
+                .add_parameter(Parameter::with_int(ParameterType::Int, 1))
+                .unwrap();
+            action
+                .add_parameter(Parameter::with_string(ParameterType::Counter, name.into()))
+                .unwrap();
+            action
+        }
+        fn create() -> ScriptAction {
+            let mut action = ScriptAction::new(ScriptActionType::CreateObject);
+            for parameter in [
+                Parameter::with_string(ParameterType::ObjectType, "AmericaTankCrusader".into()),
+                Parameter::with_string(ParameterType::Team, "DriverFailureTeam".into()),
+                Parameter::with_coord(
+                    ParameterType::Coord3D,
+                    gamelogic::common::Coord3D::new(1., 2., 3.),
+                ),
+                Parameter::with_real(ParameterType::Angle, 0.),
+            ] {
+                action.add_parameter(parameter).unwrap();
+            }
+            action
+        }
+        // The real nested factory creates a native-bound child, then this
+        // malformed authored action fails at Main's existing typed boundary.
+        let mut invalid = ScriptAction::new(ScriptActionType::TeamSetAttitude);
+        invalid
+            .add_parameter(Parameter::with_string(
+                ParameterType::Team,
+                "DriverFailureTeam".into(),
+            ))
+            .unwrap();
+        invalid
+            .add_parameter(Parameter::with_int(ParameterType::Int, 999))
+            .unwrap();
+        let mut child = create();
+        child.next_action = Some(Box::new(invalid));
+        let mut visit = count("DriverFailureVisits");
+        visit.next_action = Some(Box::new(child));
+        let mut on_create = Script::new();
+        on_create.script_name = "DriverFailureCreate".into();
+        on_create.is_subroutine = true;
+        on_create.action = Some(Box::new(visit));
+        let mut first = count("DriverFailureTrigger");
+        first.next_action = Some(Box::new(create()));
+        let mut condition = Condition::new(ConditionType::Counter);
+        for parameter in [
+            Parameter::with_string(ParameterType::Counter, "DriverFailureTrigger".into()),
+            Parameter::with_int(ParameterType::Comparison, 2),
+            Parameter::with_int(ParameterType::Int, 0),
+        ] {
+            condition.add_parameter(parameter).unwrap();
+        }
+        let mut branch = OrCondition::new();
+        branch.set_first_and_condition(Some(Box::new(condition)));
+        let mut scheduled = Script::new();
+        scheduled.script_name = "ScheduledFirstDriverFailure".into();
+        scheduled.frame_to_evaluate_at = engine.game_logic.get_frame();
+        scheduled.condition = Some(Box::new(branch));
+        scheduled.action = Some(Box::new(first));
+        let mut list = ScriptList::new();
+        list.append_script(Box::new(on_create));
+        list.append_script(Box::new(scheduled));
+        let mut interpreter = gamelogic::scripting::engine::ScriptEngine::new().unwrap();
+        for counter in ["DriverFailureVisits", "DriverFailureTrigger"] {
+            interpreter.set_counter(counter, 0).unwrap();
+        }
+        interpreter
+            .set_script_list_for_player(0, Some(Box::new(list)))
+            .unwrap();
+        engine.game_logic.install_owned_script_engine(interpreter);
+        let frame = engine.game_logic.get_frame();
+        let old_ids = engine
+            .game_logic
+            .host_objects()
+            .keys()
+            .copied()
+            .collect::<std::collections::HashSet<_>>();
+        let old_presentation = engine.last_presentation_frame.clone();
+        assert!(
+            engine.game_logic.team_creation_error().is_none(),
+            "failure must arise inside first actual offered step"
+        );
+        engine.replay_fast_forward = true;
+        engine.game_paused = false;
+        let error = engine
+            .host_run_ingame_logic_presentation_frame(4. / 30.)
+            .unwrap_err();
+        assert!(
+            error.contains("attitude") && error.contains("999"),
+            "{error}"
+        );
+        assert_eq!(
+            engine.game_logic.get_frame(),
+            frame,
+            "failed early first step cannot commit or run steps2-4"
+        );
+        match (&old_presentation, &engine.last_presentation_frame) {
+            (Some(old), Some(now)) => assert!(std::rc::Rc::ptr_eq(old, now)),
+            (None, None) => {}
+            _ => panic!("failed step published a new presentation"),
+        }
+        let team = engine
+            .game_logic
+            .team_factory
+            .lock()
+            .unwrap()
+            .get_all_teams()
+            .into_iter()
+            .find(|team| team.read().unwrap().get_name().as_str() == "DriverFailureTeam")
+            .unwrap();
+        let identity = team.read().unwrap().get_id();
+        assert!(team.read().unwrap().creation_failure().is_some());
+        let births = engine
+            .game_logic
+            .host_objects()
+            .iter()
+            .filter(|(id, _)| !old_ids.contains(id))
+            .map(|(id, _)| *id)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            births.len(),
+            1,
+            "nested actual factory birth remains owned; outer failed constructor did not run"
+        );
+        let binding = engine
+            .game_client
+            .presentation_direct_drawable_state(engine.host_direct_visual_world_epoch, births[0].0)
+            .unwrap()
+            .binding_key;
+        let count_before = engine.game_logic.host_objects().len();
+        assert!(engine.host_update_shell_with_budget(1. / 30., 4).is_err());
+        assert_eq!(engine.game_logic.get_frame(), frame);
+        assert_eq!(engine.game_logic.host_objects().len(), count_before);
+        assert_eq!(
+            engine
+                .game_client
+                .presentation_direct_drawable_state(
+                    engine.host_direct_visual_world_epoch,
+                    births[0].0
+                )
+                .unwrap()
+                .binding_key,
+            binding
+        );
+        let same = engine
+            .game_logic
+            .team_factory
+            .lock()
+            .unwrap()
+            .find_team_by_id(identity)
+            .unwrap();
+        assert!(std::sync::Arc::ptr_eq(&same, &team));
+        let interpreter = engine.game_logic.owned_script_engine.as_ref().unwrap();
+        assert_eq!(
+            interpreter
+                .get_counter("DriverFailureVisits")
+                .unwrap()
+                .value,
+            1
+        );
+        assert_eq!(
+            interpreter
+                .get_counter("DriverFailureTrigger")
+                .unwrap()
+                .value,
+            1
+        );
+        assert!(
+            crate::save_load::SnapshotBuilder::new()
+                .create_world_snapshot_with_client(&engine.game_logic, &engine.game_client)
+                .is_err()
+        );
+        assert_eq!(peer.get_frame(), peer_frame);
+        assert!(peer.team_creation_error().is_none());
+        assert!(peer.host_objects().is_empty());
+    }
+
     pub(super) fn run_replay_fast_forward_engine_probe() -> anyhow::Result<()> {
         anyhow::ensure!(
             crate::gameworld_shadow::gameworld_shadow_enabled(),
@@ -3470,6 +3682,8 @@ mod replay_fast_forward_probe {
         source_command_phase_engine_witness(&mut engine);
         #[cfg(feature = "game_client")]
         source_shell_load_engine_witness(&mut engine)?;
+        #[cfg(feature = "game_client")]
+        actual_team_failure_stops_native_shell_and_fast_forward(&mut engine);
         Ok(())
     }
 

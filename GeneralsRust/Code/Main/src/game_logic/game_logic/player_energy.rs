@@ -42,6 +42,25 @@ impl Player {
         self.power_available = self.energy_available_at(frame);
     }
 
+    /// Energy::objectEnteringInfluence: every nonzero signed template delta
+    /// signals onPowerBrownOutChange, even when sufficiency has not changed.
+    pub(in crate::game_logic) fn add_template_energy(
+        &mut self,
+        energy: i32,
+        frame: u32,
+    ) -> Option<bool> {
+        if energy == 0 {
+            return None;
+        }
+        if energy > 0 {
+            self.power_produced = self.power_produced.wrapping_add(energy);
+        } else {
+            self.power_consumed = self.power_consumed.wrapping_sub(energy);
+        }
+        self.refresh_energy_projection_at(frame);
+        Some(!self.has_sufficient_energy_at(frame))
+    }
+
     /// Energy::objectLeavingInfluence, called AFTER old Team removal while
     /// its old Player still exists. The caller must immediately admit the
     /// returned onPowerBrownOutChange value; this is not a deferred effect.

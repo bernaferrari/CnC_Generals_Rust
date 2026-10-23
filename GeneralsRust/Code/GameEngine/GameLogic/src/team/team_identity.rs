@@ -15,6 +15,7 @@ impl Team {
             entered_or_exited: false,
             active: false,
             created: false,
+            creation_phase: TeamCreationPhase::Ready,
             recruitable: false,
             recruitability_set: false,
             check_enemy_sighted: false,
@@ -359,6 +360,58 @@ impl Team {
     pub fn disable_generic_script_attempt(&mut self, index: usize) {
         if let Some(should_attempt) = self.should_attempt_generic_script.get_mut(index) {
             *should_attempt = false;
+        }
+    }
+}
+
+impl Team {
+    /// Failed synchronous creation is terminal for this exact Team instance.
+    pub fn creation_failure(&self) -> Option<&str> {
+        match &self.creation_phase {
+            TeamCreationPhase::Failed(reason) => Some(reason),
+            _ => None,
+        }
+    }
+    pub fn creation_is_running(&self) -> bool {
+        matches!(self.creation_phase, TeamCreationPhase::Running { .. })
+    }
+    pub fn begin_creation_actions(&mut self) {
+        match &mut self.creation_phase {
+            TeamCreationPhase::Ready => {
+                self.creation_phase = TeamCreationPhase::Running { depth: 1 }
+            }
+            TeamCreationPhase::Running { depth } => {
+                *depth = depth
+                    .checked_add(1)
+                    .expect("Team creation nesting exhausted")
+            }
+            TeamCreationPhase::Failed(_) => panic!("failed Team creation cannot restart"),
+        }
+    }
+    pub fn finish_creation_actions(&mut self, result: Result<(), String>) {
+        match (&mut self.creation_phase, result) {
+            // A nested failure is the first retained cause even when outer
+            // script adapters return success or unwind later.
+            (TeamCreationPhase::Failed(_), _) => {}
+            (TeamCreationPhase::Running { .. }, Err(reason)) => {
+                self.creation_phase = TeamCreationPhase::Failed(reason)
+            }
+            (TeamCreationPhase::Running { depth }, Ok(())) if *depth > 1 => *depth -= 1,
+            (TeamCreationPhase::Running { .. }, Ok(())) => {
+                self.creation_phase = TeamCreationPhase::Ready
+            }
+            (TeamCreationPhase::Ready, _) => panic!("Team creation actions are not running"),
+        }
+    }
+    pub fn validate_creation_snapshot(&self) -> Result<(), String> {
+        match &self.creation_phase {
+            TeamCreationPhase::Ready => Ok(()),
+            TeamCreationPhase::Running { .. } => {
+                Err(format!("Team {} has running creation actions", self.id))
+            }
+            TeamCreationPhase::Failed(reason) => {
+                Err(format!("Team {} creation failed: {}", self.id, reason))
+            }
         }
     }
 }

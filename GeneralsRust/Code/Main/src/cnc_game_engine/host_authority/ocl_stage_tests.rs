@@ -209,6 +209,25 @@ fn actual_saved_map_ocl_candidate_uses_own_base_and_solo_without_mutating_active
             peer.admit_ocl_application_sources(&[list("Peer")]).unwrap();
             active.admit_armor_definitions(armor(2.0));
             peer.admit_armor_definitions(armor(2.0));
+            let source_owner = source
+                .get_player(
+                    source
+                        .host_object(actor_id)
+                        .unwrap()
+                        .owner_player_id
+                        .unwrap(),
+                )
+                .unwrap();
+            let mut receiving_owner = crate::game_logic::Player::new(
+                source_owner.id,
+                source_owner.team,
+                "Peer controller",
+                source_owner.is_human,
+            );
+            receiving_owner.map_side.map_player_name =
+                source_owner.map_side.map_player_name.clone();
+            receiving_owner.map_side.role = source_owner.map_side.role;
+            peer.add_player(receiving_owner);
             peer.add_object(source.host_object(actor_id).unwrap().clone());
             assert_eq!(
                 adjusted(&peer, actor_id),

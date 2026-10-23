@@ -37,6 +37,7 @@ impl GameLogic {
         // Player.cpp444–469 init(NULL): no template or authored side overrides.
         let mut player = Player::new(id, Team::Neutral, "", false);
         player.map_side.role = PlayerSideRole::Neutral;
+        player.map_side.map_player_name.clear();
         player.resources.supplies = 0;
         player.color_rgb = (255, 255, 255);
         player.color_night_rgb = (255, 255, 255);
@@ -63,6 +64,7 @@ impl GameLogic {
         // PlayerList::newGame initializes again even for an existing named
         // side. This is an admission operation, never a query/restore hook.
         player.resources.supplies = self.skirmish_rules.starting_cash;
+        player.apply_map_side_identity_from_dict(dict);
         self.add_player(player);
         if let Some(identity) =
             PlayerTemplateIdentity::from_exact_name(&dict.get_ascii_string(key_player_faction()))

@@ -952,6 +952,8 @@ pub(super) fn capture_team_factory_chunk(
         let team = team_arc
             .read()
             .map_err(|e| SaveLoadError::Corrupted(e.to_string()))?;
+        team.validate_creation_snapshot()
+            .map_err(SaveLoadError::Corrupted)?;
         let mut generic_script_attempts = Vec::with_capacity(MAX_GENERIC_SCRIPTS);
         for i in 0..MAX_GENERIC_SCRIPTS {
             generic_script_attempts.push(team.should_attempt_generic_script(i));
@@ -1475,5 +1477,128 @@ mod tests {
         let restored = restored.read().expect("restored team");
         assert!(restored.is_active());
         assert_eq!(restored.get_state().to_string(), "SourceState");
+    }
+}
+
+#[cfg(test)]
+mod legacy_script_identity_import_tests {
+    use super::*;
+    #[test]
+    fn released_empty_participant_identity_imports_saved_name_once() {
+        use crate::game_logic::{GameLogic, Player, Team};
+        use crate::save_load::{SnapshotBuilder, snapshot::decode_bincode_world_snapshot};
+        let mut source = GameLogic::new();
+        source.add_player(
+            Player::new(1, Team::USA, "LegacyLabel", true).with_script_identity("LegacyLabel"),
+        );
+        let builder = SnapshotBuilder::new();
+        let mut saved = builder.create_world_snapshot(&source).unwrap();
+        let mut chunks = super::super::player_team_chunks::stamp_from_live(&source).unwrap();
+        let row = &mut chunks.players.as_mut().unwrap().players[0];
+        row.host_side_identity = Some(HostSideIdentityPersist {
+            role: PlayerSideRole::Participant,
+            authored_name: String::new(),
+            start_position: -1,
+        });
+        super::super::player_team_chunks::bind_chunks_to_world(&mut saved, &chunks).unwrap();
+        let bytes = bincode_legacy::serialize(&saved).unwrap();
+        let decoded = decode_bincode_world_snapshot(&bytes).unwrap();
+        // Legacy map content retains its original authored Team definition.
+        // Import never renames or invents another prototype from current labels.
+        let mut world = GameLogic::new();
+        world.add_player(
+            Player::new(1, Team::USA, "Receiving Label", true).with_script_identity("LegacyLabel"),
+        );
+        world.clear_all_players();
+        builder.restore_from_snapshot(&decoded, &mut world).unwrap();
+        assert_eq!(
+            world.get_player(1).unwrap().script_identity(),
+            Some("LegacyLabel")
+        );
+        assert_eq!(
+            world.default_host_team_instance_name(Some(1), Team::USA),
+            "teamLegacyLabel"
+        );
+        world.get_player_mut(1).unwrap().name = "New Display".into();
+        assert_eq!(
+            world.default_host_team_instance_name(Some(1), Team::USA),
+            "teamLegacyLabel"
+        );
+        let future = builder.create_world_snapshot(&world).unwrap();
+        let players = super::super::player_team_chunks::chunks_from_world(&future)
+            .unwrap()
+            .players
+            .unwrap();
+        assert_eq!(
+            players.players[0]
+                .host_side_identity
+                .as_ref()
+                .unwrap()
+                .authored_name,
+            "LegacyLabel"
+        );
+    }
+    #[test]
+    fn absent_legacy_identity_without_saved_controller_rejects_before_players_change() {
+        use crate::game_logic::{GameLogic, Player, Team};
+        use crate::save_load::SnapshotBuilder;
+        let mut source = GameLogic::new();
+        source.add_player(
+            Player::new(1, Team::USA, "Old Label", true).with_script_identity("Old Label"),
+        );
+        let builder = SnapshotBuilder::new();
+        let mut saved = builder.create_world_snapshot(&source).unwrap();
+        saved.version = 24;
+        let mut chunks = super::super::player_team_chunks::stamp_from_live(&source).unwrap();
+        chunks.players.as_mut().unwrap().players[0].host_side_identity = None;
+        chunks.teams.as_mut().unwrap().teams[0].controller = None;
+        super::super::player_team_chunks::bind_chunks_to_world(&mut saved, &chunks).unwrap();
+        let mut receiver = GameLogic::new();
+        receiver.add_player(
+            Player::new(1, Team::USA, "Receiving Label", true).with_script_identity("Old Label"),
+        );
+        let error = builder
+            .restore_from_snapshot(&saved, &mut receiver)
+            .unwrap_err();
+        assert!(error.to_string().contains("exact saved default Team"));
+        assert_eq!(receiver.get_player(1).unwrap().name, "Receiving Label");
+        assert_eq!(
+            receiver.get_player(1).unwrap().script_identity(),
+            Some("Old Label")
+        );
+    }
+
+    #[test]
+    fn legacy_missing_identity_recovers_reserved_neutral_from_receiving_team_not_label() {
+        use crate::game_logic::{GameLogic, Player, Team};
+        use crate::save_load::SnapshotBuilder;
+        fn neutral(world: &mut GameLogic, label: &str) {
+            let mut player = Player::new(0, Team::Neutral, label, false);
+            let mut dict = game_engine::common::dict::Dict::new();
+            dict.set_ascii_string(game_engine::common::well_known_keys::key_player_name(), "");
+            player.apply_map_side_dict(&dict, false, &mut Default::default());
+            world.add_player(player);
+        }
+        let mut source = GameLogic::new();
+        neutral(&mut source, "Old Neutral Label");
+        let builder = SnapshotBuilder::new();
+        let mut saved = builder.create_world_snapshot(&source).unwrap();
+        saved.version = 24;
+        let mut chunks = super::super::player_team_chunks::stamp_from_live(&source).unwrap();
+        chunks.players.as_mut().unwrap().players[0].host_side_identity = None;
+        super::super::player_team_chunks::bind_chunks_to_world(&mut saved, &chunks).unwrap();
+        let mut receiver = GameLogic::new();
+        neutral(&mut receiver, "New Receiving Label");
+        receiver.clear_all_players();
+        builder
+            .restore_from_snapshot(&saved, &mut receiver)
+            .unwrap();
+        assert!(receiver.get_player(0).unwrap().is_reserved_neutral());
+        assert_eq!(receiver.get_player(0).unwrap().script_identity(), Some(""));
+        assert_eq!(
+            receiver.default_host_team_instance_name(Some(0), Team::Neutral),
+            "team"
+        );
+        assert_eq!(receiver.get_player(0).unwrap().name, "Old Neutral Label");
     }
 }

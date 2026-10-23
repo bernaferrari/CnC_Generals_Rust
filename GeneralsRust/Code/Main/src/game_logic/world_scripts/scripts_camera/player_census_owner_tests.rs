@@ -130,9 +130,13 @@ fn built_by_player_requires_owned_literal_definition_before_type_list_expansion(
 #[test]
 fn owned_census_reads_effective_energy_without_destroying_sabotaged_owner_counter() {
     let mut owner = GameLogic::new();
-    owner.add_player(Player::new(1, Team::USA, "NamedOwner", true));
+    owner.add_player(
+        Player::new(1, Team::USA, "NamedOwner", true).with_script_identity("NamedOwner"),
+    );
     let mut peer = GameLogic::new();
-    peer.add_player(Player::new(1, Team::USA, "NamedOwner", true));
+    peer.add_player(
+        Player::new(1, Team::USA, "NamedOwner", true).with_script_identity("NamedOwner"),
+    );
     owner.frame = 37;
     let player = owner.players.get_mut(&1).unwrap();
     player.power_produced = 20;

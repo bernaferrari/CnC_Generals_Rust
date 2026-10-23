@@ -11,6 +11,7 @@ mod create_destroy_die;
 mod damage_application;
 mod destroy_list_bounty;
 mod direct_destroy;
+mod energy_influence;
 mod field_lifetime;
 pub(crate) mod fog_ghosts;
 mod host_ops_writeback;

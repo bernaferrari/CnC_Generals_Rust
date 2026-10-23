@@ -179,3 +179,117 @@ fn original_mode_fallbacks_and_deferred_modes_are_explicit_and_do_not_consume_ow
             .contains("deferred")
     );
 }
+
+/// This covers only the existing mapless logical manager API. Retail/native
+/// Replay restore stays rejected by offline_restore_mode_for_save; original
+/// QuitMenu.cpp341-350 deliberately hides save/load during Replay.
+#[test]
+fn actual_mapless_replay_writer_load_selects_saved_observer_without_bootstrap_owner() {
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "actual_mapless_replay_writer_load_selects_saved_observer_without_bootstrap_owner",
+        || {
+            crate::skirmish_config::lobby_definition_tests::admit_slot_definitions();
+            let directory = tempfile::tempdir().unwrap();
+            let mut saves = SaveFileManager::with_save_directory(directory.path());
+            saves.init().unwrap();
+            let mut source = GameLogic::new();
+            source.start_new_game(GameMode::Replay);
+            source.set_current_frame(123);
+            let saved_observer = source.replay_observer_player_id().unwrap();
+            assert!(source.get_player(saved_observer).unwrap().is_local);
+            assert!(
+                source
+                    .get_players()
+                    .values()
+                    .any(|player| player.id != saved_observer && player.is_human),
+                "the real Replay bootstrap supplies an earlier human, making fallback-local selection distinguishable"
+            );
+            let mut metadata = info("mapless_replay");
+            metadata.map_name = directory
+                .path()
+                .join("missing-mapless-replay-foundation.map")
+                .to_string_lossy()
+                .into_owned();
+            assert!(crate::game_logic::script_loader::find_map_file(&metadata.map_name).is_none());
+            saves
+                .save_game("mapless_replay", &source, &metadata)
+                .unwrap();
+            let decoded = saves.load_game_snapshot("mapless_replay").unwrap();
+            assert_eq!(
+                decoded
+                    .saved_game_mode
+                    .and_then(crate::save_load::live_game_mode_from_cpp),
+                Some(GameMode::Replay)
+            );
+            assert!(
+                crate::save_load::snapshot::initial_skirmish::read(&decoded.snapshot)
+                    .unwrap()
+                    .is_none()
+            );
+            let saved =
+                crate::save_load::snapshot::player_team_chunks_from_world(&decoded.snapshot)
+                    .unwrap();
+            let observer = saved
+                .players
+                .as_ref()
+                .unwrap()
+                .players
+                .iter()
+                .find(|player| player.player_id == saved_observer)
+                .unwrap();
+            assert_eq!(
+                observer.host_side_identity.as_ref().unwrap().role,
+                crate::game_logic::PlayerSideRole::ReplayObserver
+            );
+            assert_eq!(
+                observer.host_side_identity.as_ref().unwrap().authored_name,
+                "ReplayObserver"
+            );
+
+            let mut receiving = GameLogic::new();
+            receiving.start_new_game(GameMode::Replay);
+            let mut peer = GameLogic::new();
+            peer.start_new_game(GameMode::Replay);
+            peer.set_current_frame(987);
+            let roster = |world: &GameLogic| {
+                let mut rows = world
+                    .get_players()
+                    .values()
+                    .map(|player| {
+                        (
+                            player.id,
+                            player.script_identity().map(str::to_owned),
+                            player.is_local,
+                            player.resources.supplies,
+                            player.name.clone(),
+                        )
+                    })
+                    .collect::<Vec<_>>();
+                rows.sort_by_key(|row| row.0);
+                rows
+            };
+            let peer_before = roster(&peer);
+            saves.load_game("mapless_replay", &mut receiving).unwrap();
+            assert_eq!(receiving.game_mode(), GameMode::Replay);
+            assert_eq!(receiving.get_current_frame(), 123);
+            assert_eq!(receiving.replay_observer_player_id(), Some(saved_observer));
+            let observer = receiving.get_player(saved_observer).unwrap();
+            assert_eq!(
+                observer.map_side.role,
+                crate::game_logic::PlayerSideRole::ReplayObserver
+            );
+            assert_eq!(observer.script_identity(), Some("ReplayObserver"));
+            assert!(observer.is_local);
+            assert!(
+                receiving
+                    .get_players()
+                    .values()
+                    .filter(|player| player.id != saved_observer)
+                    .all(|player| !player.is_local)
+            );
+            assert_eq!(roster(&peer), peer_before);
+            assert_eq!(peer.get_current_frame(), 987);
+        },
+    );
+}

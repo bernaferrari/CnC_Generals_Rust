@@ -31,7 +31,8 @@ impl GameLogic {
         ensure_default_team_definition(
             &mut factory,
             &name,
-            super::teams::default_team_owner_name(player).unwrap_or(&player.name),
+            super::teams::default_team_owner_name(player)
+                .expect("Player script identity must precede default Team admission"),
             player_id,
         );
         let team = factory

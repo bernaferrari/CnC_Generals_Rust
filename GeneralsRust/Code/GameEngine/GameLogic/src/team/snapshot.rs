@@ -7,6 +7,7 @@
 /// Matches C++ Team::xfer (Team.cpp:2547, version 1).
 impl Snapshotable for Team {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        self.validate_creation_snapshot()?;
         let current_version: XferVersion = 1;
         let mut version = current_version;
         xfer.xfer_version(&mut version, current_version)
@@ -112,6 +113,8 @@ impl Snapshotable for Team {
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        // Loading fields cannot overwrite a running or failed creation owner.
+        self.validate_creation_snapshot()?;
         // C++ Team::xfer version 1
         let current_version: XferVersion = 1;
         let mut version = current_version;
@@ -152,6 +155,9 @@ impl Snapshotable for Team {
         let mut state = self.state.to_string();
         xfer.xfer_ascii_string(&mut state)
             .map_err(|e| e.to_string())?;
+        if xfer.get_xfer_mode() == XferMode::Load {
+            self.state = state.into();
+        }
 
         // Status flags
         xfer.xfer_bool(&mut self.entered_or_exited)
@@ -321,3 +327,102 @@ impl game_engine::common::thing::thing_factory::Team for Team {
     }
 }
 
+#[cfg(test)]
+mod creation_xfer_admission_tests {
+    use super::*;
+    use game_engine::common::system::{xfer_load::XferLoad, xfer_save::XferSave};
+    use std::io::Cursor;
+
+    fn ready_bytes() -> Vec<u8> {
+        let mut source = Team::new("WireReady".into(), 42);
+        source.state = "Attacking".into();
+        source.members = vec![7, 9];
+        source.active = true;
+        source.created = true;
+        source.entered_or_exited = true;
+        source.current_waypoint_id = Some(91);
+        let mut bytes = Cursor::new(Vec::new());
+        source.xfer(&mut XferSave::new(&mut bytes, 1)).unwrap();
+        bytes.into_inner()
+    }
+
+    fn rejects_before_read(mut target: Team, expected: &str) {
+        let wire = ready_bytes();
+        target.members = vec![100, 200];
+        target.active = false;
+        target.created = false;
+        target.entered_or_exited = false;
+        target.current_waypoint_id = Some(3);
+        let before = format!("{target:?}");
+        let mut input = Cursor::new(wire);
+        {
+            let mut load = XferLoad::new(&mut input, 1);
+            let error = target.xfer(&mut load).unwrap_err();
+            assert!(error.contains(expected), "{error}");
+            assert_eq!(
+                load.bytes_read(),
+                0,
+                "no version, ID or roster bytes may be consumed"
+            );
+        }
+        assert_eq!(
+            input.position(),
+            0,
+            "underlying Common XferLoad cursor remains untouched"
+        );
+        assert_eq!(
+            format!("{target:?}"),
+            before,
+            "roster, gameplay state and exact admission receipt remain unchanged"
+        );
+    }
+
+    #[test]
+    fn running_team_load_rejects_before_cursor_or_roster_mutation() {
+        let mut target = Team::new("Running".into(), 42);
+        target.begin_creation_actions();
+        target.begin_creation_actions();
+        rejects_before_read(target, "running creation actions");
+    }
+
+    #[test]
+    fn failed_team_load_rejects_before_cursor_or_roster_mutation() {
+        let mut target = Team::new("Failed".into(), 42);
+        target.begin_creation_actions();
+        target.finish_creation_actions(Err("original exact failure".into()));
+        rejects_before_read(target, "original exact failure");
+    }
+
+    #[test]
+    fn ready_team_uses_unchanged_actual_common_xfer_roundtrip() {
+        let wire = ready_bytes();
+        let mut input = Cursor::new(wire.clone());
+        let mut target = Team::new("ReceivingLabel".into(), 42);
+        target.state = "Receiving".into();
+        target.members = vec![1234];
+        {
+            let mut load = XferLoad::new(&mut input, 1);
+            target.xfer(&mut load).unwrap();
+            assert_eq!(load.bytes_read(), wire.len() as u64);
+        }
+        assert_eq!(input.position(), wire.len() as u64);
+        assert_eq!(
+            target.state.as_str(),
+            "Attacking",
+            "CPP Team.cpp2613 restores m_state"
+        );
+        assert_eq!(target.members, [7, 9]);
+        assert!(target.active && target.created && target.entered_or_exited);
+        assert_eq!(target.current_waypoint_id, Some(91));
+        assert!(!target.creation_is_running());
+        assert!(target.creation_failure().is_none());
+        target.validate_creation_snapshot().unwrap();
+        let mut output = Cursor::new(Vec::new());
+        target.xfer(&mut XferSave::new(&mut output, 1)).unwrap();
+        assert_eq!(
+            output.into_inner(),
+            wire,
+            "Ready wire has no added creation-phase fields"
+        );
+    }
+}

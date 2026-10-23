@@ -600,7 +600,8 @@ impl GameLogic {
                         // apply_skirmish_config slots/AI on Lone Eagle-style loads.
                         if !map_player_to_team.is_empty() {
                             let preserve_host_players = (self.uses_lobby_side_foundation()
-                                || self.game_mode == GameMode::SinglePlayer)
+                                || self.game_mode == GameMode::SinglePlayer
+                                || self.prepared_side_identity_is_complete())
                                 && !self.players.is_empty();
                             if preserve_host_players {
                                 log::info!(
@@ -609,7 +610,10 @@ impl GameLogic {
                                 );
                                 // C++ prepares occupied Skirmish slots from GameInfo,
                                 // not the authored map's Civilian/player dictionaries.
-                                if self.game_mode != GameMode::Skirmish {
+                                if self.game_mode != GameMode::Skirmish
+                                    && (self.uses_lobby_side_foundation()
+                                        || !self.prepared_side_identity_is_complete())
+                                {
                                     self.apply_host_players_from_sides_list(false);
                                 }
                             } else {
@@ -636,16 +640,6 @@ impl GameLogic {
                                 continue;
                             }
 
-                            let team = obj
-                                .team_name
-                                .as_deref()
-                                .and_then(Self::team_from_string)
-                                .or_else(|| {
-                                    obj.player_id
-                                        .and_then(|pid| map_player_to_team.get(&pid).cloned())
-                                })
-                                .or_else(|| Self::team_from_template_name(obj.template.as_str()))
-                                .unwrap_or(Team::Neutral);
                             let mut spawn_position =
                                 Vec3::new(obj.position.x, obj.position.z, obj.position.y);
                             if let Some(ground_height) = self.terrain_height_at(Vec3::new(
@@ -656,19 +650,12 @@ impl GameLogic {
                                 // Match C++ map-object placement: map z-offset sits on top of terrain.
                                 spawn_position.y += ground_height;
                             }
-                            let owner_player_id = obj.player_id.filter(|player_id| {
-                                self.players
-                                    .get(player_id)
-                                    .is_some_and(|player| player.is_alive && player.team == team)
-                            });
                             let mut effects = native
                                 .as_mut()
                                 .map(|native| native.effects())
                                 .unwrap_or_default();
-                            let created = match self.create_map_object_with_effects_checked(
-                                obj.template.as_str(),
-                                team,
-                                owner_player_id,
+                            let created = match self.create_placed_map_object_with_effects_checked(
+                                obj,
                                 spawn_position,
                                 &mut effects,
                             ) {
@@ -678,28 +665,8 @@ impl GameLogic {
                                     return false;
                                 }
                             };
-                            if let Some(id) = created {
-                                if let Some(team_name) = obj
-                                    .team_name
-                                    .as_deref()
-                                    .map(str::trim)
-                                    .filter(|name| !name.is_empty())
-                                {
-                                    if let Some(created) = self.objects.get_mut(&id) {
-                                        created.team_instance_name = team_name.to_string();
-                                    }
-                                    if let Err(error) = self
-                                        .admit_team_for_host_object_with_effects_checked(
-                                            id,
-                                            None,
-                                            true,
-                                            &mut effects,
-                                        )
-                                    {
-                                        log::error!("Map team callback rejected: {error}");
-                                        return false;
-                                    }
-                                }
+                            if let Some(birth) = created {
+                                let id = birth.id;
                                 spawned_object_ids.push((id, index));
                                 self.apply_update_obj_values_from_map_properties_with_effects(
                                     id,
@@ -772,6 +739,10 @@ impl GameLogic {
                                                 .unwrap_or_default(),
                                         );
                                     }
+                                }
+                                if let Err(error) = birth.activate(self) {
+                                    log::error!("Map Team activation rejected: {error}");
+                                    return false;
                                 }
                             }
                         }

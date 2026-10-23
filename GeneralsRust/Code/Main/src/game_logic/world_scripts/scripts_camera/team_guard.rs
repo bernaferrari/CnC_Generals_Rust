@@ -8,6 +8,9 @@ impl GameLogic {
         calling_team: Option<u32>,
         condition_team: Option<u32>,
     ) -> gamelogic::GameLogicResult<Option<(u32, Vec<u32>)>> {
+        if let Some(error) = self.team_creation_error() {
+            return Err(error);
+        }
         let factory = self
             .team_factory
             .lock()
@@ -55,6 +58,9 @@ impl GameLogic {
         let team = team
             .read()
             .map_err(|error| gamelogic::GameLogicError::Threading(error.to_string()))?;
+        if let Some(reason) = team.creation_failure() {
+            return Err(gamelogic::GameLogicError::TeamCreationFailed(reason.into()));
+        }
         Ok(Some((team.get_id(), team.get_members().to_vec())))
     }
 

@@ -372,6 +372,25 @@ impl Player {
     /// C++ `GameCommon.h MAX_PLAYER_COUNT`.
     pub const MAX_ATTACKED_BY_PLAYERS: usize = 16;
 
+    pub(crate) fn script_identity(&self) -> Option<&str> {
+        if self.is_reserved_neutral() {
+            return Some("");
+        }
+        (!self.map_side.map_player_name.is_empty())
+            .then_some(self.map_side.map_player_name.as_str())
+    }
+
+    /// Admit an authored playerName before publishing this detached Player.
+    /// The display label is independent, as Player::initFromDict does in CPP.
+    pub fn with_script_identity(mut self, identity: &str) -> Self {
+        assert!(
+            !identity.is_empty(),
+            "authored participant identity cannot be empty"
+        );
+        self.map_side.map_player_name = identity.to_owned();
+        self
+    }
+
     pub fn new(id: u32, team: Team, name: &str, is_human: bool) -> Self {
         Self {
             id,
@@ -427,7 +446,12 @@ impl Player {
             sciences_disabled: HashSet::new(),
             sciences_hidden: HashSet::new(),
 
-            map_side: PlayerMapSideState::default(),
+            // A non-map session still has an exact immutable input identity.
+            // Labels may repeat or change; they never select a Team owner.
+            map_side: PlayerMapSideState {
+                map_player_name: format!("RustPlayer{id}"),
+                ..Default::default()
+            },
             completed_upgrades: HashSet::new(),
             resource_supply_centers: Vec::new(),
             resource_supply_warehouses: Vec::new(),
@@ -1357,17 +1381,9 @@ impl Player {
 
     /// The map-create path deposits authored money after template initialization.
     /// Lobby owners already received their GameInfo cash (`apply_money=false`).
-    pub fn apply_map_side_dict(
-        &mut self,
-        dict: &Dict,
-        apply_money: bool,
-        economy_events: &mut crate::game_logic::host_economy_log::EconomyEvents,
-    ) {
-        // C++ Player::initFromDict chooses controller from the authored side,
-        // never from local-player identity or whether strategic AI is active.
-        if apply_money || dict.get_type(key_player_is_human()).is_some() {
-            self.is_human = dict.get_bool(key_player_is_human());
-        }
+    /// PlayerName/role is admitted before publication and default Team lookup.
+    /// Full template/color/handicap/deposit initialization keeps its source phase.
+    pub(in crate::game_logic) fn apply_map_side_identity_from_dict(&mut self, dict: &Dict) {
         let map_name = dict.get_ascii_string(key_player_name());
         if dict.get_type(key_player_name()).is_some() {
             self.map_side.role = match map_name.as_str() {
@@ -1382,6 +1398,20 @@ impl Player {
             };
             self.map_side.map_player_name = map_name;
         }
+    }
+
+    pub fn apply_map_side_dict(
+        &mut self,
+        dict: &Dict,
+        apply_money: bool,
+        economy_events: &mut crate::game_logic::host_economy_log::EconomyEvents,
+    ) {
+        // C++ Player::initFromDict chooses controller from the authored side,
+        // never from local-player identity or whether strategic AI is active.
+        if apply_money || dict.get_type(key_player_is_human()).is_some() {
+            self.is_human = dict.get_bool(key_player_is_human());
+        }
+        self.apply_map_side_identity_from_dict(dict);
 
         if dict.get_type(key_player_color()).is_some() {
             let color = dict.get_int(key_player_color()) as u32;

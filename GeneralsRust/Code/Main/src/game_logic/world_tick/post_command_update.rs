@@ -860,6 +860,9 @@ impl GameLogic {
 
         // Phase 8: C++ AI::update — pathfinding, then this match's players.
         self.update_match_ai_with_effects(&mut ui);
+        if let Some(error) = self.team_creation_error() {
+            return SimulationStepOutcome::Failed(error);
+        }
 
         // Phase 8b: Apply commands queued by AI this frame (C++ CommandList drain
         // after TheAI->UPDATE). Ensures same-frame set_target/move logs reach

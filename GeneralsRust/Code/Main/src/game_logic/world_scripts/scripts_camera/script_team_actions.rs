@@ -1035,6 +1035,7 @@ impl GameLogic {
             if request.team == gamelogic::scripting::core::THIS_TEAM {
                 return Ok(());
             }
+            self.require_owned_team_creation_interpreter(request.team, true, interpreter)?;
             let creation = self
                 .team_factory
                 .lock()
@@ -1050,7 +1051,7 @@ impl GameLogic {
                 team.get_id()
             };
             created_identity = Some(team.clone());
-            self.run_team_creation_effects_with_effects(effects, interpreter, ui)?;
+            self.run_owned_team_creation_actions(&team, effects, interpreter, ui)?;
             if let Some(current) = self
                 .team_factory
                 .lock()
@@ -1176,6 +1177,8 @@ impl GameLogic {
                 pos.y = h;
             }
         }
+        self.require_owned_team_creation_interpreter(team_name, false, interpreter)
+            .ok()?;
         let selected = {
             let mut factory = self.team_factory.lock().ok()?;
             factory
@@ -1185,7 +1188,7 @@ impl GameLogic {
         let id = if let Some((selected, effects)) = selected {
             let identity = selected.read().ok()?.get_id();
             if let Err(error) =
-                self.run_team_creation_effects_with_effects(effects, interpreter, ui)
+                self.run_owned_team_creation_actions(&selected, effects, interpreter, ui)
             {
                 log::error!("script object creation callback failed: {error}");
                 return None;
@@ -1276,6 +1279,12 @@ impl GameLogic {
                 origin = start_pos;
             }
         }
+        if let Err(error) =
+            self.require_owned_team_creation_interpreter(team_name, true, interpreter)
+        {
+            log::error!("reinforcement Team creation failed: {error}");
+            return;
+        }
         // C++510 creates one inactive instance before any transport/member.
         let created = self
             .team_factory
@@ -1289,7 +1298,7 @@ impl GameLogic {
             .read()
             .unwrap_or_else(|error| error.into_inner())
             .get_id();
-        if let Err(error) = self.run_team_creation_effects_with_effects(effects, interpreter, ui) {
+        if let Err(error) = self.run_owned_team_creation_actions(&team, effects, interpreter, ui) {
             log::error!("reinforcement creation callback failed: {error}");
             return;
         }

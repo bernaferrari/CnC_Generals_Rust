@@ -362,3 +362,228 @@ fn actual_native_destructor_observes_unregistered_object_and_terminal_service_fa
         );
     }
 }
+
+struct PanicAfterActualFactoryBirth<'a, 'b> {
+    runtime: &'a mut NativeRendererViewEffects<'b>,
+    born: Option<ObjectId>,
+    calls: usize,
+}
+impl NativeViewEffects for PanicAfterActualFactoryBirth<'_, '_> {
+    fn local_player_id(&self) -> u32 {
+        self.runtime.local_player_id()
+    }
+    fn host_epoch(&self) -> u64 {
+        self.runtime.host_epoch()
+    }
+    fn sample_slave(&mut self, source: &NativeSlaveSource, bone: &str) -> SlaveCameraSample {
+        self.runtime.sample_slave(source, bone)
+    }
+    fn admit_factory_drawable(
+        &mut self,
+        source: crate::game_logic::NativeFactoryDrawableSource,
+        birth: game_client::core::game_client::NativeDrawableBirthContext,
+        content: &mut game_engine::common::thing::module_factory::ModuleFactory,
+    ) -> Result<(), String> {
+        let id = ObjectId(source.drawable.object_id);
+        self.runtime
+            .admit_factory_drawable(source, birth, content)?;
+        self.born = Some(id);
+        self.calls += 1;
+        panic!("actual receiving factory service panic after native birth")
+    }
+    fn retire_physical_object_drawable(
+        &mut self,
+        source: &crate::game_logic::NativeObjectRetirement<'_>,
+    ) -> Result<(), String> {
+        self.runtime.retire_physical_object_drawable(source)
+    }
+}
+#[test]
+#[ignore = "requires native WGPU; actual receiving factory panic continuation"]
+fn actual_team_creation_panic_retains_exact_team_partial_native_life_and_peer() {
+    use game_engine::common::{dict::Dict, well_known_keys::*};
+    use gamelogic::scripting::core::{
+        Parameter, ParameterType, Script, ScriptAction, ScriptActionType, ScriptList,
+    };
+    ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
+        width: 32,
+        height: 32,
+        ..Default::default()
+    })
+    .unwrap();
+    struct Scope;
+    impl Drop for Scope {
+        fn drop(&mut self) {
+            let _ = ww3d_engine::shutdown();
+        }
+    }
+    let _scope = Scope;
+    let mut graphics = GraphicsSystem::new(
+        ww3d_engine::device().unwrap(),
+        ww3d_engine::queue().unwrap(),
+        ww3d_engine::color_format().unwrap(),
+        ww3d_engine::depth_format().unwrap(),
+    )
+    .unwrap();
+    graphics.cache_model(
+        crate::assets::mesh_asset_resolve::canonical_model_key("CameraModel"),
+        model("CameraModel", 0.),
+    );
+    let mut pipeline = RenderPipeline::initialize(&graphics).unwrap();
+    let mut client = GameClient::new().unwrap();
+    let mut peer_pipeline = RenderPipeline::initialize(&graphics).unwrap();
+    let mut peer_client = GameClient::new().unwrap();
+    let mut world = physical_retirement_world();
+    let mut peer = physical_retirement_world();
+    let peer_id = birth_physical_retirement_actor(
+        &mut peer,
+        "StrictFactoryOwner",
+        Vec3::new(303., 0., 0.),
+        &mut peer_client,
+        &mut peer_pipeline,
+        &mut graphics,
+        EPOCH + 1,
+    );
+    let mut player = crate::game_logic::Player::new(1, Team::USA, "PanicOwner", true);
+    player.map_side.map_player_name = "PanicOwner".into();
+    world.add_player(player);
+    let mut dict = Dict::new();
+    dict.set_bool(key_team_executes_actions_on_create(), true);
+    dict.set_ascii_string(key_team_production_condition(), "NativePanicCreate");
+    world
+        .team_factory
+        .lock()
+        .unwrap()
+        .init_team_owned(
+            "NativePanicTeam".into(),
+            "PanicOwner".into(),
+            false,
+            Some(&dict),
+            Some(1),
+        )
+        .unwrap();
+    let mut action = ScriptAction::new(ScriptActionType::CreateObject);
+    for parameter in [
+        Parameter::with_string(ParameterType::ObjectType, "StrictFactoryOwner".into()),
+        Parameter::with_string(ParameterType::Team, "NativePanicTeam".into()),
+        Parameter::with_coord(
+            ParameterType::Coord3D,
+            gamelogic::common::Coord3D::new(3., 5., 7.),
+        ),
+        Parameter::with_real(ParameterType::Angle, 0.),
+    ] {
+        action.add_parameter(parameter).unwrap();
+    }
+    let mut script = Script::new();
+    script.script_name = "NativePanicCreate".into();
+    script.is_subroutine = true;
+    script.action = Some(Box::new(action));
+    let mut list = ScriptList::new();
+    list.append_script(Box::new(script));
+    let mut interpreter = gamelogic::scripting::engine::ScriptEngine::new().unwrap();
+    interpreter
+        .set_script_list_for_player(0, Some(Box::new(list)))
+        .unwrap();
+    world.install_owned_script_engine(interpreter);
+    let make_incoming = || {
+        let mut actor = Object::new(
+            ThingTemplate::new("ExternalPanicPrimary"),
+            ObjectId(990),
+            Team::USA,
+        );
+        actor.owner_player_id = Some(1);
+        actor.team_instance_name = "NativePanicTeam".into();
+        actor
+    };
+    let born = with_physical_retirement_view(
+        &mut client,
+        &mut pipeline,
+        &mut graphics,
+        EPOCH,
+        |runtime| {
+            let mut service = PanicAfterActualFactoryBirth {
+                runtime,
+                born: None,
+                calls: 0,
+            };
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                world.try_add_object_with_effects(
+                    make_incoming(),
+                    &mut crate::game_logic::ScriptPresentationEffects {
+                        view: Some(&mut service),
+                        ..Default::default()
+                    },
+                )
+            }));
+            assert!(result.is_err());
+            assert_eq!(service.calls, 1);
+            service.born.unwrap()
+        },
+    );
+    assert_eq!(
+        born, peer_id,
+        "same numeric identity is independent of receiving Client"
+    );
+    let exact = world
+        .team_factory
+        .lock()
+        .unwrap()
+        .get_all_teams()
+        .into_iter()
+        .find(|team| team.read().unwrap().get_name().as_str() == "NativePanicTeam")
+        .unwrap();
+    assert!(
+        exact
+            .read()
+            .unwrap()
+            .creation_failure()
+            .unwrap()
+            .contains("panicked")
+    );
+    assert!(!exact.read().unwrap().creation_is_running());
+    assert!(world.host_object(born).is_some());
+    assert!(world.host_object(ObjectId(990)).is_none());
+    assert!(world.owned_script_engine.is_some());
+    with_physical_retirement_view(
+        &mut client,
+        &mut pipeline,
+        &mut graphics,
+        EPOCH,
+        |runtime| {
+            assert!(runtime.drawables.binding_key(EPOCH, born.0).is_some());
+        },
+    );
+    assert!(
+        crate::save_load::SnapshotBuilder::new()
+            .create_world_snapshot_with_client(&world, &client)
+            .is_err()
+    );
+    let error = world.try_add_object(make_incoming()).unwrap_err();
+    assert!(error.to_string().contains("panicked"));
+    let same = world
+        .team_factory
+        .lock()
+        .unwrap()
+        .find_team_by_id(exact.read().unwrap().get_id())
+        .unwrap();
+    assert!(std::sync::Arc::ptr_eq(&same, &exact));
+    assert_eq!(
+        peer.host_object(peer_id).unwrap().get_position(),
+        Vec3::new(303., 0., 0.)
+    );
+    with_physical_retirement_view(
+        &mut peer_client,
+        &mut peer_pipeline,
+        &mut graphics,
+        EPOCH + 1,
+        |runtime| {
+            assert!(
+                runtime
+                    .drawables
+                    .binding_key(EPOCH + 1, peer_id.0)
+                    .is_some()
+            );
+        },
+    );
+    assert!(peer.team_creation_error().is_none());
+}

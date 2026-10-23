@@ -160618,7 +160618,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "d4669bbd28e932e91ad441e55c31b9821ae92f80a11eef624202c87ea6fc9384",
+  "input_digest": "ad988a722b857f0b03c35bc694fa44e3dcfead37a3d6fc5fbd660abc1d9aa7c4",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -211241,11 +211241,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1418,
+        "end_line": 1528,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/team/factory.rs",
-      "sha256": "66e85c86d01e4b2ebd897694d38d94eb58e29349cb0e4e98b387c9c93abec271",
+      "sha256": "bf862c9bae8f7610b54e8d97acb59f9f42fe37c852208d28870f61eb3b365518",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -211337,11 +211337,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 324,
+        "end_line": 429,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/team/snapshot.rs",
-      "sha256": "c52c4f7bfc26cd107806da3295eb1ddcb917c99d68e5811df905fa83690b2353",
+      "sha256": "92fc186acd2ec0d38f0f684b2bd41f7aeea52f4ea1afe0efcf2b510f4515df72",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -211385,11 +211385,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 365,
+        "end_line": 418,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/team/team_identity.rs",
-      "sha256": "6591d9ec8d5e63ee828038f424087e63ba18e75e5c0a6c715657ce123bfc4b9c",
+      "sha256": "bab1102193d57822ed11fd2c793aeff0262d0347f9cefe462680565aef229c1e",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -211421,11 +211421,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 66,
+        "end_line": 78,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/team/team_struct.rs",
-      "sha256": "86ec014e83762596d0586e1f548aa2f02e8a184d7c6b898c108b6068609854aa",
+      "sha256": "5c5dd4896410ff8604e65a5cdf304ca7374a4c16f030b38245a1494250323f37",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },

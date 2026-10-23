@@ -1517,10 +1517,63 @@ impl GameLogic {
 
     /// Add a player directly (for snapshot restoration)
     pub fn add_player(&mut self, player: Player) {
+        self.try_add_player(player)
+            .expect("Player admission requires an exact unambiguous script identity");
+    }
+
+    pub fn try_add_player(&mut self, player: Player) -> gamelogic::GameLogicResult<()> {
+        let invalid = |text: &str| gamelogic::GameLogicError::Configuration(text.into());
+        let owner = player
+            .script_identity()
+            .ok_or_else(|| invalid("Player has no admitted script identity"))?;
+        if self
+            .players
+            .get(&player.id)
+            .is_some_and(|current| current.script_identity() != Some(owner))
+        {
+            return Err(invalid(
+                "existing Player controller cannot be replaced by a different script identity",
+            ));
+        }
+        if self
+            .players
+            .values()
+            .any(|other| other.id != player.id && other.script_identity() == Some(owner))
+        {
+            return Err(invalid(
+                "Player script identity already belongs to another controller",
+            ));
+        }
+        let name = format!("team{owner}");
+        let factory = self
+            .team_factory
+            .lock()
+            .map_err(|_| invalid("Player Team owner is poisoned"))?;
+        if let Some(prototype) = factory.find_team_prototype(&name) {
+            let controller_matches = factory
+                .owned_team_prototypes_for_controller(player.id)
+                .iter()
+                .any(|owned| std::sync::Arc::ptr_eq(owned, &prototype));
+            let instances_match = factory.find_team_instances(&name).iter().all(|team| {
+                team.read()
+                    .map(|team| team.get_controlling_player_id() == Some(player.id))
+                    .unwrap_or(false)
+            });
+            if prototype.get_owner_name().as_str() != owner
+                || !controller_matches
+                || !instances_match
+            {
+                return Err(invalid(
+                    "Default Team prototype belongs to a different Player identity",
+                ));
+            }
+        }
+        drop(factory);
         self.player_template_bindings.remove(&player.id);
         let id = player.id;
         self.players.insert(id, player);
         self.ensure_host_default_team(id);
+        Ok(())
     }
 
     pub fn command_center_position(&self, team: Team) -> Option<Vec3> {

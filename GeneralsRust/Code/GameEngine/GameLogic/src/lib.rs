@@ -206,6 +206,10 @@ pub enum GameLogicError {
     #[error("System not initialized: {0}")]
     SystemNotInitialized(String),
 
+    /// Exact synchronous Team creation failed; retry reports the retained cause.
+    #[error("{0}")]
+    TeamCreationFailed(String),
+
     /// Configuration error
     #[error("Configuration error: {0}")]
     Configuration(String),

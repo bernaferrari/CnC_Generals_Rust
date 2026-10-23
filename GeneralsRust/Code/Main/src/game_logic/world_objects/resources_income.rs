@@ -62,7 +62,7 @@ impl GameLogic {
     ) -> (i32, i32) {
         self.objects
             .values()
-            .filter(|object| self.player_owner_for_host_object(object) == Some(player_id))
+            .filter(|object| object.owner_player_id == Some(player_id))
             .filter(|object| eligible(object))
             .fold((0_i32, 0_i32), |(produced, consumed), object| {
                 // Object::friend_adjustPowerForPlayer: disabledness only

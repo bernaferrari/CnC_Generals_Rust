@@ -17,7 +17,9 @@ fn script_engine(id: u32) -> ScriptEngine {
 
 fn owner_world(singleton: bool) -> (GameLogic, u32, ObjectId) {
     let mut world = GameLogic::new();
-    world.add_player(Player::new(1, Team::USA, "TeamOwner", false));
+    world.add_player(
+        Player::new(1, Team::USA, "TeamOwner", false).with_script_identity("TeamOwner"),
+    );
     let mut template = ThingTemplate::new("OwnedTeamMember");
     template.add_kind_of(KindOf::Infantry).set_health(100.0);
     world.templates.insert(template.name.clone(), template);

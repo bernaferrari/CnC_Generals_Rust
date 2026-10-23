@@ -793,11 +793,10 @@ pub(crate) fn apply_skirmish_config_for_mode(
     logic.set_logic_random_seed(config.random_seed);
     let stream = logic.logic_random.clone();
     game_engine::common::random_value::with_session_random(&stream, || {
-        logic.start_new_game(mode);
+        logic.start_new_game_for_resolved_players(mode);
         // Carry faction-selection draws into the admitted match stream before
         // the subsequent start-position selection.
         logic.logic_random.set_seed_words(selection.seed_words());
-        logic.clear_all_players();
 
         let mut assigned = config.slots.clone();
         populate_random_start_position(&mut assigned, &config.map);
@@ -2106,3 +2105,39 @@ mod template_identity_tests;
 #[cfg(test)]
 #[path = "skirmish_config/observer_admission_tests.rs"]
 mod observer_admission_tests;
+
+#[cfg(test)]
+mod resolved_player_identity_tests {
+    use super::*;
+    #[test]
+    fn actual_resolved_lobby_creates_observer_after_real_slots_without_bootstrap_prototype() {
+        crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+            module_path!(),
+            "actual_resolved_lobby_creates_observer_after_real_slots_without_bootstrap_prototype",
+            || {
+                super::lobby_definition_tests::admit_slot_definitions();
+                let mut world = GameLogic::new();
+                let config = golden_skirmish_config("ObserverIdentity.map");
+                apply_skirmish_config(&mut world, &config).unwrap();
+                let observer = world.replay_observer_player_id().unwrap();
+                assert_eq!(observer, 2);
+                let factory = world.team_factory.lock().unwrap();
+                let teams = factory.find_team_instances("teamReplayObserver");
+                assert_eq!(teams.len(), 1);
+                assert_eq!(
+                    teams[0].read().unwrap().get_controlling_player_id(),
+                    Some(observer)
+                );
+                for id in [0, 1, 2] {
+                    assert!(
+                        factory
+                            .find_team_prototype(&format!("teamRustPlayer{id}"))
+                            .is_none()
+                    );
+                }
+                assert!(factory.find_team_prototype("teamplayer0").is_some());
+                assert!(factory.find_team_prototype("teamplayer1").is_some());
+            },
+        );
+    }
+}

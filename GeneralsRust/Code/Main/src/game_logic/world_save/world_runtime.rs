@@ -2,6 +2,12 @@
 #![allow(unused_imports, non_snake_case)]
 use super::*;
 
+#[derive(Clone, Copy)]
+enum NewGamePlayerAdmission {
+    Bootstrap,
+    Resolved,
+}
+
 impl GameLogic {
     /// Update method - matching C++ GameLogic interface
     pub fn update(&mut self) {
@@ -268,7 +274,7 @@ impl GameLogic {
 
     /// Start a new game with specified mode
     pub fn start_new_game(&mut self, mode: GameMode) {
-        self.start_new_game_state(mode);
+        self.start_new_game_state(mode, NewGamePlayerAdmission::Bootstrap);
     }
 
     /// Receiving native NewGame route; the actual dispatcher supplies its
@@ -281,7 +287,7 @@ impl GameLogic {
         rank: i32,
         max_fps: i32,
     ) {
-        self.start_new_game_state(mode);
+        self.start_new_game_state(mode, NewGamePlayerAdmission::Bootstrap);
         if !self.replay_pending.recorder_owned().is_playback() {
             self.replay_pending.record_new_game_owned(
                 mode,
@@ -297,10 +303,16 @@ impl GameLogic {
     /// resets the engine and does not post MSG_NEW_GAME for ordinary saves;
     /// the candidate must not start a second replay on the live recorder.
     pub(crate) fn start_new_game_for_restore(&mut self, mode: GameMode) {
-        self.start_new_game_state(mode);
+        self.start_new_game_state(mode, NewGamePlayerAdmission::Resolved);
     }
 
-    fn start_new_game_state(&mut self, mode: GameMode) {
+    /// GameInfo admission supplies the actual participants immediately after
+    /// this source reset. Never create temporary bootstrap Players/observer.
+    pub(crate) fn start_new_game_for_resolved_players(&mut self, mode: GameMode) {
+        self.start_new_game_state(mode, NewGamePlayerAdmission::Resolved);
+    }
+
+    fn start_new_game_state(&mut self, mode: GameMode, admission: NewGamePlayerAdmission) {
         log::info!("Starting new game: {:?}", mode);
         // C++ GameLogic.cpp:1254-1256 TheCampaignManager->SetVictorious(FALSE).
         clear_live_campaign_victorious_for_new_game(self);
@@ -348,16 +360,20 @@ impl GameLogic {
                 );
             }
         }
-        self.create_default_players();
-        if matches!(mode, GameMode::Skirmish | GameMode::Replay) {
-            let _ = self.ensure_replay_observer_player();
-            self.install_replay_observer_side();
-            if matches!(mode, GameMode::Skirmish) {
-                self.set_install_multiplayer_scripts(true);
+        if matches!(admission, NewGamePlayerAdmission::Bootstrap) {
+            self.create_default_players();
+            if matches!(mode, GameMode::Skirmish | GameMode::Replay) {
+                let _ = self.ensure_replay_observer_player();
+                self.install_replay_observer_side();
+                if matches!(mode, GameMode::Skirmish) {
+                    self.set_install_multiplayer_scripts(true);
+                }
             }
         }
         if matches!(mode, GameMode::Replay) {
-            self.apply_replay_observer_as_local_player();
+            if matches!(admission, NewGamePlayerAdmission::Bootstrap) {
+                self.apply_replay_observer_as_local_player();
+            }
             // C++ GameLogic.cpp:2340-2343 startNewGame replay hint.
             #[cfg(feature = "game_client")]
             {

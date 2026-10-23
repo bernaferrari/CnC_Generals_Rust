@@ -348,12 +348,13 @@ impl GameLogic {
             map_path.display(),
             sync_started.elapsed().as_secs_f32()
         );
-        self.sync_legacy_player_list_from_sides();
-        // Campaign owner identities must exist before singleton admission;
-        // skirmish retains the already admitted lobby slots.
         if !self.uses_lobby_side_foundation() {
-            self.apply_host_players_from_side_dicts(&sides_data.side_dicts, false);
+            if let Err(error) = self.admit_direct_map_players_from_prepared_sides() {
+                log::error!("Receiving authored Player admission failed: {error}");
+                return false;
+            }
         }
+        self.sync_legacy_player_list_from_sides();
         self.stash_side_builds_on_host(&sides_data.side_builds);
         let mut effects = native
             .as_mut()
@@ -364,6 +365,13 @@ impl GameLogic {
             &mut effects,
         ) {
             return false;
+        }
+        if !self.uses_lobby_side_foundation() {
+            let mut ids = self.players.keys().copied().collect::<Vec<_>>();
+            ids.sort_unstable();
+            for id in ids {
+                self.ensure_host_default_team(id);
+            }
         }
         if !self.finish_map_script_foundation() {
             return false;
@@ -409,7 +417,14 @@ impl GameLogic {
             let player_name = dict.get_ascii_string(key_player_name());
             let faction = dict.get_ascii_string(key_player_faction());
             let display_name = dict.get_unicode_string(key_player_display_name());
-            let is_human = dict.get_bool(key_player_is_human());
+            let host_id = self
+                .host_player_id_for_side_index(index as u32)
+                .unwrap_or(index as u32);
+            let admitted = self.players.get(&host_id);
+            let is_human = admitted.map_or_else(
+                || dict.get_bool(key_player_is_human()),
+                |player| player.is_human,
+            );
 
             // Keep player-template store locking narrow so Player::init can lazily hydrate
             // templates without deadlocking on the same global RwLock.
@@ -430,7 +445,7 @@ impl GameLogic {
                 template
             });
 
-            let mut player = LogicPlayer::new(index as i32);
+            let mut player = LogicPlayer::new(host_id as i32);
             if !player_name.is_empty() {
                 player.set_player_name_key(NameKeyGenerator::name_to_key(&player_name));
             }
@@ -489,8 +504,11 @@ impl GameLogic {
             }
             logic_list.add_player(Arc::new(RwLock::new(player)));
 
-            if is_human && logic_list.get_local_player_index() < 0 {
-                logic_list.set_local_player_index(index as i32);
+            if admitted.map_or(
+                is_human && logic_list.get_local_player_index() < 0,
+                |player| player.is_local,
+            ) {
+                logic_list.set_local_player_index(host_id as i32);
             }
         }
 
@@ -625,6 +643,13 @@ impl GameLogic {
     }
 
     pub(in super::super) fn host_player_id_for_side_index(&self, side_index: u32) -> Option<u32> {
+        if self.prepared_map_sides.get_num_sides() > 0 {
+            let side = self.prepared_map_sides.get_side_info(side_index as usize)?;
+            let name = side.get_dict().get_ascii_string(key_player_name());
+            return self.players.iter().find_map(|(&id, player)| {
+                (player.script_identity() == Some(name.as_str())).then_some(id)
+            });
+        }
         if self.players.contains_key(&side_index) {
             return Some(side_index);
         }
@@ -658,7 +683,7 @@ impl GameLogic {
             return;
         }
         self.admit_retained_map_civilians(side_dicts);
-        for (index, dict) in side_dicts.iter().enumerate() {
+        for dict in side_dicts {
             let name = dict.get_ascii_string(key_player_name());
             if name.is_empty() {
                 continue;
@@ -668,18 +693,6 @@ impl GameLogic {
                     .iter()
                     .find(|(_, player)| !name.is_empty() && player.map_side.map_player_name == name)
                     .map(|(id, _)| *id)
-                    .or_else(|| {
-                        // A direct, as-yet-unadmitted map player may retain its existing
-                        // host index until the full prepared ordinal migration. A typed
-                        // lobby owner must never be reassigned to a different side.
-                        self.host_player_id_for_side_index(index as u32)
-                            .filter(|id| {
-                                self.players.get(id).is_some_and(|player| {
-                                    player.map_side.map_player_name.is_empty()
-                                        && !player.is_reserved_neutral()
-                                })
-                            })
-                    })
             };
             let Some(pid) = pid else {
                 continue;
@@ -1085,7 +1098,9 @@ mod map_singleton_owner_tests {
     }
     fn world() -> GameLogic {
         let mut world = GameLogic::new();
-        world.add_player(Player::new(1, Team::USA, "MapOwner", false));
+        world.add_player(
+            Player::new(1, Team::USA, "MapOwner", false).with_script_identity("MapOwner"),
+        );
         let mut template = ThingTemplate::new("MapCallbackInfantry");
         template.add_kind_of(KindOf::Infantry).set_health(100.0);
         world.templates.insert(template.name.clone(), template);

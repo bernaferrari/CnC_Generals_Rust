@@ -405,6 +405,9 @@ impl CnCGameEngine {
         mut owned_observer: Option<&mut crate::gameworld_shadow::GameWorldShadow>,
     ) -> std::result::Result<(crate::game_logic::SimTimingSnapshot, bool), String> {
         use crate::game_logic::{NativeCommandAction, NativeCommandCompletion, NativeTickProgress};
+        if let Some(error) = self.game_logic.team_creation_error() {
+            return Err(error.to_string());
+        }
         let mut progress = self.borrow_native_command_phase(
             dt,
             budget,
@@ -415,6 +418,9 @@ impl CnCGameEngine {
         let mut interrupted = false;
         let mut last_clear_score = false;
         loop {
+            if let Some(error) = self.game_logic.team_creation_error() {
+                return Err(error.to_string());
+            }
             match progress {
                 NativeTickProgress::Failed(error) => return Err(error.to_string()),
                 NativeTickProgress::Complete(snapshot) => {

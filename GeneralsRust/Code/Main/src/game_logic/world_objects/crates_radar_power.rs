@@ -1062,67 +1062,13 @@ impl GameLogic {
     }
 
     pub(in super::super) fn update_power_disabled_state(&mut self) {
-        // C++ Player::onPowerBrownOutChange — always flip m_radarDisabled.
-        // Disable-proof vans stay online via hasRadar, not by skipping the flag.
-        let frame = self.frame;
-        for player in self.players.values_mut() {
-            if !player.has_sufficient_energy_at(frame) {
-                player.disable_radar();
-            } else {
-                player.enable_radar();
-            }
-        }
-
-        // Wave 811: under coupled shadow, disabled_underpowered owned by GW expire.
-        // Keep Eva low-power residual on host (UI presentation).
-        {}
-        // Build a set of players that are underpowered.  A faction can contain
-        // multiple independent bases, so a USA player's brownout must not
-        // disable another USA player's structures.
-        let mut underpowered_players: std::collections::HashSet<u32> =
-            std::collections::HashSet::new();
-        for player in self.players.values() {
-            if !player.has_sufficient_energy_at(frame) {
-                underpowered_players.insert(player.id);
-            }
-        }
-
-        let powered_owners: std::collections::HashMap<ObjectId, Option<u32>> = self
-            .objects
-            .values()
-            .filter(|obj| obj.is_kind_of(KindOf::Powered))
-            .map(|obj| (obj.id, self.player_owner_for_host_object(obj)))
-            .collect();
-
-        for obj in self.objects.values_mut() {
-            if !obj.is_kind_of(KindOf::Powered) {
-                continue;
-            }
-            let should_disable = powered_owners
-                .get(&obj.id)
-                .copied()
-                .flatten()
-                .is_some_and(|player_id| underpowered_players.contains(&player_id))
-                && obj.is_alive()
-                && obj.is_constructed();
-            let was = obj.status.disabled_underpowered;
-            if should_disable && !was {
-                let already_power = obj.is_power_style_disabled();
-                if !already_power {
-                    obj.queue_power_disable_misc_audio(true, &mut self.health_events);
-                }
-                obj.status.disabled_underpowered = true;
-            } else if !should_disable && was {
-                if !(obj.status.disabled_emp
-                    || obj.status.disabled_subdued
-                    || obj.status.disabled_hacked)
-                {
-                    obj.queue_power_disable_misc_audio(false, &mut self.health_events);
-                }
-                obj.status.disabled_underpowered = false;
-            } else {
-                obj.status.disabled_underpowered = should_disable;
-            }
+        // One canonical callback implementation for immediate Energy changes
+        // and periodic sabotage observation. PlayerList slot order is numeric.
+        let mut players = self.players.keys().copied().collect::<Vec<_>>();
+        players.sort_unstable();
+        for id in players {
+            let brownout = !self.players[&id].has_sufficient_energy_at(self.frame);
+            self.admit_player_energy_brownout(id, brownout);
         }
         // C++ Eva::shouldPlayLowPower residual (local energy insufficient).
         self.update_eva_low_power();

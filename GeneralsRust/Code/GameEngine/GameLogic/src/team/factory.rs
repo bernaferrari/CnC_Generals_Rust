@@ -810,7 +810,10 @@ impl TeamFactory {
     }
 
     fn find_existing_team_by_name(&self, name: &str) -> Option<Arc<RwLock<Team>>> {
-        for team in self.teams.values() {
+        for id in &self.instance_order {
+            let Some(team) = self.teams.get(id) else {
+                continue;
+            };
             if let Ok(team_ref) = team.read() {
                 if team_ref.get_name() == name {
                     return Some(team.clone());
@@ -1413,5 +1416,112 @@ fn execute_pending_team_generic_script_evals(script_evals: Vec<PendingTeamGeneri
         pending
             .prototype
             .store_generic_script_runtime(pending.script_index, Some(script));
+    }
+}
+
+#[cfg(test)]
+mod canonical_find_order_tests {
+    use super::*;
+
+    fn team_id(team: &Arc<RwLock<Team>>) -> TeamID {
+        team.read().unwrap().get_id()
+    }
+
+    #[test]
+    fn find_team_uses_explicit_restored_prototype_head_not_hash_iteration() {
+        let mut factory = TeamFactory::new();
+        factory
+            .init_team_owned("SharedName".into(), "Owner".into(), false, None, Some(7))
+            .unwrap();
+        // Restore through the session-owned API; each insertion becomes the
+        // prototype-list head, matching TeamPrototype's prepend behavior.
+        for id in [11, 17, 29] {
+            factory
+                .restore_owned_team_instance("SharedName", id, Some(7))
+                .unwrap();
+        }
+        assert_eq!(
+            factory
+                .find_team_instances("SharedName")
+                .iter()
+                .map(team_id)
+                .collect::<Vec<_>>(),
+            [29, 17, 11]
+        );
+
+        // Form a valid explicit restored list whose head is guaranteed to
+        // differ from this HashMap's first same-name value. This avoids a
+        // probabilistic red control based on whichever random hash order occurs.
+        let hash_first = factory
+            .teams
+            .values()
+            .find(|team| team.read().unwrap().get_name() == "SharedName")
+            .map(team_id)
+            .unwrap();
+        let expected_head = *factory
+            .instance_order
+            .iter()
+            .find(|id| **id != hash_first)
+            .unwrap();
+        let mut explicit_restore_order = vec![expected_head];
+        explicit_restore_order.extend(
+            factory
+                .instance_order
+                .iter()
+                .copied()
+                .filter(|id| *id != expected_head),
+        );
+        factory.instance_order = explicit_restore_order;
+        assert_eq!(factory.instance_order.len(), 3);
+        assert_eq!(
+            factory
+                .instance_order
+                .iter()
+                .copied()
+                .collect::<HashSet<_>>()
+                .len(),
+            3
+        );
+
+        let count_before = factory.find_team_instances("SharedName").len();
+        let found = factory.find_team("SharedName").unwrap();
+        assert_eq!(team_id(&found), expected_head);
+        assert_eq!(
+            factory.find_team_instances("SharedName").len(),
+            count_before
+        );
+    }
+
+    #[test]
+    fn owned_singleton_lookup_reuses_its_instance_and_preserves_create_effects() {
+        let mut dict = Dict::new();
+        dict.set_bool(key_team_executes_actions_on_create(), true);
+        dict.set_ascii_string(key_team_production_condition(), "SingletonCreate");
+        let mut factory = TeamFactory::new();
+        let (_, init_effects) = factory
+            .init_team_owned_with_effects(
+                "SharedSingleton".into(),
+                "Owner".into(),
+                true,
+                Some(&dict),
+                Some(7),
+            )
+            .unwrap();
+        assert_eq!(init_effects, ["SingletonCreate"]);
+        let existing = factory.find_team_instances("SharedSingleton")[0].clone();
+        assert_eq!(
+            existing.read().unwrap().get_controlling_player_id(),
+            Some(7)
+        );
+
+        let (reused, effects) = factory
+            .create_inactive_team_with_owned_effects("SharedSingleton")
+            .unwrap();
+        assert!(Arc::ptr_eq(&existing, &reused));
+        assert_eq!(effects, ["SingletonCreate"]);
+        let found = factory.find_team("SharedSingleton").unwrap();
+        assert!(Arc::ptr_eq(&existing, &found));
+        assert_eq!(factory.find_team_instances("SharedSingleton").len(), 1);
+        assert!(factory.drain_pending_create_action_scripts().is_empty());
     }
 }

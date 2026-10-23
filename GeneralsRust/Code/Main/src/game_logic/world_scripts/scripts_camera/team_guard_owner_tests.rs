@@ -257,9 +257,28 @@ fn team_guard_reentry_exits_hunt_and_clears_previous_goal_immediately() {
 #[test]
 fn team_guard_snapshot_continues_without_reissuing_the_team_command() {
     let (mut source, id, _) = world();
-    let roster = team(&source, "GuardRoster", &[id], false, true);
-    // Real map/team admission transfers one object out of its default team;
-    // manually adding it to a second roster leaves an invalid duplicate save.
+    let owner = source
+        .get_player(1)
+        .unwrap()
+        .map_side
+        .map_player_name
+        .clone();
+    let roster = {
+        let mut factory = source.team_factory.lock().unwrap();
+        factory
+            .init_team_owned(
+                "GuardRoster".into(),
+                owner.clone().into(),
+                false,
+                None,
+                Some(1),
+            )
+            .unwrap();
+        let team = factory.create_team("GuardRoster").unwrap();
+        let identity = team.read().unwrap().get_id();
+        identity
+    };
+    // Transfer through production admission; one exact controller and roster.
     let object = source.host_object_mut(id).unwrap();
     object.team_instance_name = "GuardRoster".into();
     object.team_instance_id = Some(roster);
@@ -273,7 +292,7 @@ fn team_guard_snapshot_continues_without_reissuing_the_team_command() {
         .team_factory
         .lock()
         .unwrap()
-        .init_team("GuardRoster".into(), "".into(), false, None)
+        .init_team_owned("GuardRoster".into(), owner.into(), false, None, Some(1))
         .unwrap();
     builder
         .restore_from_snapshot(&snapshot, &mut restored)

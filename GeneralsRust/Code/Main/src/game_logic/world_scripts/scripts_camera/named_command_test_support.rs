@@ -11,8 +11,12 @@ pub(super) fn world() -> (GameLogic, ObjectId, ObjectId) {
     let mut world = GameLogic::new();
     world.world_min = Vec3::ZERO;
     world.world_max = Vec3::splat(1000.0);
-    world.add_player(Player::new(1, Team::USA, "NamedOwner", true));
-    world.add_player(Player::new(2, Team::China, "NamedVictim", false));
+    world.add_player(
+        Player::new(1, Team::USA, "NamedOwner", true).with_script_identity("NamedOwner"),
+    );
+    world.add_player(
+        Player::new(2, Team::China, "NamedVictim", false).with_script_identity("NamedVictim"),
+    );
     let mut template = ThingTemplate::new("OwnedNamedInfantry");
     template
         .add_kind_of(KindOf::Infantry)

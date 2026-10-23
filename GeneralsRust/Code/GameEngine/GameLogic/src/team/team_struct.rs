@@ -3,6 +3,17 @@
 // Split from `team.rs` for module-size parity.
 // Observable behavior is unchanged.
 
+// A Rust-owned admission continuation, not the gameplay onCreate latch or wire data.
+#[derive(Debug, Default)]
+enum TeamCreationPhase {
+    #[default]
+    Ready,
+    Running {
+        depth: u32,
+    },
+    Failed(String),
+}
+
 /// Team class (matching C++ Team structure and functionality)
 #[derive(Debug)]
 pub struct Team {
@@ -23,6 +34,7 @@ pub struct Team {
     entered_or_exited: Bool,
     active: Bool,
     created: Bool,
+    creation_phase: TeamCreationPhase,
     recruitable: Bool,
     recruitability_set: Bool,
 

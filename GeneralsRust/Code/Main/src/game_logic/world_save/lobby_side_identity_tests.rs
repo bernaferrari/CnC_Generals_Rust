@@ -178,7 +178,10 @@ fn side_authoring_preserves_unresolved_start_position_and_observer_name() {
             neutral_dict.set_ascii_string(key_player_name(), "");
             neutral.apply_map_side_dict(&neutral_dict, false, &mut _economy_output);
             world.add_player(neutral);
-            world.add_player(Player::new(90, Team::Neutral, "ReplayObserver", true));
+            world.add_player(
+                Player::new(90, Team::Neutral, "ReplayObserver", true)
+                    .with_script_identity("player90"),
+            );
             let sides = prepared(&world);
             assert_eq!(
                 side(&sides, "player0").get_int(key_multiplayer_start_index()),
