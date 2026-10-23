@@ -25,6 +25,7 @@ impl GameLogic {
     /// GameLogic.cpp2119–2139: actual map is installed before Human skill
     /// points are admitted; computer/civilian rows do not receive this grant.
     pub(crate) fn admit_native_initial_rank_points(&mut self, points: i32) {
+        self.set_rank_points_to_add_at_game_start(points);
         if self.game_mode == GameMode::SinglePlayer {
             let mut slots: Vec<_> = self.players.keys().copied().collect();
             slots.sort_unstable();

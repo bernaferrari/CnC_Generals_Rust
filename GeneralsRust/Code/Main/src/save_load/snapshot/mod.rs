@@ -61,6 +61,7 @@
 mod a10_flight_persist;
 mod ai;
 mod battle_plan_persist;
+mod body_rules_persist;
 mod builder;
 mod camera_continuation;
 pub(crate) use camera_continuation::{

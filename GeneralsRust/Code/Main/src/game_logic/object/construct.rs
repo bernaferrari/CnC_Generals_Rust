@@ -299,6 +299,7 @@ impl Object {
             logic_frame,
             initial_status,
             runtime,
+            crate::game_logic::body_damage_rules::BodyDamagePolicy::StandaloneRetail,
         )
     }
 
@@ -311,6 +312,7 @@ impl Object {
         logic_frame: u32,
         mut initial_status: ObjectStatus,
         temporary_weapon_runtime: crate::game_logic::host_temporary_weapon_behavior::TemporaryWeaponRuntimeBundle,
+        body_damage_policy: crate::game_logic::body_damage_rules::BodyDamagePolicy,
     ) -> Self {
         if template.selected_weapon_sets.is_none() {
             let base = [
@@ -576,6 +578,7 @@ impl Object {
             cell_is_underwater: false,
             kill_when_resting_on_ground,
             physics_rules: crate::game_logic::physics_rules::default_host_physics_rules(),
+            body_damage_policy,
             min_fall_speed_for_damage,
             fall_height_damage_factor,
             pending_ground_collide: false,
@@ -1023,10 +1026,7 @@ impl Object {
             body_damage_state: if inactive_body {
                 crate::game_logic::host_enum_table_residual::HostBodyDamageType::Pristine
             } else {
-                crate::game_logic::host_enum_table_residual::host_calc_body_damage_state(
-                    initial_health,
-                    max_health,
-                )
+                body_damage_policy.classify(initial_health, max_health)
             },
             move_loop_audio: None,
             ambient_audio: None,
@@ -1381,6 +1381,8 @@ impl Object {
 
     /// Alternative constructor for command system compatibility
     pub fn new_simple(id: ObjectId, object_type: ObjectType, template_name: String) -> Self {
+        let body_damage_policy =
+            crate::game_logic::body_damage_rules::BodyDamagePolicy::StandaloneRetail;
         let mut template = ThingTemplate::new(&template_name);
         let initial_drawable_scale =
             crate::assets::mesh_asset_resolve::mesh_scale_from_template(&template);
@@ -1530,6 +1532,7 @@ impl Object {
             cell_is_underwater: false,
             kill_when_resting_on_ground,
             physics_rules: crate::game_logic::physics_rules::default_host_physics_rules(),
+            body_damage_policy,
             min_fall_speed_for_damage,
             fall_height_damage_factor,
             pending_ground_collide: false,
@@ -1974,11 +1977,7 @@ impl Object {
             temporary_move_frames: 0,
             overlay_arrival_snap: false,
             worker_ai_update: template_has_worker_ai_update(&template_name),
-            body_damage_state:
-                crate::game_logic::host_enum_table_residual::host_calc_body_damage_state(
-                    initial_health,
-                    100.0,
-                ),
+            body_damage_state: body_damage_policy.classify(initial_health, 100.0),
             move_loop_audio: None,
             ambient_audio: None,
             ambient_sound_enabled_from_script: true,

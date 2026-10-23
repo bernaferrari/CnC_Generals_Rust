@@ -745,3 +745,40 @@ fn private_fire_mutation_enters_between_shots() {
         TemporaryWeaponStatus::ReadyToFire
     );
 }
+
+#[test]
+fn receiving_temporary_reaction_uses_body_state_after_same_current_max_health_change() {
+    use crate::game_logic::body_damage_rules::{BodyDamagePolicy, BodyDamageRules};
+    use crate::game_logic::host_enum_table_residual::HostBodyDamageType as State;
+    let mut logic = GameLogic::new();
+    logic.admit_body_damage_baseline(BodyDamagePolicy::Receiving(
+        BodyDamageRules::from_thresholds(0.8, 0.4).unwrap(),
+    ));
+    logic.add_player(crate::game_logic::Player::new(1, Team::USA, "Owner", true));
+    let role = FireWeaponWhenDamagedWeaponRole::ReactionDamaged;
+    let mut object = damaged_object(23, ready_weapon("AuthoredNoGlobalWeaponRequired", role));
+    object.owner_player_id = Some(1);
+    let id = logic.try_add_object(object).unwrap();
+    assert_eq!(logic.objects[&id].body_damage_state, State::Damaged);
+    // ActiveBody::setMaxHealth(SAME_CURRENTHEALTH) does not reclassify unless
+    // current HP clips. Its consumers must read the actual Body state.
+    logic
+        .objects
+        .get_mut(&id)
+        .unwrap()
+        .set_body_max_health(200.0);
+    let actor = &logic.objects[&id];
+    assert_eq!(actor.health.current, 80.0);
+    assert_eq!(actor.body_damage_state, State::Damaged);
+    assert_eq!(
+        actor.classify_body_damage(actor.health.current, actor.health.maximum),
+        State::ReallyDamaged
+    );
+    let selected = logic.damaged_reaction_plan(id, 10.0, 0);
+    assert_eq!(
+        selected.len(),
+        1,
+        "canonical DAMAGED reaction survives a maximum-only change"
+    );
+    assert_eq!(selected[0].role, role);
+}

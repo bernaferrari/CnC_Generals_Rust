@@ -37,6 +37,7 @@ pub struct GameLogic {
     pub(crate) armor_definitions:
         Option<std::sync::Arc<gamelogic::object::armor::ArmorDefinitions>>,
     pub(crate) object_lifecycle_callback_depth: u32,
+    pub(crate) body_damage_definitions: crate::game_logic::body_damage_rules::BodyDamageDefinitions,
     pub(crate) lighting_definitions: crate::game_logic::lighting_rules::LightingDefinitions,
     pub(crate) physics_definitions: crate::game_logic::physics_rules::PhysicsDefinitions,
     pub(super) weapon_effect_definitions:
@@ -114,6 +115,8 @@ pub struct GameLogic {
     pub(super) players: HashMap<u32, Player>,
     /// C++ GameLogic::m_rankLevelLimit; awards and scripts use this match's cap.
     pub(super) rank_level_limit: i32,
+    // C++ GameLogic::m_rankPointsToAddAtGameStart, retained for restart/Xfer.
+    pub(super) rank_points_to_add_at_game_start: i32,
     /// Exact Campaign/Challenge PlayerTemplate binding for each host player.
     ///
     /// This is deliberately GameLogic session state rather than a `Player`
@@ -1426,6 +1429,14 @@ pub struct GameLogic {
     pub(super) install_multiplayer_scripts: bool,
 }
 impl GameLogic {
+    pub(crate) fn rank_points_to_add_at_game_start(&self) -> i32 {
+        self.rank_points_to_add_at_game_start
+    }
+
+    pub(crate) fn set_rank_points_to_add_at_game_start(&mut self, points: i32) {
+        self.rank_points_to_add_at_game_start = points;
+    }
+
     pub fn rank_level_limit(&self) -> i32 {
         self.rank_level_limit
     }

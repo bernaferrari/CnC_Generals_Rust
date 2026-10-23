@@ -103,7 +103,7 @@ fn version30_absolute_scale_capability_preserves_identical_positional_world_body
         decode_bincode_world_snapshot(&new_bytes).unwrap().version,
         30
     );
-    new.version = 31;
+    new.version = crate::save_load::snapshot::WORLD_SNAPSHOT_BINCODE_VERSION + 1;
     assert!(decode_bincode_world_snapshot(&bincode_legacy::serialize(&new).unwrap()).is_err());
 }
 

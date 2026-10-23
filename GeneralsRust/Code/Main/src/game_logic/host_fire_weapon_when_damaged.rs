@@ -15,9 +15,7 @@
 //! - Not full WeaponStore ammo / READY_TO_FIRE clip state
 //! - Not full projectile Object creation
 
-use crate::game_logic::host_enum_table_residual::{
-    HostBodyDamageType, host_calc_body_damage_state,
-};
+use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
 use crate::game_logic::host_temporary_weapon_behavior::FireWeaponDamageTypeMask;
 use serde::{Deserialize, Serialize};
 
@@ -130,8 +128,7 @@ impl HostFireWeaponWhenDamagedData {
     pub fn on_damage(
         &mut self,
         actual_damage: f32,
-        health: f32,
-        max_health: f32,
+        state: HostBodyDamageType,
         current_frame: u32,
         damage_type_ordinal: u32,
     ) -> Option<String> {
@@ -144,7 +141,6 @@ impl HostFireWeaponWhenDamagedData {
         if actual_damage < self.damage_amount {
             return None;
         }
-        let state = host_calc_body_damage_state(health, max_health);
         let name = self.weapon_for_state(state, false)?.to_string();
         // C++ getStatus()==READY_TO_FIRE. DelayBetweenShots 0 stays ready every hit.
         let reload =
@@ -164,14 +160,12 @@ impl HostFireWeaponWhenDamagedData {
     /// C++ continuous update residual.
     pub fn tick_continuous(
         &mut self,
-        health: f32,
-        max_health: f32,
+        state: HostBodyDamageType,
         current_frame: u32,
     ) -> Option<String> {
         if !self.active {
             return None;
         }
-        let state = host_calc_body_damage_state(health, max_health);
         // Continuous weapons typically only for damaged+ states in retail toxic bunkers.
         if matches!(state, HostBodyDamageType::Pristine) && self.continuous_pristine.is_none() {
             return None;
@@ -248,22 +242,39 @@ mod tests {
     #[test]
     fn reaction_fires_on_threshold_damage() {
         let mut d = HostFireWeaponWhenDamagedData::battleship_target_residual();
-        assert!(d.on_damage(0.5, 100.0, 100.0, 1, 0).is_none()); // below threshold
-        let w = d.on_damage(5.0, 80.0, 100.0, 2, 0).expect("reaction");
+        assert!(
+            d.on_damage(0.5, HostBodyDamageType::Pristine, 1, 0)
+                .is_none()
+        ); // below threshold
+        let w = d
+            .on_damage(5.0, HostBodyDamageType::Pristine, 2, 0)
+            .expect("reaction");
         assert!(w.contains("BattleshipTarget"));
         // Exact body slot: rubble has no authored reaction.
-        assert!(d.on_damage(5.0, 0.0, 100.0, 10, 0).is_none());
+        assert!(
+            d.on_damage(5.0, HostBodyDamageType::Rubble, 10, 0)
+                .is_none()
+        );
         // Authored type filter rejects non-matching ordinals.
         d.damage_types = FireWeaponDamageTypeMask::NONE;
-        assert!(d.on_damage(5.0, 80.0, 100.0, 20, 0).is_none());
+        assert!(
+            d.on_damage(5.0, HostBodyDamageType::Pristine, 20, 0)
+                .is_none()
+        );
     }
 
     #[test]
     fn reaction_fires_every_qualifying_hit_without_frame_debounce() {
         let mut d = HostFireWeaponWhenDamagedData::battleship_target_residual();
-        let first = d.on_damage(5.0, 80.0, 100.0, 2, 0).expect("first");
-        let same_frame = d.on_damage(5.0, 80.0, 100.0, 2, 0).expect("same frame");
-        let next_frame = d.on_damage(5.0, 80.0, 100.0, 3, 0).expect("next frame");
+        let first = d
+            .on_damage(5.0, HostBodyDamageType::Pristine, 2, 0)
+            .expect("first");
+        let same_frame = d
+            .on_damage(5.0, HostBodyDamageType::Pristine, 2, 0)
+            .expect("same frame");
+        let next_frame = d
+            .on_damage(5.0, HostBodyDamageType::Pristine, 3, 0)
+            .expect("next frame");
         assert!(first.contains("BattleshipTarget"));
         assert!(same_frame.contains("BattleshipTarget"));
         assert!(next_frame.contains("BattleshipTarget"));
@@ -272,15 +283,22 @@ mod tests {
     #[test]
     fn continuous_fires_when_damaged() {
         let mut d = HostFireWeaponWhenDamagedData::toxic_bunker_residual();
-        assert!(d.tick_continuous(100.0, 100.0, 1).is_none()); // pristine
+        assert!(d.tick_continuous(HostBodyDamageType::Pristine, 1).is_none()); // pristine
         // C++ reloadAmmo: first damaged tick arms the clip, does not fire.
-        assert!(d.tick_continuous(40.0, 100.0, 1).is_none());
+        assert!(d.tick_continuous(HostBodyDamageType::Damaged, 1).is_none());
         let reload = d.continuous_reload_frames.max(1);
-        let w = d.tick_continuous(40.0, 100.0, 1 + reload).expect("cont");
+        let w = d
+            .tick_continuous(HostBodyDamageType::Damaged, 1 + reload)
+            .expect("cont");
         assert!(w.contains("PoisonField"));
         // reload gate
-        assert!(d.tick_continuous(40.0, 100.0, 2 + reload).is_none());
-        let w2 = d.tick_continuous(40.0, 100.0, 1 + reload + reload).unwrap();
+        assert!(
+            d.tick_continuous(HostBodyDamageType::Damaged, 2 + reload)
+                .is_none()
+        );
+        let w2 = d
+            .tick_continuous(HostBodyDamageType::Damaged, 1 + reload + reload)
+            .unwrap();
         assert!(w2.contains("PoisonField"));
     }
 }

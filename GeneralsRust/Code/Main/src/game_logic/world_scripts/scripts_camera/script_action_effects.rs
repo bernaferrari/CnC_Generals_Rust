@@ -57,6 +57,13 @@ impl GameLogic {
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         mut ui: crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
+        let Some(interpreter) = interpreter else {
+            return self
+                .with_owned_script_engine(|engine, world| {
+                    world.apply_script_action_requests_with_effects(Some(engine), ui)
+                })
+                .expect("script action delivery owns its receiving interpreter");
+        };
         self.apply_host_skirmish_script_requests();
         self.apply_host_set_base_construction_speed_requests();
         self.apply_host_set_train_held_requests();
@@ -80,7 +87,7 @@ impl GameLogic {
         self.apply_host_follow_waypoints_script_requests();
         self.apply_host_skirmish_approach_path_script_requests();
 
-        self.apply_host_create_script_requests_with_effects(interpreter, &mut ui);
+        self.apply_host_create_script_requests_with_effects(Some(interpreter), &mut ui);
         self.apply_host_boobytrap_script_requests_with_effects(&mut ui);
         self.apply_host_unmanned_script_requests_with_effects(&mut ui);
         self.apply_host_radar_event_script_requests();
@@ -90,10 +97,10 @@ impl GameLogic {
         self.apply_host_guard_supply_center_script_requests();
         self.apply_host_guard_variant_script_requests_with_effects(&mut ui);
         self.apply_host_named_fire_special_script_requests();
-        self.apply_host_use_command_button_script_requests();
+        self.apply_host_use_command_button_script_requests_with_policy(interpreter);
         self.apply_host_object_sound_script_requests();
 
-        self.apply_host_skirmish_fight_script_requests_with_effects(&mut ui);
+        self.apply_host_skirmish_fight_script_requests_with_policy(&mut ui, interpreter);
 
         self.drain_warehouse_script_set_values();
 

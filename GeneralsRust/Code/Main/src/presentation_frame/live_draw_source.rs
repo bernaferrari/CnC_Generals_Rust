@@ -13,7 +13,7 @@ pub(super) fn current_base_condition_bits(
     let mut bits = obj.model_condition_bits;
     use crate::game_logic::host_enum_table_residual::{
         HostBodyDamageType, MC_BIT_ATTACKING, MC_BIT_DYING, MC_BIT_MOVING,
-        host_apply_body_damage_model_bits, host_calc_body_damage_state,
+        host_apply_body_damage_model_bits,
     };
     use crate::game_logic::host_neutron_missile_slow_death::{
         MC_BIT_BACKCRUSHED, MC_BIT_FRONTCRUSHED,
@@ -21,7 +21,7 @@ pub(super) fn current_base_condition_bits(
     let state = if destroyed {
         HostBodyDamageType::Rubble
     } else {
-        host_calc_body_damage_state(health, obj.health.maximum.max(0.0))
+        obj.body_damage_state
     };
     bits = host_apply_body_damage_model_bits(bits, state);
 
@@ -97,10 +97,7 @@ pub(super) fn current_condition_facts(
     let body_damage_state = if destroyed {
         crate::game_logic::host_enum_table_residual::HostBodyDamageType::Rubble
     } else {
-        crate::game_logic::host_enum_table_residual::host_calc_body_damage_state(
-            health,
-            obj.health.maximum.max(0.0),
-        )
+        obj.body_damage_state
     } as u8;
     let (construction_percent, under_construction) = logic
         .host_authoritative_construction(obj.id)

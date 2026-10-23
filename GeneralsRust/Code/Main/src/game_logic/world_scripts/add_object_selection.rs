@@ -102,6 +102,7 @@ impl GameLogic {
         self.validate_host_object_admission(object.id)?;
         // Every admission, including detached clones, receives this world's
         // immutable runtime rules. Preserve resolved module/snapshot scalars.
+        object.bind_body_damage_policy(self.body_damage_policy());
         object.physics_rules = self.physics_definitions.effective;
         if let Some(catalog) = self.armor_definitions.as_ref() {
             object.template_mut().armor_definitions = Some(catalog.clone());

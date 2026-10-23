@@ -30,6 +30,46 @@ impl OwnedDamageResult {
 }
 
 impl GameLogic {
+    /// Actual Body::setMaxHealth: no attemptHealing or damage callback walk.
+    pub(in crate::game_logic) fn set_owned_body_max_health_with_effects(
+        &mut self,
+        id: ObjectId,
+        maximum: f32,
+        mode: crate::game_logic::object::MaxHealthChange,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> Option<()> {
+        #[cfg(feature = "game_client")]
+        let mut change = {
+            let object = self.objects.get(&id)?;
+            let player = object.owner_player_id.map(|id| id as i32).unwrap_or(-1);
+            crate::game_logic::NativeBodyVisualChange {
+                identity: self.live_draw_playback_identity(object),
+                state: gamelogic::common::types::BodyDamageType::Pristine,
+                loading_map: self.is_loading_map(),
+                time_of_day: self.native_lighting_time_of_day(),
+                locality: self.receiving_audio_locality_for_player(player),
+            }
+        };
+        let object = self.objects.get_mut(&id)?;
+        object.set_body_max_health_with_mode_and_body_fx(
+            maximum,
+            mode,
+            &mut |_object, effect, _source| {
+                if let crate::game_logic::object::BodyStateFx::NativeVisualState(_state) = effect {
+                    #[cfg(feature = "game_client")]
+                    if let Some(view) = effects.view.as_mut() {
+                        let audio = effects
+                            .audio
+                            .as_mut()
+                            .and_then(|audio| audio.native_ambient());
+                        change.deliver(_state, &mut **view, audio);
+                    }
+                }
+            },
+        );
+        Some(())
+    }
+
     pub(in crate::game_logic) fn record_neutral_vehicle_sniped(
         players: &mut std::collections::HashMap<u32, crate::game_logic::Player>,
     ) {
@@ -477,20 +517,21 @@ impl GameLogic {
                         Self::apply_body_player_effect(players, frame, &source_players, effect)
                     },
                     &mut |object, effect, source| {
-                        if let crate::game_logic::object::BodyStateFx::NativeVisualState(state) = &effect {
+                        if let crate::game_logic::object::BodyStateFx::NativeVisualState(state) =
+                            &effect
+                        {
                             if let Some(view) = native_view.as_mut() {
-                                use crate::game_logic::host_enum_table_residual::HostBodyDamageType as Host;
-                                use gamelogic::common::types::BodyDamageType as Native;
-                                let state = match state { Host::Pristine=>Native::Pristine, Host::Damaged=>Native::Damaged,
-                                    Host::ReallyDamaged=>Native::ReallyDamaged, Host::Rubble=>Native::Rubble };
-                                let change = crate::game_logic::NativeBodyVisualChange {
-                                    identity: native_body.0.clone(), state, loading_map: native_body.1,
+                                let mut change = crate::game_logic::NativeBodyVisualChange {
+                                    identity: native_body.0.clone(),
+                                    state: gamelogic::common::types::BodyDamageType::Pristine,
+                                    loading_map: native_body.1,
                                     time_of_day: native_body.2,
                                     locality: native_body.3,
                                 };
-                                let audio = native_audio.as_mut().and_then(|audio| audio.native_ambient());
-                                view.body_visual_changed(&change, audio)
-                                    .expect("receiving native Body visual callback failed after canonical HP mutation");
+                                let audio = native_audio
+                                    .as_mut()
+                                    .and_then(|audio| audio.native_ambient());
+                                change.deliver(*state, &mut **view, audio);
                             }
                             return;
                         }

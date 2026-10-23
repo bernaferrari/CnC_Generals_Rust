@@ -5,9 +5,7 @@
 
 use super::super::*;
 use super::temporary_weapon_status::promote_temporary_weapon_status;
-use crate::game_logic::host_enum_table_residual::{
-    HostBodyDamageType, host_calc_body_damage_state,
-};
+use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
 use crate::game_logic::host_temporary_weapon_behavior::{
     FireWeaponBodyDamageState, FireWeaponWhenDamagedWeaponRole, TemporaryWeaponRuntimeKey,
     TemporaryWeaponStatus,
@@ -388,10 +386,9 @@ impl GameLogic {
 }
 
 fn body_state_of(object: &Object) -> FireWeaponBodyDamageState {
-    match host_calc_body_damage_state(
-        object.health.current,
-        object.health.maximum.max(object.max_health).max(1.0),
-    ) {
+    // CPP FireWeaponWhenDamagedBehavior.cpp163/209 observes the Body state,
+    // including SAME_CURRENT max-health changes that have not reclassified it.
+    match object.body_damage_state {
         HostBodyDamageType::Pristine => FireWeaponBodyDamageState::Pristine,
         HostBodyDamageType::Damaged => FireWeaponBodyDamageState::Damaged,
         HostBodyDamageType::ReallyDamaged => FireWeaponBodyDamageState::ReallyDamaged,

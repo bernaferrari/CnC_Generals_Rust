@@ -84,3 +84,35 @@ fn ordinary_health_callback_component_trace() {
         &mut calls,
     );
 }
+
+#[test]
+fn receiving_custom_threshold_health_callback_component_trace() {
+    use crate::game_logic::body_damage_rules::{BodyDamagePolicy, BodyDamageRules};
+    let rules = BodyDamageRules::default()
+        .overlay_ini_text(
+            "GameData\nUnitDamagedThreshold = 0.8\nUnitReallyDamagedThreshold = 0.4\nEnd",
+        )
+        .unwrap();
+    let mut custom = body(4);
+    custom.bind_body_damage_policy(BodyDamagePolicy::Receiving(rules));
+    let mut calls = 0;
+    step(&mut custom, "custom_unchanged_capped", 10.0, &mut calls);
+    step(&mut custom, "custom_damaged_equal", -20.0, &mut calls);
+    step(
+        &mut custom,
+        "custom_really_damaged_equal",
+        -40.0,
+        &mut calls,
+    );
+    step(&mut custom, "custom_lethal", -40.0, &mut calls);
+    step(&mut custom, "custom_heal_to_damaged", 41.0, &mut calls);
+    custom.status.under_construction = true;
+    step(
+        &mut custom,
+        "custom_construction_crossing",
+        -2.0,
+        &mut calls,
+    );
+    custom.status.under_construction = false;
+    step(&mut custom, "custom_heal_pristine", 61.0, &mut calls);
+}

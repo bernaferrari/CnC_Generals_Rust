@@ -38,6 +38,8 @@ pub struct CommandExecutor<'a> {
 
     /// Current player executing commands
     current_player_id: u32,
+    /// Readonly value for this synchronous borrowed script command only.
+    target_policy: Option<&'a gamelogic::scripting::engine::ScriptEngine>,
 
     /// Track command execution metrics
     commands_executed: usize,
@@ -85,9 +87,21 @@ impl<'a> CommandExecutor<'a> {
             game_logic,
             ui,
             current_player_id: player_id,
+            target_policy: None,
             commands_executed: 0,
             commands_failed: 0,
             accepted_gather_carrier_ids: Vec::new(),
+        }
+    }
+
+    pub(crate) fn new_with_target_policy(
+        game_logic: &'a mut GameLogic,
+        player_id: u32,
+        interpreter: &'a gamelogic::scripting::engine::ScriptEngine,
+    ) -> Self {
+        Self {
+            target_policy: Some(interpreter),
+            ..Self::new(game_logic, player_id)
         }
     }
 

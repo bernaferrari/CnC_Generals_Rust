@@ -58,6 +58,28 @@ pub(crate) struct NativeBodyVisualChange {
     pub(crate) locality: game_engine::common::audio::AudioSubmissionLocality,
 }
 
+#[cfg(feature = "game_client")]
+impl NativeBodyVisualChange {
+    /// Shared synchronous delivery; no service discovery or deferred receipt.
+    pub(in crate::game_logic) fn deliver(
+        &mut self,
+        state: crate::game_logic::host_enum_table_residual::HostBodyDamageType,
+        view: &mut dyn NativeViewEffects,
+        audio: Option<&mut dyn game_client::drawable::drawable::NativeAmbientAudio>,
+    ) {
+        use crate::game_logic::host_enum_table_residual::HostBodyDamageType as Host;
+        use gamelogic::common::types::BodyDamageType as Native;
+        self.state = match state {
+            Host::Pristine => Native::Pristine,
+            Host::Damaged => Native::Damaged,
+            Host::ReallyDamaged => Native::ReallyDamaged,
+            Host::Rubble => Native::Rubble,
+        };
+        view.body_visual_changed(self, audio)
+            .expect("receiving native Body visual callback failed after canonical HP mutation");
+    }
+}
+
 pub(crate) trait NativeViewEffects {
     /// Explicit capability: native forwarding adapters must forward this call.
     /// A genuinely detached recipient declares no Drawable by returning false.

@@ -244,9 +244,10 @@ impl SnapshotBuilder {
                     &mut bytes, game_logic,
                 );
 
-                // A10 registry capsule is framed immediately before the APRO
+                // A10 registry and immutable Body rules are framed before the APRO
                 // / particle / CPAD footer chain; actor payload schemas stay unchanged.
                 super::super::a10_flight_persist::append_to_lifecycle_tail(&mut bytes, game_logic)?;
+                super::super::body_rules_persist::append(&mut bytes, game_logic);
                 // Framed completion footer is last; its parser never scans
                 // arbitrary object/template payload bytes for a marker.
                 super::super::player_academy_persist::append_to_lifecycle_tail(
@@ -344,6 +345,14 @@ impl SnapshotBuilder {
         game_logic: &mut GameLogic,
     ) -> SaveLoadResult<()> {
         validate_direct_world_snapshot_version(snapshot.version)?;
+        // Validate the original ScriptEngine continuation before mutating the
+        // receiving world, including callers that deserialize the typed body directly.
+        let mut receiving_persist = snapshot.persist_v18.clone();
+        let encoded_script_tail =
+            super::super::player_team_chunks::script_engine_tail_from_world(snapshot)?;
+        if receiving_persist.script_engine_tail.is_none() {
+            receiving_persist.script_engine_tail = encoded_script_tail;
+        }
         self.validate_object_restore_admission(&snapshot.objects, game_logic)?;
         if game_logic.object_lifecycle_callback_depth != 0
             || game_logic.host_objects().registered_values().any(|object| {
@@ -429,6 +438,8 @@ impl SnapshotBuilder {
             &body_kinds,
         )?;
         let lifecycle_tail = native_die.legacy_tail.as_ref();
+        let body_rules_candidate =
+            super::super::body_rules_persist::prepare(lifecycle_tail, snapshot.version)?;
         let lifecycle_for_a10 =
             super::super::lifecycle_tail::decode_lifecycle_tail(lifecycle_tail)?;
         let a10_delivery_candidate = super::super::a10_flight_persist::decode_and_validate(
@@ -519,6 +530,10 @@ impl SnapshotBuilder {
 
         // Restore frame number
         game_logic.set_current_frame(snapshot.frame_number);
+
+        if let Some(policy) = body_rules_candidate {
+            game_logic.install_validated_body_damage_policy(policy);
+        }
 
         // Lighting was validated with every other capsule before retirement.
         // Commit the prepared rules before Players and Objects are rebuilt.
@@ -789,10 +804,19 @@ impl SnapshotBuilder {
         self.sync_all_garrisoned_units_from_occupants(game_logic);
         self.restore_game_logic_persist_tail(snapshot, game_logic);
         super::super::persist_v18::restore_persist_v18_with_scale_encoding(
-            &snapshot.persist_v18,
+            &receiving_persist,
             game_logic,
             snapshot.version < 30,
         )?;
+        // Historical native saves may carry a stale global adapter in v18.
+        // NLFC already owns the receiving native value and takes precedence.
+        if let Some(value) = native_lifecycle.hulk_max_lifetime_override {
+            game_logic.native_hulk_max_lifetime_override = value;
+        }
+        // CPP AIUpdate::xfer resolves the saved attack-info name on LOAD.
+        // The receiving interpreter tail is now restored; rebind object names
+        // and definitions before the first AI/script observer can select a target.
+        game_logic.sync_attack_priority_from_script_engine();
         super::super::hotkey_squad_persist::apply_from_lifecycle_tail(lifecycle_tail, game_logic)?;
         super::super::garrison_firepoint_persist::apply_from_lifecycle_tail(
             lifecycle_tail,

@@ -1689,7 +1689,9 @@ impl ScriptActionDispatcher<'_> {
             // ============================================================================
             // ATTACK PRIORITY ACTIONS
             // ============================================================================
-            ScriptActionType::SetAttackPriorityThing => self.do_set_attack_priority_thing(action),
+            ScriptActionType::SetAttackPriorityThing => {
+                self.do_set_attack_priority_thing(action, driver)
+            }
             ScriptActionType::SetAttackPriorityKindOf => self.do_set_attack_priority_kindof(action),
             ScriptActionType::SetDefaultAttackPriority => {
                 self.do_set_default_attack_priority(action)

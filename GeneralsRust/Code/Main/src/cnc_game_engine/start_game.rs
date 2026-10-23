@@ -853,9 +853,12 @@ impl CnCGameEngine {
             self.return_to_main_menu_after_match();
             return;
         };
+        let initial_rank = recorder_dispatch.map_or(0, |dispatch| dispatch.rank_points);
+        self.game_logic
+            .set_rank_points_to_add_at_game_start(initial_rank);
         if mode == GameMode::SinglePlayer {
-            let points = recorder_dispatch.map_or(0, |dispatch| dispatch.rank_points);
-            self.game_logic.admit_native_initial_rank_points(points);
+            self.game_logic
+                .admit_native_initial_rank_points(initial_rank);
         }
         info!(
             "host_start_game_from_ui: map load done (requested='{}', loaded='{}')",

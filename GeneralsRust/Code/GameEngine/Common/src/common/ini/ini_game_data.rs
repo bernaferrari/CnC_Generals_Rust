@@ -747,7 +747,7 @@ impl GlobalData {
 
             terrain_height_at_edge_of_map: 0.0,
             unit_damaged_thresh: 0.5,
-            unit_really_damaged_thresh: 0.25,
+            unit_really_damaged_thresh: 0.1,
             ground_stiffness: 0.8,
             structure_stiffness: 1.0,
             gravity: -9.8,
@@ -1325,6 +1325,9 @@ impl ProductionEnergyRules {
     }
 }
 
+#[path = "ini_game_data/body_damage_rules.rs"]
+mod body_damage_rules;
+pub use body_damage_rules::BodyDamageRules;
 #[path = "ini_game_data/lighting_rules.rs"]
 mod lighting_rules;
 pub use lighting_rules::LightingContentRules;

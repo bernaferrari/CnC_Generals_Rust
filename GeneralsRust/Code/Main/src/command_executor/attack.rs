@@ -88,6 +88,10 @@ impl<'a> CommandExecutor<'a> {
         // via choose_attack_team_victim below.
         let enemy_team_name = self.game_logic.attack_team_identity_for_faction(enemy_team);
         let tag = attack_team_persist_tag(enemy_team.get_name());
+        let force_normal = self.target_policy.map_or_else(
+            || self.game_logic.receiving_choose_victim_uses_normal(),
+            |engine| engine.get_choose_victim_always_uses_normal(),
+        );
         let mut any = false;
         for &unit_id in units {
             let (alive, skip_struct, my_team) = match self.game_logic.host_object(unit_id) {
@@ -101,9 +105,12 @@ impl<'a> CommandExecutor<'a> {
             if !alive || skip_struct || my_team == enemy_team {
                 continue;
             }
-            let victim = self
-                .game_logic
-                .choose_attack_team_victim(unit_id, &enemy_team_name, true);
+            let victim = self.game_logic.choose_attack_team_victim_with_policy(
+                unit_id,
+                &enemy_team_name,
+                true,
+                force_normal,
+            );
             if let Some(unit) = self.game_logic.host_object_mut(unit_id) {
                 unit.set_max_shots_to_fire(max_shots);
                 unit.auto_acquire_when_idle = true;
@@ -871,6 +878,23 @@ impl crate::game_logic::GameLogic {
         enemy_team_name: &str,
         from_player: bool,
     ) -> Option<ObjectId> {
+        self.choose_attack_team_victim_with_policy(
+            unit_id,
+            enemy_team_name,
+            from_player,
+            self.receiving_choose_victim_uses_normal(),
+        )
+    }
+
+    /// The synchronous ScriptEngine driver passes its live flag while its
+    /// interpreter is loaned out of GameLogic. No policy is stored or replayed.
+    pub(crate) fn choose_attack_team_victim_with_policy(
+        &self,
+        unit_id: ObjectId,
+        enemy_team_name: &str,
+        from_player: bool,
+        force_normal: bool,
+    ) -> Option<ObjectId> {
         use crate::ai::AIDifficulty;
         use crate::game_logic::host_deliver_payload::is_off_map_default_residual;
         use crate::game_logic::host_strategy_center::HostAiAttitude;
@@ -900,15 +924,6 @@ impl crate::game_logic::GameLogic {
         if from_player {
             difficulty = AIDifficulty::Hard;
         }
-        let force_normal = gamelogic::scripting::engine::get_script_engine()
-            .read()
-            .ok()
-            .and_then(|guard| {
-                guard
-                    .as_ref()
-                    .map(|engine| engine.get_choose_victim_always_uses_normal())
-            })
-            .unwrap_or(false);
         if force_normal {
             difficulty = AIDifficulty::Medium;
         }
@@ -935,7 +950,7 @@ impl crate::game_logic::GameLogic {
                     return None;
                 }
                 let hi = live.len().saturating_sub(1) as i32;
-                let idx = gamelogic::helpers::get_game_logic_random_value(0, hi) as usize;
+                let idx = self.logic_random.next_int(0, hi) as usize;
                 live.get(idx).map(|(id, _, _)| *id)
             }
             AIDifficulty::Medium => {

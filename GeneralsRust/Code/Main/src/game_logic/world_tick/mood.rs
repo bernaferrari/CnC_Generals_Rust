@@ -3,15 +3,16 @@
 use super::super::*;
 impl GameLogic {
     pub fn sync_attack_priority_from_script_engine(&mut self) {
-        use gamelogic::scripting::engine::get_script_engine;
-        let engine_arc = get_script_engine();
-        let Ok(guard) = engine_arc.read() else {
-            return;
-        };
-        let Some(engine) = guard.as_ref() else {
-            return;
-        };
+        self.with_owned_script_engine(|engine, world| {
+            world.sync_attack_priority_from_receiving_interpreter(engine);
+        })
+        .expect("post-command priority import owns its receiving interpreter");
+    }
 
+    fn sync_attack_priority_from_receiving_interpreter(
+        &mut self,
+        engine: &gamelogic::scripting::engine::ScriptEngine,
+    ) {
         // Import all named attack priority sets from script engine.
         // Engine stores Vec with index 0 default; named entries from 1..
         // Public API: get_attack_info by name; also iterate via reflection if available.
@@ -54,9 +55,6 @@ impl GameLogic {
                 self.register_attack_priority_set(host);
             }
         }
-        // Release compatibility definition guards before owned team defaults.
-        drop(guard);
-        drop(engine_arc);
         let need_inherit: Vec<ObjectId> = self
             .objects
             .registered()
@@ -66,6 +64,15 @@ impl GameLogic {
         for id in need_inherit {
             self.inherit_team_ai_defaults(id);
         }
+    }
+
+    /// Outside an interpreter loan, target evaluation reads the receiving
+    /// interpreter. Script callbacks supply the live value explicitly instead.
+    pub(crate) fn receiving_choose_victim_uses_normal(&self) -> bool {
+        self.owned_script_engine
+            .as_ref()
+            .expect("target evaluation requires the receiving interpreter or an explicit callback policy")
+            .get_choose_victim_always_uses_normal()
     }
 
     pub fn register_attack_priority_set(&mut self, info: AttackPriorityInfo) {
@@ -155,15 +162,7 @@ impl GameLogic {
         );
         // C++ AIAttackSquadState::chooseVictim: script flag forces DIFFICULTY_NORMAL
         // (closest), so Easy/Hard AI pick the same target.
-        let force_normal = gamelogic::scripting::engine::get_script_engine()
-            .read()
-            .ok()
-            .and_then(|guard| {
-                guard
-                    .as_ref()
-                    .map(|engine| engine.get_choose_victim_always_uses_normal())
-            })
-            .unwrap_or(false);
+        let force_normal = self.receiving_choose_victim_uses_normal();
         let prio = if force_normal {
             None
         } else {
@@ -686,7 +685,7 @@ impl GameLogic {
                 // C++ AIUpdate.cpp:4548-4552. One draw, then the flag clears.
                 if o.randomly_offset_mood_check {
                     let half = (rate >> 1) as i32;
-                    let jitter = gamelogic::helpers::get_game_logic_random_value(-half, half);
+                    let jitter = self.logic_random.next_int(-half, half);
                     next = (next as i32).wrapping_add(jitter) as u32;
                     o.randomly_offset_mood_check = false;
                 }
@@ -1936,9 +1935,9 @@ mod common_target_parity {
         }
 
         logic.frame = 53;
-        game_engine::common::random_value::init_random_with_seed(0xC0FFEE);
-        let jitter = gamelogic::helpers::get_game_logic_random_value(-15, 15);
-        game_engine::common::random_value::init_random_with_seed(0xC0FFEE);
+        logic.logic_random.seed_random(0xC0FFEE);
+        let jitter = logic.logic_random.next_int(-15, 15);
+        logic.logic_random.seed_random(0xC0FFEE);
         assert!(logic.get_next_mood_target(id, true, true, false).is_none());
         let o = logic.host_object(id).expect("ranger");
         assert!(!o.randomly_offset_mood_check);

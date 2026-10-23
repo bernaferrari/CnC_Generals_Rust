@@ -1423,11 +1423,9 @@ impl Object {
         ) {
             return;
         }
-        let target =
-            crate::game_logic::host_overlord_addon_damage::overlord_addon_set_damage_state_health(
-                self.health.maximum.max(0.0),
-                new_state,
-            );
+        let target = self
+            .body_damage_policy
+            .health_for_state(self.health.maximum.max(0.0), new_state);
         self.internal_change_health(target - self.health.current);
     }
 

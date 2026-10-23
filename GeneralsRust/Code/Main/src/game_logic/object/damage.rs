@@ -997,12 +997,7 @@ impl Object {
                     // Keep the impact frame through debounce; GameLogic may process the emitted weapon later.
                     if let Some(w) = fw.on_damage(
                         actual_damage,
-                        self.health.current,
-                        if self.health.maximum > 0.0 {
-                            self.health.maximum
-                        } else {
-                            self.max_health.max(1.0)
-                        },
+                        self.body_damage_state,
                         frame,
                         damage_type.to_store() as u32,
                     ) {

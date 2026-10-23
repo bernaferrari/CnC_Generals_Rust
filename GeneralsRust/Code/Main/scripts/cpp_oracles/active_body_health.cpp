@@ -53,7 +53,23 @@ public:
     void run(const char* name,Real delta) { scenario=name; internalChangeHealth(delta);trace("complete",object.effectivelyDead); }
 };
 #include "original_internal_change_health.inc"
-int main() {
+int main(int argc, char** argv) {
+    if (argc == 2 && std::string(argv[1]) == "receiving-custom") {
+        data.m_unitDamagedThresh=0.8f;
+        data.m_unitReallyDamagedThresh=0.4f;
+        ActiveBody custom;
+        custom.run("custom_unchanged_capped",10.0f);
+        custom.run("custom_damaged_equal",-20.0f);
+        custom.run("custom_really_damaged_equal",-40.0f);
+        custom.run("custom_lethal",-40.0f);
+        custom.run("custom_heal_to_damaged",41.0f);
+        custom.object.status.underConstruction=true;
+        custom.run("custom_construction_crossing",-2.0f);
+        custom.object.status.underConstruction=false;
+        custom.run("custom_heal_pristine",61.0f);
+        return 0;
+    }
+    if (argc != 1) return 2;
     ActiveBody body;
     body.run("unchanged_capped",10.0f);
     body.run("damage_crossing",-40.0f);

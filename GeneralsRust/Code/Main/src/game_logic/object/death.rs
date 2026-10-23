@@ -982,8 +982,7 @@ impl Object {
         };
         fw.on_damage(
             actual_damage,
-            self.health.current,
-            self.health.maximum.max(self.max_health).max(1.0),
+            self.body_damage_state,
             current_frame,
             damage_type_ordinal,
         )
@@ -998,11 +997,7 @@ impl Object {
         let Some(fw) = self.fire_weapon_when_damaged.as_mut() else {
             return None;
         };
-        fw.tick_continuous(
-            self.health.current,
-            self.health.maximum.max(self.max_health).max(1.0),
-            current_frame,
-        )
+        fw.tick_continuous(self.body_damage_state, current_frame)
     }
 
     /// Drain C++ applyCrushingDamage residual samples for this frame.

@@ -110,7 +110,10 @@ fn write_control_groups_prefix(
         let len = take_u32(&mut rest)? as usize;
         bytes.splice(start..start + 12 + len, record);
     } else {
-        bytes.extend(record);
+        // Footer-based continuations must remain terminal for their readers.
+        // A first HSQD belongs before that chain, just like builder capture.
+        let at = super::named_unit_history_persist::suffix_start(bytes)?;
+        bytes.splice(at..at, record);
     }
     Ok(())
 }

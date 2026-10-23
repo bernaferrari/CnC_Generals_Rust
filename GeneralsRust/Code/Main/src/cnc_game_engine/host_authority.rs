@@ -140,6 +140,7 @@ mod restore_viewport_owner_tests;
 /// a detached saved-world candidate. This borrow cannot select another world.
 #[derive(Clone, Copy)]
 pub(super) struct RestoreTemplateCatalog<'a> {
+    body_damage_baseline: crate::game_logic::body_damage_rules::BodyDamagePolicy,
     lighting_baseline: &'a crate::game_logic::lighting_rules::LightingContentRules,
     templates: &'a std::collections::HashMap<String, crate::game_logic::ThingTemplate>,
     modules:
@@ -156,6 +157,7 @@ impl<'a> RestoreTemplateCatalog<'a> {
             object_definitions: &world.receiving_object_definitions,
             baseline: &world.receiving_template_baseline,
             lighting_baseline: world.lighting_rules_baseline(),
+            body_damage_baseline: world.body_damage_baseline(),
         }
     }
 }
@@ -2215,6 +2217,7 @@ impl CnCGameEngine {
                 object_definitions: &live.receiving_object_definitions,
                 baseline: &live.receiving_template_baseline,
                 lighting_baseline: live.lighting_rules_baseline(),
+                body_damage_baseline: live.body_damage_baseline(),
             },
             &live.weapon_definition_base,
             &live.projectile_definitions,
@@ -2347,6 +2350,7 @@ impl CnCGameEngine {
             candidate.set_ai_definition_base(live.ai_definitions.baseline().clone());
             candidate.admit_production_energy_base(live.production_energy_baseline());
             candidate.admit_physics_rules_base(live.physics_rules_baseline())?;
+            candidate.admit_body_damage_baseline(live.body_damage_baseline());
             candidate.admit_lighting_rules_base(live.lighting_rules_baseline().clone());
             candidate
                 .admit_terrain_definitions(Arc::clone(live.effective_terrain_definitions()))?;
@@ -2606,6 +2610,7 @@ impl CnCGameEngine {
         staged.set_ai_definition_base(ai_definition_base.clone());
         staged.admit_production_energy_base(production_energy_base);
         staged.admit_physics_rules_base(physics_rules_base)?;
+        staged.admit_body_damage_baseline(template_catalog.body_damage_baseline);
         staged.admit_lighting_rules_base(template_catalog.lighting_baseline.clone());
         staged.admit_terrain_definitions(Arc::clone(terrain_definition_seed))?;
         if let Some(catalog) = armor_definition_seed {
@@ -2821,6 +2826,7 @@ impl CnCGameEngine {
                     object_definitions: &self.game_logic.receiving_object_definitions,
                     baseline: &self.game_logic.receiving_template_baseline,
                     lighting_baseline: self.game_logic.lighting_rules_baseline(),
+                    body_damage_baseline: self.game_logic.body_damage_baseline(),
                 },
                 &self.game_logic.weapon_definition_base,
                 &self.game_logic.projectile_definitions,
@@ -2859,6 +2865,7 @@ impl CnCGameEngine {
                 object_definitions: &self.game_logic.receiving_object_definitions,
                 baseline: &self.game_logic.receiving_template_baseline,
                 lighting_baseline: self.game_logic.lighting_rules_baseline(),
+                body_damage_baseline: self.game_logic.body_damage_baseline(),
             },
             &self.game_logic.weapon_definition_base,
             &self.game_logic.projectile_definitions,

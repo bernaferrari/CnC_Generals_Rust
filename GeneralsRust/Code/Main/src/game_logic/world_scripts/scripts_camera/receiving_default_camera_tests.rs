@@ -17,7 +17,10 @@ fn set_defaults(world: &mut GameLogic, pitch: f32, max_height: f32) {
         true,
     ));
     let hooks = MissionScriptHooks::new();
-    let _ = run(world, engine(hooks.clone(), list));
+    // run returns the exact interpreter after its synchronous owner loan.
+    // This fixture has no detached continuation: retain it for frame/save.
+    let interpreter = run(world, engine(hooks.clone(), list));
+    world.install_owned_script_engine(interpreter);
     assert!(hooks.drain_camera_set_default_requests().is_empty());
 }
 

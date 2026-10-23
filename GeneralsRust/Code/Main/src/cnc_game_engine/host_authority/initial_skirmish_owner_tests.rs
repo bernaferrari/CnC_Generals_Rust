@@ -227,7 +227,8 @@ fn direct_config_archive_rebuilds_saved_initial_foundation_before_strict_map_cov
                 .create_world_snapshot(&source)
                 .unwrap();
             assert_eq!(
-                built.version, 30,
+                built.version,
+                crate::save_load::snapshot::WORLD_SNAPSHOT_BINCODE_VERSION,
                 "initial admission must not downgrade absolute-scale capability"
             );
             assert!(
@@ -256,7 +257,8 @@ fn direct_config_archive_rebuilds_saved_initial_foundation_before_strict_map_cov
                 Some(initial.as_ref())
             );
             assert_eq!(
-                snapshot.version, 30,
+                snapshot.version,
+                crate::save_load::snapshot::WORLD_SNAPSHOT_BINCODE_VERSION,
                 "the actual encoded save retains current capability"
             );
             let restored = stage(&mut saves, "direct", &source).unwrap();

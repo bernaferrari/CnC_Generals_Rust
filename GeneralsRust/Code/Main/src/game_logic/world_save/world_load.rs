@@ -292,6 +292,7 @@ impl GameLogic {
         }
         self.refresh_receiving_client_templates();
         self.physics_definitions.effective = self.physics_definitions.base;
+        self.body_damage_definitions.effective = self.body_damage_definitions.base;
         self.lighting_definitions.effective = self.lighting_definitions.base.clone();
         self.reset_ocl_map_definitions();
         self.named_unit_history.clear();
@@ -366,6 +367,10 @@ impl GameLogic {
                     .iter()
                     .map(|(_, text)| text.clone())
                     .collect();
+                if let Err(error) = self.admit_body_damage_companion_sources(&weapon_overrides) {
+                    log::error!("Cannot admit receiving map Body rules: {error}");
+                    return false;
+                }
                 if let Err(error) = self.admit_lighting_companion_sources(&weapon_overrides) {
                     log::error!("Cannot admit receiving map lighting rules: {error}");
                     return false;

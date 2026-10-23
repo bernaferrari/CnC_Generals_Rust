@@ -207,3 +207,91 @@ fn actual_map_admission_keeps_first_scene_lighting_when_second_map_is_loaded() {
         },
     );
 }
+
+#[test]
+fn actual_map_game_data_thresholds_reach_same_id_factory_bodies_without_cross_world_changes() {
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "actual_map_game_data_thresholds_reach_same_id_factory_bodies_without_cross_world_changes",
+        || {
+            use crate::game_logic::host_enum_table_residual::HostBodyDamageType as State;
+            use crate::game_logic::{GameLogic, GameMode, Player, Team};
+            let directory = tempfile::tempdir().unwrap();
+            let write_map = |name: &str, damaged: f32, really: f32| {
+                let map_dir = directory.path().join(name);
+                std::fs::create_dir(&map_dir).unwrap();
+                let mut output = game_engine::common::system::DataChunkOutput::new();
+                output.open_data_chunk("HeightMapData", 3);
+                for value in [8, 8, 0, 64] {
+                    output.write_int(value);
+                }
+                for _ in 0..64 {
+                    output.write_byte(40);
+                }
+                output.close_data_chunk();
+                output.open_data_chunk("ObjectsList", 3);
+                output.close_data_chunk();
+                let path = map_dir.join(format!("{name}.map"));
+                std::fs::write(&path, output.into_ckmp_bytes()).unwrap();
+                std::fs::write(map_dir.join("Map.ini"),format!("GameData\nUnitDamagedThreshold = {damaged}\nUnitReallyDamagedThreshold = {really}\nEnd\n")).unwrap();
+                path
+            };
+            let first_map = write_map("ThresholdFirst", 0.8, 0.4);
+            let second_map = write_map("ThresholdSecond", 0.5, 0.2);
+            let make_world = |path: &std::path::Path| {
+                let mut world = GameLogic::new();
+                world.admit_receiving_module_content(crate::assets::ReceivingObjectContent::from_sources([(
+                    "map-threshold-body.ini".into(),
+                    "Object MapThresholdBody\nKindOf = VEHICLE SELECTABLE\nBody = ActiveBody BodyTag\nMaxHealth = 100\nInitialHealth = 60\nEnd\nEnd\n".into()
+                )]).unwrap()).unwrap();
+                world.start_new_game(GameMode::Shell);
+                assert!(world.load_map(path.to_str().unwrap()));
+                world.add_player(Player::new(1, Team::USA, "Owner", true));
+                let id = world
+                    .create_object_for_player("MapThresholdBody", 1, glam::Vec3::ZERO)
+                    .unwrap();
+                (world, id)
+            };
+            let (mut first, id) = make_world(&first_map);
+            assert_eq!(
+                first.host_object(id).unwrap().body_damage_state,
+                State::Damaged
+            );
+            let (mut second, peer) = make_world(&second_map);
+            assert_eq!(id, peer);
+            assert_eq!(
+                second.host_object(peer).unwrap().body_damage_state,
+                State::Pristine,
+                "receiving Map.ini0.5/.2 must classify60/100 as pristine, not hardcoded retail"
+            );
+            first
+                .host_objects_mut()
+                .get_mut(&id)
+                .unwrap()
+                .internal_change_health(-25.0);
+            second
+                .host_objects_mut()
+                .get_mut(&peer)
+                .unwrap()
+                .internal_change_health(-25.0);
+            assert_eq!(
+                first.host_object(id).unwrap().body_damage_state,
+                State::ReallyDamaged
+            );
+            assert_eq!(
+                second.host_object(peer).unwrap().body_damage_state,
+                State::Damaged
+            );
+            drop(second);
+            first
+                .host_objects_mut()
+                .get_mut(&id)
+                .unwrap()
+                .internal_change_health(25.0);
+            assert_eq!(
+                first.host_object(id).unwrap().body_damage_state,
+                State::Damaged
+            );
+        },
+    );
+}

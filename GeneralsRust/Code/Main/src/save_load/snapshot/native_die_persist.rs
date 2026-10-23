@@ -279,6 +279,7 @@ pub(super) fn validate(
                             0,
                             Default::default(),
                             runtime,
+                            world.body_damage_policy(),
                         )
                         .is_inactive_body()
                     })
@@ -353,6 +354,7 @@ pub(super) fn validate(
                 0,
                 Default::default(),
                 runtime,
+                world.body_damage_policy(),
             )
         });
         let has_ai = receiving

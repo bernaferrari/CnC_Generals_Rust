@@ -1655,6 +1655,7 @@ impl CnCGameEngine {
                     game_logic.admit_camera_application_input(camera_input_base);
                     game_logic.admit_camera_application_shake(camera_shake_base)?;
                     game_logic.admit_camera_application_rules(camera_rule_base)?;
+                    game_logic.admit_body_damage_baseline(runtime.block_on(Self::load_body_damage_baseline())?);
                     game_logic.admit_lighting_rules_base(runtime.block_on(Self::load_lighting_rules_baseline())?);
                     game_logic.admit_physics_rules_base(runtime.block_on(Self::load_physics_rules_baseline())?)?;
                     game_logic.admit_production_energy_base(runtime.block_on(Self::load_production_energy_baseline())?);
@@ -1771,7 +1772,7 @@ impl CnCGameEngine {
                     } else {
                         game_logic.start_new_game_with_recorder_payload(startup_mode, difficulty, rank, max_fps);
                     }
-                    Self::admit_startup_difficulty(&mut game_logic, startup_new_game);
+                    Self::admit_startup_simulation_inputs(&mut game_logic, startup_new_game);
                     game_logic.admit_new_game_starting_cash(game_info_starting_cash, default_starting_cash);
 
                     Self::emit_startup_load_progress(&sender, 0.24, "Startup catalogs ready");

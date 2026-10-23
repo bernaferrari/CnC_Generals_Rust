@@ -120,7 +120,9 @@ fn owned_control_groups_new_record_preserves_terminal_player_team_capsule() {
             source.admit_new_game_starting_cash(None, 17_321);
             let mut player = Player::new(0, Team::USA, "Owned groups player", true);
             player.resources.supplies = 17;
+            player.academy_stats.record_control_groups_used();
             source.add_player(player);
+            source.named_unit_history.insert("PreviouslySeen".into());
             let builder = SnapshotBuilder::new();
             let before = builder.create_world_snapshot(&source).unwrap();
             assert!(
@@ -170,6 +172,12 @@ fn owned_control_groups_new_record_preserves_terminal_player_team_capsule() {
                 .unwrap();
             assert_eq!(receiving.get_player(0).unwrap().resources.supplies, 17);
             assert_eq!(receiving.skirmish_rules().starting_cash, 17_321);
+            assert_eq!(receiving.body_damage_policy(), source.body_damage_policy());
+            assert!(receiving.named_unit_history.contains("PreviouslySeen"));
+            assert_eq!(
+                receiving.get_player(0).unwrap().academy_stats.serialize(),
+                source.get_player(0).unwrap().academy_stats.serialize()
+            );
         },
     );
 }

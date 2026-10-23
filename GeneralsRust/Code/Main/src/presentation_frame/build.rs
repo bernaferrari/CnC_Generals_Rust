@@ -456,13 +456,11 @@ impl PresentationFrame {
                 crate::assets::mesh_asset_resolve::model_key_from_template(obj.get_template());
             let destroyed_for_mesh = obj.status.destroyed || auth_health <= 0.01;
             let body_ord = {
-                use crate::game_logic::host_enum_table_residual::{
-                    HostBodyDamageType, host_calc_body_damage_state,
-                };
+                use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
                 let state = if destroyed_for_mesh {
                     HostBodyDamageType::Rubble
                 } else {
-                    host_calc_body_damage_state(auth_health, obj.health.maximum.max(0.0))
+                    obj.body_damage_state
                 };
                 state as u8
             };

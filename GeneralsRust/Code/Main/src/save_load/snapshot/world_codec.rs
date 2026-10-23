@@ -22,7 +22,10 @@ pub(crate) fn decode_bincode_world_snapshot(payload: &[u8]) -> SaveLoadResult<Wo
         bincode::serde::decode_from_slice(payload, bincode::config::legacy())
             .map_err(|error| SaveLoadError::Serialization(error.to_string()))?;
     validate_direct_world_snapshot_version(version)?;
-    decode_exact(payload)
+    let mut snapshot: WorldSnapshot = decode_exact(payload)?;
+    snapshot.persist_v18.script_engine_tail =
+        super::player_team_chunks::script_engine_tail_from_world(&snapshot)?;
+    Ok(snapshot)
 }
 
 pub(super) fn xfer_pending_combat(

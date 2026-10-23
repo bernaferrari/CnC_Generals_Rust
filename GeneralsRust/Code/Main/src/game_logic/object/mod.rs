@@ -376,6 +376,9 @@ fn default_adjust_destinations() -> bool {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Object {
+    /// Immutable classification policy; wire/clone admission is rebound explicitly.
+    #[serde(skip)]
+    body_damage_policy: crate::game_logic::body_damage_rules::BodyDamagePolicy,
     /// Immutable definitions bound by the receiving factory/load candidate.
     #[serde(skip, default = "crate::game_logic::physics_rules::default_host_physics_rules")]
     pub(crate) physics_rules: crate::game_logic::physics_rules::PhysicsContentRules,

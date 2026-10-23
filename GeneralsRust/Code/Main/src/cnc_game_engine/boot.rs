@@ -47,6 +47,17 @@ impl CnCGameEngine {
         crate::game_logic::terrain_definitions::parse_application_terrain_sources(&sources)
     }
 
+    pub(super) async fn load_body_damage_baseline()
+    -> Result<crate::game_logic::body_damage_rules::BodyDamagePolicy, String> {
+        use crate::game_logic::body_damage_rules::{BodyDamagePolicy, BodyDamageRules};
+        let mut rules = BodyDamageRules::default();
+        for (path, text) in Self::load_startup_game_data_texts().await? {
+            rules = rules
+                .overlay_ini_text(&text)
+                .map_err(|error| format!("{path}: {error}"))?;
+        }
+        Ok(BodyDamagePolicy::Receiving(rules))
+    }
     pub(super) async fn load_lighting_rules_baseline()
     -> Result<game_engine::common::ini::ini_game_data::LightingContentRules, String> {
         let mut rules = game_engine::common::ini::ini_game_data::LightingContentRules::default();
@@ -436,6 +447,11 @@ impl CnCGameEngine {
         game_logic
             .admit_camera_application_rules(camera_rule_base)
             .map_err(anyhow::Error::msg)?;
+        game_logic.admit_body_damage_baseline(
+            Self::load_body_damage_baseline()
+                .await
+                .map_err(anyhow::Error::msg)?,
+        );
         game_logic.admit_lighting_rules_base(
             Self::load_lighting_rules_baseline()
                 .await

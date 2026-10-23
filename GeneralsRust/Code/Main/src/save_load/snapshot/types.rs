@@ -23,12 +23,13 @@ use std::time::SystemTime;
 /// Version 29 advertises the optional resolved-start capsule. The positional
 /// body remains unchanged; original C++ module versions are independent.
 /// Version30 keeps the same positional body and admits absolute Drawable scale.
-pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 30;
-pub const WORLD_SNAPSHOT_DIRECT_XFER_VERSION: u32 = 30;
+/// Version31 requires the receiving Body rules continuation frame.
+pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 31;
+pub const WORLD_SNAPSHOT_DIRECT_XFER_VERSION: u32 = 31;
 
 /// Validate the Rust outer envelope before consuming or restoring its body.
 pub(crate) fn validate_direct_world_snapshot_version(version: u32) -> SaveLoadResult<()> {
-    if matches!(version, 23..=30) {
+    if matches!(version, 23..=31) {
         Ok(())
     } else {
         Err(crate::save_load::SaveLoadError::VersionMismatch {
@@ -523,6 +524,12 @@ impl Default for WorldSnapshot {
             w3d_ghost_companion: None,
             particle_system_companion: None,
         };
+        // Pure standalone/tool definitions: no world construction/publication.
+        // Builder captures the actual receiving session policy instead.
+        super::body_rules_persist::append_policy(
+            &mut world.lifecycle_tail,
+            crate::game_logic::body_damage_rules::BodyDamagePolicy::StandaloneRetail,
+        );
         // A current empty snapshot is still a valid session value. Encode its
         // known default admission input without constructing/publishing a world.
         // SnapshotBuilder replaces this with the driving instance's cash.

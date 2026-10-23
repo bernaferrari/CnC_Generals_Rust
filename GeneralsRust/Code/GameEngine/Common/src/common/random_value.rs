@@ -148,6 +148,11 @@ impl SessionRandom {
     pub fn seed_words(&self) -> [u32; 6] {
         self.snapshot().seed_words()
     }
+    /// Original inclusive integer range, consuming only this driving stream.
+    pub fn next_int(&self, lo: i32, hi: i32) -> i32 {
+        logic_integer_with_draw(lo, hi, || self.next_u32())
+    }
+
     /// Linearize one library draw; retries have no gameplay side effects.
     pub fn next_u32(&self) -> u32 {
         let mut before = self.state.load(Ordering::Relaxed);
@@ -341,6 +346,10 @@ fn next_logic_value() -> u32 {
 
 /// Get game logic random integer value
 pub fn get_game_logic_random_value(lo: i32, hi: i32) -> i32 {
+    logic_integer_with_draw(lo, hi, next_logic_value)
+}
+
+fn logic_integer_with_draw(lo: i32, hi: i32, draw: impl FnOnce() -> u32) -> i32 {
     // C++ RandomValue.cpp:189 `UnsignedInt delta = hi - lo + 1;` — MSVC x86
     // evaluates the Int expression with two's-complement wrap and stores the
     // resulting bits as UnsignedInt. Reproduce exactly: wrap on i32, bit-cast.
@@ -351,9 +360,7 @@ pub fn get_game_logic_random_value(lo: i32, hi: i32) -> i32 {
         return hi;
     }
 
-    // Scoped-owner resolver: during a published tick scope the draw consumes
-    // the driving instance's state, else the GAME_LOGIC_RANDOM fallback.
-    let random_val = next_logic_value();
+    let random_val = draw();
     // C++ RandomValue.cpp:196 `((Int)(randomValue(...) % delta)) + lo` —
     // unsigned mod, quotient bits reinterpreted as Int, then a signed add
     // that wraps on MSVC x86 (final addition can overflow only when delta

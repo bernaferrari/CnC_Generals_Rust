@@ -170,23 +170,14 @@ impl CnCGameEngine {
         Ok(messages)
     }
 
-    pub(super) fn admit_startup_difficulty(
+    pub(super) fn admit_startup_simulation_inputs(
         world: &mut crate::game_logic::GameLogic,
         dispatch: Option<StartupNewGameDispatch>,
     ) {
         if let Some(dispatch) = dispatch {
             world.prepare_native_command_difficulty(dispatch.difficulty_code);
+            world.set_rank_points_to_add_at_game_start(dispatch.rank_points);
         }
-    }
-
-    pub(super) fn apply_startup_new_game_dispatch(
-        dispatch: StartupNewGameDispatch,
-    ) -> Option<String> {
-        gamelogic::helpers::TheScriptEngine::set_global_difficulty(dispatch.difficulty_code);
-        gamelogic::helpers::TheGameLogic::set_rank_points_to_add_at_game_start(
-            dispatch.rank_points,
-        );
-        Self::apply_application_new_game_dispatch(dispatch)
     }
 
     pub(super) fn apply_application_new_game_dispatch(
@@ -235,7 +226,7 @@ impl CnCGameEngine {
                 dispatch.rank_points,
                 dispatch.max_fps
             );
-            let prepared_map = Self::apply_startup_new_game_dispatch(dispatch);
+            let prepared_map = Self::apply_application_new_game_dispatch(dispatch);
             if map_to_load.is_none() {
                 *map_to_load = prepared_map;
             }
@@ -527,7 +518,7 @@ impl CnCGameEngine {
             return;
         }
         self.update_last_new_game_dispatch(dispatch);
-        let prepared_map = Self::apply_startup_new_game_dispatch(dispatch);
+        let prepared_map = Self::apply_application_new_game_dispatch(dispatch);
         let identity = self.last_new_game_identity();
         let map = prepared_map
             .filter(|name| !name.trim().is_empty())
@@ -644,7 +635,7 @@ impl CnCGameEngine {
         let prepared_map = if receiving {
             Self::take_application_new_game_map()
         } else {
-            Self::apply_startup_new_game_dispatch(dispatch)
+            Self::apply_application_new_game_dispatch(dispatch)
         };
 
         let mode = dispatch.game_mode;

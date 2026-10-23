@@ -211,7 +211,10 @@ fn os_session_has_display() -> bool {
 }
 
 fn wgpu_adapter_can_present() -> bool {
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor { backends: wgpu::Backends::all(), ..wgpu::InstanceDescriptor::new_without_display_handle() });
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        backends: wgpu::Backends::all(),
+        ..wgpu::InstanceDescriptor::new_without_display_handle()
+    });
     let adapters = pollster::block_on(instance.enumerate_adapters(wgpu::Backends::all()));
     adapters
         .into_iter()
@@ -1046,7 +1049,7 @@ mod tests {
             .split("fn take_startup_messages_from_stream")
             .nth(1)
             .and_then(|s| {
-                s.split("pub(super) fn apply_startup_new_game_dispatch")
+                s.split("pub(super) fn admit_startup_simulation_inputs")
                     .next()
             })
             .expect("take_startup bounded");

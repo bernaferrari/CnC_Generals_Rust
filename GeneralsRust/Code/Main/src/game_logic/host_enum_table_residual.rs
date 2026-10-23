@@ -272,7 +272,9 @@ pub const MC_BIT_FREEFALL: u32 = 55;
 /// C++ MODELCONDITION_SPLATTED residual index.
 pub const MC_BIT_SPLATTED: u32 = 91;
 
-/// C++ ActiveBody::calcDamageState residual (default thresholds).
+/// Historical standalone retail fixture classifier. Admitted Objects use their
+/// receiving immutable Body policy; this API must not classify a live actor.
+#[cfg(test)]
 pub fn host_calc_body_damage_state(health: f32, max_health: f32) -> HostBodyDamageType {
     if max_health <= 0.0 {
         // health/0 is +inf and stays pristine. 0/0 is NaN and falls through to rubble.

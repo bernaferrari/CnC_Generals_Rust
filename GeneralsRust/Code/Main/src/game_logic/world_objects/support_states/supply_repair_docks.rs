@@ -225,10 +225,7 @@ impl GameLogic {
                         .template_name
                         .to_ascii_lowercase()
                         .contains("supplypile");
-                let body = crate::game_logic::host_enum_table_residual::host_calc_body_damage_state(
-                    dock.health.current,
-                    dock.health.maximum,
-                );
+                let body = dock.body_damage_state;
                 let crippled = warehouse
                     && matches!(
                         body,

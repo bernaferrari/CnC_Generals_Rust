@@ -924,8 +924,11 @@ fn startup_new_game_dispatch_prefers_last_queued_message() {
 }
 
 #[test]
-fn startup_new_game_dispatch_applies_script_side_effects() {
+fn startup_dispatch_keeps_difficulty_and_rank_under_the_receiving_owner() {
     with_global_and_startup_state_snapshot_restored(|| {
+        // A foreign standalone Core runtime is not this receiving session.
+        gamelogic::helpers::TheScriptEngine::set_global_difficulty(0);
+        gamelogic::helpers::TheGameLogic::set_rank_points_to_add_at_game_start(13);
         let dispatch = StartupNewGameDispatch {
             game_mode_code: 0,
             game_mode: GameMode::SinglePlayer,
@@ -935,15 +938,21 @@ fn startup_new_game_dispatch_applies_script_side_effects() {
             max_fps: None,
         };
 
-        let prepared_map = CnCGameEngine::apply_startup_new_game_dispatch(dispatch);
+        let prepared_map = CnCGameEngine::apply_application_new_game_dispatch(dispatch);
         assert!(prepared_map.is_none());
         assert_eq!(
             gamelogic::helpers::TheScriptEngine::get_global_difficulty(),
-            2
+            0
         );
         let mut owner = crate::game_logic::GameLogic::new();
         let peer = crate::game_logic::GameLogic::new();
-        CnCGameEngine::admit_startup_difficulty(&mut owner, Some(dispatch));
+        CnCGameEngine::admit_startup_simulation_inputs(&mut owner, Some(dispatch));
+        assert_eq!(owner.rank_points_to_add_at_game_start(), 77);
+        assert_eq!(peer.rank_points_to_add_at_game_start(), 0);
+        let snapshot = crate::save_load::SnapshotBuilder::new()
+            .create_world_snapshot(&owner)
+            .unwrap();
+        assert_eq!(snapshot.persist_v18.rank_points_to_add_at_game_start, 77);
         assert_eq!(owner.get_difficulty(), crate::ai::AIDifficulty::Hard);
         assert_eq!(peer.get_difficulty(), crate::ai::AIDifficulty::Medium);
         assert_eq!(
@@ -963,7 +972,7 @@ fn startup_new_game_dispatch_applies_script_side_effects() {
         );
         assert_eq!(
             gamelogic::helpers::TheGameLogic::get_rank_points_to_add_at_game_start(),
-            77
+            13
         );
     });
 }
@@ -1011,7 +1020,7 @@ fn startup_new_game_dispatch_requires_pending_file_for_startup_map_preparation()
             max_fps: None,
         };
 
-        let prepared_map = CnCGameEngine::apply_startup_new_game_dispatch(dispatch);
+        let prepared_map = CnCGameEngine::apply_application_new_game_dispatch(dispatch);
         assert!(prepared_map.is_none());
 
         let global = game_engine::common::global_data::read();
@@ -1041,7 +1050,7 @@ fn map_select_new_game_dispatch_consumes_the_exact_runtime_pending_map() {
 
         assert_eq!(dispatch.game_mode, GameMode::SinglePlayer);
         assert_eq!(
-            CnCGameEngine::apply_startup_new_game_dispatch(dispatch),
+            CnCGameEngine::apply_application_new_game_dispatch(dispatch),
             Some(expected_map.clone())
         );
 

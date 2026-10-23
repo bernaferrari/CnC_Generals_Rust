@@ -10064,6 +10064,11 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_game_data/body_damage_rules.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_game_data/camera_clip_rules.rs"
             },
             {
@@ -190012,7 +190017,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "5c0b8b7158ed7285ef9f1d3c300966628c187f48a25c2c5440bd909580273351",
+  "provenance_input_digest": "8f6f030261b0d70013529ea516b7f8832a608c47ebaf20d0d9ebc5603073b0c8",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,

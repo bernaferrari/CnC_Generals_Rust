@@ -13,6 +13,30 @@ pub(crate) enum MaxHealthChange {
 }
 
 impl Object {
+    pub(crate) fn body_damage_policy(
+        &self,
+    ) -> crate::game_logic::body_damage_rules::BodyDamagePolicy {
+        self.body_damage_policy
+    }
+    pub(crate) fn classify_body_damage(
+        &self,
+        health: f32,
+        maximum: f32,
+    ) -> crate::game_logic::host_enum_table_residual::HostBodyDamageType {
+        self.body_damage_policy.classify(health, maximum)
+    }
+    /// A detached query clone is not a receiving lifetime. Admission rebinds
+    /// immutable definitions before any runtime Body callback can run.
+    pub(in crate::game_logic) fn bind_body_damage_policy(
+        &mut self,
+        policy: crate::game_logic::body_damage_rules::BodyDamagePolicy,
+    ) {
+        if self.body_damage_policy != policy {
+            self.body_damage_policy = policy;
+            self.restore_body_observation(None);
+        }
+    }
+
     /// Ordinary Body arithmetic (CPP ActiveBody.cpp:1188–1234), without
     /// damage/healing timestamps or onDamage/onHealing/onDie dispatch.
     pub(crate) fn internal_change_health(
@@ -68,17 +92,26 @@ impl Object {
             self.rebuild_model_condition_bits();
             return;
         }
-        self.body_damage_state = saved_state.unwrap_or_else(|| {
-            crate::game_logic::host_enum_table_residual::host_calc_body_damage_state(
-                self.health.current,
-                self.health.maximum,
-            )
-        });
+        self.body_damage_state = saved_state
+            .unwrap_or_else(|| self.classify_body_damage(self.health.current, self.health.maximum));
         self.status.effectively_dead |= self.health.current <= 0.0;
         self.rebuild_model_condition_bits();
     }
 
     pub(crate) fn set_body_max_health_with_mode(&mut self, maximum: f32, mode: MaxHealthChange) {
+        self.set_body_max_health_with_mode_and_body_fx(
+            maximum,
+            mode,
+            &mut Object::standalone_body_fx,
+        );
+    }
+
+    pub(in crate::game_logic) fn set_body_max_health_with_mode_and_body_fx(
+        &mut self,
+        maximum: f32,
+        mode: MaxHealthChange,
+        body_fx: &mut BodyStateFxReceiver<'_>,
+    ) {
         if self.is_inactive_body() {
             return;
         }
@@ -89,18 +122,18 @@ impl Object {
         match mode {
             MaxHealthChange::PreserveRatio => {
                 let target = maximum * (self.health.current / old_maximum);
-                self.internal_change_health(target - self.health.current);
+                self.internal_change_health_with_body_fx(target - self.health.current, body_fx);
             }
             MaxHealthChange::AddToCurrent => {
-                self.internal_change_health(maximum - old_maximum);
+                self.internal_change_health_with_body_fx(maximum - old_maximum, body_fx);
             }
             MaxHealthChange::KeepCurrent => {}
             MaxHealthChange::FullyHeal => {
-                self.internal_change_health(maximum - self.health.current);
+                self.internal_change_health_with_body_fx(maximum - self.health.current, body_fx);
             }
         }
         if self.health.current > maximum {
-            self.internal_change_health(maximum - self.health.current);
+            self.internal_change_health_with_body_fx(maximum - self.health.current, body_fx);
         }
     }
 
@@ -110,9 +143,7 @@ impl Object {
         crate::game_logic::host_enum_table_residual::HostBodyDamageType,
         crate::game_logic::host_enum_table_residual::HostBodyDamageType,
     ) {
-        use crate::game_logic::host_enum_table_residual::{
-            HostBodyDamageType, host_calc_body_damage_state,
-        };
+        use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
         let health = self.health.current;
         let max_h = if self.health.maximum > 0.0 {
             self.health.maximum
@@ -127,8 +158,7 @@ impl Object {
         let state = if self.status.destroyed || health <= 0.0 {
             HostBodyDamageType::Rubble
         } else {
-            // GameData UnitDamagedThresh 0.7 / ReallyDamaged 0.35 (ActiveBody.cpp:88).
-            host_calc_body_damage_state(health, max_h)
+            self.classify_body_damage(health, max_h)
         };
         self.body_damage_state = state;
         // C++ ActiveBody::setCorrectDamageState rubble (ActiveBody.cpp:189-208).

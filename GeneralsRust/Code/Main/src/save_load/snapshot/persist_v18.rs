@@ -448,8 +448,8 @@ fn capture_persist_v18_impl(
     persist.show_behind_building_markers = TheGameLogic::get_show_behind_building_markers();
     persist.draw_icon_ui = game_logic.get_draw_icon_ui();
     persist.show_dynamic_lod = TheGameLogic::get_show_dynamic_lod();
-    persist.script_hulk_max_lifetime_override = TheGameLogic::get_hulk_max_lifetime_override();
-    persist.rank_points_to_add_at_game_start = TheGameLogic::get_rank_points_to_add_at_game_start();
+    persist.script_hulk_max_lifetime_override = game_logic.native_hulk_max_lifetime_override;
+    persist.rank_points_to_add_at_game_start = game_logic.rank_points_to_add_at_game_start();
     if let Ok(leftover) = gamelogic::system::game_logic::get_game_logic().lock() {
         persist.buildable_overrides = leftover.snapshot_buildable_status_overrides();
         persist.control_bar_overrides = leftover
@@ -779,8 +779,8 @@ pub(super) fn restore_persist_v18_with_scale_encoding(
     TheGameLogic::set_show_behind_building_markers(persist.show_behind_building_markers);
     game_logic.set_draw_icon_ui(persist.draw_icon_ui);
     TheGameLogic::set_show_dynamic_lod(persist.show_dynamic_lod);
-    TheGameLogic::set_hulk_max_lifetime_override(persist.script_hulk_max_lifetime_override);
-    TheGameLogic::set_rank_points_to_add_at_game_start(persist.rank_points_to_add_at_game_start);
+    game_logic.native_hulk_max_lifetime_override = persist.script_hulk_max_lifetime_override;
+    game_logic.set_rank_points_to_add_at_game_start(persist.rank_points_to_add_at_game_start);
     if let Ok(mut leftover) = gamelogic::system::game_logic::get_game_logic().lock() {
         leftover.restore_buildable_status_overrides(persist.buildable_overrides.clone());
         leftover.restore_control_bar_overrides_raw(

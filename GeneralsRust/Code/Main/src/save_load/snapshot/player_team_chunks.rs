@@ -167,9 +167,26 @@ pub(super) fn lifecycle_prefix(bytes: &[u8]) -> SaveLoadResult<&[u8]> {
 }
 
 fn chunks_from_lifecycle_tail(bytes: &[u8]) -> SaveLoadResult<PlayerTeamChunks> {
+    Ok(chunks_and_script_from_lifecycle_tail(bytes)?.0)
+}
+
+/// Original ScriptEngine bytes share the existing original-chunk envelope;
+/// no policy field or alternative interpreter state is serialized.
+pub(crate) fn script_engine_tail_from_world(
+    world: &WorldSnapshot,
+) -> SaveLoadResult<Option<gamelogic::scripting::engine::ScriptEngineXferTail>> {
+    Ok(chunks_and_script_from_lifecycle_tail(&world.lifecycle_tail)?.1)
+}
+
+fn chunks_and_script_from_lifecycle_tail(
+    bytes: &[u8],
+) -> SaveLoadResult<(
+    PlayerTeamChunks,
+    Option<gamelogic::scripting::engine::ScriptEngineXferTail>,
+)> {
     let (bytes, _) = super::initial_skirmish::split(bytes)?;
     let Some(start) = footer_start(bytes)? else {
-        return Ok(PlayerTeamChunks::default());
+        return Ok((PlayerTeamChunks::default(), None));
     };
     let encoded = &bytes[start..bytes.len() - 8];
     if encoded.len() > MAX_ENCODED_BYTES {
@@ -195,18 +212,31 @@ fn chunks_from_lifecycle_tail(bytes: &[u8]) -> SaveLoadResult<PlayerTeamChunks> 
         };
         bytes.push(digit(pair[0])? * 16 + digit(pair[1])?);
     }
-    // Fixed-int little-endian bincode tuple of two Option<Vec<u8>> values.
+    // Original capsules contain two Option<Vec<u8>> values; the optional
+    // third block carries the original ScriptEngine xfer payload.
     // Parse the envelope with borrowed slices: an untrusted vector length must
     // not allocate, and the generic legacy decoder accepts trailing bytes.
     let mut remaining = bytes.as_slice();
     let players = read_capsule_block(&mut remaining)?;
     let teams = read_capsule_block(&mut remaining)?;
+    let script = if remaining.is_empty() {
+        None
+    } else {
+        remaining = remaining.strip_prefix(b"SESC").ok_or_else(|| {
+            SaveLoadError::Corrupted("Unknown original-chunk capsule extension".into())
+        })?;
+        read_capsule_block(&mut remaining)?
+    };
+    let tail = script
+        .map(super::persist_v18::parse_script_engine_block)
+        .transpose()?
+        .and_then(|(_, _, _, _, _, tail)| tail);
     if !remaining.is_empty() {
         return Err(SaveLoadError::Corrupted(
             "Trailing Players/teams capsule bytes".into(),
         ));
     }
-    stash_loaded_chunks(players, teams)
+    Ok((stash_loaded_chunks(players, teams)?, tail))
 }
 
 fn read_capsule_block<'a>(remaining: &mut &'a [u8]) -> SaveLoadResult<Option<&'a [u8]>> {
@@ -262,8 +292,23 @@ pub(crate) fn bind_chunks_to_world(
     };
     let players = chunks.players.as_ref().map(|_| encode(true)).transpose()?;
     let teams = chunks.teams.as_ref().map(|_| encode(false)).transpose()?;
-    let bytes = bincode_legacy::serialize(&(players, teams))
+    let script = if world.persist_v18.script_engine_tail.is_some() {
+        let mut cursor = Cursor::new(Vec::new());
+        let mut xfer = XferSave::new(&mut cursor, 1);
+        super::persist_v18::write_script_engine_block(&mut xfer, &world.persist_v18)?;
+        Some(cursor.into_inner())
+    } else {
+        None
+    };
+    let mut bytes = bincode_legacy::serialize(&(players, teams))
         .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
+    if let Some(script) = script {
+        bytes.extend_from_slice(b"SESC");
+        bytes.extend_from_slice(
+            &bincode_legacy::serialize(&Some(script))
+                .map_err(|e| SaveLoadError::Serialization(e.to_string()))?,
+        );
+    }
     // Existing lifecycle readers scan uppercase four-byte tags. Hex prevents
     // authored strings or nested payloads from masquerading as other domains.
     let encoded_size = bytes

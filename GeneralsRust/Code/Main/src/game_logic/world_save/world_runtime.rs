@@ -288,6 +288,7 @@ impl GameLogic {
         max_fps: i32,
     ) {
         self.start_new_game_state(mode, NewGamePlayerAdmission::Bootstrap);
+        self.set_rank_points_to_add_at_game_start(rank);
         if !self.replay_pending.recorder_owned().is_playback() {
             self.replay_pending.record_new_game_owned(
                 mode,

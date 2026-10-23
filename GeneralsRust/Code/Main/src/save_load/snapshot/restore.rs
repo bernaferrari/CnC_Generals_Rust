@@ -301,6 +301,7 @@ impl SnapshotBuilder {
             frame,
             ObjectStatus::default(),
             temporary_weapons,
+            game_logic.body_damage_policy(),
         );
         if let Some(threat) = receiving_partition_threat {
             object.partition_threat_value = threat;

@@ -566,6 +566,17 @@ impl GameLogic {
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
+        self.with_owned_script_engine(|engine, world| {
+            world.apply_host_skirmish_fight_script_requests_with_policy(effects, engine);
+        })
+        .expect("skirmish command-button drain owns its receiving interpreter");
+    }
+
+    pub(super) fn apply_host_skirmish_fight_script_requests_with_policy(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+        interpreter: &gamelogic::scripting::engine::ScriptEngine,
+    ) {
         let attacks = gamelogic::scripting::take_host_skirmish_attack_nearest_group_requests();
         for (team, comparison, value) in attacks {
             let members = self.host_script_team_member_ids(&team);
@@ -608,7 +619,12 @@ impl GameLogic {
         let buttons =
             gamelogic::scripting::take_host_skirmish_command_button_most_valuable_requests();
         for (team, ability, range) in buttons {
-            self.host_script_skirmish_command_button_on_most_valuable(&team, &ability, range);
+            self.host_script_skirmish_command_button_on_most_valuable_with_policy(
+                &team,
+                &ability,
+                range,
+                interpreter,
+            );
         }
     }
 
@@ -621,6 +637,21 @@ impl GameLogic {
         team: &str,
         ability: &str,
         range: f32,
+    ) {
+        self.with_owned_script_engine(|engine, world| {
+            world.host_script_skirmish_command_button_on_most_valuable_with_policy(
+                team, ability, range, engine,
+            );
+        })
+        .expect("skirmish command-button operation owns its receiving interpreter");
+    }
+
+    fn host_script_skirmish_command_button_on_most_valuable_with_policy(
+        &mut self,
+        team: &str,
+        ability: &str,
+        range: f32,
+        interpreter: &gamelogic::scripting::engine::ScriptEngine,
     ) {
         use crate::command_executor::CommandExecutor;
         use gamelogic::object::update::special_power_update::SpecialPowerCommandOption;
@@ -693,12 +724,8 @@ impl GameLogic {
         let Some((_, tid)) = best else {
             return;
         };
-        let _ = CommandExecutor::new(self, pid).execute_do_command_button(
-            &members,
-            ability,
-            None,
-            Some(tid),
-        );
+        let _ = CommandExecutor::new_with_target_policy(self, pid, interpreter)
+            .execute_do_command_button(&members, ability, None, Some(tid));
     }
 
     /// C++ `TheControlBar->findCommandButton` / leftover host-queue payload.
@@ -2241,6 +2268,7 @@ impl GameLogic {
         this_object: Option<ObjectId>,
         calling: Option<u32>,
         condition: Option<u32>,
+        force_normal: bool,
     ) -> gamelogic::GameLogicResult<()> {
         let Some(id) = self.owned_named_script_object(unit, this_object) else {
             return Ok(());
@@ -2259,11 +2287,16 @@ impl GameLogic {
             .unwrap()
             .set_formation(0, glam::Vec2::ZERO);
         self.apply_unit_locomotor_set(id, "normal");
-        self.apply_owned_attack_team_member(id, team_id);
+        self.apply_owned_attack_team_member(id, team_id, force_normal);
         Ok(())
     }
 
-    pub(super) fn apply_owned_attack_team_member(&mut self, id: ObjectId, team_id: u32) {
+    pub(super) fn apply_owned_attack_team_member(
+        &mut self,
+        id: ObjectId,
+        team_id: u32,
+        force_normal: bool,
+    ) {
         self.drop_jet_targeters_on_attack_exit(id);
         self.clear_unit_movement_path(id);
         let (object, audio_events) = self.host_object_and_audio_events_mut(id).unwrap();
@@ -2277,7 +2310,7 @@ impl GameLogic {
             &mut crate::game_logic::ObjectAudio::queue(audio_events),
         );
         let identity = format!("owned:{team_id}");
-        let target = self.choose_attack_team_victim(id, &identity, false);
+        let target = self.choose_attack_team_victim_with_policy(id, &identity, false, force_normal);
         if let Some(target) = target {
             self.unit_command_script_attack(id, target);
         }

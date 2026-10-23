@@ -2065,6 +2065,7 @@ impl GameLogic {
                 self.frame,
                 initial_status,
                 temporary_weapons,
+                self.body_damage_policy(),
             );
             object.bind_native_lifecycle(
                 self.frame,
@@ -2982,7 +2983,7 @@ impl GameLogic {
                 }
             }
 
-            self.apply_difficulty_bonuses_for_object(id);
+            self.apply_difficulty_bonuses_for_object_with_effects(id, ui);
 
             // Factory return-equivalent boundary: caller placement must never
             // become observable during constructor, onCreate or Drawable birth.
@@ -3225,15 +3226,26 @@ impl GameLogic {
     ///
     /// C++ `Object::init` / `friend_applyDifficultyBonusesForObject` consults
     /// `TheScriptEngine->getObjectsShouldReceiveDifficultyBonus`.
-    pub(in super::super) fn apply_difficulty_bonuses_for_object(&mut self, object_id: ObjectId) {
+    pub(in super::super) fn apply_difficulty_bonuses_for_object_with_effects(
+        &mut self,
+        object_id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         if self.objects_receive_difficulty_bonus {
-            self.apply_or_strip_difficulty_bonuses_for_object(object_id, true);
+            self.apply_or_strip_difficulty_bonuses_for_object(object_id, true, effects);
         }
     }
 
     pub(crate) fn set_owned_object_difficulty_bonus(&mut self, enable: bool) {
-        // CPP walks existing objects before recording the future birth policy.
-        self.apply_or_strip_difficulty_bonuses_for_all_objects(enable);
+        self.set_owned_object_difficulty_bonus_with_effects(enable, &mut Default::default());
+    }
+
+    pub(crate) fn set_owned_object_difficulty_bonus_with_effects(
+        &mut self,
+        enable: bool,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
+        self.apply_or_strip_difficulty_bonuses_for_all_objects(enable, effects);
         self.objects_receive_difficulty_bonus = enable;
     }
 
@@ -3242,10 +3254,8 @@ impl GameLogic {
         &mut self,
         object_id: ObjectId,
         apply: bool,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
-        if self.game_mode != GameMode::SinglePlayer {
-            return;
-        }
         let owner_player_id = match self.objects.get(&object_id) {
             Some(object) => object.owner_player_id,
             None => return,
@@ -3258,9 +3268,17 @@ impl GameLogic {
         if apply == already {
             return;
         }
+        // CPP Object2038 stores the toggle even outside single-player games.
+        self.objects
+            .get_mut(&object_id)
+            .expect("validated difficulty recipient")
+            .is_receiving_difficulty_bonus = apply;
+        if !self.is_single_player_scenario() {
+            return;
+        }
         let is_human = owner_player_id
             .and_then(|player_id| self.players.get(&player_id))
-            .map(|player| player.is_local)
+            .map(|player| player.is_human)
             .unwrap_or(false);
         let difficulty = self.get_difficulty();
         let type_idx = if is_human { 0 } else { 1 };
@@ -3288,9 +3306,8 @@ impl GameLogic {
         if let Some(object) = self.objects.get_mut(&object_id) {
             // C++ setReceivingDifficultyBonus then setWeaponBonusCondition
             // even when healthFactor == 1.0 (Normal).
-            object.is_receiving_difficulty_bonus = apply;
-            object.weapon_bonus_solo = if apply { solo } else { 0 };
             if (health_factor - 1.0).abs() <= f32::EPSILON {
+                object.weapon_bonus_solo = if apply { solo } else { 0 };
                 return;
             }
             let old_max = if object.health.maximum > 0.0 {
@@ -3305,10 +3322,16 @@ impl GameLogic {
             } else {
                 old_max
             };
-            object.set_body_max_health_with_mode(
+            // End the actor borrow before capturing receiving identity/policy.
+            self.set_owned_body_max_health_with_effects(
+                object_id,
                 new_max,
                 crate::game_logic::object::MaxHealthChange::PreserveRatio,
+                effects,
             );
+            if let Some(object) = self.objects.get_mut(&object_id) {
+                object.weapon_bonus_solo = if apply { solo } else { 0 };
+            }
         }
     }
 
@@ -3316,10 +3339,11 @@ impl GameLogic {
     pub(in super::super) fn apply_or_strip_difficulty_bonuses_for_all_objects(
         &mut self,
         apply: bool,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         let ids: Vec<ObjectId> = self.objects.registered_keys().copied().collect();
         for id in ids {
-            self.apply_or_strip_difficulty_bonuses_for_object(id, apply);
+            self.apply_or_strip_difficulty_bonuses_for_object(id, apply, effects);
         }
     }
 }

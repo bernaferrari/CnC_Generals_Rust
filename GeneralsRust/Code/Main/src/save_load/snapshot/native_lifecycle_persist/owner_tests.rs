@@ -501,3 +501,45 @@ fn pending_and_completed_empty_transport_restore_continue_once_through_real_snap
         },
     );
 }
+
+#[test]
+fn v18_hulk_lifetime_uses_receiving_owner_without_mutating_core_or_peer() {
+    let foreign = gamelogic::helpers::TheGameLogic::get_hulk_max_lifetime_override();
+    let mut source = GameLogic::new();
+    source.native_hulk_max_lifetime_override = 77;
+    let mut peer = GameLogic::new();
+    peer.native_hulk_max_lifetime_override = 123;
+    let persist = super::super::persist_v18::capture_persist_v18(&source);
+    assert_eq!(persist.script_hulk_max_lifetime_override, 77);
+    let mut receiving = GameLogic::new();
+    super::super::persist_v18::restore_persist_v18(&persist, &mut receiving).unwrap();
+    assert_eq!(receiving.native_hulk_max_lifetime_override, 77);
+    assert_eq!(peer.native_hulk_max_lifetime_override, 123);
+    assert_eq!(
+        gamelogic::helpers::TheGameLogic::get_hulk_max_lifetime_override(),
+        foreign
+    );
+}
+
+#[test]
+fn encoded_native_hulk_owner_precedes_historical_stale_v18_adapter() {
+    let foreign = gamelogic::helpers::TheGameLogic::get_hulk_max_lifetime_override();
+    let mut source = GameLogic::new();
+    source.native_hulk_max_lifetime_override = 77;
+    let builder = super::super::SnapshotBuilder::new();
+    let mut saved = builder.create_world_snapshot(&source).unwrap();
+    saved.persist_v18.script_hulk_max_lifetime_override = -1;
+    let bytes = bincode_legacy::serialize(&saved).unwrap();
+    let decoded = super::super::decode_bincode_world_snapshot(&bytes).unwrap();
+    let mut receiving = GameLogic::new();
+    receiving.native_hulk_max_lifetime_override = 999;
+    builder
+        .restore_from_snapshot(&decoded, &mut receiving)
+        .unwrap();
+    assert_eq!(receiving.native_hulk_max_lifetime_override, 77);
+    assert_eq!(source.native_hulk_max_lifetime_override, 77);
+    assert_eq!(
+        gamelogic::helpers::TheGameLogic::get_hulk_max_lifetime_override(),
+        foreign
+    );
+}

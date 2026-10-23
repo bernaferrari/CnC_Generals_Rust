@@ -72,6 +72,7 @@ impl GameLogic {
             weapon_definition_base: None,
             weapon_definitions: None,
             projectile_definitions: Default::default(),
+            body_damage_definitions: Default::default(),
             lighting_definitions: Default::default(),
             physics_definitions: Default::default(),
             object_lifecycle_callback_depth: 0,
@@ -113,6 +114,7 @@ impl GameLogic {
 
             players: HashMap::new(),
             rank_level_limit: crate::game_logic::host_rank_ui_residual::RANK_LEVEL_LIMIT_DEFAULT_RESIDUAL,
+            rank_points_to_add_at_game_start: 0,
             player_template_bindings: HashMap::new(),
             initial_skirmish_admission: None,
             next_object_id: ObjectId(1), // Start at 1, 0 is invalid
@@ -833,6 +835,7 @@ impl GameLogic {
         self.ai_definitions.reset();
         self.production_energy.effective = self.production_energy.base;
         self.physics_definitions.effective = self.physics_definitions.base;
+        self.body_damage_definitions.effective = self.body_damage_definitions.base;
         self.lighting_definitions.effective = self.lighting_definitions.base.clone();
         self.reset_ocl_map_definitions();
         self.apply_aidata_enable_repulsors();
@@ -896,6 +899,7 @@ impl GameLogic {
         self.skirmish_rules.starting_cash_default = Some(Player::DEFAULT_STARTING_MONEY);
         self.rank_level_limit =
             crate::game_logic::host_rank_ui_residual::RANK_LEVEL_LIMIT_DEFAULT_RESIDUAL;
+        self.rank_points_to_add_at_game_start = 0;
         self.player_template_bindings.clear();
         self.initial_skirmish_admission = None;
         self.prepared_map_sides.reset();

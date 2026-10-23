@@ -946,9 +946,9 @@ fn snapshot_round_trips_v18_ui_script_radar_water_drawable() {
         module_path!(),
         "snapshot_round_trips_v18_ui_script_radar_water_drawable",
         || {
-            gamelogic::helpers::TheGameLogic::set_hulk_max_lifetime_override(42);
-            gamelogic::helpers::TheGameLogic::set_rank_points_to_add_at_game_start(15);
             let mut source = GameLogic::new();
+            source.native_hulk_max_lifetime_override = 42;
+            source.set_rank_points_to_add_at_game_start(15);
             source.set_draw_icon_ui(false);
             let engine = gamelogic::scripting::engine::ScriptEngine::new().unwrap();
             {
@@ -1013,13 +1013,17 @@ fn snapshot_round_trips_v18_ui_script_radar_water_drawable() {
                 gamelogic::helpers::TheGameLogic::get_draw_icon_ui(),
                 "receiving restore must leave standalone Core drawIconUI unchanged"
             );
+            assert_eq!(restored.native_hulk_max_lifetime_override, 42);
             assert_eq!(
                 gamelogic::helpers::TheGameLogic::get_hulk_max_lifetime_override(),
-                42
+                -1,
+                "receiving hulk lifetime restore must leave standalone Core unchanged"
             );
+            assert_eq!(restored.rank_points_to_add_at_game_start(), 15);
             assert_eq!(
                 gamelogic::helpers::TheGameLogic::get_rank_points_to_add_at_game_start(),
-                15
+                0,
+                "restoring receiving restart experience must not publish to foreign Core"
             );
             assert_eq!(
                 restored.peek_script_named_timers().get("LaunchClock"),

@@ -13,12 +13,25 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_set_attack_priority_thing(
         &mut self,
         action: &ScriptAction,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let priority_set = self.get_string_param(action, 0)?;
         let type_or_list = self.get_string_param(action, 1)?;
         let priority = self.get_int_param(action, 2)?;
         let _ = self.context.with_engine_mut(|engine| {
-            engine.set_priority_thing(&priority_set, &type_or_list, priority)
+            engine.set_priority_thing_with_lookup(&priority_set, &type_or_list, priority, |name| {
+                match driver.literal_template_exists(name) {
+                    crate::scripting::engine::ScriptOwnerQuery::Present(true) => {
+                        Some(name.to_string())
+                    }
+                    crate::scripting::engine::ScriptOwnerQuery::Present(false)
+                    | crate::scripting::engine::ScriptOwnerQuery::Missing => None,
+                    crate::scripting::engine::ScriptOwnerQuery::Unavailable => {
+                        crate::helpers::TheThingFactory::find_template(name)
+                            .map(|template| template.get_name().to_string())
+                    }
+                }
+            })
         });
         log::debug!(
             "Setting attack priority '{}' on '{}' to {}",

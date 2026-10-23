@@ -25,7 +25,7 @@ fn author(world: &mut GameLogic, kind: ScriptActionType, min: f32, max: f32) {
                 &fade_action(kind, min, max),
                 None,
                 gamelogic::scripting::executor::ScriptContext::new(),
-                &mut HostScriptExecutionDriver::new(world),
+                &mut HostScriptExecutionDriver::with_interpreter(world, engine),
             );
         })
         .unwrap();
@@ -35,7 +35,7 @@ fn advance(world: &mut GameLogic) {
         .with_owned_script_engine(|engine, world| {
             engine.update_with_driver(
                 gamelogic::scripting::executor::ScriptContext::new(),
-                &mut HostScriptExecutionDriver::new(world),
+                &mut HostScriptExecutionDriver::with_interpreter(world, engine),
             )
         })
         .unwrap()
@@ -140,10 +140,18 @@ fn native_fade_freezes_actual_authored_receiver_without_global_selection_or_cloc
             let encoded = bincode_legacy::serialize(&snapshot).unwrap();
             let decoded =
                 crate::save_load::snapshot::decode_bincode_world_snapshot(&encoded).unwrap();
-            // The historical Rust world body intentionally omits the original
-            // ScriptEngine tail. The actual .sav archive carries it separately
-            // in CHUNK_ScriptEngine, just as C++ ScriptEngine::xfer does.
-            assert!(decoded.persist_v18.script_engine_tail.is_none());
+            // The positional legacy body remains unchanged; its framed SESC
+            // continuation now retains the original ScriptEngine state too.
+            // The actual .sav still carries CHUNK_ScriptEngine separately.
+            assert_eq!(
+                decoded
+                    .persist_v18
+                    .script_engine_tail
+                    .as_ref()
+                    .expect("encoded receiving ScriptEngine continuation")
+                    .cur_fade_value,
+                before_save.intensity
+            );
             let saved_tail = snapshot.persist_v18.script_engine_tail.as_ref().unwrap();
             assert_eq!(saved_tail.cur_fade_value, before_save.intensity);
             let saves = tempfile::TempDir::new().unwrap();

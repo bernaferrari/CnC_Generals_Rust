@@ -28,6 +28,25 @@ pub(super) fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, world: &GameLogic) {
     bytes.extend_from_slice(MAGIC);
 }
 
+/// Expose the boundary of the complete framed continuation chain so earlier
+/// records can be inserted without hiding any later owner's footer.
+pub(super) fn suffix_start(bytes: &[u8]) -> SaveLoadResult<usize> {
+    let end = super::ai_player_queue_persist::suffix_start(bytes)?;
+    let prefix = &bytes[..end];
+    if !prefix.ends_with(MAGIC) {
+        return Ok(end);
+    }
+    let invalid = || SaveLoadError::Corrupted("invalid named unit history framing".into());
+    let footer = end.checked_sub(12).ok_or_else(invalid)?;
+    let version = u32::from_le_bytes(prefix[footer..footer + 4].try_into().unwrap());
+    let length = u32::from_le_bytes(prefix[footer + 4..footer + 8].try_into().unwrap()) as usize;
+    let start = footer.checked_sub(length).ok_or_else(invalid)?;
+    if version != 1 || length < 4 || prefix[..start].ends_with(MAGIC) {
+        return Err(invalid());
+    }
+    Ok(start)
+}
+
 pub(super) fn apply_from_lifecycle_tail(bytes: &[u8], world: &mut GameLogic) -> SaveLoadResult<()> {
     let end = super::ai_player_queue_persist::suffix_start(bytes)?;
     let bytes = &bytes[..end];

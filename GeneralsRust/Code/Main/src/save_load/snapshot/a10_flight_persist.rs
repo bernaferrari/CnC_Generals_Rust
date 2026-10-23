@@ -302,7 +302,7 @@ pub(super) fn decode_and_validate(
 /// Prefix boundary before the optional A10F continuation. This lets earlier
 /// owner frames (such as AIQF) locate themselves without scanning through A10F.
 pub(super) fn suffix_start(bytes: &[u8]) -> SaveLoadResult<usize> {
-    let end = super::player_academy_persist::suffix_start(bytes)?;
+    let end = super::body_rules_persist::suffix_start(bytes)?;
     let prefix = bytes
         .get(..end)
         .ok_or_else(|| corrupted("A10 footer boundary invalid"))?;
@@ -336,9 +336,9 @@ pub(super) fn suffix_start(bytes: &[u8]) -> SaveLoadResult<usize> {
 }
 
 fn decode_suffix(bytes: &[u8]) -> SaveLoadResult<Option<Payload>> {
-    // A10F is immediately before APRO, so its boundary comes from the next
+    // A10F precedes the optional Body-rules frame and APRO; its boundary comes from the next
     // framed footer instead of scanning arbitrary actor/template payloads.
-    let end = super::player_academy_persist::suffix_start(bytes)?;
+    let end = super::body_rules_persist::suffix_start(bytes)?;
     let prefix = bytes
         .get(..end)
         .ok_or_else(|| corrupted("A10 footer boundary invalid"))?;
@@ -641,7 +641,7 @@ mod tests {
     }
 
     pub(super) fn rewrite_capsule(tail: &mut Vec<u8>, edit: impl FnOnce(&mut Payload)) {
-        let end = super::super::player_academy_persist::suffix_start(tail).unwrap();
+        let end = super::super::body_rules_persist::suffix_start(tail).unwrap();
         let footer = end - 12;
         assert_eq!(&tail[end - 4..end], MAGIC);
         let len = u32::from_le_bytes(tail[footer + 4..footer + 8].try_into().unwrap()) as usize;
@@ -812,8 +812,7 @@ mod tests {
         let builder = SnapshotBuilder::new();
         let mut snapshot = builder.create_world_snapshot(&receiver).unwrap();
 
-        let end =
-            super::super::player_academy_persist::suffix_start(&snapshot.lifecycle_tail).unwrap();
+        let end = super::super::body_rules_persist::suffix_start(&snapshot.lifecycle_tail).unwrap();
         let footer = end - 12;
         assert_eq!(&snapshot.lifecycle_tail[end - 4..end], MAGIC);
         let payload_len = u32::from_le_bytes(
