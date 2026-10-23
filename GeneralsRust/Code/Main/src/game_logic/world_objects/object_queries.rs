@@ -1672,8 +1672,8 @@ impl GameLogic {
         self.players.get(&id).map(|p| {
             (
                 p.effective_supplies(),
-                p.power_available,
-                p.power_produced,
+                p.energy_available_at(self.frame),
+                p.energy_production_at(self.frame),
                 p.power_consumed,
             )
         })

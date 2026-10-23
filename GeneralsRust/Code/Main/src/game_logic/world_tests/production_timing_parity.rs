@@ -283,10 +283,38 @@ fn worker_production_definition() -> game_engine::common::rts::player_template::
 }
 
 #[cfg(not(target_arch = "wasm32"))]
+fn admit_production_fixture_content(world: &mut GameLogic) {
+    // Receiving Object definitions are map/content input, not reconstructed
+    // from the saved live roster or a foreign application's ThingFactory.
+    world.admit_receiving_module_content(crate::assets::ReceivingObjectContent::from_sources([(
+        "production-timing.ini".into(),
+        "Object TestBarracks\nKindOf = STRUCTURE FS_BARRACKS SELECTABLE\nBuildCost = 600\nBody = ActiveBody BarracksBody\nMaxHealth = 1000\nInitialHealth = 1000\nEnd\nEnd\nObject TestInfantry\nKindOf = INFANTRY SELECTABLE SCORE\nBuildCost = 101\nBuildTime = 2.099\nTransportSlotCount = 1\nBody = ActiveBody InfantryBody\nMaxHealth = 80\nInitialHealth = 80\nEnd\nEnd\n".into(),
+    )]).unwrap()).unwrap();
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn production_restore_receiver(source: &GameLogic) -> GameLogic {
+    let mut receiving = GameLogic::new();
+    admit_production_fixture_content(&mut receiving);
+    // Admit the same authored default-team definitions in original order.
+    // Restore still owns runtime players, their identities, queues and wallet.
+    let mut ids: Vec<_> = source.players.keys().copied().collect();
+    ids.sort_unstable();
+    for id in ids {
+        receiving.add_player(source.players[&id].clone());
+    }
+    receiving.clear_all_players();
+    assert!(receiving.players.is_empty());
+    // Preserve each case's explicit definition changes, including deliberate
+    // missing-unit and same-name Object/Upgrade collision controls below.
+    receiving.templates = source.templates.clone();
+    receiving
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 fn production_world(identity: &str) -> (GameLogic, ObjectId) {
     let mut world = GameLogic::new();
-    ensure_test_barracks_template(&mut world);
-    ensure_test_infantry_template(&mut world);
+    admit_production_fixture_content(&mut world);
     {
         let template = world.templates.get_mut("TestInfantry").unwrap();
         template.build_cost.supplies = 101;
@@ -502,8 +530,7 @@ fn worker_modifier_save_restore_and_foreign_reset_keep_exact_identity() {
             );
             let encoded = bincode_legacy::serialize(&snapshot).unwrap();
             let decoded = decode_bincode_world_snapshot(&encoded).unwrap();
-            let mut restored = GameLogic::new();
-            restored.templates = source.templates.clone();
+            let mut restored = production_restore_receiver(&source);
             builder
                 .restore_from_snapshot(&decoded, &mut restored)
                 .unwrap();
@@ -561,8 +588,7 @@ fn queued_duration_restore_continues_general_queue_at_cpp_frame77() {
             let snapshot = builder.create_world_snapshot(&source).unwrap();
             let bytes = bincode_legacy::serialize(&snapshot).unwrap();
             let decoded = decode_bincode_world_snapshot(&bytes).unwrap();
-            let mut restored = GameLogic::new();
-            restored.templates = source.templates.clone();
+            let mut restored = production_restore_receiver(&source);
             builder
                 .restore_from_snapshot(&decoded, &mut restored)
                 .unwrap();
@@ -645,8 +671,7 @@ fn queued_duration_restore_keeps_upgrade_authored_frames_without_general_or_powe
             let snapshot = builder.create_world_snapshot(&source).unwrap();
             let bytes = bincode_legacy::serialize(&snapshot).unwrap();
             let decoded = decode_bincode_world_snapshot(&bytes).unwrap();
-            let mut restored = GameLogic::new();
-            restored.templates = source.templates.clone();
+            let mut restored = production_restore_receiver(&source);
             register_test_upgrade(&restored, UPGRADE, "PLAYER", 40, 3);
             builder
                 .restore_from_snapshot(&decoded, &mut restored)
@@ -747,8 +772,7 @@ fn queued_duration_restore_accepts_retained_inactive_controlling_player() {
                 }
                 let bytes = bincode_legacy::serialize(&saved).unwrap();
                 let decoded = decode_bincode_world_snapshot(&bytes).unwrap();
-                let mut restored = GameLogic::new();
-                restored.templates = source.templates.clone();
+                let mut restored = production_restore_receiver(&source);
                 builder
                     .restore_from_snapshot(&decoded, &mut restored)
                     .unwrap();
@@ -798,8 +822,7 @@ fn queued_duration_restore_rejects_definition_synthesized_by_earlier_live_unit()
             assert!(source.enqueue_production(producer, "TestInfantry".into()));
             let builder = SnapshotBuilder::new();
             let snapshot = builder.create_world_snapshot(&source).unwrap();
-            let mut restored = GameLogic::new();
-            restored.templates = source.templates.clone();
+            let mut restored = production_restore_receiver(&source);
             restored.templates.remove("TestInfantry");
             let error = builder
                 .restore_from_snapshot(&snapshot, &mut restored)
@@ -830,8 +853,7 @@ fn queued_duration_restore_rejects_missing_unit_definition_and_stale_or_ambiguou
             assert!(source.enqueue_production(producer, "TestInfantry".into()));
             let builder = SnapshotBuilder::new();
             let snapshot = builder.create_world_snapshot(&source).unwrap();
-            let mut missing = GameLogic::new();
-            missing.templates = source.templates.clone();
+            let mut missing = production_restore_receiver(&source);
             missing.templates.remove("TestInfantry");
             let error = builder
                 .restore_from_snapshot(&snapshot, &mut missing)
@@ -850,8 +872,7 @@ fn queued_duration_restore_rejects_missing_unit_definition_and_stale_or_ambiguou
                 .as_mut()
                 .unwrap()
                 .owner_player_id = Some(99);
-            let mut stale = GameLogic::new();
-            stale.templates = source.templates.clone();
+            let mut stale = production_restore_receiver(&source);
             let error = builder
                 .restore_from_snapshot(&stale_snapshot, &mut stale)
                 .unwrap_err()
@@ -868,8 +889,7 @@ fn queued_duration_restore_rejects_missing_unit_definition_and_stale_or_ambiguou
                 .as_mut()
                 .unwrap()
                 .owner_player_id = None;
-            let mut ambiguous = GameLogic::new();
-            ambiguous.templates = source.templates.clone();
+            let mut ambiguous = production_restore_receiver(&source);
             let error = builder
                 .restore_from_snapshot(&ambiguous_snapshot, &mut ambiguous)
                 .unwrap_err()
@@ -966,8 +986,7 @@ fn queued_upgrade_restore_rejects_missing_definition_from_foreign_catalog() {
             assert_eq!(foreign_producer, producer);
             register_upgrade_restore_rule(&foreign, NAME, "OBJECT", 911, 9.75);
             for case_only in [false, true] {
-                let mut candidate = GameLogic::new();
-                candidate.templates = live.templates.clone();
+                let mut candidate = production_restore_receiver(&live);
                 if case_only {
                     register_upgrade_restore_rule(
                         &candidate,
@@ -1043,8 +1062,7 @@ fn queued_upgrade_restore_preserves_authored_zero_and_fractional_continuation() 
                 let snapshot = builder.create_world_snapshot(&source).unwrap();
                 let bytes = bincode_legacy::serialize(&snapshot).unwrap();
                 let decoded = decode_bincode_world_snapshot(&bytes).unwrap();
-                let mut restored = GameLogic::new();
-                restored.templates = source.templates.clone();
+                let mut restored = production_restore_receiver(&source);
                 register_upgrade_restore_rule(&restored, name, "PLAYER", paid_cost, seconds);
                 let (mut foreign, foreign_producer) = production_world("Owner48ForeignGeneral");
                 assert_eq!(foreign_producer, producer);
@@ -1144,8 +1162,7 @@ fn queued_upgrade_restore_cancellation_ignores_same_name_object_power() {
             let saved = builder.create_world_snapshot(&source).unwrap();
             let bytes = bincode_legacy::serialize(&saved).unwrap();
             let decoded = decode_bincode_world_snapshot(&bytes).unwrap();
-            let mut restored = GameLogic::new();
-            restored.templates = source.templates.clone();
+            let mut restored = production_restore_receiver(&source);
             register_upgrade_restore_rule(&restored, NAME, "PLAYER", 37, 1.25);
             builder
                 .restore_from_snapshot(&decoded, &mut restored)

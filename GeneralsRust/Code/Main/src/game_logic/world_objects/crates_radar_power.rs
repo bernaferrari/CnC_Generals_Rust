@@ -933,9 +933,7 @@ impl GameLogic {
         for id in ids {
             let player = self.players.get_mut(&id).unwrap();
             let had = player.has_radar();
-            let brownout = player.power_available < 0
-                || (player.power_sabotaged_till_frame > 0
-                    && self.frame < player.power_sabotaged_till_frame);
+            let brownout = !player.has_sufficient_energy_at(self.frame);
             if brownout {
                 player.disable_radar();
             } else {
@@ -992,16 +990,7 @@ impl GameLogic {
 
         let mut factors = std::collections::HashMap::new();
         for player in self.players.values() {
-            let sabotaged = player.power_sabotaged_till_frame > 0
-                && self.frame < player.power_sabotaged_till_frame;
-            // C++ Energy.cpp:51-65: consumption==0 returns production (0 for GLA).
-            let energy_ratio = if sabotaged {
-                0.0
-            } else if player.power_consumed == 0 {
-                player.power_produced as f32
-            } else {
-                player.power_produced as f32 / player.power_consumed as f32
-            };
+            let energy_ratio = player.energy_supply_ratio_at(self.frame);
             // C++ clamps excess supply to 100%, applies Min even at full
             // power, and only applies Max while energy is below 100%.
             let energy_percent = energy_ratio.min(1.0);
@@ -1077,9 +1066,7 @@ impl GameLogic {
         // Disable-proof vans stay online via hasRadar, not by skipping the flag.
         let frame = self.frame;
         for player in self.players.values_mut() {
-            let sabotaged =
-                player.power_sabotaged_till_frame > 0 && frame < player.power_sabotaged_till_frame;
-            if sabotaged || player.power_available < 0 {
+            if !player.has_sufficient_energy_at(frame) {
                 player.disable_radar();
             } else {
                 player.enable_radar();
@@ -1095,7 +1082,7 @@ impl GameLogic {
         let mut underpowered_players: std::collections::HashSet<u32> =
             std::collections::HashSet::new();
         for player in self.players.values() {
-            if player.power_available < 0 {
+            if !player.has_sufficient_energy_at(frame) {
                 underpowered_players.insert(player.id);
             }
         }

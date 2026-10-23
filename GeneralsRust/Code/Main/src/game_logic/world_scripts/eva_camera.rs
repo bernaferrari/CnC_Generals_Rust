@@ -129,7 +129,7 @@ impl GameLogic {
         let local_low = self
             .players
             .values()
-            .any(|p| p.is_local && p.is_alive && p.power_available < 0);
+            .any(|p| p.is_local && p.is_alive && !p.has_sufficient_energy_at(self.frame));
         if !local_low {
             self.eva_low_power_active = false;
             return;

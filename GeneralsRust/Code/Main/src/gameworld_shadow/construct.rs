@@ -367,6 +367,7 @@ impl GameWorldShadow {
     pub(super) fn copy_host_player_residual(
         pd: &mut gamelogic::world::PlayerData,
         p: &crate::game_logic::Player,
+        frame: u32,
     ) {
         // C++ Player::init binds the faction team at player creation
         // (Player.cpp:287 radar state is per-owning-player). A reused GW slot
@@ -380,8 +381,8 @@ impl GameWorldShadow {
             Team::Neutral => None,
         };
         pd.supplies = p.resources.supplies;
-        pd.power_available = p.power_available;
-        pd.power_produced = p.power_produced;
+        pd.power_available = p.energy_available_at(frame);
+        pd.power_produced = p.energy_production_at(frame);
         pd.power_consumed = p.power_consumed;
         pd.radar_count = p.radar_count;
         pd.radar_disabled = p.radar_disabled;
@@ -451,7 +452,7 @@ impl GameWorldShadow {
                         team,
                         p.is_local,
                         p.resources.supplies,
-                        p.power_available,
+                        p.energy_available_at(logic.frame),
                     ) {
                         self.host_player_to_gw.insert(*pid, gw_id);
                     }
@@ -465,7 +466,7 @@ impl GameWorldShadow {
                         self.host_player_to_gw.insert(*pid, gw);
                         if let Some(p) = logic.get_player(*pid) {
                             if let Some(pd) = self.world.player_mut(gw) {
-                                Self::copy_host_player_residual(pd, p);
+                                Self::copy_host_player_residual(pd, p, logic.frame);
                                 pd.unlocked_sciences = Self::host_player_sciences(logic, *pid);
                             }
                         }
@@ -481,7 +482,7 @@ impl GameWorldShadow {
                             team,
                             p.is_local,
                             p.resources.supplies,
-                            p.power_available,
+                            p.energy_available_at(logic.frame),
                         ) {
                             self.host_player_to_gw.insert(*pid, gw_id);
                         }
@@ -493,7 +494,7 @@ impl GameWorldShadow {
             for (hid, gw) in self.host_player_to_gw.clone() {
                 if let Some(p) = logic.get_player(hid) {
                     if let Some(pd) = self.world.player_mut(gw) {
-                        Self::copy_host_player_residual(pd, p);
+                        Self::copy_host_player_residual(pd, p, logic.frame);
                         pd.unlocked_sciences = Self::host_player_sciences(logic, hid);
                     }
                 }
@@ -503,7 +504,7 @@ impl GameWorldShadow {
         for (hid, gw) in self.host_player_to_gw.clone() {
             if let Some(p) = logic.get_player(hid) {
                 if let Some(pd) = self.world.player_mut(gw) {
-                    Self::copy_host_player_residual(pd, p);
+                    Self::copy_host_player_residual(pd, p, logic.frame);
                     pd.unlocked_sciences = Self::host_player_sciences(logic, hid);
                 }
             }

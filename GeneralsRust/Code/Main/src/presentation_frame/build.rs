@@ -198,66 +198,17 @@ pub(super) fn direct_host_visual_mesh_scale(
     obj.drawable_instance_scale
 }
 
-/// Freeze the local player's energy grid from host Player fields, falling
-/// back to that player's constructed objects when the residual is still 0.
-///
-/// `update_player_resources` writes `power_produced` / `power_consumed` from
-/// object EnergyProduction. Live freeze can run before that scan, so a
-/// standing CC + plant would otherwise stamp 0 into the HUD overlay.
-fn freeze_host_player_power(
-    logic: &GameLogic,
-    local_player_id: u32,
-    local: Option<&crate::game_logic::Player>,
-) -> (i32, i32, i32) {
-    let power_src = local.or_else(|| {
-        logic
-            .get_players()
-            .values()
-            .find(|player| player.is_local && player.team != Team::Neutral)
-    });
-    let power_player_id = power_src.map(|player| player.id).unwrap_or(local_player_id);
-    let power_team = power_src.map(|player| player.team);
-    let (obj_produced, obj_consumed) =
-        logic
-            .host_objects()
-            .values()
-            .fold((0_i32, 0_i32), |(produced, consumed), object| {
-                let owned = match object.owner_player_id {
-                    Some(id) => id == power_player_id,
-                    None => power_team == Some(object.team),
-                };
-                if !owned || !object.is_constructed() || !object.is_alive() {
-                    return (produced, consumed);
-                }
-                (
-                    produced.saturating_add(object.power_provided),
-                    consumed.saturating_add(object.power_consumed.abs()),
-                )
-            });
-    let overcharge = power_src
-        .map(|player| player.captured_overcharge_power_delta)
-        .unwrap_or(0);
-    let (mut produced, consumed) = match power_src {
-        Some(player) if player.power_produced != 0 || player.power_consumed != 0 => {
-            (player.power_produced, player.power_consumed)
-        }
-        _ => (obj_produced.saturating_add(overcharge), obj_consumed),
+/// Freeze exactly the requested session Player's canonical Energy. Zero is a
+/// valid grid; absence grants no authority to another player or object roster.
+fn freeze_host_player_power(logic: &GameLogic, local_player_id: u32) -> (i32, i32, i32) {
+    let Some(player) = logic.get_player(local_player_id) else {
+        return (0, 0, 0);
     };
-    let sabotaged = power_src.is_some_and(|player| {
-        player.power_sabotaged_till_frame > 0 && logic.frame < player.power_sabotaged_till_frame
-    });
-    if sabotaged {
-        produced = 0;
-    }
-    let available = match power_src {
-        Some(player)
-            if !sabotaged && (player.power_produced != 0 || player.power_consumed != 0) =>
-        {
-            player.power_available
-        }
-        _ => produced - consumed,
-    };
-    (available, produced, consumed)
+    (
+        player.energy_available_at(logic.frame),
+        player.energy_production_at(logic.frame),
+        player.power_consumed,
+    )
 }
 
 /// C++ `Object::getControllingPlayer` for PublicTimer ownership.
@@ -1311,7 +1262,7 @@ impl PresentationFrame {
         // Observe the canonical cash balance owned by this player.
         let local_supplies = local.map(|p| p.effective_supplies()).unwrap_or(0);
         let (local_power, local_power_produced, local_power_consumed) =
-            freeze_host_player_power(logic, local_player_id, local);
+            freeze_host_player_power(logic, local_player_id);
         let local_color_rgb = local.map(|p| p.color_rgb).unwrap_or((200, 200, 200));
         let local_is_alive = local.map(|p| p.is_alive).unwrap_or(false);
         let local_radar_count = local.map(|p| p.radar_count).unwrap_or(0);
@@ -1995,8 +1946,7 @@ impl PresentationFrame {
                 game_client::eva::EvaLocalPlayerContext {
                     side,
                     index: player.id,
-                    sufficient_power: player.power_available >= 0
-                        && logic.frame >= player.power_sabotaged_till_frame,
+                    sufficient_power: player.has_sufficient_energy_at(logic.frame),
                 }
             }),
         };

@@ -21,7 +21,7 @@ impl Player {
         {
             self.resources.supplies = self.resources.supplies.wrapping_add(refund.supplies);
         }
-        self.power_available -= refund.power;
+        // Money::deposit does not reverse an Object Energy membership change.
         economy_events.record(self.id, self.effective_supplies(), self.power_available);
     }
 

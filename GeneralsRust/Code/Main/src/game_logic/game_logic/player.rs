@@ -1,5 +1,7 @@
 //! Mechanical split from `game_logic/game_logic.rs`. No behavior change.
 #![allow(non_snake_case, unused_imports, dead_code)]
+#[path = "player_energy.rs"]
+mod energy_runtime;
 #[path = "player_upgrade_runtime.rs"]
 mod upgrade_runtime;
 
@@ -103,7 +105,8 @@ pub struct Player {
     pub resources: Resources,
 
     pub power_available: i32,
-    /// Total power produced by this player's power plants (for energy ratio).
+    /// Canonical unmasked Energy::m_energyProduction; sabotage masks reads only.
+    /// Use energy_production_at(frame) for a gameplay/UI getProduction observation.
     pub power_produced: i32,
     /// Total power consumed by this player's buildings (for energy ratio).
     pub power_consumed: i32,
@@ -976,8 +979,8 @@ impl Player {
         // the grid is already negative — GLA has no power plants, and USA/China must
         // still place a PowerPlant after the first Command Center finishes.
         //
-        // Template `build_cost.power` is the post-build power draw residual (often
-        // negative). It is applied in spend_resources, not as an affordability gate.
+        // Energy changes when an admitted Object enters/leaves influence,
+        // never when Money is withdrawn (Player.cpp2927, Energy.cpp82+).
         self.effective_supplies() >= cost.supplies
     }
 
@@ -1012,7 +1015,6 @@ impl Player {
         if !self.can_afford(cost) {
             return false;
         }
-        let power_after = self.power_available + cost.power; // Negative for consumption
         // Money.cpp32-45 admits the nonzero Withdraw cue before subtraction.
         if cost.supplies > 0 {
             economy_events.record_money_audio(
@@ -1022,7 +1024,6 @@ impl Player {
         }
         {
             self.resources.supplies -= cost.supplies;
-            self.power_available = power_after;
             if cost.supplies > 0 && record_spent {
                 self.record_resources_spent(cost.supplies);
             }

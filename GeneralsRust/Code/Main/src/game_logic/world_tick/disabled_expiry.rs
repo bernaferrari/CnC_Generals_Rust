@@ -72,9 +72,7 @@ impl GameLogic {
             return;
         };
         let had = player.has_radar();
-        let sabotaged =
-            player.power_sabotaged_till_frame > 0 && self.frame < player.power_sabotaged_till_frame;
-        let brownout = player.power_available < 0 || sabotaged;
+        let brownout = !player.has_sufficient_energy_at(self.frame);
         if brownout {
             player.disable_radar();
         } else {
@@ -116,5 +114,29 @@ impl GameLogic {
             }
             self.admit_disabled_expiry_radar_edges_with_effects(id, effects);
         }
+    }
+}
+
+#[cfg(test)]
+mod energy_observer_tests {
+    use super::*;
+    #[test]
+    fn expiry_callback_uses_current_energy_not_stale_or_forged_projection() {
+        let mut world = GameLogic::new();
+        let mut player = crate::game_logic::Player::new(1, Team::USA, "ExpiryOwner", true);
+        player.power_produced = 20;
+        player.power_consumed = 10;
+        player.power_sabotaged_till_frame = 50;
+        player.power_available = -10;
+        player.radar_count = 1;
+        world.add_player(player);
+        world.frame = 50;
+        world.admit_expiry_power_state(1);
+        assert!(world.players[&1].has_radar());
+        world.frame = 49;
+        world.players.get_mut(&1).unwrap().power_available = 999;
+        world.admit_expiry_power_state(1);
+        assert!(!world.players[&1].has_radar());
+        assert_eq!(world.players[&1].power_produced, 20);
     }
 }

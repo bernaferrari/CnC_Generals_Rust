@@ -735,6 +735,7 @@ fn brownout_sets_radar_disabled_unless_disable_proof() {
     let mut logic = GameLogic::new();
     let mut player = Player::new(0, Team::USA, "USA", true);
     player.radar_count = 1;
+    player.power_consumed = 5;
     player.power_available = -5;
     logic.players.insert(0, player);
     logic.update_power_disabled_state();
@@ -745,6 +746,7 @@ fn brownout_sets_radar_disabled_unless_disable_proof() {
     let mut van = Player::new(1, Team::GLA, "GLA", true);
     van.radar_count = 1;
     van.disable_proof_radar_count = 1;
+    van.power_consumed = 5;
     van.power_available = -5;
     logic.players.insert(1, van);
     logic.update_power_disabled_state();

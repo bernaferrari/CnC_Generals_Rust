@@ -36,7 +36,7 @@ impl AIPlayer {
         };
 
         let should_build_power = if let Some(player) = game_logic.get_player(self.player_id) {
-            player.power_available < 0
+            !player.has_sufficient_energy_at(game_logic.get_frame())
         } else {
             false
         };
@@ -392,7 +392,7 @@ impl AIPlayer {
     ) -> Option<super::economic_owner::ScaffoldAttempt> {
         let under_powered = game_logic
             .get_player(self.player_id)
-            .is_some_and(|player| player.power_available < 0);
+            .is_some_and(|player| !player.has_sufficient_energy_at(game_logic.get_frame()));
         let index = self.select_priority_or_power_build_with_ai_data(
             game_logic,
             current_time,

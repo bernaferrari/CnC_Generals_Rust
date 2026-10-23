@@ -48,7 +48,7 @@ impl GameLogic {
         let totals = self.power_totals_for_player(player_id, Self::object_contributes_power);
         if let Some(player) = self.players.get_mut(&player_id) {
             Self::apply_derived_power(player, totals);
-            Self::apply_power_sabotage(player);
+            Self::apply_power_sabotage(player, self.frame);
         }
     }
 
@@ -86,13 +86,10 @@ impl GameLogic {
         player.power_consumed = consumed;
     }
 
-    fn apply_power_sabotage(player: &mut Player) {
-        // Preserve the existing host nonzero-deadline mask, including its
-        // independently tracked equality discrepancy with C++ frame < till.
-        if player.power_sabotaged_till_frame > 0 {
-            player.power_produced = 0;
-            player.power_available = -player.power_consumed;
-        }
+    fn apply_power_sabotage(player: &mut Player, frame: u32) {
+        // Preserve canonical production while exposing only the sabotage mask.
+        // C++ getProduction/hasSufficientPower recover at frame == deadline.
+        player.refresh_energy_projection_at(frame);
     }
 
     /// C++ Energy::xfer omits derived totals because object loading restores
@@ -106,7 +103,7 @@ impl GameLogic {
             });
             if let Some(player) = self.players.get_mut(&player_id) {
                 Self::apply_derived_power(player, totals);
-                Self::apply_power_sabotage(player);
+                Self::apply_power_sabotage(player, self.frame);
             }
         }
     }
@@ -118,7 +115,7 @@ impl GameLogic {
             .power_totals_for_player(player_id, |object| Self::object_contributes_power(object));
         if let Some(player) = self.players.get_mut(&player_id) {
             Self::apply_derived_power(player, totals);
-            Self::apply_power_sabotage(player);
+            Self::apply_power_sabotage(player, self.frame);
             self.economy_events.record(
                 player_id,
                 player.resources.supplies,
@@ -145,7 +142,7 @@ impl GameLogic {
             {
                 player.power_sabotaged_till_frame = 0;
             }
-            Self::apply_power_sabotage(player);
+            Self::apply_power_sabotage(player, self.frame);
 
             // Shadow economy channel: effective supplies + power after host tick residual.
             self.economy_events.record(

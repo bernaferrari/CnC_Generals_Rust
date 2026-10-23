@@ -546,7 +546,7 @@ impl GameLogic {
         for player in self.players.values() {
             let mut census = HostScriptPlayerCensus {
                 money: player.effective_supplies() as i32,
-                energy_production: player.power_produced,
+                energy_production: player.energy_production_at(self.frame),
                 energy_consumption: player.power_consumed,
                 power_sabotaged: player.power_sabotaged_till_frame != 0
                     && self.frame < player.power_sabotaged_till_frame,

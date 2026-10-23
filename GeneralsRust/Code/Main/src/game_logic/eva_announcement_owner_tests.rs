@@ -87,6 +87,7 @@ fn eva_announcement_owner_tests_frozen_context_preserves_defeated_local_player()
     world.add_player(Player::new(7, Team::China, "Local", true));
     let local = world.get_player_mut(7).unwrap();
     local.is_alive = false;
+    local.power_consumed = 1;
     local.power_available = -1;
     world.set_current_frame(17);
     let frame = crate::presentation_frame::PresentationFrame::build_from_logic(&mut world, 7);

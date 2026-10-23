@@ -126,3 +126,104 @@ fn built_by_player_requires_owned_literal_definition_before_type_list_expansion(
     assert!(peer.owned_script_condition_for_test(condition));
     assert!(!owner.templates.contains_key("OwnerInfantryList"));
 }
+
+#[test]
+fn owned_census_reads_effective_energy_without_destroying_sabotaged_owner_counter() {
+    let mut owner = GameLogic::new();
+    owner.add_player(Player::new(1, Team::USA, "NamedOwner", true));
+    let mut peer = GameLogic::new();
+    peer.add_player(Player::new(1, Team::USA, "NamedOwner", true));
+    owner.frame = 37;
+    let player = owner.players.get_mut(&1).unwrap();
+    player.power_produced = 20;
+    player.power_consumed = 0;
+    player.power_sabotaged_till_frame = 50;
+    let raw_peer = peer.players[&1].power_produced;
+    let census = owner.owned_host_player_census();
+    assert_eq!(census["namedowner"].energy_production, 0);
+    assert!(census["namedowner"].power_sabotaged);
+    assert_eq!(owner.players[&1].power_produced, 20);
+    assert!(
+        !owner.owned_script_condition_for_test(side(ConditionType::PlayerHasPower, "NamedOwner"))
+    );
+    owner.frame = 50;
+    let census = owner.owned_host_player_census();
+    assert_eq!(census["namedowner"].energy_production, 20);
+    assert!(!census["namedowner"].power_sabotaged);
+    assert!(
+        owner.owned_script_condition_for_test(side(ConditionType::PlayerHasPower, "NamedOwner"))
+    );
+    assert_eq!(peer.players[&1].power_produced, raw_peer);
+}
+
+#[test]
+fn authored_sabotage_preserves_raw_owner_and_recovers_observers_at_deadline() {
+    let make = |production: i32| {
+        let mut owner = GameLogic::new();
+        owner.admit_receiving_module_content(
+            crate::assets::ReceivingObjectContent::from_sources([(
+                "sabotage-owner.ini".into(),
+                format!("Object SabotageProducer\nKindOf = VEHICLE\nEnergyProduction = {production}\nBody = ActiveBody Body\nMaxHealth = 100\nInitialHealth = 100\nEnd\nEnd\nObject SabotageConsumer\nKindOf = VEHICLE\nEnergyProduction = -10\nBody = ActiveBody Body\nMaxHealth = 100\nInitialHealth = 100\nEnd\nEnd\n"),
+            )]).unwrap(),
+        ).unwrap();
+        owner.add_player(Player::new(1, Team::USA, "EnergyOwner", true));
+        let producer = owner
+            .create_object_for_player("SabotageProducer", 1, glam::Vec3::ZERO)
+            .unwrap();
+        let consumer = owner
+            .create_object_for_player("SabotageConsumer", 1, glam::Vec3::ONE)
+            .unwrap();
+        owner.frame = 37;
+        owner.update_player_resources(0.0);
+        (owner, producer, consumer)
+    };
+    let (mut owner, producer, consumer) = make(20);
+    let (peer, peer_producer, peer_consumer) = make(35);
+    assert_eq!((producer, consumer), (peer_producer, peer_consumer));
+    assert_eq!(
+        (
+            owner.players[&1].power_produced,
+            owner.players[&1].power_consumed
+        ),
+        (20, 10)
+    );
+    owner
+        .players
+        .get_mut(&1)
+        .unwrap()
+        .power_sabotaged_till_frame = 50;
+    owner.update_player_resources(0.0);
+    assert_eq!(
+        (
+            owner.players[&1].power_produced,
+            owner.players[&1].power_consumed
+        ),
+        (20, 10),
+        "sabotage must mask observed power without erasing canonical Energy production"
+    );
+    assert_eq!(
+        (
+            owner.player_economy(1).unwrap().1,
+            owner.player_economy(1).unwrap().2
+        ),
+        (-10, 0)
+    );
+    owner.frame = 50;
+    // No economy update may be required for a getter to observe deadline equality.
+    assert_eq!(
+        (
+            owner.player_economy(1).unwrap().1,
+            owner.player_economy(1).unwrap().2
+        ),
+        (10, 20)
+    );
+    assert_eq!(
+        (
+            peer.players[&1].power_produced,
+            peer.players[&1].power_consumed
+        ),
+        (35, 10)
+    );
+    assert_eq!(peer.player_economy(1).unwrap().1, 25);
+    assert_eq!(peer.players[&1].power_sabotaged_till_frame, 0);
+}
