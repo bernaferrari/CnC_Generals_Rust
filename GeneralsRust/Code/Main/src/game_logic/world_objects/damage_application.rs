@@ -434,6 +434,21 @@ impl GameLogic {
             })
         });
         #[cfg(feature = "game_client")]
+        let native_body = {
+            let victim = self.objects.get(&victim_id)?;
+            let source = victim.owner_player_id.map(|id| id as i32).unwrap_or(-1);
+            (
+                self.live_draw_playback_identity(victim),
+                self.is_loading_map(),
+                self.native_lighting_time_of_day(),
+                self.receiving_audio_locality_for_player(source),
+            )
+        };
+        #[cfg(feature = "game_client")]
+        let native_view = &mut effects.view;
+        #[cfg(feature = "game_client")]
+        let native_audio = &mut effects.audio;
+        #[cfg(feature = "game_client")]
         let mut application = Self::with_host_fx_view_parts_and_terrain(
             &mut self.session_view,
             begin_player,
@@ -462,6 +477,23 @@ impl GameLogic {
                         Self::apply_body_player_effect(players, frame, &source_players, effect)
                     },
                     &mut |object, effect, source| {
+                        if let crate::game_logic::object::BodyStateFx::NativeVisualState(state) = &effect {
+                            if let Some(view) = native_view.as_mut() {
+                                use crate::game_logic::host_enum_table_residual::HostBodyDamageType as Host;
+                                use gamelogic::common::types::BodyDamageType as Native;
+                                let state = match state { Host::Pristine=>Native::Pristine, Host::Damaged=>Native::Damaged,
+                                    Host::ReallyDamaged=>Native::ReallyDamaged, Host::Rubble=>Native::Rubble };
+                                let change = crate::game_logic::NativeBodyVisualChange {
+                                    identity: native_body.0.clone(), state, loading_map: native_body.1,
+                                    time_of_day: native_body.2,
+                                    locality: native_body.3,
+                                };
+                                let audio = native_audio.as_mut().and_then(|audio| audio.native_ambient());
+                                view.body_visual_changed(&change, audio)
+                                    .expect("receiving native Body visual callback failed after canonical HP mutation");
+                            }
+                            return;
+                        }
                         let source = if matches!(
                             &effect,
                             crate::game_logic::object::BodyStateFx::ArmorDamage { .. }
@@ -1267,3 +1299,7 @@ mod repulsor_fx_order_tests;
 #[cfg(test)]
 #[path = "sniper_academy_owner_tests.rs"]
 mod sniper_academy_owner_tests;
+
+#[cfg(all(test, feature = "game_client"))]
+#[path = "early_native_body_tests.rs"]
+mod early_native_body_tests;

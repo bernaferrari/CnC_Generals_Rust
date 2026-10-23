@@ -41,6 +41,7 @@ impl GameLogic {
                     // AIUpdate::doLocomotor. Panic continuation must therefore
                     // inspect the path completed by the preceding locomotor
                     // pass, then install the next waypoint before this pass.
+                    self.begin_host_waypoint_ai_observations(&object_ids);
                     self.tick_host_panic_states(&object_ids);
                     self.tick_host_guard_states_with_effects(&object_ids, &mut ui);
                     self.update_movement_with_effects(&object_ids, dt, &mut ui);

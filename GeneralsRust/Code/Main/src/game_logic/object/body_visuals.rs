@@ -19,6 +19,14 @@ impl Object {
         &mut self,
         delta: f32,
     ) -> crate::game_logic::host_enum_table_residual::HostBodyDamageType {
+        self.internal_change_health_with_body_fx(delta, &mut Object::standalone_body_fx)
+    }
+
+    pub(in crate::game_logic) fn internal_change_health_with_body_fx(
+        &mut self,
+        delta: f32,
+        body_fx: &mut crate::game_logic::object::BodyStateFxReceiver<'_>,
+    ) -> crate::game_logic::host_enum_table_residual::HostBodyDamageType {
         let old_state = self.body_damage_state;
         if self.is_inactive_body() {
             return old_state;
@@ -32,6 +40,16 @@ impl Object {
             self.health.current = 0.0;
         }
         self.recalculate_body_damage_state();
+        // CPP ActiveBody1213–1228: the native Drawable sees canonical HP/state
+        // before effectivelyDead is overwritten, and before any onDamage walk.
+        if self.body_damage_state != old_state && !self.status.under_construction {
+            let state = self.body_damage_state;
+            body_fx(
+                self,
+                crate::game_logic::object::BodyStateFx::NativeVisualState(state),
+                None,
+            );
+        }
         self.rebuild_model_condition_bits();
         self.status.effectively_dead = self.health.current <= 0.0;
         old_state
@@ -371,4 +389,36 @@ mod tests {
         object.set_status_under_construction(false);
         assert_eq!(object.bone_fx_damage.as_ref().unwrap().transitions, 0);
     }
+    #[test]
+    fn early_visual_observation_precedes_effectively_dead_and_is_not_damage_module_completion() {
+        let mut object = body();
+        let mut calls = Vec::new();
+        let old = object.internal_change_health_with_body_fx(-100.0, &mut |object, effect, _| {
+            if let crate::game_logic::object::BodyStateFx::NativeVisualState(state) = effect {
+                assert_eq!(object.health.current, 0.0);
+                assert!(
+                    !object.status.effectively_dead,
+                    "CPP visual callback precedes setEffectivelyDead"
+                );
+                assert!(
+                    !object.status.destroyed,
+                    "ordinary health mutation is not onDie"
+                );
+                calls.push(state);
+            }
+        });
+        assert_eq!(old, HostBodyDamageType::Pristine);
+        assert_eq!(calls, vec![HostBodyDamageType::Rubble]);
+        assert!(object.status.effectively_dead);
+        assert!(!object.create_object_die.as_ref().unwrap().fired);
+        object.internal_change_health_with_body_fx(0.0, &mut |_, _, _| {
+            panic!("unchanged state must not replay native visual")
+        });
+        object.restore_body_observation(None);
+        assert_eq!(calls.len(), 1, "save observation is not a health callback");
+    }
 }
+
+#[cfg(test)]
+#[path = "body_visual_trace_tests.rs"]
+mod body_visual_trace_tests;

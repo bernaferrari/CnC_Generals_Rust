@@ -380,7 +380,7 @@ impl GameLogic {
                         .host_object(id)
                         .map(|o| o.get_position())
                         .unwrap_or(glam::Vec3::ZERO);
-                    let Some(wps) = self.host_script_waypoint_path_from(&path, from) else {
+                    let Some(route) = self.host_script_waypoint_route_from(&path, from) else {
                         continue;
                     };
                     let pid = self
@@ -388,7 +388,7 @@ impl GameLogic {
                         .and_then(|o| o.owner_player_id)
                         .unwrap_or(0);
                     let _ = CommandExecutor::new(self, pid)
-                        .execute_do_command_button_using_waypoints(&[id], &button, &wps);
+                        .execute_do_command_button_using_waypoints(&[id], &button, &route.points);
                 }
                 HostScriptUseCommandButtonRequest::Team { team, button } => {
                     let ids = self.host_script_team_member_ids(&team);
@@ -1019,16 +1019,16 @@ impl GameLogic {
                     else {
                         continue;
                     };
-                    let Some(path) = self.host_script_waypoint_path_from(&waypoint, pos) else {
+                    let Some(path) = self.host_script_waypoint_route_from(&waypoint, pos) else {
                         continue;
                     };
                     let _ = self.apply_unit_locomotor_set(id, "normal");
                     self.host_script_issue_follow_waypoint_path(
                         &[id],
-                        &path,
+                        &path.points,
                         exact,
                         false,
-                        &waypoint,
+                        path.completion(exact),
                     );
                 }
                 HostScriptFollowWaypointsRequest::TeamFollow {
@@ -1098,7 +1098,7 @@ impl GameLogic {
         let center = glam::Vec3::new(sx * inv, sy * inv, sz * inv);
         let mp_index = self.host_skirmish_enemy_mp_index(&members) + 1;
         let path_label = format!("{}{}", path_label, mp_index);
-        let Some(path) = self.host_script_waypoint_path_from(&path_label, center) else {
+        let Some(path) = self.host_script_waypoint_route_from(&path_label, center) else {
             return Ok(());
         };
         // C++ ScriptActions.cpp:1702-1704 checkBridges(firstUnit, way).
@@ -1117,12 +1117,12 @@ impl GameLogic {
         if follow {
             self.host_script_issue_follow_waypoint_path(
                 &members,
-                &path,
+                &path.points,
                 false,
                 as_team,
-                &path_label,
+                path.completion(false),
             );
-        } else if let Some(&dest) = path.first() {
+        } else if let Some(&dest) = path.points.first() {
             for id in members {
                 let _ = self.unit_command_move_to(id, dest);
             }

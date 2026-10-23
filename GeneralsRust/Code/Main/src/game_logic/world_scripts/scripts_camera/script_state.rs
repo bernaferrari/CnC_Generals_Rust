@@ -609,29 +609,11 @@ impl GameLogic {
                     }
                 }
             }
-            let mut insert = |name: &str| {
-                let key = name.trim().to_ascii_lowercase();
-                if !key.is_empty() {
-                    player_census.insert(key, census.clone());
-                }
-            };
-            insert(&player.name);
-            insert(&player.map_side.map_player_name);
-            match player.team {
-                crate::game_logic::Team::USA => {
-                    insert("PlyrAmerica");
-                    insert("America");
-                    insert("USA");
-                }
-                crate::game_logic::Team::China => {
-                    insert("PlyrChina");
-                    insert("China");
-                }
-                crate::game_logic::Team::GLA => {
-                    insert("PlyrGLA");
-                    insert("GLA");
-                }
-                _ => {}
+            // The census key follows Player::getPlayerNameKey: authored
+            // `playerName`, with NameKeyGenerator's exact case-sensitive key.
+            // Keep a player's census even when it has no owned objects.
+            if !player.map_side.map_player_name.is_empty() {
+                player_census.insert(player.map_side.map_player_name.clone(), census);
             }
         }
         player_census
@@ -1548,7 +1530,7 @@ impl GameLogic {
     }
 
     pub(super) fn host_player_id_for_script_token(&self, token: &str) -> Option<u32> {
-        let needle = token.trim();
+        let needle = token;
         if needle.is_empty() {
             return None;
         }
@@ -1559,14 +1541,16 @@ impl GameLogic {
         {
             return self.players.values().find(|p| p.is_local).map(|p| p.id);
         }
+        // C++ NameKeyGenerator::nameToKey uses strcmp; PlayerList compares
+        // that exact canonical playerName key. Display labels and faction names
+        // are not Player identities.
         self.players
             .values()
-            .find(|p| {
-                p.name.eq_ignore_ascii_case(needle)
-                    || p.map_side.map_player_name.eq_ignore_ascii_case(needle)
-                    || format!("Plyr{}", p.team.get_name()).eq_ignore_ascii_case(needle)
+            .find(|player| {
+                !player.map_side.map_player_name.is_empty()
+                    && player.map_side.map_player_name == needle
             })
-            .map(|p| p.id)
+            .map(|player| player.id)
     }
 }
 

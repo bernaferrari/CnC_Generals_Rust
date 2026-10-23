@@ -491,7 +491,10 @@ fn panic_follows_multiple_waypoints_and_finishes_after_real_locomotor_arrivals()
         AIState::Idle,
         "the terminal path returns to Idle"
     );
-    assert_eq!(unit.completed_waypoint_labels, vec!["PanicTerminal"]);
+    assert_eq!(
+        unit.completed_waypoint_labels,
+        vec!["PanicTerminal", "", ""]
+    );
     assert!(
         unit.movement.target_position.is_none() && !unit.status.moving,
         "terminal InternalMove cleanup stops movement"
@@ -563,7 +566,10 @@ fn panic_failure_does_not_advance_the_waypoint_and_terminal_uses_terminal_labels
 
     let unit = &logic.objects[&PANIC_UNIT];
     assert_eq!(unit.ai_state, AIState::Idle);
-    assert_eq!(unit.completed_waypoint_labels, vec!["PanicTerminal"]);
+    assert_eq!(
+        unit.completed_waypoint_labels,
+        vec!["PanicTerminal", "", ""]
+    );
     assert!(unit.movement.path.is_empty());
     assert_eq!(unit.movement.current_path_index, 0);
     assert_eq!(unit.movement.target_position, None);

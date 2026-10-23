@@ -1029,9 +1029,15 @@ pub struct Object {
     /// C++ AIUpdateInterface::m_completedWaypoint pathLabel1/2/3.
     #[serde(default)]
     pub completed_waypoint_labels: Vec<String>,
+    /// Complementary identity of the exact receiving waypoint. Labels above are
+    /// its ordered three slots, not a deduplicated set. TMAI owns this wire data.
+    #[serde(skip)]
+    pub(crate) completed_waypoint_id: Option<u32>,
     /// Labels of the waypoint path currently being followed; committed on last hop.
     #[serde(default)]
     pub pending_waypoint_labels: Vec<String>,
+    #[serde(skip)]
+    pub(crate) pending_waypoint_id: Option<u32>,
     /// C++ m_pathTimestamp residual (frame of last path request).
     #[serde(default)]
     pub path_timestamp: u32,

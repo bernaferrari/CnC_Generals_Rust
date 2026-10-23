@@ -265,6 +265,15 @@ struct ActualFactoryProbe<'a, 'b> {
     births: Vec<u32>,
 }
 impl NativeViewEffects for ActualFactoryProbe<'_, '_> {
+    #[cfg(feature = "game_client")]
+    fn body_visual_changed(
+        &mut self,
+        change: &crate::game_logic::NativeBodyVisualChange,
+        audio: Option<&mut dyn game_client::drawable::drawable::NativeAmbientAudio>,
+    ) -> Result<bool, String> {
+        self.runtime.body_visual_changed(change, audio)
+    }
+
     fn local_player_id(&self) -> u32 {
         self.runtime.local_player_id()
     }
@@ -487,6 +496,15 @@ fn actual_factory_birth_installs_receiving_drawable_before_immediate_query_and_i
         identity: crate::assets::LiveDrawPlaybackIdentity,
     }
     impl NativeViewEffects for WrongSource<'_, '_> {
+        #[cfg(feature = "game_client")]
+        fn body_visual_changed(
+            &mut self,
+            change: &crate::game_logic::NativeBodyVisualChange,
+            audio: Option<&mut dyn game_client::drawable::drawable::NativeAmbientAudio>,
+        ) -> Result<bool, String> {
+            self.runtime.body_visual_changed(change, audio)
+        }
+
         fn local_player_id(&self) -> u32 {
             self.runtime.local_player_id()
         }
@@ -1480,4 +1498,159 @@ fn native_constructor_policy_keeps_receiving_tod_across_peer_changes_and_invalid
         receiving_native_drawable_policy_for(&owner).time_of_day,
         Some(Native::Night)
     );
+}
+
+#[test]
+#[ignore = "requires native WGPU; run explicit isolated strict-backend acceptance"]
+fn actual_early_body_bridge_uses_real_native_actor_and_captured_local_audio() {
+    use game_client::system::TimeOfDay;
+    use game_engine::common::audio::{AC_LOOP, AudioEventInfo, AudioManager, ST_GLOBAL};
+    use gamelogic::common::types::BodyDamageType;
+    ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
+        width: 32,
+        height: 32,
+        ..Default::default()
+    })
+    .unwrap();
+    struct Scope;
+    impl Drop for Scope {
+        fn drop(&mut self) {
+            let _ = ww3d_engine::shutdown();
+        }
+    }
+    let _scope = Scope;
+    let mut graphics = GraphicsSystem::new(
+        ww3d_engine::device().unwrap(),
+        ww3d_engine::queue().unwrap(),
+        ww3d_engine::color_format().unwrap(),
+        ww3d_engine::depth_format().unwrap(),
+    )
+    .unwrap();
+    graphics.cache_model(
+        crate::assets::mesh_asset_resolve::canonical_model_key("CameraModel"),
+        model("CameraModel", 0.0),
+    );
+    let mut pipeline = RenderPipeline::initialize(&graphics).unwrap();
+    let mut client = GameClient::new().unwrap();
+    let mut world = GameLogic::new();
+    world.admit_receiving_module_content(crate::assets::ReceivingObjectContent::from_sources([(
+        "early-native-runtime.ini".into(),
+        "Object NativeEarlyBody\nKindOf = VEHICLE\nSoundAmbientDamaged = NativeEarlyDamaged\nBody = ActiveBody BodyTag\nMaxHealth = 100\nInitialHealth = 100\nEnd\nDraw = W3DModelDraw DrawTag\nDefaultConditionState\nModel = CameraModel\nEnd\nEnd\nEnd\n".into()
+    )]).unwrap()).unwrap();
+    world.add_player(crate::game_logic::Player::new(0, Team::USA, "Owner", true));
+    world.set_receiving_time_of_day(game_engine::common::ini::TimeOfDay::Night);
+    world.require_native_drawable_owner();
+    let mut audio = AudioManager::new();
+    audio.init();
+    audio.register_audio_event_info(AudioEventInfo {
+        audio_name: "NativeEarlyDamaged".into(),
+        sounds: vec!["native_early_sample".into()],
+        type_field: ST_GLOBAL,
+        control: AC_LOOP,
+        loop_count: 0,
+        ..Default::default()
+    });
+    let mut retirement = game_client::core::game_client::NativeParticleRetirementService;
+    let (_, _, drawables) = client.split_frame_snow_and_drawable_owner();
+    let mut runtime = NativeRendererViewEffects::new(
+        pipeline.borrow_native_installed_poses(),
+        &mut graphics,
+        drawables,
+        EPOCH,
+        0,
+        receiving_native_drawable_policy_for(&world),
+        &mut retirement,
+    );
+    let id = world
+        .create_object_with_script_effects_checked(
+            "NativeEarlyBody",
+            Team::USA,
+            Vec3::new(3., 5., 7.),
+            None,
+            &mut crate::game_logic::ScriptPresentationEffects {
+                view: Some(&mut runtime),
+                ..Default::default()
+            },
+        )
+        .unwrap()
+        .unwrap();
+    let identity = world.live_draw_playback_identity(world.host_object(id).unwrap());
+    let locality = world.receiving_audio_locality_for_player(0);
+    // Actual native lifetime requires audio outside map load; reject before
+    // model flag callback, not a fabricated service or lost queued request.
+    assert!(
+        runtime
+            .react_owned_body_state(
+                &identity,
+                BodyDamageType::Damaged,
+                false,
+                Some(TimeOfDay::Night),
+                None,
+                &locality
+            )
+            .is_err()
+    );
+    assert!(
+        runtime
+            .react_owned_body_state(
+                &identity,
+                BodyDamageType::Damaged,
+                true,
+                Some(TimeOfDay::Night),
+                None,
+                &locality
+            )
+            .unwrap()
+    );
+    assert_eq!(audio.pending_play_request_count(), 0);
+    // A real object with no admitted native lifetime remains an ordinary null
+    // Drawable even without TOD/audio, not an invariant failure.
+    let mut detached = GameLogic::new();
+    let mut template = ThingTemplate::new("PreNativeBody");
+    template.set_health(100.0);
+    detached.add_object(Object::new(template, ObjectId(999), Team::USA));
+    let missing =
+        detached.live_draw_playback_identity(detached.host_object(ObjectId(999)).unwrap());
+    assert!(
+        !runtime
+            .react_owned_body_state(
+                &missing,
+                BodyDamageType::Damaged,
+                false,
+                None,
+                None,
+                &locality
+            )
+            .unwrap()
+    );
+    world
+        .apply_owned_damage_with_effects(
+            id,
+            40.0,
+            None,
+            crate::game_logic::combat::DamageType::Unresistable,
+            crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+            None,
+            &crate::game_logic::object::DamageHitContext::default(),
+            &mut crate::game_logic::ScriptPresentationEffects {
+                view: Some(&mut runtime),
+                audio: Some(&mut audio),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(world.host_object(id).unwrap().health.current, 60.0);
+    assert_eq!(
+        audio.pending_play_request_count_for("NativeEarlyDamaged"),
+        1
+    );
+    let event = audio
+        .pending_play_events()
+        .find(|event| event.get_event_name() == "NativeEarlyDamaged")
+        .unwrap();
+    assert_eq!(
+        event.get_time_of_day(),
+        game_engine::common::audio::audio_event_rts::TimeOfDay::Night
+    );
+    assert_ne!(event.get_playing_handle(), 0);
 }

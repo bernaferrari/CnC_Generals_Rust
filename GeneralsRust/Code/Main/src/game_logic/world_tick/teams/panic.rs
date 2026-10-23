@@ -398,7 +398,7 @@ impl GameLogic {
                         .unwrap_or_default()
                 };
                 if let Some(unit) = self.objects.get_mut(&id) {
-                    unit.stamp_pending_waypoint_labels(labels);
+                    unit.stamp_pending_waypoint(panic.current_waypoint_id, labels);
                     unit.commit_completed_waypoint_labels();
                 }
                 self.finish_host_panic_movement(id);

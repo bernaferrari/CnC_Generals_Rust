@@ -63,9 +63,7 @@ impl HostScienceSnapshotRestore {
         let mut census = HostScriptPlayerCensus::default();
         census.unlocked_sciences.push(SCIENCE.to_string());
         let mut snapshot = HostScriptQuerySnapshot::default();
-        snapshot
-            .player_census
-            .insert(SIDE.to_ascii_lowercase(), census);
+        snapshot.player_census.insert(SIDE.into(), census);
         let mut previous = None;
         crate::scripting::merge_host_script_query_snapshot(|current| {
             previous = Some(std::mem::replace(current, snapshot));

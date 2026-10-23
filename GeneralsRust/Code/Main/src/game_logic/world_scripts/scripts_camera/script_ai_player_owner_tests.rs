@@ -78,7 +78,10 @@ fn install_foreign_player(id: u32, name: &str) {
 
 fn owner_world() -> (GameLogic, ObjectId) {
     let mut world = GameLogic::new();
-    world.add_player(Player::new(1, Team::USA, "ScriptAiOwner", false));
+    world.add_player(
+        Player::new(1, Team::USA, "Script AI owner display", false)
+            .with_script_identity("ScriptAiOwner"),
+    );
     world
         .ai_manager
         .add_ai_player(1, Team::USA, crate::ai::AIDifficulty::Medium);

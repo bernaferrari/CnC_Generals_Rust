@@ -6,7 +6,8 @@ use gamelogic::scripting::engine::ScriptEngine;
 
 fn world() -> (GameLogic, ObjectId, ObjectId) {
     let mut world = GameLogic::new();
-    let mut player = Player::new(1, Team::USA, "OwnedBuilder", false);
+    let mut player = Player::new(1, Team::USA, "Owned builder display", false)
+        .with_script_identity("OwnedBuilder");
     player.resources.supplies = 10_000;
     player.set_can_build_units(true);
     world.add_player(player);

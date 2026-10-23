@@ -1105,14 +1105,14 @@ impl ScriptExecutionDriver for PlayerCensusOwner {
         _current: Option<&str>,
     ) -> ScriptOwnerQuery<(i32, crate::scripting::HostScriptPlayerCensus)> {
         self.rows
-            .get(&name.to_ascii_lowercase())
+            .get(name)
             .cloned()
             .map(ScriptOwnerQuery::Present)
             .unwrap_or(ScriptOwnerQuery::Missing)
     }
     fn player_has_any_objects(&self, name: &str, _current: Option<&str>) -> ScriptOwnerQuery<bool> {
         self.rows
-            .get(&name.to_ascii_lowercase())
+            .get(name)
             .map(|(_, census)| ScriptOwnerQuery::Present(census.has_any_objects))
             .unwrap_or(ScriptOwnerQuery::Missing)
     }
@@ -1129,7 +1129,7 @@ fn condition_player_has_credits_compares_threshold_to_player_money_like_cxx() {
     let mut owner = PlayerCensusOwner {
         literal_templates: vec!["AmericaWarFactory".into()],
         rows: HashMap::from([(
-            "creditsexecutorplayer".into(),
+            "CreditsExecutorPlayer".into(),
             (
                 0,
                 crate::scripting::HostScriptPlayerCensus {
@@ -1202,7 +1202,7 @@ fn player_conditions_use_host_census_instead_of_stale_leftover_player() {
     template_counts.insert("americatankcrusader".into(), 1);
     let template_counts_ignore_dead = template_counts.clone();
     snap.player_census.insert(
-        "plyramerica".into(),
+        "PlyrAmerica".into(),
         crate::scripting::HostScriptPlayerCensus {
             money: 2500,
             energy_production: 10,
@@ -1442,7 +1442,7 @@ fn player_conditions_use_host_census_instead_of_stale_leftover_player() {
         let mut template_counts = std::collections::HashMap::new();
         template_counts.insert("americatankcrusader".into(), 1);
         snap.player_census.insert(
-            "plyramerica".into(),
+            "PlyrAmerica".into(),
             crate::scripting::HostScriptPlayerCensus {
                 template_counts,
                 template_counts_ignore_dead: std::collections::HashMap::new(),

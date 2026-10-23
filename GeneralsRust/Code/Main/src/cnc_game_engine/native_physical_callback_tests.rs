@@ -28,6 +28,15 @@ struct DestructionProbe<'a, 'b> {
     calls: usize,
 }
 impl NativeViewEffects for DestructionProbe<'_, '_> {
+    #[cfg(feature = "game_client")]
+    fn body_visual_changed(
+        &mut self,
+        change: &crate::game_logic::NativeBodyVisualChange,
+        audio: Option<&mut dyn game_client::drawable::drawable::NativeAmbientAudio>,
+    ) -> Result<bool, String> {
+        self.runtime.body_visual_changed(change, audio)
+    }
+
     fn local_player_id(&self) -> u32 {
         self.runtime.local_player_id()
     }
@@ -369,6 +378,15 @@ struct PanicAfterActualFactoryBirth<'a, 'b> {
     calls: usize,
 }
 impl NativeViewEffects for PanicAfterActualFactoryBirth<'_, '_> {
+    #[cfg(feature = "game_client")]
+    fn body_visual_changed(
+        &mut self,
+        change: &crate::game_logic::NativeBodyVisualChange,
+        audio: Option<&mut dyn game_client::drawable::drawable::NativeAmbientAudio>,
+    ) -> Result<bool, String> {
+        self.runtime.body_visual_changed(change, audio)
+    }
+
     fn local_player_id(&self) -> u32 {
         self.runtime.local_player_id()
     }

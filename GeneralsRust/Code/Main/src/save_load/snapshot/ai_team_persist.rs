@@ -23,7 +23,7 @@ use glam::Vec3;
 use serde::{Deserialize, Serialize};
 
 const TMAI_MAGIC: &[u8; 4] = b"TMAI";
-const TMAI_VERSION: u32 = 11;
+const TMAI_VERSION: u32 = 12;
 
 fn default_fast_as_possible_order() -> f32 {
     999_999.0
@@ -176,6 +176,18 @@ struct ObjectAiOrderPersistV2 {
 struct AiTeamPersistPayloadV11 {
     ai: AiTeamPersistPayload,
     movement_runtime: Vec<MovementRuntimePersist>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct WaypointIdentityPersist {
+    receiver: u32,
+    pending: Option<u32>,
+    completed: Option<u32>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct AiTeamPersistPayloadV12 {
+    previous: AiTeamPersistPayloadV11,
+    waypoints: Vec<WaypointIdentityPersist>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -857,6 +869,22 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     {
         return;
     }
+    let waypoints = game_logic
+        .objects
+        .registered()
+        .filter_map(|(id, object)| {
+            (object.pending_waypoint_id.is_some() || object.completed_waypoint_id.is_some())
+                .then_some(WaypointIdentityPersist {
+                    receiver: id.0,
+                    pending: object.pending_waypoint_id,
+                    completed: object.completed_waypoint_id,
+                })
+        })
+        .collect();
+    let payload = AiTeamPersistPayloadV12 {
+        previous: payload,
+        waypoints,
+    };
     let Ok(encoded) = bincode_legacy::serialize(&payload) else {
         return;
     };
@@ -879,8 +907,31 @@ pub(super) fn apply_from_lifecycle_tail_with_object_records(
     game_logic: &mut GameLogic,
     object_records: Option<&std::collections::HashSet<ObjectId>>,
 ) -> SaveLoadResult<()> {
-    let Some(suffix) = find_tmai_suffix(bytes) else {
-        return Ok(());
+    let receivers = game_logic.objects.registered_keys().copied().collect();
+    let terrain_owner = game_logic.world_services.terrain();
+    let prepared = {
+        let terrain = terrain_owner
+            .read()
+            .map_err(|_| SaveLoadError::Corrupted("TMAI receiving Terrain unavailable".into()))?;
+        prepare_from_lifecycle_tail(bytes, &receivers, &terrain)?
+    };
+    apply_prepared(prepared, game_logic, object_records);
+    Ok(())
+}
+
+/// Checked owned continuation; no actor or Terrain loan survives decoding.
+pub(super) struct PreparedAiTeam {
+    payload: AiTeamPersistPayload,
+    movement_runtime: Vec<MovementRuntimePersist>,
+    waypoint_identities: Vec<WaypointIdentityPersist>,
+}
+pub(super) fn prepare_from_lifecycle_tail(
+    bytes: &[u8],
+    receivers: &std::collections::HashSet<ObjectId>,
+    terrain: &gamelogic::terrain::TerrainLogic,
+) -> SaveLoadResult<Option<PreparedAiTeam>> {
+    let Some(suffix) = framing::find(bytes)? else {
+        return Ok(None);
     };
     let mut rest = suffix;
     let version = take_u32(&mut rest)?;
@@ -894,6 +945,7 @@ pub(super) fn apply_from_lifecycle_tail_with_object_records(
         && version != 8
         && version != 9
         && version != 10
+        && version != 11
         && version != TMAI_VERSION
     {
         return Err(SaveLoadError::Corrupted(format!(
@@ -908,9 +960,77 @@ pub(super) fn apply_from_lifecycle_tail_with_object_records(
     }
     let encoded = &rest[..payload_len];
     let mut movement_runtime = Vec::new();
-    let payload = if version == TMAI_VERSION {
-        let envelope: AiTeamPersistPayloadV11 = bincode_legacy::deserialize(encoded)
-            .map_err(|err| SaveLoadError::Corrupted(format!("TMAI payload decode: {err}")))?;
+    let mut waypoint_identities = Vec::new();
+    let payload = if version == TMAI_VERSION || version == 11 {
+        let envelope: AiTeamPersistPayloadV11 = if version == TMAI_VERSION {
+            let current: AiTeamPersistPayloadV12 = bincode_legacy::deserialize(encoded)
+                .map_err(|err| SaveLoadError::Corrupted(format!("TMAI v12 decode: {err}")))?;
+            // The waypoint row resolves exactly one canonical saved order.
+            // Otherwise find(first) could validate slots that apply_payload's
+            // later duplicate would overwrite after preflight succeeds.
+            let mut order_receivers = std::collections::HashSet::new();
+            for order in &current.previous.ai.orders {
+                if order.object_id == 0
+                    || !receivers.contains(&ObjectId(order.object_id))
+                    || !order_receivers.insert(order.object_id)
+                {
+                    return Err(SaveLoadError::Corrupted(
+                        "invalid TMAI v12 order receiver/duplicate".into(),
+                    ));
+                }
+            }
+            let mut seen = std::collections::HashSet::new();
+            for row in &current.waypoints {
+                let order = current
+                    .previous
+                    .ai
+                    .orders
+                    .iter()
+                    .find(|order| order.object_id == row.receiver);
+                if row.receiver == 0
+                    || !seen.insert(row.receiver)
+                    || row.pending.is_none() && row.completed.is_none()
+                    || order.is_none()
+                    || !receivers.contains(&ObjectId(row.receiver))
+                    || row.pending.is_some()
+                        && order.is_none_or(|order| order.pending_waypoint_labels.len() != 3)
+                    || row.completed.is_some()
+                        && order.is_none_or(|order| order.completed_waypoint_labels.len() != 3)
+                {
+                    return Err(SaveLoadError::Corrupted(
+                        "invalid TMAI waypoint identity/slots".into(),
+                    ));
+                }
+                let order = order.expect("validated waypoint order");
+                for (id, labels) in [
+                    (row.pending, &order.pending_waypoint_labels),
+                    (row.completed, &order.completed_waypoint_labels),
+                ] {
+                    if let Some(id) = id {
+                        let waypoint = terrain.get_waypoint_by_id(id).ok_or_else(|| {
+                            SaveLoadError::Corrupted(
+                                "TMAI waypoint absent from receiving Terrain".into(),
+                            )
+                        })?;
+                        let actual = [
+                            waypoint.get_path_label1().to_string(),
+                            waypoint.get_path_label2().to_string(),
+                            waypoint.get_path_label3().to_string(),
+                        ];
+                        if labels.as_slice() != actual.as_slice() {
+                            return Err(SaveLoadError::Corrupted(
+                                "TMAI waypoint slots differ from receiving Terrain".into(),
+                            ));
+                        }
+                    }
+                }
+            }
+            waypoint_identities = current.waypoints;
+            current.previous
+        } else {
+            bincode_legacy::deserialize(encoded)
+                .map_err(|err| SaveLoadError::Corrupted(format!("TMAI v11 decode: {err}")))?
+        };
         let mut seen = std::collections::HashSet::new();
         for row in &envelope.movement_runtime {
             if row
@@ -918,7 +1038,7 @@ pub(super) fn apply_from_lifecycle_tail_with_object_records(
                 .is_some_and(|width| !width.is_finite())
                 || row.receiver == 0
                 || row.goal_object == Some(0)
-                || !game_logic.objects.contains_key(&ObjectId(row.receiver))
+                || !receivers.contains(&ObjectId(row.receiver))
                 || !seen.insert(row.receiver)
                 || row
                     .path_goal_position
@@ -1035,7 +1155,40 @@ pub(super) fn apply_from_lifecycle_tail_with_object_records(
         bincode_legacy::deserialize(encoded)
             .map_err(|err| SaveLoadError::Corrupted(format!("TMAI payload decode: {err}")))?
     };
+    Ok(Some(PreparedAiTeam {
+        payload,
+        movement_runtime,
+        waypoint_identities,
+    }))
+}
+pub(super) fn apply_prepared(
+    prepared: Option<PreparedAiTeam>,
+    game_logic: &mut GameLogic,
+    object_records: Option<&std::collections::HashSet<ObjectId>>,
+) {
+    let Some(PreparedAiTeam {
+        payload,
+        movement_runtime,
+        waypoint_identities,
+    }) = prepared
+    else {
+        return;
+    };
+    // Historical labels-only capsules retain their known label observations;
+    // they cannot recover an ID or an empty completion that old producers lost.
+    for object in game_logic.objects.registered_values_mut() {
+        object.pending_waypoint_id = None;
+        object.completed_waypoint_id = None;
+    }
     apply_payload(game_logic, payload, object_records);
+    for row in waypoint_identities {
+        let object = game_logic
+            .objects
+            .get_mut(&ObjectId(row.receiver))
+            .expect("validated waypoint receiver");
+        object.pending_waypoint_id = row.pending;
+        object.completed_waypoint_id = row.completed;
+    }
     for object in game_logic.objects.registered_values_mut() {
         object.set_movement_goal_object(None);
     }
@@ -1051,7 +1204,6 @@ pub(super) fn apply_from_lifecycle_tail_with_object_records(
             object.wander_width_factor = width;
         }
     }
-    Ok(())
 }
 
 fn capture(game_logic: &GameLogic) -> AiTeamPersistPayload {
@@ -1282,11 +1434,11 @@ fn arr_to_vec3(v: [f32; 3]) -> Vec3 {
     Vec3::new(v[0], v[1], v[2])
 }
 
+#[path = "ai_team_framing.rs"]
+mod framing;
+#[cfg(test)]
 fn find_tmai_suffix(bytes: &[u8]) -> Option<&[u8]> {
-    bytes
-        .windows(4)
-        .rposition(|window| window == TMAI_MAGIC)
-        .map(|idx| &bytes[idx + 4..])
+    framing::find(bytes).ok().flatten()
 }
 
 fn append_u32(out: &mut Vec<u8>, value: u32) {
@@ -1853,3 +2005,7 @@ mod tests {
 #[cfg(test)]
 #[path = "movement_goal_tests.rs"]
 mod movement_goal_tests;
+
+#[cfg(test)]
+#[path = "waypoint_identity_wire_tests.rs"]
+mod waypoint_identity_wire_tests;

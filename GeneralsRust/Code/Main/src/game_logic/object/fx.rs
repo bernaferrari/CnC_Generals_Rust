@@ -4,6 +4,8 @@ use crate::game_logic::host_transition_damage_fx::HostTransitionDamageFxEvent;
 /// Effects emitted at the original Body callback observation point. This is
 /// synchronous operation data, never a stored world queue or saved mirror.
 pub(in crate::game_logic) enum BodyStateFx {
+    /// ActiveBody::evaluateVisualCondition, before effectivelyDead/onDamage.
+    NativeVisualState(crate::game_logic::host_enum_table_residual::HostBodyDamageType),
     Transition(HostTransitionDamageFxEvent),
     VoiceFear(crate::game_logic::AudioEventRequest),
     MovementStop(crate::game_logic::AudioEventRequest),
@@ -68,7 +70,9 @@ impl Object {
             // Detached Object fixtures have no AudioManager owner. A caller
             // observing presentation supplies its BodyStateFxReceiver; admitted
             // objects use the receiving session operations below.
-            BodyStateFx::VoiceFear(_) | BodyStateFx::MovementStop(_) => {}
+            BodyStateFx::NativeVisualState(_)
+            | BodyStateFx::VoiceFear(_)
+            | BodyStateFx::MovementStop(_) => {}
             BodyStateFx::Transition(event) => {
                 object.queue_transition_damage_fx_event_with_source(event, source)
             }
@@ -255,6 +259,9 @@ impl crate::game_logic::GameLogic {
             BodyStateFx::VoiceFear(request) | BodyStateFx::MovementStop(request) => {
                 audio.push(request)
             }
+            // Early native visual effects are handled by the driving receiver,
+            // never by this later DamageModule/particle FX boundary.
+            BodyStateFx::NativeVisualState(_) => {}
             BodyStateFx::Transition(event) => Self::execute_transition_damage_fx_with_view(
                 object, event, source, particles, frame, view,
             ),

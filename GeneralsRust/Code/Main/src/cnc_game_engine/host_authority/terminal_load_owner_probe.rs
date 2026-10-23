@@ -10,6 +10,17 @@ struct RejectSecond {
     calls: Vec<u32>,
 }
 impl NativeViewEffects for RejectSecond {
+    #[cfg(feature = "game_client")]
+    fn body_visual_changed(
+        &mut self,
+        change: &crate::game_logic::NativeBodyVisualChange,
+        audio: Option<&mut dyn game_client::drawable::drawable::NativeAmbientAudio>,
+    ) -> Result<bool, String> {
+        // This recipient owns no native Drawable; no mixer admission occurs.
+        let _ = (change, audio);
+        Ok(false)
+    }
+
     fn local_player_id(&self) -> u32 {
         1
     }

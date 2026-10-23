@@ -74,20 +74,19 @@ impl<'a> HostScriptExecutionDriver<'a> {
     }
 
     fn player_script_name(player: &Player) -> &str {
-        if player.map_side.map_player_name.is_empty() {
-            &player.name
-        } else {
-            &player.map_side.map_player_name
-        }
+        &player.map_side.map_player_name
     }
 
     fn named_player_id(&self, name: &str) -> Option<u32> {
-        // CPP initFromDict/ScriptEngine5810 use the authored name key,
-        // not a display name or an invented faction alias.
+        // CPP Player::initFromDict stores displayName and playerName
+        // separately; PlayerList::findPlayerWithNameKey selects the latter.
+        if name.is_empty() {
+            return None;
+        }
         self.world
             .players
             .values()
-            .find(|player| Self::player_script_name(player) == name)
+            .find(|player| player.map_side.map_player_name == name)
             .map(|player| player.id)
     }
 
@@ -1899,7 +1898,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         match self
             .world
             .owned_host_player_census()
-            .remove(&player.name.trim().to_ascii_lowercase())
+            .remove(&player.map_side.map_player_name)
         {
             Some(census) => ScriptOwnerQuery::Present((id as i32, census)),
             None => ScriptOwnerQuery::Missing,

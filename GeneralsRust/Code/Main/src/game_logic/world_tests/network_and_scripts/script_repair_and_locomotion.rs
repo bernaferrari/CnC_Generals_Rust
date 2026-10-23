@@ -112,7 +112,9 @@ fn live_player_repair_named_structure_queues_ai_repair() {
     drain_script_act_b_queues();
 
     let mut logic = GameLogic::new();
-    logic.add_player(Player::new(1, Team::USA, "Player_America", false));
+    logic.add_player(
+        Player::new(1, Team::USA, "Player_America", false).with_script_identity("Player_America"),
+    );
     logic
         .ai_manager
         .add_ai_player(1, Team::USA, AIDifficulty::Medium);

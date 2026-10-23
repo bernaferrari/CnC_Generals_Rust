@@ -115,7 +115,7 @@ impl GameLogic {
         };
         let position = object.get_position();
         if let Some(exact) = follow {
-            let Some(path) = self.host_script_waypoint_path_from(waypoint, position) else {
+            let Some(path) = self.host_script_waypoint_route_from(waypoint, position) else {
                 return;
             };
             self.host_object_mut(id)
@@ -124,7 +124,13 @@ impl GameLogic {
             self.apply_unit_locomotor_set(id, "normal");
             self.host_object_mut(id).unwrap().last_command_source =
                 crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT;
-            self.host_script_issue_follow_waypoint_path(&[id], &path, exact, false, waypoint);
+            self.host_script_issue_follow_waypoint_path(
+                &[id],
+                &path.points,
+                exact,
+                false,
+                path.completion(exact),
+            );
         } else {
             let Some(destination) = self.host_script_waypoint_position(waypoint) else {
                 return;
@@ -250,10 +256,16 @@ impl GameLogic {
             return Ok(());
         }
         center /= count as f32;
-        let Some(path) = self.host_script_waypoint_path_from(path_label, center) else {
+        let Some(path) = self.host_script_waypoint_route_from(path_label, center) else {
             return Ok(());
         };
-        self.host_script_issue_follow_waypoint_path(&members, &path, exact, as_team, path_label);
+        self.host_script_issue_follow_waypoint_path(
+            &members,
+            &path.points,
+            exact,
+            as_team,
+            path.completion(exact),
+        );
         Ok(())
     }
 }

@@ -438,6 +438,21 @@ impl SnapshotBuilder {
             &lifecycle_for_a10,
             game_logic,
         )?;
+        // The candidate already owns the incoming authored graph. TerrainSnapshot
+        // does not replace Waypoints. Validate incoming IDs before retiring actors.
+        let complete_object_records: std::collections::HashSet<_> =
+            snapshot.objects.keys().copied().collect();
+        let ai_team_candidate = {
+            let terrain_owner = game_logic.world_services.terrain();
+            let terrain = terrain_owner.read().map_err(|_| {
+                SaveLoadError::Corrupted("TMAI receiving Terrain unavailable".into())
+            })?;
+            super::super::ai_team_persist::prepare_from_lifecycle_tail(
+                lifecycle_tail,
+                &complete_object_records,
+                &terrain,
+            )?
+        };
         // Reject malformed companion bytes before this API mutates its receiver.
         // Production map loading then restores this candidate world atomically.
         let ghosts = snapshot
@@ -674,13 +689,11 @@ impl SnapshotBuilder {
         super::super::dozer_repair_persist::apply_from_lifecycle_tail(lifecycle_tail, game_logic)?;
         super::super::rebuild_hole_persist::apply_from_lifecycle_tail(lifecycle_tail, game_logic)?;
         super::super::weapon_set_persist::apply_from_lifecycle_tail(lifecycle_tail, game_logic)?;
-        let complete_object_records: std::collections::HashSet<_> =
-            snapshot.objects.keys().copied().collect();
-        super::super::ai_team_persist::apply_from_lifecycle_tail_with_object_records(
-            lifecycle_tail,
+        super::super::ai_team_persist::apply_prepared(
+            ai_team_candidate,
             game_logic,
             Some(&complete_object_records),
-        )?;
+        );
         super::super::ability_hijack_persist::apply_from_lifecycle_tail(
             lifecycle_tail,
             game_logic,

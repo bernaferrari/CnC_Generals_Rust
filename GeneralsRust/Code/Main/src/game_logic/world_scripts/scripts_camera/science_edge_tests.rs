@@ -136,7 +136,7 @@ fn one_acquisition_edge_triggers_only_one_of_two_one_shot_observers() {
             drop(store);
 
             let mut world = GameLogic::new();
-            world.add_player(Player::new(0, Team::USA, SIDE, true));
+            world.add_player(Player::new(0, Team::USA, SIDE, true).with_script_identity(SIDE));
             set_named_indexed_legacy_player();
 
             let mut scripts = ScriptList::new();
@@ -201,7 +201,7 @@ fn persisted_host_science_without_playerlist_or_pending_edge_is_not_acquired() {
         || {
             let _science_store = ScienceStoreRestore::install();
             let mut world = GameLogic::new();
-            let mut host = Player::new(0, Team::USA, SIDE, true);
+            let mut host = Player::new(0, Team::USA, SIDE, true).with_script_identity(SIDE);
             assert!(host.grant_science(SCIENCE));
             world.add_player(host);
 
@@ -241,7 +241,7 @@ fn owned_science_before_fresh_engine_has_no_acquisition_event() {
             let _science_store = ScienceStoreRestore::install();
 
             let mut world = GameLogic::new();
-            let mut host = Player::new(0, Team::USA, SIDE, true);
+            let mut host = Player::new(0, Team::USA, SIDE, true).with_script_identity(SIDE);
             assert!(host.grant_science(SCIENCE));
             world.add_player(host);
 

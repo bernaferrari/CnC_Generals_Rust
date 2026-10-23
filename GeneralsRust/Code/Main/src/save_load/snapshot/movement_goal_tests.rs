@@ -34,7 +34,7 @@ fn encoded_goal_tail(
 }
 
 #[test]
-fn movement_goal_v11_round_trip_retains_missing_target_and_future_goal() {
+fn movement_goal_v12_round_trip_retains_missing_target_and_future_goal() {
     let mut source = ranger_logic();
     let id = source
         .create_object("Ranger", Team::USA, Vec3::ZERO)
@@ -56,7 +56,7 @@ fn movement_goal_v11_round_trip_retains_missing_target_and_future_goal() {
     let snapshot = builder.create_world_snapshot(&source).unwrap();
     // Decode the actual append envelope, rather than merely cloning Object.
     let suffix = find_tmai_suffix(&snapshot.lifecycle_tail).unwrap();
-    assert_eq!(u32::from_le_bytes(suffix[..4].try_into().unwrap()), 11);
+    assert_eq!(u32::from_le_bytes(suffix[..4].try_into().unwrap()), 12);
     let mut restored = ranger_logic();
     builder
         .restore_from_snapshot(&snapshot, &mut restored)

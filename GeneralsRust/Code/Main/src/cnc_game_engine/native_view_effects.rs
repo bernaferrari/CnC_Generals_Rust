@@ -130,8 +130,8 @@ impl<'a> NativeRendererViewEffects<'a> {
         identity: &crate::assets::LiveDrawPlaybackIdentity,
         state: gamelogic::common::types::BodyDamageType,
         loading_map: bool,
-        time_of_day: game_client::system::TimeOfDay,
-        audio: &mut dyn game_client::drawable::drawable::NativeAmbientAudio,
+        time_of_day: Option<game_client::system::TimeOfDay>,
+        audio: Option<&mut dyn game_client::drawable::drawable::NativeAmbientAudio>,
         locality: &game_engine::common::audio::AudioSubmissionLocality,
     ) -> Result<bool, String> {
         let Some(key) = self
@@ -150,6 +150,9 @@ impl<'a> NativeRendererViewEffects<'a> {
         self.poses
             .validate_object_retirement(identity, key)
             .map_err(str::to_owned)?;
+        let time_of_day = time_of_day.ok_or_else(|| {
+            "native Body visual receiver requires receiving time of day".to_owned()
+        })?;
         self.drawables
             .body_state_changed_with_audio(key, state, loading_map, time_of_day, audio, locality)
             .map_err(|error| error.to_string())?;
@@ -173,6 +176,20 @@ impl<'a> NativeRendererViewEffects<'a> {
 }
 #[cfg(feature = "game_client")]
 impl NativeViewEffects for NativeRendererViewEffects<'_> {
+    fn body_visual_changed(
+        &mut self,
+        change: &crate::game_logic::NativeBodyVisualChange,
+        audio: Option<&mut dyn game_client::drawable::drawable::NativeAmbientAudio>,
+    ) -> Result<bool, String> {
+        self.react_owned_body_state(
+            &change.identity,
+            change.state,
+            change.loading_map,
+            change.time_of_day,
+            audio,
+            &change.locality,
+        )
+    }
     fn local_player_id(&self) -> u32 {
         self.local_player_id
     }

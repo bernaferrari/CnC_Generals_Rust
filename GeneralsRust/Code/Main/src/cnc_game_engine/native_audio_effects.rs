@@ -13,6 +13,12 @@ impl NativeAudioService {
     }
 }
 impl crate::game_logic::NativeAudioEffects for NativeAudioService {
+    #[cfg(feature = "game_client")]
+    fn native_ambient(
+        &mut self,
+    ) -> Option<&mut dyn game_client::drawable::drawable::NativeAmbientAudio> {
+        Some(self)
+    }
     fn add_audio_event(&mut self, event: &AudioEventRts, locality: &AudioSubmissionLocality) {
         self.0
             .lock()

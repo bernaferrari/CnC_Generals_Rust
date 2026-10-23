@@ -432,11 +432,13 @@ pub fn host_query_supply_source_safe(player_name: &str, min_supplies: i32) -> Op
 
 /// Live host Player census for leftover/live script player conditions.
 pub fn host_query_player_census(player_name: &str) -> Option<HostScriptPlayerCensus> {
-    let key = host_player_query_key(player_name);
-    if key.is_empty() {
+    // PlayerList::findPlayerWithNameKey ultimately compares the canonical
+    // authored name key; unlike other string-backed query maps, this key is
+    // intentionally exact and case-sensitive.
+    if player_name.is_empty() {
         return None;
     }
-    HOST_SCRIPT_QUERY.with(|slot| slot.borrow().player_census.get(&key).cloned())
+    HOST_SCRIPT_QUERY.with(|slot| slot.borrow().player_census.get(player_name).cloned())
 }
 
 /// C++ Player::countObjectsByThingTemplate from the live host census.
@@ -2380,6 +2382,23 @@ mod host_skirmish_discovered_prereq_tests {
     }
 
     #[test]
+    fn host_player_census_uses_exact_case_sensitive_player_name_key() {
+        clear_host_script_query_snapshot();
+        let mut snap = HostScriptQuerySnapshot::default();
+        snap.player_census.insert(
+            "AuthoredSide".into(),
+            HostScriptPlayerCensus {
+                money: 731,
+                ..Default::default()
+            },
+        );
+        set_host_script_query_snapshot(snap);
+        assert_eq!(host_query_player_census("AuthoredSide").unwrap().money, 731);
+        assert!(host_query_player_census("authoredside").is_none());
+        clear_host_script_query_snapshot();
+    }
+
+    #[test]
     fn host_skirmish_discovered_uses_discovered_by() {
         clear_host_script_query_snapshot();
         let mut snap = HostScriptQuerySnapshot::default();
@@ -2422,7 +2441,7 @@ mod host_skirmish_discovered_prereq_tests {
         census
             .template_counts
             .insert("americacommandcenter".into(), 1);
-        snap.player_census.insert("plyramerica".into(), census);
+        snap.player_census.insert("PlyrAmerica".into(), census);
         set_host_script_query_snapshot(snap);
         assert_eq!(
             host_eval_skirmish_player_has_prerequisite_to_build("PlyrAmerica", MISSING_TEMPLATE),

@@ -306,7 +306,8 @@ fn host_player_census_injected_for_script_player_conditions() {
     clear_host_script_query_snapshot();
 
     let mut logic = GameLogic::new();
-    let mut player = Player::new(1, Team::USA, "PlyrAmerica", true);
+    let mut player =
+        Player::new(1, Team::USA, "America display", true).with_script_identity("PlyrAmerica");
     player.resources.supplies = 4_000;
     player.power_produced = 10;
     player.power_consumed = 5;
@@ -349,7 +350,7 @@ fn host_player_census_injected_for_script_player_conditions() {
         1
     );
 
-    player = Player::new(2, Team::China, "PlyrChina", false);
+    player = Player::new(2, Team::China, "China display", false).with_script_identity("PlyrChina");
     player.resources.supplies = 0;
     player.power_produced = 0;
     player.power_consumed = 8;
@@ -371,8 +372,12 @@ fn host_player_census_keeps_same_faction_players_distinct() {
     clear_host_script_query_snapshot();
 
     let mut logic = GameLogic::new();
-    logic.add_player(Player::new(1, Team::China, "PlyrChinaA", true));
-    logic.add_player(Player::new(2, Team::China, "PlyrChinaB", false));
+    logic.add_player(
+        Player::new(1, Team::China, "China A display", true).with_script_identity("PlyrChinaA"),
+    );
+    logic.add_player(
+        Player::new(2, Team::China, "China B display", false).with_script_identity("PlyrChinaB"),
+    );
     let mut barracks = ThingTemplate::new("ChinaBarracks");
     barracks.set_health(1000.0);
     barracks.add_kind_of(KindOf::Structure);

@@ -2077,35 +2077,6 @@ impl GameLogic {
             .map(|(_, pos)| pos)
     }
 
-    /// C++ `TheTerrainLogic->getClosestWaypointOnPath` then `link[0]` chain.
-    pub(super) fn host_script_waypoint_path_from(
-        &self,
-        path_label: &str,
-        from: glam::Vec3,
-    ) -> Option<Vec<glam::Vec3>> {
-        let leftover_pos = gamelogic::common::Coord3D::new(from.x, from.z, from.y);
-        let terrain_owner_handle = self.world_services.terrain();
-        let terrain = terrain_owner_handle.read().ok()?;
-        let start = terrain.get_closest_waypoint_on_path(&leftover_pos, path_label)?;
-        let chain = terrain.walk_link0_chain(start, gamelogic::terrain::WAYPOINT_PATH_LIMIT);
-        if chain.is_empty() {
-            return None;
-        }
-        Some(
-            chain
-                .into_iter()
-                .map(|wp| {
-                    let loc = *wp.get_location();
-                    let mut pos = glam::Vec3::new(loc.x, loc.z, loc.y);
-                    if let Some(h) = self.terrain_height_at(glam::Vec3::new(pos.x, 0.0, pos.z)) {
-                        pos.y = h;
-                    }
-                    pos
-                })
-                .collect(),
-        )
-    }
-
     /// C++ `TheTerrainLogic->getClosestWaypointOnPath` id for checkBridges.
     pub(super) fn host_script_closest_waypoint_id(
         &self,
@@ -2126,7 +2097,7 @@ impl GameLogic {
         waypoints: &[glam::Vec3],
         exact: bool,
         as_team: bool,
-        path_label: &str,
+        completion: Option<&super::waypoint_routes::HostWaypointIdentity>,
     ) {
         if waypoints.is_empty() {
             return;
@@ -2168,8 +2139,7 @@ impl GameLogic {
                     .map(|o| o.formation_id == fid0)
                     .unwrap_or(false)
             });
-        let last = *waypoints.last().unwrap();
-        let labels = leftover_waypoint_path_labels(path_label, last);
+
         for (unit_id, pos, form_off) in movers {
             let offset = if as_team {
                 if use_formation {
@@ -2195,6 +2165,7 @@ impl GameLogic {
                 }
             }
             if let Some(unit) = self.host_object_mut(unit_id) {
+                unit.clear_pending_waypoint_labels();
                 unit.last_command_source =
                     crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT;
             }
@@ -2209,7 +2180,9 @@ impl GameLogic {
             }
             if assigned {
                 if let Some(unit) = self.host_object_mut(unit_id) {
-                    unit.stamp_pending_waypoint_labels(labels.iter().cloned());
+                    if let Some(completion) = completion {
+                        unit.stamp_pending_waypoint(completion.id, completion.labels.clone());
+                    }
                 }
             }
         }
@@ -2534,8 +2507,8 @@ End
             assert!(logic.host_object(air).unwrap().adjust_destinations);
             assert!(logic.host_object(foot).unwrap().adjust_destinations);
             let wps = [glam::Vec3::new(40.0, 0.0, 0.0)];
-            logic.host_script_issue_follow_waypoint_path(&[air], &wps, false, false, "");
-            logic.host_script_issue_follow_waypoint_path(&[foot], &wps, false, false, "");
+            logic.host_script_issue_follow_waypoint_path(&[air], &wps, false, false, None);
+            logic.host_script_issue_follow_waypoint_path(&[foot], &wps, false, false, None);
             assert!(
                 !logic.host_object(air).unwrap().adjust_destinations,
                 "an aircraft waypoint path must not adjust"

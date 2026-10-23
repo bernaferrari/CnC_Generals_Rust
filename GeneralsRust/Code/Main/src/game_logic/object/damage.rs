@@ -430,7 +430,7 @@ impl Object {
                     // Standalone bootstrap templates have no native Body row.
                     self.health.maximum = self.max_health;
                 }
-                self.internal_change_health(amount);
+                self.internal_change_health_with_body_fx(amount, body_fx);
                 if is_bridge && self.health.current <= 0.0 {
                     // Clearing the retained-husk adapter cannot revive a
                     // zero-maximum Body. Final health owns the dead flag.
@@ -900,7 +900,7 @@ impl Object {
         // CPP ActiveBody500–520 commits canonical Body and effectively-dead
         // before lastDamageInfo/Player/onDamage. Keep the prior state for the
         // later timed DamageModule transition, without consuming its edge.
-        let old_body_state = self.internal_change_health(-actual_damage);
+        let old_body_state = self.internal_change_health_with_body_fx(-actual_damage, body_fx);
         // C++ MinefieldBehavior::onDamage — next mine tick syncs virtuals from HP.
         if let Some(md) = self.mine_data.as_mut() {
             md.last_synced_health = None;

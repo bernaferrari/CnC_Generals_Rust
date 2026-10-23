@@ -173,6 +173,17 @@ fn actual_map_rejects_nested_garrison_body_error_before_later_objects() {
             }
             #[cfg(feature = "game_client")]
             impl crate::game_logic::NativeViewEffects for ParentRetirement {
+                #[cfg(feature = "game_client")]
+                fn body_visual_changed(
+                    &mut self,
+                    change: &crate::game_logic::NativeBodyVisualChange,
+                    audio: Option<&mut dyn game_client::drawable::drawable::NativeAmbientAudio>,
+                ) -> Result<bool, String> {
+                    // This recipient owns no native Drawable; no mixer admission occurs.
+                    let _ = (change, audio);
+                    Ok(false)
+                }
+
                 fn local_player_id(&self) -> u32 {
                     0
                 }

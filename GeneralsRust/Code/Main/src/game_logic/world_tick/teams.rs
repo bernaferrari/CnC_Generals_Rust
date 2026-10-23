@@ -1689,7 +1689,7 @@ impl GameLogic {
         }) else {
             return;
         };
-        let Some(path) = self.host_wander_waypoint_path_from(waypoint, pos) else {
+        let Some(path) = self.host_script_waypoint_route_from(waypoint, pos) else {
             return;
         };
         let proj_name = host_projectile_name_for_weapon_name(&weapon_name);
@@ -1713,15 +1713,17 @@ impl GameLogic {
             obj.set_formation(0, glam::Vec2::ZERO);
         }
         let _ = self.apply_unit_locomotor_set(proj_id, "normal");
-        if path.is_empty() {
+        if path.points.is_empty() {
             return;
         }
-        let goal = *path.last().unwrap();
-        let via = &path[..path.len().saturating_sub(1)];
+        let goal = *path.points.last().unwrap();
+        let via = &path.points[..path.points.len().saturating_sub(1)];
         let _ = self.unit_command_waypoint_path_prep(proj_id, false);
         if self.assign_unit_path(proj_id, goal, via) {
             if let Some(obj) = self.host_object_mut(proj_id) {
-                obj.stamp_pending_waypoint_labels(std::iter::once(waypoint.to_string()));
+                if let Some(completion) = path.completion(false) {
+                    obj.stamp_pending_waypoint(completion.id, completion.labels.clone());
+                }
             }
         }
     }

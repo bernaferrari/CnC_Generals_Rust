@@ -95,30 +95,6 @@ fn host_discovered_by_player_names(
     names
 }
 
-fn leftover_waypoint_path_labels(path_label: &str, last: glam::Vec3) -> Vec<String> {
-    let mut labels = Vec::new();
-    if !path_label.is_empty() {
-        labels.push(path_label.to_string());
-    }
-    let terrain_owner_handle = gamelogic::terrain::get_terrain_logic();
-    let Ok(terrain) = terrain_owner_handle.read() else {
-        return labels;
-    };
-    let pos = gamelogic::common::Coord3D::new(last.x, last.z, last.y);
-    if let Some(wp) = terrain.get_closest_waypoint_on_path(&pos, path_label) {
-        for label in [
-            wp.get_path_label1().as_str(),
-            wp.get_path_label2().as_str(),
-            wp.get_path_label3().as_str(),
-        ] {
-            if !label.is_empty() && !labels.iter().any(|existing| existing == label) {
-                labels.push(label.to_string());
-            }
-        }
-    }
-    labels
-}
-
 /// C++ Object::getStatusBits: packed OBJECT_STATUS_* from live host flags.
 fn host_query_object_status_bits(obj: &crate::game_logic::object::Object) -> u64 {
     use crate::game_logic::host_status_bits_upgrade::object_status_mask_from_names;
@@ -412,3 +388,8 @@ mod camera_fade_owner_tests;
 
 #[cfg(test)]
 mod draw_icon_ui_owner_tests;
+
+mod waypoint_routes;
+
+#[cfg(test)]
+mod waypoint_identity_owner_tests;

@@ -38,6 +38,17 @@ impl Observe {
     }
 }
 impl NativeViewEffects for Observe {
+    #[cfg(feature = "game_client")]
+    fn body_visual_changed(
+        &mut self,
+        change: &crate::game_logic::NativeBodyVisualChange,
+        audio: Option<&mut dyn game_client::drawable::drawable::NativeAmbientAudio>,
+    ) -> Result<bool, String> {
+        // This recipient owns no native Drawable; no mixer admission occurs.
+        let _ = (change, audio);
+        Ok(false)
+    }
+
     fn local_player_id(&self) -> u32 {
         1
     }
@@ -402,6 +413,17 @@ fn bulk_retirement_preserves_prior_queue_then_registration_and_containment_order
         child: ObjectId,
     }
     impl NativeViewEffects for OrderedProbe {
+        #[cfg(feature = "game_client")]
+        fn body_visual_changed(
+            &mut self,
+            change: &crate::game_logic::NativeBodyVisualChange,
+            audio: Option<&mut dyn game_client::drawable::drawable::NativeAmbientAudio>,
+        ) -> Result<bool, String> {
+            // This recipient owns no native Drawable; no mixer admission occurs.
+            let _ = (change, audio);
+            Ok(false)
+        }
+
         fn local_player_id(&self) -> u32 {
             1
         }

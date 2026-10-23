@@ -345,6 +345,15 @@ fn actual_ai_startup_build_callbacks_keep_map_cc_and_unrelated_drawables_until_c
         allow_retirement: bool,
     }
     impl NativeViewEffects for StartupProbe<'_, '_> {
+        #[cfg(feature = "game_client")]
+        fn body_visual_changed(
+            &mut self,
+            change: &crate::game_logic::NativeBodyVisualChange,
+            audio: Option<&mut dyn game_client::drawable::drawable::NativeAmbientAudio>,
+        ) -> Result<bool, String> {
+            self.runtime.body_visual_changed(change, audio)
+        }
+
         fn local_player_id(&self) -> u32 {
             self.runtime.local_player_id()
         }

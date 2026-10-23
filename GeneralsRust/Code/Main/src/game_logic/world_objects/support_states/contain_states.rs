@@ -56,6 +56,14 @@ impl GameLogic {
         };
         event.set_object_id(object_id.0);
         let source = object.owner_player_id.map(|id| id as i32).unwrap_or(-1);
+        let locality = self.receiving_audio_locality_for_player(source);
+        audio.add_audio_event(&event, &locality);
+    }
+
+    pub(crate) fn receiving_audio_locality_for_player(
+        &self,
+        source: i32,
+    ) -> AudioSubmissionLocality {
         let local = self.local_player_id();
         let players = ContainAudioPlayers {
             source,
@@ -82,8 +90,7 @@ impl GameLogic {
                 )
                 .unwrap_or(AudioLocalityRelationship::Neutral),
         };
-        let locality = AudioSubmissionLocality::from_resolver(source, &players);
-        audio.add_audio_event(&event, &locality);
+        AudioSubmissionLocality::from_resolver(source, &players)
     }
 
     fn contain_template_audio(

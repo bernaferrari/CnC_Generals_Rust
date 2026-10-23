@@ -1448,6 +1448,7 @@ impl GameLogic {
                             {
                                 obj.movement.current_path_index += 1;
                                 advanced_index_this_frame = true;
+                                obj.note_waypoint_path_arrival();
                                 let do_evac = obj.pending_evacuate_on_stop;
                                 let and_exit = obj.pending_exit_after_evacuate;
                                 if obj.needs_internal_move_arrival_observation() {
@@ -1894,6 +1895,7 @@ impl GameLogic {
                                         || obj.movement.current_path_index + 1
                                             >= obj.movement.path.len()
                                     {
+                                        obj.note_waypoint_path_arrival();
                                         if obj.needs_internal_move_arrival_observation() {
                                             obj.finish_locomotor_path_leg(
                                                 &mut crate::game_logic::ObjectAudio::queue(
@@ -2390,6 +2392,7 @@ impl GameLogic {
                                     || obj.movement.current_path_index + 1
                                         >= obj.movement.path.len()
                                 {
+                                    obj.note_waypoint_path_arrival();
                                     if obj.needs_internal_move_arrival_observation() {
                                         plant_goal = obj.movement.path.last().copied();
                                         obj.finish_locomotor_path_leg(
@@ -2538,6 +2541,7 @@ impl GameLogic {
                                     || obj.movement.current_path_index + 1
                                         >= obj.movement.path.len())
                             {
+                                obj.note_waypoint_path_arrival();
                                 if obj.holds_air_position_when_idle() {
                                     obj.end_temporary_move_overlay(
                                         &mut crate::game_logic::ObjectAudio::queue(

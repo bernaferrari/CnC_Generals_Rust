@@ -19,6 +19,14 @@ use crate::presentation_frame::camera::build::SlaveCameraSample;
 /// One immediate receiving audio admission, borrowed for a synchronous operation.
 /// The service owns its actual pending AR_Play requests; gameplay keeps no receipt log.
 pub(crate) trait NativeAudioEffects {
+    /// Actual captured mixer capability; detached add-only candidates cannot
+    /// fabricate Drawable playing-handle ownership.
+    #[cfg(feature = "game_client")]
+    fn native_ambient(
+        &mut self,
+    ) -> Option<&mut dyn game_client::drawable::drawable::NativeAmbientAudio> {
+        None
+    }
     fn add_audio_event(
         &mut self,
         event: &game_engine::common::audio::AudioEventRts,
@@ -26,6 +34,12 @@ pub(crate) trait NativeAudioEffects {
     );
 }
 impl NativeAudioEffects for game_engine::common::audio::AudioManager {
+    #[cfg(feature = "game_client")]
+    fn native_ambient(
+        &mut self,
+    ) -> Option<&mut dyn game_client::drawable::drawable::NativeAmbientAudio> {
+        Some(self)
+    }
     fn add_audio_event(
         &mut self,
         event: &game_engine::common::audio::AudioEventRts,
@@ -35,7 +49,24 @@ impl NativeAudioEffects for game_engine::common::audio::AudioManager {
     }
 }
 
+#[cfg(feature = "game_client")]
+pub(crate) struct NativeBodyVisualChange {
+    pub(crate) identity: LiveDrawPlaybackIdentity,
+    pub(crate) state: gamelogic::common::types::BodyDamageType,
+    pub(crate) loading_map: bool,
+    pub(crate) time_of_day: Option<game_client::system::TimeOfDay>,
+    pub(crate) locality: game_engine::common::audio::AudioSubmissionLocality,
+}
+
 pub(crate) trait NativeViewEffects {
+    /// Explicit capability: native forwarding adapters must forward this call.
+    /// A genuinely detached recipient declares no Drawable by returning false.
+    #[cfg(feature = "game_client")]
+    fn body_visual_changed(
+        &mut self,
+        change: &NativeBodyVisualChange,
+        audio: Option<&mut dyn game_client::drawable::drawable::NativeAmbientAudio>,
+    ) -> Result<bool, String>;
     fn local_player_id(&self) -> u32;
     fn sample_slave(&mut self, source: &NativeSlaveSource, bone: &str) -> SlaveCameraSample;
     #[cfg(feature = "game_client")]

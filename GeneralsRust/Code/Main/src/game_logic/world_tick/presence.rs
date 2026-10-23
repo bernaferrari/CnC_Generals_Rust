@@ -345,19 +345,15 @@ impl GameLogic {
         }
     }
 
-    /// C++ `isInSinglePlayerGame() && getPlayerType()==PLAYER_COMPUTER`.
-    /// Leftover `Player::kill_player` is RIGHT: only leftover Computer
-    /// resurrects (skip cash wipe). Neutral/civilian/human non-local stay dead.
+    /// Player.cpp2055: the killed Player's own controller, independent of
+    /// locality, observer presentation, strategic AI, or another session.
+    /// GameCommon.h119 has exactly PLAYER_HUMAN and PLAYER_COMPUTER.
     pub(crate) fn should_resurrect_sp_computer_player(&self, player_id: u32) -> bool {
-        if !matches!(self.game_mode, GameMode::SinglePlayer) {
-            return false;
-        }
-        let host_name = self
-            .players
-            .get(&player_id)
-            .map(|p| p.name.as_str())
-            .unwrap_or("");
-        leftover_player_type_is_computer(player_id, host_name)
+        self.is_single_player_scenario()
+            && self
+                .players
+                .get(&player_id)
+                .is_some_and(|player| !player.is_human)
     }
 
     pub(in super::super) fn convert_script_event(
@@ -407,48 +403,6 @@ impl GameLogic {
     }
 }
 
-/// Leftover `get_player_type() == PlayerType::Computer`. Missing leftover = no.
-fn leftover_player_type_is_computer(player_id: u32, host_name: &str) -> bool {
-    leftover_player_arc_for_host_slot(player_id, host_name)
-        .and_then(|arc| {
-            arc.read()
-                .ok()
-                .map(|guard| guard.get_player_type() == gamelogic::player::PlayerType::Computer)
-        })
-        .unwrap_or(false)
-}
-
-fn leftover_player_arc_for_host_slot(
-    player_id: u32,
-    host_name: &str,
-) -> Option<std::sync::Arc<std::sync::RwLock<gamelogic::player::Player>>> {
-    let Ok(list) = gamelogic::player::ThePlayerList().read() else {
-        return None;
-    };
-    let named = format!("player{player_id}");
-    if let Some(player) = list.find_player_by_name(&named) {
-        return Some(player);
-    }
-    if !host_name.is_empty() {
-        if let Some(player) = list.find_player_by_name(host_name) {
-            return Some(player);
-        }
-    }
-    if let Some(player) = list.get_player(player_id as gamelogic::player::PlayerIndex) {
-        return Some(std::sync::Arc::clone(player));
-    }
-    for arc in list.iter() {
-        if arc
-            .read()
-            .ok()
-            .is_some_and(|guard| guard.get_player_index() as u32 == player_id)
-        {
-            return Some(std::sync::Arc::clone(arc));
-        }
-    }
-    None
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -474,36 +428,15 @@ mod tests {
         );
     }
 
-    struct LeftoverPlayersGuard;
-
-    impl Drop for LeftoverPlayersGuard {
-        fn drop(&mut self) {
-            if let Ok(mut list) = gamelogic::player::ThePlayerList().write() {
-                list.clear();
-            }
-        }
-    }
-
-    fn install_leftover_player(
+    fn host_sp_player_with_cash(
         id: u32,
-        player_type: gamelogic::player::PlayerType,
-    ) -> LeftoverPlayersGuard {
-        let mut leftover = gamelogic::player::Player::new(id as gamelogic::player::PlayerIndex);
-        leftover.set_display_name(format!("player{id}"));
-        leftover.set_player_type(player_type, false);
-        let arc = std::sync::Arc::new(std::sync::RwLock::new(leftover));
-        let mut list = gamelogic::player::ThePlayerList()
-            .write()
-            .unwrap_or_else(|e| e.into_inner());
-        list.clear();
-        list.add_player(arc);
-        LeftoverPlayersGuard
-    }
-
-    fn host_sp_player_with_cash(id: u32, local: bool) -> (GameLogic, crate::game_logic::ObjectId) {
+        human: bool,
+        local: bool,
+    ) -> (GameLogic, crate::game_logic::ObjectId) {
         let mut logic = GameLogic::new();
         logic.game_mode = GameMode::SinglePlayer;
-        let mut player = Player::new(id, Team::GLA, "GLA", local);
+        let mut player = Player::new(id, Team::GLA, "GLA", human);
+        player.is_local = local;
         player.resources.supplies = 4_000;
         logic.add_player(player);
         let mut ranger = ThingTemplate::new("GLARebel");
@@ -517,41 +450,145 @@ mod tests {
 
     #[test]
     fn sp_computer_kill_preserves_cash() {
-        let _leftover = install_leftover_player(1, gamelogic::player::PlayerType::Computer);
-        let (mut logic, id) = host_sp_player_with_cash(1, false);
-        logic.kill_player_for_victory(1);
-        assert!(
-            logic.host_object(id).is_none()
-                || logic
-                    .host_object(id)
-                    .is_some_and(|o| !o.is_alive() || o.status.destroyed)
-        );
-        let p = logic.get_player(1).expect("ai");
-        assert!(p.is_alive, "C++ resurrects SP PLAYER_COMPUTER");
-        assert_eq!(p.resources.supplies, 4_000, "SP AI keeps cash");
+        for local in [false, true] {
+            let (mut logic, id) = host_sp_player_with_cash(1, false, local);
+            logic.kill_player_for_victory(1);
+            assert!(
+                logic.host_object(id).is_none()
+                    || logic
+                        .host_object(id)
+                        .is_some_and(|o| !o.is_alive() || o.status.destroyed)
+            );
+            let p = logic.get_player(1).expect("computer");
+            assert!(p.is_alive, "C++ resurrects SP PLAYER_COMPUTER");
+            assert_eq!(p.resources.supplies, 4_000, "SP AI keeps cash");
+        }
     }
 
     #[test]
-    fn sp_non_computer_non_local_kill_wipes_cash() {
-        for leftover_type in [
-            None,
-            Some(gamelogic::player::PlayerType::Human),
-            Some(gamelogic::player::PlayerType::Neutral),
-            Some(gamelogic::player::PlayerType::Observer),
-        ] {
-            let _leftover = leftover_type.map(|ty| install_leftover_player(1, ty));
-            let (mut logic, _) = host_sp_player_with_cash(1, false);
-            assert!(
-                !logic.should_resurrect_sp_computer_player(1),
-                "leftover {leftover_type:?} must not resurrect"
-            );
+    fn sp_human_kill_wipes_cash_independently_of_locality() {
+        for local in [false, true] {
+            let (mut logic, _) = host_sp_player_with_cash(1, true, local);
+            assert!(!logic.should_resurrect_sp_computer_player(1));
             logic.kill_player_for_victory(1);
-            let p = logic.get_player(1).expect("slot");
-            assert!(!p.is_alive, "leftover {leftover_type:?} stays dead");
-            assert_eq!(
-                p.resources.supplies, 0,
-                "leftover {leftover_type:?} loses cash"
+            let p = logic.get_player(1).expect("human");
+            assert!(!p.is_alive);
+            assert_eq!(p.resources.supplies, 0);
+        }
+    }
+
+    #[test]
+    fn same_id_peer_controller_never_selects_victory_resurrection() {
+        let (mut computer, _) = host_sp_player_with_cash(1, false, false);
+        let (mut human, _) = host_sp_player_with_cash(1, true, false);
+        assert!(computer.should_resurrect_sp_computer_player(1));
+        assert!(!human.should_resurrect_sp_computer_player(1));
+        assert!(!computer.should_resurrect_sp_computer_player(999));
+        human.kill_player_for_victory(1);
+        assert!(computer.should_resurrect_sp_computer_player(1));
+        computer.kill_player_for_victory(1);
+        assert!(computer.get_player(1).unwrap().is_alive);
+        assert_eq!(computer.get_player(1).unwrap().resources.supplies, 4_000);
+        assert!(!human.get_player(1).unwrap().is_alive);
+        assert_eq!(human.get_player(1).unwrap().resources.supplies, 0);
+        drop(human);
+        assert!(computer.should_resurrect_sp_computer_player(1));
+        computer.game_mode = GameMode::Skirmish;
+        assert!(!computer.should_resurrect_sp_computer_player(1));
+        computer.kill_player_for_victory(1);
+        assert!(!computer.get_player(1).unwrap().is_alive);
+        assert_eq!(computer.get_player(1).unwrap().resources.supplies, 0);
+    }
+    #[test]
+    fn encoded_player_controller_preserves_victory_continuation() {
+        use crate::save_load::snapshot::{SnapshotBuilder, decode_bincode_world_snapshot};
+        let mut source = GameLogic::new();
+        source.game_mode = GameMode::SinglePlayer;
+        for (id, human) in [(1, false), (2, true)] {
+            let mut player = Player::new(id, Team::GLA, "Shared display", human);
+            player.is_local = false;
+            player.resources.supplies = 4_000;
+            source.add_player(player);
+        }
+        let builder = SnapshotBuilder::new();
+        let snapshot = builder.create_world_snapshot(&source).unwrap();
+        let encoded = bincode_legacy::serialize(&snapshot).unwrap();
+        let decoded = decode_bincode_world_snapshot(&encoded).unwrap();
+        let mut receiver = GameLogic::new();
+        // Match mode is supplied by the receiving load session, not this DTO.
+        receiver.game_mode = GameMode::SinglePlayer;
+        // Admit the receiving roster before validating saved Team prototypes.
+        // Opposite controllers prove restoration, rather than constructor defaults.
+        receiver.add_player(Player::new(1, Team::GLA, "Receiver display", true));
+        receiver.add_player(Player::new(2, Team::GLA, "Receiver display", false));
+        builder
+            .restore_from_snapshot(&decoded, &mut receiver)
+            .unwrap();
+        assert!(!receiver.get_player(1).unwrap().is_human);
+        assert!(receiver.get_player(2).unwrap().is_human);
+        assert!(receiver.should_resurrect_sp_computer_player(1));
+        assert!(!receiver.should_resurrect_sp_computer_player(2));
+        for id in [1, 2] {
+            receiver.kill_player_for_victory(id);
+        }
+        assert!(receiver.get_player(1).unwrap().is_alive);
+        assert_eq!(receiver.get_player(1).unwrap().resources.supplies, 4_000);
+        assert!(!receiver.get_player(2).unwrap().is_alive);
+        assert_eq!(receiver.get_player(2).unwrap().resources.supplies, 0);
+        assert!(source.get_player(2).unwrap().is_alive);
+        assert_eq!(source.get_player(2).unwrap().resources.supplies, 4_000);
+    }
+    #[test]
+    fn actual_recorded_single_player_replay_resurrects_only_computer_and_keeps_cash() {
+        use game_engine::common::recorder::{Recorder, RecorderOwnerInputs};
+        // Original GameLogic::isInSinglePlayerGame includes playback's saved
+        // game mode. Actual owned replay files calibrate both SP0 and Skirmish2.
+        for (recorded_mode, human) in [(0, false), (0, true), (2, false), (2, true)] {
+            let directory = tempfile::tempdir().unwrap();
+            let inputs = RecorderOwnerInputs {
+                map: "Maps/PresenceReplay.map".into(),
+                seed: 19,
+                replay_directory: directory.path().join("Replays"),
+                exe_crc: 0,
+                ini_crc: 0,
+                save_stats: false,
+                stats_directory: directory.path().join("Stats"),
+            };
+            let mut writer = Recorder::new_owned(inputs.clone());
+            writer.start_recording(0, recorded_mode, 0, 30).unwrap();
+            let filename = format!(
+                "{}{}",
+                writer.last_replay_filename(),
+                writer.replay_extension()
             );
+            writer.stop_recording();
+            let (mut logic, id) = host_sp_player_with_cash(1, human, false);
+            logic.replay_pending.reset_recorder_owned(inputs);
+            assert!(
+                logic
+                    .replay_pending
+                    .playback_file_owned(filename, false)
+                    .unwrap()
+            );
+            logic.game_mode = GameMode::Replay;
+            assert!(logic.replay_pending.recorder_owned().is_playback());
+            assert_eq!(
+                logic.replay_pending.recorder_owned().get_game_mode(),
+                recorded_mode
+            );
+            let resurrect = recorded_mode == 0 && !human;
+            assert_eq!(logic.should_resurrect_sp_computer_player(1), resurrect);
+            logic.kill_player_for_victory(1);
+            assert!(
+                logic.host_object(id).is_none()
+                    || logic
+                        .host_object(id)
+                        .is_some_and(|actor| !actor.is_alive() || actor.status.destroyed),
+                "killTeam still runs before the playback resurrection decision"
+            );
+            let player = logic.get_player(1).unwrap();
+            assert_eq!(player.is_alive, resurrect);
+            assert_eq!(player.resources.supplies, if resurrect { 4_000 } else { 0 });
         }
     }
 }

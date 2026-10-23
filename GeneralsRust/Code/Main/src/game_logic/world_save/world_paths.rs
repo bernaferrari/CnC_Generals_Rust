@@ -483,6 +483,9 @@ impl GameLogic {
             if d.length_squared() < 0.25 {
                 drop(unit);
                 if let Some(unit) = self.objects.get_mut(&unit_id) {
+                    // An accepted new quick path exits the outgoing Follow
+                    // before it can erase Exact's mode or reuse its geometry.
+                    unit.clear_pending_waypoint_labels();
                     // C++ AIUpdate::requestPath stores this before computeQuickPath.
                     unit.requested_destination = Some(destination);
                     unit.path_goal_position = Some(destination);
@@ -533,6 +536,7 @@ impl GameLogic {
             let Some(unit) = self.objects.get_mut(&unit_id) else {
                 return false;
             };
+            unit.clear_pending_waypoint_labels();
             unit.can_path_through_units = false;
             unit.is_attack_path = false;
             unit.is_exact_path = false;
@@ -562,6 +566,7 @@ impl GameLogic {
         let Some(unit) = self.objects.get_mut(&unit_id) else {
             return false;
         };
+        unit.clear_pending_waypoint_labels();
         unit.can_path_through_units = false;
         unit.is_attack_path = false;
         unit.is_exact_path = false;

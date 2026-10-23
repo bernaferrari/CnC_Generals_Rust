@@ -128,33 +128,54 @@ impl Object {
         }
     }
 
-    /// C++ setCompletedWaypoint path labels while following a script/player path.
+    /// Compatibility for labels-only callers. New terrain producers supply an
+    /// exact receiving identity through stamp_pending_waypoint instead.
     pub fn stamp_pending_waypoint_labels(
         &mut self,
         labels: impl IntoIterator<Item = impl Into<String>>,
     ) {
-        let mut out = Vec::new();
-        for label in labels {
-            let s = label.into();
-            if s.is_empty() {
-                continue;
-            }
-            if !out.iter().any(|existing: &String| existing == &s) {
-                out.push(s);
-            }
-        }
-        self.pending_waypoint_labels = out;
+        self.pending_waypoint_id = None;
+        self.pending_waypoint_labels = labels.into_iter().map(Into::into).collect();
     }
 
-    /// C++ FollowWaypointPath success: keep the completed waypoint's labels.
+    pub(crate) fn stamp_pending_waypoint(&mut self, id: u32, labels: [String; 3]) {
+        self.pending_waypoint_id = Some(id);
+        self.pending_waypoint_labels = labels.into();
+    }
+
+    /// Nonexact Follow publishes its terminal; Exact publishes its admitted
+    /// start on exit. The producer already selected the correct identity.
     pub fn commit_completed_waypoint_labels(&mut self) {
-        if !self.pending_waypoint_labels.is_empty() {
+        if self.pending_waypoint_id.is_some() || !self.pending_waypoint_labels.is_empty() {
+            self.completed_waypoint_id = self.pending_waypoint_id.take();
             self.completed_waypoint_labels = std::mem::take(&mut self.pending_waypoint_labels);
         }
     }
 
+    /// The locomotor reached the admitted route's final node. Ordinary Follow
+    /// publishes its terminal here; Panic owns its separate next-waypoint step.
+    /// Cancellation must use clear_pending_waypoint_labels instead.
+    pub(crate) fn note_waypoint_path_arrival(&mut self) {
+        if !matches!(self.ai_state, AIState::Panic) {
+            self.commit_completed_waypoint_labels();
+        }
+    }
+
     pub fn clear_pending_waypoint_labels(&mut self) {
+        // AIFollowWaypointPathExactState::onExit publishes m_lastWaypoint even
+        // for an interrupted command. Ordinary Follow has no such exit effect.
+        if self.is_exact_path && self.pending_waypoint_id.is_some() {
+            self.commit_completed_waypoint_labels();
+        }
+        self.pending_waypoint_id = None;
         self.pending_waypoint_labels.clear();
+    }
+
+    /// AIUpdate.cpp993/1117: one actual AI-update observation, then next wake
+    /// clears it before the new state update. Presentation/query never clears.
+    pub(crate) fn begin_waypoint_completion_observation(&mut self) {
+        self.completed_waypoint_id = None;
+        self.completed_waypoint_labels.clear();
     }
 
     pub fn set_status_disabled_hacked(&mut self, v: bool) {
@@ -893,6 +914,13 @@ impl Object {
     /// moving/attacking status bits from the authoritative ordinal.
 
     pub fn set_ai_state(&mut self, state: AIState, audio: &mut crate::game_logic::ObjectAudio<'_>) {
+        // Leaving the host's Follow movement family exits Exact as well as
+        // successful arrival. Same-family replacement is handled at accepted
+        // path admission, where the outgoing order is still observable.
+        if self.ai_state != state && state != AIState::Moving && self.pending_waypoint_id.is_some()
+        {
+            self.clear_pending_waypoint_labels();
+        }
         if !matches!(state, AIState::Moving) && self.temporary_move_frames == 0 {
             self.movement_goal_object = None;
         }

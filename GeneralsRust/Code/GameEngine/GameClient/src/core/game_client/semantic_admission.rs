@@ -113,7 +113,7 @@ impl NativeDrawableOwner<'_> {
         state: gamelogic::common::types::BodyDamageType,
         loading_map: bool,
         time_of_day: crate::system::TimeOfDay,
-        audio: &mut dyn crate::drawable::drawable::NativeAmbientAudio,
+        audio: Option<&mut dyn crate::drawable::drawable::NativeAmbientAudio>,
         locality: &game_engine::common::audio::AudioSubmissionLocality,
     ) -> GameClientResult<()> {
         if self.binding_key(key.host_epoch, key.object_id) != Some(key) {
@@ -134,9 +134,18 @@ impl NativeDrawableOwner<'_> {
         receiver
             .preflight_native_ambient()
             .map_err(GameClientError::InvalidOperation)?;
+        let audio = if loading_map {
+            None
+        } else {
+            Some(audio.ok_or_else(|| {
+                GameClientError::InvalidOperation(
+                    "native Body ambient transition requires its captured audio service".into(),
+                )
+            })?)
+        };
         // Flags may invoke Draw modules. No AudioManager guard spans that walk.
         receiver.react_to_body_damage_state_change(state);
-        if !loading_map {
+        if let Some(audio) = audio {
             audio
                 .restart_ambient(receiver, state, time_of_day, locality)
                 .map_err(GameClientError::InvalidOperation)?;
@@ -745,6 +754,120 @@ mod semantic_admission_tests {
             .retire(&mut world.borrow_native(), None)
             .unwrap();
         assert!(world.drawable_map.is_empty());
+    }
+    #[test]
+    fn native_early_body_flags_precede_audio_and_loading_map_needs_no_audio_receiver() {
+        use crate::system::TimeOfDay;
+        use game_engine::common::audio::AudioSubmissionLocality;
+        use gamelogic::common::types::BodyDamageType;
+        struct Audio(Vec<(BodyDamageType, TimeOfDay)>);
+        impl crate::drawable::drawable::NativeAmbientAudio for Audio {
+            fn restart_ambient(
+                &mut self,
+                drawable: &mut BasicDrawable,
+                state: BodyDamageType,
+                tod: TimeOfDay,
+                _: &AudioSubmissionLocality,
+            ) -> Result<(), String> {
+                let bit = if state == BodyDamageType::Damaged {
+                    game_engine::common::bit_flags::ModelConditionFlags::DAMAGED
+                } else {
+                    game_engine::common::bit_flags::ModelConditionFlags::REALLYDAMAGED
+                };
+                assert!(
+                    drawable.get_model_condition_flags().test(bit as usize),
+                    "model flags precede ambient service admission"
+                );
+                self.0.push((state, tod));
+                Ok(())
+            }
+        }
+        // Actual local AudioManager supplies only immutable locality policy;
+        // its public resolver implementation is not required by this receiver.
+        struct Players;
+        impl game_engine::common::audio::AudioLocalityResolver for Players {
+            fn get_local_player_index(&self) -> Option<i32> {
+                Some(0)
+            }
+            fn is_player_active(&self, _: i32) -> bool {
+                true
+            }
+            fn player_exists(&self, _: i32) -> bool {
+                true
+            }
+            fn has_default_team(&self, _: i32) -> bool {
+                true
+            }
+            fn get_relationship_to_local_team(
+                &self,
+                _: i32,
+                _: i32,
+            ) -> game_engine::common::audio::AudioLocalityRelationship {
+                game_engine::common::audio::AudioLocalityRelationship::Allies
+            }
+        }
+        let (mut catalog, plan) = content(2.0);
+        let mut client = GameClient::new().unwrap();
+        let key = client
+            .split_frame_snow_and_drawable_owner()
+            .2
+            .admit_semantic_drawable_with_content(
+                entry(77, plan),
+                NativeDrawableBirthContext {
+                    loading_map: true,
+                    in_load_game: false,
+                },
+                0,
+                &mut catalog,
+                policy(),
+                &mut NativeParticleRetirementService,
+                |_| Ok(()),
+            )
+            .unwrap();
+        let locality = AudioSubmissionLocality::from_resolver(0, &Players);
+        client
+            .split_frame_snow_and_drawable_owner()
+            .2
+            .body_state_changed_with_audio(
+                key,
+                BodyDamageType::Damaged,
+                true,
+                TimeOfDay::Night,
+                None,
+                &locality,
+            )
+            .unwrap();
+        let mut audio = Audio(Vec::new());
+        client
+            .split_frame_snow_and_drawable_owner()
+            .2
+            .body_state_changed_with_audio(
+                key,
+                BodyDamageType::ReallyDamaged,
+                false,
+                TimeOfDay::Morning,
+                Some(&mut audio),
+                &locality,
+            )
+            .unwrap();
+        assert_eq!(
+            audio.0,
+            vec![(BodyDamageType::ReallyDamaged, TimeOfDay::Morning)]
+        );
+        assert!(
+            client
+                .split_frame_snow_and_drawable_owner()
+                .2
+                .body_state_changed_with_audio(
+                    key,
+                    BodyDamageType::Rubble,
+                    false,
+                    TimeOfDay::Night,
+                    None,
+                    &locality
+                )
+                .is_err()
+        );
     }
 }
 

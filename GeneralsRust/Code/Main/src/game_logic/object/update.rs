@@ -459,7 +459,7 @@ impl Object {
                     self.set_status_moving(false);
                 } else {
                     if !matches!(self.ai_state, AIState::Panic) {
-                        self.commit_completed_waypoint_labels();
+                        self.note_waypoint_path_arrival();
                         self.ignored_obstacle_id = None;
                         self.queue_for_path_frames = 0;
                         self.set_locomotor_goal_none();
@@ -661,7 +661,7 @@ impl Object {
                     self.refresh_follow_path_extra_distance();
                 } else {
                     if !matches!(self.ai_state, AIState::Panic) {
-                        self.commit_completed_waypoint_labels();
+                        self.note_waypoint_path_arrival();
                         self.ignored_obstacle_id = None;
                         self.queue_for_path_frames = 0;
                         self.set_locomotor_goal_none();
