@@ -2,11 +2,6 @@
 //! navigation metadata; source checks require one canonical host writer and
 //! immutable shadow comparisons. Runtime regressions exercise the host phases.
 
-use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
-
-static RESIDUAL_OK: AtomicBool = AtomicBool::new(false);
-static RESIDUAL_ACTION: AtomicU8 = AtomicU8::new(0);
-
 pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
     table.iter().position(|n| *n == name)
 }
@@ -38,45 +33,15 @@ pub const RUNTIME_HOST_LIVE_HOST_CONSTRUCTION_COMPLETE_CLEAR_READY_LOG_HELPER_CM
     "construction_complete_clear_ready_log_residual",
 ];
 
-#[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ResidualHostConstructionCompleteClearReadyLogHelperAction {
-    None = 0,
-    MethodNames = 1,
-    SourceMarkers = 2,
-    NavCommands = 3,
-    CollectSource = 4,
-    DispatchSource = 5,
-    Composite = 6,
-}
-
-impl ResidualHostConstructionCompleteClearReadyLogHelperAction {
-    pub fn from_u8(v: u8) -> Self {
-        match v {
-            1 => Self::MethodNames,
-            2 => Self::SourceMarkers,
-            3 => Self::NavCommands,
-            4 => Self::CollectSource,
-            5 => Self::DispatchSource,
-            6 => Self::Composite,
-            _ => Self::None,
-        }
-    }
-}
-
-fn residual_action_store(action: ResidualHostConstructionCompleteClearReadyLogHelperAction) {
-    RESIDUAL_ACTION.store(action as u8, Ordering::SeqCst);
-}
-
-pub fn residual_host_construction_complete_clear_ready_log_helper_ok() -> bool {
-    RESIDUAL_OK.load(Ordering::SeqCst)
-}
-
-pub fn residual_host_construction_complete_clear_ready_log_helper_last_action()
--> ResidualHostConstructionCompleteClearReadyLogHelperAction {
-    ResidualHostConstructionCompleteClearReadyLogHelperAction::from_u8(
-        RESIDUAL_ACTION.load(Ordering::SeqCst),
-    )
+    None,
+    MethodNames,
+    SourceMarkers,
+    NavCommands,
+    CollectSource,
+    DispatchSource,
+    Composite,
 }
 
 fn gl_source() -> &'static str {
@@ -128,14 +93,12 @@ pub fn honesty_host_construction_complete_clear_ready_log_helper_method_names_re
         && residual_name_index(names, "compare_rebuild_producer_to_host").is_some()
         && residual_name_index(names, "Wave 626").is_some()
         && residual_name_index(names, "playable_claim = false").is_some();
-    residual_action_store(ResidualHostConstructionCompleteClearReadyLogHelperAction::MethodNames);
     ok
 }
 
 pub fn honesty_host_construction_complete_clear_ready_log_helper_source_markers_residual_wave626()
 -> bool {
     let ok = super::construction_owner_source_contract::host_owns_construction();
-    residual_action_store(ResidualHostConstructionCompleteClearReadyLogHelperAction::SourceMarkers);
     ok
 }
 
@@ -155,40 +118,57 @@ pub fn honesty_host_construction_complete_clear_ready_log_helper_nav_commands_re
         && residual_name_index(cmds, "host_drains_ccc_ready").is_some()
         && residual_name_index(cmds, "host_clears_model_bit").is_some()
         && residual_name_index(cmds, "construction_complete_clear_ready_log_residual").is_some();
-    residual_action_store(ResidualHostConstructionCompleteClearReadyLogHelperAction::NavCommands);
     ok
 }
 
 pub fn simulate_host_construction_complete_clear_ready_log_helper_collect_source() -> bool {
     let ok = super::construction_owner_source_contract::host_owns_construction();
-    residual_action_store(ResidualHostConstructionCompleteClearReadyLogHelperAction::CollectSource);
     ok
 }
 
 pub fn simulate_host_construction_complete_clear_ready_log_helper_dispatch_source() -> bool {
     let ok = super::construction_owner_source_contract::host_owns_construction();
-    residual_action_store(
-        ResidualHostConstructionCompleteClearReadyLogHelperAction::DispatchSource,
-    );
     ok
 }
 
 pub fn honesty_host_construction_complete_clear_ready_log_helper_residual_pack_wave626() -> bool {
-    honesty_host_construction_complete_clear_ready_log_helper_method_names_residual_wave626()
-        && honesty_host_construction_complete_clear_ready_log_helper_source_markers_residual_wave626(
-        )
-        && honesty_host_construction_complete_clear_ready_log_helper_nav_commands_residual_wave626()
-        && simulate_host_construction_complete_clear_ready_log_helper_collect_source()
-        && simulate_host_construction_complete_clear_ready_log_helper_dispatch_source()
+    simulate_live_host_construction_complete_clear_ready_log_helper_outcome().passed
+}
+
+/// An operation-owned source-honesty result. These residual probes are
+/// diagnostic/test witnesses, not C++ simulation state, so parallel callers
+/// must not overwrite one another's reported phase.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ResidualHostConstructionCompleteClearReadyLogHelperOutcome {
+    pub passed: bool,
+    pub last_action: ResidualHostConstructionCompleteClearReadyLogHelperAction,
+}
+
+pub fn simulate_live_host_construction_complete_clear_ready_log_helper_outcome()
+-> ResidualHostConstructionCompleteClearReadyLogHelperOutcome {
+    let phases: [(ResidualHostConstructionCompleteClearReadyLogHelperAction, fn() -> bool); 5] = [
+        (ResidualHostConstructionCompleteClearReadyLogHelperAction::MethodNames, honesty_host_construction_complete_clear_ready_log_helper_method_names_residual_wave626),
+        (ResidualHostConstructionCompleteClearReadyLogHelperAction::SourceMarkers, honesty_host_construction_complete_clear_ready_log_helper_source_markers_residual_wave626),
+        (ResidualHostConstructionCompleteClearReadyLogHelperAction::NavCommands, honesty_host_construction_complete_clear_ready_log_helper_nav_commands_residual_wave626),
+        (ResidualHostConstructionCompleteClearReadyLogHelperAction::CollectSource, simulate_host_construction_complete_clear_ready_log_helper_collect_source),
+        (ResidualHostConstructionCompleteClearReadyLogHelperAction::DispatchSource, simulate_host_construction_complete_clear_ready_log_helper_dispatch_source),
+    ];
+    for (action, check) in phases {
+        if !check() {
+            return ResidualHostConstructionCompleteClearReadyLogHelperOutcome {
+                passed: false,
+                last_action: action,
+            };
+        }
+    }
+    ResidualHostConstructionCompleteClearReadyLogHelperOutcome {
+        passed: true,
+        last_action: ResidualHostConstructionCompleteClearReadyLogHelperAction::Composite,
+    }
 }
 
 pub fn simulate_live_host_construction_complete_clear_ready_log_helper_honesty() -> bool {
-    let ok = honesty_host_construction_complete_clear_ready_log_helper_residual_pack_wave626();
-    if ok {
-        RESIDUAL_OK.store(true, Ordering::SeqCst);
-        residual_action_store(ResidualHostConstructionCompleteClearReadyLogHelperAction::Composite);
-    }
-    ok
+    simulate_live_host_construction_complete_clear_ready_log_helper_outcome().passed
 }
 
 #[cfg(test)]
@@ -232,13 +212,13 @@ mod tests {
 
     #[test]
     fn simulate_live_host_construction_complete_clear_ready_log_helper_honesty_residual_live() {
+        let outcome = simulate_live_host_construction_complete_clear_ready_log_helper_outcome();
         assert!(
-            simulate_live_host_construction_complete_clear_ready_log_helper_honesty(),
-            "host construction complete clear ready log helper residual must latch"
+            outcome.passed,
+            "host construction complete clear ready log helper must pass"
         );
-        assert!(residual_host_construction_complete_clear_ready_log_helper_ok());
         assert_eq!(
-            residual_host_construction_complete_clear_ready_log_helper_last_action(),
+            outcome.last_action,
             ResidualHostConstructionCompleteClearReadyLogHelperAction::Composite
         );
     }

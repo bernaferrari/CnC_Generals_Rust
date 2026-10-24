@@ -422,23 +422,23 @@ pub use super::host_live_host_construct_spawn_dozer_opt_in_residual_wave719::{
 };
 #[cfg(any(test, feature = "host-residuals"))]
 pub use super::host_live_host_construction_complete_clear_ready_log_helper_residual_wave626::{
+    ResidualHostConstructionCompleteClearReadyLogHelperOutcome,
     honesty_host_construction_complete_clear_ready_log_helper_method_names_residual_wave626,
     honesty_host_construction_complete_clear_ready_log_helper_nav_commands_residual_wave626,
     honesty_host_construction_complete_clear_ready_log_helper_residual_pack_wave626,
     honesty_host_construction_complete_clear_ready_log_helper_source_markers_residual_wave626,
-    residual_host_construction_complete_clear_ready_log_helper_last_action,
-    residual_host_construction_complete_clear_ready_log_helper_ok,
     simulate_live_host_construction_complete_clear_ready_log_helper_honesty,
+    simulate_live_host_construction_complete_clear_ready_log_helper_outcome,
 };
 #[cfg(any(test, feature = "host-residuals"))]
 pub use super::host_live_host_construction_ready_log_helper_residual_wave617::{
+    ResidualHostConstructionReadyLogHelperOutcome,
     honesty_host_construction_ready_log_helper_method_names_residual_wave617,
     honesty_host_construction_ready_log_helper_nav_commands_residual_wave617,
     honesty_host_construction_ready_log_helper_residual_pack_wave617,
     honesty_host_construction_ready_log_helper_source_markers_residual_wave617,
-    residual_host_construction_ready_log_helper_last_action,
-    residual_host_construction_ready_log_helper_ok,
     simulate_live_host_construction_ready_log_helper_honesty,
+    simulate_live_host_construction_ready_log_helper_outcome,
 };
 #[cfg(any(test, feature = "host-residuals"))]
 pub use super::host_live_host_construction_same_frame_ready_complete_residual_wave715::{
