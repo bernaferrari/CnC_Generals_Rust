@@ -90,3 +90,9 @@ pub const TEAM_SRC: &str = concat!(
 
 #[cfg(test)]
 mod prototype_owner_order_tests;
+
+#[cfg(test)]
+mod generic_script_callback_tests;
+
+#[cfg(test)]
+mod generic_script_condition_tests;

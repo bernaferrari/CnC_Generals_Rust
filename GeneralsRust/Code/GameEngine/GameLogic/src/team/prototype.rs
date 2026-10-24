@@ -466,7 +466,11 @@ impl TeamPrototype {
         }
     }
 
-    fn take_or_load_generic_script_runtime(&self, index: usize) -> Option<Script> {
+    fn take_or_load_generic_script_runtime(
+        &self,
+        index: usize,
+        script_engine: &crate::scripting::engine::ScriptEngineHandle,
+    ) -> Option<Script> {
         let script_name = self.get_generic_script(index)?.to_string();
         if script_name.is_empty() {
             return None;
@@ -478,7 +482,6 @@ impl TeamPrototype {
         }
 
         if runtime[index].is_none() {
-            let script_engine = get_script_engine();
             let script = script_engine.read().ok().and_then(|engine_guard| {
                 engine_guard
                     .as_ref()
@@ -607,7 +610,4 @@ impl TeamPrototype {
             .unwrap_or_default();
         self.owner_name = owner_name.into();
     }
-
-
 }
-

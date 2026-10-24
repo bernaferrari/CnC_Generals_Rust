@@ -12727,6 +12727,16 @@
             },
             {
               "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/team/generic_script_callback_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/team/generic_script_condition_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/team/ids.rs"
             },
@@ -190042,7 +190052,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "4eb02dc5e17a48eb733eb2a081a3d748fc11aa37b14996090750e7f66d7020e4",
+  "provenance_input_digest": "43d795851306c769a1a5cc7921d95f6bf9ded83e9c402226bb0117c7cb14e19d",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,

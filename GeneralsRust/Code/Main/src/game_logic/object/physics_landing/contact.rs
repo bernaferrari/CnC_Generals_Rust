@@ -21,7 +21,12 @@ impl ContactDamage {
 }
 pub(in crate::game_logic) enum ContactStep<S, T> {
     Complete(T),
-    Damage { request: ContactDamage, next: S },
+    /// Physics invalid-position disposal is not an ActiveBody damage attempt.
+    DirectDelete(T),
+    Damage {
+        request: ContactDamage,
+        next: S,
+    },
 }
 pub(in crate::game_logic) enum StampContact {
     Start(f32),
@@ -88,6 +93,15 @@ impl Object {
                 }),
             ) {
                 ContactStep::Complete(value) => return value,
+                ContactStep::DirectDelete(value) => {
+                    // Detached compatibility has no owning roster to retire.
+                    // The live World driver below performs the synchronous
+                    // receiving delete callbacks and queues physical disposal.
+                    self.status.destroyed = true;
+                    self.set_locomotor_goal_none();
+                    self.movement.path.clear();
+                    return value;
+                }
                 ContactStep::Damage { request, next } => {
                     killed = services.apply_contact(self, &request);
                     state = next;
@@ -428,15 +442,13 @@ impl Object {
                     }
                 }
 
-                // C++ PhysicsUpdate.cpp:665-669 — NaN translation destroyObject.
-                if !new_pos.x.is_finite() || !new_pos.y.is_finite() || !new_pos.z.is_finite() {
-                    {
-                        self.internal_change_health(-self.health.current);
-                    }
-                    self.status.destroyed = true;
-                    self.movement.velocity = glam::Vec3::ZERO;
-                    self.invalidate_velocity_magnitude();
-                    return ContactStep::Complete(false);
+                // C++ PhysicsUpdate.cpp:665-669 calls destroyObject for NaN;
+                // it never changes Body health or invents an onDie callback.
+                // Retain Main's broader pre-existing infinity rejection and
+                // stop before publishing an invalid transform (a Rust safety
+                // policy, not an assertion that C++ tests infinity or returns).
+                if !new_pos.is_finite() {
+                    return ContactStep::DirectDelete(false);
                 }
                 self.set_position_keep_rotation_with_effects(new_pos, frame, effects);
 
@@ -797,6 +809,12 @@ impl crate::game_logic::GameLogic {
             );
             match next {
                 ContactStep::Complete(value) => return Some(value),
+                ContactStep::DirectDelete(value) => {
+                    // The Object loan has ended; direct deletion is terminal,
+                    // so no actor state is resumed after its callbacks.
+                    self.destroy_object_with_effects(id, presentation_effects);
+                    return Some(value);
+                }
                 ContactStep::Damage { request, next } => {
                     let result = if request.kill {
                         self.apply_owned_kill_with_effects(

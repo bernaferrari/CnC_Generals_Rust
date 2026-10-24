@@ -176,17 +176,6 @@ impl MissionScriptHooks {
         })
     }
 
-    /// C++ `ScriptEngine::newMap` fade-in from black (33-frame `FADE_MULTIPLY`).
-    /// Live map load calls this after leftover `reset()` so the overlay starts
-    /// even when the crate engine handle is taken out for `update()`.
-    pub fn start_new_map_fade(&self) {
-        if let Ok(mut engine_guard) = gamelogic::scripting::engine::get_script_engine().write() {
-            if let Some(engine) = engine_guard.as_mut() {
-                engine.new_map();
-            }
-        }
-    }
-
     pub fn push_message(&self, text: String) {
         let mut queue = self
             .notifications

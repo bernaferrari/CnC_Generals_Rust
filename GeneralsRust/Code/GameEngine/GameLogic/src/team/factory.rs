@@ -1284,48 +1284,9 @@ fn execute_pending_team_create_action_scripts(script_names: Vec<String>) {
 fn evaluate_generic_script_conditions(
     script: &mut Script,
     evaluator: &ScriptEvaluator,
-    current_player_name: Option<&str>,
 ) -> Result<bool, String> {
-    if !script.is_active() {
-        return Ok(false);
-    }
-
-    let difficulty = current_player_name
-        .and_then(|player_name| {
-            player_list()
-                .read()
-                .ok()
-                .and_then(|list| list.find_player_by_name(player_name))
-                .and_then(|player| {
-                    player
-                        .read()
-                        .ok()
-                        .map(|player| player.get_player_difficulty())
-                })
-        })
-        .unwrap_or(crate::player::GameDifficulty::Normal);
-
-    match difficulty {
-        crate::player::GameDifficulty::Easy if !script.easy => return Ok(false),
-        crate::player::GameDifficulty::Normal if !script.normal => return Ok(false),
-        crate::player::GameDifficulty::Hard | crate::player::GameDifficulty::Brutal
-            if !script.hard =>
-        {
-            return Ok(false);
-        }
-        _ => {}
-    }
-
-    let current_frame = crate::helpers::TheGameLogic::get_frame();
-    if current_frame < script.frame_to_evaluate_at {
-        return Ok(false);
-    }
-
-    if script.delay_evaluation_seconds > 0 {
-        script.frame_to_evaluate_at = current_frame
-            + (script.delay_evaluation_seconds as u32) * (LOGICFRAMES_PER_SECOND as u32);
-    }
-
+    // CPP Team.cpp2515 calls evaluateConditions directly, not executeScript:
+    // generic slots bypass root active/difficulty/periodic execution gates.
     let Some(or_condition) = script.condition.as_deref_mut() else {
         return Ok(false);
     };
@@ -1339,18 +1300,27 @@ fn execute_pending_team_generic_script_evals(script_evals: Vec<PendingTeamGeneri
     if script_evals.is_empty() {
         return;
     }
+    execute_pending_team_generic_script_evals_with_engine(script_evals, &get_script_engine());
+}
 
-    let script_engine = get_script_engine();
+fn execute_pending_team_generic_script_evals_with_engine(
+    script_evals: Vec<PendingTeamGenericScriptEval>,
+    script_engine: &crate::scripting::engine::ScriptEngineHandle,
+) {
+    if script_evals.is_empty() {
+        return;
+    }
+
     let evaluator = ScriptEvaluator::new(script_engine.clone());
 
     for pending in script_evals {
         let team_id = match pending.team.read() {
-            Ok(team) => team.get_id(),
-            Err(_) => continue,
+            Ok(team) if team.should_attempt_generic_script(pending.script_index) => team.get_id(),
+            Ok(_) | Err(_) => continue,
         };
         let Some(mut script) = pending
             .prototype
-            .take_or_load_generic_script_runtime(pending.script_index)
+            .take_or_load_generic_script_runtime(pending.script_index, script_engine)
         else {
             if let Ok(mut team_guard) = pending.team.write() {
                 team_guard.disable_generic_script_attempt(pending.script_index);
@@ -1372,11 +1342,7 @@ fn execute_pending_team_generic_script_evals(script_evals: Vec<PendingTeamGeneri
             continue;
         };
 
-        let eval_result = evaluate_generic_script_conditions(
-            &mut script,
-            &evaluator,
-            pending.current_player_name.as_deref(),
-        );
+        let eval_result = evaluate_generic_script_conditions(&mut script, &evaluator);
 
         if let Ok(mut engine_guard) = script_engine.write() {
             if let Some(engine) = engine_guard.as_mut() {
@@ -1387,18 +1353,19 @@ fn execute_pending_team_generic_script_evals(script_evals: Vec<PendingTeamGeneri
         match eval_result {
             Ok(condition_true) => {
                 if condition_true {
+                    // CPP Team.cpp:2519 consumes this Team's one-shot before
+                    // the synchronous action can observe or revisit the slot.
+                    if script.is_one_shot() {
+                        if let Ok(mut team_guard) = pending.team.write() {
+                            team_guard.disable_generic_script_attempt(pending.script_index);
+                        }
+                    }
                     if let Some(action) = script.get_action().cloned() {
                         // C++ friend_executeAction(action, this) — team-scoped.
                         if let Ok(mut eng) = script_engine.write() {
                             if let Some(e) = eng.as_mut() {
                                 e.friend_execute_action(&action, Some(team_id));
                             }
-                        }
-                    }
-
-                    if script.is_one_shot() {
-                        if let Ok(mut team_guard) = pending.team.write() {
-                            team_guard.disable_generic_script_attempt(pending.script_index);
                         }
                     }
                 }

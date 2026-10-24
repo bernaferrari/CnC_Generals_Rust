@@ -362,3 +362,155 @@ fn unregistered_tunnel_delete_does_not_consume_a_live_shared_pool() {
     assert!(world.tunnel_network.is_in_network(key, child));
     assert!(!world.host_object(child).unwrap().status.destroyed);
 }
+
+#[test]
+fn invalid_physics_motion_uses_receiving_direct_delete_without_body_death() {
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "invalid_physics_motion_uses_receiving_direct_delete_without_body_death",
+        || {
+            let (mut finite, finite_id) = world_with_owner();
+            finite.host_object_mut(finite_id).unwrap().allow_to_fall = true;
+            finite
+                .host_object_mut(finite_id)
+                .unwrap()
+                .movement
+                .velocity
+                .x = 1.0;
+            finite.integrate_owned_physics_motion_with_effects(&mut Default::default());
+            assert!(!finite.has_pending_object_removals());
+            assert_eq!(finite.host_object(finite_id).unwrap().health.current, 40.0);
+            assert!(!finite.host_object(finite_id).unwrap().status.destroyed);
+            // NaN is the original PhysicsUpdate.cpp665 deletion branch.
+            // Infinity preserves Main's existing broader safety rejection.
+            for (velocity, ordinary_tick) in [
+                (Vec3::new(f32::NAN, 0.0, 0.0), true),
+                (Vec3::new(0.0, f32::NAN, 0.0), true),
+                (Vec3::new(0.0, 0.0, f32::NAN), true),
+                (Vec3::new(f32::INFINITY, 0.0, 0.0), false),
+                (Vec3::new(f32::NEG_INFINITY, 0.0, 0.0), false),
+            ] {
+                let (mut world, id) = world_with_owner();
+                let (peer, peer_id) = world_with_owner();
+                assert_eq!(id, peer_id);
+                let before_particles = world.combat_particles.system_count();
+                let before_pose = world.host_object(id).unwrap().get_position();
+                let object = world.host_object_mut(id).unwrap();
+                object.allow_to_fall = true;
+                object.movement.velocity = velocity;
+                object.indestructible = true;
+                if ordinary_tick {
+                    // Actual ordinary movement producer, including friction and
+                    // acceleration, enters this same contact continuation.
+                    world.integrate_owned_physics_motion_with_effects(&mut Default::default());
+                } else {
+                    // Feed infinity directly to the production contact driver:
+                    // friction can turn infinity*0 into NaN before this branch.
+                    assert_eq!(
+                        world.drive_owned_contact_with_effects(
+                            id,
+                            crate::game_logic::object::MotionContact::Start(0.0),
+                            Object::step_motion_contact_with_effects,
+                            &mut Default::default(),
+                        ),
+                        Some(false)
+                    );
+                }
+                let object = world
+                    .host_object(id)
+                    .expect("queued actor remains resident");
+                assert_eq!(
+                    (object.health.current, object.previous_health),
+                    (40.0, 50.0)
+                );
+                assert!(object.status.destroyed);
+                assert!(!object.status.on_die_started);
+                assert!(!object.status.effectively_dead);
+                assert_eq!(
+                    object.get_position(),
+                    before_pose,
+                    "invalid pose is not published"
+                );
+                assert!(world.health_events.snapshot_damage().is_empty());
+                assert!(world.health_events.snapshot_heal().is_empty());
+                assert_eq!(world.combat_particles.system_count(), before_particles);
+                let pending = world.pending_object_removal_snapshot();
+                assert_eq!(pending.len(), 1);
+                assert_eq!(pending[0].id, id);
+                assert!(
+                    !pending[0].after_death,
+                    "direct deletion carries no death effects"
+                );
+                let other = peer.host_object(peer_id).unwrap();
+                assert_eq!((other.health.current, other.previous_health), (40.0, 50.0));
+                assert!(!other.status.destroyed && !other.status.on_die_started);
+                assert!(!peer.has_pending_object_removals());
+                world.process_destroy_list();
+                world.process_destroy_list();
+                assert!(world.host_object(id).is_none());
+                assert!(world.pending_object_removal_snapshot().is_empty());
+                assert!(peer.host_object(peer_id).is_some());
+            }
+        },
+    );
+}
+
+#[test]
+fn invalid_physics_contact_runs_transport_delete_callbacks_before_physical_retirement() {
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "invalid_physics_contact_runs_transport_delete_callbacks_before_physical_retirement",
+        || {
+            let (mut world, first) = world_with_owner();
+            let mut template = ThingTemplate::new("InvalidContactTransport");
+            template.add_kind_of(KindOf::Vehicle).set_health(100.0);
+            template.contain_module.kind = ContainModuleKind::Transport;
+            template.contain_module.slots = Some(3);
+            world.templates.insert(template.name.clone(), template);
+            let parent = world
+                .create_object("InvalidContactTransport", Team::USA, Vec3::ZERO)
+                .unwrap();
+            let second = world
+                .create_object("DirectDestroyOwnerVehicle", Team::USA, Vec3::ZERO)
+                .unwrap();
+            for child in [second, first] {
+                assert!(world.host_object_mut(parent).unwrap().add_occupant(child));
+                world.set_fixture_object_contained_by(child, Some(parent));
+            }
+            let object = world.host_object_mut(parent).unwrap();
+            object.allow_to_fall = true;
+            object.movement.velocity.x = f32::NAN;
+            world.integrate_owned_physics_motion_with_effects(&mut Default::default());
+            let pending = world.pending_object_removal_snapshot();
+            assert_eq!(
+                pending.iter().map(|entry| entry.id).collect::<Vec<_>>(),
+                [parent, second, first]
+            );
+            assert!(pending.iter().all(|entry| !entry.after_death));
+            assert!(
+                world
+                    .host_object(parent)
+                    .unwrap()
+                    .contained_units()
+                    .is_empty()
+            );
+            for child in [second, first] {
+                let object = world.host_object(child).unwrap();
+                assert!(object.status.destroyed && !object.status.on_die_started);
+                assert!(object.health.current > 0.0);
+                assert_eq!(object.contained_by, None);
+            }
+            assert!(world.health_events.snapshot_damage().is_empty());
+            world.process_destroy_list();
+            assert!(world.host_objects().registered_is_empty());
+            // A new admission after physical retirement is not owned by the
+            // completed old contact operation or its direct-delete request.
+            let replacement = world
+                .create_object("InvalidContactTransport", Team::USA, Vec3::ZERO)
+                .unwrap();
+            world.process_destroy_list();
+            assert!(world.host_object(replacement).is_some());
+            assert!(!world.host_object(replacement).unwrap().status.destroyed);
+        },
+    );
+}
