@@ -276,10 +276,12 @@ impl GameLogic {
                 // Non-mood fire residual: ensure flag stays clear.
                 attacker.turret_mood_target = false;
             }
-            attacker.note_attack_target(
+            attacker.note_attack_target_with_operation(
                 target_id,
                 &mut self.attack_events,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
+                self.frame,
+                &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
             );
             let entered_attack = !matches!(
                 attacker.ai_state,
@@ -659,10 +661,12 @@ impl GameLogic {
             {}
             // Track engagement for UI / subsequent frames without requiring
             // a player AttackObject. Structures stay immobile (no chase).
-            attacker.note_attack_target(
+            attacker.note_attack_target_with_operation(
                 target_id,
                 &mut self.attack_events,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
+                self.frame,
+                &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
             );
             let entered_attack = !matches!(
                 attacker.ai_state,
@@ -1133,10 +1137,12 @@ impl GameLogic {
                 }
                 // AI attack authority: residual fire-intent for GameWorld last-writer.
                 {}
-                asst.note_attack_target(
+                asst.note_attack_target_with_operation(
                     clip.victim_id,
                     &mut self.attack_events,
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
+                    self.frame,
+                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
                 );
                 let entered_attack = !matches!(
                     asst.ai_state,

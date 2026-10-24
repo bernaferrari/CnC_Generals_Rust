@@ -39,11 +39,8 @@ fn setup() -> (GameLogic, ObjectId, ObjectId) {
 fn transfer(world: &mut GameLogic, id: ObjectId, owner: u32) {
     let old = world.objects[&id].team;
     let team = world.players[&owner].team;
-    world.objects.get_mut(&id).unwrap().set_team_and_owner(
-        team,
-        Some(owner),
-        &mut world.ownership_events,
-    );
+    let (object, events, partition) = world.host_object_ownership_partition_mut(id).unwrap();
+    object.set_team_and_owner_with_partition_owner(team, Some(owner), events, partition);
     world.on_capture_object_owned(id, old, team, true);
 }
 fn plan(world: &mut GameLogic, source: Option<ObjectId>, victim: ObjectId) {
@@ -56,11 +53,7 @@ fn plan(world: &mut GameLogic, source: Option<ObjectId>, victim: ObjectId) {
         world.scud_poison_zones.active_zones()[0].source_team,
         Team::USA
     );
-    world
-        .objects
-        .get_mut(&victim)
-        .unwrap()
-        .set_position(Vec3::ZERO);
+    world.set_fixture_object_position(victim, Vec3::ZERO);
 }
 fn tick(world: &mut GameLogic, victim: ObjectId) {
     world.update_scud_poison_zones();
@@ -220,11 +213,7 @@ fn transferring_source_after_lethal_return_cannot_move_admitted_score() {
 fn immediate_comanche_and_scud_blasts_share_source_aware_score_order() {
     for comanche in [false, true] {
         let (mut world, source, victim) = setup();
-        world
-            .objects
-            .get_mut(&victim)
-            .unwrap()
-            .set_position(Vec3::ZERO);
+        world.set_fixture_object_position(victim, Vec3::ZERO);
         transfer(&mut world, source, 1);
         let hit = if comanche {
             world.apply_comanche_rocket_pod_area_at(Vec3::ZERO, Some(source))

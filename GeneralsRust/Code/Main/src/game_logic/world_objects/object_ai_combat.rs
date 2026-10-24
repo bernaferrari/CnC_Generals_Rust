@@ -59,21 +59,26 @@ impl GameLogic {
                                                 )
                                             }))
                                     {
-                                        let prepared = attacker.prepare_autonomous_weapon_shot(
-                                            target_id,
-                                            current_time,
-                                            tgt_inf,
-                                            tgt_faerie,
-                                            self.frame,
-                                            &mut self.combat_system.fire_sound_loop_events,
-                                            &mut self.attack_events,
-                                            self.weapon_definitions
-                                                .as_ref()
-                                                .map(|_| &self.projectile_definitions),
-                                            &mut crate::game_logic::ObjectAudio::queue(
-                                                &mut self.queued_audio_events,
-                                            ),
-                                        );
+                                        let prepared = attacker
+                                            .prepare_autonomous_weapon_shot_with_operation(
+                                                target_id,
+                                                current_time,
+                                                tgt_inf,
+                                                tgt_faerie,
+                                                self.frame,
+                                                &mut self.combat_system.fire_sound_loop_events,
+                                                &mut self.attack_events,
+                                                self.weapon_definitions
+                                                    .as_ref()
+                                                    .map(|_| &self.projectile_definitions),
+                                                &mut crate::game_logic::ObjectAudio::queue(
+                                                    &mut self.queued_audio_events,
+                                                ),
+                                                self.frame,
+                                                &mut effects.reborrow_for_object(
+                                                    &mut self.partition_manager,
+                                                ),
+                                            );
                                         if let Some((slot, shot)) = prepared {
                                             let capture =
                                                 attacker.take_pending_weapon_visual_capture();
@@ -155,11 +160,7 @@ impl GameLogic {
                         {
                             let away = attacker.get_position() - loc;
                             let len = away.length().max(0.01);
-                            let src_r = attacker
-                                .thing()
-                                .template
-                                .geometry_info
-                                .bounding_circle_radius();
+                            let src_r = (*attacker.geometry_info()).bounding_circle_radius();
                             let stand = (min_range + max_range) * 0.5 + src_r;
                             Some(loc + away / len * stand)
                         } else {

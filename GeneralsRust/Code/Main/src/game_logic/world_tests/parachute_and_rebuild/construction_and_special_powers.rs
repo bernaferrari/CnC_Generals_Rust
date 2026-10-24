@@ -2423,8 +2423,13 @@ fn countermeasures_diverts_projectile_direct_hits() {
         )
         .expect("raptor");
     {
-        let o = logic.host_object_mut(air).unwrap();
-        o.set_position(glam::Vec3::new(0.0, 20.0, 0.0));
+        let (o, fixture_partition_o) = logic.host_object_and_partition_mut(air).unwrap();
+        o.set_position_with_partition_owner(
+            glam::Vec3::new(0.0, 20.0, 0.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_o,
+        );
         o.status.airborne_target = true;
         o.apply_upgrade_tag(UPGRADE_AMERICA_COUNTERMEASURES);
         assert!(o.has_upgrade_tag(UPGRADE_AMERICA_COUNTERMEASURES));

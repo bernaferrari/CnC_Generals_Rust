@@ -204,13 +204,19 @@ impl GameLogic {
 
         if let Some(enabled) = get_bool(well_known_keys::key_object_enabled()) {
             if let Some(created) = self.objects.get_mut(&id) {
-                created.set_script_disabled(!enabled);
+                created.set_script_disabled_with_partition_owner(
+                    !enabled,
+                    &mut self.partition_manager,
+                );
             }
         }
 
         if let Some(powered) = get_bool(well_known_keys::key_object_powered()) {
             if let Some(created) = self.objects.get_mut(&id) {
-                created.set_script_underpowered(!powered);
+                created.set_script_underpowered_with_partition_owner(
+                    !powered,
+                    &mut self.partition_manager,
+                );
             }
         }
 
@@ -239,7 +245,10 @@ impl GameLogic {
         if let Some(shroud_range) = get_int(well_known_keys::key_object_shroud_clearing_distance())
         {
             if let Some(created) = self.objects.get_mut(&id) {
-                created.shroud_clearing_range = (shroud_range as f32).max(0.0);
+                created.set_shroud_clearing_range_with_partition_owner(
+                    (shroud_range as f32).max(0.0),
+                    &mut self.partition_manager,
+                );
             }
         }
 
@@ -791,7 +800,7 @@ impl GameLogic {
             let dx = op.x - world_pos.x;
             let dz = op.z - world_pos.z;
             let dist = (dx * dx + dz * dz).sqrt();
-            let geom = &other.thing().template.geometry_info;
+            let geom = &(*other.geometry_info());
             let radius = if geom.authored {
                 // C++ FROM_BOUNDINGSPHERE_2D subtracts bounding-circle
                 // (sqrt(major^2+minor^2) for boxes).
@@ -1367,7 +1376,7 @@ impl GameLogic {
             let angle =
                 (info.to_left.y - info.from_left.y).atan2(info.to_left.x - info.from_left.x);
             if let Some(obj) = self.objects.get_mut(&id) {
-                obj.set_orientation(angle);
+                obj.set_orientation_with_partition_owner(angle, &mut self.partition_manager);
             }
             self.pathfinding_system
                 .grid
@@ -1723,7 +1732,8 @@ impl GameLogic {
                 bridge_angle
             };
             if let Some(tower) = self.objects.get_mut(&tower_id) {
-                tower.set_orientation(tower_angle);
+                tower
+                    .set_orientation_with_partition_owner(tower_angle, &mut self.partition_manager);
                 if bridge_indestructible {
                     tower.set_indestructible(true);
                 }

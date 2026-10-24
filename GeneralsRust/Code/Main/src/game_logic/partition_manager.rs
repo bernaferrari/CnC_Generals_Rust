@@ -4,6 +4,14 @@ use super::partition_coi::{HostPartitionFootprint, cells_touched_for_footprint};
 mod radius_query;
 
 use std::collections::{HashMap, HashSet};
+mod partition_contacts;
+mod partition_containment;
+mod partition_continuation;
+mod partition_dirty;
+mod partition_scalars;
+pub(in crate::game_logic) use partition_contacts::PartitionContact;
+pub(crate) use partition_continuation::PartitionContinuation;
+use partition_dirty::{PartitionDirty, PartitionObject};
 
 /// C++ PartitionManager PartitionCellSize residual (world units).
 pub const PARTITION_CELL_SIZE_RESIDUAL: f32 = 40.0;
@@ -17,31 +25,6 @@ pub struct HostPartitionAffectStamp {
     pub value: u32,
     pub threat: u32,
     pub mask: u32,
-}
-
-impl HostPartitionAffectStamp {
-    pub fn apply(&self, add: bool) {
-        let Some(pm) = gamelogic::helpers::ThePartitionManager::get() else {
-            return;
-        };
-        let center = gamelogic::common::Coord3D::new(self.x, self.z, 0.0);
-        let mask = gamelogic::common::PlayerMaskType::from_bits_truncate(self.mask);
-        if add {
-            if self.value > 0 {
-                pm.do_value_affect(&center, self.range, self.value, mask);
-            }
-            if self.threat > 0 {
-                pm.do_threat_affect(&center, self.range, self.threat, mask);
-            }
-        } else {
-            if self.value > 0 {
-                pm.undo_value_affect(&center, self.range, self.value, mask);
-            }
-            if self.threat > 0 {
-                pm.undo_threat_affect(&center, self.range, self.threat, mask);
-            }
-        }
-    }
 }
 
 /// Last doShroudReveal looker for a live host object (C++ SightingInfo).
@@ -63,7 +46,11 @@ pub struct PartitionManager {
     /// Cell key (cx, cz) → object ids currently registered for collide residual.
     cells: HashMap<(i32, i32), Vec<u32>>,
     /// Object id → every overlapping cell (C++ COI list).
-    object_cells: HashMap<u32, Vec<(i32, i32)>>,
+    object_cells: HashMap<u32, PartitionObject>,
+    dirty: Vec<PartitionDirty>,
+    namespace: std::sync::Arc<()>,
+    /// Same receiving WorldServices grid; this handle adds no scalar storage.
+    scalar_owner: Option<partition_scalars::ScalarOwner>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -80,6 +67,9 @@ impl PartitionManager {
             revealed_players: HashSet::new(),
             cells: HashMap::new(),
             object_cells: HashMap::new(),
+            dirty: Vec::new(),
+            namespace: std::sync::Arc::new(()),
+            scalar_owner: None,
         }
     }
 
@@ -189,18 +179,25 @@ impl PartitionManager {
         z: f32,
         fp: HostPartitionFootprint,
     ) {
-        self.unregister_object(id);
+        self.clear_object_coverage(id);
         let keys = self.footprint_cells(x, z, fp);
         for key in &keys {
             self.cells.entry(*key).or_default().push(id);
         }
-        self.object_cells.insert(id, keys);
+        self.object_cells.entry(id).or_default().cells = keys;
     }
 
     /// C++ unRegisterObject residual.
     pub fn unregister_object(&mut self, id: u32) {
-        if let Some(old) = self.object_cells.remove(&id) {
-            for key in old {
+        self.clear_object_coverage(id);
+        self.object_cells.remove(&id);
+        self.dirty.retain(|dirty| dirty.object_id != id);
+    }
+
+    /// Drop coverage while retaining the original attached module/dirty identity.
+    fn clear_object_coverage(&mut self, id: u32) {
+        if let Some(module) = self.object_cells.get_mut(&id) {
+            for key in std::mem::take(&mut module.cells) {
                 if let Some(list) = self.cells.get_mut(&key) {
                     list.retain(|&i| i != id);
                     if list.is_empty() {
@@ -235,7 +232,7 @@ impl PartitionManager {
             return Vec::new();
         };
         let mut out = Vec::new();
-        for key in keys {
+        for key in &keys.cells {
             if let Some(list) = self.cells.get(key) {
                 out.extend(list.iter().copied());
             }
@@ -272,6 +269,46 @@ impl PartitionManager {
         out
     }
 
+    /// C++ getClosestObjects -> SimpleObjectIterator(ITER_FASTEST).
+    /// Distance and object filters run while the iterator is built, before any
+    /// caller callback. Preserve first-COI dedup even when a filter rejects it.
+    /// Cells own chronological insertion vectors; reverse them for CPP prepend
+    /// order. SimpleObjectIterator::insert prepends again, so reverse the final
+    /// accepted vector. No parallel index, persistent cursor or ambient flags.
+    pub(in crate::game_logic) fn ids_in_radius_iterator_order(
+        &self,
+        x: f32,
+        z: f32,
+        radius: f32,
+        mut accept: impl FnMut(u32) -> bool,
+    ) -> Vec<u32> {
+        let (cx, cz) = self.receiving_cell_coords(x, z);
+        let query = radius_query::RadiusCellQuery::new(
+            [cx, cz],
+            self.grid
+                .map_or(PARTITION_CELL_SIZE_RESIDUAL, |grid| grid.cell_size),
+            self.grid.map(|grid| grid.dimensions),
+            radius,
+        );
+        let mut cells: Vec<_> = self
+            .cells
+            .iter()
+            .filter(|(cell, _)| query.accepts([cell.0, cell.1]))
+            .collect();
+        cells.sort_by_key(|(cell, _)| query.traversal_key([cell.0, cell.1]));
+        let mut seen = HashSet::new();
+        let mut result = Vec::new();
+        for (_, occupants) in cells {
+            for id in occupants.iter().rev().copied() {
+                if seen.insert(id) && accept(id) {
+                    result.push(id);
+                }
+            }
+        }
+        result.reverse();
+        result
+    }
+
     pub fn registered_count(&self) -> usize {
         self.object_cells.len()
     }
@@ -288,6 +325,7 @@ impl PartitionManager {
     pub fn clear_registered_objects(&mut self) {
         self.cells.clear();
         self.object_cells.clear();
+        self.dirty.clear();
     }
 }
 
@@ -356,5 +394,47 @@ mod tests {
         );
         pm.reveal_map_for_player_permanently(&mut shroud, 1);
         assert!(pm.has_revealed_map(1));
+    }
+    #[test]
+    fn cpp_fastest_iterator_preserves_cell_prepend_and_reinsert_order() {
+        let mut partition = PartitionManager::new();
+        partition.register_object_at(90, 10., 10.);
+        partition.register_object_at(2, 10., 10.);
+        partition.register_object_at(70, 10., 10.);
+        assert_eq!(
+            partition.ids_in_radius_iterator_order(10., 10., 0., |_| true),
+            vec![90, 2, 70]
+        );
+        // updateCellsTouched removes every COI and then prepends new coverage,
+        // including when the actor remains in the same cell.
+        partition.register_object_at(2, 11., 11.);
+        assert_eq!(
+            partition.ids_in_radius_iterator_order(10., 10., 0., |_| true),
+            vec![90, 70, 2]
+        );
+        assert_eq!(partition.ids_in_radius(10., 10., 0.), vec![2, 70, 90]);
+    }
+
+    #[test]
+    fn cpp_fastest_iterator_reverses_bucket_then_y_x_and_filters_once() {
+        let mut partition = PartitionManager::new();
+        partition.register_object_at(8, -30., -30.);
+        partition.register_object_at(7, 10., 10.);
+        partition.register_object_at(6, 50., 50.);
+        // All adjacent cells belong to radius bucket zero. Source offsets
+        // visit y then x; SimpleObjectIterator prepend reverses accepted rows.
+        assert_eq!(
+            partition.ids_in_radius_iterator_order(10., 10., 0., |_| true),
+            vec![6, 7, 8]
+        );
+        partition.register_object_footprint(4, 10., 10., 50.);
+        let mut calls = std::collections::HashMap::new();
+        let accepted = partition.ids_in_radius_iterator_order(10., 10., 80., |id| {
+            *calls.entry(id).or_insert(0) += 1;
+            id != 4
+        });
+        assert_eq!(calls[&4], 1);
+        assert!(!accepted.contains(&4));
+        assert_eq!(accepted, vec![6, 7, 8]);
     }
 }

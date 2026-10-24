@@ -222,12 +222,12 @@ fn authored_helipad_leg_threshold_is_inclusive_3d_without_pose_snap() {
             let (mut logic, _, heli) = authored_match();
             let path = logic.heli_takeoff_or_landing[&heli].path;
             let outside = path[0] + Vec3::new(0.0, 3.01, 0.0);
-            logic.objects.get_mut(&heli).unwrap().set_position(outside);
+            logic.set_fixture_object_position(heli, outside);
             logic.step_heli_takeoff_or_landing(heli);
             assert_eq!(logic.heli_takeoff_or_landing[&heli].index, 0);
             assert_eq!(logic.objects[&heli].get_position(), outside);
             let boundary = path[0] + Vec3::new(0.0, 3.0, 0.0);
-            logic.objects.get_mut(&heli).unwrap().set_position(boundary);
+            logic.set_fixture_object_position(heli, boundary);
             logic.step_heli_takeoff_or_landing(heli);
             assert_eq!(logic.heli_takeoff_or_landing[&heli].index, 1);
             assert_eq!(
@@ -238,7 +238,7 @@ fn authored_helipad_leg_threshold_is_inclusive_3d_without_pose_snap() {
             assert!(logic.objects[&heli].contained_by.is_none());
             assert_eq!(logic.objects[&heli].movement.target_position, Some(path[0]));
             let settled = path[1] + Vec3::new(0.0, 3.0, 0.0);
-            logic.objects.get_mut(&heli).unwrap().set_position(settled);
+            logic.set_fixture_object_position(heli, settled);
             logic.step_heli_takeoff_or_landing(heli);
             assert!(!logic.heli_takeoff_or_landing.contains_key(&heli));
             assert_eq!(logic.objects[&heli].ai_state, AIState::Docked);
@@ -309,16 +309,8 @@ fn authored_helipad_callbacks_use_the_driving_same_id_owner() {
             let second_goal = second.heli_takeoff_or_landing[&other].path[0];
             let first_pose = first_goal + Vec3::new(0.0, 3.0, 0.0);
             let second_pose = second_goal + Vec3::new(0.0, 40.0, 0.0);
-            first
-                .objects
-                .get_mut(&heli)
-                .unwrap()
-                .set_position(first_pose);
-            second
-                .objects
-                .get_mut(&other)
-                .unwrap()
-                .set_position(second_pose);
+            first.set_fixture_object_position(heli, first_pose);
+            second.set_fixture_object_position(other, second_pose);
             first.step_heli_takeoff_or_landing(heli);
             assert_eq!(first.heli_takeoff_or_landing[&heli].index, 1);
             assert_eq!(second.heli_takeoff_or_landing[&other].index, 0);

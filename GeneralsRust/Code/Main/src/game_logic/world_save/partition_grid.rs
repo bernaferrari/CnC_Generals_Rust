@@ -5,6 +5,8 @@ impl GameLogic {
     /// The existing private GameData policy captures startup and ordered map
     /// overrides. PM alone clamps it; the camera retains the raw source rule.
     pub(crate) fn initialize_receiving_partition_grid(&mut self) -> Result<(), String> {
+        self.objects
+            .retire_owned_scalar_stamps(&mut self.partition_manager);
         let cell_size = self
             .session_view
             .camera
@@ -31,6 +33,8 @@ impl GameLogic {
         snapshot: &gamelogic::system::shroud_manager::ShroudSnapshot,
         frame: u32,
     ) -> Result<(), String> {
+        self.objects
+            .retire_owned_scalar_stamps(&mut self.partition_manager);
         let mut shroud = self
             .world_services
             .shroud()

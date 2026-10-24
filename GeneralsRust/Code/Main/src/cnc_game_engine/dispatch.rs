@@ -148,28 +148,6 @@ impl CnCGameEngine {
         resolved
     }
 
-    pub(super) fn take_startup_messages_from_stream(
-        owner_gen: u64,
-    ) -> Result<Vec<game_engine::common::message_stream::GameMessage>, String> {
-        if !startup_worker_owns(owner_gen) {
-            return Err("startup worker abandoned; host owns session (skip stream clear)".into());
-        }
-        let stream = game_engine::common::message_stream::get_message_stream();
-        let mut stream_guard = stream
-            .write()
-            .map_err(|_| "failed to acquire startup message stream lock".to_string())?;
-        if !startup_worker_owns(owner_gen) {
-            return Err("startup worker abandoned; host owns session (skip stream clear)".into());
-        }
-        let messages = stream_guard
-            .get_messages()
-            .iter()
-            .cloned()
-            .collect::<Vec<_>>();
-        stream_guard.clear_messages();
-        Ok(messages)
-    }
-
     pub(super) fn admit_startup_simulation_inputs(
         world: &mut crate::game_logic::GameLogic,
         dispatch: Option<StartupNewGameDispatch>,

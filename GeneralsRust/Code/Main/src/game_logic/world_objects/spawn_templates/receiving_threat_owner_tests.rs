@@ -145,10 +145,7 @@ fn receiving_threat_map_solo_zero_reset_and_encoded_continuation_use_effective_v
                 37,
                 "nonzero receiving threat must be reconstructed at actual encoded restore"
             );
-            nonzero_restored
-                .host_object_mut(nonzero)
-                .unwrap()
-                .handle_partition_cell_maintenance();
+            nonzero_restored.maintain_owned_partition_scalars(nonzero);
             assert_partition_stamp(&nonzero_restored, nonzero, 37);
             spawn(&mut nonzero_restored, 37);
             reset_receiving(&mut world);
@@ -178,10 +175,7 @@ fn receiving_threat_map_solo_zero_reset_and_encoded_continuation_use_effective_v
                 0,
                 "encoded restore binds the actual receiving effective template"
             );
-            restored
-                .host_object_mut(zero)
-                .unwrap()
-                .handle_partition_cell_maintenance();
+            restored.maintain_owned_partition_scalars(zero);
             assert_partition_stamp(&restored, zero, 0);
             spawn(&mut restored, 0);
             reset_receiving(&mut world);
@@ -191,6 +185,329 @@ fn receiving_threat_map_solo_zero_reset_and_encoded_continuation_use_effective_v
                 0
             );
             assert_eq!(peer.templates[NAME].get_threat_value(), 91);
+        },
+    );
+}
+
+fn receiving_scalar_grid(threat: u16) -> GameLogic {
+    let mut world = receiving(threat);
+    let services = std::sync::Arc::clone(&world.world_services);
+    let mut shroud = services.shroud().lock().unwrap();
+    shroud
+        .init_shroud_grid_at_origin_with_cell_size([0., 0.], 400., 400., 40.)
+        .unwrap();
+    world.partition_manager.configure_grid_from_shroud(&shroud);
+    drop(shroud);
+    world
+}
+fn threat_cell(world: &GameLogic, x: f32) -> u32 {
+    world
+        .world_services
+        .shroud()
+        .lock()
+        .unwrap()
+        .host_scalar_value_at(
+            &gamelogic::common::Coord3D::new(x, 0., 0.),
+            0,
+            gamelogic::object::collide::partition_manager::ValueOrThreat::ThreatValue,
+        )
+        .unwrap()
+}
+
+#[test]
+fn actual_scalar_factory_dirty_phase_same_id_peer_and_drop_use_receiving_grid() {
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "actual_scalar_factory_dirty_phase_same_id_peer_and_drop_use_receiving_grid",
+        || {
+            let mut world = receiving_scalar_grid(17);
+            let id = spawn(&mut world, 17);
+            assert_eq!(
+                threat_cell(&world, 0.),
+                0,
+                "factory projection does not apply cells before original dirty phase"
+            );
+            world.update_owned_partition_with_effects(&mut Default::default());
+            let mut peer = receiving_scalar_grid(91);
+            assert_eq!(spawn(&mut peer, 91), id);
+            peer.update_owned_partition_with_effects(&mut Default::default());
+            assert_eq!(threat_cell(&world, 0.), 17);
+            assert_eq!(threat_cell(&peer, 0.), 91);
+            world.set_fixture_object_position(id, Vec3::new(160., 0., 0.));
+            assert_eq!(
+                threat_cell(&world, 0.),
+                17,
+                "pose setter does not run original partition maintenance early"
+            );
+            assert_eq!(threat_cell(&world, 160.), 0);
+            world.update_owned_partition_with_effects(&mut Default::default());
+            assert_eq!(threat_cell(&world, 0.), 0);
+            assert_eq!(threat_cell(&world, 160.), 17);
+            assert_eq!(threat_cell(&peer, 0.), 91);
+            // DESTROYED is queued retirement, not the original effectivelyDead guard.
+            world.host_object_mut(id).unwrap().status.destroyed = true;
+            world.maintain_owned_partition_scalars(id);
+            assert_eq!(threat_cell(&world, 160.), 17);
+            world.host_object_mut(id).unwrap().status.effectively_dead = true;
+            world.maintain_owned_partition_scalars(id);
+            assert_eq!(threat_cell(&world, 160.), 0);
+            let held = std::sync::Arc::clone(peer.world_services.shroud());
+            drop(peer);
+            assert_eq!(
+                held.lock().unwrap().host_scalar_value_at(
+                    &gamelogic::common::Coord3D::new(0., 0., 0.),
+                    0,
+                    gamelogic::object::collide::partition_manager::ValueOrThreat::ThreatValue
+                ),
+                Some(0),
+                "dropping a world removes its exact stamps even when a service observer outlives it"
+            );
+        },
+    );
+}
+
+#[test]
+fn actual_bincode_pending_scalar_cell_observation_continues_without_early_restamp() {
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "actual_bincode_pending_scalar_cell_observation_continues_without_early_restamp",
+        || {
+            let mut world = receiving_scalar_grid(17);
+            let id = spawn(&mut world, 17);
+            world.update_owned_partition_with_effects(&mut Default::default());
+            world.set_fixture_object_position(id, Vec3::new(160., 0., 0.));
+            let builder = crate::save_load::SnapshotBuilder::new();
+            let bytes =
+                bincode_legacy::serialize(&builder.create_world_snapshot(&world).unwrap()).unwrap();
+            let decoded =
+                crate::save_load::snapshot::decode_bincode_world_snapshot(&bytes).unwrap();
+            let mut loaded = receiving_scalar_grid(17);
+            builder
+                .restore_from_snapshot(&decoded, &mut loaded)
+                .unwrap();
+            assert_eq!(
+                threat_cell(&loaded, 0.),
+                17,
+                "saved previous observation owns stale scalar stamp"
+            );
+            assert_eq!(threat_cell(&loaded, 160.), 0);
+            loaded.update_owned_partition_with_effects(&mut Default::default());
+            world.update_owned_partition_with_effects(&mut Default::default());
+            for x in [0., 40., 120., 160., 200.] {
+                assert_eq!(threat_cell(&loaded, x), threat_cell(&world, x));
+            }
+            reset_receiving(&mut loaded);
+            assert_eq!(
+                threat_cell(&world, 160.),
+                17,
+                "peer reset cannot clear source scalar owner"
+            );
+        },
+    );
+}
+
+#[test]
+fn receiving_scalar_and_pose_operations_reject_naked_mutators_before_any_change() {
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "receiving_scalar_and_pose_operations_reject_naked_mutators_before_any_change",
+        || {
+            let mut world = receiving_scalar_grid(17);
+            let id = spawn(&mut world, 17);
+            world.update_owned_partition_with_effects(&mut Default::default());
+            let before = world.host_object(id).unwrap().get_position();
+            assert!(
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    world
+                        .host_object_mut(id)
+                        .unwrap()
+                        .set_position(Vec3::X * 160.);
+                }))
+                .is_err()
+            );
+            assert_eq!(world.host_object(id).unwrap().get_position(), before);
+            assert!(
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    world.objects.get_mut(&id).unwrap().set_team_and_owner(
+                        Team::China,
+                        Some(3),
+                        &mut world.ownership_events,
+                    );
+                }))
+                .is_err()
+            );
+            assert_eq!(world.host_object(id).unwrap().owner_player_id, Some(0));
+            assert!(
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    world.host_object_mut(id).unwrap().set_script_disabled(true);
+                }))
+                .is_err()
+            );
+            assert!(!world.host_object(id).unwrap().is_script_disabled());
+            assert!(
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    world
+                        .host_object_mut(id)
+                        .unwrap()
+                        .handle_partition_cell_maintenance();
+                }))
+                .is_err()
+            );
+            assert_eq!(threat_cell(&world, 0.), 17);
+        },
+    );
+}
+
+#[test]
+fn actual_nearest_enemy_scalar_query_observes_factory_phase_and_saved_stale_cells() {
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "actual_nearest_enemy_scalar_query_observes_factory_phase_and_saved_stale_cells",
+        || {
+            let mut world = receiving_scalar_grid(17);
+            world.add_player(crate::game_logic::Player::new(
+                1,
+                Team::China,
+                "Enemy",
+                false,
+            ));
+            world
+                .apply_receiving_module_overrides(&[format!(
+                    "Object {NAME}\nBuildCost = 200\nEnd\n"
+                )])
+                .unwrap();
+            let id = world
+                .create_object(NAME, Team::China, Vec3::new(160., 0., 160.))
+                .unwrap();
+            assert_eq!(world.host_object(id).unwrap().owner_player_id, Some(1));
+            assert_eq!(
+                world.fixture_nearest_enemy_scalar_group(0, Vec3::ZERO, 100),
+                None,
+                "actual script reader cannot infer current-pose value before original owner phase"
+            );
+            world.update_owned_partition_with_effects(&mut Default::default());
+            let old = world
+                .fixture_nearest_enemy_scalar_group(0, Vec3::ZERO, 100)
+                .expect("actual receiving scalar group");
+            world.set_fixture_object_position(id, Vec3::new(320., 0., 320.));
+            assert_eq!(
+                world.fixture_nearest_enemy_scalar_group(0, Vec3::ZERO, 100),
+                Some(old)
+            );
+            let builder = crate::save_load::SnapshotBuilder::new();
+            let bytes =
+                bincode_legacy::serialize(&builder.create_world_snapshot(&world).unwrap()).unwrap();
+            let decoded =
+                crate::save_load::snapshot::decode_bincode_world_snapshot(&bytes).unwrap();
+            let mut loaded = receiving_scalar_grid(17);
+            loaded.add_player(crate::game_logic::Player::new(
+                1,
+                Team::China,
+                "Enemy",
+                false,
+            ));
+            loaded
+                .apply_receiving_module_overrides(&[format!(
+                    "Object {NAME}\nBuildCost = 200\nEnd\n"
+                )])
+                .unwrap();
+            builder
+                .restore_from_snapshot(&decoded, &mut loaded)
+                .unwrap();
+            assert_eq!(
+                loaded.host_object(id).unwrap().partition_cash_value,
+                200,
+                "the first restored maintenance must use the receiving template's live cash payload"
+            );
+            assert_eq!(
+                loaded.fixture_nearest_enemy_scalar_group(0, Vec3::ZERO, 100),
+                Some(old)
+            );
+            world.update_owned_partition_with_effects(&mut Default::default());
+            loaded.update_owned_partition_with_effects(&mut Default::default());
+            let new = world
+                .fixture_nearest_enemy_scalar_group(0, Vec3::ZERO, 100)
+                .expect("moved receiving group");
+            assert_ne!(old, new);
+            assert_eq!(
+                loaded.fixture_nearest_enemy_scalar_group(0, Vec3::ZERO, 100),
+                Some(new)
+            );
+        },
+    );
+}
+
+#[test]
+fn actual_direct_delete_retains_original_scalar_residual_but_lethal_body_clears_it() {
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "actual_direct_delete_retains_original_scalar_residual_but_lethal_body_clears_it",
+        || {
+            let mut direct = receiving_scalar_grid(17);
+            let id = spawn(&mut direct, 17);
+            direct.update_owned_partition_with_effects(&mut Default::default());
+            let mut lethal = receiving_scalar_grid(17);
+            assert_eq!(spawn(&mut lethal, 17), id);
+            lethal.update_owned_partition_with_effects(&mut Default::default());
+            direct.destroy_object(id);
+            assert!(!direct.host_object(id).unwrap().status.effectively_dead);
+            assert_eq!(
+                threat_cell(&direct, 0.),
+                17,
+                "onDelete maintenance does not invent effectivelyDead"
+            );
+            direct
+                .process_destroy_list_with_effects_checked(&mut Default::default())
+                .unwrap();
+            assert!(direct.host_object(id).is_none());
+            assert_eq!(
+                threat_cell(&direct, 0.),
+                17,
+                "literal C++ SightingInfo destruction has no scalar undo"
+            );
+            lethal
+                .apply_owned_damage(
+                    id,
+                    1000.,
+                    None,
+                    crate::game_logic::combat::DamageType::Unresistable,
+                    crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+                    None,
+                    &crate::game_logic::object::DamageHitContext::default(),
+                )
+                .unwrap();
+            assert_eq!(
+                threat_cell(&lethal, 0.),
+                0,
+                "ordinary lethal Body performs original effectivelyDead maintenance"
+            );
+            let builder = crate::save_load::SnapshotBuilder::new();
+            let bytes = bincode_legacy::serialize(&builder.create_world_snapshot(&direct).unwrap())
+                .unwrap();
+            let decoded =
+                crate::save_load::snapshot::decode_bincode_world_snapshot(&bytes).unwrap();
+            let mut loaded = receiving_scalar_grid(17);
+            builder
+                .restore_from_snapshot(&decoded, &mut loaded)
+                .unwrap();
+            assert!(loaded.host_object(id).is_none());
+            assert_eq!(
+                threat_cell(&loaded, 0.),
+                17,
+                "native grid snapshot preserves residual without a surviving actor receipt"
+            );
+            let held = std::sync::Arc::clone(loaded.world_services.shroud());
+            drop(loaded);
+            assert_eq!(
+                held.lock().unwrap().host_scalar_value_at(
+                    &gamelogic::common::Coord3D::new(0., 0., 0.),
+                    0,
+                    gamelogic::object::collide::partition_manager::ValueOrThreat::ThreatValue
+                ),
+                Some(0),
+                "logical world teardown clears all owned scalar cells, including retired residuals"
+            );
+            assert_eq!(threat_cell(&direct, 0.), 17);
         },
     );
 }

@@ -688,9 +688,7 @@ fn forced_post_restore_failure_restores_globals_and_tls_effect_queues() {
                         "restored same-ID Object has a distinct receiving lifetime"
                     );
                     staged
-                        .host_object_mut(candidate)
-                        .unwrap()
-                        .set_position(glam::Vec3::new(91.0, 92.0, 93.0));
+                        .set_fixture_object_position(candidate, glam::Vec3::new(91.0, 92.0, 93.0));
                     assert_eq!(
                         staged.host_object(candidate).unwrap().get_position(),
                         glam::Vec3::new(91.0, 92.0, 93.0)

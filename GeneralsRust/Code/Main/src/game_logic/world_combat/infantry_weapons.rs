@@ -320,7 +320,11 @@ impl GameLogic {
             if let Some(wy) = fu.snap_height_y(water_y) {
                 let mut p = obj.get_position();
                 p.y = wy;
-                obj.set_position_with_effects(p, self.frame, presentation_effects);
+                obj.set_position_with_effects(
+                    p,
+                    self.frame,
+                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                );
                 self.float_update_reg.record_snap();
             }
         }
@@ -357,6 +361,34 @@ impl GameLogic {
         } else {
             false
         }
+    }
+
+    /// The driving native command/update validates this recipient before any
+    /// callbacks. Allocation itself may fail without interrupting gameplay.
+    pub(crate) fn create_delivery_radius_decal_with_effects(
+        &mut self,
+        host_id: ObjectId,
+        target_pos: Vec3,
+        radius: f32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
+        let frame = self.frame;
+        let owner = self
+            .objects
+            .get(&host_id)
+            .and_then(|object| object.owner_player_id);
+        let players = self.radius_decal_player_view(owner);
+        let Some(obj) = self.objects.get_mut(&host_id) else {
+            return false;
+        };
+        let ok = obj.create_delivery_radius_decal_with_player_view_and_effects(
+            target_pos, frame, radius, players, effects,
+        );
+        if ok {
+            self.radius_decal_update_reg.record_create();
+            obj.status.attacking = true;
+        }
+        ok
     }
 
     /// C++ RadiusDecalUpdate::update residual.
@@ -497,11 +529,15 @@ impl GameLogic {
                 g.owner_player_id = Some(owner);
             }
             g.template_mut().add_kind_of(KindOf::Selectable);
-            g.set_orientation(plan.orientation);
+            g.set_orientation_with_partition_owner(plan.orientation, &mut self.partition_manager);
             // Preferred altitude residual.
             let mut p = g.get_position();
             p.y = plan.spawn_pos.y;
-            g.set_position_with_effects(p, self.frame, presentation_effects);
+            g.set_position_with_effects(
+                p,
+                self.frame,
+                &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+            );
             // C++ SpectreGunshipUpdate::initiateIntent: INSERTING, doors CLOSING,
             // afterburners on, panic loco, overridable reticle dest.
             g.set_special_power_overridable_destination(
@@ -526,11 +562,12 @@ impl GameLogic {
                 flight.targeting_reticle_radius = existing.targeting_reticle_radius;
                 flight.preferred_elevation = existing.preferred_elevation;
             }
-            flight.initiate_with_player_view(
+            flight.initiate_with_player_view_and_effects(
                 target_pos,
                 self.frame,
                 gunship_owner.map(|id| id as i32),
                 gunship_players,
+                presentation_effects,
             );
             // C++ GUNSHIP_STATUS_ORBITING transition:
             // m_orbitEscapeFrame = frame + m_orbitFrames where m_orbitFrames
@@ -628,18 +665,26 @@ impl GameLogic {
                 continue;
             };
             let was_ab = data.afterburners_on;
-            let tick = data.tick_with_player_view(
+            let tick = data.tick_with_player_view_and_effects(
                 pos,
                 facing,
                 frame,
                 draw_icon_ui,
                 owner.map(|id| id as i32),
                 players,
+                presentation_effects,
             );
-            o.set_position_with_effects(tick.pos, self.frame, presentation_effects);
+            o.set_position_with_effects(
+                tick.pos,
+                self.frame,
+                &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+            );
             o.movement.velocity = tick.vel;
             if tick.vel.length_squared() > 1.0e-6 {
-                o.set_orientation(tick.vel.z.atan2(tick.vel.x));
+                o.set_orientation_with_partition_owner(
+                    tick.vel.z.atan2(tick.vel.x),
+                    &mut self.partition_manager,
+                );
             }
             apply_spectre_door_and_afterburner(o, tick.door_opening, tick.afterburners_on);
             apply_choose_locomotor_set(
@@ -750,7 +795,10 @@ impl GameLogic {
                 o.movement.velocity = vel;
                 // spin residual into orientation rate if field exists — use orientation nudge
                 let spin = spin_rate_rad_per_frame(plan.spin_rate_deg);
-                o.set_orientation(o.get_orientation() + spin * (i as f32 + 1.0));
+                o.set_orientation_with_partition_owner(
+                    o.get_orientation() + spin * (i as f32 + 1.0),
+                    &mut self.partition_manager,
+                );
                 o.set_extra_friction(plan.extra_friction);
                 // C++ ObjectCreationList.cpp:1121-1123 flying/up/random debris.
                 if crate::game_logic::host_ocl_create_debris::disposition_enables_bounce(
@@ -828,23 +876,28 @@ impl GameLogic {
         if let Some(o) = self.objects.get_mut(&id) {
             o.note_producer(source_id);
             let yaw = (secondary.z - primary.z).atan2(secondary.x - primary.x);
-            o.set_orientation(yaw);
+            o.set_orientation_with_partition_owner(yaw, &mut self.partition_manager);
             // C++ NeutronMissileUpdate loft residual (preferred over flat smart-bomb).
             o.ensure_neutron_missile_update(secondary, Some(source_id), self.frame);
             if o.neutron_missile_update.is_some() {
                 self.neutron_missile_update_reg.record_launch();
                 // C++ NeutronMissileUpdate DeliveryDecal residual on launcher/missile.
-                let _ = o.create_delivery_radius_decal_with_player_view(
+                let _ = o.create_delivery_radius_decal_with_player_view_and_effects(
                     secondary,
                     self.frame,
                     0.0,
                     decal_players,
+                    presentation_effects,
                 );
             } else {
                 // Non-neutron projectiles: smart-bomb course residual.
                 let mut p = o.get_position();
                 p.y = p.y.max(80.0);
-                o.set_position_with_effects(p, self.frame, presentation_effects);
+                o.set_position_with_effects(
+                    p,
+                    self.frame,
+                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                );
                 let _ = o.set_smart_bomb_target(secondary);
                 let dx = secondary.x - primary.x;
                 let dz = secondary.z - primary.z;
@@ -860,7 +913,12 @@ impl GameLogic {
             .and_then(|o| o.neutron_missile_update.as_ref())
             .is_some()
         {
-            let _ = self.create_delivery_radius_decal(source_id, secondary);
+            let _ = self.create_delivery_radius_decal_with_effects(
+                source_id,
+                secondary,
+                0.0,
+                presentation_effects,
+            );
         }
         Some(id)
     }
@@ -940,10 +998,13 @@ impl GameLogic {
             return false;
         }
         if let Some(o) = self.objects.get_mut(&source_id) {
-            o.set_target(
+            o.set_target_with_operation(
                 Some(target_id),
                 &mut self.attack_events,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
+                self.frame,
+                &mut crate::game_logic::ScriptPresentationEffects::default()
+                    .reborrow_for_object(&mut self.partition_manager),
             );
             let shots = o
                 .fire_weapon_power
@@ -962,6 +1023,16 @@ impl GameLogic {
         ocl_name: &str,
         source_id: ObjectId,
         target: Vec3,
+    ) -> bool {
+        self.execute_ocl_attack_with_effects(ocl_name, source_id, target, &mut Default::default())
+    }
+
+    pub(crate) fn execute_ocl_attack_with_effects(
+        &mut self,
+        ocl_name: &str,
+        source_id: ObjectId,
+        target: Vec3,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> bool {
         use crate::game_logic::host_ocl_fire_weapon_attack::attack_plan_for_ocl;
 
@@ -985,7 +1056,12 @@ impl GameLogic {
         }
         // C++ RadiusDecalUpdate delivery decal residual.
         if plan.delivery_decal_radius > 0.0 {
-            let _ = self.create_delivery_radius_decal(source_id, target);
+            let _ = self.create_delivery_radius_decal_with_effects(
+                source_id,
+                target,
+                0.0,
+                presentation_effects,
+            );
             self.ocl_fire_weapon_attack_reg.record_decal();
         }
         // C++ ScudStorm ClipSize-9 ScudStormMissile ballistic spawns (scatter table).
@@ -1237,11 +1313,15 @@ impl GameLogic {
             t.bind_special_power_completion_creator(caster_id.0);
             let p = t.get_position();
             let yaw = (plan.target_coord.z - p.z).atan2(plan.target_coord.x - p.x);
-            t.set_orientation(yaw);
+            t.set_orientation_with_partition_owner(yaw, &mut self.partition_manager);
             if deliver.start_at_preferred_height {
                 let mut pos = p;
                 pos.y = pos.y.max(120.0);
-                t.set_position_with_effects(pos, self.frame, presentation_effects);
+                t.set_position_with_effects(
+                    pos,
+                    self.frame,
+                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                );
             }
         }
 
@@ -1318,9 +1398,13 @@ impl GameLogic {
                     plan.target_coord,
                 );
             if let Some(t) = self.objects.get_mut(&transport_id) {
-                t.set_position_with_effects(edge, self.frame, presentation_effects);
+                t.set_position_with_effects(
+                    edge,
+                    self.frame,
+                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                );
                 let yaw = flight.dir_z.atan2(flight.dir_x);
-                t.set_orientation(yaw);
+                t.set_orientation_with_partition_owner(yaw, &mut self.partition_manager);
             }
         }
         Some(transport_id)
@@ -1700,7 +1784,11 @@ impl GameLogic {
             if let Some(np) = h.tick(pos, hat.max(0.0)) {
                 // Only apply when clearly above threshold (tick already gates).
                 if hat >= SMART_BOMB_SIGNIFICANTLY_ABOVE_TERRAIN {
-                    obj.set_position_with_effects(np, self.frame, presentation_effects);
+                    obj.set_position_with_effects(
+                        np,
+                        self.frame,
+                        &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                    );
                     self.smart_bomb_target_homing_reg.record_steer();
                 }
             }
@@ -2385,7 +2473,11 @@ impl GameLogic {
 
         for (id, np) in position_updates {
             if let Some(o) = self.objects.get_mut(&id) {
-                o.set_position_with_effects(np, self.frame, presentation_effects);
+                o.set_position_with_effects(
+                    np,
+                    self.frame,
+                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                );
             }
         }
 
@@ -2756,10 +2848,17 @@ impl GameLogic {
             let pos = nuke_shell_bezier_point(from, aim, t);
             if let Some(o) = self.objects.get_mut(&id) {
                 let prev = o.get_position();
-                o.set_position_with_effects(pos, self.frame, presentation_effects);
+                o.set_position_with_effects(
+                    pos,
+                    self.frame,
+                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                );
                 let d = pos - prev;
                 if d.length_squared() > 1.0e-6 {
-                    o.set_orientation(d.z.atan2(d.x));
+                    o.set_orientation_with_partition_owner(
+                        d.z.atan2(d.x),
+                        &mut self.partition_manager,
+                    );
                 }
             }
             if elapsed >= frames {
@@ -2777,7 +2876,11 @@ impl GameLogic {
                 o.status.destroyed = true;
                 o.status.effectively_dead = true;
                 o.nuke_cannon_shell_projectile = false;
-                o.set_position_with_effects(pos, self.frame, presentation_effects);
+                o.set_position_with_effects(
+                    pos,
+                    self.frame,
+                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                );
             }
             let _ = self.apply_nuke_cannon_primary_at_with_effects(
                 pos,

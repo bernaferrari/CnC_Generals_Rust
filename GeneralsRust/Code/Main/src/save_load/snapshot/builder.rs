@@ -75,6 +75,7 @@ impl SnapshotBuilder {
             team: object.team,
             player_id,
             geometry: GeometryInfo {
+                shape: object.thing().geometry.shape,
                 position: object.get_position(),
                 rotation: object.thing().geometry.rotation,
                 bounds_min: object.thing().geometry.bounds_min,

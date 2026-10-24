@@ -115,10 +115,7 @@ End
                 .add_occupant(rider)
         );
     }
-    owner
-        .host_object_mut(rider)
-        .unwrap()
-        .set_contained_by(Some(container));
+    owner.set_fixture_object_contained_by(rider, Some(container));
     (owner, container, rider)
 }
 fn kill(owner: &mut GameLogic, id: ObjectId) {
@@ -275,10 +272,7 @@ fn instant_death_effect_follows_all_installed_rider_damage_callbacks() {
             .unwrap()
             .add_occupant(second)
     );
-    owner
-        .host_object_mut(second)
-        .unwrap()
-        .set_contained_by(Some(container));
+    owner.set_fixture_object_contained_by(second, Some(container));
     kill(&mut owner, container);
     let container_witness = owner
         .host_objects()

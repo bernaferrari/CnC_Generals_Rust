@@ -895,3 +895,54 @@ impl GameClient {
             })
     }
 }
+
+impl NativeDrawableOwner<'_> {
+    pub fn collect_projected_decal_items(
+        &self,
+        use_shadow_decals: bool,
+    ) -> Vec<crate::effects::decals::DecalRenderItem> {
+        self.drawables
+            .projected_decals
+            .manager
+            .collect_render_items_with_policy(use_shadow_decals)
+    }
+
+    /// RadiusDecal is a client resource and does not require an Object→Drawable
+    /// association (constructor and objectless use are both original cases).
+    pub fn allocate_projected_radius(
+        &mut self,
+        texture: &str,
+        radius: f32,
+        position: [f32; 3],
+        color: u32,
+        opacity: f32,
+    ) -> Option<crate::radius_decal::ShadowHandle> {
+        crate::radius_decal::enqueue_delivery_decal_argb_with_owner(
+            &mut self.drawables.projected_decals.manager,
+            texture,
+            radius,
+            position[0],
+            position[1],
+            position[2],
+            color,
+            opacity,
+        )
+    }
+}
+
+impl GameClient {
+    /// Immutable render input from this actual client's live projected owner.
+    /// Current native production allocates Radius addDecal resources here;
+    /// model-shadow callbacks remain a separately held migration.
+    pub fn collect_native_radius_render_items(
+        &mut self,
+    ) -> Vec<crate::effects::decals::DecalRenderItem> {
+        // Completed logic released only its own handles. Compact this manager
+        // before freezing frame output; no legacy manager is involved.
+        self.drawables.projected_decals.manager.cleanup();
+        self.drawables
+            .projected_decals
+            .manager
+            .collect_render_items_with_policy(false)
+    }
+}

@@ -402,7 +402,7 @@ impl GameLogic {
         self.cancel_dock_reservation(id);
         if let Some(object) = self.objects.get_mut(&id) {
             object.fire_weapon_when_dead_fired = true;
-            object.unstamp_partition_value_threat();
+            object.unstamp_partition_value_threat_with_partition_owner(&mut self.partition_manager);
             if let Some(bone_fx) = object.bone_fx_damage.as_mut() {
                 bone_fx.stop_all_bone_fx();
             }

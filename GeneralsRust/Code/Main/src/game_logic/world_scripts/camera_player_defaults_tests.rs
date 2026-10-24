@@ -142,6 +142,7 @@ fn short_mmb_defaults_keep_first_setter_motion_then_cancel_second_and_sample_pos
             position: Vec3::new(480., 70., 300.),
         };
         let mut effects = ScriptPresentationEffects {
+            partition: None,
             audio: None,
             terrain: None,
             ui: None,
@@ -228,6 +229,7 @@ fn short_mmb_defaults_keep_first_setter_motion_then_cancel_second_and_sample_pos
         };
         combined
             .admit_short_mmb_defaults(&mut ScriptPresentationEffects {
+                partition: None,
                 audio: None,
                 terrain: None,
                 ui: None,
@@ -273,6 +275,7 @@ fn reset_and_mmb_default_share_minimum_hag_floor_without_mutating_peer() {
     };
     world
         .admit_short_mmb_defaults(&mut ScriptPresentationEffects {
+            partition: None,
             audio: None,
             terrain: None,
             ui: None,

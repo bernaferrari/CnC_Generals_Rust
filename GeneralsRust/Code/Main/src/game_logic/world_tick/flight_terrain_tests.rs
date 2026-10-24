@@ -225,8 +225,16 @@ fn live_z_resolves_post_motion_position_and_retains_current_layer_unclipped() {
                 terrain: world.terrain.as_ref(),
                 samples: world.pathfinding_height_samples.as_ref(),
             };
-            let object = world.objects.get_mut(&id).unwrap();
-            object.set_position(Vec3::new(5.0, 80.0, 5.0));
+            let (object, fixture_partition_object) = (
+                world.objects.get_mut(&id).unwrap(),
+                &mut world.partition_manager,
+            );
+            object.set_position_with_partition_owner(
+                Vec3::new(5.0, 80.0, 5.0),
+                0,
+                &mut Default::default(),
+                fixture_partition_object,
+            );
             let before = view.highest_surface(object);
             assert_eq!(before, 21.0);
             // Actual Wings appearance movement precedes the exact live Z routine.
@@ -236,7 +244,14 @@ fn live_z_resolves_post_motion_position_and_retains_current_layer_unclipped() {
             object.movement.turn_rate = 0.0;
             object.status.airborne_target = true;
             object.apply_motive_force(Vec3::ZERO);
-            object.loco_maintain_appearance(1.0);
+            object.loco_maintain_appearance_with_effects(
+                1.0,
+                0,
+                &mut crate::game_logic::ScriptPresentationEffects {
+                    partition: Some(&mut *fixture_partition_object),
+                    ..Default::default()
+                },
+            );
             let moved = object.get_position();
             assert!(
                 moved.x >= 30.0 && moved.x <= 70.0,
@@ -254,11 +269,26 @@ fn live_z_resolves_post_motion_position_and_retains_current_layer_unclipped() {
             let mut expected_pos = expected.get_position();
             expected_pos.y += expected.movement.velocity.y;
             expected.set_position(expected_pos);
-            GameLogic::apply_live_handle_behavior_z(object, before, None, Some(&view));
+            GameLogic::apply_live_handle_behavior_z_with_effects(
+                object,
+                before,
+                None,
+                Some(&view),
+                0,
+                &mut crate::game_logic::ScriptPresentationEffects {
+                    partition: Some(&mut *fixture_partition_object),
+                    ..Default::default()
+                },
+            );
             assert_eq!(object.get_position(), expected.get_position());
             assert_eq!(object.movement.velocity, expected.movement.velocity);
             object.pathfind_layer = 2;
-            object.set_position(Vec3::new(90.0, 100.0, 40.0));
+            object.set_position_with_partition_owner(
+                Vec3::new(90.0, 100.0, 40.0),
+                0,
+                &mut Default::default(),
+                fixture_partition_object,
+            );
             assert_eq!(
                 view.highest_surface(object),
                 70.0,

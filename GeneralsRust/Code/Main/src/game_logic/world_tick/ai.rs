@@ -305,7 +305,8 @@ impl GameLogic {
                         topple_kill = obj.tick_jet_slow_death_with_effects(
                             self.frame,
                             0.0,
-                            presentation_effects,
+                            &mut presentation_effects
+                                .reborrow_for_object(&mut self.partition_manager),
                         );
                         final_death_destroy = topple_kill;
                     }
@@ -324,7 +325,8 @@ impl GameLogic {
                         topple_kill = obj.tick_helicopter_slow_death_with_effects(
                             self.frame,
                             0.0,
-                            presentation_effects,
+                            &mut presentation_effects
+                                .reborrow_for_object(&mut self.partition_manager),
                         );
                         final_death_destroy = topple_kill;
                     }

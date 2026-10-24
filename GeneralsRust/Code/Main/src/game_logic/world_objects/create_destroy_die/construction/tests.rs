@@ -330,8 +330,13 @@ fn structure_player_completion_replaces_only_its_owned_footprint() {
         Some(Team::USA),
     );
     assert!(world.pathfinding_system.grid.is_static_blocked(old_cell));
-    let object = world.host_object_mut(id).unwrap();
-    object.set_position(new_pos);
+    let (object, fixture_partition_object) = world.host_object_and_partition_mut(id).unwrap();
+    object.set_position_with_partition_owner(
+        new_pos,
+        0,
+        &mut Default::default(),
+        fixture_partition_object,
+    );
     object.set_status_under_construction(false);
     object.construction_percent = 1.0;
     world.complete_owned_structure_player(id, 0, false);

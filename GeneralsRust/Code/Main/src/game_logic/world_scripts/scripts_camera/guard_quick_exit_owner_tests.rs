@@ -70,7 +70,7 @@ fn idle_world() -> (GameLogic, ObjectId) {
         1
     );
     let end = *owner.host_object(id).unwrap().movement.path.last().unwrap();
-    owner.host_object_mut(id).unwrap().set_position(end);
+    owner.set_fixture_object_position(id, end);
     owner.tick_host_guard_states(&[id]);
     assert_eq!(
         owner.host_object(id).unwrap().unit_ai_runtime.guard_phase(),
@@ -467,7 +467,7 @@ fn actual_tunnel_sally_installs_and_suspends_owned_guard_overlay() {
     unit.unit_ai_runtime.set_guard_scan_deadline(Some(500));
     unit.unit_ai_runtime
         .set_guard_anchor(Some(Vec3::new(200.0, 0.0, 200.0)));
-    unit.set_contained_by(Some(tunnel));
+    owner.set_fixture_object_contained_by(id, Some(tunnel));
     let key = owner.host_object(tunnel).unwrap().tunnel_system_key();
     owner.tunnel_network.on_tunnel_created(key, tunnel);
     assert!(owner.tunnel_network.record_enter(key, id, tunnel));
@@ -526,17 +526,14 @@ fn actual_tunnel_sally_installs_and_suspends_owned_guard_overlay() {
 fn expired_object_overlay_fresh_return_cancellation(delayed: bool) {
     let (mut owner, id, enemy) = world();
     authored_rates(&mut owner, 60, 7);
-    owner
-        .host_object_mut(enemy)
-        .unwrap()
-        .set_position(Vec3::new(950.0, 0.0, 950.0));
+    owner.set_fixture_object_position(enemy, Vec3::new(950.0, 0.0, 950.0));
     let guardee = owner
         .create_object_for_player("OwnedNamedInfantry", 1, Vec3::new(80.0, 0.0, 80.0))
         .unwrap();
     step(&mut owner); // Wake the real Movement module before order admission.
     assert!(owner.unit_command_guard_object(id, guardee));
     let end = *owner.host_object(id).unwrap().movement.path.last().unwrap();
-    owner.host_object_mut(id).unwrap().set_position(end);
+    owner.set_fixture_object_position(id, end);
     owner.tick_host_guard_states(&[id]); // Initial Idle admission only.
     let idle = observe(&owner, id);
     assert_eq!(idle.phase, Some(GuardPhase::Idle));
@@ -558,10 +555,7 @@ fn expired_object_overlay_fresh_return_cancellation(delayed: bool) {
     assert!((suspended.position - temporary_goal).length() > 20.0);
     // More than two cells on both ground axes; no RNG-dependent acquisition.
     let moved_anchor = anchor + Vec3::new(60.0, 0.0, 40.0);
-    owner
-        .host_object_mut(guardee)
-        .unwrap()
-        .set_position(moved_anchor);
+    owner.set_fixture_object_position(guardee, moved_anchor);
     if delayed {
         // Real requestPath's recent-path throttle, not a fake waiting flag.
         // A fresh frame11 request must remain pending instead of being erased.

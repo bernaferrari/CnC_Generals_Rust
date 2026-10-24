@@ -512,6 +512,7 @@ impl GameLogic {
         ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
     ) {
         let mut effects = crate::game_logic::ScriptPresentationEffects {
+            partition: None,
             audio: None,
             terrain: None,
             ui: ui
@@ -588,13 +589,8 @@ impl GameLogic {
 
     /// Structure placement radius residual for LBC_OBJECTS_IN_THE_WAY.
     pub(in super::super) fn structure_place_radius(obj: &Object) -> f32 {
-        if obj.thing().template.geometry_info.authored {
-            return obj
-                .thing()
-                .template
-                .geometry_info
-                .bounding_circle_radius()
-                .max(1.0);
+        if (*obj.geometry_info()).authored {
+            return (*obj.geometry_info()).bounding_circle_radius().max(1.0);
         }
         if obj.selection_radius > 1.0 {
             obj.selection_radius
@@ -918,8 +914,8 @@ impl GameLogic {
                 // Rect_Circle), not on a center-distance radius sum. Objects
                 // without authored geometry keep the port's radius residual
                 // as a circle shape.
-                let obj_shape = if obj.thing().template.geometry_info.authored {
-                    let geometry = &obj.thing().template.geometry_info;
+                let obj_shape = if (*obj.geometry_info()).authored {
+                    let geometry = &(*obj.geometry_info());
                     PlacementShape {
                         x: p.x,
                         z: p.z,
@@ -1077,7 +1073,7 @@ impl GameLogic {
                 let transform = glam::Mat4::from_translation(glam::Vec3::new(p.x, p.y, p.z))
                     * glam::Mat4::from_rotation_y(angle);
                 let (major, minor, is_box) = {
-                    let g = &obj.thing().template.geometry_info;
+                    let g = &(*obj.geometry_info());
                     if g.authored {
                         (
                             g.major_radius.max(1.0),
@@ -1338,8 +1334,8 @@ impl GameLogic {
             // misses the pad shape are never candidates. The old radius-sum
             // circle flagged authored-shape neutral props that legally miss
             // the pad and aborted the whole placement.
-            let obj_shape = if obj.thing().template.geometry_info.authored {
-                let geometry = &obj.thing().template.geometry_info;
+            let obj_shape = if (*obj.geometry_info()).authored {
+                let geometry = &(*obj.geometry_info());
                 PlacementShape {
                     x: p.x,
                     z: p.z,
@@ -1392,10 +1388,12 @@ impl GameLogic {
         }
         for (id, dest) in to_move {
             if let Some(obj) = self.objects.get_mut(&id) {
-                obj.set_destination(
+                obj.set_destination_with_operation(
                     dest,
                     &mut self.movement_events.writer(self.frame),
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
+                    self.frame,
+                    &mut effects.reborrow_for_object(&mut self.partition_manager),
                 );
             }
         }
@@ -1456,7 +1454,7 @@ impl GameLogic {
         };
         let pos = obj.get_position();
         let angle = obj.get_orientation();
-        let geom = obj.thing().template.geometry_info;
+        let geom = (*obj.geometry_info());
         let radius = Self::structure_place_radius(obj).max(1.0);
         // C++ flattenTerrain returns immediately for GeometryIsSmall.
         let skip_flatten = geom.authored && geom.is_small;
@@ -1518,7 +1516,7 @@ impl GameLogic {
                 obj.set_position_with_effects(
                     glam::Vec3::new(pos.x, h, pos.z),
                     self.frame,
-                    effects,
+                    &mut effects.reborrow_for_object(&mut self.partition_manager),
                 );
             }
         }

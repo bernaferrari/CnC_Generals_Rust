@@ -328,3 +328,6 @@ mod receiving_prerequisite_owner_tests;
 
 #[cfg(test)]
 mod receiving_threat_owner_tests;
+
+#[cfg(test)]
+mod receiving_action_catalog_owner_tests;

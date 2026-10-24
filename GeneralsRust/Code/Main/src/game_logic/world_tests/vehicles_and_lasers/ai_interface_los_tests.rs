@@ -286,18 +286,27 @@ fn authored_ai_interface_los_preserves_held_airborne_target_and_leech_exceptions
             object.set_position(glam::Vec3::new(10.0, 60.0, 10.0));
             assert!(object.is_above_terrain());
             assert!(!logic.out_of_weapon_range_object(source, target));
-            let object = logic.host_object_mut(source).unwrap();
-            object.set_position(glam::Vec3::new(10.0, 0.0, 10.0));
+            let (object, fixture_partition_object) =
+                logic.host_object_and_partition_mut(source).unwrap();
+            object.set_position_with_partition_owner(
+                glam::Vec3::new(10.0, 0.0, 10.0),
+                0,
+                &mut Default::default(),
+                fixture_partition_object,
+            );
             object.allow_to_fall = false;
             assert!(logic.out_of_weapon_range_object(source, target));
-            let object = logic.host_object_mut(target).unwrap();
-            object.set_position(glam::Vec3::new(90.0, 60.0, 10.0));
+            let (object, fixture_partition_object) =
+                logic.host_object_and_partition_mut(target).unwrap();
+            object.set_position_with_partition_owner(
+                glam::Vec3::new(90.0, 60.0, 10.0),
+                0,
+                &mut Default::default(),
+                fixture_partition_object,
+            );
             assert!(object.is_significantly_above_terrain());
             assert!(!logic.out_of_weapon_range_object(source, target));
-            logic
-                .host_object_mut(target)
-                .unwrap()
-                .set_position(glam::Vec3::new(90.0, 0.0, 10.0));
+            logic.set_fixture_object_position(target, glam::Vec3::new(90.0, 0.0, 10.0));
             assert!(logic.out_of_weapon_range_object(source, target));
             logic
                 .host_object_mut(source)

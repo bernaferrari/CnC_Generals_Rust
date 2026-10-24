@@ -241,10 +241,12 @@ impl GameLogic {
                 ),
             );
             if let Some(obj) = self.objects.get_mut(&object_id) {
-                obj.set_order_target(
+                obj.set_order_target_with_operation(
                     Some(target_id),
                     &mut self.attack_events,
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
+                    self.frame,
+                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
                 );
                 obj.set_ai_state(
                     AIState::SpecialAbility,
@@ -1509,7 +1511,7 @@ impl GameLogic {
             let dist = dir.length().max(0.001);
             let life = COMANCHE_ROCKET_POD_PROJECTILE_LIFETIME_FRAMES.max(1) as f32;
             o.movement.velocity = dir * (dist / life);
-            o.set_orientation(dir.z.atan2(dir.x));
+            o.set_orientation_with_partition_owner(dir.z.atan2(dir.x), &mut self.partition_manager);
         }
         let _ = shot_index;
         self.comanche_rocket_pod_projectiles_spawned = self
@@ -1544,7 +1546,11 @@ impl GameLogic {
             if let Some(o) = self.objects.get_mut(&id) {
                 let p = o.get_position();
                 let v = o.movement.velocity;
-                o.set_position_with_effects(p + v, self.frame, presentation_effects);
+                o.set_position_with_effects(
+                    p + v,
+                    self.frame,
+                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                );
             }
         }
         let due: Vec<ObjectId> = self
@@ -1806,10 +1812,12 @@ impl GameLogic {
         // target is cleared through stop_attack_decision_aware before it can
         // become a stale post-deploy shot.
         if let Some(attacker) = self.objects.get_mut(&sentry_id) {
-            attacker.note_attack_target(
+            attacker.note_attack_target_with_operation(
                 target_id,
                 &mut self.attack_events,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
+                self.frame,
+                &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
             );
             let entered_attack = !matches!(
                 attacker.ai_state,
@@ -2080,7 +2088,11 @@ impl GameLogic {
         // Remove occupants from container bookkeeping first.
         if let Some(target) = self.objects.get_mut(&target_id) {
             for &occ_id in &occupants {
-                target.remove_occupant(occ_id, &mut self.ownership_events);
+                target.remove_occupant_with_partition_owner(
+                    occ_id,
+                    &mut self.ownership_events,
+                    &mut self.partition_manager,
+                );
             }
         }
         // C++ OpenContain/TunnelContain::harmAndForceExitAllContained:
@@ -2102,7 +2114,18 @@ impl GameLogic {
             if !occ.is_alive() {
                 continue;
             }
-            occ.set_contained_by(None);
+            let containment_actor_id = occ.id;
+            Self::set_owned_containment_in_parts(
+                &mut self.objects,
+                &mut self.partition_manager,
+                containment_actor_id,
+                None,
+                true,
+            );
+            let occ = self
+                .objects
+                .get_mut(&containment_actor_id)
+                .expect("containment operation preserves this birth");
             occ.set_ai_state(
                 AIState::Idle,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
@@ -2116,7 +2139,11 @@ impl GameLogic {
                 if let Some(entry) = self.tunnel_network.record_exit(player_id, id, target_id) {
                     if entry != target_id {
                         if let Some(c) = self.objects.get_mut(&entry) {
-                            c.remove_occupant(id, &mut self.ownership_events);
+                            c.remove_occupant_with_partition_owner(
+                                id,
+                                &mut self.ownership_events,
+                                &mut self.partition_manager,
+                            );
                         }
                     }
                 }
@@ -2404,7 +2431,18 @@ impl GameLogic {
             if let Some(pid) = owner_pid {
                 clear_players.push(pid as i32);
             }
-            occ.set_contained_by(None);
+            let containment_actor_id = occ.id;
+            Self::set_owned_containment_in_parts(
+                &mut self.objects,
+                &mut self.partition_manager,
+                containment_actor_id,
+                None,
+                true,
+            );
+            let occ = self
+                .objects
+                .get_mut(&containment_actor_id)
+                .expect("containment operation preserves this birth");
             occ.set_ai_state(
                 AIState::Idle,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
@@ -2418,7 +2456,11 @@ impl GameLogic {
         }
         if let Some(target) = self.objects.get_mut(&target_id) {
             for &occ_id in &destroy_ids {
-                target.remove_occupant(occ_id, &mut self.ownership_events);
+                target.remove_occupant_with_partition_owner(
+                    occ_id,
+                    &mut self.ownership_events,
+                    &mut self.partition_manager,
+                );
             }
         }
         if let Ok(list) = gamelogic::player::player_list().read() {

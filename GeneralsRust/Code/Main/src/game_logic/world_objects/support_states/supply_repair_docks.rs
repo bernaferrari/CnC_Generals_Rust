@@ -239,8 +239,8 @@ impl GameLogic {
                     dock.thing().template.dock_kind,
                     dock.thing().template.dock_delete_when_empty,
                     dock.get_position(),
-                    if dock.thing().template.geometry_info.authored {
-                        dock.thing().template.geometry_info.bounding_circle_radius()
+                    if (*dock.geometry_info()).authored {
+                        (*dock.geometry_info()).bounding_circle_radius()
                     } else {
                         dock.selection_radius
                     },
@@ -623,12 +623,15 @@ impl GameLogic {
                     if next != dock_id {
                         if let Some(dest) = self.objects.get(&next).map(|s| s.get_position()) {
                             if let Some(obj) = self.objects.get_mut(&docker_id) {
-                                obj.set_target(
+                                obj.set_target_with_operation(
                                     Some(next),
                                     &mut self.attack_events,
                                     &mut crate::game_logic::ObjectAudio::queue(
                                         &mut self.queued_audio_events,
                                     ),
+                                    self.frame,
+                                    &mut crate::game_logic::ScriptPresentationEffects::default()
+                                        .reborrow_for_object(&mut self.partition_manager),
                                 );
                             }
                             self.path_approach_with_state(docker_id, dest, AIState::Gathering);

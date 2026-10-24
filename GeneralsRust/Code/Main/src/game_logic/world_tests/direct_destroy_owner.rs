@@ -233,10 +233,7 @@ fn local_open_contain_direct_delete_cascades_in_list_order_before_removal() {
         .unwrap();
     for id in [second, child] {
         assert!(world.host_object_mut(parent).unwrap().add_occupant(id));
-        world
-            .host_object_mut(id)
-            .unwrap()
-            .set_contained_by(Some(parent));
+        world.set_fixture_object_contained_by(id, Some(parent));
     }
     world.destroy_object(parent);
     assert_eq!(
@@ -309,10 +306,7 @@ fn direct_tunnel_delete_remaps_then_directly_deletes_last_shared_pool() {
         .create_object("TestInfantry", Team::GLA, Vec3::ZERO)
         .unwrap();
     assert!(world.tunnel_network.record_enter(key, child, first));
-    world
-        .host_object_mut(child)
-        .unwrap()
-        .set_contained_by(Some(first));
+    world.set_fixture_object_contained_by(child, Some(first));
     let hp = world.host_object(child).unwrap().health.current;
     // Retail OneShot SpawnBehavior admits defenders independently; RequiresSpawner
     // is false. Direct tunnel deletion must leave those unrelated units intact.

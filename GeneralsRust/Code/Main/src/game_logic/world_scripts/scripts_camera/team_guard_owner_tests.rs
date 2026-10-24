@@ -118,10 +118,7 @@ fn team_guard_same_ids_are_owned_by_the_driving_world() {
     team(&first, "GuardRoster", &[id], false, true);
     team(&second, "GuardRoster", &[id], false, true);
     let post = first.host_object(id).unwrap().get_position();
-    second
-        .host_object_mut(id)
-        .unwrap()
-        .set_position(Vec3::splat(500.0));
+    second.set_fixture_object_position(id, Vec3::splat(500.0));
     assert_eq!(execute(&mut first, "GuardRoster"), 1);
     assert_guard(&first, id, post);
     assert_eq!(second.host_object(id).unwrap().guard_position, None);

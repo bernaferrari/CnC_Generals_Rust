@@ -45,8 +45,12 @@ impl GameLogic {
             .collect();
         for (tid, pos, yaw) in flight_sync {
             if let Some(o) = self.objects.get_mut(&tid) {
-                o.set_position_with_effects(pos, self.frame, effects);
-                o.set_orientation(yaw);
+                o.set_position_with_effects(
+                    pos,
+                    self.frame,
+                    &mut effects.reborrow_for_object(&mut self.partition_manager),
+                );
+                o.set_orientation_with_partition_owner(yaw, &mut self.partition_manager);
             }
         }
         // AmericaParadrop cargo bookkeeping is completed from update_paradrops
@@ -865,7 +869,11 @@ impl GameLogic {
             p.x = nx;
             p.z = nz;
             p.y = new_y;
-            obj.set_position_with_effects(p, self.frame, effects);
+            obj.set_position_with_effects(
+                p,
+                self.frame,
+                &mut effects.reborrow_for_object(&mut self.partition_manager),
+            );
             {}
             if landed {
                 obj.clear_eject_parachuting();

@@ -29,8 +29,8 @@ fn contain_pair(logic: &mut GameLogic, transport: ObjectId, pax: ObjectId) {
         assert!(t.add_occupant(pax));
     }
     {
-        let p = logic.host_object_mut(pax).unwrap();
-        p.set_contained_by(Some(transport));
+        let (p, partition) = logic.host_object_and_partition_mut(pax).unwrap();
+        p.set_contained_by_with_partition_owner(Some(transport), true, partition);
         p.set_ai_state(
             AIState::Docked,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
@@ -108,8 +108,8 @@ fn execute_combat_drop_uses_hover_not_land_evac() {
         let _ = t.add_occupant(pax);
     }
     {
-        let p = logic.host_object_mut(pax).unwrap();
-        p.set_contained_by(Some(transport));
+        let (p, fixture_partition_p) = logic.host_object_and_partition_mut(pax).unwrap();
+        p.set_contained_by_with_partition_owner(Some(transport), true, fixture_partition_p);
         p.set_ai_state(
             AIState::Docked,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
@@ -173,8 +173,8 @@ fn execute_combat_drop_plays_voice_combat_drop() {
         let _ = t.add_occupant(pax);
     }
     {
-        let p = logic.host_object_mut(pax).unwrap();
-        p.set_contained_by(Some(transport));
+        let (p, fixture_partition_p) = logic.host_object_and_partition_mut(pax).unwrap();
+        p.set_contained_by_with_partition_owner(Some(transport), true, fixture_partition_p);
         p.set_ai_state(
             AIState::Docked,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
@@ -229,8 +229,8 @@ fn combat_drop_arrival_rappels_not_teleport() {
         }
     }
     {
-        let p = logic.host_object_mut(pax).unwrap();
-        p.set_contained_by(Some(transport));
+        let (p, fixture_partition_p) = logic.host_object_and_partition_mut(pax).unwrap();
+        p.set_contained_by_with_partition_owner(Some(transport), true, fixture_partition_p);
     }
     assert!(logic.evacuate_container_now(transport, false));
     let pax_obj = logic.host_object(pax).unwrap();
@@ -315,8 +315,8 @@ fn combat_drop_rappel_uses_roof_dest_not_y0() {
         }
     }
     {
-        let p = logic.host_object_mut(pax).unwrap();
-        p.set_contained_by(Some(transport));
+        let (p, fixture_partition_p) = logic.host_object_and_partition_mut(pax).unwrap();
+        p.set_contained_by_with_partition_owner(Some(transport), true, fixture_partition_p);
     }
     assert!(logic.evacuate_container_now(transport, false));
     let pax_obj = logic.host_object(pax).unwrap();
@@ -373,8 +373,8 @@ fn combat_drop_rappel_add_to_contain_on_roof() {
         }
     }
     {
-        let p = logic.host_object_mut(pax).unwrap();
-        p.set_contained_by(Some(transport));
+        let (p, fixture_partition_p) = logic.host_object_and_partition_mut(pax).unwrap();
+        p.set_contained_by_with_partition_owner(Some(transport), true, fixture_partition_p);
     }
     assert!(logic.evacuate_container_now(transport, false));
     for _ in 0..120 {
@@ -474,12 +474,12 @@ End
         assert!(b.add_occupant(e2));
     }
     {
-        let o = logic.host_object_mut(e1).unwrap();
-        o.set_contained_by(Some(bunker));
+        let (o, fixture_partition_o) = logic.host_object_and_partition_mut(e1).unwrap();
+        o.set_contained_by_with_partition_owner(Some(bunker), true, fixture_partition_o);
     }
     {
-        let o = logic.host_object_mut(e2).unwrap();
-        o.set_contained_by(Some(bunker));
+        let (o, fixture_partition_o) = logic.host_object_and_partition_mut(e2).unwrap();
+        o.set_contained_by_with_partition_owner(Some(bunker), true, fixture_partition_o);
     }
     {
         let (t, attack_events) = logic.host_object_and_attack_events_mut(transport).unwrap();
@@ -496,8 +496,8 @@ End
         }
     }
     {
-        let p = logic.host_object_mut(pax).unwrap();
-        p.set_contained_by(Some(transport));
+        let (p, fixture_partition_p) = logic.host_object_and_partition_mut(pax).unwrap();
+        p.set_contained_by_with_partition_owner(Some(transport), true, fixture_partition_p);
     }
     assert!(logic.evacuate_container_now(transport, false));
     for _ in 0..120 {
@@ -926,8 +926,8 @@ fn execute_exit_walks_after_occupant_list_cleared() {
     contain_pair(&mut logic, transport, pax);
     let _ = logic.unit_command_remove_occupant(transport, pax);
     {
-        let rider = logic.host_object_mut(pax).unwrap();
-        rider.set_contained_by(None);
+        let (rider, fixture_partition_rider) = logic.host_object_and_partition_mut(pax).unwrap();
+        rider.set_contained_by_with_partition_owner(None, true, fixture_partition_rider);
     }
     assert!(logic.unit_command_exit_via_open_contain(pax, transport));
     let hull = logic.host_object(transport).unwrap().get_position();
@@ -968,8 +968,8 @@ fn execute_exit_tunnel_walks_exit_start_not_idle_drop() {
         t.construction_percent = 1.0;
         let _ = t.add_occupant(pax);
     }
-    if let Some(p) = logic.host_object_mut(pax) {
-        p.set_contained_by(Some(tunnel));
+    if let Some((p, partition)) = logic.host_object_and_partition_mut(pax) {
+        p.set_contained_by_with_partition_owner(Some(tunnel), true, partition);
         p.set_ai_state(
             AIState::Garrisoned,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
@@ -1041,8 +1041,8 @@ fn combat_drop_into_rejects_faction_structure() {
         let _ = t.add_occupant(pax);
     }
     {
-        let p = logic.host_object_mut(pax).unwrap();
-        p.set_contained_by(Some(transport));
+        let (p, fixture_partition_p) = logic.host_object_and_partition_mut(pax).unwrap();
+        p.set_contained_by_with_partition_owner(Some(transport), true, fixture_partition_p);
     }
     let mut exec = CommandExecutor::new(&mut logic, 0);
     assert_eq!(
@@ -1080,8 +1080,8 @@ fn combat_drop_hover_uses_geometry_height_plus_min_drop() {
         let _ = t.add_occupant(pax);
     }
     {
-        let p = logic.host_object_mut(pax).unwrap();
-        p.set_contained_by(Some(transport));
+        let (p, fixture_partition_p) = logic.host_object_and_partition_mut(pax).unwrap();
+        p.set_contained_by_with_partition_owner(Some(transport), true, fixture_partition_p);
     }
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
@@ -1154,8 +1154,8 @@ fn last_rappeller_finish_leaves_do_combat_drop() {
         }
     }
     {
-        let p = logic.host_object_mut(pax).unwrap();
-        p.set_contained_by(Some(transport));
+        let (p, fixture_partition_p) = logic.host_object_and_partition_mut(pax).unwrap();
+        p.set_contained_by_with_partition_owner(Some(transport), true, fixture_partition_p);
     }
     assert!(logic.evacuate_container_now(transport, false));
     assert_eq!(
@@ -1226,8 +1226,8 @@ fn garrison_bunker(
         assert!(t.add_occupant(ranger));
     }
     {
-        let p = logic.host_object_mut(ranger).unwrap();
-        p.set_contained_by(Some(bunker));
+        let (p, fixture_partition_p) = logic.host_object_and_partition_mut(ranger).unwrap();
+        p.set_contained_by_with_partition_owner(Some(bunker), true, fixture_partition_p);
         p.set_ai_state(
             AIState::Garrisoned,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
@@ -1325,8 +1325,8 @@ fn execute_evacuate_marks_stealth_garrison_detected() {
         assert!(t.add_occupant(ninja));
     }
     {
-        let n = logic.host_object_mut(ninja).unwrap();
-        n.set_contained_by(Some(bunker));
+        let (n, fixture_partition_n) = logic.host_object_and_partition_mut(ninja).unwrap();
+        n.set_contained_by_with_partition_owner(Some(bunker), true, fixture_partition_n);
         n.set_ai_state(
             AIState::Garrisoned,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),

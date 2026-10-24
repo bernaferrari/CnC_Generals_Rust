@@ -203,10 +203,7 @@ fn same_ids_in_two_worlds_keep_context_sequence_effects_and_reset_independent() 
     let first_id = admit(&first_world, "SiblingRoster", first, 1);
     let second_id = admit(&second_world, "SiblingRoster", second, 2);
     assert_eq!((first_id, first), (second_id, second));
-    second_world
-        .host_object_mut(second)
-        .unwrap()
-        .set_position(Vec3::splat(500.0));
+    second_world.set_fixture_object_position(second, Vec3::splat(500.0));
     let first_engine = sequence_engine();
     let second_engine = sequence_engine();
     start(&first_engine, &mut first_world, first_id);

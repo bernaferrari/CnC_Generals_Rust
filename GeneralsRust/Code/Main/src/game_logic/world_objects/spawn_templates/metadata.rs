@@ -1922,6 +1922,9 @@ impl GameLogic {
     pub(super) fn apply_authored_special_power_module_metadata(
         template: &mut ThingTemplate,
         definition: &ObjectDefinition,
+        receiving: Option<
+            &game_engine::common::thing::receiving_module_content::ReceivingModuleContent,
+        >,
     ) {
         use crate::command_system::special_power_type_from_template_name;
         use crate::game_logic::{SpecialPowerModuleKind, SpecialPowerModuleMetadata};
@@ -1979,7 +1982,13 @@ impl GameLogic {
         }
 
         template.special_power_modules.clear();
-        let power_store = get_special_power_store();
+        let standalone;
+        let power_store = if let Some(content) = receiving {
+            &content.action_definitions().powers
+        } else {
+            standalone = get_special_power_store();
+            &standalone
+        };
         for (source_index, module) in definition.behavior_modules.iter().enumerate() {
             let Some(module_kind) =
                 SpecialPowerModuleKind::from_behavior_class_name(&module.class_name)
@@ -1997,9 +2006,15 @@ impl GameLogic {
             let required_science = if power.required_science == SCIENCE_INVALID {
                 Some(None)
             } else {
-                get_science_store()
-                    .get_internal_name_for_science(ScienceType(power.required_science))
-                    .map(|science| Some(science.as_str().to_string()))
+                if let Some(content) = receiving {
+                    content
+                        .science_name(power.required_science)
+                        .map(|name| Some(name.to_string()))
+                } else {
+                    get_science_store()
+                        .get_internal_name_for_science(ScienceType(power.required_science))
+                        .map(|science| Some(science.as_str().to_string()))
+                }
             };
             let Some(required_science) = required_science else {
                 // The C++ module points at a live ScienceTemplate.  Do not

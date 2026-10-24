@@ -135,22 +135,13 @@ fn prepared_hive_context_keeps_pose_across_same_id_world_capture_and_generic_hit
     b.objects.get_mut(&victim_b).unwrap().hive_slaves = roster;
     let at_a = roster[2].world_xz(0.0, 0.0);
     let at_b = roster[1].world_xz(0.0, 0.0);
-    a.objects
-        .get_mut(&source_a)
-        .unwrap()
-        .set_position(glam::Vec3::new(at_a.0, 0.0, at_a.1));
+    a.set_fixture_object_position(source_a, glam::Vec3::new(at_a.0, 0.0, at_a.1));
     let context_a = DamageHitContext::new(a.objects.get(&source_a), None, DamageType::Bullet);
-    b.objects
-        .get_mut(&source_b)
-        .unwrap()
-        .set_position(glam::Vec3::new(at_b.0, 0.0, at_b.1));
+    b.set_fixture_object_position(source_b, glam::Vec3::new(at_b.0, 0.0, at_b.1));
     let context_b = DamageHitContext::new(b.objects.get(&source_b), None, DamageType::Bullet);
     // A's live pose changes after capture too: delivery must use its frozen
     // operation input, not either world's current object with this ID.
-    a.objects
-        .get_mut(&source_a)
-        .unwrap()
-        .set_position(glam::Vec3::new(at_b.0, 0.0, at_b.1));
+    a.set_fixture_object_position(source_a, glam::Vec3::new(at_b.0, 0.0, at_b.1));
     let death = crate::game_logic::host_usa_pilot::HostDeathType::Normal;
     assert!(
         !a.objects

@@ -580,7 +580,7 @@ impl PresentationFrame {
                     p.y += obj.presentation_collapse_height_offset();
                     p.y += obj.presentation_slow_death_sink_offset();
                     if crate::assets::authored_draw_adjusts_height_by_construction(&draw_models) {
-                        let geom = &obj.thing().template.geometry_info;
+                        let geom = &(*obj.geometry_info());
                         let height = if geom.authored {
                             geom.max_height_above_position()
                         } else {
@@ -1122,7 +1122,7 @@ impl PresentationFrame {
                 health_box_width: obj.get_health_box_dimensions().1,
                 health_box_z_offset: obj.health_box_world_z_offset(),
                 max_height_above_position: {
-                    let geom = &obj.thing().template.geometry_info;
+                    let geom = &(*obj.geometry_info());
                     if geom.authored {
                         geom.max_height_above_position()
                     } else {

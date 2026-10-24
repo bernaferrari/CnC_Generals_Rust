@@ -22,7 +22,11 @@ impl GameLogic {
         if let Some(p) = self.objects.get_mut(&unit_id) {
             let mut next = p.get_position();
             next.y = ground_y;
-            p.set_position_with_effects(next, self.frame, presentation_effects);
+            p.set_position_with_effects(
+                next,
+                self.frame,
+                &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+            );
         }
     }
 
@@ -54,7 +58,7 @@ impl GameLogic {
         }
         let evac = container.garrison_evac_disposition();
         let enclosing = container.is_enclosing_garrison_container();
-        let geom = container.thing().template.geometry_info;
+        let geom = (*container.geometry_info());
         let major = if geom.authored {
             geom.major_radius.max(1.0)
         } else {
@@ -75,10 +79,25 @@ impl GameLogic {
             let Some(p) = self.objects.get_mut(&unit_id) else {
                 return false;
             };
-            p.set_contained_by(None);
+            let containment_actor_id = p.id;
+            Self::set_owned_containment_in_parts(
+                &mut self.objects,
+                &mut self.partition_manager,
+                containment_actor_id,
+                None,
+                true,
+            );
+            let p = self
+                .objects
+                .get_mut(&containment_actor_id)
+                .expect("containment operation preserves this birth");
             p.target = None;
-            p.set_position_with_effects(start, self.frame, presentation_effects);
-            p.set_orientation(yaw);
+            p.set_position_with_effects(
+                start,
+                self.frame,
+                &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+            );
+            p.set_orientation_with_partition_owner(yaw, &mut self.partition_manager);
             drop(p);
             let _ = self.adjust_to_possible_destination(unit_id, &mut end);
             let Some(p) = self.objects.get_mut(&unit_id) else {
@@ -92,10 +111,12 @@ impl GameLogic {
             p.last_command_source = crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_AI;
             p.refresh_follow_path_extra_distance();
             p.adjust_destinations = !p.ultra_accurate;
-            p.set_destination(
+            p.set_destination_with_operation(
                 end,
                 &mut self.movement_events.writer(self.frame),
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
+                self.frame,
+                &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
             );
             p.set_ai_state(
                 AIState::Moving,
@@ -125,12 +146,27 @@ impl GameLogic {
             let Some(p) = self.objects.get_mut(&unit_id) else {
                 return false;
             };
-            p.set_contained_by(None);
+            let containment_actor_id = p.id;
+            Self::set_owned_containment_in_parts(
+                &mut self.objects,
+                &mut self.partition_manager,
+                containment_actor_id,
+                None,
+                true,
+            );
+            let p = self
+                .objects
+                .get_mut(&containment_actor_id)
+                .expect("containment operation preserves this birth");
             p.target = None;
             if enclosing {
-                p.set_position_with_effects(start, self.frame, presentation_effects);
+                p.set_position_with_effects(
+                    start,
+                    self.frame,
+                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                );
             }
-            p.set_orientation(yaw);
+            p.set_orientation_with_partition_owner(yaw, &mut self.partition_manager);
             p.movement.path.clear();
             p.movement.path.push(end);
             p.movement.current_path_index = 0;
@@ -139,10 +175,12 @@ impl GameLogic {
             p.last_command_source = crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_AI;
             p.refresh_follow_path_extra_distance();
             p.adjust_destinations = !p.ultra_accurate;
-            p.set_destination(
+            p.set_destination_with_operation(
                 end,
                 &mut self.movement_events.writer(self.frame),
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
+                self.frame,
+                &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
             );
             p.set_ai_state(
                 AIState::Moving,

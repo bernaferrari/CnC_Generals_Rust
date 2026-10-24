@@ -490,7 +490,7 @@ impl PathfindingSystem {
         if !obj.is_alive() || !obj.is_kind_of(crate::game_logic::KindOf::AircraftPathAround) {
             return None;
         }
-        let geom = obj.thing().template.geometry_info;
+        let geom = (*obj.geometry_info());
         let r = if geom.authored {
             geom.bounding_circle_radius()
         } else {

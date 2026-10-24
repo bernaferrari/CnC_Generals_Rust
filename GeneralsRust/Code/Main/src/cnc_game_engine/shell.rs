@@ -1111,7 +1111,7 @@ impl CnCGameEngine {
         mut recorder_inputs: game_engine::common::recorder::RecorderOwnerInputs,
     ) -> StartupLoadState {
         let (sender, receiver) = mpsc::channel();
-        let worker_gen = startup_worker_generation();
+        let (worker_owner, worker_signal) = super::startup_worker_owner::worker_pair();
         // The driving application already admitted these immutable paths before
         // Options IO. Carry that same Recorder input into the worker; later
         // match resets retain the directory and update only map/seed.
@@ -1119,16 +1119,7 @@ impl CnCGameEngine {
             Self::emit_startup_load_progress(&sender, 0.03, "Preparing startup archive access");
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(
                 || -> std::result::Result<StartupPreparedLoadResult, String> {
-                    let worker_stop_if_abandoned = || -> std::result::Result<(), String> {
-                        if startup_worker_owns(worker_gen) {
-                            Ok(())
-                        } else {
-                            Err(
-                                "startup worker abandoned; host owns session (skip INI/stream)"
-                                    .into(),
-                            )
-                        }
-                    };
+                    let worker_stop_if_abandoned = || worker_signal.validate();
                     worker_stop_if_abandoned()?;
                     let mut start_in_menu = start_in_menu;
                     let mut map_to_load = map_to_load;
@@ -1493,7 +1484,13 @@ impl CnCGameEngine {
                             .ok_or("Receiving Object admission requires initialized application Science definitions")?;
                         std::sync::Arc::new(game_engine::common::rts::science::ScienceNameFacts::from_store(&store))
                     };
-                    let receiving_module_content = receiving_object_sources.admit(science_names)?;
+                    // SpecialPower is admitted before Objects (GameEngine.cpp443),
+                    // while command buttons/sets are admitted later below.
+                    let action_definitions=game_engine::common::thing::receiving_module_content::ReceivingActionDefinitions {
+                        powers:game_engine::common::rts::special_power::get_special_power_store().clone(),
+                        ..Default::default()
+                    };
+                    let mut receiving_module_content=receiving_object_sources.admit_with_catalogs(science_names,std::sync::Arc::new(action_definitions))?;
                     let total_loaded = receiving_module_content.module_content().admitted_templates().count();
                     let compatibility_view = receiving_module_content.module_content().compatibility_template_view();
                     info!("Bootstrapped {} receiving object templates from ordered archive sources", total_loaded);
@@ -1570,6 +1567,10 @@ impl CnCGameEngine {
                         }
                     }
 
+                    receiving_module_content.admit_command_definitions(
+                        game_engine::common::ini::ini_command_button::get_control_bar().map(|value|value.clone()).unwrap_or_default(),
+                        game_engine::common::ini::ini_command_set::get_command_set_manager().map(|value|value.clone()).unwrap_or_default(),
+                    );
                     let parsed_button_count = game_engine::common::ini::ini_command_button::get_control_bar()
                         .map(|bar| bar.count())
                         .unwrap_or(0);
@@ -1641,19 +1642,11 @@ impl CnCGameEngine {
                     game_logic.set_ai_definition_base(definitions.baseline().clone());
                     Self::emit_startup_load_progress(&sender, 0.22, "Priming object templates");
 
+                    // The original initial-file message and receiving Recorder messages
+                    // belong to this startup request, never the live application stream.
+                    let mut startup_messages = Vec::new();
                     if map_requested_from_initial_file {
-                        // C++ parity: .map initial-file startup enqueues MSG_NEW_GAME
-                        // (GAME_SINGLE_PLAYER, DIFFICULTY_NORMAL, 0) and seeds RNG with 0.
-                        let stream = game_engine::common::message_stream::get_message_stream();
-                        if let Ok(mut stream_guard) = stream.write() {
-                            let msg = stream_guard
-                                .append_message(game_engine::common::message_stream::GameMessageType::NewGame);
-                            msg.append_integer_argument(0); // GAME_SINGLE_PLAYER
-                            msg.append_integer_argument(1); // DIFFICULTY_NORMAL
-                            msg.append_integer_argument(0); // rank points
-                        } else {
-                            warn!("Failed to queue startup NewGame message for initial-file map");
-                        }
+                        startup_messages.push(super::startup_worker_owner::initial_file_message());
                         game_engine::common::random_value::init_client_audio_random_with_seed(0);
                         game_logic.set_logic_random_seed(0);
                     }
@@ -1678,8 +1671,6 @@ impl CnCGameEngine {
                     }
 
                     worker_stop_if_abandoned()?;
-                    let mut startup_messages = Self::take_startup_messages_from_stream(worker_gen)
-                        .unwrap_or_default();
                     startup_messages.extend(game_logic.replay_pending.take_lifecycle_messages_owned());
                     let startup_new_game =
                         Self::startup_new_game_dispatch_from_messages(&startup_messages);
@@ -1778,6 +1769,7 @@ impl CnCGameEngine {
         });
 
         StartupLoadState::InProgress {
+            _worker_owner: worker_owner,
             receiver,
             started_at: Instant::now(),
             last_worker_progress: 0.0,
@@ -2208,9 +2200,8 @@ impl CnCGameEngine {
     /// release owns the session. The worker's later Complete is ignored.
     pub(super) fn abandon_startup_load_worker(&mut self) {
         if matches!(self.startup_load_state, StartupLoadState::InProgress { .. }) {
-            // Invalidate the in-flight worker so it cannot clear NewGame or
-            // keep mutating INI/weapon stores after the host owns the session.
-            bump_startup_worker_generation();
+            // Dropping this request's owner cancels only its worker. A different
+            // engine's startup remains independent, even on the same thread.
             self.startup_load_state = StartupLoadState::Complete;
             let _ = self.startup_target_state.take();
         }
@@ -2260,6 +2251,7 @@ impl CnCGameEngine {
                 last_worker_progress,
                 last_worker_phase,
                 last_worker_logged_bucket,
+                ..
             } => {
                 loop {
                     match receiver.try_recv() {

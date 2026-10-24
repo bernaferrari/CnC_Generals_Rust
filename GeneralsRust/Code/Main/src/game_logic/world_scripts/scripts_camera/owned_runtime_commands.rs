@@ -192,10 +192,11 @@ impl GameLogic {
         // CPP changes the controlling player, retaining the concrete team and
         // roster. There is no capture command or capture behavior callback.
         for member in members {
-            if let Some(object) = self.host_object_mut(ObjectId(member)) {
+            if let Some((object, partition)) = self.host_object_and_partition_mut(ObjectId(member))
+            {
                 object.owner_player_id = Some(player);
                 object.team = side;
-                object.handle_partition_cell_maintenance();
+                object.handle_partition_cell_maintenance_with_partition_owner(partition);
             }
         }
         Ok(())

@@ -42,7 +42,7 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
 }
 
 pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> SaveLoadResult<()> {
-    let Some(suffix) = find_spcd_suffix(bytes) else {
+    let Some(suffix) = find_spcd_suffix(bytes)? else {
         return Ok(());
     };
     let mut rest = suffix;
@@ -244,11 +244,8 @@ fn special_power_from_persist_name(name: &str) -> Option<SpecialPowerType> {
     crate::command_system::special_power_type_from_template_name(name)
 }
 
-fn find_spcd_suffix(bytes: &[u8]) -> Option<&[u8]> {
-    bytes
-        .windows(4)
-        .rposition(|window| window == SPCD_MAGIC)
-        .map(|idx| &bytes[idx + 4..])
+fn find_spcd_suffix(bytes: &[u8]) -> SaveLoadResult<Option<&[u8]>> {
+    super::ai_team_persist::framing::find_record(bytes, SPCD_MAGIC)
 }
 
 fn encode_table(out: &mut Vec<u8>, table: &[(u32, Vec<(String, f32)>)]) {
@@ -327,14 +324,45 @@ mod tests {
     use super::*;
 
     #[test]
+    fn opaque_record_magic_cannot_select_a_timer_owner() {
+        let mut bytes = b"CPRJ".to_vec();
+        append_u32(&mut bytes, 1);
+        append_u32(&mut bytes, 12);
+        bytes.extend_from_slice(b"SPCDSPCDSPCD");
+        assert!(find_spcd_suffix(&bytes).unwrap().is_none());
+        bytes.extend_from_slice(SPCD_MAGIC);
+        append_u32(&mut bytes, 2);
+        encode_table(&mut bytes, &[(1, vec![("SPCD".into(), 17.0)])]);
+        encode_table(&mut bytes, &[]);
+        encode_table(&mut bytes, &[]);
+        let record = find_spcd_suffix(&bytes).unwrap().unwrap();
+        let mut rest = record;
+        assert_eq!(take_u32(&mut rest).unwrap(), 2);
+        assert_eq!(decode_table(&mut rest).unwrap()[0].1[0].1, 17.0);
+    }
+
+    #[test]
+    fn duplicate_timer_owner_is_rejected() {
+        let mut record = SPCD_MAGIC.to_vec();
+        append_u32(&mut record, 2);
+        for _ in 0..3 {
+            encode_table(&mut record, &[]);
+        }
+        let mut bytes = record.clone();
+        bytes.extend_from_slice(&record);
+        assert!(find_spcd_suffix(&bytes).is_err());
+    }
+
+    #[test]
     fn suffix_round_trip_preserves_player_and_object_maps() {
-        let mut bytes = b"HIST".to_vec();
+        let mut bytes = Vec::new();
         bytes.extend_from_slice(SPCD_MAGIC);
         append_u32(&mut bytes, SPCD_VERSION);
         encode_table(&mut bytes, &[(1, vec![("ParticleCannon".into(), 77.5)])]);
         encode_table(&mut bytes, &[(9, vec![("SpySatellite".into(), 9.0)])]);
+        encode_table(&mut bytes, &[]);
 
-        let suffix = find_spcd_suffix(&bytes).expect("magic");
+        let suffix = find_spcd_suffix(&bytes).expect("framing").expect("magic");
         let mut rest = suffix;
         assert_eq!(take_u32(&mut rest).unwrap(), SPCD_VERSION);
         let players = decode_table(&mut rest).unwrap();
@@ -350,7 +378,7 @@ mod tests {
 
     #[test]
     fn absent_suffix_is_ignored() {
-        assert!(find_spcd_suffix(b"no-magic-here").is_none());
+        assert!(find_spcd_suffix(&[]).unwrap().is_none());
     }
 
     #[test]
@@ -367,7 +395,7 @@ mod tests {
         if let Some(player) = source.get_player_mut(1) {
             player.reset_shared_special_power_timer(&SpecialPowerType::ParticleCannon, 77.5);
         }
-        let mut bytes = b"HIST".to_vec();
+        let mut bytes = Vec::new();
         append_to_lifecycle_tail(&mut bytes, &source);
         assert!(bytes.windows(4).any(|w| w == SPCD_MAGIC));
         // OXOB-style trailing sibling suffix.
@@ -393,7 +421,7 @@ mod tests {
     fn v1_absent_pauses_ignores_trailing_sibling_suffix() {
         use crate::game_logic::{Player, Team};
 
-        let mut bytes = b"HIST".to_vec();
+        let mut bytes = Vec::new();
         bytes.extend_from_slice(SPCD_MAGIC);
         append_u32(&mut bytes, 1); // v1
         encode_table(&mut bytes, &[(1, vec![("ParticleCannon".into(), 77.5)])]);
@@ -409,7 +437,7 @@ mod tests {
 
     #[test]
     fn v1_present_pauses_table_still_decodes() {
-        let mut bytes = b"HIST".to_vec();
+        let mut bytes = SPCD_MAGIC.to_vec();
         append_u32(&mut bytes, 1); // v1
         encode_table(&mut bytes, &[]);
         encode_table(&mut bytes, &[]);
@@ -452,7 +480,9 @@ mod tests {
         let builder = super::super::SnapshotBuilder::new();
         let snapshot = builder.create_world_snapshot(&source).expect("snapshot");
         assert!(
-            find_spcd_suffix(&snapshot.lifecycle_tail).is_some(),
+            find_spcd_suffix(&snapshot.lifecycle_tail)
+                .unwrap()
+                .is_some(),
             "SPCD suffix must be appended to lifecycle tail"
         );
 

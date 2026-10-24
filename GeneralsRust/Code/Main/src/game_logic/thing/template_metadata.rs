@@ -1512,6 +1512,7 @@ impl HostGeometryInfo {
             }
         };
         GeometryInfo {
+            shape: Some(*self),
             position: Vec3::ZERO,
             rotation: 0.0,
             bounds_min,

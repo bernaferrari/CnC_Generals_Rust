@@ -11,12 +11,7 @@ impl Default for CombatSystem {
 fn projectile_goal_on_object(target: &Object) -> Vec3 {
     let pos = target.get_position();
     let mut goal = pos;
-    let half = target
-        .thing()
-        .template
-        .geometry_info
-        .max_height_above_position()
-        * 0.5;
+    let half = (*target.geometry_info()).max_height_above_position() * 0.5;
     goal.y += half;
     if pos.y < goal.y {
         goal.y += half;
@@ -1035,7 +1030,7 @@ pub(crate) fn splash_from_bounding_sphere_3d(
 }
 
 pub(crate) fn victim_splash_sphere_radius(obj: &Object) -> f32 {
-    let geom = &obj.thing().template.geometry_info;
+    let geom = &(*obj.geometry_info());
     crate::game_logic::host_battlemaster::leftover_horde_bounding_sphere_radius(
         geom.authored,
         geom.bounding_sphere_radius(),

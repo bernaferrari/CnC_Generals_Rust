@@ -27,7 +27,7 @@ impl GameLogic {
         // RadarUpgrade::onDelete belongs to the still-installed phase. This
         // defensive admission is idempotent when onDelete already consumed it.
         self.remove_host_radar_provider(id);
-        let Some(object) = self.objects.remove(&id) else {
+        let Some(mut object) = self.objects.remove(&id) else {
             return Ok(None);
         };
         // GameLogic.cpp2501–2506 removes BOTH lookup and original list before
@@ -40,7 +40,15 @@ impl GameLogic {
             return Err(gamelogic::GameLogicError::Configuration(reason));
         }
         self.unlink_retiring_team_host_member(id, object.team_instance_id);
+        // Original SightingInfo destruction does not undo remaining values.
+        // Live direct-deletion residual stays in this owner grid until reset.
+        object.forget_retired_partition_scalar_receipt();
         self.cancel_retiring_dock_reservation(&object);
+        // Object::~Object623 follows Drawable/sendDestroyed/team teardown and
+        // precedes module destruction. Pending dirty identity retires with it.
+        self.partition_manager.unregister_object(id.0);
+        object.partition_namespace = Default::default();
+        object.host_trigger_world = Default::default();
         Ok(Some(object))
     }
 
@@ -139,3 +147,7 @@ impl GameLogic {
         Ok(())
     }
 }
+
+#[cfg(test)]
+#[path = "../object/runtime_attachment_owner_tests.rs"]
+mod runtime_attachment_owner_tests;

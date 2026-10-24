@@ -59,10 +59,7 @@ fn fixture() -> (GameLogic, ObjectId, ObjectId, CommandButton, u32) {
     let target = world
         .create_object_for_player("OwnedNearestVehicle", 2, Vec3::new(300.0, 0.0, 50.0))
         .unwrap();
-    world
-        .host_object_mut(invalid)
-        .unwrap()
-        .set_position(Vec3::new(51.0, 0.0, 50.0));
+    world.set_fixture_object_position(invalid, Vec3::new(51.0, 0.0, 50.0));
     let team = {
         let mut factory = world.team_factory.lock().unwrap();
         factory
@@ -145,10 +142,7 @@ fn nearest_authored_button_uses_first_source_map_status_and_ai_nonheld_center() 
             .0,
         target
     );
-    owner
-        .host_object_mut(target)
-        .unwrap()
-        .set_position(Vec3::new(-1.0, 0.0, 50.0));
+    owner.set_fixture_object_position(target, Vec3::new(-1.0, 0.0, 50.0));
     assert!(
         owner
             .owned_team_nearest_button_target(&members, &button, &request, 1)
@@ -161,10 +155,7 @@ fn nearest_authored_button_uses_first_source_map_status_and_ai_nonheld_center() 
         .unwrap()
         .special_power_cooldowns
         .insert(SpecialPowerType::MissileDefenderLaserGuided, 9999.0);
-    owner
-        .host_object_mut(source)
-        .unwrap()
-        .set_position(Vec3::new(-2.0, 0.0, 50.0));
+    owner.set_fixture_object_position(source, Vec3::new(-2.0, 0.0, 50.0));
     assert_eq!(
         owner
             .owned_team_nearest_button_target(&members, &button, &request, 1)

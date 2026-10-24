@@ -1337,8 +1337,8 @@ pub fn dispatch_armor_damage_fx(
                 obj.get_orientation(),
                 obj.owner_player_id.map(|p| p as i32).unwrap_or(-1),
                 crate::game_logic::host_supply_gather::host_bounding_circle_radius(
-                    obj.thing().template.geometry_info.authored,
-                    obj.thing().template.geometry_info.bounding_circle_radius(),
+                    (*obj.geometry_info()).authored,
+                    (*obj.geometry_info()).bounding_circle_radius(),
                     obj.thing().geometry.radius.max(obj.selection_radius),
                 ),
             );

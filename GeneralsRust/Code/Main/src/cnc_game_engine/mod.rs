@@ -113,6 +113,7 @@ mod minimap_bridge;
 mod mouse;
 mod startup_definition_source;
 mod startup_ini_content;
+mod startup_worker_owner;
 #[cfg(test)]
 pub(crate) use mouse::live_view_height_clamp;
 mod native_display;
@@ -163,6 +164,7 @@ enum StartupLoadMessage {
 enum StartupLoadState {
     Idle,
     InProgress {
+        _worker_owner: startup_worker_owner::StartupWorkerOwner,
         receiver: Receiver<StartupLoadMessage>,
         started_at: Instant,
         last_worker_progress: f32,
@@ -170,23 +172,6 @@ enum StartupLoadState {
         last_worker_logged_bucket: u8,
     },
     Complete,
-}
-
-/// Generation token so an abandoned boot worker cannot clear NewGame or
-/// keep mutating INI/weapon stores after the host owns the session.
-static STARTUP_WORKER_GENERATION: std::sync::atomic::AtomicU64 =
-    std::sync::atomic::AtomicU64::new(1);
-
-fn startup_worker_generation() -> u64 {
-    STARTUP_WORKER_GENERATION.load(std::sync::atomic::Ordering::SeqCst)
-}
-
-fn bump_startup_worker_generation() {
-    STARTUP_WORKER_GENERATION.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-}
-
-fn startup_worker_owns(generation: u64) -> bool {
-    startup_worker_generation() == generation
 }
 
 #[cfg(test)]

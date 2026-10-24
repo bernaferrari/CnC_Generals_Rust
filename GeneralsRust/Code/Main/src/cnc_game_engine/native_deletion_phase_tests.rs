@@ -345,6 +345,12 @@ fn actual_ai_startup_build_callbacks_keep_map_cc_and_unrelated_drawables_until_c
         allow_retirement: bool,
     }
     impl NativeViewEffects for StartupProbe<'_, '_> {
+        fn projected_radius_allocator(
+            &mut self,
+        ) -> Option<&mut dyn crate::game_logic::NativeProjectedRadiusAllocator> {
+            self.runtime.projected_radius_allocator()
+        }
+
         #[cfg(feature = "game_client")]
         fn body_visual_changed(
             &mut self,

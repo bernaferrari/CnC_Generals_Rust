@@ -358,7 +358,7 @@ impl ScienceInfo {
 }
 
 /// Science store - manages all available sciences
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ScienceStore {
     /// Map of science type to science information
     sciences: HashMap<ScienceType, ScienceInfo>,
@@ -371,17 +371,25 @@ pub struct ScienceStore {
 /// Frozen names from the application science owner, not the module namespace.
 #[derive(Debug, Clone, Default)]
 pub struct ScienceNameFacts {
+    definitions: ScienceStore,
     by_name: HashMap<String, ScienceType>,
     by_id: HashMap<ScienceType, String>,
 }
 impl ScienceNameFacts {
     pub fn from_store(store: &ScienceStore) -> Self {
-        let mut facts = Self::default();
+        let mut facts = Self {
+            definitions: store.clone(),
+            ..Default::default()
+        };
         for (&id, row) in store.iter() {
             facts.by_name.insert(row.name.clone(), id);
             facts.by_id.insert(id, row.name.clone());
         }
         facts
+    }
+    /// Full effective immutable definitions from the same admission as names.
+    pub fn definitions(&self) -> &ScienceStore {
+        &self.definitions
     }
     pub fn science(&self, name: &str) -> Option<ScienceType> {
         self.by_name.get(name).copied()
@@ -661,6 +669,28 @@ impl ScienceStore {
         Ok(())
     }
 
+    /// Ordered receiving Map/Solo overrides through the existing block parser.
+    /// The outer source selection owns the complete mixed companion bytes.
+    pub fn apply_override_text(&mut self, source: &str) -> INIResult<()> {
+        let mut ini = INI::new();
+        ini.with_inline_source_and_load_type(source, INILoadType::CreateOverrides, |ini| {
+            loop {
+                ini.read_line()?;
+                if ini.is_eof() {
+                    break;
+                }
+                let tokens = ini.get_line_tokens();
+                let science = tokens
+                    .first()
+                    .is_some_and(|token| token.eq_ignore_ascii_case("Science"))
+                    && tokens.get(1) != Some(&"=");
+                if science {
+                    self.parse_science_definition(ini)?;
+                }
+            }
+            Ok(())
+        })
+    }
     /// Get science purchase cost
     ///
     /// Matches C++ Science.cpp lines 213-224: getSciencePurchaseCost

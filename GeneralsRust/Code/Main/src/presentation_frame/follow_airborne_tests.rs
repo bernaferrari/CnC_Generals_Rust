@@ -51,13 +51,14 @@ End
         .create_object_for_player("AirFollow", 0, position)
         .unwrap();
     // Deliberately misleading targeting flags must not select camera heading.
-    let object = world.host_object_mut(ground).unwrap();
-    object.set_orientation(0.4 - std::f32::consts::PI);
+    let (object, fixture_partition_object) = world.host_object_and_partition_mut(ground).unwrap();
+    object
+        .set_orientation_with_partition_owner(0.4 - std::f32::consts::PI, fixture_partition_object);
     object.status.airborne_target = true;
     assert!(object.selected_locomotor_definition.is_some());
     assert!(!object.selected_locomotor_is_airborne());
-    let object = world.host_object_mut(air).unwrap();
-    object.set_orientation(0.4);
+    let (object, fixture_partition_object) = world.host_object_and_partition_mut(air).unwrap();
+    object.set_orientation_with_partition_owner(0.4, fixture_partition_object);
     object.status.airborne_target = false;
     assert!(object.selected_locomotor_definition.is_some());
     assert!(object.selected_locomotor_is_airborne());
@@ -87,10 +88,7 @@ fn terrain(world: &GameLogic, raw_ground: u8, water: Option<i32>) {
     );
 }
 fn altitude(world: &mut GameLogic, id: ObjectId, height: f32) {
-    world
-        .host_object_mut(id)
-        .unwrap()
-        .set_position(Vec3::new(40., height, 40.));
+    world.set_fixture_object_position(id, Vec3::new(40., height, 40.));
 }
 #[test]
 fn actual_follow_freeze_uses_selected_air_surface_and_exact_colocated_identity() {

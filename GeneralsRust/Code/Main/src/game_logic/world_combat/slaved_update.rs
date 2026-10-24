@@ -51,11 +51,7 @@ impl GameLogic {
     }
     fn slave_boundary_distance(source: &Object, goal: Vec3) -> f32 {
         let delta = source.get_position() - goal;
-        let radius = source
-            .thing()
-            .template
-            .geometry_info
-            .bounding_sphere_radius();
+        let radius = (*source.geometry_info()).bounding_sphere_radius();
         ((delta.x * delta.x + delta.z * delta.z).sqrt() - radius)
             .max(0.0)
             .powi(2)
@@ -278,16 +274,8 @@ impl GameLogic {
         let source = self.objects.get(&id).unwrap();
         let target = self.objects.get(&master).unwrap();
         let delta = source.get_position() - mpos;
-        let radii = source
-            .thing()
-            .template
-            .geometry_info
-            .bounding_sphere_radius()
-            + target
-                .thing()
-                .template
-                .geometry_info
-                .bounding_sphere_radius();
+        let radii = (*source.geometry_info()).bounding_sphere_radius()
+            + (*target.geometry_info()).bounding_sphere_radius();
         let distance = ((delta.x * delta.x + delta.z * delta.z).sqrt() - radii)
             .max(0.0)
             .powi(2);

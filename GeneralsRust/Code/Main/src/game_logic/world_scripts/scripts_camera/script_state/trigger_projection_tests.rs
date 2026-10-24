@@ -52,7 +52,7 @@ fn world(inside: bool) -> (GameLogic, ObjectId, ObjectId, ObjectId) {
         let object = world.host_object_mut(*id).unwrap();
         object.name = name.into();
         if inside {
-            object.set_position(Vec3::new(120.0, 0.0, 120.0));
+            world.set_fixture_object_position(*id, Vec3::new(120.0, 0.0, 120.0));
         }
     }
     let peer = world
@@ -161,15 +161,11 @@ fn trigger_projection_authored_update_keeps_same_id_owners_skip_and_two_frame_ed
             check_update(&mut a, "Scout", ConditionType::NamedEnteredArea, false);
             check_update(&mut a, "Scout", ConditionType::NamedInsideArea, true);
             a.set_current_frame(23);
-            a.host_object_mut(id)
-                .unwrap()
-                .set_position(Vec3::new(170.0, 0.0, 170.0));
+            a.set_fixture_object_position(id, Vec3::new(170.0, 0.0, 170.0));
             check_update(&mut a, "Scout", ConditionType::NamedExitedArea, false);
             // C++ checks the previous integer pose for exit. A second ordinary
             // movement observes the outside prior pose, without injecting flags.
-            a.host_object_mut(id)
-                .unwrap()
-                .set_position(Vec3::new(180.0, 0.0, 180.0));
+            a.set_fixture_object_position(id, Vec3::new(180.0, 0.0, 180.0));
             check_update(&mut a, "Scout", ConditionType::NamedExitedArea, true);
             a.set_current_frame(24);
             check_update(&mut a, "Scout", ConditionType::NamedExitedArea, true);

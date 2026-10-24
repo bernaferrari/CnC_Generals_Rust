@@ -1156,7 +1156,7 @@ impl GameLogic {
                                 obj.locomotor_goal_angle,
                                 dt,
                                 pose_frame,
-                                effects,
+                                &mut effects.reborrow_for_object(&mut self.partition_manager),
                             );
                             obj.face_loco_frame = self.frame;
                         }
@@ -1176,7 +1176,7 @@ impl GameLogic {
                             None,
                             Some(&flight_terrain),
                             pose_frame,
-                            effects,
+                            &mut effects.reborrow_for_object(&mut self.partition_manager),
                         );
                         // Release both the object and borrowed terrain view before original Body callbacks.
                         let _ = obj;
@@ -1315,7 +1315,7 @@ impl GameLogic {
                                     None,
                                     Some(&flight_terrain),
                                     pose_frame,
-                                    effects,
+                                    &mut effects.reborrow_for_object(&mut self.partition_manager),
                                 );
                                 // Release both the object and borrowed terrain view before original Body callbacks.
                                 let _ = obj;
@@ -1354,7 +1354,7 @@ impl GameLogic {
                             None,
                             Some(&flight_terrain),
                             pose_frame,
-                            effects,
+                            &mut effects.reborrow_for_object(&mut self.partition_manager),
                         );
                         // Release both the object and borrowed terrain view before original Body callbacks.
                         let _ = obj;
@@ -1460,7 +1460,10 @@ impl GameLogic {
                                     );
                                     if obj.holds_air_position_when_idle() {
                                         let _ = obj.loco_maintain_appearance_with_effects(
-                                            dt, pose_frame, effects,
+                                            dt,
+                                            pose_frame,
+                                            &mut effects
+                                                .reborrow_for_object(&mut self.partition_manager),
                                         );
                                     }
                                 } else if obj.holds_air_position_when_idle() {
@@ -1477,7 +1480,10 @@ impl GameLogic {
                                         obj.set_locomotor_goal_none();
                                     }
                                     let _ = obj.loco_maintain_appearance_with_effects(
-                                        dt, pose_frame, effects,
+                                        dt,
+                                        pose_frame,
+                                        &mut effects
+                                            .reborrow_for_object(&mut self.partition_manager),
                                     );
                                 } else {
                                     plant_goal = obj.movement.path.last().copied();
@@ -1530,7 +1536,7 @@ impl GameLogic {
                                     None,
                                     Some(&flight_terrain),
                                     pose_frame,
-                                    effects,
+                                    &mut effects.reborrow_for_object(&mut self.partition_manager),
                                 );
                                 // Release both the object and borrowed terrain view before original Body callbacks.
                                 let _ = obj;
@@ -1667,7 +1673,8 @@ impl GameLogic {
                                             flat_target,
                                             obj.effective_turn_rate() * dt,
                                             pose_frame,
-                                            effects,
+                                            &mut effects
+                                                .reborrow_for_object(&mut self.partition_manager),
                                         );
                                     if turning == crate::game_logic::PhysicsTurningType::TurnNone {
                                         blocked_out = false;
@@ -1683,7 +1690,7 @@ impl GameLogic {
                                     None,
                                     Some(&flight_terrain),
                                     pose_frame,
-                                    effects,
+                                    &mut effects.reborrow_for_object(&mut self.partition_manager),
                                 );
                                 // Release both the object and borrowed terrain view before original Body callbacks.
                                 let _ = obj;
@@ -1812,7 +1819,7 @@ impl GameLogic {
                                     None,
                                     Some(&flight_terrain),
                                     pose_frame,
-                                    effects,
+                                    &mut effects.reborrow_for_object(&mut self.partition_manager),
                                 );
                                 // Release both the object and borrowed terrain view before original Body callbacks.
                                 let _ = obj;
@@ -1845,7 +1852,7 @@ impl GameLogic {
                                     speed,
                                     dt,
                                     pose_frame,
-                                    effects,
+                                    &mut effects.reborrow_for_object(&mut self.partition_manager),
                                 );
                                 Self::apply_live_handle_behavior_z_with_effects(
                                     obj,
@@ -1853,7 +1860,7 @@ impl GameLogic {
                                     None,
                                     Some(&flight_terrain),
                                     pose_frame,
-                                    effects,
+                                    &mut effects.reborrow_for_object(&mut self.partition_manager),
                                 );
                                 // Release both the object and borrowed terrain view before original Body callbacks.
                                 let _ = obj;
@@ -1904,7 +1911,11 @@ impl GameLogic {
                                             );
                                             if obj.holds_air_position_when_idle() {
                                                 let _ = obj.loco_maintain_appearance_with_effects(
-                                                    dt, pose_frame, effects,
+                                                    dt,
+                                                    pose_frame,
+                                                    &mut effects.reborrow_for_object(
+                                                        &mut self.partition_manager,
+                                                    ),
                                                 );
                                             }
                                         } else if obj.holds_air_position_when_idle() {
@@ -1921,7 +1932,11 @@ impl GameLogic {
                                                 obj.set_locomotor_goal_none();
                                             }
                                             let _ = obj.loco_maintain_appearance_with_effects(
-                                                dt, pose_frame, effects,
+                                                dt,
+                                                pose_frame,
+                                                &mut effects.reborrow_for_object(
+                                                    &mut self.partition_manager,
+                                                ),
                                             );
                                         } else {
                                             plant_goal = obj.movement.path.last().copied();
@@ -2044,8 +2059,8 @@ impl GameLogic {
                                 // C++ Locomotor.cpp:1292-1323 reverse / 3pt + turn-speed cap.
                                 let actual_stopped = obj.movement.velocity.x.abs() < 1e-4
                                     && obj.movement.velocity.z.abs() < 1e-4;
-                                let major = if obj.thing().template.geometry_info.authored {
-                                    obj.thing().template.geometry_info.major_radius
+                                let major = if (*obj.geometry_info()).authored {
+                                    (*obj.geometry_info()).major_radius
                                 } else {
                                     obj.selection_radius.max(1.0)
                                 };
@@ -2136,7 +2151,8 @@ impl GameLogic {
                                         flat_target,
                                         obj.effective_turn_rate() * dt,
                                         pose_frame,
-                                        effects,
+                                        &mut effects
+                                            .reborrow_for_object(&mut self.partition_manager),
                                     );
 
                                     Self::apply_live_handle_behavior_z_with_effects(
@@ -2145,7 +2161,8 @@ impl GameLogic {
                                         None,
                                         Some(&flight_terrain),
                                         pose_frame,
-                                        effects,
+                                        &mut effects
+                                            .reborrow_for_object(&mut self.partition_manager),
                                     );
                                     // Release both the object and borrowed terrain view before original Body callbacks.
                                     let _ = obj;
@@ -2245,7 +2262,8 @@ impl GameLogic {
                                             rotate_goal,
                                             dt,
                                             pose_frame,
-                                            effects,
+                                            &mut effects
+                                                .reborrow_for_object(&mut self.partition_manager),
                                         );
                                     obj.get_orientation()
                                 };
@@ -2328,14 +2346,19 @@ impl GameLogic {
                                 }
                             }
 
-                            obj.set_position_with_effects(new_position, pose_frame, effects);
+                            obj.set_position_with_partition_owner(
+                                new_position,
+                                pose_frame,
+                                effects,
+                                &mut self.partition_manager,
+                            );
                             Self::apply_live_handle_behavior_z_with_effects(
                                 obj,
                                 surface_y,
                                 None,
                                 Some(&flight_terrain),
                                 pose_frame,
-                                effects,
+                                &mut effects.reborrow_for_object(&mut self.partition_manager),
                             );
                             if was_braking {
                                 // C++ :981 dx/dy/dz are not recomputed. :1096 reads
@@ -2344,7 +2367,12 @@ impl GameLogic {
                                 let posed = obj.get_position();
                                 let entry_target = posed + (target_pos - current_pos);
                                 let cheated = obj.braking_cheat_step(posed, entry_target, dt);
-                                obj.set_position_with_effects(cheated, pose_frame, effects);
+                                obj.set_position_with_partition_owner(
+                                    cheated,
+                                    pose_frame,
+                                    effects,
+                                    &mut self.partition_manager,
+                                );
                                 if obj.is_kind_of(KindOf::Projectile)
                                     || obj.object_type == crate::game_logic::ObjectType::Projectile
                                 {
@@ -2363,7 +2391,12 @@ impl GameLogic {
                                 } else {
                                     posed + obj.movement.velocity * dt
                                 };
-                                obj.set_position_with_effects(stepped, pose_frame, effects);
+                                obj.set_position_with_partition_owner(
+                                    stepped,
+                                    pose_frame,
+                                    effects,
+                                    &mut self.partition_manager,
+                                );
                             }
                             if matches!(obj.loco_appearance, LocomotorAppearance::Hover) {
                                 // C++ moveTowardsPositionHover checks water after the
@@ -2402,7 +2435,11 @@ impl GameLogic {
                                         );
                                         if obj.holds_air_position_when_idle() {
                                             let _ = obj.loco_maintain_appearance_with_effects(
-                                                dt, pose_frame, effects,
+                                                dt,
+                                                pose_frame,
+                                                &mut effects.reborrow_for_object(
+                                                    &mut self.partition_manager,
+                                                ),
                                             );
                                         }
                                     } else if obj.holds_air_position_when_idle() {
@@ -2417,7 +2454,10 @@ impl GameLogic {
                                         obj.set_precise_z_pos(false);
                                         obj.set_locomotor_goal_none();
                                         let _ = obj.loco_maintain_appearance_with_effects(
-                                            dt, pose_frame, effects,
+                                            dt,
+                                            pose_frame,
+                                            &mut effects
+                                                .reborrow_for_object(&mut self.partition_manager),
                                         );
                                     } else if obj.temporary_move_frames > 0
                                         && !matches!(obj.ai_state, AIState::Moving)
@@ -2504,8 +2544,11 @@ impl GameLogic {
                             if position_goal {
                                 obj.maintain_pos_valid = false;
                             }
-                            let _ =
-                                obj.loco_maintain_appearance_with_effects(dt, pose_frame, effects);
+                            let _ = obj.loco_maintain_appearance_with_effects(
+                                dt,
+                                pose_frame,
+                                &mut effects.reborrow_for_object(&mut self.partition_manager),
+                            );
                             let sy = if matches!(obj.loco_appearance, LocomotorAppearance::Wings) {
                                 if matches!(
                                     obj.loco_behavior_z,
@@ -2529,7 +2572,7 @@ impl GameLogic {
                                 goal_y,
                                 Some(&flight_terrain),
                                 pose_frame,
-                                effects,
+                                &mut effects.reborrow_for_object(&mut self.partition_manager),
                             );
                             // C++ friend_endingMove only runs from the move state.
                             // Idle maintain (goal still coincident) must not clear
@@ -2607,9 +2650,18 @@ impl GameLogic {
                             }
                         }
                     } else {
-                        leftover_settle_final_position_on_object(obj, pose_frame, effects);
+                        leftover_settle_final_position_on_object(
+                            obj,
+                            pose_frame,
+                            effects,
+                            &mut self.partition_manager,
+                        );
                         // C++ maintainCurrentPosition: appearance, then one Z update.
-                        let _ = obj.loco_maintain_appearance_with_effects(dt, pose_frame, effects);
+                        let _ = obj.loco_maintain_appearance_with_effects(
+                            dt,
+                            pose_frame,
+                            &mut effects.reborrow_for_object(&mut self.partition_manager),
+                        );
                         let sy = if matches!(obj.loco_appearance, LocomotorAppearance::Wings) {
                             if matches!(
                                 obj.loco_behavior_z,
@@ -2628,7 +2680,7 @@ impl GameLogic {
                             obj.maintain_pos.map(|p| p.y),
                             Some(&flight_terrain),
                             pose_frame,
-                            effects,
+                            &mut effects.reborrow_for_object(&mut self.partition_manager),
                         );
                     }
                     // C++ AIUpdate.cpp:2270. Clamp from this frame's locomotor
@@ -3145,6 +3197,7 @@ fn leftover_settle_final_position_on_object(
     obj: &mut Object,
     pose_frame: u32,
     effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    partition: &mut crate::game_logic::partition_manager::PartitionManager,
 ) {
     if !obj.do_final_position {
         return;
@@ -3156,5 +3209,10 @@ fn leftover_settle_final_position_on_object(
         on_ground,
     );
     obj.do_final_position = still;
-    obj.set_position_with_effects(leftover_cpp_to_host(pos), pose_frame, effects);
+    obj.set_position_with_partition_owner(
+        leftover_cpp_to_host(pos),
+        pose_frame,
+        effects,
+        partition,
+    );
 }

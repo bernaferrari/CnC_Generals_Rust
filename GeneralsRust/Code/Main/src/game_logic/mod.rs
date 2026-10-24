@@ -35,12 +35,12 @@ pub(crate) mod terrain_definitions;
 pub(crate) use game_logic::PathfindingHeightSamples;
 pub(crate) use script_ui::ScriptUiEffects;
 mod script_presentation;
-#[cfg(feature = "game_client")]
-pub(crate) use script_presentation::NativeBodyVisualChange;
 pub(crate) use script_presentation::{
     NativeAudioEffects, NativeMapAdmission, NativeSlaveSource, NativeTerrainEffects,
     NativeViewEffects, ScriptPresentationEffects,
 };
+#[cfg(feature = "game_client")]
+pub(crate) use script_presentation::{NativeBodyVisualChange, NativeProjectedRadiusAllocator};
 #[cfg(feature = "game_client")]
 pub(crate) use script_presentation::{NativeFactoryDrawableSource, NativeObjectRetirement};
 

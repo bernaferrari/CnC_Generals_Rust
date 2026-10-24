@@ -394,7 +394,7 @@ pub struct Object {
     /// update membership during pose changes, while the `GameLogic` field is
     /// the sole strong owner and reset/save boundary.
     #[serde(skip)]
-    pub(super) host_trigger_world: std::sync::Weak<
+    pub(super) host_trigger_world: runtime_attachment::RuntimeAttachment<
         std::sync::Mutex<gamelogic::scripting::HostTriggerWorld>,
     >,
 
@@ -1596,6 +1596,10 @@ pub struct Object {
     /// dropping culled-but-live objects.
     #[serde(skip)]
     pub visual_draw_identity_token: std::sync::Arc<()>,
+    /// Immutable attachment identity, equivalent to original m_partitionData's
+    /// owner. No ambient selection or mutable state is reachable through it.
+    #[serde(skip)]
+    pub(crate) partition_namespace: runtime_attachment::RuntimeAttachment<()>,
     #[serde(skip)]
     pub visual_draw_state_revision: u64,
     /// Runtime setter notification sequence, owned by this admitted Object.
@@ -2898,6 +2902,9 @@ pub struct Object {
     #[serde(default)]
     pub partition_last_affect:
         Option<crate::game_logic::partition_manager::HostPartitionAffectStamp>,
+    /// A cached payload is not an applied cell receipt before map-grid admission.
+    #[serde(skip)]
+    pub(crate) partition_last_affect_applied: bool,
     /// Last doShroudReveal looker (C++ Object::m_partitionLastLook).
     #[serde(default)]
     pub partition_last_look:
@@ -3309,9 +3316,11 @@ pub(in crate::game_logic) use physics_motion::{
 mod body_visuals;
 pub(crate) use body_visuals::MaxHealthChange;
 mod material_commands;
+mod partition_scalars;
 mod pose;
 mod record;
 mod rtb;
+mod runtime_attachment;
 pub(crate) mod selected_weapon_set;
 mod status_bits;
 mod stealth;

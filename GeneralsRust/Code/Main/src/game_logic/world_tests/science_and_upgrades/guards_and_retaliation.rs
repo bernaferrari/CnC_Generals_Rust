@@ -875,11 +875,7 @@ fn host_guardee_follow_is_per_axis_two_cells_not_inner_radius() {
         "first idle tick only stamps m_guardeePos"
     );
 
-    logic
-        .objects
-        .get_mut(&cid)
-        .unwrap()
-        .set_position(glam::Vec3::new(PATHFIND_CELL_SIZE_F * 2.5, 0.0, 0.0));
+    logic.set_fixture_object_position(cid, glam::Vec3::new(PATHFIND_CELL_SIZE_F * 2.5, 0.0, 0.0));
     logic.frame = logic.host_guard_enemy_scan_rate();
     mark_guard_scan_due(&mut logic, gid);
     let mut adjusted_goal = logic.objects[&cid].get_position();
@@ -1063,11 +1059,7 @@ fn end_guard_chase_attack_clears_team_attack_common_target() {
 
     // Authored AI outer range is 200 * 2.2 * 1.5 = 660.
     // Victim left the outer ring: chase-exit must drop the shared victim.
-    logic
-        .objects
-        .get_mut(&eid)
-        .unwrap()
-        .set_position(glam::Vec3::new(800.0, 0.0, 0.0));
+    logic.set_fixture_object_position(eid, glam::Vec3::new(800.0, 0.0, 0.0));
     logic.update_support_states(&[gid, eid], 1.0 / 30.0);
     assert!(
         !logic
@@ -1401,11 +1393,7 @@ fn guard_retaliate_scan_victim_uses_inner_1_5x_not_aggressor() {
     logic.objects.get_mut(&vid).unwrap().health.current = 0.0;
     // Place the scan victim inside acquire (inner) so lookForInner finds it,
     // then walk it out to the 1.5x..aggressor band.
-    logic
-        .objects
-        .get_mut(&sid)
-        .unwrap()
-        .set_position(glam::Vec3::new(inner * 0.5, 0.0, 0.0));
+    logic.set_fixture_object_position(sid, glam::Vec3::new(inner * 0.5, 0.0, 0.0));
     mark_guard_scan_due(&mut logic, id);
     logic.tick_guard_retaliate_states();
     assert_eq!(
@@ -1422,11 +1410,7 @@ fn guard_retaliate_scan_victim_uses_inner_1_5x_not_aggressor() {
         "Inner scan victims are timer-free"
     );
 
-    logic
-        .objects
-        .get_mut(&sid)
-        .unwrap()
-        .set_position(glam::Vec3::new(between, 0.0, 0.0));
+    logic.set_fixture_object_position(sid, glam::Vec3::new(between, 0.0, 0.0));
     logic.tick_guard_retaliate_states();
     assert_eq!(
         logic.objects[&id].guard_chase_phase, 2,

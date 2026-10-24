@@ -129,9 +129,13 @@ impl GameLogic {
                             payload.set_position_with_effects(
                                 drop - velocity,
                                 self.frame,
-                                presentation_effects,
+                                &mut presentation_effects
+                                    .reborrow_for_object(&mut self.partition_manager),
                             );
-                            payload.set_orientation(yaw);
+                            payload.set_orientation_with_partition_owner(
+                                yaw,
+                                &mut self.partition_manager,
+                            );
                             payload.movement.velocity = velocity;
                             let _ = payload.set_smart_bomb_target(target);
                         }
@@ -265,10 +269,17 @@ impl GameLogic {
                     let (mut next, mut velocity, at_exit) = data.tick_transport(position);
                     next.y = vertical.new_y;
                     velocity.y = next.y - position.y;
-                    object.set_position_with_effects(next, self.frame, presentation_effects);
+                    object.set_position_with_effects(
+                        next,
+                        self.frame,
+                        &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                    );
                     object.movement.velocity = velocity;
                     if velocity.length_squared() > 1e-6 {
-                        object.set_orientation(velocity.z.atan2(velocity.x));
+                        object.set_orientation_with_partition_owner(
+                            velocity.z.atan2(velocity.x),
+                            &mut self.partition_manager,
+                        );
                     }
                     Some(at_exit)
                 });
@@ -301,7 +312,11 @@ impl GameLogic {
                 })
                 .map(|object| {
                     let position = object.get_position() + object.movement.velocity;
-                    object.set_position_with_effects(position, self.frame, presentation_effects);
+                    object.set_position_with_effects(
+                        position,
+                        self.frame,
+                        &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                    );
                     (position, object.producer_id, object.team)
                 })
             else {

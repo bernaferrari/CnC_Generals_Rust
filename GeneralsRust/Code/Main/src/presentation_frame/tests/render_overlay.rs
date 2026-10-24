@@ -989,8 +989,13 @@ fn overlay_gameworld_shadow_copies_entity_residual() {
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
     // Poison host after sync — overlay must use shadow residual.
-    if let Some(obj) = logic.host_object_mut(id) {
-        obj.set_position(glam::Vec3::new(999.0, 0.0, 999.0));
+    if let Some((obj, fixture_partition)) = logic.host_object_and_partition_mut(id) {
+        obj.set_position_with_partition_owner(
+            glam::Vec3::new(999.0, 0.0, 999.0),
+            0,
+            &mut Default::default(),
+            fixture_partition,
+        );
         obj.selected = false;
         obj.command_set_override = None;
         obj.status.stealthed = false;
@@ -1681,10 +1686,7 @@ fn apply_events_queues_authored_fire_audio_without_inventing_attack_or_death_sou
         unit: source,
         sound: AUTHORED_FIRE_SOUND.into(),
     });
-    logic
-        .host_object_mut(source)
-        .expect("live source")
-        .set_position(glam::Vec3::new(91.0, 2.0, 13.0));
+    logic.set_fixture_object_position(source, glam::Vec3::new(91.0, 2.0, 13.0));
 
     assert_eq!(frame.apply_events_to_audio(&mut logic), 1);
     assert_eq!(logic.queued_audio_events.len(), 1);

@@ -637,8 +637,14 @@ fn canonical_fow_is_projected_from_receiving_owner() {
         .map(|player| (player.id, player.team))
         .expect("other live owner");
     {
-        let (object, ownership_events) = logic.host_object_and_ownership_events_mut(oid).unwrap();
-        object.set_team_and_owner(other.1, Some(other.0), ownership_events);
+        let (object, ownership_events, fixture_partition) =
+            logic.host_object_ownership_partition_mut(oid).unwrap();
+        object.set_team_and_owner_with_partition_owner(
+            other.1,
+            Some(other.0),
+            ownership_events,
+            fixture_partition,
+        );
     };
     {
         let shroud = logic.world_services.shroud();

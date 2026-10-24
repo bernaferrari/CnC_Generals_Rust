@@ -555,18 +555,28 @@ fn apply_host_positions_uses_host_orientation_channel() {
         [p.x, p.y, p.z]
     };
     {
-        let o = logic.host_object_mut(id).unwrap();
-        o.set_position(glam::Vec3::from_array(pos));
-        o.set_orientation(0.75);
+        let (o, fixture_partition_o) = logic.host_object_and_partition_mut(id).unwrap();
+        o.set_position_with_partition_owner(
+            glam::Vec3::from_array(pos),
+            0,
+            &mut Default::default(),
+            fixture_partition_o,
+        );
+        o.set_orientation_with_partition_owner(0.75, fixture_partition_o);
     }
     shadow.sync_from_host(&logic);
     let eid = shadow.entity_for_host(id).unwrap();
     assert!((shadow.world().entity(eid).unwrap().transform.orientation - 0.75).abs() < 0.01);
     // Second pose write with new facing (simulates host turn + position step).
     {
-        let o = logic.host_object_mut(id).unwrap();
-        o.set_position(glam::Vec3::from_array([6.0, 0.0, 5.0]));
-        o.set_orientation(-0.25);
+        let (o, fixture_partition_o) = logic.host_object_and_partition_mut(id).unwrap();
+        o.set_position_with_partition_owner(
+            glam::Vec3::from_array([6.0, 0.0, 5.0]),
+            0,
+            &mut Default::default(),
+            fixture_partition_o,
+        );
+        o.set_orientation_with_partition_owner(-0.25, fixture_partition_o);
     }
     shadow.sync_from_host(&logic);
     let e = shadow.world().entity(eid).unwrap();
@@ -586,9 +596,14 @@ fn set_transform_mutation_moves_shadow_entity() {
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
     {
-        let o = logic.host_object_mut(id).unwrap();
-        o.set_position(glam::Vec3::from_array([10.0, 0.0, 5.0]));
-        o.set_orientation(1.5);
+        let (o, fixture_partition_o) = logic.host_object_and_partition_mut(id).unwrap();
+        o.set_position_with_partition_owner(
+            glam::Vec3::from_array([10.0, 0.0, 5.0]),
+            0,
+            &mut Default::default(),
+            fixture_partition_o,
+        );
+        o.set_orientation_with_partition_owner(1.5, fixture_partition_o);
     }
     shadow.sync_from_host(&logic);
     let eid = shadow.entity_for_host(id).unwrap();
@@ -1233,10 +1248,15 @@ fn host_object_ignores_registry_when_bridge_off() {
         .create_object("BridgeIgnU", Team::USA, glam::Vec3::ZERO)
         .expect("id");
     {
-        let o = logic.host_object_mut(id).unwrap();
+        let (o, fixture_partition) = logic.host_object_and_partition_mut(id).unwrap();
         // Stale bridge id must not hijack host pose/HP when bridge off.
         o.health.current = 12.0;
-        o.set_position(glam::Vec3::new(3.0, 0.0, 4.0));
+        o.set_position_with_partition_owner(
+            glam::Vec3::new(3.0, 0.0, 4.0),
+            0,
+            &mut Default::default(),
+            fixture_partition,
+        );
     }
     let o = logic.host_objects().lookup(&id).unwrap();
     assert!((o.get_health_percentage() - (12.0 / 50.0)).abs() < 0.02 || o.health.current == 12.0);
@@ -1256,11 +1276,16 @@ fn host_object_pose_hp_never_dual_read_registry() {
         .create_object("HostSoleU", Team::USA, glam::Vec3::new(1.0, 0.0, 2.0))
         .expect("id");
     {
-        let o = logic.host_object_mut(id).unwrap();
+        let (o, fixture_partition) = logic.host_object_and_partition_mut(id).unwrap();
         o.health.current = 33.0;
         o.health.maximum = 80.0;
-        o.set_position(glam::Vec3::new(7.0, 0.0, 9.0));
-        o.set_orientation(1.25);
+        o.set_position_with_partition_owner(
+            glam::Vec3::new(7.0, 0.0, 9.0),
+            0,
+            &mut Default::default(),
+            fixture_partition,
+        );
+        o.set_orientation_with_partition_owner(1.25, fixture_partition);
     }
     let o = logic.host_objects().lookup(&id).unwrap();
     assert_eq!(o.get_position(), glam::Vec3::new(7.0, 0.0, 9.0));
@@ -2106,8 +2131,9 @@ fn host_logic_step_active_keeps_repeated_object_mutations_and_getters_on_owner()
                         attack_events,
                         &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
                     );
-                    object.set_position(glam::Vec3::from_array(owner_position));
                 }
+
+                owner.set_fixture_object_position(source, glam::Vec3::from_array(owner_position));
 
                 // A second ordinary mutable borrow used to re-overlay the old
                 // GameWorld pose/target, erasing the first host operation.
@@ -2119,9 +2145,12 @@ fn host_logic_step_active_keeps_repeated_object_mutations_and_getters_on_owner()
                             owner_position,
                             "the first host mutation must survive the second borrow"
                         );
-                        object.set_position(glam::Vec3::from_array(final_owner_position));
                     })
                     .expect("second owner mutation");
+                owner.set_fixture_object_position(
+                    source,
+                    glam::Vec3::from_array(final_owner_position),
+                );
 
                 assert_eq!(
                     owner.host_authoritative_target(source),
@@ -2346,9 +2375,7 @@ fn interleaved_creation_and_peer_drop_stay_with_the_receiving_host() {
     );
     assert_eq!(a.host_object(a_id).unwrap().template_name, "OwnedSpawnA");
     assert_eq!(b.host_object(b_id).unwrap().template_name, "OwnedSpawnB");
-    b.host_object_mut(b_id)
-        .unwrap()
-        .set_position(Vec3::new(31.0, 0.0, 32.0));
+    b.set_fixture_object_position(b_id, Vec3::new(31.0, 0.0, 32.0));
     b_shadow.sync_from_host(&b);
     a_shadow.sync_from_host(&a);
     assert_eq!(

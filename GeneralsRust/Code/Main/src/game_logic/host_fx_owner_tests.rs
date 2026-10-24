@@ -74,10 +74,8 @@ fn world(local: u32, x: f32) -> (GameLogic, ObjectId, ObjectId) {
     let secondary = logic
         .create_object("FxOwnerUnit", Team::China, Vec3::new(x + 10.0, 6.0, 25.0))
         .unwrap();
-    logic
-        .host_object_mut(primary)
-        .unwrap()
-        .set_orientation(0.75);
+    let (object, partition) = logic.host_object_and_partition_mut(primary).unwrap();
+    object.set_orientation_with_partition_owner(0.75, partition);
     assert_eq!(logic.local_player_id(), Some(local));
     (logic, primary, secondary)
 }

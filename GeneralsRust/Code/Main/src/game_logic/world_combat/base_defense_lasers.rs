@@ -1335,7 +1335,7 @@ impl GameLogic {
             self.health_events
                 .record_applied_heal(o.id, o.health.current);
             o.movement.velocity = vel;
-            o.set_orientation(dir.z.atan2(dir.x));
+            o.set_orientation_with_partition_owner(dir.z.atan2(dir.x), &mut self.partition_manager);
         }
         self.rocket_buggy_missiles_spawned = self.rocket_buggy_missiles_spawned.saturating_add(1);
         Some(pid)
@@ -1416,10 +1416,17 @@ impl GameLogic {
             let step = vel.length().max(speed);
             if let Some(o) = self.objects.get_mut(&id) {
                 o.movement.velocity = vel;
-                o.set_position_with_effects(pos + vel, self.frame, presentation_effects);
+                o.set_position_with_effects(
+                    pos + vel,
+                    self.frame,
+                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                );
                 o.rocket_buggy_missile_travelled += step;
                 o.rocket_buggy_missile_aim = Some([aim.x, aim.y, aim.z]);
-                o.set_orientation(vel.z.atan2(vel.x));
+                o.set_orientation_with_partition_owner(
+                    vel.z.atan2(vel.x),
+                    &mut self.partition_manager,
+                );
             }
             let new_pos = pos + vel;
             let near = (aim - new_pos).length() < 8.0;
@@ -1439,7 +1446,11 @@ impl GameLogic {
                 o.status.destroyed = true;
                 o.status.effectively_dead = true;
                 o.rocket_buggy_missile_projectile = false;
-                o.set_position_with_effects(pos, self.frame, presentation_effects);
+                o.set_position_with_effects(
+                    pos,
+                    self.frame,
+                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                );
             }
             let _ = self.apply_rocket_buggy_residual_at_with_effects(
                 pos,
@@ -1771,7 +1782,7 @@ impl GameLogic {
             self.health_events
                 .record_applied_heal(o.id, o.health.current);
             o.movement.velocity = vel;
-            o.set_orientation(dir.z.atan2(dir.x));
+            o.set_orientation_with_partition_owner(dir.z.atan2(dir.x), &mut self.partition_manager);
             // A receiving native definition owns exactly its authored updates.
             // Retail SCUDMissile has no HeightDieUpdate; retain this bootstrap
             // flight safeguard only until an unbound template is migrated.
@@ -1873,9 +1884,16 @@ impl GameLogic {
             if let Some(o) = self.objects.get_mut(&id) {
                 o.movement.velocity = vel;
                 let p = o.get_position();
-                o.set_position_with_effects(p + vel, self.frame, presentation_effects);
+                o.set_position_with_effects(
+                    p + vel,
+                    self.frame,
+                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                );
                 o.scud_launcher_missile_travelled += step;
-                o.set_orientation(vel.z.atan2(vel.x));
+                o.set_orientation_with_partition_owner(
+                    vel.z.atan2(vel.x),
+                    &mut self.partition_manager,
+                );
             }
             let new_pos = pos + vel;
             let near = glam::Vec3::new(aim.x - new_pos.x, 0.0, aim.z - new_pos.z).length() < 12.0

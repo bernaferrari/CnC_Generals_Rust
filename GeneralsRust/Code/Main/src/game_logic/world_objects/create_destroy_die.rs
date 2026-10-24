@@ -173,16 +173,20 @@ impl GameLogic {
             return false;
         };
 
-        if let Some((collector, attack_events, audio_events)) =
-            self.host_object_attack_audio_mut(collector_id)
+        let operation_frame = self.frame;
+        if let Some((collector, attack_events, audio_events, partition)) =
+            self.host_object_attack_audio_partition_mut(collector_id)
         {
             // `m_preferredDock` is set by the supply-center/AI handoff, and
             // stays distinct from merely sharing a faction team.
             collector.preferred_dock_id = Some(center_id);
-            collector.set_target(
+            collector.set_target_with_operation(
                 Some(source_id),
                 attack_events,
                 &mut crate::game_logic::ObjectAudio::queue(audio_events),
+                operation_frame,
+                &mut crate::game_logic::ScriptPresentationEffects::default()
+                    .reborrow_for_object(partition),
             );
             // Keep a concrete one-shot latch/state mirror alongside the
             // host AIState.  The latter still owns path following; the former
@@ -435,9 +439,9 @@ impl GameLogic {
         else {
             return Ok(None);
         };
-        if let Some(spawned) = self.host_object_mut(spawned_id) {
+        if let Some((spawned, partition)) = self.host_object_and_partition_mut(spawned_id) {
             spawned.producer_id = Some(center_id);
-            spawned.set_orientation(orientation);
+            spawned.set_orientation_with_partition_owner(orientation, partition);
         }
         // CPP SpawnBehavior.cpp:613-616 notifies Player/AI immediately after
         // allocation, before exitObjectViaDoor (705). Paid production differs.
@@ -663,9 +667,9 @@ impl GameLogic {
         else {
             return Ok(None);
         };
-        if let Some(spawned) = self.host_object_mut(spawned_id) {
+        if let Some((spawned, partition)) = self.host_object_and_partition_mut(spawned_id) {
             spawned.producer_id = Some(parent_id);
-            spawned.set_orientation(orientation);
+            spawned.set_orientation_with_partition_owner(orientation, partition);
             // C++ SpawnPointProductionExitUpdate::exitObjectViaDoor
             // (`SpawnPointProductionExitUpdate.cpp:87`) `setDisabled(DISABLED_HELD)`.
             spawned.set_status_disabled_held(true);
@@ -1452,8 +1456,13 @@ impl GameLogic {
         {
             let object = self.objects.get_mut(&id)?;
             object.producer_id = Some(producer_id);
-            object.set_position_with_effects(ground_position, self.frame, ui);
-            object.set_orientation(orientation);
+            object.set_position_with_partition_owner(
+                ground_position,
+                self.frame,
+                ui,
+                &mut self.partition_manager,
+            );
+            object.set_orientation_with_partition_owner(orientation, &mut self.partition_manager);
         }
         self.movement_events.record(
             self.frame,
@@ -1473,7 +1482,7 @@ impl GameLogic {
         self.complete_instant_line_build_player_with_effects(producer_id, id, owner_player_id, ui);
         self.apply_create_modules_on_build_complete_with_effects(id, None, ui);
         if let Some(object) = self.objects.get_mut(&id) {
-            object.stamp_partition_value_threat();
+            object.stamp_partition_value_threat_with_partition_owner(&mut self.partition_manager);
         }
         self.apply_cash_bounty_on_object_created(id);
         Some(id)
@@ -2855,11 +2864,17 @@ impl GameLogic {
                 }
             }
 
+            // CPP ThingFactory317: attach after all Create callbacks, before
+            // initObject's synchronous native Drawable announcement. Coverage
+            // remains pending until the original partition update phase.
+            if let Some(object) = self.objects.get_mut(&id) {
+                self.partition_manager.attach_receiving_object(object);
+            }
             // ThingFactory registers the completed constructor/onCreate result
             // with partition before Object::initObject announces its Drawable.
             if !starts_under_construction {
                 if let Some(object) = self.objects.get_mut(&id) {
-                    object.stamp_partition_value_threat();
+                    object.cache_initial_partition_scalar_payload(&self.partition_manager);
                 }
             }
             self.admit_factory_drawable_with_effects(id, ui)?;
@@ -2992,7 +3007,12 @@ impl GameLogic {
                     "Object {id} disappeared during factory initialization"
                 )));
             };
-            object.set_position_with_effects(position, self.frame, ui);
+            object.set_position_with_partition_owner(
+                position,
+                self.frame,
+                ui,
+                &mut self.partition_manager,
+            );
             if crate::game_logic::host_bridge_behavior::is_bridge_span_template(template_name) {
                 let object = self
                     .objects

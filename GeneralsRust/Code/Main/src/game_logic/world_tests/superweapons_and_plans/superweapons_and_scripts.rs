@@ -866,10 +866,7 @@ fn carbomb_attack_structure_detonates_with_observable_damage() {
     assert!(!game_logic.honesty_carbomb_detonate_ok());
     // Advance only the fixture pose to physical contact. This case exercises
     // combat admission/detonation; it does not claim a movement tick oracle.
-    game_logic
-        .host_object_mut(car_id)
-        .unwrap()
-        .set_position(Vec3::new(2.0, 0.0, 0.0));
+    game_logic.set_fixture_object_position(car_id, Vec3::new(2.0, 0.0, 0.0));
     game_logic.frame = 30;
     game_logic.update_combat(&[car_id, structure_id], 1.0 / 30.0);
 

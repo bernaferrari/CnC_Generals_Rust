@@ -1041,7 +1041,7 @@ impl<'a> CommandExecutor<'a> {
         let bldg_h = object_target.and_then(|tid| {
             self.game_logic.host_object(tid).and_then(|o| {
                 if o.is_alive() && o.is_kind_of(crate::game_logic::KindOf::Structure) {
-                    Some(o.thing().template.geometry_info.max_height_above_position())
+                    Some((*o.geometry_info()).max_height_above_position())
                 } else {
                     None
                 }

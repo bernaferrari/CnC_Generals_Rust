@@ -1,5 +1,5 @@
 //! Object.cpp985-1012: an actual UC edge completes its mine callbacks inline.
-//! Geometry/candidate ordering remains the existing Main sweep's separate scope.
+//! Resident mines have passed the original PM phase; new dirty births have not.
 use super::*;
 use gamelogic::common::Relationship;
 
@@ -87,6 +87,17 @@ fn wave(owner: &mut GameLogic) -> [ObjectId; 3] {
     [mine(owner, 1), mine(owner, 2), mine(owner, 3)]
 }
 
+/// C++ PartitionManager::update, after births and before the later UC edge.
+/// This is deliberately not hidden inside factory/mine helpers or the sweep.
+fn resident_partition_phase(owner: &mut GameLogic) {
+    let frame = owner.frame;
+    owner.update_owned_partition_with_effects(&mut Default::default());
+    assert_eq!(
+        owner.frame, frame,
+        "PM phase does not advance the logic clock"
+    );
+}
+
 fn pending_count(owner: &GameLogic, id: ObjectId) -> usize {
     owner
         .objects_to_destroy
@@ -146,6 +157,8 @@ fn actual_uc_edges_kill_enemy_bodies_and_destroy_other_mines_inline_only_in_the_
     let (mut peer, peer_site) = world(Relationship::Allies);
     let first = wave(&mut owner);
     let peer_first = wave(&mut peer);
+    resident_partition_phase(&mut owner);
+    resident_partition_phase(&mut peer);
     assert_eq!((site, first), (peer_site, peer_first));
     assert!(owner.set_object_under_construction_with_effects(site, true, &mut Default::default()));
     assert_killed(&owner, first[0]);
@@ -157,6 +170,8 @@ fn actual_uc_edges_kill_enemy_bodies_and_destroy_other_mines_inline_only_in_the_
     assert_live(&peer, peer_first);
     let second = wave(&mut owner);
     let peer_second = wave(&mut peer);
+    resident_partition_phase(&mut owner);
+    resident_partition_phase(&mut peer);
     assert_eq!(second, peer_second);
     assert!(peer.set_object_under_construction_with_effects(
         peer_site,
@@ -176,6 +191,8 @@ fn actual_uc_edges_kill_enemy_bodies_and_destroy_other_mines_inline_only_in_the_
     assert_silently_destroyed(&owner, second[2]);
     let third = wave(&mut owner);
     let peer_third = wave(&mut peer);
+    resident_partition_phase(&mut owner);
+    resident_partition_phase(&mut peer);
     assert_eq!(third, peer_third);
     assert!(!owner.set_object_under_construction_with_effects(
         site,
@@ -227,6 +244,7 @@ fn effective_uc_edges_normalize_bool_and_raw_bits_without_duplicate_callback_or_
             object.status.under_construction = boolean;
             object.object_status_bits = if raw { bit } else { 0 };
             object.construction_power_admitted = true;
+            resident_partition_phase(&mut owner);
             if via_masks {
                 let (set, clear): (&[&str], &[&str]) = if effective {
                     (&["UNDER_CONSTRUCTION"], &[])
@@ -300,6 +318,7 @@ fn effective_uc_edges_normalize_bool_and_raw_bits_without_duplicate_callback_or_
     // An Object-only value mutation is not an owner callback or a queued request.
     let (mut owner, site) = world(Relationship::Enemies);
     let id = mine(&mut owner, 1);
+    resident_partition_phase(&mut owner);
     owner
         .host_object_mut(site)
         .unwrap()
@@ -320,6 +339,8 @@ fn authored_status_bits_upgrade_uses_receiving_module_and_inline_set_then_clear(
     let (mut peer, peer_site) = world_with_masks(Relationship::Enemies, "NO_ATTACK", "CAN_ATTACK");
     let id = mine(&mut owner, 1);
     let peer_id = mine(&mut peer, 1);
+    resident_partition_phase(&mut owner);
+    resident_partition_phase(&mut peer);
     assert_eq!((site, id), (peer_site, peer_id));
     owner
         .host_object_mut(site)
@@ -351,6 +372,7 @@ fn authored_status_bits_upgrade_uses_receiving_module_and_inline_set_then_clear(
     );
     assert_live(&peer, [peer_id]);
     let later_mine = mine(&mut owner, 1);
+    resident_partition_phase(&mut owner);
     owner
         .apply_upgrade_to_object_with_effects_checked(site, UPGRADE, &mut Default::default())
         .unwrap();
@@ -393,6 +415,8 @@ fn construction_completion_observes_uc_mine_death_before_player_and_build_comple
     object.set_under_construction_model_conditions(true);
     let id = mine(&mut owner, 1);
     let peer_id = mine(&mut peer, 1);
+    resident_partition_phase(&mut owner);
+    resident_partition_phase(&mut peer);
     assert_eq!(id, peer_id);
     let mut observed = false;
     owner.notify_structure_construction_complete_with_prepared_observer(site, |owner, prepared| {
@@ -435,4 +459,39 @@ fn construction_completion_observes_uc_mine_death_before_player_and_build_comple
         .unwrap();
     assert!(owner.host_object(id).is_none());
     assert_live(&peer, [peer_id]);
+}
+
+#[test]
+fn uc_sweep_observes_original_dirty_birth_boundary_before_resident_cois() {
+    let (mut owner, site) = world(Relationship::Enemies);
+    let id = mine(&mut owner, 1);
+    let in_cells = |world: &GameLogic| {
+        world
+            .partition_manager
+            .ids_in_radius_iterator_order(100.0, 100.0, 22.0, |_| true)
+            .contains(&id.0)
+    };
+    assert!(
+        !in_cells(&owner),
+        "registerObject attaches an empty dirty COI module"
+    );
+    assert!(owner.set_object_under_construction_with_effects(site, true, &mut Default::default()));
+    assert_live(&owner, [id]);
+    assert!(
+        !in_cells(&owner),
+        "UC potential-collision iteration does not flush dirty births"
+    );
+    resident_partition_phase(&mut owner);
+    assert!(
+        in_cells(&owner),
+        "the actual PM phase publishes the same birth's COIs"
+    );
+    assert!(!owner.set_object_under_construction_with_effects(site, true, &mut Default::default()));
+    assert_live(&owner, [id]);
+    assert!(owner.set_object_under_construction_with_effects(site, false, &mut Default::default()));
+    assert_killed(&owner, id);
+    assert!(
+        owner.objects.ordered_ids().contains(&id),
+        "UC kill remains inline and physical deletion stays deferred"
+    );
 }

@@ -467,6 +467,7 @@ impl GameLogic {
         ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
     ) {
         let mut effects = crate::game_logic::ScriptPresentationEffects {
+            partition: None,
             audio: None,
             terrain: None,
             ui: ui
@@ -1358,9 +1359,9 @@ impl GameLogic {
                 _ => None,
             };
             if let Some(new_id) = new_id {
-                if let Some(unit) = self.host_object_mut(new_id) {
+                if let Some((unit, partition)) = self.host_object_and_partition_mut(new_id) {
                     unit.producer_id = Some(producer_id);
-                    unit.set_orientation(producer_orientation);
+                    unit.set_orientation_with_partition_owner(producer_orientation, partition);
                 }
 
                 // C++ `ParkingPlaceBehavior::exitObjectViaDoor` reserves an
@@ -1813,7 +1814,11 @@ impl GameLogic {
                 }
                 if let Some(unit) = self.objects.get_mut(&new_id) {
                     {
-                        unit.set_position_with_effects(spawn_pos, pose_frame, ui);
+                        unit.set_position_with_effects(
+                            spawn_pos,
+                            pose_frame,
+                            &mut ui.reborrow_for_object(&mut self.partition_manager),
+                        );
                     }
                 }
                 // C++ QueueProductionExitUpdate.cpp:91-105: kick after snap when
@@ -2179,6 +2184,10 @@ impl GameLogic {
                 if already || has_builder {
                     continue;
                 }
+
+                // GameLogic.cpp578: every successive starting-unit placement
+                // queries after the previous birth's dirty partition phase.
+                self.update_owned_partition_with_effects(effects);
 
                 // C++ uses rally as findPositionAround center; invented yard offsets
                 // only when the map has no Player_N_Rally.

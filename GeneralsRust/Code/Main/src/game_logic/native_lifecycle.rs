@@ -286,22 +286,14 @@ impl GameLogic {
         };
         let mut extra = definition.target_height;
         if definition.target_height_includes_structures {
-            let range = object
-                .thing()
-                .template
-                .geometry_info
-                .bounding_circle_radius();
-            let owner_sphere = object
-                .thing()
-                .template
-                .geometry_info
-                .bounding_sphere_radius();
+            let range = (*object.geometry_info()).bounding_circle_radius();
+            let owner_sphere = (*object.geometry_info()).bounding_sphere_radius();
             let mut tallest = 0.0f32;
             for (other_id, other) in self.objects.registered() {
                 if *other_id == id || !other.is_kind_of(KindOf::Structure) {
                     continue;
                 }
-                let geometry = &other.thing().template.geometry_info;
+                let geometry = &(*other.geometry_info());
                 let center = |position: Vec3, geometry: &super::thing::HostGeometryInfo| {
                     let offset = if geometry.geom_type == super::thing::HostGeometryType::Sphere {
                         0.0
@@ -310,7 +302,7 @@ impl GameLogic {
                     };
                     position + Vec3::Y * offset
                 };
-                let distance = (center(position, &object.thing().template.geometry_info)
+                let distance = (center(position, &(*object.geometry_info()))
                     .distance(center(other.get_position(), geometry))
                     - owner_sphere
                     - geometry.bounding_sphere_radius())
@@ -386,7 +378,7 @@ impl GameLogic {
                     object.set_position_with_effects(
                         Vec3::new(position.x, terrain, position.z),
                         pose_frame,
-                        effects,
+                        &mut effects.reborrow_for_object(&mut self.partition_manager),
                     );
                 }
             }

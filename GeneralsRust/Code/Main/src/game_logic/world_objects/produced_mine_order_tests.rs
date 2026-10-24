@@ -69,8 +69,13 @@ fn produced_mines_capture_in_registration_order_and_prepend_roster_synchronously
 #[test]
 fn recreated_mine_is_list_head_and_unrelated_or_removed_mines_do_not_transfer() {
     let (mut world, producer, [first, second, third]) = world();
-    let removed = world.objects.remove(&first).unwrap();
-    world.add_object(removed);
+    assert!(!world.finish_direct_object_removal(first));
+    world.set_next_object_id_for_restore(first);
+    let recreated = world
+        .create_object_for_player("OrderedProducedMine", 0, Vec3::ZERO)
+        .unwrap();
+    assert_eq!(recreated, first);
+    world.host_object_mut(first).unwrap().producer_id = Some(producer);
     world.objects.get_mut(&second).unwrap().producer_id = None;
     // The return value reports a removed structure, not removal success.
     assert!(!world.finish_direct_object_removal(third));

@@ -9,8 +9,8 @@ pub fn host_object_collide_geom(obj: &Object) -> (gamelogic::object::collide::Ge
     use crate::game_logic::HostGeometryType;
     use gamelogic::object::collide::GeometryInfo;
     let angle = obj.get_orientation();
-    let authored = &obj.thing().template.geometry_info;
-    if authored.authored {
+    let authored = obj.geometry_info();
+    if authored.authored || obj.thing().template.receiving_object_definition.is_some() {
         let geom = match authored.geom_type {
             HostGeometryType::Sphere => {
                 GeometryInfo::new_sphere(authored.major_radius, authored.is_small)
@@ -52,8 +52,8 @@ pub fn host_object_collide_geom(obj: &Object) -> (gamelogic::object::collide::Ge
 
 pub fn host_object_footprint(obj: &Object) -> HostPartitionFootprint {
     use crate::game_logic::HostGeometryType;
-    let authored = &obj.thing().template.geometry_info;
-    if authored.authored {
+    let authored = obj.geometry_info();
+    if authored.authored || obj.thing().template.receiving_object_definition.is_some() {
         let (major, minor, is_box) = match authored.geom_type {
             HostGeometryType::Sphere | HostGeometryType::Cylinder => {
                 (authored.major_radius, authored.major_radius, false)

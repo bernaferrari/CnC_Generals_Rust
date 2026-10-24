@@ -28,8 +28,8 @@ fn load(world: &mut GameLogic, passenger: ObjectId, container: ObjectId) {
             .unwrap()
             .add_occupant(passenger)
     );
-    let rider = world.host_object_mut(passenger).unwrap();
-    rider.set_contained_by(Some(container));
+    let (rider, fixture_partition_rider) = world.host_object_and_partition_mut(passenger).unwrap();
+    rider.set_contained_by_with_partition_owner(Some(container), true, fixture_partition_rider);
     rider.set_ai_state(
         AIState::Garrisoned,
         &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
@@ -120,9 +120,7 @@ fn enter_command_ignores_capacity_but_arrival_rechecks_it() {
         1
     );
     assert_eq!(a.host_object(id).unwrap().ai_state, AIState::Entering);
-    a.host_object_mut(id)
-        .unwrap()
-        .set_position(Vec3::new(70.0, 0.0, 70.0));
+    a.set_fixture_object_position(id, Vec3::new(70.0, 0.0, 70.0));
     a.update_support_states(&[id], 1.0 / 30.0);
     assert_eq!(a.host_object(id).unwrap().contained_by, None);
     assert_eq!(
@@ -303,8 +301,13 @@ fn exit_request_admits_landing_only_at_chinook_update_and_waits_until_landed() {
     };
     let (mut owner, rider, _) = world();
     let container = transport(&mut owner);
-    let hull = owner.host_object_mut(container).unwrap();
-    hull.set_position(Vec3::new(70.0, 30.0, 70.0));
+    let (hull, fixture_partition_hull) = owner.host_object_and_partition_mut(container).unwrap();
+    hull.set_position_with_partition_owner(
+        Vec3::new(70.0, 30.0, 70.0),
+        0,
+        &mut Default::default(),
+        fixture_partition_hull,
+    );
     hull.chinook_ai = Some(HostChinookAI::new_vanilla([70.0, 70.0, 30.0]));
     load(&mut owner, rider, container);
     evacuate(&mut owner);

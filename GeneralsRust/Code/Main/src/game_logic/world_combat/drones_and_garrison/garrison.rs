@@ -190,7 +190,11 @@ impl GameLogic {
                 .is_some_and(|c| !c.is_enclosing_garrison_container());
             if pin_station {
                 if let Some(occ) = self.objects.get_mut(&garrisoned_id) {
-                    occ.set_position_with_effects(fire_pos, self.frame, presentation_effects);
+                    occ.set_position_with_effects(
+                        fire_pos,
+                        self.frame,
+                        &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                    );
                 }
             }
         }
@@ -369,8 +373,23 @@ impl GameLogic {
             self.tunnel_network
                 .stamp_contained_by_frame(occupant_id, self.frame);
             if let Some(occupant) = self.objects.get_mut(&occupant_id) {
-                occupant.set_contained_by(Some(container_id));
-                occupant.set_position_with_effects(position, self.frame, ui);
+                let containment_actor_id = occupant.id;
+                Self::set_owned_containment_in_parts(
+                    &mut self.objects,
+                    &mut self.partition_manager,
+                    containment_actor_id,
+                    Some(container_id),
+                    true,
+                );
+                let occupant = self
+                    .objects
+                    .get_mut(&containment_actor_id)
+                    .expect("containment operation preserves this birth");
+                occupant.set_position_with_effects(
+                    position,
+                    self.frame,
+                    &mut ui.reborrow_for_object(&mut self.partition_manager),
+                );
                 occupant.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                     &mut self.queued_audio_events,
                 ));
@@ -604,7 +623,11 @@ impl GameLogic {
         };
         if let Some(pos) = station {
             if let Some(occ) = self.objects.get_mut(&occupant_id) {
-                occ.set_position_with_effects(pos, self.frame, presentation_effects);
+                occ.set_position_with_effects(
+                    pos,
+                    self.frame,
+                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                );
             }
         }
     }
@@ -638,7 +661,10 @@ impl GameLogic {
             .unwrap_or_default();
         if occupants.is_empty() {
             if let Some(container) = self.objects.get_mut(&container_id) {
-                container.restore_garrison_original_team_if_empty(&mut self.ownership_events);
+                container.restore_garrison_original_team_if_empty_with_partition_owner(
+                    &mut self.ownership_events,
+                    &mut self.partition_manager,
+                );
             }
             return;
         }
@@ -665,7 +691,12 @@ impl GameLogic {
                 }
                 bd.hide_garrisoned_state = hide;
             }
-            container.set_team_and_owner(first_team, first_owner, &mut self.ownership_events);
+            container.set_team_and_owner_with_partition_owner(
+                first_team,
+                first_owner,
+                &mut self.ownership_events,
+                &mut self.partition_manager,
+            );
         }
     }
 
@@ -758,7 +789,11 @@ impl GameLogic {
                 }
             }
             if let Some(c) = self.objects.get_mut(&container_id) {
-                let _ = c.remove_occupant(pid, &mut self.ownership_events);
+                let _ = c.remove_occupant_with_partition_owner(
+                    pid,
+                    &mut self.ownership_events,
+                    &mut self.partition_manager,
+                );
             }
             self.walk_unit_via_open_contain_exit_with_effects(
                 pid,
@@ -820,7 +855,7 @@ impl GameLogic {
             let disposition = container.garrison_evac_disposition();
             let (sin, cos) = yaw.sin_cos();
             if disposition == 1 || disposition == 2 {
-                let geom = container.thing().template.geometry_info;
+                let geom = (*container.geometry_info());
                 let half_length = if geom.authored {
                     geom.major_radius
                 } else {
@@ -879,7 +914,11 @@ impl GameLogic {
             }
         }
         if let Some(c) = self.objects.get_mut(&container_id) {
-            let _ = c.remove_occupant(unit_id, &mut self.ownership_events);
+            let _ = c.remove_occupant_with_partition_owner(
+                unit_id,
+                &mut self.ownership_events,
+                &mut self.partition_manager,
+            );
         }
         // TransportContain::onRemoving wakes only an idle rider, before
         // OpenContain::exitObjectViaDoor issues its follow-path command.
@@ -896,10 +935,25 @@ impl GameLogic {
         }
         if is_garrison || exit_count > 0 {
             if let Some(unit) = self.objects.get_mut(&unit_id) {
-                unit.set_contained_by(None);
+                let containment_actor_id = unit.id;
+                Self::set_owned_containment_in_parts(
+                    &mut self.objects,
+                    &mut self.partition_manager,
+                    containment_actor_id,
+                    None,
+                    true,
+                );
+                let unit = self
+                    .objects
+                    .get_mut(&containment_actor_id)
+                    .expect("containment operation preserves this birth");
                 unit.target = None;
-                unit.set_position_with_effects(start, self.frame, presentation_effects);
-                unit.set_orientation(yaw);
+                unit.set_position_with_effects(
+                    start,
+                    self.frame,
+                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                );
+                unit.set_orientation_with_partition_owner(yaw, &mut self.partition_manager);
                 if !is_garrison {
                     unit.pathfind_layer = container_layer;
                 }
@@ -911,11 +965,26 @@ impl GameLogic {
         }
         let dest = door_end;
         if let Some(unit) = self.objects.get_mut(&unit_id) {
-            unit.set_contained_by(None);
+            let containment_actor_id = unit.id;
+            Self::set_owned_containment_in_parts(
+                &mut self.objects,
+                &mut self.partition_manager,
+                containment_actor_id,
+                None,
+                true,
+            );
+            let unit = self
+                .objects
+                .get_mut(&containment_actor_id)
+                .expect("containment operation preserves this birth");
             unit.target = None;
             if !skip_follow {
-                unit.set_position_with_effects(start, self.frame, presentation_effects);
-                unit.set_orientation(yaw);
+                unit.set_position_with_effects(
+                    start,
+                    self.frame,
+                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                );
+                unit.set_orientation_with_partition_owner(yaw, &mut self.partition_manager);
                 if !is_garrison {
                     unit.pathfind_layer = container_layer;
                 }
@@ -924,10 +993,12 @@ impl GameLogic {
                 if !is_garrison {
                     let previous_allow_to_fall = unit.allow_to_fall;
                     unit.allow_to_fall = false;
-                    unit.set_destination(
+                    unit.set_destination_with_operation(
                         dest,
                         &mut self.movement_events.writer(self.frame),
                         &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
+                        self.frame,
+                        &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
                     );
                     unit.allow_to_fall = previous_allow_to_fall;
                     let mut path = vec![start, door_end, door_end];
@@ -938,10 +1009,12 @@ impl GameLogic {
                     unit.movement.current_path_index = 1;
                     unit.movement.target_position = Some(door_end);
                 } else {
-                    unit.set_destination(
+                    unit.set_destination_with_operation(
                         dest,
                         &mut self.movement_events.writer(self.frame),
                         &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
+                        self.frame,
+                        &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
                     );
                     unit.movement.path = vec![start, door_end];
                     unit.movement.current_path_index = 1;
@@ -1097,12 +1170,16 @@ impl GameLogic {
         });
         if let Some(gid) = gun_id {
             if let Some(gun) = self.objects.get_mut(&gid) {
-                gun.set_position_with_effects(pos, self.frame, presentation_effects);
+                gun.set_position_with_effects(
+                    pos,
+                    self.frame,
+                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                );
                 if let Some(target) = aim_at {
                     // C++ GarrisonContain::trackTargets Coord2D::toAngle();
                     // leftover dy.atan2(dx). Host Y-up ground plane is XZ.
                     let yaw = (target.z - pos.z).atan2(target.x - pos.x);
-                    gun.set_orientation(yaw);
+                    gun.set_orientation_with_partition_owner(yaw, &mut self.partition_manager);
                 }
                 // C++ updateEffects: no MODELCONDITION_FIRING_A for DAMAGE_POISON.
                 if flash_muzzle {

@@ -551,7 +551,11 @@ impl GameLogic {
             if let Some(obj) = self.objects.get_mut(&unit_id) {
                 obj.pathfind_goal_cell = new_cell;
                 if let Some(goal) = goal {
-                    obj.set_position_with_effects(goal, self.frame, effects);
+                    obj.set_position_with_effects(
+                        goal,
+                        self.frame,
+                        &mut effects.reborrow_for_object(&mut self.partition_manager),
+                    );
                     snapped = Some((
                         obj.get_position(),
                         obj.selection_radius,
@@ -2043,8 +2047,8 @@ mod common_target_parity {
                 crate::game_logic::AIState::Idle,
                 &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
             );
-            o.set_position(start);
         }
+        logic.set_fixture_object_position(id, start);
         logic.frame = 2;
         logic.apply_pending_idle_mood_reset(id);
         let o = logic.host_object(id).expect("ranger");
@@ -2060,8 +2064,8 @@ mod common_target_parity {
                 crate::game_logic::AIState::Idle,
                 &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
             );
-            o.set_position(far);
         }
+        logic.set_fixture_object_position(id, far);
         logic.frame = 5;
         logic.apply_pending_idle_mood_reset(id);
         assert_eq!(logic.pathfinding_system.grid.ground_goal_unit(cell), 0);
@@ -2128,8 +2132,8 @@ mod common_target_parity {
         if let Some(o) = logic.host_object_mut(id) {
             o.movement.path.clear();
             o.movement.target_position = None;
-            o.set_position(far);
         }
+        logic.set_fixture_object_position(id, far);
         ({
             let ground_owner = logic.world_services.terrain();
             let ground_loan = ground_owner

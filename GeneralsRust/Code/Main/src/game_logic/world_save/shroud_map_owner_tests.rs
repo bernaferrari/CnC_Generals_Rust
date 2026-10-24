@@ -119,9 +119,7 @@ fn offset_map_vision_and_frozen_grid_use_driving_map_cells() {
                 frozen.state_at_world_xy(220.0, 840.0),
                 PresentationFowGrid::CELL_HIDDEN
             );
-            a.host_object_mut(a_looker)
-                .unwrap()
-                .set_position(Vec3::new(220.0, 0.0, 840.0));
+            a.set_fixture_object_position(a_looker, Vec3::new(220.0, 0.0, 840.0));
             a.update_main_crate_vision();
             a.frame = 150;
             a.update_main_crate_vision();

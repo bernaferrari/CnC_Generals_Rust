@@ -139,7 +139,7 @@ impl GameLogic {
             self.health_events
                 .record_applied_heal(o.id, o.health.current);
             o.movement.velocity = dir * launch;
-            o.set_orientation(dir.z.atan2(dir.x));
+            o.set_orientation_with_partition_owner(dir.z.atan2(dir.x), &mut self.partition_manager);
         }
         let _ = STEALTH_FIGHTER_PROJECTILE_SPEED;
         self.stealth_jet_missiles_spawned = self.stealth_jet_missiles_spawned.saturating_add(1);
@@ -266,10 +266,17 @@ impl GameLogic {
             let new_pos = pos + vel;
             if let Some(o) = self.objects.get_mut(&id) {
                 o.movement.velocity = vel;
-                o.set_position_with_effects(new_pos, self.frame, presentation_effects);
+                o.set_position_with_effects(
+                    new_pos,
+                    self.frame,
+                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                );
                 o.stealth_jet_missile_travelled += step;
                 o.stealth_jet_missile_aim = Some([aim.x, aim.y, aim.z]);
-                o.set_orientation(vel.z.atan2(vel.x));
+                o.set_orientation_with_partition_owner(
+                    vel.z.atan2(vel.x),
+                    &mut self.partition_manager,
+                );
             }
             let near = dist <= speed + 0.001 || (aim - new_pos).length() < 8.0;
             if fuel_done || kill_self || near {
@@ -278,7 +285,11 @@ impl GameLogic {
                     o.set_status_no_collisions(true);
                     o.stealth_jet_missile_expires_frame =
                         Some(frame.saturating_add(STEALTH_JET_MISSILE_KILL_SELF_DELAY_FRAMES));
-                    o.set_position_with_effects(aim, self.frame, presentation_effects);
+                    o.set_position_with_effects(
+                        aim,
+                        self.frame,
+                        &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                    );
                     o.stealth_jet_missile_aim = Some([aim.x, aim.y, aim.z]);
                 }
                 if should_play_crash_through_fx(frame, true) {
@@ -305,7 +316,11 @@ impl GameLogic {
                 o.status.destroyed = true;
                 o.status.effectively_dead = true;
                 o.stealth_jet_missile_projectile = false;
-                o.set_position_with_effects(pos, self.frame, presentation_effects);
+                o.set_position_with_effects(
+                    pos,
+                    self.frame,
+                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                );
             }
             let _ = self.apply_stealth_fighter_residual_at_with_effects(
                 pos,
@@ -1275,10 +1290,17 @@ impl GameLogic {
             let pos = overlord_shell_bezier_point(from, aim, t);
             if let Some(o) = self.objects.get_mut(&id) {
                 let prev = o.get_position();
-                o.set_position_with_effects(pos, self.frame, presentation_effects);
+                o.set_position_with_effects(
+                    pos,
+                    self.frame,
+                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                );
                 let d = pos - prev;
                 if d.length_squared() > 1.0e-6 {
-                    o.set_orientation(d.z.atan2(d.x));
+                    o.set_orientation_with_partition_owner(
+                        d.z.atan2(d.x),
+                        &mut self.partition_manager,
+                    );
                 }
             }
             if elapsed >= frames {
@@ -1296,7 +1318,11 @@ impl GameLogic {
                 o.status.destroyed = true;
                 o.status.effectively_dead = true;
                 o.overlord_shell_projectile = false;
-                o.set_position_with_effects(pos, self.frame, presentation_effects);
+                o.set_position_with_effects(
+                    pos,
+                    self.frame,
+                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                );
             }
             let _ = self.apply_overlord_gun_residual_at_with_effects(
                 pos,
@@ -1732,7 +1758,7 @@ impl GameLogic {
                     return None;
                 }
                 let p = o.get_position();
-                let geom = &o.thing().template.geometry_info;
+                let geom = &(*o.geometry_info());
                 Some((
                     *id,
                     o.team,
@@ -2002,10 +2028,17 @@ impl GameLogic {
             let pos = usa_tank_shell_bezier_point(from, aim, t);
             if let Some(o) = self.objects.get_mut(&id) {
                 let prev = o.get_position();
-                o.set_position_with_effects(pos, self.frame, presentation_effects);
+                o.set_position_with_effects(
+                    pos,
+                    self.frame,
+                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                );
                 let d = pos - prev;
                 if d.length_squared() > 1.0e-6 {
-                    o.set_orientation(d.z.atan2(d.x));
+                    o.set_orientation_with_partition_owner(
+                        d.z.atan2(d.x),
+                        &mut self.partition_manager,
+                    );
                 }
             }
             if elapsed >= frames {
@@ -2023,7 +2056,11 @@ impl GameLogic {
                 o.status.destroyed = true;
                 o.status.effectively_dead = true;
                 o.usa_tank_shell_projectile = false;
-                o.set_position_with_effects(pos, self.frame, presentation_effects);
+                o.set_position_with_effects(
+                    pos,
+                    self.frame,
+                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                );
             }
             let _ = self.apply_usa_tank_gun_residual_at_with_effects(
                 pos,

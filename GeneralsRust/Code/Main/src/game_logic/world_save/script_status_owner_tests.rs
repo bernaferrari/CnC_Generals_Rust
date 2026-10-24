@@ -181,9 +181,7 @@ fn contained_hero_query_uses_driving_main_roster_and_survives_save() {
             let carrier = main.host_object_mut(carrier_id).unwrap();
             assert_eq!(carrier.max_transport, 2);
             assert!(carrier.add_occupant(hero_id));
-            main.host_object_mut(hero_id)
-                .unwrap()
-                .set_contained_by(Some(carrier_id));
+            main.set_fixture_object_contained_by(hero_id, Some(carrier_id));
             assert!(main.host_object(hero_id).unwrap().is_hero());
             assert!(!main.host_object(carrier_id).unwrap().is_hero());
             assert!(main.unit_is_hero(carrier_id));

@@ -115,13 +115,13 @@ impl Object {
                             .max(crusher_g.radius)
                             .max(1.0);
                         let crusher_geom = authored_crusher_geometry(
-                            &self.thing.template.geometry_info,
+                            &(*self.geometry_info()),
                             fallback_major,
                             fallback_h,
                         );
                         let victim_g = &other.thing.geometry;
-                        let victim_h = if other.thing.template.geometry_info.authored {
-                            other.thing.template.geometry_info.height.max(0.01)
+                        let victim_h = if (*other.geometry_info()).authored {
+                            (*other.geometry_info()).height.max(0.01)
                         } else {
                             (victim_g.bounds_max.y - victim_g.bounds_min.y)
                                 .abs()
@@ -182,7 +182,7 @@ impl Object {
         // C++ PhysicsUpdate.cpp:1488 — crush ray is unit facing, not velocity.
         let (dx_f, dz_f) = self.unit_direction_xz();
         // C++ getGeometryInfo().getMajorRadius() / 2 (PhysicsUpdate.cpp:1490).
-        let geom = &other.thing.template.geometry_info;
+        let geom = &(*other.geometry_info());
         let major = if geom.authored {
             geom.major_radius
         } else {

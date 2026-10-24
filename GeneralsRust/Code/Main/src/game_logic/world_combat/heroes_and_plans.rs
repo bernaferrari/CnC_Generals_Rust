@@ -420,7 +420,11 @@ impl GameLogic {
             for rid in riders {
                 // Exit contain residual.
                 if let Some(chute) = self.objects.get_mut(&id) {
-                    let _ = chute.exit_transport(rid, &mut self.ownership_events);
+                    let _ = chute.exit_transport_with_partition_owner(
+                        rid,
+                        &mut self.ownership_events,
+                        &mut self.partition_manager,
+                    );
                 }
                 let applied = self.apply_rider_free_fall_damage_with_effects(
                     rid,
@@ -487,13 +491,28 @@ impl GameLogic {
         let dmg = free_fall_damage_amount(max_hp);
 
         let destroyed = if let Some(r) = self.objects.get_mut(&rider_id) {
-            r.set_contained_by(None);
+            let containment_actor_id = r.id;
+            Self::set_owned_containment_in_parts(
+                &mut self.objects,
+                &mut self.partition_manager,
+                containment_actor_id,
+                None,
+                true,
+            );
+            let r = self
+                .objects
+                .get_mut(&containment_actor_id)
+                .expect("containment operation preserves this birth");
             r.set_ai_state(
                 AIState::Idle,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
             {}
-            r.set_position_with_effects(eject_pos, self.frame, presentation_effects);
+            r.set_position_with_effects(
+                eject_pos,
+                self.frame,
+                &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+            );
             {}
             // C++ ParachuteContain::onDie: chute gone, rider setAllowToFall + setIsInFreeFall.
             r.set_status_parachute_open(false);
@@ -803,7 +822,10 @@ impl GameLogic {
                             center.shroud_clearing_range,
                         );
                         center.vision_range = vision;
-                        center.shroud_clearing_range = shroud;
+                        center.set_shroud_clearing_range_with_partition_owner(
+                            shroud,
+                            &mut self.partition_manager,
+                        );
                     }
                     HostBattlePlan::Bombardment => {
                         let _ = center.replace_weapon_set_slot(0, None);
@@ -1002,7 +1024,10 @@ impl GameLogic {
                                 center.shroud_clearing_range,
                             );
                             center.vision_range = vision;
-                            center.shroud_clearing_range = shroud;
+                            center.set_shroud_clearing_range_with_partition_owner(
+                                shroud,
+                                &mut self.partition_manager,
+                            );
                             building_bonus = true;
                         }
                         HostBattlePlan::Bombardment => {
@@ -1965,10 +1990,17 @@ impl GameLogic {
             let new_pos = pos + vel;
             if let Some(o) = self.objects.get_mut(&id) {
                 o.movement.velocity = vel;
-                o.set_position_with_effects(new_pos, self.frame, presentation_effects);
+                o.set_position_with_effects(
+                    new_pos,
+                    self.frame,
+                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                );
                 o.cleanup_stream_travelled += step;
                 o.cleanup_stream_aim = Some([aim.x, aim.y, aim.z]);
-                o.set_orientation(vel.z.atan2(vel.x));
+                o.set_orientation_with_partition_owner(
+                    vel.z.atan2(vel.x),
+                    &mut self.partition_manager,
+                );
             }
             if let Some(sid) = shooter {
                 stream_pts.push((sid, new_pos, aim));
@@ -1999,7 +2031,11 @@ impl GameLogic {
                 o.status.destroyed = true;
                 o.status.effectively_dead = true;
                 o.cleanup_stream_projectile = false;
-                o.set_position_with_effects(pos, self.frame, presentation_effects);
+                o.set_position_with_effects(
+                    pos,
+                    self.frame,
+                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                );
             }
             let _ = self.apply_cleanup_area_at_with_effects(
                 player_id,
@@ -2148,7 +2184,11 @@ impl GameLogic {
             let t = (elapsed as f32 / flight as f32).clamp(0.0, 1.0);
             let pos = angry_mob_projectile_bezier_point(from, aim, t, kind);
             if let Some(o) = self.objects.get_mut(&id) {
-                o.set_position_with_effects(pos, self.frame, presentation_effects);
+                o.set_position_with_effects(
+                    pos,
+                    self.frame,
+                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                );
             }
             if elapsed >= flight {
                 impact.push((id, source, intended, aim, kind));
@@ -2165,7 +2205,11 @@ impl GameLogic {
                 o.status.destroyed = true;
                 o.status.effectively_dead = true;
                 o.angry_mob_projectile = false;
-                o.set_position_with_effects(pos, self.frame, presentation_effects);
+                o.set_position_with_effects(
+                    pos,
+                    self.frame,
+                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                );
             }
             let _ = self.apply_angry_mob_projectile_at_with_effects(
                 pos,

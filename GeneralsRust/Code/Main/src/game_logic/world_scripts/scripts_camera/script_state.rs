@@ -722,7 +722,11 @@ impl GameLogic {
                 if panel_flag_is_indestructible(&flag_name) {
                     self.set_object_indestructible(id, enable);
                 } else if let Some(obj) = self.objects.get_mut(&id) {
-                    obj.apply_object_panel_flag(&flag_name, enable);
+                    obj.apply_object_panel_flag_with_partition_owner(
+                        &flag_name,
+                        enable,
+                        &mut self.partition_manager,
+                    );
                 }
             }
         }
@@ -745,7 +749,11 @@ impl GameLogic {
                 if panel_flag_is_indestructible(&flag_name) {
                     self.set_object_indestructible(id, enable);
                 } else if let Some(obj) = self.objects.get_mut(&id) {
-                    obj.apply_object_panel_flag(&flag_name, enable);
+                    obj.apply_object_panel_flag_with_partition_owner(
+                        &flag_name,
+                        enable,
+                        &mut self.partition_manager,
+                    );
                 }
             }
         }
@@ -1184,8 +1192,8 @@ impl GameLogic {
             .map(|obj| obj.id)
             .collect();
         for id in ids {
-            self.with_owned_radar_disabled_operation(id, |object| {
-                object.set_script_disabled_owned(!enable)
+            self.with_owned_radar_disabled_partition_operation(id, |object, partition| {
+                object.set_script_disabled_with_partition_owner(!enable, partition)
             });
         }
     }

@@ -281,10 +281,13 @@ impl GameLogic {
             // Issue Enter residual (matches player Enter command → recrew path).
             // C++ clears m_didMoveToBase when a vehicle target is found.
             if let Some(pilot) = self.objects.get_mut(&pilot_id) {
-                pilot.set_target(
+                pilot.set_target_with_operation(
                     Some(vehicle_id),
                     &mut self.attack_events,
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
+                    self.frame,
+                    &mut crate::game_logic::ScriptPresentationEffects::default()
+                        .reborrow_for_object(&mut self.partition_manager),
                 );
                 pilot.set_status_pilot_did_move_to_base(false);
                 pilot.set_ai_state(
@@ -439,7 +442,11 @@ impl GameLogic {
                     let cp = chute.get_position();
                     let open = chute.is_parachute_open();
                     if let Some(r) = self.objects.get_mut(&pilot_id) {
-                        r.set_position_with_effects(cp, self.frame, effects);
+                        r.set_position_with_effects(
+                            cp,
+                            self.frame,
+                            &mut effects.reborrow_for_object(&mut self.partition_manager),
+                        );
                         {}
                         if open && !r.is_parachute_open() {
                             r.open_eject_parachute();
@@ -541,7 +548,11 @@ impl GameLogic {
             if landed {
                 p.y = ground;
             }
-            obj.set_position_with_effects(p, self.frame, effects);
+            obj.set_position_with_effects(
+                p,
+                self.frame,
+                &mut effects.reborrow_for_object(&mut self.partition_manager),
+            );
             {}
             if let Some((np, nr, npr, nrr)) = sway {
                 obj.status.parachute_pitch = np;
@@ -568,7 +579,11 @@ impl GameLogic {
                 .unwrap_or_default();
             for rid in ids {
                 if let Some(r) = self.objects.get_mut(&rid) {
-                    r.set_position_with_effects(land_pos, self.frame, effects);
+                    r.set_position_with_effects(
+                        land_pos,
+                        self.frame,
+                        &mut effects.reborrow_for_object(&mut self.partition_manager),
+                    );
                     {}
                     if open && !r.is_parachute_open() {
                         r.open_eject_parachute();
@@ -581,16 +596,35 @@ impl GameLogic {
         if is_chute && landed {
             for rid in &riders_to_release {
                 if let Some(chute) = self.objects.get_mut(&pilot_id) {
-                    let _ = chute.exit_transport(*rid, &mut self.ownership_events);
+                    let _ = chute.exit_transport_with_partition_owner(
+                        *rid,
+                        &mut self.ownership_events,
+                        &mut self.partition_manager,
+                    );
                 }
                 if let Some(r) = self.objects.get_mut(rid) {
-                    r.set_contained_by(None);
+                    let containment_actor_id = r.id;
+                    Self::set_owned_containment_in_parts(
+                        &mut self.objects,
+                        &mut self.partition_manager,
+                        containment_actor_id,
+                        None,
+                        true,
+                    );
+                    let r = self
+                        .objects
+                        .get_mut(&containment_actor_id)
+                        .expect("containment operation preserves this birth");
                     r.set_ai_state(
                         AIState::Idle,
                         &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                     );
                     {}
-                    r.set_position_with_effects(land_pos, self.frame, effects);
+                    r.set_position_with_effects(
+                        land_pos,
+                        self.frame,
+                        &mut effects.reborrow_for_object(&mut self.partition_manager),
+                    );
                     {}
                     r.clear_eject_parachuting();
                     // Partition restore residual after chute dump.
@@ -633,11 +667,26 @@ impl GameLogic {
                     .unwrap_or(true);
                 if gone {
                     if let Some(chute) = self.objects.get_mut(&pilot_id) {
-                        let _ = chute.exit_transport(rid, &mut self.ownership_events);
+                        let _ = chute.exit_transport_with_partition_owner(
+                            rid,
+                            &mut self.ownership_events,
+                            &mut self.partition_manager,
+                        );
                     }
                     if let Some(r) = self.objects.get_mut(&rid) {
                         if r.contained_by == Some(pilot_id) {
-                            r.set_contained_by(None);
+                            let containment_actor_id = r.id;
+                            Self::set_owned_containment_in_parts(
+                                &mut self.objects,
+                                &mut self.partition_manager,
+                                containment_actor_id,
+                                None,
+                                true,
+                            );
+                            let r = self
+                                .objects
+                                .get_mut(&containment_actor_id)
+                                .expect("containment operation preserves this birth");
                         }
                     }
                 }
@@ -903,8 +952,12 @@ impl GameLogic {
         let natural = glam::Vec3::new(natural.x, 0.0, natural.z);
 
         if let Some(unit) = self.objects.get_mut(&rider_id) {
-            unit.set_position_with_effects(create, self.frame, effects);
-            unit.set_orientation(orientation);
+            unit.set_position_with_effects(
+                create,
+                self.frame,
+                &mut effects.reborrow_for_object(&mut self.partition_manager),
+            );
+            unit.set_orientation_with_partition_owner(orientation, &mut self.partition_manager);
             {}
         }
 
@@ -1050,10 +1103,13 @@ impl GameLogic {
         };
 
         if let Some(unit) = self.objects.get_mut(&unit_id) {
-            unit.set_target(
+            unit.set_target_with_operation(
                 Some(pad_id),
                 &mut self.attack_events,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
+                self.frame,
+                &mut crate::game_logic::ScriptPresentationEffects::default()
+                    .reborrow_for_object(&mut self.partition_manager),
             );
         }
         self.path_approach_with_state(unit_id, pad_pos, AIState::SeekingHealing);
@@ -1741,10 +1797,13 @@ impl GameLogic {
             return;
         };
         if let Some(obj) = self.objects.get_mut(&unit_id) {
-            obj.set_target(
+            obj.set_target_with_operation(
                 Some(pad_id),
                 &mut self.attack_events,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
+                self.frame,
+                &mut crate::game_logic::ScriptPresentationEffects::default()
+                    .reborrow_for_object(&mut self.partition_manager),
             );
             obj.target_location = None;
         }
@@ -1815,10 +1874,13 @@ impl GameLogic {
         };
         if let Some(obj) = self.objects.get_mut(&unit_id) {
             // Construction target association stays host.
-            obj.set_target(
+            obj.set_target_with_operation(
                 Some(tid),
                 &mut self.attack_events,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
+                self.frame,
+                &mut crate::game_logic::ScriptPresentationEffects::default()
+                    .reborrow_for_object(&mut self.partition_manager),
             );
             obj.target_location = None;
         }

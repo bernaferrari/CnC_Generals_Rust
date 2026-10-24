@@ -80,6 +80,21 @@ impl NativeBodyVisualChange {
     }
 }
 
+/// Operation-local client allocation. A missing/unsupported visual resource
+/// is an ordinary allocation result, never a gameplay failure.
+#[cfg(feature = "game_client")]
+pub(crate) trait NativeProjectedRadiusAllocator {
+    /// Position is original C++ XYZ (Z up), matching client effect rendering.
+    fn allocate_radius(
+        &mut self,
+        texture: &str,
+        radius: f32,
+        position: [f32; 3],
+        color: u32,
+        opacity: f32,
+    ) -> Option<game_client::radius_decal::ShadowHandle>;
+}
+
 pub(crate) trait NativeViewEffects {
     /// Explicit capability: native forwarding adapters must forward this call.
     /// A genuinely detached recipient declares no Drawable by returning false.
@@ -89,6 +104,12 @@ pub(crate) trait NativeViewEffects {
         change: &NativeBodyVisualChange,
         audio: Option<&mut dyn game_client::drawable::drawable::NativeAmbientAudio>,
     ) -> Result<bool, String>;
+    /// A short loan of the receiving resource manager. Absence is checked by
+    /// the driving native operation before any simulation mutation.
+    #[cfg(feature = "game_client")]
+    fn projected_radius_allocator(&mut self) -> Option<&mut dyn NativeProjectedRadiusAllocator> {
+        None
+    }
     fn local_player_id(&self) -> u32;
     fn sample_slave(&mut self, source: &NativeSlaveSource, bone: &str) -> SlaveCameraSample;
     #[cfg(feature = "game_client")]
@@ -283,10 +304,47 @@ pub(crate) struct ScriptPresentationEffects<'a> {
     pub(crate) view: Option<&'a mut dyn NativeViewEffects>,
     pub(crate) terrain: Option<&'a mut dyn NativeTerrainEffects>,
     pub(crate) audio: Option<&'a mut dyn NativeAudioEffects>,
+    /// Historical type name: this is an operation's borrowed service context.
+    /// Present only around an Object operation after split borrowing the
+    /// driving GameLogic fields; never retained across an &mut GameLogic call.
+    pub(crate) partition: Option<&'a mut crate::game_logic::partition_manager::PartitionManager>,
 }
 impl ScriptPresentationEffects<'_> {
+    /// Reject an invalid supplied native mode before the driving world starts
+    /// script/command/module callbacks. Headless sessions need no device owner.
+    pub(crate) fn validate_projected_radius_recipient(
+        &mut self,
+        required_native: bool,
+    ) -> gamelogic::GameLogicResult<()> {
+        if !required_native {
+            return Ok(());
+        }
+        #[cfg(feature = "game_client")]
+        if self
+            .view
+            .as_deref_mut()
+            .and_then(|view| view.projected_radius_allocator())
+            .is_some()
+        {
+            return Ok(());
+        }
+        Err(gamelogic::GameLogicError::Configuration(
+            "native operation requires its receiving projected resource owner".into(),
+        ))
+    }
+
+    pub(crate) fn reborrow_for_object<'a>(
+        &'a mut self,
+        partition: &'a mut crate::game_logic::partition_manager::PartitionManager,
+    ) -> ScriptPresentationEffects<'a> {
+        let mut local = self.reborrow();
+        local.partition = Some(partition);
+        local
+    }
+
     pub(crate) fn reborrow(&mut self) -> ScriptPresentationEffects<'_> {
         ScriptPresentationEffects {
+            partition: self.partition.as_deref_mut(),
             audio: self
                 .audio
                 .as_mut()
@@ -306,3 +364,7 @@ impl ScriptPresentationEffects<'_> {
         }
     }
 }
+
+#[cfg(all(test, feature = "game_client"))]
+#[path = "script_presentation/projected_radius_tests.rs"]
+mod projected_radius_tests;

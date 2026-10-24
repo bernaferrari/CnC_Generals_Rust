@@ -53,7 +53,28 @@ impl Object {
         movement_events: &mut crate::game_logic::movement_events::MovementEventWriter<'_>,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
-        let _ = self.takeoff_from_airfield_parking(audio);
+        self.set_destination_with_operation(
+            destination,
+            movement_events,
+            audio,
+            0,
+            &mut Default::default(),
+        )
+    }
+
+    pub(crate) fn set_destination_with_operation(
+        &mut self,
+        destination: Vec3,
+        movement_events: &mut crate::game_logic::movement_events::MovementEventWriter<'_>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
+        operation_frame: u32,
+        operation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
+        let _ = self.takeoff_from_airfield_parking_with_operation(
+            audio,
+            operation_frame,
+            operation_effects,
+        );
         // C++ DeployStyle: ordered move packs up (undeploy) residual.
         if self.status.deployed {
             self.set_deployed(false, audio);
@@ -71,7 +92,18 @@ impl Object {
         attack_events: &mut crate::game_logic::host_attack_log::AttackEvents,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
-        self.set_target_state(target, audio);
+        self.set_target_with_operation(target, attack_events, audio, 0, &mut Default::default())
+    }
+
+    pub fn set_target_with_operation(
+        &mut self,
+        target: Option<ObjectId>,
+        attack_events: &mut crate::game_logic::host_attack_log::AttackEvents,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
+        operation_frame: u32,
+        operation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
+        self.set_target_state_with_operation(target, audio, operation_frame, operation_effects);
         if let Some(target) = target {
             attack_events.record(self.id, target);
         }
@@ -82,8 +114,22 @@ impl Object {
         target: Option<ObjectId>,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
+        self.set_target_state_with_operation(target, audio, 0, &mut Default::default())
+    }
+
+    fn set_target_state_with_operation(
+        &mut self,
+        target: Option<ObjectId>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
+        operation_frame: u32,
+        operation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         if target.is_some() {
-            let _ = self.takeoff_from_airfield_parking(audio);
+            let _ = self.takeoff_from_airfield_parking_with_operation(
+                audio,
+                operation_frame,
+                operation_effects,
+            );
         }
         self.target = target;
         if target.is_some() {
@@ -109,7 +155,28 @@ impl Object {
         attack_events: &mut crate::game_logic::host_attack_log::AttackEvents,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
-        let _ = self.takeoff_from_airfield_parking(audio);
+        self.note_attack_target_with_operation(
+            target,
+            attack_events,
+            audio,
+            0,
+            &mut Default::default(),
+        )
+    }
+
+    pub fn note_attack_target_with_operation(
+        &mut self,
+        target: ObjectId,
+        attack_events: &mut crate::game_logic::host_attack_log::AttackEvents,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
+        operation_frame: u32,
+        operation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
+        let _ = self.takeoff_from_airfield_parking_with_operation(
+            audio,
+            operation_frame,
+            operation_effects,
+        );
         if self.target != Some(target) {
             self.target_location = None;
 
@@ -133,7 +200,29 @@ impl Object {
         attack_events: &mut crate::game_logic::host_attack_log::AttackEvents,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
-        self.set_order_target_state(target, audio);
+        self.set_order_target_with_operation(
+            target,
+            attack_events,
+            audio,
+            0,
+            &mut Default::default(),
+        )
+    }
+
+    pub fn set_order_target_with_operation(
+        &mut self,
+        target: Option<ObjectId>,
+        attack_events: &mut crate::game_logic::host_attack_log::AttackEvents,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
+        operation_frame: u32,
+        operation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
+        self.set_order_target_state_with_operation(
+            target,
+            audio,
+            operation_frame,
+            operation_effects,
+        );
         if let Some(target) = target {
             attack_events.record(self.id, target);
         }
@@ -154,8 +243,22 @@ impl Object {
         target: Option<ObjectId>,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
+        self.set_order_target_state_with_operation(target, audio, 0, &mut Default::default())
+    }
+
+    fn set_order_target_state_with_operation(
+        &mut self,
+        target: Option<ObjectId>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
+        operation_frame: u32,
+        operation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         if target.is_some() {
-            let _ = self.takeoff_from_airfield_parking(audio);
+            let _ = self.takeoff_from_airfield_parking_with_operation(
+                audio,
+                operation_frame,
+                operation_effects,
+            );
         }
         self.target = target;
         self.target_location = None;
@@ -275,8 +378,8 @@ impl Object {
         if enabled {
             self.set_terrain_decal(TERRAIN_DECAL_CHEMSUIT);
             if self.terrain_decal_size <= 0.0 {
-                let major = if self.thing.template.geometry_info.authored {
-                    self.thing.template.geometry_info.major_radius
+                let major = if (*self.geometry_info()).authored {
+                    (*self.geometry_info()).major_radius
                 } else {
                     self.selection_radius.max(8.0)
                 };
@@ -336,8 +439,8 @@ impl Object {
         use crate::game_logic::host_battlemaster::{
             CRATE_DECAL_FADE_IN_RATE, CRATE_DECAL_SIZE_MULT, TERRAIN_DECAL_CRATE,
         };
-        let major = if self.thing.template.geometry_info.authored {
-            self.thing.template.geometry_info.major_radius
+        let major = if (*self.geometry_info()).authored {
+            (*self.geometry_info()).major_radius
         } else {
             self.selection_radius.max(4.0)
         };
@@ -357,8 +460,8 @@ impl Object {
         }
         self.set_terrain_decal(TERRAIN_DECAL_SHADOW_TEXTURE);
         if self.terrain_decal_size <= 0.0 {
-            let major = if self.thing.template.geometry_info.authored {
-                self.thing.template.geometry_info.major_radius
+            let major = if (*self.geometry_info()).authored {
+                (*self.geometry_info()).major_radius
             } else {
                 self.selection_radius.max(20.0)
             };
@@ -403,7 +506,7 @@ impl Object {
                         self.thing.template.shadow_size_x,
                         self.thing.template.shadow_size_y,
                     );
-                    let geom = &self.thing.template.geometry_info;
+                    let geom = &(*self.geometry_info());
                     let major = leftover_horde_major_radius(
                         geom.authored,
                         geom.major_radius,
@@ -417,7 +520,7 @@ impl Object {
                     let size = leftover_infantry_horde_decal_size_or_bbox(sx, sy, major, minor);
                     self.set_terrain_decal_size(size, size);
                 } else {
-                    let geom = &self.thing.template.geometry_info;
+                    let geom = &(*self.geometry_info());
                     let major = leftover_horde_major_radius(
                         geom.authored,
                         geom.major_radius,
@@ -1049,13 +1152,55 @@ impl Object {
         occupant_detected: bool,
         ownership_events: &mut crate::game_logic::host_owner_log::OwnershipEvents,
     ) {
+        self.note_garrison_occupant_entered_with_partition_context(
+            occupant_team,
+            occupant_owner,
+            occupant_stealth_garrison,
+            occupant_detected,
+            ownership_events,
+            None,
+        )
+    }
+    pub(crate) fn note_garrison_occupant_entered_with_partition_owner(
+        &mut self,
+        occupant_team: Team,
+        occupant_owner: Option<u32>,
+        occupant_stealth_garrison: bool,
+        occupant_detected: bool,
+        ownership_events: &mut crate::game_logic::host_owner_log::OwnershipEvents,
+        partition: &mut crate::game_logic::partition_manager::PartitionManager,
+    ) {
+        self.note_garrison_occupant_entered_with_partition_context(
+            occupant_team,
+            occupant_owner,
+            occupant_stealth_garrison,
+            occupant_detected,
+            ownership_events,
+            Some(partition),
+        )
+    }
+    fn note_garrison_occupant_entered_with_partition_context(
+        &mut self,
+        occupant_team: Team,
+        occupant_owner: Option<u32>,
+        occupant_stealth_garrison: bool,
+        occupant_detected: bool,
+        ownership_events: &mut crate::game_logic::host_owner_log::OwnershipEvents,
+        mut partition: Option<&mut crate::game_logic::partition_manager::PartitionManager>,
+    ) {
+        self.require_partition_owner(partition.as_deref());
         if let Some(bd) = self.building_data.as_mut() {
             if bd.original_team.is_none() {
                 bd.original_team = Some(self.team);
             }
             bd.hide_garrisoned_state = occupant_stealth_garrison && !occupant_detected;
         }
-        self.set_team_and_owner(occupant_team, occupant_owner, ownership_events);
+        self.set_team_and_owner_with_partition_context(
+            occupant_team,
+            occupant_owner,
+            ownership_events,
+            partition.as_deref_mut(),
+        );
     }
 
     /// C++ GarrisonContain::onRemoving last-occupant original-team restore.
@@ -1063,6 +1208,24 @@ impl Object {
         &mut self,
         ownership_events: &mut crate::game_logic::host_owner_log::OwnershipEvents,
     ) {
+        self.restore_garrison_original_team_if_empty_with_partition_context(ownership_events, None)
+    }
+    pub(crate) fn restore_garrison_original_team_if_empty_with_partition_owner(
+        &mut self,
+        ownership_events: &mut crate::game_logic::host_owner_log::OwnershipEvents,
+        partition: &mut crate::game_logic::partition_manager::PartitionManager,
+    ) {
+        self.restore_garrison_original_team_if_empty_with_partition_context(
+            ownership_events,
+            Some(partition),
+        )
+    }
+    fn restore_garrison_original_team_if_empty_with_partition_context(
+        &mut self,
+        ownership_events: &mut crate::game_logic::host_owner_log::OwnershipEvents,
+        mut partition: Option<&mut crate::game_logic::partition_manager::PartitionManager>,
+    ) {
+        self.require_partition_owner(partition.as_deref());
         let empty = self
             .building_data
             .as_ref()
@@ -1080,7 +1243,10 @@ impl Object {
         }
         self.set_garrison_can_attack(false);
         if let Some(orig) = orig {
-            self.set_team(orig, ownership_events);
+            self.set_team_state_with_partition_context(orig, partition.as_deref_mut())
+                .map(|event| {
+                    ownership_events.record(event.object, event.team, event.owner_player_id)
+                });
         }
     }
 
@@ -1849,6 +2015,56 @@ impl Object {
     /// the occupant (Fire Base `IsEnclosingContainer=No` stays visible/targetable).
     /// Exit clears both.
     pub fn set_contained_by_enclosing(&mut self, container: Option<ObjectId>, enclosing: bool) {
+        self.require_partition_owner(None);
+        self.set_contained_by_enclosing_unattached(container, enclosing);
+    }
+
+    /// OpenContain::addOrRemoveObjFromWorld occurs before Object::onContainedBy
+    /// / onRemovedFrom. Visible nonenclosing occupants keep their PartitionData.
+    pub(crate) fn set_contained_by_with_partition_owner(
+        &mut self,
+        container: Option<ObjectId>,
+        enclosing: bool,
+        partition: &mut crate::game_logic::partition_manager::PartitionManager,
+    ) {
+        self.require_partition_owner(Some(partition));
+        let was_enclosed = self.contained_by.is_some() && self.status.masked;
+        if container.is_some() && enclosing {
+            partition.unregister_object(self.id.0);
+        } else if container.is_none() && was_enclosed {
+            partition.attach_receiving_object(self);
+        }
+        self.set_contained_by_enclosing_unattached(container, enclosing);
+    }
+
+    /// ParkingPlaceBehavior is not OpenContain. Main retains a parking link
+    /// in contained_by for command routing, but original parking never removes
+    /// the aircraft's PartitionData. Keep the existing host status projection.
+    pub(crate) fn set_parking_reference_with_partition_owner(
+        &mut self,
+        parking_place: Option<ObjectId>,
+        partition: &mut crate::game_logic::partition_manager::PartitionManager,
+    ) {
+        self.require_partition_owner(Some(partition));
+        self.set_contained_by_enclosing_unattached(parking_place, true);
+    }
+
+    pub(crate) fn finish_containment_reference_with_partition_owner(
+        &mut self,
+        container: Option<ObjectId>,
+        enclosing: bool,
+        partition: &mut crate::game_logic::partition_manager::PartitionManager,
+    ) {
+        self.require_partition_owner(Some(partition));
+        self.set_contained_by_enclosing_unattached(container, enclosing);
+        self.handle_partition_cell_maintenance_with_partition_owner(partition);
+    }
+
+    fn set_contained_by_enclosing_unattached(
+        &mut self,
+        container: Option<ObjectId>,
+        enclosing: bool,
+    ) {
         if container.is_none() && self.experience_sink == self.contained_by {
             // C++ never unsinks the portable structure (it never leaves).
             // Infantry exiting the BattleBunker residual must not keep
@@ -1904,6 +2120,23 @@ impl Object {
         unit_id: ObjectId,
         ownership_events: &mut crate::game_logic::host_owner_log::OwnershipEvents,
     ) -> bool {
+        self.remove_occupant_with_partition_context(unit_id, ownership_events, None)
+    }
+    pub(crate) fn remove_occupant_with_partition_owner(
+        &mut self,
+        unit_id: ObjectId,
+        ownership_events: &mut crate::game_logic::host_owner_log::OwnershipEvents,
+        partition: &mut crate::game_logic::partition_manager::PartitionManager,
+    ) -> bool {
+        self.remove_occupant_with_partition_context(unit_id, ownership_events, Some(partition))
+    }
+    pub(in crate::game_logic) fn remove_occupant_with_partition_context(
+        &mut self,
+        unit_id: ObjectId,
+        ownership_events: &mut crate::game_logic::host_owner_log::OwnershipEvents,
+        mut partition: Option<&mut crate::game_logic::partition_manager::PartitionManager>,
+    ) -> bool {
+        self.require_partition_owner(partition.as_deref());
         if let Some(building) = self.building_data.as_mut() {
             if let Some(pos) = building
                 .garrisoned_units
@@ -1918,7 +2151,10 @@ impl Object {
 
                 let empty = building.garrisoned_units.is_empty();
                 if empty {
-                    self.restore_garrison_original_team_if_empty(ownership_events);
+                    self.restore_garrison_original_team_if_empty_with_partition_context(
+                        ownership_events,
+                        partition.as_deref_mut(),
+                    );
                 }
                 return true;
             }
@@ -1942,6 +2178,27 @@ impl Object {
         unit_id: ObjectId,
         ownership_events: &mut crate::game_logic::host_owner_log::OwnershipEvents,
     ) -> bool {
-        self.remove_occupant(unit_id, ownership_events)
+        self.exit_transport_with_partition_context(unit_id, ownership_events, None)
+    }
+    pub(crate) fn exit_transport_with_partition_owner(
+        &mut self,
+        unit_id: ObjectId,
+        ownership_events: &mut crate::game_logic::host_owner_log::OwnershipEvents,
+        partition: &mut crate::game_logic::partition_manager::PartitionManager,
+    ) -> bool {
+        self.exit_transport_with_partition_context(unit_id, ownership_events, Some(partition))
+    }
+    pub(in crate::game_logic) fn exit_transport_with_partition_context(
+        &mut self,
+        unit_id: ObjectId,
+        ownership_events: &mut crate::game_logic::host_owner_log::OwnershipEvents,
+        mut partition: Option<&mut crate::game_logic::partition_manager::PartitionManager>,
+    ) -> bool {
+        self.require_partition_owner(partition.as_deref());
+        self.remove_occupant_with_partition_context(
+            unit_id,
+            ownership_events,
+            partition.as_deref_mut(),
+        )
     }
 }

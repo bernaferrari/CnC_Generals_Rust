@@ -268,8 +268,8 @@ fn named_weapon_pursuit_keeps_native_minimum_boundary() {
         )
         .unwrap();
     logic.objects.get_mut(&source).unwrap().movement.max_speed = 10.0;
-    let victim = logic.objects.get_mut(&target).unwrap();
-    victim.set_orientation(0.0);
+    let (victim, fixture_partition_victim) = logic.host_object_and_partition_mut(target).unwrap();
+    victim.set_orientation_with_partition_owner(0.0, fixture_partition_victim);
     victim.movement.velocity = Vec3::new(5.0, 0.0, 0.0);
     let source_object = &logic.objects[&source];
     let victim = &logic.objects[&target];
@@ -280,11 +280,7 @@ fn named_weapon_pursuit_keeps_native_minimum_boundary() {
         source_object.can_pursue_target(victim),
         "C++ isTooClose admits exact rationalized minimum 7.5"
     );
-    logic
-        .objects
-        .get_mut(&target)
-        .unwrap()
-        .set_position(Vec3::new(9.48, 0.0, 0.0));
+    logic.set_fixture_object_position(target, Vec3::new(9.48, 0.0, 0.0));
     assert!(
         !logic.objects[&source].can_pursue_target(&logic.objects[&target]),
         "below the native minimum remains too close to pursue"

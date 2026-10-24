@@ -317,6 +317,47 @@ impl Object {
         audio: &mut crate::game_logic::ObjectAudio<'_>,
         feedback: &mut crate::game_logic::VeterancyFeedback<'_>,
     ) -> bool {
+        self.apply_pilot_recrew_with_partition_context(
+            pilot_team,
+            pilot_owner_player_id,
+            pilot_level,
+            ownership_events,
+            audio,
+            feedback,
+            None,
+        )
+    }
+    pub(crate) fn apply_pilot_recrew_with_partition_owner(
+        &mut self,
+        pilot_team: Team,
+        pilot_owner_player_id: Option<u32>,
+        pilot_level: crate::game_logic::VeterancyLevel,
+        ownership_events: &mut crate::game_logic::host_owner_log::OwnershipEvents,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
+        feedback: &mut crate::game_logic::VeterancyFeedback<'_>,
+        partition: &mut crate::game_logic::partition_manager::PartitionManager,
+    ) -> bool {
+        self.apply_pilot_recrew_with_partition_context(
+            pilot_team,
+            pilot_owner_player_id,
+            pilot_level,
+            ownership_events,
+            audio,
+            feedback,
+            Some(partition),
+        )
+    }
+    fn apply_pilot_recrew_with_partition_context(
+        &mut self,
+        pilot_team: Team,
+        pilot_owner_player_id: Option<u32>,
+        pilot_level: crate::game_logic::VeterancyLevel,
+        ownership_events: &mut crate::game_logic::host_owner_log::OwnershipEvents,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
+        feedback: &mut crate::game_logic::VeterancyFeedback<'_>,
+        mut partition: Option<&mut crate::game_logic::partition_manager::PartitionManager>,
+    ) -> bool {
+        self.require_partition_owner(partition.as_deref());
         use crate::game_logic::host_usa_pilot::{merged_recrew_veterancy, veterancy_rank};
 
         if !self.status.disabled_unmanned {
@@ -340,7 +381,12 @@ impl Object {
         if self.ai_state != AIState::Idle {
             self.set_ai_state(AIState::Idle, audio);
         }
-        self.set_team_and_owner(pilot_team, pilot_owner_player_id, ownership_events);
+        self.set_team_and_owner_with_partition_context(
+            pilot_team,
+            pilot_owner_player_id,
+            ownership_events,
+            partition.as_deref_mut(),
+        );
         self.set_private_captured(true);
 
         let previous = self.experience.level;
@@ -556,6 +602,38 @@ impl Object {
         radius: f32,
         players: crate::game_logic::host_radius_decal_update::RadiusDecalPlayerView,
     ) -> bool {
+        let (rd, tmpl, radius, owner, kill_when_idle) = self.prepare_delivery_radius_decal(radius);
+        rd.create_radius_decal_with_player_view(tmpl, radius, pos, frame, owner, players);
+        rd.set_kill_when_no_longer_attacking(kill_when_idle);
+        !rd.delivery_decal.is_empty()
+    }
+
+    pub(crate) fn create_delivery_radius_decal_with_player_view_and_effects(
+        &mut self,
+        pos: glam::Vec3,
+        frame: u32,
+        radius: f32,
+        players: crate::game_logic::host_radius_decal_update::RadiusDecalPlayerView,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
+        let (rd, tmpl, radius, owner, kill_when_idle) = self.prepare_delivery_radius_decal(radius);
+        rd.create_radius_decal_with_player_view_and_effects(
+            tmpl, radius, pos, frame, owner, players, effects,
+        );
+        rd.set_kill_when_no_longer_attacking(kill_when_idle);
+        !rd.delivery_decal.is_empty()
+    }
+
+    fn prepare_delivery_radius_decal(
+        &mut self,
+        radius: f32,
+    ) -> (
+        &mut crate::game_logic::host_radius_decal_update::HostRadiusDecalUpdateData,
+        crate::game_logic::host_radius_decal_update::HostRadiusDecalTemplate,
+        f32,
+        Option<i32>,
+        bool,
+    ) {
         let radius = if radius > 0.0 {
             radius
         } else {
@@ -564,30 +642,22 @@ impl Object {
             )
         };
         self.install_radius_decal_update_if_needed();
-        if self.radius_decal_update.is_none() {
-            self.radius_decal_update = Some(
-                crate::game_logic::host_radius_decal_update::HostRadiusDecalUpdateData::default(),
-            );
-        }
-        let Some(rd) = self.radius_decal_update.as_mut() else {
-            return false;
-        };
+        let rd = self
+            .radius_decal_update
+            .get_or_insert_with(Default::default);
         let tmpl =
             crate::game_logic::host_radius_decal_update::default_delivery_decal_template_for_host(
                 &self.template_name,
             );
-        rd.create_radius_decal_with_player_view(
+        // DeliverPayloadAIUpdate keeps this until HeadOffMapState; AttackNugget
+        // uses RadiusDecalUpdate's killWhenNoLongerAttacking rule.
+        (
+            rd,
             tmpl,
             radius.max(1.0),
-            pos,
-            frame,
             self.owner_player_id.map(|id| id as i32),
-            players,
-        );
-        // C++ DeliverPayloadAIUpdate keeps the ring until HeadOffMapState::onEnter.
-        // killWhenNoLongerAttacking is the Scud AttackNugget / RadiusDecalUpdate path.
-        rd.set_kill_when_no_longer_attacking(self.anthrax_bomb_transport.is_none());
-        !rd.delivery_decal.is_empty()
+            self.anthrax_bomb_transport.is_none(),
+        )
     }
 
     /// C++ HeadOffMapState::onEnter killDeliveryDecal.

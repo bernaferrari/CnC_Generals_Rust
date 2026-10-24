@@ -347,7 +347,8 @@ impl GameLogic {
                             object.set_transform_matrix_with_effects(
                                 transform,
                                 self.frame,
-                                presentation_effects,
+                                &mut presentation_effects
+                                    .reborrow_for_object(&mut self.partition_manager),
                             );
                             object.status.under_construction = false;
                         }

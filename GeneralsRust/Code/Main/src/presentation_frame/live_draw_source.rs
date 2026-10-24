@@ -233,7 +233,7 @@ impl GameLogic {
             return Err("invalid receiving visual scale");
         }
         let facts = current_condition_facts(self, obj, local_player_id);
-        let geometry = &obj.thing().template.geometry_info;
+        let geometry = &(*obj.geometry_info());
         Ok(crate::game_logic::NativeSlaveSource {
             identity: self.live_draw_playback_identity(obj),
             mesh_scale,

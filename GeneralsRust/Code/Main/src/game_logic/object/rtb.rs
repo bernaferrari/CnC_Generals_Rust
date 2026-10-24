@@ -466,8 +466,8 @@ impl Object {
         let dx = a.x - b.x;
         let dz = a.z - b.z;
         let center = (dx * dx + dz * dz).sqrt();
-        let ra = self.thing.template.geometry_info.bounding_circle_radius();
-        let rb = other.thing.template.geometry_info.bounding_circle_radius();
+        let ra = (*self.geometry_info()).bounding_circle_radius();
+        let rb = (*other.geometry_info()).bounding_circle_radius();
         (center - ra - rb).max(0.0)
     }
 
@@ -477,7 +477,7 @@ impl Object {
         let dx = a.x - pos.x;
         let dz = a.z - pos.z;
         let center = (dx * dx + dz * dz).sqrt();
-        let ra = self.thing.template.geometry_info.bounding_circle_radius();
+        let ra = (*self.geometry_info()).bounding_circle_radius();
         (center - ra).max(0.0)
     }
 
@@ -535,8 +535,8 @@ impl Object {
         goal: glam::Vec3,
         other: &Object,
     ) -> bool {
-        let ra = self.thing.template.geometry_info.bounding_circle_radius();
-        let rb = other.thing.template.geometry_info.bounding_circle_radius();
+        let ra = (*self.geometry_info()).bounding_circle_radius();
+        let rb = (*other.geometry_info()).bounding_circle_radius();
         let b = other.get_position();
         let dx = goal.x - b.x;
         let dz = goal.z - b.z;
@@ -551,7 +551,7 @@ impl Object {
         goal: glam::Vec3,
         pos: glam::Vec3,
     ) -> bool {
-        let ra = self.thing.template.geometry_info.bounding_circle_radius();
+        let ra = (*self.geometry_info()).bounding_circle_radius();
         let dx = goal.x - pos.x;
         let dz = goal.z - pos.z;
         let dist = ((dx * dx + dz * dz).sqrt() - ra).max(0.0);
@@ -605,8 +605,8 @@ impl Object {
         use gamelogic::object::collide::{
             CollideInfo, CollideLocAndNormal, Coord3D, collide_test_dispatch,
         };
-        let src_info = &self.thing.template.geometry_info;
-        let tgt_info = &other.thing.template.geometry_info;
+        let src_info = &(*self.geometry_info());
+        let tgt_info = &(*other.geometry_info());
         let g1 = authored_crusher_geometry(
             src_info,
             src_info.bounding_circle_radius().max(1.0),
@@ -645,13 +645,9 @@ impl Object {
         };
         let src = self.get_position();
         let tgt = victim.get_position();
-        let src_half = self.thing.template.geometry_info.height.max(0.0) * 0.5;
-        let tgt_above = victim
-            .thing
-            .template
-            .geometry_info
-            .max_height_above_position();
-        let tgt_below = victim.thing.template.geometry_info.height.max(0.0) * 0.5;
+        let src_half = (*self.geometry_info()).height.max(0.0) * 0.5;
+        let tgt_above = (*victim.geometry_info()).max_height_above_position();
+        let tgt_below = (*victim.geometry_info()).height.max(0.0) * 0.5;
         let mut any_limited = false;
         for &slot in slots {
             if self.weapon_slot(slot).is_none() {

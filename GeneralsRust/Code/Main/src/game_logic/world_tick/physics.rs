@@ -707,7 +707,7 @@ impl GameLogic {
         if let Some(a) = self.objects.get_mut(&a_id) {
             if a.allow_collide_force {
                 let lift = |obj: &crate::game_logic::Object| {
-                    let g = &obj.thing().template.geometry_info;
+                    let g = &(*obj.geometry_info());
                     match g.geom_type {
                         crate::game_logic::thing::HostGeometryType::Sphere => 0.0,
                         crate::game_logic::thing::HostGeometryType::Box
@@ -889,7 +889,7 @@ impl GameLogic {
             return;
         };
         if let Some(stump) = self.objects.get_mut(&id) {
-            stump.set_orientation(orientation);
+            stump.set_orientation_with_partition_owner(orientation, &mut self.partition_manager);
             if burned {
                 use crate::game_logic::host_enum_table_residual::burned_model_bit;
                 stump.model_condition_bits |= 1u128 << burned_model_bit();
@@ -1007,7 +1007,7 @@ impl GameLogic {
             };
             // C++ PhysicsUpdate.cpp:1222 / leftover: KINDOF_IMMOBILE only.
             let imm_ok = imm.is_kind_of(crate::game_logic::KindOf::Immobile);
-            let imm_g = &imm.thing().template.geometry_info;
+            let imm_g = &(*imm.geometry_info());
             let imm_lift = match imm_g.geom_type {
                 crate::game_logic::thing::HostGeometryType::Sphere => 0.0,
                 crate::game_logic::thing::HostGeometryType::Box
@@ -1041,7 +1041,7 @@ impl GameLogic {
             let us = m.get_position();
             let them = imm.get_position();
             let lift = |obj: &crate::game_logic::Object| {
-                let g = &obj.thing().template.geometry_info;
+                let g = &(*obj.geometry_info());
                 match g.geom_type {
                     crate::game_logic::thing::HostGeometryType::Sphere => 0.0,
                     crate::game_logic::thing::HostGeometryType::Box
@@ -1089,7 +1089,7 @@ impl GameLogic {
                     imm_center,
                     us_radius,
                     pose_frame,
-                    presentation_effects,
+                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
                 );
             }
             return true;
@@ -1534,9 +1534,14 @@ impl GameLogic {
         }
         if let Some(terrain) = terrain {
             let highest = terrain.highest_surface(obj);
-            let _ = obj.handle_behavior_z_with_highest_surface(ground_y, goal_y, highest);
+            let _ = obj.handle_behavior_z_with_highest_surface_and_effects(
+                ground_y, goal_y, highest, frame, effects,
+            );
         } else {
-            let _ = obj.handle_behavior_z(ground_y, goal_y);
+            let highest = obj.highest_layer_surface_ht(ground_y);
+            let _ = obj.handle_behavior_z_with_highest_surface_and_effects(
+                ground_y, goal_y, highest, frame, effects,
+            );
         }
         match obj.loco_behavior_z {
             LocomotorBehaviorZ::SurfaceRelativeHeight

@@ -759,10 +759,12 @@ impl GameLogic {
         } else if self.can_unit_enter_normal_target(object_id, target_id) {
             if let Some(o) = self.objects.get_mut(&object_id) {
                 o.target = Some(target_id);
-                o.set_order_target(
+                o.set_order_target_with_operation(
                     Some(target_id),
                     &mut self.attack_events,
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
+                    self.frame,
+                    &mut effects.reborrow_for_object(&mut self.partition_manager),
                 );
                 o.set_ai_state(
                     AIState::Entering,

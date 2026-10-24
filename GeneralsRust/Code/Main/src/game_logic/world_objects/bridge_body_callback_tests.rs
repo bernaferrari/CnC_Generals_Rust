@@ -557,16 +557,8 @@ fn fuel_air_final_phase_finishes_linked_bridge_callbacks_before_returning() {
             let mut world = GameLogic::new();
             let (span, first, second, _) = bridge(&mut world, position);
             // Final SupW radius is70. Both towers are callback recipients only.
-            world
-                .objects
-                .get_mut(&first)
-                .unwrap()
-                .set_position(position - Vec3::X * 200.0);
-            world
-                .objects
-                .get_mut(&second)
-                .unwrap()
-                .set_position(position + Vec3::X * 200.0);
+            world.set_fixture_object_position(first, position - Vec3::X * 200.0);
+            world.set_fixture_object_position(second, position + Vec3::X * 200.0);
             let mut template = ThingTemplate::new("SupW_AuroraFuelAirGas");
             template.set_health(1.0);
             world.templates.insert(template.name.clone(), template);
@@ -1047,6 +1039,193 @@ fn repaired_bridge_begins_new_owned_score_episode_and_preserves_saved_future() {
                     assert_eq!(restored.objects[&source].experience.current, 50.);
                 }
             }
+        },
+    );
+}
+
+#[test]
+fn bridge_splat_rechecks_later_live_pose_layer_and_shape_and_skips_prepend_birth() {
+    isolated(
+        "bridge_splat_rechecks_later_live_pose_layer_and_shape_and_skips_prepend_birth",
+        || {
+            let mut world = GameLogic::new();
+            let (span, _, _, layer) = bridge(&mut world, Vec3::new(50., 5., 50.));
+            let mut unit = ThingTemplate::new("LiveSplatRecipient");
+            unit.add_kind_of(KindOf::Vehicle).set_health(100.);
+            world.templates.insert("LiveSplatRecipient".into(), unit);
+            let entering = world
+                .create_object("LiveSplatRecipient", Team::USA, Vec3::new(90., 5., 50.))
+                .unwrap();
+            let leaving = world
+                .create_object("LiveSplatRecipient", Team::USA, Vec3::new(50., 5., 50.))
+                .unwrap();
+            let first = world
+                .create_object("LiveSplatRecipient", Team::USA, Vec3::new(50., 5., 50.))
+                .unwrap();
+            for id in [entering, leaving, first] {
+                world.objects.get_mut(&id).unwrap().pathfind_layer = layer;
+            }
+            let mut visits = Vec::new();
+            let mut born = None;
+            world.visit_owned_bridge_splat_recipients(
+                span.0,
+                gamelogic::path::PathfindLayerEnum::from_u32(layer as u32),
+                |owner, id| {
+                    visits.push(id);
+                    hit(owner, id, 1., DamageType::Falling);
+                    if id == first {
+                        owner.objects.get_mut(&leaving).unwrap().pathfind_layer = 0;
+                        let mut shape = *owner.objects[&entering].geometry_info();
+                        shape.minor_radius = 30.;
+                        owner.set_fixture_object_geometry(entering, shape.to_host_geometry());
+                        let birth = owner
+                            .create_object("LiveSplatRecipient", Team::USA, Vec3::new(50., 5., 50.))
+                            .unwrap();
+                        owner.objects.get_mut(&birth).unwrap().pathfind_layer = layer;
+                        born = Some(birth);
+                    }
+                },
+            );
+            assert_eq!(
+                visits,
+                [first, entering],
+                "later qualification must read live shape/layer, never a frozen accepted set"
+            );
+            assert_eq!(world.objects[&leaving].health.current, 100.);
+            assert_eq!(world.objects[&entering].health.current, 99.);
+            assert_eq!(world.objects[&born.unwrap()].health.current, 100.);
+        },
+    );
+}
+
+#[test]
+fn bridge_on_die_moves_physics_survivor_and_kills_without_physics_in_original_order() {
+    isolated(
+        "bridge_on_die_moves_physics_survivor_and_kills_without_physics_in_original_order",
+        || {
+            let mut world = GameLogic::new();
+            world.admit_receiving_module_content(crate::assets::ReceivingObjectContent::from_sources([(
+            "bridge-survivors.ini".into(),
+            "Object OwnerSpan\nKindOf = BRIDGE STRUCTURE\nBody = ActiveBody B\nMaxHealth = 200\nInitialHealth = 200\nEnd\nEnd\nObject OwnerTower\nKindOf = BRIDGE_TOWER STRUCTURE\nBody = ActiveBody B\nMaxHealth = 100\nInitialHealth = 100\nEnd\nEnd\nObject BridgeFallPhysics\nKindOf = VEHICLE\nBody = ActiveBody B\nMaxHealth = 100\nInitialHealth = 100\nEnd\nBehavior = PhysicsBehavior P\nMass = 1\nEnd\nEnd\nObject BridgeFallNoPhysics\nKindOf = VEHICLE\nBody = ActiveBody B\nMaxHealth = 100\nInitialHealth = 100\nEnd\nEnd\n".into(),
+        )]).unwrap()).unwrap();
+            let (span, _, _, layer) = bridge(&mut world, Vec3::new(50., 5., 50.));
+            let physics = world
+                .create_object("BridgeFallPhysics", Team::USA, Vec3::new(52., 5., 49.))
+                .unwrap();
+            let no_physics = world
+                .create_object("BridgeFallNoPhysics", Team::USA, Vec3::new(48., 5., 51.))
+                .unwrap();
+            for id in [physics, no_physics] {
+                let object = world.objects.get_mut(&id).unwrap();
+                object.pathfind_layer = layer;
+                object.ground_height = 5.;
+            }
+            world
+                .objects
+                .get_mut(&physics)
+                .unwrap()
+                .set_indestructible(true);
+            // Complete the actual current Main partition phase before querying.
+            world.tick_physics_collisions_all();
+            for id in [physics, no_physics] {
+                let (object, partition) = world.host_object_and_partition_mut(id).unwrap();
+                let position = object.get_position();
+                object.set_position_with_partition_owner(
+                    Vec3::new(position.x, 5., position.z),
+                    0,
+                    &mut Default::default(),
+                    partition,
+                );
+                object.ground_height = 5.;
+            }
+            world.update_owned_partition_with_effects(&mut Default::default());
+            let mut recipients = Vec::new();
+            world.visit_owned_bridge_on_die_recipients(span, |_, id, physics| {
+                recipients.push((id, physics))
+            });
+            let observe = |id| {
+                let object = world.host_object(id).unwrap();
+                (
+                    id,
+                    object.get_position(),
+                    object.ground_height,
+                    object.pathfind_layer,
+                    object.is_above_terrain(),
+                )
+            };
+            assert!(
+                recipients.contains(&(physics, true)) && recipients.contains(&(no_physics, false)),
+                "actual onDie fixture recipients={recipients:?}, span={:?}, physics={:?}, no_physics={:?}",
+                observe(span),
+                observe(physics),
+                observe(no_physics)
+            );
+            world.bridge_behavior.bind_towers(span, [ObjectId(0); 4]);
+            // Execute the same actual span onDie continuation used by authored and
+            // fallback paths, retaining its installed admission latch during towers.
+            world.objects.get_mut(&span).unwrap().status.on_die_started = true;
+            world.apply_owned_bridge_death_links(span);
+            assert_eq!(
+                world.objects[&physics].pathfind_layer,
+                gamelogic::path::PathfindLayerEnum::Ground as u8
+            );
+            assert!(world.objects[&physics].allow_to_fall);
+            assert_eq!(world.objects[&physics].health.current, 100.);
+            assert_eq!(
+                world.objects[&no_physics].pathfind_layer,
+                gamelogic::path::PathfindLayerEnum::Ground as u8
+            );
+            assert!(world.objects[&no_physics].status.on_die_started);
+            assert_eq!(world.objects[&no_physics].last_damage_source, None);
+        },
+    );
+}
+
+#[test]
+fn bridge_on_die_rechecks_later_live_filter_but_does_not_admit_new_range_members() {
+    isolated(
+        "bridge_on_die_rechecks_later_live_filter_but_does_not_admit_new_range_members",
+        || {
+            let mut world = GameLogic::new();
+            let (span, _, _, layer) = bridge(&mut world, Vec3::new(50., 5., 50.));
+            let mut unit = ThingTemplate::new("BridgeIteratorUnit");
+            unit.add_kind_of(KindOf::Vehicle).set_health(100.);
+            world.templates.insert("BridgeIteratorUnit".into(), unit);
+            let first = world
+                .create_object("BridgeIteratorUnit", Team::USA, Vec3::new(48., 5., 49.))
+                .unwrap();
+            let later = world
+                .create_object("BridgeIteratorUnit", Team::USA, Vec3::new(52., 5., 49.))
+                .unwrap();
+            for id in [first, later] {
+                let object = world.objects.get_mut(&id).unwrap();
+                object.pathfind_layer = layer;
+                object.ground_height = 5.;
+            }
+            world.tick_physics_collisions_all();
+            for id in [first, later] {
+                let (object, partition) = world.host_object_and_partition_mut(id).unwrap();
+                let position = object.get_position();
+                object.set_position_with_partition_owner(
+                    Vec3::new(position.x, 5., position.z),
+                    0,
+                    &mut Default::default(),
+                    partition,
+                );
+                object.ground_height = 5.;
+            }
+            // Deliberately derive first from the actual owned iterator, not ID sort.
+            let mut visits = Vec::new();
+            world.visit_owned_bridge_on_die_recipients(span, |owner, id, _| {
+                visits.push(id);
+                let other = if id == first { later } else { first };
+                owner.objects.get_mut(&other).unwrap().pathfind_layer = 0;
+            });
+            assert_eq!(
+                visits.len(),
+                1,
+                "second live layer filter runs after first callback"
+            );
         },
     );
 }

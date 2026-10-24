@@ -514,7 +514,7 @@ impl GameLogic {
         Self::apply_authored_eject_pilot_die_metadata(&mut template, definition);
         Self::apply_authored_rebuild_hole_expose_die_metadata(&mut template, definition);
         Self::apply_authored_hack_internet_metadata(&mut template, definition);
-        Self::apply_authored_special_power_module_metadata(&mut template, definition);
+        Self::apply_authored_special_power_module_metadata(&mut template, definition, receiving);
         Self::apply_authored_hacker_disable_building_metadata(&mut template, definition);
         Self::apply_authored_charge_plant_metadata(&mut template, definition);
         Self::apply_authored_leftover_sa_trigger_sound(&mut template, definition);

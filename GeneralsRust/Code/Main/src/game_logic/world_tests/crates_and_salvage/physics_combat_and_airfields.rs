@@ -314,16 +314,8 @@ fn partition_cell_broadphase_and_collide_force() {
     let sid = ObjectId(603);
     logic.objects.insert(sid, Object::new(st, sid, Team::China));
     logic.objects.get_mut(&tid).unwrap().allow_collide_force = false;
-    logic
-        .objects
-        .get_mut(&tid)
-        .unwrap()
-        .set_position(Vec3::new(0.0, 1.0, 0.0));
-    logic
-        .objects
-        .get_mut(&sid)
-        .unwrap()
-        .set_position(Vec3::new(2.0, 1.0, 0.0));
+    logic.set_fixture_object_position(tid, Vec3::new(0.0, 1.0, 0.0));
+    logic.set_fixture_object_position(sid, Vec3::new(2.0, 1.0, 0.0));
     assert!(logic.try_physics_collide(tid, sid, 10.0));
 }
 
@@ -2245,8 +2237,14 @@ fn helipad_takeoff_is_two_point_climb_not_altitude_pop() {
             let parking = logic.heli_takeoff_or_landing[&heli_id].path[1];
             logic.heli_takeoff_or_landing.remove(&heli_id);
             {
-                let heli = logic.objects.get_mut(&heli_id).unwrap();
-                heli.set_position(parking);
+                let (heli, fixture_partition_heli) =
+                    logic.host_object_and_partition_mut(heli_id).unwrap();
+                heli.set_position_with_partition_owner(
+                    parking,
+                    0,
+                    &mut Default::default(),
+                    fixture_partition_heli,
+                );
                 heli.set_contained_by(Some(pad_id));
                 heli.set_ai_state(
                     AIState::Docked,

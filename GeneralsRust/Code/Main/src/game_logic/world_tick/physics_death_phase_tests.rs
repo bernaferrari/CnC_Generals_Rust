@@ -130,13 +130,13 @@ End
         .create_object_for_player("CrushPhaseSource", 2, Vec3::new(-20., 0., 0.))
         .expect("actual receiving high-ID crush source");
     assert_eq!(crusher_id, CRUSHER);
-    let crusher = world.objects.get_mut(&crusher_id).unwrap();
+    let (crusher, partition) = world.host_object_and_partition_mut(crusher_id).unwrap();
     assert!(crusher.thing().template.is_trainable);
     assert_eq!(
         crusher.thing().template.veterancy_xp_thresholds,
         [1., 100000., 200000.]
     );
-    crusher.set_orientation(0.);
+    crusher.set_orientation_with_partition_owner(0., partition);
     crusher.movement.velocity = Vec3::X * 5.;
     let mut shroud = world.world_services.shroud().lock().unwrap();
     shroud.init_shroud_grid(128., 128.);
@@ -172,11 +172,10 @@ fn installed_overlap_completes_death_and_promotion_before_armor_in_both_crush_pa
                     Some(crate::game_logic::combat::DamageType::Crush),
                     "zero contact still commits Armor throttle bookkeeping before geometry"
                 );
-                owner
-                    .objects
-                    .get_mut(&CRUSHER)
-                    .unwrap()
-                    .set_position(Vec3::new(if squish { -0.5 } else { 2.2 }, 0., 0.));
+                owner.set_fixture_object_position(
+                    CRUSHER,
+                    Vec3::new(if squish { -0.5 } else { 2.2 }, 0., 0.),
+                );
                 assert!(owner.apply_overlap_crush_check(CRUSHER, victim, false));
                 assert_eq!(
                     events.try_iter().collect::<Vec<_>>(),
@@ -249,7 +248,12 @@ fn initial_contact_continuation_rereads_crush_flags_and_current_geometry() {
         assert!(matches!(resume, OverlapCrushResume::AfterInitialContact));
         // Model changes made during the completed synchronous zero-hit callback.
         // The continuation may carry phase identity, never these future reads.
-        crusher.set_position(Vec3::new(2.2, 0., 0.));
+        crusher.set_position_with_partition_owner(
+            Vec3::new(2.2, 0., 0.),
+            0,
+            &mut Default::default(),
+            &mut world.partition_manager,
+        );
         crushee.front_crushed = callback_crushed_both;
         crushee.back_crushed = callback_crushed_both;
         let next = crusher.step_overlap_crush(crushee, false, resume);
@@ -267,7 +271,12 @@ fn initial_contact_continuation_rereads_crush_flags_and_current_geometry() {
     let [Some(crusher), Some(crushee)] = world.objects.get_disjoint_mut([&CRUSHER, &victim]) else {
         panic!("admitted squish pair")
     };
-    crusher.set_position(Vec3::new(-0.5, 0., 0.));
+    crusher.set_position_with_partition_owner(
+        Vec3::new(-0.5, 0., 0.),
+        0,
+        &mut Default::default(),
+        &mut world.partition_manager,
+    );
     let OverlapCrushStep::Damage { resume, .. } =
         crusher.step_overlap_crush(crushee, false, OverlapCrushResume::Start)
     else {

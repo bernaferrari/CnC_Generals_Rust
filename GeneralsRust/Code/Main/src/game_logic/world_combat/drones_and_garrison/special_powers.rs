@@ -680,10 +680,13 @@ impl GameLogic {
             let _ = self.choose_best_weapon_for_target(cid, Some(tid), current_time);
             let mut entered_attack = false;
             if let Some(o) = self.objects.get_mut(&cid) {
-                o.note_attack_target(
+                o.note_attack_target_with_operation(
                     tid,
                     &mut self.attack_events,
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
+                    self.frame,
+                    &mut crate::game_logic::ScriptPresentationEffects::default()
+                        .reborrow_for_object(&mut self.partition_manager),
                 );
                 o.turret_mood_target = true;
                 o.turret_idle_scanning = false;

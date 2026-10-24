@@ -911,8 +911,8 @@ impl AIPlayer {
 
     pub(super) fn host_object_bounding_circle(obj: &crate::game_logic::Object) -> f32 {
         crate::game_logic::host_supply_gather::host_bounding_circle_radius(
-            obj.thing().template.geometry_info.authored,
-            obj.thing().template.geometry_info.bounding_circle_radius(),
+            (*obj.geometry_info()).authored,
+            (*obj.geometry_info()).bounding_circle_radius(),
             obj.thing().geometry.radius.max(obj.selection_radius),
         )
     }

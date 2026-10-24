@@ -290,7 +290,7 @@ fn suspended_quick_exit_does_not_bypass_invalid_sally_cleanup() {
         unit.can_path_through_units = true;
         unit.adjust_destinations = false;
         world.add_object(unit);
-        let unit = world.host_object_mut(id).unwrap();
+        let (unit, partition) = world.host_object_and_partition_mut(id).unwrap();
         unit.unit_ai_runtime.set_guard_phase(Some(
             crate::game_logic::object::unit_ai_runtime::GuardPhase::Idle,
         ));
@@ -299,7 +299,9 @@ fn suspended_quick_exit_does_not_bypass_invalid_sally_cleanup() {
         match invalid {
             "dead" => unit.health.current = 0.0,
             "effectively dead" => unit.status.effectively_dead = true,
-            "contained" => unit.set_contained_by(Some(ObjectId(934208))),
+            "contained" => {
+                unit.set_contained_by_with_partition_owner(Some(ObjectId(934208)), true, partition)
+            }
             _ => unreachable!(),
         }
         world.tunnel_network.mark_sally(id);

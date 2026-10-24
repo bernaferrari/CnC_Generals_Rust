@@ -54,6 +54,7 @@ impl<'a> HostScriptExecutionDriver<'a> {
         mut ui: Option<&'a mut dyn crate::game_logic::ScriptUiEffects>,
     ) -> Self {
         let effects = crate::game_logic::ScriptPresentationEffects {
+            partition: None,
             audio: None,
             terrain: None,
             ui: ui,
@@ -2341,6 +2342,7 @@ impl GameLogic {
         ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
     ) {
         let mut effects = crate::game_logic::ScriptPresentationEffects {
+            partition: None,
             audio: None,
             terrain: None,
             ui: ui

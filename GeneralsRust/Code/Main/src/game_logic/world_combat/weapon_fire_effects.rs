@@ -295,10 +295,7 @@ End
         let pose = world.prepare_accepted_self_damage_pose(shot.shooter_id, 0);
         assert_eq!(shot.target_pos, Some(Vec3::ZERO));
         let changed = Vec3::new(7.0, 3.0, 5.0);
-        world
-            .host_object_mut(shot.shooter_id)
-            .unwrap()
-            .set_position(changed);
+        world.set_fixture_object_position(shot.shooter_id, changed);
         world.refresh_accepted_self_damage_pose(&mut shot, pose);
         assert_eq!(shot.target_id, None);
         assert_eq!(shot.target_pos, Some(changed));

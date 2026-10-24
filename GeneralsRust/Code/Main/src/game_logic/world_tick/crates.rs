@@ -111,7 +111,11 @@ impl GameLogic {
         ) else {
             // Fail-closed: still parachute the rider without a container object.
             if let Some(r) = self.objects.get_mut(&rider_id) {
-                r.set_position_with_effects(pos, tree_move_frame, presentation_effects);
+                r.set_position_with_effects(
+                    pos,
+                    tree_move_frame,
+                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                );
                 {}
                 r.apply_eject_parachuting();
             }
@@ -144,14 +148,29 @@ impl GameLogic {
 
         // Rider: contained + parachuting residual (hidden inside chute).
         if let Some(r) = self.objects.get_mut(&rider_id) {
-            r.set_contained_by(Some(chute_id));
+            let containment_actor_id = r.id;
+            Self::set_owned_containment_in_parts(
+                &mut self.objects,
+                &mut self.partition_manager,
+                containment_actor_id,
+                Some(chute_id),
+                false,
+            );
+            let r = self
+                .objects
+                .get_mut(&containment_actor_id)
+                .expect("containment operation preserves this birth");
             r.producer_id = Some(chute_id);
             r.set_ai_state(
                 crate::game_logic::AIState::Docked,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
             {}
-            r.set_position_with_effects(pos, tree_move_frame, presentation_effects);
+            r.set_position_with_effects(
+                pos,
+                tree_move_frame,
+                &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+            );
             {}
             r.apply_eject_parachuting();
             // Still not selectable while in chute (partition restore already cleared
@@ -1347,12 +1366,15 @@ impl GameLogic {
                     if let Some(unit) = self.objects.get_mut(&mid) {
                         unit.last_command_source = HUNT_CMD_FROM_PLAYER;
                         if !engaged {
-                            unit.set_target(
+                            unit.set_target_with_operation(
                                 Some(target_id),
                                 &mut self.attack_events,
                                 &mut crate::game_logic::ObjectAudio::queue(
                                     &mut self.queued_audio_events,
                                 ),
+                                self.frame,
+                                &mut crate::game_logic::ScriptPresentationEffects::default()
+                                    .reborrow_for_object(&mut self.partition_manager),
                             );
                         }
                     }
@@ -1428,7 +1450,11 @@ impl GameLogic {
         use crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_AI;
 
         if let Some(c) = self.objects.get_mut(&crawler_id) {
-            c.remove_occupant(member_id, &mut self.ownership_events);
+            c.remove_occupant_with_partition_owner(
+                member_id,
+                &mut self.ownership_events,
+                &mut self.partition_manager,
+            );
         }
         let _ =
             self.unit_command_exit_via_open_contain_with_effects(member_id, crawler_id, effects);
@@ -1443,10 +1469,13 @@ impl GameLogic {
 
         let crawler_pos = self.objects.get(&crawler_id).map(|c| c.get_position());
         if let Some(unit) = self.objects.get_mut(&member_id) {
-            unit.set_order_target(
+            unit.set_order_target_with_operation(
                 Some(crawler_id),
                 &mut self.attack_events,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
+                self.frame,
+                &mut crate::game_logic::ScriptPresentationEffects::default()
+                    .reborrow_for_object(&mut self.partition_manager),
             );
             unit.ignored_obstacle_id = Some(crawler_id);
             unit.last_command_source = HUNT_CMD_FROM_AI;
@@ -1630,6 +1659,10 @@ impl GameLogic {
             let Some(bus) = self.objects.get_mut(bus_id) else {
                 continue;
             };
+            bus.advance_battle_bus_throw_with_effects(
+                frame,
+                &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+            );
             #[cfg(feature = "game_client")]
             let (_landed, empty_kill) = Self::with_host_fx_view_parts_and_terrain(
                 &mut self.session_view,
@@ -1639,9 +1672,8 @@ impl GameLogic {
                     &mut **terrain as &mut dyn crate::game_logic::NativeTerrainEffects
                 }),
                 |view| {
-                    bus.tick_battle_bus_slow_death_with_fx(
+                    bus.finish_battle_bus_slow_death_with_fx(
                         frame,
-                        above,
                         *passenger_count,
                         &mut |name, object, at_object| {
                             Self::dispatch_object_phase_fx_with_view(
@@ -1658,8 +1690,12 @@ impl GameLogic {
                 },
             );
             #[cfg(not(feature = "game_client"))]
-            let (_landed, empty_kill) =
-                bus.tick_battle_bus_slow_death(frame, above, *passenger_count);
+            let (_landed, empty_kill) = bus.finish_battle_bus_slow_death_with_fx(
+                frame,
+                *passenger_count,
+                &mut |_name, _object, _at_object| {},
+                &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
+            );
             if empty_kill {
                 empty_kills.push(*bus_id);
             }
@@ -1728,7 +1764,7 @@ impl GameLogic {
                         epos,
                         air,
                         self.frame,
-                        presentation_effects,
+                        &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
                         &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                     );
                 }
@@ -1772,7 +1808,7 @@ impl GameLogic {
                     vlevel,
                     vxp,
                     self.frame,
-                    presentation_effects,
+                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
                 );
             }
             // Apply MAX level to vehicle from rider after tick.
@@ -1936,7 +1972,7 @@ impl GameLogic {
                 presentation_effects,
             ) {
                 if let Some(o) = self.objects.get_mut(&nid) {
-                    o.set_orientation(ori);
+                    o.set_orientation_with_partition_owner(ori, &mut self.partition_manager);
                 }
                 spawned += 1;
             }

@@ -3813,8 +3813,13 @@ fn tank_hunter_residual_rpg_horde_and_tnt() {
         .create_object("TestBuilding", Team::USA, Vec3::new(200.0, 0.0, 0.0))
         .expect("bldg");
     {
-        let th = game_logic.host_object_mut(th0).unwrap();
-        th.set_position(Vec3::new(200.0, 0.0, 2.0));
+        let (th, fixture_partition_th) = game_logic.host_object_and_partition_mut(th0).unwrap();
+        th.set_position_with_partition_owner(
+            Vec3::new(200.0, 0.0, 2.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_th,
+        );
         // Facing direction to the building is atan2(-dz, dx) = +PI/2 (0 faces +X).
         th.set_orientation(std::f32::consts::FRAC_PI_2);
         th.set_ai_state(

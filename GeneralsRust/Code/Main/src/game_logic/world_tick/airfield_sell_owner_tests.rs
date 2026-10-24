@@ -94,10 +94,15 @@ fn aircraft(world: &mut GameLogic, template: &str, ground: f32, height: f32) -> 
     let id = world
         .create_object_for_player(template, 0, Vec3::new(100.0, height, 100.0))
         .unwrap();
-    let object = world.host_object_mut(id).unwrap();
+    let (object, partition) = world.host_object_and_partition_mut(id).unwrap();
     object.ground_height = ground;
     object.ground_height_from_terrain = true;
-    object.set_position(Vec3::new(100.0, height, 100.0));
+    object.set_position_with_partition_owner(
+        Vec3::new(100.0, height, 100.0),
+        0,
+        &mut Default::default(),
+        partition,
+    );
     // This classification is not Object::isAboveTerrain. In particular, a
     // position three units above ground is still above terrain when false.
     object.status.airborne_target = false;
@@ -284,10 +289,7 @@ fn authored_airfield_sell_does_not_treat_containment_links_as_parking_reservatio
     // These counterexamples share the field link, but were never admitted to
     // a ParkingPlaceInfo. The field does not author an OpenContain module.
     for id in [unrostered, inactive] {
-        world
-            .host_object_mut(id)
-            .unwrap()
-            .set_contained_by(Some(rack));
+        world.set_fixture_object_contained_by(id, Some(rack));
         assert!(!world.airfield_has_reserved_space(rack, id));
     }
     let object = world.host_object(inactive).unwrap();

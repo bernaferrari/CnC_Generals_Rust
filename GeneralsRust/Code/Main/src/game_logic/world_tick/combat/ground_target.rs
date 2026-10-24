@@ -158,7 +158,13 @@ impl GameLogic {
                 } else {
                     std::f32::consts::PI
                 };
-                attacker.turn_toward_position(target_location, ground_slot, max_step)
+                attacker.turn_toward_position_with_operation(
+                    target_location,
+                    ground_slot,
+                    max_step,
+                    self.frame,
+                    &mut effects.reborrow_for_object(&mut self.partition_manager),
+                )
             } else {
                 true
             };
@@ -527,11 +533,7 @@ impl GameLogic {
                 {
                     let away = attacker.get_position() - target_location;
                     let len = away.length().max(0.01);
-                    let src_r = attacker
-                        .thing()
-                        .template
-                        .geometry_info
-                        .bounding_circle_radius();
+                    let src_r = (*attacker.geometry_info()).bounding_circle_radius();
                     let stand = (min_range + max_range) * 0.5 + src_r;
                     Some(target_location + away / len * stand)
                 } else {
@@ -591,11 +593,7 @@ impl GameLogic {
                 {
                     let away = attacker.get_position() - target_location;
                     let len = away.length().max(0.01);
-                    let src_r = attacker
-                        .thing()
-                        .template
-                        .geometry_info
-                        .bounding_circle_radius();
+                    let src_r = (*attacker.geometry_info()).bounding_circle_radius();
                     let stand = (min_range + max_range) * 0.5 + src_r;
                     Some(target_location + away / len * stand)
                 } else {

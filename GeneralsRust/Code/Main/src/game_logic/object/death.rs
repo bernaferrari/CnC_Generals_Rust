@@ -258,7 +258,7 @@ impl Object {
             }
         }
         let mut data = crate::game_logic::host_structure_topple::HostStructureToppleData::default();
-        let geom = &self.thing.template.geometry_info;
+        let geom = &(*self.geometry_info());
         data.bind_geometry(
             geom.max_height_above_position(),
             geom.major_radius,
@@ -436,19 +436,9 @@ impl Object {
         } else {
             host_structure_rubble_height(&self.template_name)
         };
-        if self.thing.template.geometry_info.authored {
-            match self.thing.template.geometry_info.geom_type {
-                crate::game_logic::HostGeometryType::Sphere => {
-                    self.thing.template.geometry_info.major_radius = rubble_h;
-                }
-                crate::game_logic::HostGeometryType::Box
-                | crate::game_logic::HostGeometryType::Cylinder => {
-                    self.thing.template.geometry_info.height = rubble_h;
-                }
-            }
-        }
-        let g = &mut self.thing.geometry;
-        g.bounds_max.y = g.bounds_min.y + rubble_h;
+        // Object::setGeometryInfoZ changes the canonical live shape and cached
+        // bounds but deliberately does not unregister/re-dirty PartitionData.
+        self.set_geometry_info_z(rubble_h);
         self.set_status_no_collisions(true);
     }
 
@@ -868,7 +858,7 @@ impl Object {
         self.ensure_crush_die();
         let kind = if let Some(crusher_xz) = crusher_xz {
             let victim = self.get_position();
-            let geom = &self.thing.template.geometry_info;
+            let geom = &(*self.geometry_info());
             let major = if geom.authored {
                 geom.major_radius
             } else {
@@ -1070,7 +1060,11 @@ impl Object {
         self.notify_native_pose_installed();
     }
 
-    pub(crate) fn apply_owned_structure_topple_rotation(&mut self) {
+    pub(crate) fn apply_owned_structure_topple_rotation(
+        &mut self,
+        frame: u32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let Some(data) = self.structure_topple_data.as_mut() else {
             return;
         };
@@ -1083,10 +1077,13 @@ impl Object {
             dx,
             dy,
         );
-        self.thing.set_transform_matrix(matrix);
-        self.notify_native_pose_installed();
+        self.set_transform_matrix_with_effects(matrix, frame, effects);
     }
-    pub(crate) fn finish_owned_structure_topple_pose(&mut self) {
+    pub(crate) fn finish_owned_structure_topple_pose(
+        &mut self,
+        frame: u32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         self.model_condition_bits &=
             !(1u128 << crate::game_logic::host_enum_table_residual::rubble_model_bit());
         self.model_condition_bits |=
@@ -1099,15 +1096,12 @@ impl Object {
         };
         let angle = data.dir_y.atan2(data.dir_x);
         let original = self.get_orientation();
-        self.thing.set_orientation(original);
-        self.notify_native_pose_installed();
-        self.thing.set_transform_matrix(
-            crate::game_logic::host_structure_topple::pose::rotate_done_basis(
-                self.thing.get_transform_matrix(),
-                angle - original,
-            ),
+        self.set_orientation_with_effects(original, effects);
+        let matrix = crate::game_logic::host_structure_topple::pose::rotate_done_basis(
+            self.thing.get_transform_matrix(),
+            angle - original,
         );
-        self.notify_native_pose_installed();
+        self.set_transform_matrix_with_effects(matrix, frame, effects);
     }
 
     /// Combined presentation lean (tree topple or structure topple).

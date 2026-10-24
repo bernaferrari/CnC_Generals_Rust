@@ -79,35 +79,62 @@ impl GameLogic {
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         use gamelogic::common::Relationship;
+        self.visit_owned_construction_footprint_candidates(building_id, |owner, mine_id| {
+            let relation =
+                owner.object_relationship(&owner.objects[&building_id], &owner.objects[&mine_id]);
+            match relation {
+                Relationship::Enemies => {
+                    owner.apply_owned_kill_with_effects(
+                        mine_id,
+                        crate::game_logic::combat::DamageType::Unresistable,
+                        crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+                        effects,
+                    );
+                }
+                Relationship::Allies | Relationship::Neutral => {
+                    owner.destroy_object_with_effects(mine_id, effects);
+                }
+            }
+        });
+    }
 
+    /// Operation-local original iterator with live mine/lifetime qualification.
+    /// Kept separate from the callback so tests can observe callback-caused
+    /// queued destruction without changing the production receiver.
+    pub(crate) fn visit_owned_construction_footprint_candidates(
+        &mut self,
+        building_id: ObjectId,
+        mut visit: impl FnMut(&mut Self, ObjectId),
+    ) {
         let Some(building) = self.objects.get(&building_id) else {
             return;
         };
-        if building.status.destroyed {
-            return;
-        }
         let building_identity = self.live_draw_playback_identity(building);
-        let mut hits = Vec::new();
-        for (id, obj) in self.objects.registered() {
-            if *id == building_id || obj.status.destroyed {
-                continue;
-            }
-            let is_mine = obj.is_kind_of(KindOf::Mine);
-            if !is_mine {
-                continue;
-            }
-            if !construction_collision::object_would_collide(
-                building.get_position(),
-                &building.thing().template.geometry_info,
-                building.get_orientation(),
-                obj.get_position(),
-                &obj.thing().template.geometry_info,
-                obj.get_orientation(),
-            ) {
-                continue;
-            }
-            hits.push((*id, self.live_draw_playback_identity(obj)));
-        }
+        let position = building.get_position();
+        let radius = building.geometry_info().bounding_sphere_radius() * 1.1;
+        // Original range/filter snapshot consumes existing COIs without flushing
+        // dirty modules. Filter at iterator construction; callbacks reread only
+        // lifetime, mine kind and relationship at each original visit.
+        let hits: Vec<_> = self
+            .partition_manager
+            .ids_in_radius_iterator_order(position.x, position.z, radius, |id| {
+                self.objects.get(&ObjectId(id)).is_some_and(|object| {
+                    construction_collision::object_would_collide(
+                        position,
+                        building.geometry_info(),
+                        building.get_orientation(),
+                        object.get_position(),
+                        object.geometry_info(),
+                        object.get_orientation(),
+                    )
+                })
+            })
+            .into_iter()
+            .filter_map(|id| {
+                let object = self.objects.get(&ObjectId(id))?;
+                Some((ObjectId(id), self.live_draw_playback_identity(object)))
+            })
+            .collect();
 
         for (mine_id, mine_identity) in hits {
             // Earlier callbacks may destroy/capture another candidate. Resolve
@@ -121,22 +148,20 @@ impl GameLogic {
             if self.live_draw_playback_identity(building) != building_identity {
                 break;
             }
-            if mine.status.destroyed || self.live_draw_playback_identity(mine) != mine_identity {
+            if self.live_draw_playback_identity(mine) != mine_identity
+                || !mine.is_kind_of(KindOf::Mine)
+            {
                 continue;
             }
-            let relation = self.object_relationship(building, mine);
-            match relation {
-                Relationship::Enemies => {
-                    self.apply_owned_kill_with_effects(
-                        mine_id,
-                        crate::game_logic::combat::DamageType::Unresistable,
-                        crate::game_logic::host_usa_pilot::HostDeathType::Normal,
-                        effects,
-                    );
-                }
-                Relationship::Allies | Relationship::Neutral => {
-                    self.destroy_object_with_effects(mine_id, effects);
-                }
+            visit(self, mine_id);
+        }
+        if let Some(building) = self.objects.get(&building_id) {
+            if self.live_draw_playback_identity(building) == building_identity {
+                self.partition_manager.mark_receiving_object_dirty(
+                    building_id.0,
+                    &building.visual_draw_identity_token,
+                    true,
+                );
             }
         }
     }

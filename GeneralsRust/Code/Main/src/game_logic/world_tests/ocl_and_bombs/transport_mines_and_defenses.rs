@@ -268,8 +268,14 @@ fn mine_residual_place_enemy_triggers_damage() {
 
     // Move enemy into trigger range.
     {
-        let enemy = game_logic.host_object_mut(enemy_id).unwrap();
-        enemy.set_position(Vec3::new(trigger * 0.25, 0.0, 0.0));
+        let (enemy, fixture_partition_enemy) =
+            game_logic.host_object_and_partition_mut(enemy_id).unwrap();
+        enemy.set_position_with_partition_owner(
+            Vec3::new(trigger * 0.25, 0.0, 0.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_enemy,
+        );
     }
     game_logic.update_mines_and_demo_traps();
 
@@ -833,8 +839,14 @@ fn dozer_mine_clear_residual_approaches_then_clears() {
     }
 
     {
-        let dozer = game_logic.host_object_mut(dozer_id).unwrap();
-        dozer.set_position(Vec3::new(DOZER_MINE_CLEAR_RANGE * 0.25, 0.0, 0.0));
+        let (dozer, fixture_partition_dozer) =
+            game_logic.host_object_and_partition_mut(dozer_id).unwrap();
+        dozer.set_position_with_partition_owner(
+            Vec3::new(DOZER_MINE_CLEAR_RANGE * 0.25, 0.0, 0.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_dozer,
+        );
         dozer.set_ai_state(
             AIState::Idle,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),

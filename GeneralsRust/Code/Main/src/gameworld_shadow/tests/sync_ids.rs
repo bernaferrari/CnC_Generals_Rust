@@ -306,11 +306,8 @@ fn pose_writeback_is_last_writer() {
         let p = logic.host_objects().lookup(&id).unwrap().get_position();
         assert!(p.x.abs() < 0.1, "pre-writeback host x={}", p.x);
     }
-    logic
-        .host_object_mut(id)
-        .unwrap()
-        .set_position(glam::Vec3::new(42.0, 1.0, 7.0));
-    logic.host_object_mut(id).unwrap().set_orientation(0.5);
+    logic.set_fixture_object_position(id, glam::Vec3::new(42.0, 1.0, 7.0));
+    logic.set_fixture_object_orientation(id, 0.5);
     shadow.sync_from_host(&logic);
 
     let p = logic.host_objects().lookup(&id).unwrap().get_position();

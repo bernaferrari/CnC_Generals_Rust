@@ -512,10 +512,7 @@ fn explicit_container_delete_detaches_a_dying_slow_death_passenger_immediately()
             .unwrap()
             .add_occupant(child)
     );
-    world
-        .host_object_mut(child)
-        .unwrap()
-        .set_contained_by(Some(container));
+    world.set_fixture_object_contained_by(child, Some(container));
     world.destroy_object(container);
     assert!(
         world
@@ -678,8 +675,13 @@ fn zero_hp_dying_body_keeps_owned_physics_motion_without_peer_revival() {
     owner.frame = 1;
     peer.frame = 700;
     for world in [&mut owner, &mut peer] {
-        let body = world.host_object_mut(id).unwrap();
-        body.set_position(Vec3::new(10.0, 100.0, 10.0));
+        let (body, fixture_partition_body) = world.host_object_and_partition_mut(id).unwrap();
+        body.set_position_with_partition_owner(
+            Vec3::new(10.0, 100.0, 10.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_body,
+        );
         body.ground_height = 0.0;
         body.movement.velocity = Vec3::new(1.0, 0.0, 0.0);
         body.allow_to_fall = true;
@@ -708,8 +710,13 @@ fn saved_zero_hp_dying_body_preserves_motion_and_final_deadline() {
     let (mut owner, id, due) = parsed_slow_death_owner();
     owner.frame = 1;
     {
-        let body = owner.host_object_mut(id).unwrap();
-        body.set_position(Vec3::new(10.0, 100.0, 10.0));
+        let (body, fixture_partition_body) = owner.host_object_and_partition_mut(id).unwrap();
+        body.set_position_with_partition_owner(
+            Vec3::new(10.0, 100.0, 10.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_body,
+        );
         body.movement.velocity = Vec3::new(1.0, 0.0, 0.0);
         body.allow_to_fall = true;
     }

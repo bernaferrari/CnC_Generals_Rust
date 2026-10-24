@@ -132,6 +132,8 @@ impl SnapshotBuilder {
                 );
                 super::super::camera_continuation::append(&mut bytes, game_logic)?;
                 super::super::combat_projectile_persist::append(&mut bytes, game_logic)?;
+                super::super::partition_continuation_persist::append(&mut bytes, game_logic)?;
+                super::super::geometry_shape_persist::append(&mut bytes, game_logic)?;
                 super::super::body_kind_persist::append(&mut bytes, game_logic)?;
                 super::super::native_lifecycle_persist::append(&mut bytes, game_logic)?;
                 super::super::original_disabled_persist::append(&mut bytes, game_logic)?;
@@ -396,8 +398,23 @@ impl SnapshotBuilder {
             &snapshot.lifecycle_tail,
             snapshot.version >= 28,
         )?;
+        let partition_continuation = super::super::partition_continuation_persist::decode(
+            projectile_continuation.legacy_tail.as_ref(),
+        )?;
+        super::super::partition_continuation_persist::validate(
+            partition_continuation.state.as_ref(),
+            &snapshot.objects,
+            &snapshot.shroud,
+        )?;
+        let geometry_shapes = super::super::geometry_shape_persist::decode(
+            partition_continuation.legacy_tail.as_ref(),
+        )?;
+        super::super::geometry_shape_persist::validate(
+            geometry_shapes.records.as_deref(),
+            &snapshot.objects,
+        )?;
         let body_definitions =
-            super::super::body_kind_persist::decode(projectile_continuation.legacy_tail.as_ref())?;
+            super::super::body_kind_persist::decode(geometry_shapes.legacy_tail.as_ref())?;
         let body_kinds = super::super::body_kind_persist::validate(
             body_definitions.records.as_deref(),
             &snapshot.objects,
@@ -554,12 +571,13 @@ impl SnapshotBuilder {
         self.restore_player_energy(snapshot, game_logic)?;
         self.restore_player_template_bindings(snapshot, game_logic)?;
         self.restore_all_teams(&snapshot.teams, game_logic)?;
-        self.restore_all_objects_with_native_lifecycle(
+        self.restore_all_objects_with_geometry(
             &snapshot.objects,
             snapshot.next_object_id,
             &body_kinds,
             &native_lifecycle_runtimes,
             object_order.saved_order.as_deref(),
+            &super::super::geometry_shape_persist::shapes(geometry_shapes.records.as_deref()),
             game_logic,
         )?;
         super::super::native_lifecycle_persist::apply_transport_payload_latches(
@@ -873,6 +891,16 @@ impl SnapshotBuilder {
             game_logic
                 .admit_camera_continuation(camera.logic)
                 .map_err(SaveLoadError::Corrupted)?;
+        }
+        // Restore exact stale COI/first-dirty history only after the receiving
+        // shroud grid and every actor tail are installed. This does not flush
+        // pending dirtiness or replay contact callbacks during load.
+        if let Some(partition) = partition_continuation.state {
+            game_logic
+                .restore_partition_continuation(partition)
+                .map_err(SaveLoadError::Corrupted)?;
+        } else {
+            game_logic.reattach_legacy_partition_after_restore();
         }
         log::info!("World restoration complete");
         Ok(())

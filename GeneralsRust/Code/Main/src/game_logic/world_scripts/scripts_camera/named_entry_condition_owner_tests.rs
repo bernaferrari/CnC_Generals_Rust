@@ -36,10 +36,7 @@ fn named_entered_condition_observes_owned_geometry_edge_window_and_same_id_peer(
         flags.set_current_frame(20);
         flags.update_object_flags(unit.0, 18.0, 18.0, 19, false, None);
     }
-    owner
-        .host_object_mut(unit)
-        .unwrap()
-        .set_position(Vec3::new(2.0, 0.0, 2.0));
+    owner.set_fixture_object_position(unit, Vec3::new(2.0, 0.0, 2.0));
     owner
         .host_trigger_world
         .lock()

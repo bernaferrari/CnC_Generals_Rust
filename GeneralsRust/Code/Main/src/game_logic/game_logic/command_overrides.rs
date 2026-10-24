@@ -93,9 +93,38 @@ impl GameLogic {
             self.set_buildable_status_override(template, status);
         }
     }
+    pub(crate) fn admitted_command_button(
+        &self,
+        name: &str,
+    ) -> Option<game_engine::common::ini::ini_command_button::CommandButton> {
+        if let Some(content) = self.receiving_module_content.as_ref() {
+            return content
+                .action_definitions()
+                .buttons
+                .find_command_button_resolved(name)
+                .cloned();
+        }
+        game_engine::common::ini::ini_command_button::get_control_bar()?
+            .find_command_button_resolved(name)
+            .cloned()
+    }
+    fn admitted_command_set(
+        &self,
+        name: &str,
+    ) -> Option<game_engine::common::ini::ini_command_set::CommandSet> {
+        if let Some(content) = self.receiving_module_content.as_ref() {
+            return content
+                .action_definitions()
+                .sets
+                .find_command_set_resolved(name)
+                .cloned();
+        }
+        game_engine::common::ini::ini_command_set::get_command_set_manager()?
+            .find_command_set_resolved(name)
+            .cloned()
+    }
     pub(crate) fn effective_command_slots(&self, set_name: &str) -> Option<Vec<Option<String>>> {
-        let manager = game_engine::common::ini::ini_command_set::get_command_set_manager()?;
-        let set = manager.find_command_set_resolved(set_name)?;
+        let set = self.admitted_command_set(set_name)?;
         Some(
             (0..gamelogic::command_button::MAX_COMMANDS_PER_SET)
                 .map(|slot| {
@@ -116,13 +145,12 @@ impl GameLogic {
             return None;
         }
         let slots = self.effective_command_slots(&set)?;
-        let bar = game_engine::common::ini::ini_command_button::get_control_bar()?;
         Some(
             slots
                 .iter()
                 .flatten()
                 .filter_map(|name| {
-                    let button = bar.find_command_button_resolved(name)?;
+                    let button = self.admitted_command_button(name)?;
                     matches!(button.command.as_str(), "UNIT_BUILD" | "DOZER_CONSTRUCT")
                         .then(|| (button.command.clone(), button.object.clone()))
                 })
@@ -156,18 +184,13 @@ impl GameLogic {
             if control_bar_override_key(&set_name, slot).is_none() {
                 return;
             }
-            let exists = game_engine::common::ini::ini_command_button::get_control_bar()
-                .is_some_and(|bar| bar.find_command_button_resolved(button).is_some());
+            let exists = self.admitted_command_button(button).is_some();
             if exists {
                 self.set_control_bar_override(&set_name, slot, Some(button));
             }
             return;
         }
-        let Some(manager) = game_engine::common::ini::ini_command_set::get_command_set_manager()
-        else {
-            return;
-        };
-        let Some(set) = manager.find_command_set_resolved(&set_name) else {
+        let Some(set) = self.admitted_command_set(&set_name) else {
             return;
         };
         for slot in 0..gamelogic::command_button::MAX_COMMANDS_PER_SET {

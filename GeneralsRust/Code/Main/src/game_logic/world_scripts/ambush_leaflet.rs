@@ -204,7 +204,11 @@ impl GameLogic {
                         let mut p = obj.get_position();
                         if p.y < 80.0 {
                             p.y = 120.0;
-                            obj.set_position_with_effects(p, self.frame, effects);
+                            obj.set_position_with_effects(
+                                p,
+                                self.frame,
+                                &mut effects.reborrow_for_object(&mut self.partition_manager),
+                            );
                             {}
                         }
                         obj.apply_eject_parachuting();
@@ -960,7 +964,10 @@ impl GameLogic {
             );
             if let Some(id) = tunnel_id {
                 if let Some(o) = self.objects.get_mut(&id) {
-                    o.set_orientation(plan.placement_angle);
+                    o.set_orientation_with_partition_owner(
+                        plan.placement_angle,
+                        &mut self.partition_manager,
+                    );
                 }
             }
 

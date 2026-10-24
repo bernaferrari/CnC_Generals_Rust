@@ -272,9 +272,7 @@ fn rejected_missing_map_definition_leaves_running_owner_unchanged() {
         .unwrap();
     let (mut live, _, _) = world();
     live.frame = 543;
-    live.host_object_mut(first)
-        .unwrap()
-        .set_position(Vec3::new(123.0, 0.0, 456.0));
+    live.set_fixture_object_position(first, Vec3::new(123.0, 0.0, 456.0));
     let before = live.host_object(first).unwrap().get_position();
     assert!(
         SnapshotBuilder::new()

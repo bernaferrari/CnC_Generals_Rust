@@ -309,8 +309,15 @@ impl GameLogic {
             if let Some(jet) = self.objects.get_mut(&jet_id) {
                 jet.producer_id = Some(carrier_id);
                 jet.airfield_parking_space_index = u32::try_from(index).ok();
-                jet.set_orientation(orient);
-                jet.set_position_with_effects(pos, pose_frame, effects);
+                jet.set_orientation_with_effects(
+                    orient,
+                    &mut effects.reborrow_for_object(&mut self.partition_manager),
+                );
+                jet.set_position_with_effects(
+                    pos,
+                    pose_frame,
+                    &mut effects.reborrow_for_object(&mut self.partition_manager),
+                );
                 jet.set_ai_state(
                     AIState::Idle,
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
@@ -438,17 +445,22 @@ impl GameLogic {
             .and_then(|c| c.thing().template.flight_deck.as_ref())
             .map(|m| m.landing_deck_height_offset)
             .unwrap_or(0.0);
-        if let Some((jet, mut movement_events, audio_events)) =
-            self.host_object_movement_audio_mut(jet_id)
+        if let Some((jet, mut movement_events, audio_events, partition)) =
+            self.host_object_movement_audio_partition_mut(jet_id)
         {
             jet.producer_id = Some(carrier_id);
             jet.airfield_parking_space_index = u32::try_from(index).ok();
-            jet.set_position_with_effects(creation, pose_frame, effects);
-            jet.set_orientation(start_orient);
-            jet.set_destination(
+            jet.set_position_with_partition_owner(creation, pose_frame, effects, partition);
+            jet.set_orientation_with_effects(
+                start_orient,
+                &mut effects.reborrow_for_object(partition),
+            );
+            jet.set_destination_with_operation(
                 stall.position,
                 &mut movement_events,
                 &mut crate::game_logic::ObjectAudio::queue(audio_events),
+                pose_frame,
+                &mut effects.reborrow_for_object(partition),
             );
             jet.set_ai_state(
                 AIState::Moving,
@@ -536,16 +548,20 @@ impl GameLogic {
                 }
             }
         }
+        let operation_frame = self.frame;
         for (front, _rear, parked_id, _old_front, dest) in promotions {
-            if let Some((jet, mut movement_events, audio_events)) =
-                self.host_object_movement_audio_mut(parked_id)
+            if let Some((jet, mut movement_events, audio_events, partition)) =
+                self.host_object_movement_audio_partition_mut(parked_id)
             {
                 let _ = jet.apply_status_bits_upgrade_masks(&["REASSIGN_PARKING"], &[]);
                 jet.airfield_parking_space_index = u32::try_from(front).ok();
-                jet.set_destination(
+                jet.set_destination_with_operation(
                     dest,
                     &mut movement_events,
                     &mut crate::game_logic::ObjectAudio::queue(audio_events),
+                    operation_frame,
+                    &mut crate::game_logic::ScriptPresentationEffects::default()
+                        .reborrow_for_object(partition),
                 );
                 jet.set_ai_state(
                     AIState::Moving,
@@ -677,7 +693,10 @@ impl GameLogic {
         };
         if let Some(jet) = self.objects.get_mut(&jet_id) {
             jet.producer_id = Some(carrier_id);
-            jet.set_orientation(orient);
+            jet.set_orientation_with_effects(
+                orient,
+                &mut effects.reborrow_for_object(&mut self.partition_manager),
+            );
         }
         self.flight_deck_exit_object_via_door(carrier_id, jet_id, effects);
     }
@@ -983,19 +1002,25 @@ impl GameLogic {
                 if let Some(target_id) = target {
                     jet.status.airborne_target = true;
                     jet.set_force_attack(command == HostFlightDeckCommand::ForceAttackObject);
-                    jet.attack_target(
+                    jet.attack_target_with_operation(
                         target_id,
                         attack_events,
                         &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
+                        self.frame,
+                        &mut crate::game_logic::ScriptPresentationEffects::default()
+                            .reborrow_for_object(&mut self.partition_manager),
                     );
                 }
             }
             HostFlightDeckCommand::AttackMoveToPosition => {
                 jet.status.airborne_target = true;
-                jet.set_destination(
+                jet.set_destination_with_operation(
                     position,
                     &mut movement_events,
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
+                    self.frame,
+                    &mut crate::game_logic::ScriptPresentationEffects::default()
+                        .reborrow_for_object(&mut self.partition_manager),
                 );
                 jet.set_ai_state(
                     AIState::AttackMoving,
@@ -1003,10 +1028,13 @@ impl GameLogic {
                 );
             }
             HostFlightDeckCommand::Idle => {
-                jet.set_destination(
+                jet.set_destination_with_operation(
                     stall_pos.unwrap_or(position),
                     &mut movement_events,
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
+                    self.frame,
+                    &mut crate::game_logic::ScriptPresentationEffects::default()
+                        .reborrow_for_object(&mut self.partition_manager),
                 );
                 jet.set_ai_state(
                     AIState::Entering,

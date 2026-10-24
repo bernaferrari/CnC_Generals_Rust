@@ -399,7 +399,7 @@ impl Object {
         mass: f32,
     ) -> glam::Vec3 {
         use crate::game_logic::host_partition_collision_physics_residual::structure_immobile_bounce_factor;
-        let g = &self.thing.template.geometry_info;
+        let g = self.geometry_info();
         let lift = match g.geom_type {
             crate::game_logic::thing::HostGeometryType::Sphere => 0.0,
             crate::game_logic::thing::HostGeometryType::Box
@@ -451,7 +451,7 @@ impl Object {
         // C++ otherImmobile = isKindOf(KINDOF_IMMOBILE); crash is inside that gate.
         let other_immobile = other.is_kind_of(KindOf::Immobile);
         let center_y = |obj: &Object| {
-            let g = &obj.thing.template.geometry_info;
+            let g = obj.geometry_info();
             let lift = match g.geom_type {
                 crate::game_logic::thing::HostGeometryType::Sphere => 0.0,
                 crate::game_logic::thing::HostGeometryType::Box
@@ -536,6 +536,23 @@ impl Object {
     /// C++ HAS_PITCHROLLYAW incremental Rotate_X/Y/Z remapped to host Y-up.
     /// C++ X=forward, Y=right, Z=up → host X=forward, Z=right, Y=up.
     pub fn apply_physics_ypr(&mut self, yaw_rate: f32, pitch_rate: f32, roll_rate: f32) {
+        self.apply_physics_ypr_with_effects(
+            yaw_rate,
+            pitch_rate,
+            roll_rate,
+            0,
+            &mut Default::default(),
+        );
+    }
+
+    pub(crate) fn apply_physics_ypr_with_effects(
+        &mut self,
+        yaw_rate: f32,
+        pitch_rate: f32,
+        roll_rate: f32,
+        frame: u32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         if yaw_rate.abs() <= 1e-8 && pitch_rate.abs() <= 1e-8 && roll_rate.abs() <= 1e-8 {
             self.sync_shock_up_from_transform();
             return;
@@ -544,13 +561,21 @@ impl Object {
         mtx *= glam::Mat4::from_rotation_x(roll_rate);
         mtx *= glam::Mat4::from_rotation_z(pitch_rate);
         mtx *= glam::Mat4::from_rotation_y(yaw_rate);
-        self.set_transform_matrix(mtx);
+        self.set_transform_matrix_with_effects(mtx, frame, effects);
         self.sync_shock_up_from_transform();
     }
 
     /// Leftover handle_bounce first-righting (PhysicsUpdate.cpp:505-512):
     /// pitch = 0, roll = 0 or PI from current up so stun-kill still sees a flip.
     pub(super) fn right_physics_pitch_keep_flip(&mut self) {
+        self.right_physics_pitch_keep_flip_with_operation(0, &mut Default::default())
+    }
+
+    pub(super) fn right_physics_pitch_keep_flip_with_operation(
+        &mut self,
+        operation_frame: u32,
+        operation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let pos = self.get_position();
         let yaw = self.get_orientation();
         let roll = if self.physics_transform_up_y() > 0.0 {
@@ -558,10 +583,12 @@ impl Object {
         } else {
             std::f32::consts::PI
         };
-        self.set_transform_matrix(
+        self.set_transform_matrix_with_effects(
             glam::Mat4::from_translation(pos)
                 * glam::Mat4::from_rotation_y(yaw)
                 * glam::Mat4::from_rotation_x(roll),
+            operation_frame,
+            operation_effects,
         );
         self.sync_shock_up_from_transform();
     }
@@ -590,6 +617,23 @@ impl Object {
         new_y: f32,
         ground_y: f32,
     ) -> Option<glam::Vec3> {
+        self.compute_ground_bounce_force_with_operation(
+            old_y,
+            new_y,
+            ground_y,
+            0,
+            &mut Default::default(),
+        )
+    }
+
+    pub fn compute_ground_bounce_force_with_operation(
+        &mut self,
+        old_y: f32,
+        new_y: f32,
+        ground_y: f32,
+        operation_frame: u32,
+        operation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> Option<glam::Vec3> {
         if !self.shock_allow_bounce || new_y > ground_y {
             return None;
         }
@@ -603,7 +647,7 @@ impl Object {
         if vy < 0.0 {
             // Leftover handle_bounce vz<0: pitch=0, roll=0 or PI from up.
             // Rates stay 0.7-damped (C++ applyYPRDamping only).
-            self.right_physics_pitch_keep_flip();
+            self.right_physics_pitch_keep_flip_with_operation(operation_frame, operation_effects);
         }
         if desired_accel_y > 0.0 {
             // C++ bounceForce.z = mass * desiredAccelZ

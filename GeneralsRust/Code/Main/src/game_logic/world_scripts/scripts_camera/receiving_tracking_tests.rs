@@ -35,7 +35,7 @@ fn authored_tracking(world: &mut GameLogic, foreign: &Arc<MissionScriptHooks>) {
     assert!(world.session_view.camera.rotation_registers.active());
 }
 fn position(world: &mut GameLogic, id: ObjectId, position: Vec3) {
-    world.host_object_mut(id).unwrap().set_position(position);
+    world.set_fixture_object_position(id, position);
 }
 fn cached(world: &GameLogic) -> Vec3 {
     world

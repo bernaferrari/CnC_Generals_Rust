@@ -661,8 +661,9 @@ fn host_owner_log_feeds_transfer_owner_mutation() {
     let mut shadow = GameWorldShadow::new(4096);
     shadow.sync_from_host(&logic);
     {
-        let (o, ownership_events) = logic.host_object_and_ownership_events_mut(id).unwrap();
-        o.set_team(Team::USA, ownership_events);
+        let (o, ownership_events, fixture_partition) =
+            logic.host_object_ownership_partition_mut(id).unwrap();
+        o.set_team_with_partition_owner(Team::USA, ownership_events, fixture_partition);
     }
     logic.ownership_events.complete_boundary();
     let events = logic.ownership_events.take_completed();
@@ -899,7 +900,10 @@ fn residual_auto_fire_damage_source_attribution_source() {
     ));
     assert!(delivery.contains("selected_native_weapon_rule(slot)"));
     let attack = include_str!("../../game_logic/object/attack.rs");
-    let shot = last_rust_fn_body(attack, "prepare_weapon_shot").expect("shared real shot");
+    let adapter = last_rust_fn_body(attack, "prepare_weapon_shot").expect("shared shot adapter");
+    assert!(adapter.contains("self.prepare_weapon_shot_with_operation("));
+    let shot = last_rust_fn_body(attack, "prepare_weapon_shot_with_operation")
+        .expect("shared receiving real shot");
     assert!(
         shot.contains("let shooter_id = self.id") && shot.contains("damage_type: weapon_dtype")
     );

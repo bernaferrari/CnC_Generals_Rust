@@ -2305,10 +2305,7 @@ fn deploy_style_nuke_launcher_normal_attack_waits_for_range_and_unpack() {
 
     // Once the same pending attack is actually in range, C++ DeployStyle
     // begins its authored timer and blocks damage through the final frame.
-    logic
-        .host_object_mut(target_id)
-        .unwrap()
-        .set_position(Vec3::new(50.0, 0.0, 0.0));
+    logic.set_fixture_object_position(target_id, Vec3::new(50.0, 0.0, 0.0));
     tick_through_frame(&mut logic, &mut last_ticked_frame, 2);
     assert!(matches!(
         logic
@@ -2680,8 +2677,13 @@ fn jet_out_of_ammo_paths_to_distant_airfield_then_rearms() {
 
     // C++ lands on the runway then taxis; dock only once grounded at the pad.
     {
-        let jet = logic.objects.get_mut(&jet_id).unwrap();
-        jet.set_position(Vec3::new(0.0, 0.0, 0.0));
+        let (jet, fixture_partition_jet) = logic.host_object_and_partition_mut(jet_id).unwrap();
+        jet.set_position_with_partition_owner(
+            Vec3::new(0.0, 0.0, 0.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_jet,
+        );
         jet.status.airborne_target = false;
         jet.jet_ai.rtb_landing_phase = crate::game_logic::object::JET_RTB_PHASE_TAXI;
         if let Some(w) = jet.weapon.as_mut() {
@@ -2894,8 +2896,13 @@ fn empty_jet_circles_last_airfield_instead_of_bleeding_in_place() {
     }
 
     {
-        let jet = logic.objects.get_mut(&jet_id).unwrap();
-        jet.set_position(Vec3::new(5.0, 50.0, 0.0));
+        let (jet, fixture_partition_jet) = logic.host_object_and_partition_mut(jet_id).unwrap();
+        jet.set_position_with_partition_owner(
+            Vec3::new(5.0, 50.0, 0.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_jet,
+        );
     }
     logic.queued_audio_events.clear();
     logic.tick_out_of_ammo_jet_damage();

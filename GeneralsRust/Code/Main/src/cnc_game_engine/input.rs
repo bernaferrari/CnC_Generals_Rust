@@ -1166,6 +1166,9 @@ impl CnCGameEngine {
     /// Execute state transition with proper setup/cleanup
     /// Matches C++ GameEngine reset() and initialization patterns
     pub(super) fn host_transition_to_state(&mut self, new_state: GameState) {
+        if new_state == GameState::Exiting {
+            self.abandon_startup_load_worker();
+        }
         // Wave 612: host residual helper.
         let old_state = self.current_state;
 
@@ -1906,6 +1909,8 @@ impl CnCGameEngine {
                 self.native_filter_render_scroll();
         }
         #[cfg(feature = "game_client")]
+        let native_radius_items = self.game_client.collect_native_radius_render_items();
+        #[cfg(feature = "game_client")]
         let render_result = {
             let world_bounds = self.presentation_world_bounds();
             // This operation owns GameLogic for its entire render continuation.
@@ -2041,6 +2046,7 @@ impl CnCGameEngine {
                 deferred_startup_model_load_budget,
                 skip_world_scene,
                 Some(&mut direct_scene_candidate_sink),
+                native_radius_items,
                 filter,
                 &snow,
                 filter_scroll,

@@ -170,7 +170,10 @@ fn residual_auto_fire_consume_ammo_source() {
         assert!(!body.contains("last_fire_time ="));
     }
     let attack = include_str!("../../game_logic/object/attack.rs");
-    let shared = last_rust_fn_body(attack, "prepare_weapon_shot").expect("shared accepted shot");
+    let adapter = last_rust_fn_body(attack, "prepare_weapon_shot").expect("shared shot adapter");
+    assert!(adapter.contains("self.prepare_weapon_shot_with_operation("));
+    let shared = last_rust_fn_body(attack, "prepare_weapon_shot_with_operation")
+        .expect("shared accepted shot owner");
     assert_eq!(
         shared
             .matches("Self::consume_ammo_on_fire_selected(")
@@ -179,8 +182,15 @@ fn residual_auto_fire_consume_ammo_source() {
     );
     let passive =
         last_rust_fn_body(attack, "prepare_passive_weapon_shot").expect("passive adapter");
-    assert!(passive.contains("self.prepare_weapon_shot("));
+    assert!(passive.contains("self.prepare_passive_weapon_shot_with_operation("));
     assert!(!passive.contains("consume_ammo_on_fire"));
+    let passive_owner = last_rust_fn_body(attack, "prepare_passive_weapon_shot_with_operation")
+        .expect("passive receiving shot owner");
+    assert!(passive_owner.contains("self.prepare_weapon_shot_with_operation("));
+    assert!(
+        passive_owner.contains("operation_frame") && passive_owner.contains("operation_effects")
+    );
+    assert!(!passive_owner.contains("consume_ammo_on_fire"));
 }
 
 #[test]
@@ -269,7 +279,7 @@ fn residual_auto_fire_host_attack_log_source() {
     let body =
         last_rust_fn_body(src, "residual_auto_fire_apply_damage_with_effects").expect("helper");
     assert!(
-        body.split_whitespace().collect::<String>().contains("source.note_attack_target(target_id,&mutself.attack_events,&mutcrate::game_logic::ObjectAudio::queue(&mutself.queued_audio_events),)"),
+        body.split_whitespace().collect::<String>().contains("source.note_attack_target_with_operation(target_id,&mutself.attack_events,&mutcrate::game_logic::ObjectAudio::queue(&mutself.queued_audio_events),self.frame,&muteffects.reborrow_for_object(&mutself.partition_manager),)"),
         "residual auto-fire helper must record receiving attack output for presentation AttackTargeted"
     );
     for name in [
@@ -1171,10 +1181,12 @@ fn command_move_attack_host_object_id_source() {
             && body.contains("obj.is_mobile()"),
         "command_move must use host pathfinding only (no ObjectFactory bridge)"
     );
-    let i = src.find("fn command_attack").expect("command_attack");
-    let body = &src[i..src.len().min(i + 6000)];
+    let adapter = last_rust_fn_body(src, "command_attack").expect("command attack adapter");
+    assert!(adapter.contains("self.command_attack_with_effects("));
+    let body = last_rust_fn_body(src, "command_attack_with_effects")
+        .expect("receiving command attack owner");
     assert!(
-        body.split_whitespace().collect::<String>().contains("attack_target(target_id,&mutself.attack_events,&mutcrate::game_logic::ObjectAudio::queue(&mutself.queued_audio_events),)")
+        body.split_whitespace().collect::<String>().contains("attack_target_with_operation(target_id,&mutself.attack_events,&mutcrate::game_logic::ObjectAudio::queue(&mutself.queued_audio_events),self.frame,&muteffects.reborrow_for_object(&mutself.partition_manager),)")
             && !body.contains("bridge_attack_to_engine"),
         "command_attack must use host ObjectId attack_target only"
     );

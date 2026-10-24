@@ -27,8 +27,13 @@ fn world(loop_name: &str) -> (GameLogic, ObjectId) {
     (owner, id)
 }
 fn running(owner: &mut GameLogic, id: ObjectId, pose: Vec3) {
-    let object = owner.host_object_mut(id).unwrap();
-    object.set_position(pose);
+    let (object, fixture_partition_object) = owner.host_object_and_partition_mut(id).unwrap();
+    object.set_position_with_partition_owner(
+        pose,
+        0,
+        &mut Default::default(),
+        fixture_partition_object,
+    );
     // Prepare the source move state; actual sound start runs its production API.
     object.ai_state = AIState::Moving;
     object.status.moving = true;
@@ -148,7 +153,7 @@ fn stop_captures_pose_and_precedes_the_next_real_loop_start() {
             let next = Vec3::new(80., 7., 90.);
             running(&mut owner, id, old);
             owner.on_waited_path_failed(id);
-            owner.host_object_mut(id).unwrap().set_position(next);
+            owner.set_fixture_object_position(id, next);
             owner.start_move_sound(id);
             assert_eq!(owner.queued_audio_events.len(), 2);
             stop(&owner.queued_audio_events[0], id, "RestartLoop", old);

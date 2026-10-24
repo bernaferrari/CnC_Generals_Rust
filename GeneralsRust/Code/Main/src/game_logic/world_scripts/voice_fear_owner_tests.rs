@@ -75,9 +75,7 @@ fn receiving_damage_emits_once_with_owned_definition_position_and_player() {
             let (mut a, aid) = receiving("OwnerAFear", 1);
             let (mut b, bid) = receiving("OwnerBFear", 2);
             assert_eq!(aid, bid);
-            b.host_object_mut(bid)
-                .unwrap()
-                .set_position(Vec3::new(-30., 9., 75.));
+            b.set_fixture_object_position(bid, Vec3::new(-30., 9., 75.));
             hit(&mut a, aid, 20.);
             assert_fear(
                 &a.queued_audio_events,
@@ -94,9 +92,7 @@ fn receiving_damage_emits_once_with_owned_definition_position_and_player() {
                     .iter()
                     .all(|event| event.audio_name.as_deref() != Some("OwnerAFear"))
             );
-            a.host_object_mut(aid)
-                .unwrap()
-                .set_position(Vec3::splat(999.));
+            a.set_fixture_object_position(aid, Vec3::splat(999.));
             a.host_object_mut(aid).unwrap().owner_player_id = Some(8);
             assert_fear(
                 &a.queued_audio_events,
@@ -300,10 +296,7 @@ fn actual_radiation_producers_deliver_fear_to_their_receiving_world() {
             for mode in 0..3 {
                 let (mut world, victim) = receiving("RadiationFear", 1);
                 let position = Vec3::ZERO;
-                world
-                    .host_object_mut(victim)
-                    .unwrap()
-                    .set_position(position);
+                world.set_fixture_object_position(victim, position);
                 world.host_object_mut(victim).unwrap().health.current =
                     if mode == 2 { 26. } else { 30. };
                 // A target classification flag alone must not mask a grounded hit.

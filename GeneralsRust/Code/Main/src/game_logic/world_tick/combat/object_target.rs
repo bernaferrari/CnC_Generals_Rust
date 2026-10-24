@@ -267,10 +267,12 @@ impl GameLogic {
             // is within aim delta; turn in place toward the target instead.
             {
                 let aim_ok = if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                    attacker.note_attack_target(
+                    attacker.note_attack_target_with_operation(
                         target_id,
                         &mut self.attack_events,
                         &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
+                        self.frame,
+                        &mut effects.reborrow_for_object(&mut self.partition_manager),
                     );
                     if !matches!(
                         attacker.ai_state,
@@ -291,7 +293,13 @@ impl GameLogic {
                     } else {
                         std::f32::consts::PI
                     };
-                    attacker.turn_toward_position(target_position, slot, max_step)
+                    attacker.turn_toward_position_with_operation(
+                        target_position,
+                        slot,
+                        max_step,
+                        self.frame,
+                        &mut effects.reborrow_for_object(&mut self.partition_manager),
+                    )
                 } else {
                     true
                 };
@@ -341,12 +349,14 @@ impl GameLogic {
                     // (C++ AI continues aiming / repositioning).
                     let mut entered_attack = false;
                     if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                        attacker.note_attack_target(
+                        attacker.note_attack_target_with_operation(
                             target_id,
                             &mut self.attack_events,
                             &mut crate::game_logic::ObjectAudio::queue(
                                 &mut self.queued_audio_events,
                             ),
+                            self.frame,
+                            &mut effects.reborrow_for_object(&mut self.partition_manager),
                         );
                         if !matches!(
                             attacker.ai_state,
@@ -399,12 +409,14 @@ impl GameLogic {
                             attacker.activate_leech_range_for_slot(slot);
                         }
                         if current_time + 1e-6 < attacker.pre_attack_ready_at {
-                            attacker.note_attack_target(
+                            attacker.note_attack_target_with_operation(
                                 target_id,
                                 &mut self.attack_events,
                                 &mut crate::game_logic::ObjectAudio::queue(
                                     &mut self.queued_audio_events,
                                 ),
+                                self.frame,
+                                &mut effects.reborrow_for_object(&mut self.partition_manager),
                             );
                             let entered_attack = !matches!(
                                 attacker.ai_state,
@@ -531,14 +543,14 @@ impl GameLogic {
                     .map(|a| {
                         (
                             a.get_position(),
-                            a.thing().template.geometry_info.bounding_circle_radius(),
+                            (*a.geometry_info()).bounding_circle_radius(),
                         )
                     })
                     .unwrap_or((target_position, 0.0));
                 let tgt_r = self
                     .objects
                     .get(&target_id)
-                    .map(|o| o.thing().template.geometry_info.bounding_circle_radius())
+                    .map(|o| (*o.geometry_info()).bounding_circle_radius())
                     .unwrap_or(0.0);
                 let dx = src.x - target_position.x;
                 let dz = src.z - target_position.z;
@@ -614,14 +626,14 @@ impl GameLogic {
                     .map(|a| {
                         (
                             a.get_position(),
-                            a.thing().template.geometry_info.bounding_circle_radius(),
+                            (*a.geometry_info()).bounding_circle_radius(),
                         )
                     })
                     .unwrap_or((target_position, 0.0));
                 let tgt_r = self
                     .objects
                     .get(&target_id)
-                    .map(|o| o.thing().template.geometry_info.bounding_circle_radius())
+                    .map(|o| (*o.geometry_info()).bounding_circle_radius())
                     .unwrap_or(0.0);
                 let dx = src.x - target_position.x;
                 let dz = src.z - target_position.z;

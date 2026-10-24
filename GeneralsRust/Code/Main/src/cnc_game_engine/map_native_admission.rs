@@ -175,6 +175,7 @@ impl crate::game_logic::NativeMapAdmission for NativeMapCandidate {
     }
     fn effects(&mut self) -> crate::game_logic::ScriptPresentationEffects<'_> {
         crate::game_logic::ScriptPresentationEffects {
+            partition: None,
             audio: Some(&mut self.audio),
             ui: None,
             view: None,
@@ -427,6 +428,7 @@ impl crate::game_logic::NativeMapAdmission for NativeMapAttempt<'_> {
             *self.retirement = CandidateRetirement::MayOwnResources;
         }
         crate::game_logic::ScriptPresentationEffects {
+            partition: None,
             audio: Some(self.audio),
             ui: None,
             view: Some(&mut self.view),

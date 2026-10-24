@@ -181,15 +181,9 @@ fn height_threshold_is_strict_and_descent_observes_absolute_position() {
         !world.host_object(id).unwrap().status.on_die_started,
         "initial sentinel is minus one, not positive infinity"
     );
-    world
-        .host_object_mut(id)
-        .unwrap()
-        .set_position(Vec3::new(0.0, 11.0, 0.0));
+    world.set_fixture_object_position(id, Vec3::new(0.0, 11.0, 0.0));
     drive(&mut world, id, 31);
-    world
-        .host_object_mut(id)
-        .unwrap()
-        .set_position(Vec3::new(0.0, 10.0, 0.0));
+    world.set_fixture_object_position(id, Vec3::new(0.0, 10.0, 0.0));
     drive(&mut world, id, 32);
     assert!(
         !world.host_object(id).unwrap().status.on_die_started,
@@ -201,10 +195,7 @@ fn height_threshold_is_strict_and_descent_observes_absolute_position() {
         !world.host_object(id).unwrap().status.on_die_started,
         "rising terrain is not downward movement"
     );
-    world
-        .host_object_mut(id)
-        .unwrap()
-        .set_position(Vec3::new(0.0, 9.0, 0.0));
+    world.set_fixture_object_position(id, Vec3::new(0.0, 9.0, 0.0));
     drive(&mut world, id, 34);
     assert!(world.host_object(id).unwrap().status.on_die_started);
 }
@@ -282,10 +273,7 @@ fn height_defaults_allow_stationary_death_and_keep_negative_target() {
                 !world.host_object(id).unwrap().status.on_die_started,
                 "negative authored TargetHeight must not be clamped to zero"
             );
-            world
-                .host_object_mut(id)
-                .unwrap()
-                .set_position(Vec3::new(0.0, later, 0.0));
+            world.set_fixture_object_position(id, Vec3::new(0.0, later, 0.0));
             drive(&mut world, id, 31);
             assert!(world.host_object(id).unwrap().status.on_die_started);
         }
@@ -300,10 +288,7 @@ fn delayed_containment_does_not_update_last_position_before_admission() {
         30,
         Vec3::new(0.0, 5.0, 0.0),
     );
-    world
-        .host_object_mut(id)
-        .unwrap()
-        .set_contained_by(Some(ObjectId(999)));
+    world.set_fixture_object_contained_by(id, Some(ObjectId(999)));
     drive(&mut world, id, 40);
     match &world
         .host_object(id)
@@ -337,16 +322,13 @@ fn delayed_containment_does_not_update_last_position_before_admission() {
         }
         _ => panic!("height module retained"),
     }
-    world.host_object_mut(id).unwrap().set_contained_by(None);
+    world.set_fixture_object_contained_by(id, None);
     drive(&mut world, id, 43);
     assert!(
         !world.host_object(id).unwrap().status.on_die_started,
         "unloading without descent does not die"
     );
-    world
-        .host_object_mut(id)
-        .unwrap()
-        .set_position(Vec3::new(0.0, 4.0, 0.0));
+    world.set_fixture_object_position(id, Vec3::new(0.0, 4.0, 0.0));
     drive(&mut world, id, 44);
     assert!(world.host_object(id).unwrap().status.on_die_started);
 }

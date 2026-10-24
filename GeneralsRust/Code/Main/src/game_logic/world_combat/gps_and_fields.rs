@@ -1867,10 +1867,7 @@ mod tests {
                 .weapon_bonus_enthusiastic
         );
 
-        logic
-            .host_object_mut(unit_id)
-            .unwrap()
-            .set_position(Vec3::new(20.0, 0.0, 0.0));
+        logic.set_fixture_object_position(unit_id, Vec3::new(20.0, 0.0, 0.0));
         logic.update_propaganda_tower_pulse(1.0 / 30.0);
         assert!(
             !logic
@@ -1890,10 +1887,7 @@ mod tests {
                 .weapon_bonus_enthusiastic
         );
 
-        logic
-            .host_object_mut(unit_id)
-            .unwrap()
-            .set_position(Vec3::new(300.0, 0.0, 0.0));
+        logic.set_fixture_object_position(unit_id, Vec3::new(300.0, 0.0, 0.0));
         logic.update_propaganda_tower_pulse(1.0 / 30.0);
         assert!(
             logic
@@ -2868,9 +2862,7 @@ mod tests {
                 None,
             )
             .expect("shell");
-        if let Some(o) = logic.objects.get_mut(&shell) {
-            o.set_position(Vec3::new(10.0, 5.0, 0.0));
-        }
+        logic.set_fixture_object_position(shell, Vec3::new(10.0, 5.0, 0.0));
         let aim_before = logic
             .objects
             .get(&shell)
@@ -2929,9 +2921,7 @@ mod tests {
                 None,
             )
             .expect("missile");
-        if let Some(o) = logic.objects.get_mut(&missile) {
-            o.set_position(Vec3::new(10.0, 5.0, 0.0));
-        }
+        logic.set_fixture_object_position(missile, Vec3::new(10.0, 5.0, 0.0));
 
         logic.frame = ECM_VEHICLE_DISABLER_DELAY_FRAMES;
         logic.update_ecm_jam_field();

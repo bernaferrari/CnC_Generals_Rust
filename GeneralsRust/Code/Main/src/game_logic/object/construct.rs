@@ -500,7 +500,7 @@ impl Object {
         Self {
             thing: Thing::new(template),
             id,
-            host_trigger_world: std::sync::Weak::new(),
+            host_trigger_world: Default::default(),
             team,
             owner_player_id: None,
             team_instance_name: String::new(),
@@ -1195,6 +1195,7 @@ impl Object {
             last_weapon_discharge_frame: 0,
             visual_object_generation: 0,
             visual_draw_identity_token: std::sync::Arc::new(()),
+            partition_namespace: Default::default(),
             visual_draw_state_revision: 1,
             native_pose_revision: 1,
             pending_weapon_visual_capture: None,
@@ -1338,6 +1339,7 @@ impl Object {
             partition_cash_value: 0,
             partition_threat_value: 0,
             partition_last_affect: None,
+            partition_last_affect_applied: false,
             partition_last_look: None,
 
             auto_acquire_when_idle,
@@ -1454,7 +1456,7 @@ impl Object {
         Self {
             thing: Thing::new(template),
             id,
-            host_trigger_world: std::sync::Weak::new(),
+            host_trigger_world: Default::default(),
             team,
             owner_player_id: None,
             team_instance_name: String::new(),
@@ -2145,6 +2147,7 @@ impl Object {
             last_weapon_discharge_frame: 0,
             visual_object_generation: 0,
             visual_draw_identity_token: std::sync::Arc::new(()),
+            partition_namespace: Default::default(),
             visual_draw_state_revision: 1,
             native_pose_revision: 1,
             pending_weapon_visual_capture: None,
@@ -2288,6 +2291,7 @@ impl Object {
             partition_cash_value: 0,
             partition_threat_value: 0,
             partition_last_affect: None,
+            partition_last_affect_applied: false,
             partition_last_look: None,
 
             auto_acquire_when_idle,

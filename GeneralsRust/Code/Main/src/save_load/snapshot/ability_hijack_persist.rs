@@ -223,14 +223,17 @@ fn apply_payload(game_logic: &mut GameLogic, payload: AbilityHijackPersistPayloa
                 .host_object(vid)
                 .is_some_and(|vehicle| vehicle.is_alive())
         });
-        let Some((object, audio)) = game_logic.host_object_and_audio_events_mut(object_id) else {
+        let Some((object, _, audio, partition)) =
+            game_logic.host_object_attack_audio_partition_mut(object_id)
+        else {
             continue;
         };
         if entry.hijacker_in_vehicle {
             if let Some(vehicle_id) = vehicle_id.filter(|_| vehicle_alive) {
-                object.begin_hijacker_in_vehicle(
+                object.begin_hijacker_in_vehicle_with_partition_owner(
                     vehicle_id,
                     &mut crate::game_logic::ObjectAudio::queue(audio),
+                    partition,
                 );
                 object.hijacker_update_active = entry.hijacker_update_active;
                 object.hijacker_was_airborne = entry.hijacker_was_airborne;
@@ -437,15 +440,24 @@ mod tests {
             .create_object("AmericaTankCrusader", Team::GLA, Vec3::new(8.0, 0.0, 6.0))
             .expect("tank");
         {
-            let (tank, audio) = source.host_object_and_audio_events_mut(vid).expect("tank");
-            tank.apply_hijacked(&mut crate::game_logic::ObjectAudio::queue(audio));
+            let (tank, _, audio, partition) = source
+                .host_object_attack_audio_partition_mut(vid)
+                .expect("tank");
+            tank.apply_hijacked_from_with_partition_owner(
+                None,
+                &mut crate::game_logic::ObjectAudio::queue(audio),
+                partition,
+            );
         }
         {
-            let (hijacker, audio) = source
-                .host_object_and_audio_events_mut(hid)
+            let (hijacker, _, audio, partition) = source
+                .host_object_attack_audio_partition_mut(hid)
                 .expect("hijacker");
-            hijacker
-                .begin_hijacker_in_vehicle(vid, &mut crate::game_logic::ObjectAudio::queue(audio));
+            hijacker.begin_hijacker_in_vehicle_with_partition_owner(
+                vid,
+                &mut crate::game_logic::ObjectAudio::queue(audio),
+                partition,
+            );
         }
         {
             let rider = source.host_object_mut(hid).expect("hijacker");

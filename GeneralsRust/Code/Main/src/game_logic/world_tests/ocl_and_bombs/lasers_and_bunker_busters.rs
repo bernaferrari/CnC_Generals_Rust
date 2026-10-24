@@ -111,8 +111,13 @@ fn patriot_assist_binary_data_stream_laser_residual() {
         .map(|l| l.scroll_offset)
         .unwrap_or(0.0);
     {
-        let e = game_logic.host_object_mut(enemy_id).unwrap();
-        e.set_position(Vec3::new(80.0, 0.0, 25.0));
+        let (e, fixture_partition_e) = game_logic.host_object_and_partition_mut(enemy_id).unwrap();
+        e.set_position_with_partition_owner(
+            Vec3::new(80.0, 0.0, 25.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_e,
+        );
     }
     game_logic.frame = 6;
     game_logic.update_patriot_assist_lasers();
@@ -1345,8 +1350,8 @@ fn bunker_buster_residual_kills_garrison_and_damages_bunker() {
         assert!(bunker.add_occupant(inf_b));
     }
     for id in [inf_a, inf_b] {
-        let u = game_logic.host_object_mut(id).unwrap();
-        u.set_contained_by(Some(bunker_id));
+        let (u, fixture_partition_u) = game_logic.host_object_and_partition_mut(id).unwrap();
+        u.set_contained_by_with_partition_owner(Some(bunker_id), true, fixture_partition_u);
         u.set_ai_state(
             AIState::Garrisoned,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
@@ -1540,8 +1545,8 @@ fn bunker_buster_residual_without_upgrade_does_not_bust() {
         assert!(bunker.add_occupant(inf_id));
     }
     {
-        let u = game_logic.host_object_mut(inf_id).unwrap();
-        u.set_contained_by(Some(bunker_id));
+        let (u, fixture_partition_u) = game_logic.host_object_and_partition_mut(inf_id).unwrap();
+        u.set_contained_by_with_partition_owner(Some(bunker_id), true, fixture_partition_u);
         u.set_ai_state(
             AIState::Garrisoned,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
@@ -1628,8 +1633,8 @@ fn kill_garrisoned_residual_microwave_clears_occupants() {
         assert!(bunker.add_occupant(inf_b));
     }
     for id in [inf_a, inf_b] {
-        let u = game_logic.host_object_mut(id).unwrap();
-        u.set_contained_by(Some(bunker_id));
+        let (u, fixture_partition_u) = game_logic.host_object_and_partition_mut(id).unwrap();
+        u.set_contained_by_with_partition_owner(Some(bunker_id), true, fixture_partition_u);
         u.set_ai_state(
             AIState::Garrisoned,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
@@ -1722,8 +1727,8 @@ fn ordinary_weapon_leftover_damages_garrisoned_structure() {
         assert!(bunker.add_occupant(inf_a));
     }
     {
-        let u = game_logic.host_object_mut(inf_a).unwrap();
-        u.set_contained_by(Some(bunker_id));
+        let (u, fixture_partition_u) = game_logic.host_object_and_partition_mut(inf_a).unwrap();
+        u.set_contained_by_with_partition_owner(Some(bunker_id), true, fixture_partition_u);
         u.set_ai_state(
             AIState::Garrisoned,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),

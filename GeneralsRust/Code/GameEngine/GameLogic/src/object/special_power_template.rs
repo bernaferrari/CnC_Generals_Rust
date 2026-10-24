@@ -407,6 +407,21 @@ pub fn get_special_power_store_mut() -> Option<RwLockWriteGuard<'static, Special
     )
 }
 
+/// INI.cpp1330-1349 stores NULL for None or an unresolved definition in release.
+/// Bound missing input is authoritative and never creates a process template.
+/// Detached Core adapters retain their original process catalog lookup.
+pub(crate) fn special_power_template_from_ini(
+    ini: &INI,
+    name: &AsciiString,
+) -> Option<Arc<SpecialPowerTemplate>> {
+    if let Some(definitions) = ini.receiving_special_power_definitions() {
+        return definitions
+            .find_template(name.as_str())
+            .map(|definition| Arc::new(convert_from_rts_special_power(definition)));
+    }
+    Some(find_or_create_special_power_template(name))
+}
+
 pub fn find_or_create_special_power_template(name: &AsciiString) -> Arc<SpecialPowerTemplate> {
     if let Some(store) = get_special_power_store() {
         if let Some(template) = store.find_special_power_template(name.as_str()) {

@@ -427,10 +427,7 @@ fn active_face_snapshot_preserves_captured_mode_and_future_ai_steps() {
             saved.8,
             "same frame must not turn twice"
         );
-        world
-            .host_object_mut(target)
-            .unwrap()
-            .set_position(Vec3::new(100.0, 0.0, 120.0));
+        world.set_fixture_object_position(target, Vec3::new(100.0, 0.0, 120.0));
     }
     let mut finished = false;
     for frame in 8..188 {

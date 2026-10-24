@@ -48,10 +48,7 @@ fn resident_crush_zero_then_huge_uses_receiving_player_source_and_frame() {
         "CPP zero-amount crush FX cannot notify a retained previous attacker"
     );
     assert_eq!(receiving.players[&1].attacked_frame, 0);
-    receiving
-        .host_object_mut(crusher)
-        .unwrap()
-        .set_position(Vec3::new(6.0, 0.0, 0.0));
+    receiving.set_fixture_object_position(crusher, Vec3::new(6.0, 0.0, 0.0));
     receiving.frame = 32;
     assert!(receiving.apply_overlap_crush_check(crusher, victim, false));
     let actual = receiving.host_object(victim).unwrap();
@@ -75,8 +72,14 @@ fn landing_self_source_and_null_rest_kill_never_notify_another_world() {
     assert_eq!(id, peer_id);
     receiving.frame = 45;
     {
-        let object = receiving.host_object_mut(id).unwrap();
-        object.set_position(Vec3::new(0.0, -1.0, 0.0));
+        let (object, fixture_partition_object) =
+            receiving.host_object_and_partition_mut(id).unwrap();
+        object.set_position_with_partition_owner(
+            Vec3::new(0.0, -1.0, 0.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_object,
+        );
         object.was_airborne_last_frame = true;
         object.immune_to_falling_damage = false;
         object.movement.velocity = Vec3::new(0.0, -4.0, 0.0);
@@ -120,10 +123,7 @@ fn full_shipping_motion_landing_supplies_receiving_player_and_frame() {
     let (mut receiving, crusher, victim) = crush_world();
     let (peer, _, peer_victim) = crush_world();
     assert_eq!(victim, peer_victim);
-    receiving
-        .host_object_mut(crusher)
-        .unwrap()
-        .set_position(Vec3::new(1000.0, 0.0, 1000.0));
+    receiving.set_fixture_object_position(crusher, Vec3::new(1000.0, 0.0, 1000.0));
     receiving
         .host_object_mut(crusher)
         .unwrap()
@@ -131,8 +131,14 @@ fn full_shipping_motion_landing_supplies_receiving_player_and_frame() {
         .velocity = Vec3::ZERO;
     receiving.frame = 61;
     {
-        let object = receiving.host_object_mut(victim).unwrap();
-        object.set_position(Vec3::new(0.0, 1.0, 0.0));
+        let (object, fixture_partition_object) =
+            receiving.host_object_and_partition_mut(victim).unwrap();
+        object.set_position_with_partition_owner(
+            Vec3::new(0.0, 1.0, 0.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_object,
+        );
         object.movement.velocity = Vec3::new(0.0, -4.0, 0.0);
         object.was_airborne_last_frame = true;
         object.immune_to_falling_damage = false;
@@ -158,8 +164,14 @@ fn full_shipping_stun_fall_and_inverted_death_keep_self_then_null_source_order()
     assert_eq!(victim, peer_victim);
     receiving.frame = 71;
     {
-        let object = receiving.host_object_mut(victim).unwrap();
-        object.set_position(Vec3::new(0.0, 1.0, 0.0));
+        let (object, fixture_partition_object) =
+            receiving.host_object_and_partition_mut(victim).unwrap();
+        object.set_position_with_partition_owner(
+            Vec3::new(0.0, 1.0, 0.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_object,
+        );
         object.movement.velocity = Vec3::new(0.0, -4.0, 0.0);
         object.shock_stun_frames = 20;
         object.shock_was_airborne = true;

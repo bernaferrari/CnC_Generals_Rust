@@ -153,7 +153,10 @@ impl GameLogic {
                 }
             }
             if let Some(object) = self.objects.get_mut(&id) {
-                object.apply_owned_structure_topple_rotation();
+                object.apply_owned_structure_topple_rotation(
+                    self.frame,
+                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                );
             }
         }
         let completed = self
@@ -163,7 +166,10 @@ impl GameLogic {
             .is_some_and(|data| data.owned_completion_is_due(self.frame));
         if completed {
             if let Some(object) = self.objects.get_mut(&id) {
-                object.finish_owned_structure_topple_pose();
+                object.finish_owned_structure_topple_pose(
+                    self.frame,
+                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                );
             }
             if let Some(data) = self
                 .objects

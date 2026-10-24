@@ -198,12 +198,17 @@ impl GameLogic {
                 ) else {
                     continue;
                 };
+                if let Some(object) = self.objects.get_mut(&created_id) {
+                    object.producer_id = source_id;
+                    if generic.disposition.has(DebrisDisposition::LIKE_EXISTING) {
+                        object.set_orientation_with_partition_owner(
+                            source_orientation,
+                            &mut self.partition_manager,
+                        );
+                    }
+                }
                 let inherit_name = self
                     .with_object_veterancy_feedback(created_id, |object, audio, feedback| {
-                        object.producer_id = source_id;
-                        if generic.disposition.has(DebrisDisposition::LIKE_EXISTING) {
-                            object.set_orientation(source_orientation);
-                        }
                         if generic.disposition.has(DebrisDisposition::INHERIT_VELOCITY) {
                             // The host's movement/physics state is the concrete
                             // equivalent of C++ PhysicsBehavior::applyForce for this
@@ -265,10 +270,13 @@ impl GameLogic {
                 if on_ground {
                     // `ON_GROUND_ALIGNED` gives every spawned object a random
                     // yaw after terrain placement (ObjectCreationList.cpp).
-                    object.set_orientation(gamelogic::helpers::get_game_logic_random_value_real(
-                        0.0,
-                        std::f32::consts::TAU,
-                    ));
+                    object.set_orientation_with_partition_owner(
+                        gamelogic::helpers::get_game_logic_random_value_real(
+                            0.0,
+                            std::f32::consts::TAU,
+                        ),
+                        &mut self.partition_manager,
+                    );
                 }
                 // C++ ObjectCreationList.cpp:1086/1121-1124 ExtraFriction/Bounciness/BounceSound.
                 object.set_extra_friction(generic.extra_friction);
@@ -2033,10 +2041,17 @@ impl GameLogic {
             let pos = marauder_shell_bezier_point(from, aim, t);
             if let Some(o) = self.objects.get_mut(&id) {
                 let prev = o.get_position();
-                o.set_position_with_effects(pos, self.frame, presentation_effects);
+                o.set_position_with_effects(
+                    pos,
+                    self.frame,
+                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                );
                 let d = pos - prev;
                 if d.length_squared() > 1.0e-6 {
-                    o.set_orientation(d.z.atan2(d.x));
+                    o.set_orientation_with_partition_owner(
+                        d.z.atan2(d.x),
+                        &mut self.partition_manager,
+                    );
                 }
             }
             if elapsed >= frames {
@@ -2054,7 +2069,11 @@ impl GameLogic {
                 o.status.destroyed = true;
                 o.status.effectively_dead = true;
                 o.marauder_shell_projectile = false;
-                o.set_position_with_effects(pos, self.frame, presentation_effects);
+                o.set_position_with_effects(
+                    pos,
+                    self.frame,
+                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                );
             }
             let _ = self.apply_marauder_residual_at_with_effects(
                 pos,
@@ -2540,10 +2559,17 @@ impl GameLogic {
             let pos = scorpion_shell_bezier_point(from, aim, t);
             if let Some(o) = self.objects.get_mut(&id) {
                 let prev = o.get_position();
-                o.set_position_with_effects(pos, self.frame, presentation_effects);
+                o.set_position_with_effects(
+                    pos,
+                    self.frame,
+                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                );
                 let d = pos - prev;
                 if d.length_squared() > 1.0e-6 {
-                    o.set_orientation(d.z.atan2(d.x));
+                    o.set_orientation_with_partition_owner(
+                        d.z.atan2(d.x),
+                        &mut self.partition_manager,
+                    );
                 }
             }
             if elapsed >= frames {
@@ -2561,7 +2587,11 @@ impl GameLogic {
                 o.status.destroyed = true;
                 o.status.effectively_dead = true;
                 o.scorpion_shell_projectile = false;
-                o.set_position_with_effects(pos, self.frame, presentation_effects);
+                o.set_position_with_effects(
+                    pos,
+                    self.frame,
+                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                );
             }
             let _ = self.apply_scorpion_residual_at_with_effects(
                 pos,
@@ -2693,7 +2723,7 @@ impl GameLogic {
             self.health_events
                 .record_applied_heal(o.id, o.health.current);
             o.movement.velocity = dir * launch;
-            o.set_orientation(dir.z.atan2(dir.x));
+            o.set_orientation_with_partition_owner(dir.z.atan2(dir.x), &mut self.partition_manager);
         }
         let _ = SCORPION_MISSILE_PROJECTILE_SPEED; // cruise used in update
         self.scorpion_missiles_spawned = self.scorpion_missiles_spawned.saturating_add(1);

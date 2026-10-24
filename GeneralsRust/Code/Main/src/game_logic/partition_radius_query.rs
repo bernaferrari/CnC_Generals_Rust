@@ -38,6 +38,16 @@ impl RadiusCellQuery {
         }
     }
 
+    /// RadiusVec bucket, then its original y/x insertion order. Enumerating
+    /// occupied cells in this order is equivalent to skipping empty offsets.
+    pub(super) fn traversal_key(&self, cell: [i32; 2]) -> (i32, i64, i64) {
+        let offset = [
+            i64::from(cell[0]) - i64::from(self.center[0]),
+            i64::from(cell[1]) - i64::from(self.center[1]),
+        ];
+        (minimum_bucket(offset, self.cell_size), offset[1], offset[0])
+    }
+
     pub(super) fn accepts(&self, cell: [i32; 2]) -> bool {
         let offset = [
             i64::from(cell[0]) - i64::from(self.center[0]),

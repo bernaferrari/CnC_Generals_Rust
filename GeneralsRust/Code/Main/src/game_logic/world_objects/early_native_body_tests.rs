@@ -336,3 +336,135 @@ fn max_health_receiver_observes_committed_hp_before_effectively_dead() {
     assert_eq!(observed, vec![(0.0, 0.0, false)]);
     assert!(object.status.effectively_dead);
 }
+
+fn native_bridge_death_world() -> (GameLogic, ObjectId, ObjectId, ObjectId) {
+    let mut world = GameLogic::new();
+    world.admit_receiving_module_content(crate::assets::ReceivingObjectContent::from_sources([(
+        "native-bridge-death.ini".into(),
+        "Object ReceivingDeathSpan\nKindOf = BRIDGE STRUCTURE\nBody = ActiveBody B\nMaxHealth = 200\nInitialHealth = 200\nEnd\nBehavior = BridgeBehavior Bridge\nEnd\nEnd\nObject ReceivingDeathPhysics\nKindOf = VEHICLE SELECTABLE\nBody = ActiveBody B\nMaxHealth = 100\nInitialHealth = 100\nEnd\nBehavior = PhysicsBehavior P\nMass = 1\nEnd\nEnd\nObject ReceivingDeathNoPhysics\nKindOf = VEHICLE SELECTABLE\nBody = ActiveBody B\nMaxHealth = 100\nInitialHealth = 100\nEnd\nEnd\n".into(),
+    )]).unwrap()).unwrap();
+    world.add_player(Player::new(0, Team::USA, "BridgeOwner", true));
+    world.set_receiving_time_of_day(game_engine::common::ini::TimeOfDay::Night);
+    let span = world
+        .create_object_for_player("ReceivingDeathSpan", 0, glam::Vec3::new(50., 5., 50.))
+        .unwrap();
+    let physics = world
+        .create_object_for_player("ReceivingDeathPhysics", 0, glam::Vec3::new(49., 5., 50.))
+        .unwrap();
+    let no_physics = world
+        .create_object_for_player("ReceivingDeathNoPhysics", 0, glam::Vec3::new(51., 5., 50.))
+        .unwrap();
+    let corners = [
+        glam::Vec3::new(20., 5., 40.),
+        glam::Vec3::new(20., 5., 60.),
+        glam::Vec3::new(80., 5., 40.),
+        glam::Vec3::new(80., 5., 60.),
+    ];
+    world
+        .bridge_behavior
+        .register_span(span, corners[0], corners[1], corners[2], corners[3]);
+    let coord = |p: glam::Vec3| gamelogic::common::Coord3D::new(p.x, p.z, p.y);
+    let mut info = gamelogic::terrain::BridgeInfo::new();
+    info.bridge_object_id = span.0;
+    info.from_left = coord(corners[0]);
+    info.from_right = coord(corners[1]);
+    info.to_left = coord(corners[2]);
+    info.to_right = coord(corners[3]);
+    let layer = world.reserve_owned_bridge(&info);
+    world
+        .world_services
+        .terrain()
+        .write()
+        .unwrap()
+        .prepend_bridge_on_layer(
+            info,
+            "ReceivingDeathSpan".into(),
+            gamelogic::path::PathfindLayerEnum::from_u32(layer as u32),
+        );
+    for id in [physics, no_physics] {
+        let object = world.host_object_mut(id).unwrap();
+        object.pathfind_layer = layer;
+        object.ground_height = 5.;
+    }
+    world
+        .host_object_mut(physics)
+        .unwrap()
+        .set_indestructible(true);
+    world.tick_physics_collisions_all();
+    for id in [physics, no_physics] {
+        let position = world.host_object(id).unwrap().get_position();
+        world.set_fixture_object_position(id, glam::Vec3::new(position.x, 5., position.z));
+        world.host_object_mut(id).unwrap().ground_height = 5.;
+    }
+    world.update_owned_partition_with_effects(&mut Default::default());
+    (world, span, physics, no_physics)
+}
+
+#[test]
+fn actual_authored_bridge_death_retains_physics_survivor_and_native_receiving_identity() {
+    let (mut owner, span, physics, no_physics) = native_bridge_death_world();
+    let (mut peer, peer_span, peer_physics, peer_no_physics) = native_bridge_death_world();
+    assert_eq!(
+        (span, physics, no_physics),
+        (peer_span, peer_physics, peer_no_physics)
+    );
+    let mut recipients = Vec::new();
+    owner.visit_owned_bridge_on_die_recipients(span, |_, id, physics| {
+        recipients.push((id, physics));
+    });
+    let observe = |id| {
+        let object = owner.host_object(id).unwrap();
+        (
+            id,
+            object.get_position(),
+            object.ground_height,
+            object.pathfind_layer,
+            object.is_above_terrain(),
+            object.is_mobile(),
+        )
+    };
+    assert!(
+        recipients.contains(&(physics, true)) && recipients.contains(&(no_physics, false)),
+        "actual original onDie visitor must admit fixture occupants before damage: recipients={recipients:?}, span={:?}, physics={:?}, no_physics={:?}",
+        observe(span),
+        observe(physics),
+        observe(no_physics),
+    );
+    assert_eq!(owner.host_object(span).unwrap().health.current, 200.);
+    assert_eq!(owner.host_object(physics).unwrap().health.current, 100.);
+    assert_eq!(owner.host_object(no_physics).unwrap().health.current, 100.);
+    let mut view = View::default();
+    damage(&mut owner, span, 201., &mut view);
+    assert!(owner.host_object(span).unwrap().status.on_die_started);
+    assert_eq!(
+        owner.host_object(physics).unwrap().pathfind_layer,
+        gamelogic::path::PathfindLayerEnum::Ground as u8
+    );
+    assert!(owner.host_object(physics).unwrap().allow_to_fall);
+    assert_eq!(owner.host_object(physics).unwrap().health.current, 100.);
+    assert!(owner.host_object(no_physics).unwrap().status.on_die_started);
+    assert!(
+        view.0
+            .iter()
+            .any(|entry| entry.0.object_id() == span.0 && entry.1 == BodyDamageType::Rubble)
+    );
+    assert!(
+        view.0
+            .iter()
+            .any(|entry| entry.0.object_id() == no_physics.0 && entry.1 == BodyDamageType::Rubble)
+    );
+    assert!(!view.0.iter().any(|entry| entry.0.object_id() == physics.0));
+    assert_ne!(
+        peer.host_object(peer_physics).unwrap().pathfind_layer,
+        gamelogic::path::PathfindLayerEnum::Ground as u8
+    );
+    assert!(!peer.host_object(peer_physics).unwrap().allow_to_fall);
+    assert_eq!(
+        peer.host_object(peer_no_physics).unwrap().health.current,
+        100.
+    );
+    peer.reset();
+    drop(peer);
+    assert!(owner.host_object(physics).unwrap().allow_to_fall);
+    assert_eq!(owner.host_object(physics).unwrap().health.current, 100.);
+}

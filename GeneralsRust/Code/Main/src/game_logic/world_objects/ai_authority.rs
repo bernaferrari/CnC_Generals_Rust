@@ -508,7 +508,12 @@ impl GameLogic {
         let Some(u) = self.objects.get_mut(&object_id) else {
             return false;
         };
-        !u.tick_face_towards_with_effects(target_pos, dt, frame, effects)
+        !u.tick_face_towards_with_effects(
+            target_pos,
+            dt,
+            frame,
+            &mut effects.reborrow_for_object(&mut self.partition_manager),
+        )
     }
 
     /// Apply AI command to the game state
@@ -664,10 +669,12 @@ impl GameLogic {
         // AI state. Garrisoned units and transport passengers remain contained
         // while their weapon fires (GarrisonContain.cpp / TransportContain.cpp).
         if let Some(source) = self.objects.get_mut(&attacker_id) {
-            source.note_attack_target(
+            source.note_attack_target_with_operation(
                 target_id,
                 &mut self.attack_events,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
+                self.frame,
+                &mut effects.reborrow_for_object(&mut self.partition_manager),
             );
         }
 
@@ -863,10 +870,13 @@ impl GameLogic {
             // stays in AI_ATTACK_MOVE_TO while the nested attack machine runs.
             // Combat already fires from both parent states, and this block
             // owns the Attacking transition for every other parent.
-            u.set_order_target(
+            u.set_order_target_with_operation(
                 Some(target_id),
                 &mut self.attack_events,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
+                self.frame,
+                &mut crate::game_logic::ScriptPresentationEffects::default()
+                    .reborrow_for_object(&mut self.partition_manager),
             );
             if !matches!(u.ai_state, AIState::Patrolling | AIState::AttackMoving) {
                 u.set_ai_state(
@@ -934,10 +944,13 @@ impl GameLogic {
         // Full host attack_target residual (weapon arming / force-attack clear).
         if let Some(obj) = self.objects.get_mut(&unit_id) {
             obj.set_force_attack(false);
-            obj.attack_target(
+            obj.attack_target_with_operation(
                 target_id,
                 &mut self.attack_events,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
+                self.frame,
+                &mut crate::game_logic::ScriptPresentationEffects::default()
+                    .reborrow_for_object(&mut self.partition_manager),
             );
         }
         {}

@@ -10,12 +10,15 @@
 //! The driving world owns the manager through EngineStores; the engine-lifetime
 //! fallback accessor remains an ownership-migration dependency.
 
+#[path = "shroud_scalar_queries.rs"]
+mod scalar_queries;
 use crate::common::{Coord3D, KindOf, ObjectID, ObjectShroudStatus};
 use crate::object_manager::get_object_manager;
 use crate::player::PLAYER_INDEX_INVALID;
 use crate::weapon::WeaponStore;
 use game_engine::common::system::radar::{CellShroudStatus, get_radar_system};
 use log::{debug, trace};
+pub use scalar_queries::HostScalarGridSnapshot;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex, RwLock};
@@ -331,7 +334,7 @@ impl PartitionCell {
         if player_id >= MAX_PLAYER_COUNT {
             return;
         }
-        self.threat_values[player_id] = self.threat_values[player_id].saturating_add(value);
+        self.threat_values[player_id] = self.threat_values[player_id].wrapping_add(value);
     }
 
     /// Remove threat value for player
@@ -339,7 +342,7 @@ impl PartitionCell {
         if player_id >= MAX_PLAYER_COUNT {
             return;
         }
-        self.threat_values[player_id] = self.threat_values[player_id].saturating_sub(value);
+        self.threat_values[player_id] = self.threat_values[player_id].wrapping_sub(value);
     }
 
     /// Get cash value for player
@@ -355,7 +358,7 @@ impl PartitionCell {
         if player_id >= MAX_PLAYER_COUNT {
             return;
         }
-        self.cash_values[player_id] = self.cash_values[player_id].saturating_add(value);
+        self.cash_values[player_id] = self.cash_values[player_id].wrapping_add(value);
     }
 
     /// Remove cash value for player
@@ -363,7 +366,7 @@ impl PartitionCell {
         if player_id >= MAX_PLAYER_COUNT {
             return;
         }
-        self.cash_values[player_id] = self.cash_values[player_id].saturating_sub(value);
+        self.cash_values[player_id] = self.cash_values[player_id].wrapping_sub(value);
     }
 }
 
@@ -667,10 +670,7 @@ impl ShroudGrid {
             return;
         }
 
-        let (center_x, center_y) = match self.world_to_grid(center) {
-            Some(coords) => coords,
-            None => return,
-        };
+        let (center_x, center_y) = self.world_to_signed_cell(center);
 
         let cell_radius = self.world_to_cell_dist(radius).max(1);
         let influence_radius = (cell_radius + 1) as f32;
@@ -718,10 +718,7 @@ impl ShroudGrid {
             return;
         }
 
-        let (center_x, center_y) = match self.world_to_grid(center) {
-            Some(coords) => coords,
-            None => return,
-        };
+        let (center_x, center_y) = self.world_to_signed_cell(center);
 
         let cell_radius = self.world_to_cell_dist(radius).max(1);
         let influence_radius = (cell_radius + 1) as f32;
@@ -763,10 +760,7 @@ impl ShroudGrid {
             return;
         }
 
-        let (center_x, center_y) = match self.world_to_grid(center) {
-            Some(coords) => coords,
-            None => return,
-        };
+        let (center_x, center_y) = self.world_to_signed_cell(center);
 
         let cell_radius = self.world_to_cell_dist(radius).max(1);
         let influence_radius = (cell_radius + 1) as f32;
@@ -808,10 +802,7 @@ impl ShroudGrid {
             return;
         }
 
-        let (center_x, center_y) = match self.world_to_grid(center) {
-            Some(coords) => coords,
-            None => return,
-        };
+        let (center_x, center_y) = self.world_to_signed_cell(center);
 
         let cell_radius = self.world_to_cell_dist(radius).max(1);
         let influence_radius = (cell_radius + 1) as f32;

@@ -1185,8 +1185,8 @@ fn internet_center_sabotage_disables_spy_vision_and_hackers() {
         }
     }
     {
-        let h = logic.objects.get_mut(&hid).unwrap();
-        h.set_contained_by(Some(c1));
+        let (h, fixture_partition_h) = logic.host_object_and_partition_mut(hid).unwrap();
+        h.set_contained_by_with_partition_owner(Some(c1), true, fixture_partition_h);
         h.set_ai_state(
             AIState::Garrisoned,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
@@ -1371,8 +1371,8 @@ fn america_parachute_midair_death_free_fall_damages_rider() {
         c.set_status_parachute_open(true);
     }
     {
-        let h = logic.objects.get_mut(&hid).unwrap();
-        h.set_contained_by(Some(chute_id));
+        let (h, fixture_partition_h) = logic.host_object_and_partition_mut(hid).unwrap();
+        h.set_contained_by_with_partition_owner(Some(chute_id), true, fixture_partition_h);
         h.apply_eject_parachuting();
         h.set_status_parachute_open(true);
         h.set_position(glam::Vec3::new(0.0, high, 0.0));
@@ -1561,8 +1561,8 @@ fn parachute_land_use_spawn_rally_point_walks_factory_exit() {
         }
     }
     {
-        let r = logic.objects.get_mut(&rider_id).unwrap();
-        r.set_contained_by(Some(chute_id));
+        let (r, fixture_partition_r) = logic.host_object_and_partition_mut(rider_id).unwrap();
+        r.set_contained_by_with_partition_owner(Some(chute_id), true, fixture_partition_r);
         r.producer_id = Some(chute_id);
         r.apply_eject_parachuting();
     }
@@ -1680,8 +1680,8 @@ fn parachute_land_without_spawn_rally_idles_at_lz() {
         }
     }
     {
-        let r = logic.objects.get_mut(&rider_id).unwrap();
-        r.set_contained_by(Some(chute_id));
+        let (r, fixture_partition_r) = logic.host_object_and_partition_mut(rider_id).unwrap();
+        r.set_contained_by_with_partition_owner(Some(chute_id), true, fixture_partition_r);
         r.producer_id = Some(chute_id);
         r.apply_eject_parachuting();
     }
@@ -1750,8 +1750,8 @@ fn america_parachute_empty_dies_midair_after_rider_loss() {
         }
     }
     {
-        let h = logic.objects.get_mut(&hid).unwrap();
-        h.set_contained_by(Some(chute_id));
+        let (h, fixture_partition_h) = logic.host_object_and_partition_mut(hid).unwrap();
+        h.set_contained_by_with_partition_owner(Some(chute_id), true, fixture_partition_h);
         h.apply_eject_parachuting();
         h.set_position(glam::Vec3::new(0.0, high, 0.0));
     }
@@ -2904,11 +2904,7 @@ fn guard_retaliate_returns_to_guard_not_idle() {
     );
     assert!(o.movement.target_position.is_some());
     // Arrive at post.
-    logic
-        .objects
-        .get_mut(&id)
-        .unwrap()
-        .set_position(glam::Vec3::ZERO);
+    logic.set_fixture_object_position(id, glam::Vec3::ZERO);
     logic.tick_guard_retaliate_states();
     let o = &logic.objects[&id];
     assert_eq!(o.ai_state, AIState::GuardingArea);

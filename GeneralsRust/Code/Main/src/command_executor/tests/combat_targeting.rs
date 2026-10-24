@@ -828,8 +828,8 @@ fn move_to_and_evacuate_sets_pending_flag() {
         let _ = t.add_occupant(pax);
     }
     {
-        let p = logic.host_object_mut(pax).unwrap();
-        p.set_contained_by(Some(transport));
+        let (p, fixture_partition_p) = logic.host_object_and_partition_mut(pax).unwrap();
+        p.set_contained_by_with_partition_owner(Some(transport), true, fixture_partition_p);
         p.set_ai_state(
             crate::game_logic::AIState::Docked,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
@@ -882,8 +882,8 @@ fn move_to_and_evacuate_unloads_when_path_completes() {
         assert!(t.add_occupant(pax));
     }
     {
-        let p = logic.host_object_mut(pax).unwrap();
-        p.set_contained_by(Some(transport));
+        let (p, fixture_partition_p) = logic.host_object_and_partition_mut(pax).unwrap();
+        p.set_contained_by_with_partition_owner(Some(transport), true, fixture_partition_p);
         p.set_ai_state(
             crate::game_logic::AIState::Docked,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
@@ -897,12 +897,17 @@ fn move_to_and_evacuate_unloads_when_path_completes() {
         );
     }
     // Simulate arrival: complete path + movement tick.
-    if let Some(t) = logic.host_object_mut(transport) {
+    if let Some((t, partition)) = logic.host_object_and_partition_mut(transport) {
         // Snap to end of path and finish
         if let Some(last) = t.movement.path.last().copied() {
-            t.set_position(last);
+            t.set_position_with_partition_owner(last, 0, &mut Default::default(), partition);
         } else {
-            t.set_position(Vec3::new(10.0, 0.0, 0.0));
+            t.set_position_with_partition_owner(
+                Vec3::new(10.0, 0.0, 0.0),
+                0,
+                &mut Default::default(),
+                partition,
+            );
         }
         t.movement.current_path_index = t.movement.path.len().saturating_sub(0);
         // Force index past end
@@ -1963,8 +1968,10 @@ End
         );
     }
     {
-        let passenger = logic.host_object_mut(rider).expect("passenger");
-        passenger.set_contained_by(Some(carrier));
+        let (passenger, partition) = logic
+            .host_object_and_partition_mut(rider)
+            .expect("passenger");
+        passenger.set_contained_by_with_partition_owner(Some(carrier), true, partition);
         passenger.set_ai_state(
             AIState::Docked,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),

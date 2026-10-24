@@ -3537,10 +3537,7 @@ mod dock_approach_owner_tests {
             (&mut world_a, active_a, dock_a),
             (&mut world_b, active_b, dock_b),
         ] {
-            world
-                .host_object_mut(active)
-                .expect("active docker")
-                .set_position(glam::Vec3::ZERO);
+            world.set_fixture_object_position(active, glam::Vec3::ZERO);
             make_gathering(world, dock, active);
             assert!(world.try_claim_dock_for_test(dock, active));
             assert_eq!(

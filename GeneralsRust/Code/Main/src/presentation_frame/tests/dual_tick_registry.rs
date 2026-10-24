@@ -456,8 +456,13 @@ fn presentation_build_includes_unit_render_fields_and_positions() {
     assert_eq!(inputs[0].fow_visibility, ro.fow_visibility);
 
     // Mutate authority after snapshot — inputs must stay frozen.
-    if let Some(o) = logic.host_object_mut(id) {
-        o.set_position(glam::Vec3::new(999.0, 0.0, 999.0));
+    if let Some((o, fixture_partition)) = logic.host_object_and_partition_mut(id) {
+        o.set_position_with_partition_owner(
+            glam::Vec3::new(999.0, 0.0, 999.0),
+            0,
+            &mut Default::default(),
+            fixture_partition,
+        );
         o.selected = false;
     }
     let inputs_after = snap.unit_render_inputs();

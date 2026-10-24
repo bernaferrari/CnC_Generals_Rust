@@ -167,8 +167,13 @@ fn first_alive_position_for_template_from_presentation() {
     assert!((pos.x - 42.0).abs() < 0.01);
     assert!((pos.z + 7.0).abs() < 0.01);
     // Move live after snapshot — presentation still returns frozen pose.
-    if let Some(o) = logic.host_object_mut(id) {
-        o.set_position(glam::Vec3::new(900.0, 0.0, 900.0));
+    if let Some((o, fixture_partition)) = logic.host_object_and_partition_mut(id) {
+        o.set_position_with_partition_owner(
+            glam::Vec3::new(900.0, 0.0, 900.0),
+            0,
+            &mut Default::default(),
+            fixture_partition,
+        );
     }
     let pos2 = frame.first_alive_position_for_template("HeroJet").unwrap();
     assert!((pos2.x - 42.0).abs() < 0.01);
@@ -238,8 +243,8 @@ fn control_group_recall_drops_enclosed_unselectable_and_keeps_live_non_local_lik
     if let Some(o) = logic.host_object_mut(local) {
         o.owner_player_id = Some(0);
     }
-    if let Some(o) = logic.host_object_mut(garrisoned) {
-        o.set_contained_by(Some(ObjectId(50)));
+    if let Some((o, fixture_partition)) = logic.host_object_and_partition_mut(garrisoned) {
+        o.set_contained_by_with_partition_owner(Some(ObjectId(50)), true, fixture_partition);
         o.status.masked = true;
         o.owner_player_id = Some(0);
     }
@@ -551,8 +556,8 @@ fn similar_unit_ids_use_equivalent_to_and_skip_contained() {
             glam::Vec3::new(20.0, 0.0, 0.0),
         )
         .unwrap();
-    if let Some(obj) = logic.host_object_mut(contained) {
-        obj.set_contained_by(Some(a));
+    if let Some((obj, fixture_partition)) = logic.host_object_and_partition_mut(contained) {
+        obj.set_contained_by_with_partition_owner(Some(a), true, fixture_partition);
     }
     let frame = PresentationFrame::build_from_logic(&mut logic, 0);
     let mut ids = frame.similar_unit_ids(a, Team::USA);
@@ -633,8 +638,8 @@ fn box_select_firebase_propagates_occupant_to_container() {
     let occupant = logic
         .create_object("Ranger", Team::USA, glam::Vec3::new(0.5, 0.0, 0.5))
         .unwrap();
-    if let Some(obj) = logic.host_object_mut(occupant) {
-        obj.set_contained_by(Some(container));
+    if let Some((obj, fixture_partition)) = logic.host_object_and_partition_mut(occupant) {
+        obj.set_contained_by_with_partition_owner(Some(container), true, fixture_partition);
     }
     let frame = PresentationFrame::build_from_logic(&mut logic, 0);
     let mut ids = frame.box_select_unit_ids(Team::USA, -1.0, 1.0, -1.0, 1.0);

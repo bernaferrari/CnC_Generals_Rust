@@ -528,8 +528,8 @@ fn combat_drop_sets_pending_evacuate() {
         let _ = t.add_occupant(pax);
     }
     {
-        let p = logic.host_object_mut(pax).unwrap();
-        p.set_contained_by(Some(transport));
+        let (p, fixture_partition_p) = logic.host_object_and_partition_mut(pax).unwrap();
+        p.set_contained_by_with_partition_owner(Some(transport), true, fixture_partition_p);
         p.set_ai_state(
             crate::game_logic::AIState::Docked,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
@@ -660,10 +660,7 @@ End
         assert!(unit.add_occupant(passenger));
     }
     assert_eq!(world.host_object(passenger).unwrap().health.current, 100.0);
-    world
-        .host_object_mut(passenger)
-        .unwrap()
-        .set_contained_by(Some(transport));
+    world.set_fixture_object_contained_by(passenger, Some(transport));
     (world, transport, passenger)
 }
 
@@ -757,10 +754,7 @@ fn flying_quick_path_retargets_and_reuses_requested_destination() {
             }
             // Non-aircraft AIR objects also take the final quick-path arm.
             let (mut world, _, passenger) = evacuation_world(15.0, None);
-            world
-                .host_object_mut(passenger)
-                .unwrap()
-                .set_contained_by(None);
+            world.set_fixture_object_contained_by(passenger, None);
             world.host_object_mut(passenger).unwrap().locomotor_surfaces =
                 crate::game_logic::object::LOCO_SURFACE_AIR;
             let destination = glam::Vec3::new(20.0, 40.0, 25.0);
@@ -815,8 +809,8 @@ fn object_attack_orders_passenger_fire() {
         });
     }
     {
-        let r = logic.host_object_mut(rider).unwrap();
-        r.set_contained_by(Some(humvee));
+        let (r, fixture_partition_r) = logic.host_object_and_partition_mut(rider).unwrap();
+        r.set_contained_by_with_partition_owner(Some(humvee), true, fixture_partition_r);
         r.set_ai_state(
             crate::game_logic::AIState::Garrisoned,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
@@ -884,8 +878,8 @@ fn object_attack_skips_vehicle_transport_riders() {
         });
     }
     {
-        let r = logic.host_object_mut(rider).unwrap();
-        r.set_contained_by(Some(chinook));
+        let (r, fixture_partition_r) = logic.host_object_and_partition_mut(rider).unwrap();
+        r.set_contained_by_with_partition_owner(Some(chinook), true, fixture_partition_r);
         r.set_ai_state(
             crate::game_logic::AIState::Garrisoned,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
@@ -944,8 +938,8 @@ fn stop_idles_garrison_occupants_and_hive_slaves() {
         let _ = order_hive_slaves_to_attack_target(&mut s.hive_slaves, 99);
     }
     {
-        let o = logic.host_object_mut(occ).unwrap();
-        o.set_contained_by(Some(site));
+        let (o, fixture_partition_o) = logic.host_object_and_partition_mut(occ).unwrap();
+        o.set_contained_by_with_partition_owner(Some(site), true, fixture_partition_o);
         o.set_ai_state(
             crate::game_logic::AIState::Attacking,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
@@ -1001,8 +995,9 @@ fn stop_idles_ai_transport_occupants() {
         assert!(t.add_occupant(rider), "load rider");
     }
     {
-        let (r, attack_events) = logic.host_object_and_attack_events_mut(rider).unwrap();
-        r.set_contained_by(Some(truck));
+        let (r, attack_events, _, partition) =
+            logic.host_object_attack_audio_partition_mut(rider).unwrap();
+        r.set_contained_by_with_partition_owner(Some(truck), true, partition);
         r.set_ai_state(
             crate::game_logic::AIState::Attacking,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),

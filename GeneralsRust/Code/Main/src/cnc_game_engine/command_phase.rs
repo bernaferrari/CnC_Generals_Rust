@@ -168,6 +168,7 @@ impl CnCGameEngine {
         );
         #[cfg(feature = "game_client")]
         let effects = crate::game_logic::ScriptPresentationEffects {
+            partition: None,
             audio: audio.as_mut().map(|service| service.receiver()),
             terrain: terrain
                 .map(|terrain| terrain as &mut dyn crate::game_logic::NativeTerrainEffects),

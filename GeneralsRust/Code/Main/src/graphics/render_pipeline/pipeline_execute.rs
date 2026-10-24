@@ -48,6 +48,9 @@ impl RenderPipeline {
                 &[FrozenDirectDrawableSceneCandidate],
             ) -> Vec<FrozenDirectDrawableSceneDecision>,
         >,
+        #[cfg(feature = "game_client")] native_radius_items: Vec<
+            game_client::effects::decals::DecalRenderItem,
+        >,
         #[cfg(feature = "game_client")]
         view_filter: &mut game_client::display::view_filter::ViewFilterState,
         #[cfg(feature = "game_client")] snow: &game_client::snow::SnowRenderState,
@@ -136,6 +139,7 @@ impl RenderPipeline {
                         .as_ref()
                         .and_then(|frame| frame.world_env.runtime_heightmap.as_ref())
                         .map_or(0., |heightmap| heightmap.min_height),
+                    native_radius_items,
                 );
             }
             let _ = (laser, proj, moves, attacks, floats, anims, particles);

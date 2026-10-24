@@ -189,6 +189,8 @@ impl Read for IniInput {
 pub struct INI {
     // Temporarily owned by this exact parser operation, never published.
     name_key_namespace: Option<crate::common::name_key_generator::NameKeyNamespace>,
+    receiving_command_names: Option<Arc<std::collections::HashSet<String>>>,
+    receiving_special_powers: Option<Arc<crate::common::rts::special_power::SpecialPowerStore>>,
     receiving_science_names: Option<Arc<crate::common::rts::science::ScienceNameFacts>>,
     file: Option<IniInput>,
     staged_temp_file: Option<PathBuf>,
@@ -1262,6 +1264,8 @@ impl INI {
     pub fn new() -> Self {
         Self {
             name_key_namespace: None,
+            receiving_command_names: None,
+            receiving_special_powers: None,
             receiving_science_names: None,
             file: None,
             staged_temp_file: None,
@@ -1498,6 +1502,47 @@ impl INI {
 
     /// Parse selected text through an input owned by this INI operation.
     /// External loose-file and archive policy does not apply to these bytes.
+    pub(crate) fn receiving_command_names(&self) -> Option<&std::collections::HashSet<String>> {
+        self.receiving_command_names.as_deref()
+    }
+    pub(crate) fn with_receiving_command_names<T>(
+        &mut self,
+        names: Arc<std::collections::HashSet<String>>,
+        f: impl FnOnce(&mut Self) -> T,
+    ) -> T {
+        let previous = self.receiving_command_names.replace(names);
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(self)));
+        self.receiving_command_names = previous;
+        match result {
+            Ok(value) => value,
+            Err(payload) => std::panic::resume_unwind(payload),
+        }
+    }
+    /// Same strict named-field reader, without publishing a process definition.
+    pub fn read_receiving_named_properties(
+        &mut self,
+    ) -> INIResult<(String, HashMap<String, String>)> {
+        parse_named_property_block(self)
+    }
+
+    pub fn receiving_special_power_definitions(
+        &self,
+    ) -> Option<&crate::common::rts::special_power::SpecialPowerStore> {
+        self.receiving_special_powers.as_deref()
+    }
+    pub(crate) fn with_receiving_special_power_definitions<T>(
+        &mut self,
+        powers: Option<Arc<crate::common::rts::special_power::SpecialPowerStore>>,
+        f: impl FnOnce(&mut Self) -> T,
+    ) -> T {
+        let previous = std::mem::replace(&mut self.receiving_special_powers, powers);
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(self)));
+        self.receiving_special_powers = previous;
+        match result {
+            Ok(value) => value,
+            Err(payload) => std::panic::resume_unwind(payload),
+        }
+    }
     pub fn with_inline_source<F, R>(&mut self, contents: &str, f: F) -> INIResult<R>
     where
         F: FnOnce(&mut INI) -> INIResult<R>,

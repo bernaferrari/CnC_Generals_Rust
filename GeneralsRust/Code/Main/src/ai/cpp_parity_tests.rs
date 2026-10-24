@@ -1264,9 +1264,11 @@ fn captured_pad_unbinds_and_gla_hole_rebinds() {
     ai.building_queue[0].is_built = true;
 
     // Capture: new owner, same live object.
-    if let Some((obj, ownership_events)) = logic.host_object_and_ownership_events_mut(factory_id) {
+    if let Some((obj, ownership_events, partition)) =
+        logic.host_object_ownership_partition_mut(factory_id)
+    {
         obj.owner_player_id = Some(0);
-        obj.set_team(Team::China, ownership_events);
+        obj.set_team_with_partition_owner(Team::China, ownership_events, partition);
     }
     ai.sync_build_list_object_status(&logic, 12.0);
     assert!(ai.building_queue[0].object_id.is_none());
@@ -1277,11 +1279,13 @@ fn captured_pad_unbinds_and_gla_hole_rebinds() {
     let hole_id = logic
         .create_object("AmericaBarracks", Team::GLA, Vec3::new(4.0, 0.0, 0.0))
         .expect("hole");
-    if let Some((hole, ownership_events)) = logic.host_object_and_ownership_events_mut(hole_id) {
+    if let Some((hole, ownership_events, partition)) =
+        logic.host_object_ownership_partition_mut(hole_id)
+    {
         hole.is_rebuild_hole = true;
         hole.rebuild_spawner_id = Some(factory_id);
         hole.owner_player_id = Some(1);
-        hole.set_team(Team::USA, ownership_events);
+        hole.set_team_with_partition_owner(Team::USA, ownership_events, partition);
     }
     ai.building_queue[0].object_id = Some(factory_id);
     logic.destroy_object(factory_id);
@@ -3649,9 +3653,7 @@ fn find_supply_center_uses_warehouse_dock_and_cash_gen_and_sixty_forty() {
     logic.destroy_object(near);
     // Warehouse at 100 is closer to the China structure midpoint (0) than
     // to our base at 1000 under the 60/40 expansion gate.
-    if let Some(obj) = logic.host_object_mut(far) {
-        obj.set_position(Vec3::new(100.0, 0.0, 0.0));
-    }
+    logic.set_fixture_object_position(far, Vec3::new(100.0, 0.0, 0.0));
     let enemy_cc = {
         let mut t = crate::game_logic::ThingTemplate::new("ChinaCommandCenter");
         t.add_kind_of(crate::game_logic::KindOf::Structure)

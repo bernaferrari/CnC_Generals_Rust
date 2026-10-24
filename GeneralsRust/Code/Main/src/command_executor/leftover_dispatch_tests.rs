@@ -515,7 +515,7 @@ fn repair_mid_build_keeps_pending_build_and_idle_resumes() {
         assert_eq!(dz.dozer_task_repair_target, Some(damaged));
     }
     logic.dozer_internal_task_complete(dozer, true);
-    if let Some(dz) = logic.host_object_mut(dozer) {
+    if let Some((dz, partition)) = logic.host_object_and_partition_mut(dozer) {
         dz.clear_target(&mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()));
         dz.set_ai_state(
             AIState::Idle,
@@ -584,7 +584,7 @@ fn same_frame_build_repair_tie_resumes_build() {
         assert_eq!(dz.dozer_task_build_target, Some(scaffold));
         assert_eq!(dz.dozer_task_repair_target, Some(damaged));
     }
-    if let Some(dz) = logic.host_object_mut(dozer) {
+    if let Some((dz, partition)) = logic.host_object_and_partition_mut(dozer) {
         dz.clear_target(&mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()));
         dz.set_ai_state(
             AIState::Idle,
@@ -628,7 +628,7 @@ fn idle_resumes_parked_repair_when_most_recent() {
         .expect("damaged");
     damage_for_fixture(&mut logic, damaged, 200.0);
     logic.dozer_new_task_repair(dozer, damaged);
-    if let Some(dz) = logic.host_object_mut(dozer) {
+    if let Some((dz, partition)) = logic.host_object_and_partition_mut(dozer) {
         dz.clear_target(&mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()));
         dz.set_ai_state(
             AIState::Idle,
@@ -688,7 +688,7 @@ fn idle_resumes_repair_parked_by_newer_build() {
     logic.dozer_new_task_repair(dozer, damaged);
     logic.frame = 9;
     logic.dozer_new_task_build(dozer, scaffold);
-    if let Some(dz) = logic.host_object_mut(dozer) {
+    if let Some((dz, partition)) = logic.host_object_and_partition_mut(dozer) {
         dz.clear_target(&mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()));
         dz.set_ai_state(
             AIState::Idle,
@@ -704,7 +704,7 @@ fn idle_resumes_repair_parked_by_newer_build() {
         AIState::Constructing
     );
     logic.dozer_internal_task_complete(dozer, false);
-    if let Some(dz) = logic.host_object_mut(dozer) {
+    if let Some((dz, partition)) = logic.host_object_and_partition_mut(dozer) {
         dz.clear_target(&mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()));
         dz.set_ai_state(
             AIState::Idle,
@@ -753,7 +753,7 @@ fn player_stop_cancels_current_build_so_idle_does_not_resume() {
         sc.builder_id = Some(dozer);
     }
     logic.dozer_new_task_build(dozer, scaffold);
-    if let Some(dz) = logic.host_object_mut(dozer) {
+    if let Some((dz, partition)) = logic.host_object_and_partition_mut(dozer) {
         dz.target = Some(scaffold);
         dz.set_ai_state(
             AIState::Constructing,
@@ -781,7 +781,7 @@ fn player_stop_cancels_current_build_so_idle_does_not_resume() {
         );
         assert!(sc.status.under_construction);
     }
-    if let Some(dz) = logic.host_object_mut(dozer) {
+    if let Some((dz, partition)) = logic.host_object_and_partition_mut(dozer) {
         dz.set_ai_state(
             AIState::Idle,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
@@ -821,7 +821,7 @@ fn execute_build_records_build_slot_and_docks_off_center() {
     let dozer = logic
         .create_object_for_player("AmericaVehicleDozerSlot", 0, Vec3::new(200.0, 0.0, 0.0))
         .expect("dozer");
-    if let Some(dz) = logic.host_object_mut(dozer) {
+    if let Some((dz, partition)) = logic.host_object_and_partition_mut(dozer) {
         dz.selection_radius = 8.0;
     }
     let site = Vec3::new(0.0, 0.0, 0.0);
@@ -873,13 +873,18 @@ fn execute_build_records_build_slot_and_docks_off_center() {
         assert_eq!(sc.builder_id, Some(dozer));
         assert!(sc.status.under_construction);
     }
-    if let Some(dz) = logic.host_object_mut(dozer) {
+    if let Some((dz, partition)) = logic.host_object_and_partition_mut(dozer) {
         dz.clear_target(&mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()));
         dz.set_ai_state(
             AIState::Idle,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
-        dz.set_position(Vec3::new(400.0, 0.0, 0.0));
+        dz.set_position_with_partition_owner(
+            Vec3::new(400.0, 0.0, 0.0),
+            0,
+            &mut Default::default(),
+            partition,
+        );
     }
     assert!(
         logic.dozer_idle_resume_pending_build(dozer),

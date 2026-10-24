@@ -64,6 +64,8 @@ impl GameLogic {
             .ok_or("Receiving typed content has no matching host Object definitions")?;
         let mut candidate = current.clone();
         candidate.reset_map_overrides();
+        candidate.admit_science_overrides(sources)?;
+        candidate.admit_action_overrides(sources)?;
         for source in sources {
             candidate.load_ini_text(
                 source,
@@ -387,7 +389,11 @@ impl GameLogic {
                 Self::apply_authored_eject_pilot_die_metadata(template, &definition);
                 Self::apply_authored_rebuild_hole_expose_die_metadata(template, &definition);
                 Self::apply_authored_hack_internet_metadata(template, &definition);
-                Self::apply_authored_special_power_module_metadata(template, &definition);
+                Self::apply_authored_special_power_module_metadata(
+                    template,
+                    &definition,
+                    receiving,
+                );
                 Self::apply_authored_hacker_disable_building_metadata(template, &definition);
                 Self::apply_authored_charge_plant_metadata(template, &definition);
                 Self::apply_authored_leftover_sa_trigger_sound(template, &definition);
@@ -703,7 +709,7 @@ impl GameLogic {
         Self::apply_authored_eject_pilot_die_metadata(template, definition);
         Self::apply_authored_rebuild_hole_expose_die_metadata(template, definition);
         Self::apply_authored_hack_internet_metadata(template, definition);
-        Self::apply_authored_special_power_module_metadata(template, definition);
+        Self::apply_authored_special_power_module_metadata(template, definition, receiving);
         Self::apply_authored_hacker_disable_building_metadata(template, definition);
         Self::apply_authored_charge_plant_metadata(template, definition);
         Self::apply_authored_leftover_sa_trigger_sound(template, definition);

@@ -286,12 +286,58 @@ impl DamageAfterFx {
         enable_repulsors: bool,
         body_fx: &mut BodyStateFxReceiver<'_>,
     ) -> bool {
+        self.finish_with_body_fx_with_operation(
+            victim,
+            source,
+            enable_repulsors,
+            body_fx,
+            0,
+            &mut Default::default(),
+        )
+    }
+
+    pub(in crate::game_logic) fn finish_with_body_fx_and_partition(
+        self,
+        victim: &mut Object,
+        source: Option<&HostDamageFxVictim>,
+        enable_repulsors: bool,
+        body_fx: &mut BodyStateFxReceiver<'_>,
+        operation_frame: u32,
+        partition: &mut crate::game_logic::partition_manager::PartitionManager,
+    ) -> bool {
+        self.finish_with_body_fx_with_operation(
+            victim,
+            source,
+            enable_repulsors,
+            body_fx,
+            operation_frame,
+            &mut crate::game_logic::ScriptPresentationEffects {
+                partition: Some(partition),
+                ..Default::default()
+            },
+        )
+    }
+
+    fn finish_with_body_fx_with_operation(
+        self,
+        victim: &mut Object,
+        source: Option<&HostDamageFxVictim>,
+        enable_repulsors: bool,
+        body_fx: &mut BodyStateFxReceiver<'_>,
+        operation_frame: u32,
+        operation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
         match self.0 {
             DamageApplication::Complete(killed) => killed,
             DamageApplication::Healing(_) => false,
-            DamageApplication::Active(tail) => {
-                tail.finish_after_damage_fx(victim, source, enable_repulsors, body_fx)
-            }
+            DamageApplication::Active(tail) => tail.finish_after_damage_fx(
+                victim,
+                source,
+                enable_repulsors,
+                body_fx,
+                operation_frame,
+                operation_effects,
+            ),
         }
     }
 }
@@ -303,6 +349,8 @@ impl ActiveDamageContinuation {
         source: Option<&HostDamageFxVictim>,
         enable_repulsors: bool,
         body_fx: &mut BodyStateFxReceiver<'_>,
+        operation_frame: u32,
+        operation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> bool {
         assert_eq!(
             self.victim_id, victim.id,
@@ -315,7 +363,13 @@ impl ActiveDamageContinuation {
         }
         // C++ UndeadBody.cpp:68–72 completes ActiveBody before second life.
         if self.start_second_life {
-            victim.start_battle_bus_second_life_with_body_fx(self.frame, source, body_fx);
+            victim.start_battle_bus_second_life_with_body_fx_with_operation(
+                self.frame,
+                source,
+                body_fx,
+                operation_frame,
+                operation_effects,
+            );
         }
 
         if victim.is_host_bridge_member() {

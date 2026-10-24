@@ -10,9 +10,9 @@ use game_engine::common::system::{Coord3D, Xfer, XferMode, XferVersion};
 use gamelogic::common::{
     AsciiString, Bool, LOGICFRAMES_PER_SECOND, Real, SHADOW_ALPHA_DECAL, SHADOW_NAMES, UnsignedInt,
 };
-use glam::Vec3;
 use gamelogic::helpers::TheGameLogic;
 use gamelogic::player::{Player, ThePlayerList};
+use glam::Vec3;
 use once_cell::sync::OnceCell;
 use parking_lot::{Mutex, RwLock};
 use std::collections::HashMap;
@@ -106,7 +106,6 @@ impl ShadowDecal {
         self.position = Coord3D::new(x, y, z);
     }
 
-
     fn set_size(&mut self, x: Real, y: Real) {
         self.info.size_x = x;
         self.info.size_y = y;
@@ -182,8 +181,16 @@ impl ProjectedShadowManager {
         }
 
         let mut decal = ShadowDecal::new(info.clone());
-        let oow_x = if info.size_x == 0.0 { 0.0 } else { 1.0 / info.size_x };
-        let oow_y = if info.size_y == 0.0 { 0.0 } else { 1.0 / info.size_y };
+        let oow_x = if info.size_x == 0.0 {
+            0.0
+        } else {
+            1.0 / info.size_x
+        };
+        let oow_y = if info.size_y == 0.0 {
+            0.0
+        } else {
+            1.0 / info.size_y
+        };
         // `addDecal` is `+offset/size`. `addShadow` inverts the size, so X flips.
         decal.uv_offset = if is_unit_blob {
             (-info.offset_x * oow_x, info.offset_y * oow_y)
@@ -194,6 +201,15 @@ impl ProjectedShadowManager {
         let handle = ShadowHandle(Arc::new(Mutex::new(decal)));
         self.decals.push(handle.clone());
         Some(handle)
+    }
+
+    /// Invalidate resources on this receiving client reset/drop, including
+    /// outstanding module handles, before releasing manager storage.
+    pub fn clear(&mut self) {
+        for handle in &self.decals {
+            handle.release();
+        }
+        self.decals.clear();
     }
 
     pub fn cleanup(&mut self) {
@@ -209,7 +225,10 @@ impl ProjectedShadowManager {
     /// C++ `renderShadows` (`W3DProjectedShadow.cpp:1303`) draws `m_shadowList`
     /// only when `m_useShadowDecals`. `m_decalList` / `addDecal` stays ungated.
     pub fn collect_render_items(&self) -> Vec<DecalRenderItem> {
-        let blobs_on = game_lod::use_shadow_decals();
+        self.collect_render_items_with_policy(game_lod::use_shadow_decals())
+    }
+
+    pub fn collect_render_items_with_policy(&self, blobs_on: bool) -> Vec<DecalRenderItem> {
         let mut items = Vec::new();
         for handle in &self.decals {
             let decal = handle.0.lock();
@@ -342,6 +361,32 @@ pub fn enqueue_delivery_decal_argb(
         return None;
     }
     ensure_leftover_projected_hooks();
+    enqueue_delivery_decal_argb_with_owner(
+        &mut get_projected_shadow_manager().write(),
+        texture,
+        radius,
+        x,
+        y,
+        z,
+        color,
+        opacity,
+    )
+}
+
+/// Same original addDecal kernel with an explicitly borrowed resource owner.
+pub fn enqueue_delivery_decal_argb_with_owner(
+    manager: &mut ProjectedShadowManager,
+    texture: &str,
+    radius: Real,
+    x: Real,
+    y: Real,
+    z: Real,
+    color: u32,
+    opacity: Real,
+) -> Option<ShadowHandle> {
+    if texture.is_empty() || radius <= 0.0 {
+        return None;
+    }
     let info = ShadowTypeInfo {
         allow_updates: false,
         allow_world_align: true,
@@ -352,7 +397,7 @@ pub fn enqueue_delivery_decal_argb(
         offset_x: 0.0,
         offset_y: 0.0,
     };
-    let handle = get_projected_shadow_manager().write().add_decal(&info)?;
+    let handle = manager.add_decal(&info)?;
     handle.set_angle(0.0);
     handle.set_color(color);
     handle.set_position(x, y, z);
@@ -1016,5 +1061,39 @@ mod tests {
         assert!((rgba[0] - 1.0).abs() < 0.01);
         assert!(rgba[1].abs() < 0.01);
         assert!(rgba[2].abs() < 0.01);
+    }
+}
+
+#[cfg(test)]
+mod receiving_radius_lifetime_tests {
+    use super::*;
+
+    #[test]
+    fn receiving_client_drop_invalidates_only_its_outstanding_radius_handle() {
+        let mut source = crate::core::game_client::NativeDrawableWorld::default();
+        let mut peer = crate::core::game_client::NativeDrawableWorld::default();
+        let source_handle = source
+            .borrow_native()
+            .allocate_projected_radius("RadiusDrop", 20.0, [1.0, 2.0, 3.0], 0xffffffff, 1.0)
+            .unwrap();
+        let peer_handle = peer
+            .borrow_native()
+            .allocate_projected_radius("RadiusDrop", 20.0, [4.0, 5.0, 6.0], 0xffffffff, 1.0)
+            .unwrap();
+        assert!(source_handle.0.lock().active);
+        assert!(peer_handle.0.lock().active);
+        drop(source);
+        assert!(!source_handle.0.lock().active);
+        assert!(peer_handle.0.lock().active);
+        assert_eq!(
+            peer.borrow_native()
+                .collect_projected_decal_items(false)
+                .len(),
+            1
+        );
+        peer.borrow_native()
+            .try_clear_for_map_attempt(None)
+            .unwrap();
+        assert!(!peer_handle.0.lock().active);
     }
 }

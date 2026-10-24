@@ -24,10 +24,7 @@ fn host_named_unit_found_with_empty_object_registry() {
             .host_area_unit_ids(Vec3::ZERO, Vec3::new(15.0, 0.0, 25.0))
             .is_empty()
     );
-    logic
-        .host_object_mut(id)
-        .unwrap()
-        .set_position(Vec3::new(10.0, 42.0, 20.0));
+    logic.set_fixture_object_position(id, Vec3::new(10.0, 42.0, 20.0));
     let snapshot = logic.build_host_script_query_snapshot();
     assert_eq!(snapshot.named_unit_id("MapNamedScout"), Some(id.0));
     let object = snapshot.object_by_id(id.0).expect("projected actual owner");

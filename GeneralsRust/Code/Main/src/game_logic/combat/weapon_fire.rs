@@ -630,7 +630,7 @@ pub(in crate::game_logic) fn materialize_accepted_projectile(
             if target.is_kind_of(crate::game_logic::KindOf::Structure) {
                 target_pos = crate::game_logic::weapon_bootstrap::structure_scatter_aim_origin(
                     target_pos,
-                    &target.thing().template.geometry_info,
+                    &(*target.geometry_info()),
                 );
             }
         }

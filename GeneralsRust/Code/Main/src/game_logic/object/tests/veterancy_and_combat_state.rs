@@ -1720,7 +1720,7 @@ fn structure_rubble_collapses_geometry_z_and_stamps_no_collisions() {
         authored: true,
     };
     let mut o = Object::new(t, ObjectId(11), Team::USA);
-    assert!((o.thing.template.geometry_info.height - 40.0).abs() < 1e-4);
+    assert!(((*o.geometry_info()).height - 40.0).abs() < 1e-4);
     assert!(!o.status.no_collisions);
     o.internal_change_health(-o.health.current);
     assert_eq!(
@@ -1729,7 +1729,7 @@ fn structure_rubble_collapses_geometry_z_and_stamps_no_collisions() {
     );
     assert!(o.status.no_collisions);
     assert!(
-        (o.thing.template.geometry_info.height - 8.0).abs() < 1e-4,
+        ((*o.geometry_info()).height - 8.0).abs() < 1e-4,
         "rubble must collapse authored box Z to StructureRubbleHeight"
     );
     assert!((o.thing.geometry.bounds_max.y - o.thing.geometry.bounds_min.y - 8.0).abs() < 1e-4);
@@ -1933,8 +1933,10 @@ fn crush_die_recomputes_front_from_crusher_pose() {
     o.status.death_type = HostDeathType::Crushed;
     o.set_position(glam::Vec3::new(0.0, 0.0, 0.0));
     o.set_orientation(0.0);
-    o.thing.template.geometry_info.authored = true;
-    o.thing.template.geometry_info.major_radius = 10.0;
+    let mut geometry = *o.geometry_info();
+    geometry.authored = true;
+    geometry.major_radius = 10.0;
+    o.set_geometry_shape(geometry);
     o.fire_crush_die_from_crusher(Some((5.0, 0.0)));
     assert!(o.front_crushed);
     assert!(!o.back_crushed);

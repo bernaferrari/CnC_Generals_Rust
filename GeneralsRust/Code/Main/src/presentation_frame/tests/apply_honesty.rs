@@ -25,8 +25,13 @@ fn apply_to_ui_state_overwrites_live_identity_after_mutation() {
 
     let snap = PresentationFrame::build_from_logic(&mut logic, 0);
     // Live world mutates after snapshot (would poison a re-read).
-    if let Some(o) = logic.host_object_mut(id) {
-        o.set_position(glam::Vec3::new(999.0, 0.0, 999.0));
+    if let Some((o, fixture_partition)) = logic.host_object_and_partition_mut(id) {
+        o.set_position_with_partition_owner(
+            glam::Vec3::new(999.0, 0.0, 999.0),
+            0,
+            &mut Default::default(),
+            fixture_partition,
+        );
         o.health.current = 3.0;
     }
 
@@ -1914,10 +1919,10 @@ fn script_disabled_and_unmanned_hide_command_strip() {
     let id = logic
         .create_object("AmericaBarracks", Team::USA, glam::Vec3::ZERO)
         .expect("b");
-    if let Some(o) = logic.host_object_mut(id) {
+    if let Some((o, fixture_partition)) = logic.host_object_and_partition_mut(id) {
         o.building_data = Some(BuildingData::new(BuildingType::Barracks));
         o.selected = true;
-        o.set_script_disabled(true);
+        o.set_script_disabled_with_partition_owner(true, fixture_partition);
     }
     if let Some(p) = logic.get_player_mut(0) {
         p.selected_objects = vec![id];
@@ -1929,8 +1934,8 @@ fn script_disabled_and_unmanned_hide_command_strip() {
         cmds
     );
 
-    if let Some(o) = logic.host_object_mut(id) {
-        o.set_script_disabled(false);
+    if let Some((o, fixture_partition)) = logic.host_object_and_partition_mut(id) {
+        o.set_script_disabled_with_partition_owner(false, fixture_partition);
         o.set_status_disabled_unmanned(true);
     }
     let unmanned = PresentationFrame::build_from_logic(&mut logic, 0).unit_command_buttons();
@@ -1976,8 +1981,8 @@ fn transport_exit_slots_bind_occupant_portraits() {
         o.selected = true;
         o.occupants.push(rid);
     }
-    if let Some(o) = logic.host_object_mut(rid) {
-        o.set_contained_by(Some(hid));
+    if let Some((o, fixture_partition)) = logic.host_object_and_partition_mut(rid) {
+        o.set_contained_by_with_partition_owner(Some(hid), true, fixture_partition);
     }
     if let Some(p) = logic.get_player_mut(0) {
         p.selected_objects = vec![hid];
@@ -2108,8 +2113,8 @@ fn evacuate_disabled_with_zero_occupants() {
     if let Some(o) = logic.host_object_mut(hid) {
         o.occupants.push(rid);
     }
-    if let Some(o) = logic.host_object_mut(rid) {
-        o.set_contained_by(Some(hid));
+    if let Some((o, fixture_partition)) = logic.host_object_and_partition_mut(rid) {
+        o.set_contained_by_with_partition_owner(Some(hid), true, fixture_partition);
     }
     let loaded = PresentationFrame::build_from_logic(&mut logic, 0).unit_command_buttons();
     let evac_loaded = loaded
@@ -2580,12 +2585,12 @@ fn under_construction_keeps_cancel_when_script_disabled() {
     let id = logic
         .create_object_for_player("AmericaBarracks", 0, glam::Vec3::ZERO)
         .expect("b");
-    if let Some(o) = logic.host_object_mut(id) {
+    if let Some((o, fixture_partition)) = logic.host_object_and_partition_mut(id) {
         o.building_data = Some(BuildingData::new(BuildingType::Barracks));
         o.selected = true;
         o.status.under_construction = true;
         o.construction_percent = 0.4;
-        o.set_script_disabled(true);
+        o.set_script_disabled_with_partition_owner(true, fixture_partition);
     }
     if let Some(p) = logic.get_player_mut(0) {
         p.selected_objects = vec![id];

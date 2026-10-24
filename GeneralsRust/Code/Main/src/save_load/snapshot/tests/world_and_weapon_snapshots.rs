@@ -64,7 +64,9 @@ fn mid_frenzy_snapshot_restores_weapon_bonus_state() {
         .create_object("FrenzyInfantry", Team::China, Vec3::new(4.0, 0.0, 8.0))
         .expect("create frenzy unit");
     {
-        let object = source.host_object_mut(object_id).expect("created object");
+        let (object, partition) = source
+            .host_object_and_partition_mut(object_id)
+            .expect("created object");
         object.apply_weapon_bonus_frenzy(2, 720);
         assert!(object.weapon_bonus_frenzy);
         assert_eq!(object.weapon_bonus_frenzy_level, 2);
@@ -113,14 +115,16 @@ fn object_status_bits_survive_snapshot_restore() {
         .create_object("Tomahawk", Team::USA, Vec3::new(5.0, 0.0, 5.0))
         .expect("create deployed unit");
     {
-        let object = source.host_object_mut(object_id).expect("created object");
+        let (object, partition) = source
+            .host_object_and_partition_mut(object_id)
+            .expect("created object");
         object.set_status_unselectable(true);
         object.set_deployed(
             true,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
-        object.set_script_disabled(true);
-        object.set_script_underpowered(true);
+        object.set_script_disabled_with_partition_owner(true, partition);
+        object.set_script_underpowered_with_partition_owner(true, partition);
         object.set_script_unsellable(true);
         object.set_script_unstealthed(true);
     }
@@ -164,7 +168,9 @@ fn script_held_and_attitude_survive_snapshot_restore() {
         .create_object("Ranger", Team::USA, Vec3::new(5.0, 0.0, 5.0))
         .expect("create held unit");
     {
-        let object = source.host_object_mut(object_id).expect("created object");
+        let (object, partition) = source
+            .host_object_and_partition_mut(object_id)
+            .expect("created object");
         object.set_status_disabled_held(true);
         object.ai_attitude = -1; // Passive
         object.is_receiving_difficulty_bonus = true;

@@ -1248,6 +1248,7 @@ impl GameLogic {
         ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
     ) {
         let mut effects = crate::game_logic::ScriptPresentationEffects {
+            partition: None,
             audio: None,
             terrain: None,
             ui: ui
@@ -1347,8 +1348,10 @@ impl GameLogic {
         // C++ CreateModules onBuildComplete (Preorder/GrantUpgrade/LockWeapon/SP/Supply).
         self.apply_create_modules_on_build_complete_with_effects(structure_id, interpreter, ui);
         if let Some(object) = self.objects.get_mut(&structure_id) {
-            object.handle_partition_cell_maintenance();
-            object.stamp_partition_value_threat();
+            object.handle_partition_cell_maintenance_with_partition_owner(
+                &mut self.partition_manager,
+            );
+            object.stamp_partition_value_threat_with_partition_owner(&mut self.partition_manager);
         }
         // C++ Object::updateUpgradeModules after UNDER_CONSTRUCTION clears
         // (DozerAIUpdate.cpp:539-591 / Object.cpp:2410-2438).

@@ -11,7 +11,7 @@ fn remove_structural_native_capsule(bytes: &mut Vec<u8>, target: &[u8; 4]) {
         let tag: &[u8; 4] = bytes[offset..offset + 4].try_into().unwrap();
         assert!(
             [
-                b"CPRJ", b"BDKD", b"NLFC", b"ODIS", b"RDCK", b"OLST", b"NDIE"
+                b"CPRJ", b"PCOI", b"GMSH", b"BDKD", b"NLFC", b"ODIS", b"RDCK", b"OLST", b"NDIE"
             ]
             .contains(&tag)
         );

@@ -23,6 +23,17 @@ fn owner(tag: &str) -> (GameLogic, ObjectId) {
         .unwrap();
     (world, id)
 }
+// Rebuild through the actual factory so the replacement has its own
+// registered lifetime and partition receipt, rather than overwriting a live slot.
+fn recreate_receipt_owner(source: &mut GameLogic, template: ThingTemplate, id: ObjectId) {
+    let name = template.name.clone();
+    source.reset();
+    source.templates.insert(name.clone(), template);
+    assert_eq!(
+        source.create_object(&name, Team::USA, glam::Vec3::ZERO),
+        Some(id)
+    );
+}
 #[test]
 fn native_die_capsule_roundtrip_retains_receipts_without_touching_equal_id_peer() {
     let (mut source, id) = owner("KeepA");
@@ -70,11 +81,7 @@ fn native_die_capsule_wrong_receiving_identity_rejects_before_world_mutation() {
     let (source, _) = owner("KeepA");
     let (mut receiving, id) = owner("KeepB");
     receiving.set_current_frame(915);
-    receiving
-        .objects
-        .get_mut(&id)
-        .unwrap()
-        .set_position(glam::Vec3::new(7., 8., 9.));
+    receiving.set_fixture_object_position(id, glam::Vec3::new(7., 8., 9.));
     let before = receiving.host_object(id).unwrap().get_position();
     let snapshot = SnapshotBuilder::new()
         .create_world_snapshot(&source)
@@ -100,9 +107,7 @@ fn native_die_legacy_zero_health_live_is_allowed_but_saved_started_is_rejected()
     source
         .templates
         .insert(template.name.clone(), template.clone());
-    source
-        .objects
-        .insert(id, crate::game_logic::Object::new(template, id, Team::USA));
+    recreate_receipt_owner(&mut source, template, id);
     assert!(source.host_object(id).unwrap().is_inactive_body());
     assert_eq!(source.host_object(id).unwrap().health.current, 0.);
     assert!(!source.host_object(id).unwrap().status.on_die_started);
@@ -272,7 +277,10 @@ fn native_die_capsule_completed_live_slot_rejects_capture_and_detached_restore()
         super::super::combat_projectile_persist::prefix_len(&snapshot.lifecycle_tail).unwrap();
     while &snapshot.lifecycle_tail[offset..offset + 4] != TAG {
         assert!(
-            [b"CPRJ", b"BDKD", b"NLFC", b"ODIS", b"RDCK", b"OLST"].contains(
+            [
+                b"CPRJ", b"PCOI", b"GMSH", b"BDKD", b"NLFC", b"ODIS", b"RDCK", b"OLST"
+            ]
+            .contains(
                 &snapshot.lifecycle_tail[offset..offset + 4]
                     .try_into()
                     .unwrap()
@@ -350,10 +358,7 @@ fn native_die_capsule_actual_standalone_local_receipt_survives_without_world_lat
     source
         .templates
         .insert(template.name.clone(), template.clone());
-    source.objects.insert(
-        id,
-        crate::game_logic::Object::new(template.clone(), id, Team::USA),
-    );
+    recreate_receipt_owner(&mut source, template.clone(), id);
     source
         .objects
         .get_mut(&id)
@@ -418,9 +423,9 @@ fn native_die_capsule_ai_receipt_requires_world_latch_despite_receiving_interfac
     let (mut source, id) = owner("KeepA");
     let template = source.templates.get_mut("NativeReceiptOwner").unwrap();
     template.set_authored_ai_update_interface(Some(true));
-    let object = crate::game_logic::Object::new(template.clone(), id, Team::USA);
-    assert!(object.has_ai_update_interface());
-    source.objects.insert(id, object);
+    let template = template.clone();
+    recreate_receipt_owner(&mut source, template, id);
+    assert!(source.objects[&id].has_ai_update_interface());
     let snapshot = SnapshotBuilder::new()
         .create_world_snapshot(&source)
         .unwrap();
@@ -468,7 +473,8 @@ fn native_die_capsule_actual_physics_crush_receipt_survives_without_world_latch(
     source
         .templates
         .insert(template.name.clone(), template.clone());
-    let mut victim = crate::game_logic::Object::new(template.clone(), id, Team::USA);
+    recreate_receipt_owner(&mut source, template.clone(), id);
+    let victim = source.objects.get_mut(&id).unwrap();
     victim.crushable_level = 0;
     victim.selection_radius = 4.;
     let mut crusher = crate::game_logic::Object::new(
@@ -479,7 +485,7 @@ fn native_die_capsule_actual_physics_crush_receipt_survives_without_world_latch(
     crusher.crusher_level = 2;
     crusher.set_position(glam::Vec3::new(2.2, 0., 0.));
     crusher.movement.velocity = glam::Vec3::X;
-    assert!(crusher.check_for_overlap_collision(0, &mut victim, false, &mut source.health_events));
+    assert!(crusher.check_for_overlap_collision(0, victim, false, &mut source.health_events));
     assert!(victim.status.effectively_dead);
     assert!(!victim.status.on_die_started);
     assert_eq!(
@@ -491,7 +497,6 @@ fn native_die_capsule_actual_physics_crush_receipt_survives_without_world_latch(
             .collect::<Vec<_>>(),
         [0]
     );
-    source.objects.insert(id, victim);
     let snapshot = SnapshotBuilder::new()
         .create_world_snapshot(&source)
         .unwrap();
@@ -543,8 +548,10 @@ fn replace_ndie(
             return;
         }
         assert!(
-            [b"CPRJ", b"BDKD", b"NLFC", b"ODIS", b"RDCK", b"OLST"]
-                .contains(&tag.try_into().unwrap())
+            [
+                b"CPRJ", b"PCOI", b"GMSH", b"BDKD", b"NLFC", b"ODIS", b"RDCK", b"OLST"
+            ]
+            .contains(&tag.try_into().unwrap())
         );
         offset += 12 + length;
     }
@@ -716,10 +723,7 @@ fn v1_initial_inactive_body_is_not_misclassified_as_an_ambiguous_death() {
     source
         .templates
         .insert(template.name.clone(), template.clone());
-    source.objects.insert(
-        id,
-        crate::game_logic::Object::new(template.clone(), id, Team::USA),
-    );
+    recreate_receipt_owner(&mut source, template.clone(), id);
     assert!(source.objects[&id].status.effectively_dead);
     assert!(!source.objects[&id].status.on_die_started);
     let mut snapshot = SnapshotBuilder::new()

@@ -489,8 +489,8 @@ fn canonical_containment_projects_without_writeback() {
         assert!(o.add_occupant(inf));
     }
     {
-        let o = logic.host_object_mut(inf).expect("i");
-        o.set_contained_by(Some(bunker));
+        let (o, fixture_partition) = logic.host_object_and_partition_mut(inf).expect("i");
+        o.set_contained_by_with_partition_owner(Some(bunker), true, fixture_partition);
     }
 
     // Re-apply path
@@ -503,8 +503,8 @@ fn canonical_containment_projects_without_writeback() {
         assert!(o.add_occupant(inf));
     }
     {
-        let o = logic.host_object_mut(inf).expect("i");
-        o.set_contained_by(Some(bunker));
+        let (o, fixture_partition) = logic.host_object_and_partition_mut(inf).expect("i");
+        o.set_contained_by_with_partition_owner(Some(bunker), true, fixture_partition);
     }
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
@@ -820,16 +820,33 @@ fn host_owner_log_drives_transfer_owner_channel() {
         .expect("capture player");
 
     {
-        let (o, ownership_events) = logic.host_object_and_ownership_events_mut(id).expect("o");
-        o.set_team_and_owner(capture_team, Some(capture_pid), ownership_events);
+        let (o, ownership_events, fixture_partition) =
+            logic.host_object_ownership_partition_mut(id).expect("o");
+        o.set_team_and_owner_with_partition_owner(
+            capture_team,
+            Some(capture_pid),
+            ownership_events,
+            fixture_partition,
+        );
     }
 
     // Re-set for mutation path after drain.
     {
-        let (o, ownership_events) = logic.host_object_and_ownership_events_mut(id).expect("o");
-        o.set_team_and_owner(Team::USA, None, ownership_events);
+        let (o, ownership_events, fixture_partition) =
+            logic.host_object_ownership_partition_mut(id).expect("o");
+        o.set_team_and_owner_with_partition_owner(
+            Team::USA,
+            None,
+            ownership_events,
+            fixture_partition,
+        );
         ownership_events.clear();
-        o.set_team_and_owner(capture_team, Some(capture_pid), ownership_events);
+        o.set_team_and_owner_with_partition_owner(
+            capture_team,
+            Some(capture_pid),
+            ownership_events,
+            fixture_partition,
+        );
     }
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);

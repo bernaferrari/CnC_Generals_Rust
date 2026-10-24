@@ -2175,8 +2175,15 @@ fn saboteur_military_factory_residual_disables_production() {
     });
     game_logic.process_commands();
     {
-        let s = game_logic.host_object_mut(saboteur_id).unwrap();
-        s.set_position(Vec3::new(1.0, 0.0, 0.0));
+        let (s, fixture_partition_s) = game_logic
+            .host_object_and_partition_mut(saboteur_id)
+            .unwrap();
+        s.set_position_with_partition_owner(
+            Vec3::new(1.0, 0.0, 0.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_s,
+        );
         s.set_ai_state(
             AIState::SpecialAbility,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
@@ -3024,8 +3031,13 @@ fn live_named_enter_and_exit_all_drain_ai_enter_evacuate() {
             .unwrap()
             .occupants
             .push(infantry);
-        let infantry = logic.host_object_mut(infantry).unwrap();
-        infantry.set_contained_by(Some(transport));
+        let (infantry, fixture_partition_infantry) =
+            logic.host_object_and_partition_mut(infantry).unwrap();
+        infantry.set_contained_by_with_partition_owner(
+            Some(transport),
+            true,
+            fixture_partition_infantry,
+        );
         infantry.set_ai_state(
             AIState::Idle,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),

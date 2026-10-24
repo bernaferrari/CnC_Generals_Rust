@@ -54,8 +54,9 @@ fn fire_children(world: &GameLogic) -> Vec<(ObjectId, String, Option<ObjectId>)>
 fn pending_combat_snapshot_accepted_fifo_replaces_in_place_queue_and_keeps_retired_source() {
     let (mut source_world, source, target) = world(FLIGHT_FIRST);
     {
-        let source_object = source_world.objects.get_mut(&source).unwrap();
-        source_object.set_orientation(1.25);
+        let (source_object, fixture_partition_source_object) =
+            source_world.host_object_and_partition_mut(source).unwrap();
+        source_object.set_orientation_with_partition_owner(1.25, fixture_partition_source_object);
         source_object.movement.velocity = Vec3::new(2.0, 0.0, 3.0);
     }
     let other = admit(

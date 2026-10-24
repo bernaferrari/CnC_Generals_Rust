@@ -156,6 +156,7 @@ use ww3d_core::w3d_io::{W3DChunk, W3DReader};
 
 include!("ids.rs");
 mod drawable_world;
+mod native_projected_resources;
 pub use drawable_world::DrawableWorld as NativeDrawableWorld;
 include!("semantic_admission.rs");
 mod template_modules;

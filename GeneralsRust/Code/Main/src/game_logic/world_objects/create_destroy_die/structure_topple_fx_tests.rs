@@ -516,7 +516,7 @@ fn crushing_fires_each_authored_weapon_point_and_includes_structures() {
                 assert_eq!(object.body_initial_health(), 100.0);
                 assert_eq!(object.health.current, 100.0);
                 assert_eq!(
-                    object.thing().template.geometry_info,
+                    (*object.geometry_info()),
                     crate::game_logic::HostGeometryInfo::default()
                 );
             }

@@ -250,11 +250,7 @@ fn cold_and_no_coi_states_keep_previous_fog_memory_until_actual_cells_are_shroud
     world.admit_host_ghost_draws(vec![native_draw(&world, "RetainedOffMap", 1)]);
     fog(&mut world);
     let snapshot = world.w3d_ghosts.used()[0].snapshots(1)[0].clone();
-    world
-        .objects
-        .get_mut(&PARENT)
-        .unwrap()
-        .set_position(Vec3::new(1000.0, 0.0, 1000.0));
+    world.set_fixture_object_position(PARENT, Vec3::new(1000.0, 0.0, 1000.0));
     world.update_main_crate_vision();
     assert_eq!(status(&world), Some(ObjectShroudStatus::Shrouded));
     assert_eq!(world.w3d_ghosts.used()[0].previous_shroudedness(1), Some(3));
@@ -274,11 +270,7 @@ fn cold_and_no_coi_states_keep_previous_fog_memory_until_actual_cells_are_shroud
         .lock()
         .unwrap()
         .init_shroud_grid(240.0, 240.0);
-    world
-        .objects
-        .get_mut(&PARENT)
-        .unwrap()
-        .set_position(Vec3::new(80.0, 3.0, 80.0));
+    world.set_fixture_object_position(PARENT, Vec3::new(80.0, 3.0, 80.0));
     world.update_main_crate_vision();
     assert_eq!(status(&world), Some(ObjectShroudStatus::Shrouded));
     assert!(!world.w3d_ghosts.used()[0].has_snapshot(1));

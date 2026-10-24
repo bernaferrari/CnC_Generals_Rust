@@ -321,7 +321,9 @@ impl GameLogic {
             return false;
         }
         if let Some(object) = self.objects.get_mut(&id) {
-            object.handle_partition_cell_maintenance();
+            object.handle_partition_cell_maintenance_with_partition_owner(
+                &mut self.partition_manager,
+            );
             if object.has_ai_update_interface() {
                 object.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                     &mut self.queued_audio_events,

@@ -430,10 +430,13 @@ impl GameLogic {
         let engaged = self.private_attack_object(id, target_id, -1);
         if !engaged {
             if let Some(unit) = self.objects.get_mut(&id) {
-                unit.set_target(
+                unit.set_target_with_operation(
                     Some(target_id),
                     &mut self.attack_events,
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
+                    self.frame,
+                    &mut crate::game_logic::ScriptPresentationEffects::default()
+                        .reborrow_for_object(&mut self.partition_manager),
                 );
             } else {
                 return false;
@@ -496,10 +499,13 @@ impl GameLogic {
         unit.clear_guard_chase();
         end_hunt_on_player_parent_order(unit);
 
-        unit.set_target(
+        unit.set_target_with_operation(
             Some(target_id),
             &mut self.attack_events,
             &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
+            self.frame,
+            &mut crate::game_logic::ScriptPresentationEffects::default()
+                .reborrow_for_object(&mut self.partition_manager),
         );
         unit.set_force_attack(true);
         drop(unit);
@@ -1812,10 +1818,13 @@ impl GameLogic {
         if !unit.is_alive() {
             return false;
         }
-        unit.set_target(
+        unit.set_target_with_operation(
             Some(target_id),
             &mut self.attack_events,
             &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
+            self.frame,
+            &mut crate::game_logic::ScriptPresentationEffects::default()
+                .reborrow_for_object(&mut self.partition_manager),
         );
         unit.set_force_attack(false);
         true
@@ -1939,10 +1948,13 @@ impl GameLogic {
         let Some(unit) = self.objects.get_mut(&id) else {
             return false;
         };
-        unit.set_order_target(
+        unit.set_order_target_with_operation(
             target,
             &mut self.attack_events,
             &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
+            self.frame,
+            &mut crate::game_logic::ScriptPresentationEffects::default()
+                .reborrow_for_object(&mut self.partition_manager),
         );
         let can_construct = unit.can_construct();
         if can_construct {
@@ -1970,10 +1982,13 @@ impl GameLogic {
         unit.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
             &mut self.queued_audio_events,
         ));
-        unit.set_order_target(
+        unit.set_order_target_with_operation(
             target,
             &mut self.attack_events,
             &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
+            self.frame,
+            &mut crate::game_logic::ScriptPresentationEffects::default()
+                .reborrow_for_object(&mut self.partition_manager),
         );
         true
     }
@@ -1991,10 +2006,13 @@ impl GameLogic {
         unit.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
             &mut self.queued_audio_events,
         ));
-        unit.set_order_target(
+        unit.set_order_target_with_operation(
             Some(target),
             &mut self.attack_events,
             &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
+            self.frame,
+            &mut crate::game_logic::ScriptPresentationEffects::default()
+                .reborrow_for_object(&mut self.partition_manager),
         );
         unit.capture_channel = None;
         unit.set_status_using_ability(false);
@@ -2026,10 +2044,13 @@ impl GameLogic {
         unit.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
             &mut self.queued_audio_events,
         ));
-        unit.set_order_target(
+        unit.set_order_target_with_operation(
             Some(target),
             &mut self.attack_events,
             &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
+            self.frame,
+            &mut crate::game_logic::ScriptPresentationEffects::default()
+                .reborrow_for_object(&mut self.partition_manager),
         );
         unit.hacker_disable_channel = Some(crate::game_logic::HackerDisableChannelState::new(
             target,
@@ -2065,7 +2086,7 @@ impl GameLogic {
         let Some(unit) = self.objects.get_mut(&id) else {
             return false;
         };
-        unit.set_orientation(orientation);
+        unit.set_orientation_with_partition_owner(orientation, &mut self.partition_manager);
         true
     }
 
@@ -2130,10 +2151,13 @@ impl GameLogic {
             unit.preferred_dock_id = Some(supply_center);
             unit.supply_truck_state = crate::game_logic::SupplyTruckState::Wanting;
             unit.supply_truck_force_pending = true;
-            unit.set_order_target(
+            unit.set_order_target_with_operation(
                 Some(supply_center),
                 &mut self.attack_events,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
+                self.frame,
+                &mut crate::game_logic::ScriptPresentationEffects::default()
+                    .reborrow_for_object(&mut self.partition_manager),
             );
             unit.set_ai_state(
                 AIState::ReturningResources,
@@ -2176,10 +2200,13 @@ impl GameLogic {
             unit.preferred_dock_id = Some(warehouse);
             unit.supply_truck_state = crate::game_logic::SupplyTruckState::Wanting;
             unit.supply_truck_force_pending = true;
-            unit.set_order_target(
+            unit.set_order_target_with_operation(
                 Some(warehouse),
                 &mut self.attack_events,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
+                self.frame,
+                &mut crate::game_logic::ScriptPresentationEffects::default()
+                    .reborrow_for_object(&mut self.partition_manager),
             );
             unit.set_ai_state(
                 AIState::Gathering,
@@ -2213,10 +2240,13 @@ impl GameLogic {
         unit.stop_attack(&mut crate::game_logic::ObjectAudio::queue(
             &mut self.queued_audio_events,
         ));
-        unit.set_order_target(
+        unit.set_order_target_with_operation(
             Some(transport),
             &mut self.attack_events,
             &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
+            self.frame,
+            &mut crate::game_logic::ScriptPresentationEffects::default()
+                .reborrow_for_object(&mut self.partition_manager),
         );
         unit.set_ai_state(
             AIState::Docking,
@@ -2259,17 +2289,38 @@ impl GameLogic {
         let first = passengers[0];
         for pid in passengers {
             if let Some(c) = self.objects.get_mut(&ferry_id) {
-                let _ = c.remove_occupant(pid, &mut self.ownership_events);
+                let _ = c.remove_occupant_with_partition_owner(
+                    pid,
+                    &mut self.ownership_events,
+                    &mut self.partition_manager,
+                );
             }
             if let Some(p) = self.objects.get_mut(&pid) {
-                p.set_contained_by(None);
+                let containment_actor_id = p.id;
+                Self::set_owned_containment_in_parts(
+                    &mut self.objects,
+                    &mut self.partition_manager,
+                    containment_actor_id,
+                    None,
+                    true,
+                );
+                let p = self
+                    .objects
+                    .get_mut(&containment_actor_id)
+                    .expect("containment operation preserves this birth");
                 p.target = None;
-                p.set_position_with_effects(hull, self.frame, effects);
-                p.set_orientation(yaw);
-                p.set_destination(
+                p.set_position_with_effects(
+                    hull,
+                    self.frame,
+                    &mut effects.reborrow_for_object(&mut self.partition_manager),
+                );
+                p.set_orientation_with_partition_owner(yaw, &mut self.partition_manager);
+                p.set_destination_with_operation(
                     dest,
                     &mut self.movement_events.writer(self.frame),
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
+                    self.frame,
+                    &mut effects.reborrow_for_object(&mut self.partition_manager),
                 );
                 p.set_status_disabled_held(true);
             }
@@ -2350,7 +2401,11 @@ impl GameLogic {
         let Some(container) = self.objects.get_mut(&container_id) else {
             return false;
         };
-        let removed = container.remove_occupant(occupant_id, &mut self.ownership_events);
+        let removed = container.remove_occupant_with_partition_owner(
+            occupant_id,
+            &mut self.ownership_events,
+            &mut self.partition_manager,
+        );
         if removed && is_garrison {
             self.recalc_garrison_apparent_controller(container_id);
         }
@@ -2435,8 +2490,23 @@ impl GameLogic {
         unit.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
             &mut self.queued_audio_events,
         ));
-        unit.set_position_with_effects(drop_position, self.frame, effects);
-        unit.set_contained_by(None);
+        unit.set_position_with_effects(
+            drop_position,
+            self.frame,
+            &mut effects.reborrow_for_object(&mut self.partition_manager),
+        );
+        let containment_actor_id = unit.id;
+        Self::set_owned_containment_in_parts(
+            &mut self.objects,
+            &mut self.partition_manager,
+            containment_actor_id,
+            None,
+            true,
+        );
+        let unit = self
+            .objects
+            .get_mut(&containment_actor_id)
+            .expect("containment operation preserves this birth");
         unit.clear_target(&mut crate::game_logic::ObjectAudio::queue(
             &mut self.queued_audio_events,
         ));
@@ -2566,10 +2636,13 @@ impl GameLogic {
         let Some(unit) = self.objects.get_mut(&id) else {
             return false;
         };
-        unit.set_order_target(
+        unit.set_order_target_with_operation(
             Some(target_id),
             &mut self.attack_events,
             &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
+            self.frame,
+            &mut crate::game_logic::ScriptPresentationEffects::default()
+                .reborrow_for_object(&mut self.partition_manager),
         );
         unit.set_ai_state(
             AIState::Entering,
@@ -2672,10 +2745,13 @@ impl GameLogic {
         unit.attack_substate = AttackSubState::AimAtTarget;
 
         if let Some(tid) = target_object {
-            unit.set_target(
+            unit.set_target_with_operation(
                 Some(tid),
                 &mut self.attack_events,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
+                self.frame,
+                &mut crate::game_logic::ScriptPresentationEffects::default()
+                    .reborrow_for_object(&mut self.partition_manager),
             );
             unit.set_max_shots_to_fire(max_shots_to_fire);
             true

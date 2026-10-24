@@ -176,6 +176,12 @@ impl<'a> NativeRendererViewEffects<'a> {
 }
 #[cfg(feature = "game_client")]
 impl NativeViewEffects for NativeRendererViewEffects<'_> {
+    fn projected_radius_allocator(
+        &mut self,
+    ) -> Option<&mut dyn crate::game_logic::NativeProjectedRadiusAllocator> {
+        Some(&mut self.drawables)
+    }
+
     fn body_visual_changed(
         &mut self,
         change: &crate::game_logic::NativeBodyVisualChange,
@@ -365,6 +371,7 @@ impl CnCGameEngine {
             body(
                 &mut self.game_logic,
                 &mut crate::game_logic::ScriptPresentationEffects {
+                    partition: None,
                     audio: audio.as_mut().map(|service| service.receiver()),
                     terrain: terrain
                         .map(|terrain| terrain as &mut dyn crate::game_logic::NativeTerrainEffects),
@@ -446,4 +453,20 @@ pub(super) fn native_time_of_day(
         Source::Night => Native::Night,
         Source::Invalid => return None,
     })
+}
+
+#[cfg(feature = "game_client")]
+impl crate::game_logic::NativeProjectedRadiusAllocator
+    for game_client::core::game_client::NativeDrawableOwner<'_>
+{
+    fn allocate_radius(
+        &mut self,
+        texture: &str,
+        radius: f32,
+        position: [f32; 3],
+        color: u32,
+        opacity: f32,
+    ) -> Option<game_client::radius_decal::ShadowHandle> {
+        self.allocate_projected_radius(texture, radius, position, color, opacity)
+    }
 }

@@ -50,6 +50,23 @@ impl Object {
         source: Option<&crate::game_logic::host_transition_damage_fx::HostDamageFxVictim>,
         body_fx: &mut BodyStateFxReceiver<'_>,
     ) {
+        self.start_battle_bus_second_life_with_body_fx_with_operation(
+            frame,
+            source,
+            body_fx,
+            0,
+            &mut Default::default(),
+        )
+    }
+
+    pub(in crate::game_logic) fn start_battle_bus_second_life_with_body_fx_with_operation(
+        &mut self,
+        frame: u32,
+        source: Option<&crate::game_logic::host_transition_damage_fx::HostDamageFxVictim>,
+        body_fx: &mut BodyStateFxReceiver<'_>,
+        operation_frame: u32,
+        operation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         use crate::game_logic::host_battle_bus::{
             BATTLE_BUS_MC_BIT_SECOND_LIFE, BATTLE_BUS_SECOND_LIFE_MAX_HEALTH,
             BATTLE_BUS_THROW_FORCE, HostBattleBusBodyData, battle_bus_start_undeath_fx_name,
@@ -72,8 +89,12 @@ impl Object {
         self.refresh_model_condition_bits_with_body_fx(source, frame, body_fx);
         // C++ applyShock throwForce.z (up). Host is Y-up, so +Y.
         // scrubVelocity2D then throw — do not stop_moving (that zeroes the hop).
-        let _ = self.apply_shock_wave_impulse(glam::Vec3::new(0.0, BATTLE_BUS_THROW_FORCE, 0.0));
-        self.apply_shock_random_rotation(frame);
+        let _ = self.apply_shock_wave_impulse_with_operation(
+            glam::Vec3::new(0.0, BATTLE_BUS_THROW_FORCE, 0.0),
+            operation_frame,
+            operation_effects,
+        );
+        self.apply_shock_random_rotation_with_operation(frame, operation_frame, operation_effects);
         self.movement.velocity.x = 0.0;
         self.movement.velocity.z = 0.0;
         self.movement.target_position = None;
@@ -124,12 +145,37 @@ impl Object {
         dispatch: &mut dyn FnMut(&str, &Object, bool),
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) -> (bool, bool) {
-        use crate::game_logic::host_battle_bus::{
-            BATTLE_BUS_MC_BIT_SECOND_LIFE, battle_bus_hit_ground_fx_name,
-        };
-        if self.battle_bus_body.is_none() {
-            return (false, false);
-        }
+        self.tick_battle_bus_slow_death_with_fx_with_operation(
+            current_frame,
+            _above_terrain_hint,
+            passenger_count,
+            dispatch,
+            audio,
+            0,
+            &mut Default::default(),
+        )
+    }
+
+    pub(in crate::game_logic) fn tick_battle_bus_slow_death_with_fx_with_operation(
+        &mut self,
+        current_frame: u32,
+        _above_terrain_hint: bool,
+        passenger_count: usize,
+        dispatch: &mut dyn FnMut(&str, &Object, bool),
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
+        operation_frame: u32,
+        operation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> (bool, bool) {
+        self.advance_battle_bus_throw_with_effects(operation_frame, operation_effects);
+        self.finish_battle_bus_slow_death_with_fx(current_frame, passenger_count, dispatch, audio)
+    }
+
+    /// Transform phase precedes every landing callback in this original tick.
+    pub(crate) fn advance_battle_bus_throw_with_effects(
+        &mut self,
+        operation_frame: u32,
+        operation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         // Integrate residual throw height (host world-Y up).
         let (in_first, throw_vz) = self
             .battle_bus_body
@@ -145,10 +191,29 @@ impl Object {
                 y = ground;
                 new_vz = 0.0;
             }
-            self.set_position(glam::Vec3::new(pos.x, y.max(ground), pos.z));
+            self.set_position_with_effects(
+                glam::Vec3::new(pos.x, y.max(ground), pos.z),
+                operation_frame,
+                operation_effects,
+            );
             if let Some(body) = self.battle_bus_body.as_mut() {
                 body.throw_vz = new_vz;
             }
+        }
+    }
+
+    pub(crate) fn finish_battle_bus_slow_death_with_fx(
+        &mut self,
+        current_frame: u32,
+        passenger_count: usize,
+        dispatch: &mut dyn FnMut(&str, &Object, bool),
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
+    ) -> (bool, bool) {
+        use crate::game_logic::host_battle_bus::{
+            BATTLE_BUS_MC_BIT_SECOND_LIFE, battle_bus_hit_ground_fx_name,
+        };
+        if self.battle_bus_body.is_none() {
+            return (false, false);
         }
         let above = self.get_position().y - self.ground_height > 0.5;
         let landed = self

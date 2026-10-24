@@ -1195,10 +1195,7 @@ fn admitted_supply_dock_still_transfers_if_relationship_changes_in_transit() {
         .set_map_relationship(1, Relationship::Enemies);
     // Complete the trip after the relationship changes, then exercise the
     // dock action phase. The C++ action checks stock and proximity only.
-    logic
-        .host_object_mut(collector)
-        .unwrap()
-        .set_position(Vec3::new(1.0, 0.0, 0.0));
+    logic.set_fixture_object_position(collector, Vec3::new(1.0, 0.0, 0.0));
 
     logic.update_support_states(&[collector, dock], 1.0 / 30.0);
 
@@ -2479,8 +2476,13 @@ fn cia_intelligence_looker_follows_moving_enemy() {
     assert!(logic.activate_cia_intelligence(0, Team::USA, Some(caster)));
     let moved = Vec3::new(520.0, 0.0, 520.0);
     {
-        let obj = logic.host_object_mut(enemy).unwrap();
-        obj.set_position(moved);
+        let (obj, fixture_partition_obj) = logic.host_object_and_partition_mut(enemy).unwrap();
+        obj.set_position_with_partition_owner(
+            moved,
+            0,
+            &mut Default::default(),
+            fixture_partition_obj,
+        );
     }
     logic.frame = 5;
     logic.update_cia_intelligence();

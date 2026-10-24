@@ -214,8 +214,13 @@ fn authored_evacuation_retains_passenger_through_takeoff_and_landing() {
                     .unwrap()
                     .add_occupant(second)
             );
-            let rider = logic.host_object_mut(second).unwrap();
-            rider.set_contained_by(Some(transport));
+            let (rider, fixture_partition_rider) =
+                logic.host_object_and_partition_mut(second).unwrap();
+            rider.set_contained_by_with_partition_owner(
+                Some(transport),
+                true,
+                fixture_partition_rider,
+            );
             rider.set_ai_state(
                 AIState::Docked,
                 &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),

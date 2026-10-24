@@ -588,11 +588,34 @@ impl Object {
     /// C++ Object::setVisionSpied residual (refcounted mask simplified to bitmask).
     /// When on, spying player treats this unit as a temporary looker / revealed target.
     pub fn set_vision_spied_by_player(&mut self, player_id: u32, on: bool) {
+        self.set_vision_spied_with_partition_context(player_id, on, None);
+    }
+    pub(crate) fn set_vision_spied_by_player_with_partition_owner(
+        &mut self,
+        player_id: u32,
+        on: bool,
+        partition: &mut crate::game_logic::partition_manager::PartitionManager,
+    ) {
+        self.set_vision_spied_with_partition_context(player_id, on, Some(partition));
+    }
+    fn set_vision_spied_with_partition_context(
+        &mut self,
+        player_id: u32,
+        on: bool,
+        partition: Option<&mut crate::game_logic::partition_manager::PartitionManager>,
+    ) {
+        self.require_partition_owner(partition.as_deref());
+        let old_mask = self.vision_spied_mask;
         let bit = 1u32 << player_id.min(31);
         if on {
             self.vision_spied_mask |= bit;
         } else {
             self.vision_spied_mask &= !bit;
+        }
+        if old_mask != self.vision_spied_mask {
+            if let Some(partition) = partition {
+                self.handle_partition_cell_maintenance_with_partition_owner(partition);
+            }
         }
     }
 
@@ -606,7 +629,7 @@ impl Object {
     /// Foundations only see their footprint until construction completes.
     pub fn get_shroud_clearing_range(&self) -> f32 {
         if self.status.under_construction {
-            return self.thing.template.geometry_info.bounding_circle_radius();
+            return (*self.geometry_info()).bounding_circle_radius();
         }
         self.shroud_clearing_range
     }

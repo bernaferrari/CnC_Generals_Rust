@@ -104,10 +104,7 @@ fn guard_return_movement_receipts_stay_with_same_id_owner() {
                 first.host_object(id).unwrap().ai_state,
                 AIState::GuardRetaliating
             );
-            first
-                .host_object_mut(id)
-                .unwrap()
-                .set_position(first_anchor);
+            first.set_fixture_object_position(id, first_anchor);
             first.tick_guard_retaliate_states();
             assert_eq!(
                 first.host_object(id).unwrap().ai_state,

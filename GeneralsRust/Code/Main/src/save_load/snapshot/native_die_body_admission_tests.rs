@@ -17,10 +17,7 @@ fn inactive() -> (GameLogic, ObjectId, ThingTemplate) {
     source
         .templates
         .insert(template.name.clone(), template.clone());
-    source.objects.insert(
-        id,
-        crate::game_logic::Object::new(template.clone(), id, Team::USA),
-    );
+    recreate_receipt_owner(&mut source, template.clone(), id);
     assert!(source.host_object(id).unwrap().is_inactive_body());
     assert!(source.host_object(id).unwrap().status.effectively_dead);
     assert!(!source.host_object(id).unwrap().status.on_die_started);
@@ -58,7 +55,12 @@ fn replace_receipt(snapshot: &mut WorldSnapshot, record: Option<Record>) {
                 .splice(offset..offset + 12 + size, bytes);
             return;
         }
-        assert!([b"CPRJ", b"BDKD", b"NLFC", b"ODIS", b"RDCK", b"OLST"].contains(&tag));
+        assert!(
+            [
+                b"CPRJ", b"PCOI", b"GMSH", b"BDKD", b"NLFC", b"ODIS", b"RDCK", b"OLST"
+            ]
+            .contains(&tag)
+        );
         offset += 12 + size;
     }
 }

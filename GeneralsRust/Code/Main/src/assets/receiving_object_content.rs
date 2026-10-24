@@ -27,11 +27,24 @@ impl ReceivingObjectContent {
     where
         I: IntoIterator<Item = (String, String)>,
     {
+        Self::from_sources_with_catalogs(sources,sciences,std::sync::Arc::new(game_engine::common::thing::receiving_module_content::ReceivingActionDefinitions::default()))
+    }
+    pub(crate) fn from_sources_with_catalogs<I>(
+        sources: I,
+        sciences: std::sync::Arc<game_engine::common::rts::science::ScienceNameFacts>,
+        actions: std::sync::Arc<
+            game_engine::common::thing::receiving_module_content::ReceivingActionDefinitions,
+        >,
+    ) -> Result<Self, String>
+    where
+        I: IntoIterator<Item = (String, String)>,
+    {
         let sources = sources.into_iter().collect::<Vec<_>>();
         let mut factory =
             ModuleFactory::new_receiving_with_sciences(NameKeyNamespace::new(), sciences);
         gamelogic::contain_module_overrides::register_native_module_overrides(&mut factory)?;
         let mut modules = ReceivingModuleContent::new(factory);
+        modules.admit_action_definitions(actions);
         for (path, text) in &sources {
             modules
                 .load_ini_text(text, INILoadType::Overwrite)
@@ -43,6 +56,17 @@ impl ReceivingObjectContent {
             modules,
             projections,
         })
+    }
+    pub(crate) fn admit_command_definitions(
+        &mut self,
+        buttons: game_engine::common::ini::ini_command_button::ControlBar,
+        sets: game_engine::common::ini::ini_command_set::CommandSetManager,
+    ) {
+        let mut definitions = self.modules.action_definitions().clone();
+        definitions.buttons = buttons;
+        definitions.sets = sets;
+        self.modules
+            .admit_action_definitions(std::sync::Arc::new(definitions));
     }
     pub(crate) fn module_content(&self) -> &ReceivingModuleContent {
         &self.modules

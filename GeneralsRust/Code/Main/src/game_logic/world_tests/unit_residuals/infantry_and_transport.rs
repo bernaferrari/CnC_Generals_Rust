@@ -1679,7 +1679,7 @@ fn wave_guide_moves_and_damages_after_dam_die() {
         .unwrap()
         .status
         .disabled_default = true;
-    logic.objects.get_mut(&wg_id).unwrap().set_orientation(0.0); // +X
+    logic.set_fixture_object_orientation(wg_id, 0.0); // +X
     let tank_id = logic
         .create_object("TestTank", Team::USA, glam::Vec3::new(30.0, 0.0, 0.0))
         .unwrap();
@@ -1740,7 +1740,7 @@ fn wave_guide_pushes_add_water_velocity_onto_grid_queue() {
     let wg_id = logic
         .create_object("WaveGuide1", Team::Neutral, glam::Vec3::new(0.0, 0.0, 0.0))
         .unwrap();
-    logic.objects.get_mut(&wg_id).unwrap().set_orientation(0.0);
+    logic.set_fixture_object_orientation(wg_id, 0.0);
     logic
         .objects
         .get_mut(&wg_id)
@@ -1884,7 +1884,7 @@ fn wave_guide_starts_disabled_until_dam_die() {
     let wg_id = logic
         .create_object("WaveGuide1", Team::Neutral, glam::Vec3::new(0.0, 0.0, 0.0))
         .unwrap();
-    logic.objects.get_mut(&wg_id).unwrap().set_orientation(0.0);
+    logic.set_fixture_object_orientation(wg_id, 0.0);
     let tank_id = logic
         .create_object("TestTank", Team::USA, glam::Vec3::new(30.0, 0.0, 0.0))
         .unwrap();
@@ -1987,7 +1987,7 @@ End
         .unwrap()
         .status
         .disabled_default = true;
-    logic.objects.get_mut(&wg_id).unwrap().set_orientation(0.0);
+    logic.set_fixture_object_orientation(wg_id, 0.0);
     logic.queued_audio_events.clear();
     logic.update_wave_guides();
     assert!(
@@ -2650,12 +2650,16 @@ fn troop_crawler_assault_keeps_wounded_and_retrieves_outside() {
         assert!(c.add_occupant(wounded_id));
     }
     {
-        let h = game_logic.host_object_mut(healthy_id).unwrap();
-        h.set_contained_by(Some(crawler_id));
+        let (h, fixture_partition_h) = game_logic
+            .host_object_and_partition_mut(healthy_id)
+            .unwrap();
+        h.set_contained_by_with_partition_owner(Some(crawler_id), true, fixture_partition_h);
     }
     {
-        let w = game_logic.host_object_mut(wounded_id).unwrap();
-        w.set_contained_by(Some(crawler_id));
+        let (w, fixture_partition_w) = game_logic
+            .host_object_and_partition_mut(wounded_id)
+            .unwrap();
+        w.set_contained_by_with_partition_owner(Some(crawler_id), true, fixture_partition_w);
     }
 
     let enemy = game_logic
@@ -2721,8 +2725,10 @@ fn troop_crawler_assault_keeps_wounded_and_retrieves_outside() {
         assert!(c.add_occupant(healthy_id));
     }
     {
-        let h = game_logic.host_object_mut(healthy_id).unwrap();
-        h.set_contained_by(Some(crawler_id));
+        let (h, fixture_partition_h) = game_logic
+            .host_object_and_partition_mut(healthy_id)
+            .unwrap();
+        h.set_contained_by_with_partition_owner(Some(crawler_id), true, fixture_partition_h);
         h.set_ai_state(
             AIState::Idle,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
@@ -2779,8 +2785,10 @@ fn troop_crawler_death_gives_final_orders() {
         assert!(c.add_occupant(healthy_id));
     }
     {
-        let h = game_logic.host_object_mut(healthy_id).unwrap();
-        h.set_contained_by(Some(crawler_id));
+        let (h, fixture_partition_h) = game_logic
+            .host_object_and_partition_mut(healthy_id)
+            .unwrap();
+        h.set_contained_by_with_partition_owner(Some(crawler_id), true, fixture_partition_h);
     }
     let enemy = game_logic
         .create_object("TestTank", Team::GLA, Vec3::new(50.0, 0.0, 0.0))
@@ -2833,8 +2841,10 @@ fn troop_crawler_new_members_do_not_eject_until_new_attack() {
         assert!(c.add_occupant(fighter_id));
     }
     {
-        let h = game_logic.host_object_mut(fighter_id).unwrap();
-        h.set_contained_by(Some(crawler_id));
+        let (h, fixture_partition_h) = game_logic
+            .host_object_and_partition_mut(fighter_id)
+            .unwrap();
+        h.set_contained_by_with_partition_owner(Some(crawler_id), true, fixture_partition_h);
     }
     let enemy = game_logic
         .create_object("TestTank", Team::GLA, Vec3::new(50.0, 0.0, 0.0))
@@ -2849,8 +2859,8 @@ fn troop_crawler_new_members_do_not_eject_until_new_attack() {
         assert!(c.add_occupant(extra_id));
     }
     {
-        let e = game_logic.host_object_mut(extra_id).unwrap();
-        e.set_contained_by(Some(crawler_id));
+        let (e, fixture_partition_e) = game_logic.host_object_and_partition_mut(extra_id).unwrap();
+        e.set_contained_by_with_partition_owner(Some(crawler_id), true, fixture_partition_e);
     }
     game_logic.tick_assault_transport_updates();
     assert_eq!(
@@ -2894,8 +2904,10 @@ fn troop_crawler_target_death_retrieves_members() {
         assert!(c.add_occupant(healthy_id));
     }
     {
-        let h = game_logic.host_object_mut(healthy_id).unwrap();
-        h.set_contained_by(Some(crawler_id));
+        let (h, fixture_partition_h) = game_logic
+            .host_object_and_partition_mut(healthy_id)
+            .unwrap();
+        h.set_contained_by_with_partition_owner(Some(crawler_id), true, fixture_partition_h);
     }
     let enemy = game_logic
         .create_object("TestTank", Team::GLA, Vec3::new(50.0, 0.0, 0.0))
@@ -2950,8 +2962,10 @@ fn troop_crawler_attack_move_continues_after_target_death() {
         assert!(c.add_occupant(healthy_id));
     }
     {
-        let h = game_logic.host_object_mut(healthy_id).unwrap();
-        h.set_contained_by(Some(crawler_id));
+        let (h, fixture_partition_h) = game_logic
+            .host_object_and_partition_mut(healthy_id)
+            .unwrap();
+        h.set_contained_by_with_partition_owner(Some(crawler_id), true, fixture_partition_h);
     }
     let enemy = game_logic
         .create_object("TestTank", Team::GLA, Vec3::new(50.0, 0.0, 0.0))
@@ -3000,8 +3014,10 @@ fn troop_crawler_stop_retrieves_members() {
         assert!(c.add_occupant(healthy_id));
     }
     {
-        let h = game_logic.host_object_mut(healthy_id).unwrap();
-        h.set_contained_by(Some(crawler_id));
+        let (h, fixture_partition_h) = game_logic
+            .host_object_and_partition_mut(healthy_id)
+            .unwrap();
+        h.set_contained_by_with_partition_owner(Some(crawler_id), true, fixture_partition_h);
     }
     let enemy = game_logic
         .create_object("TestTank", Team::GLA, Vec3::new(50.0, 0.0, 0.0))
@@ -3049,8 +3065,8 @@ fn troop_crawler_assault_walks_enter_and_exit() {
         assert!(c.add_occupant(fighter));
     }
     {
-        let h = game_logic.host_object_mut(fighter).unwrap();
-        h.set_contained_by(Some(crawler_id));
+        let (h, fixture_partition_h) = game_logic.host_object_and_partition_mut(fighter).unwrap();
+        h.set_contained_by_with_partition_owner(Some(crawler_id), true, fixture_partition_h);
     }
     let enemy = game_logic
         .create_object("TestTank", Team::GLA, Vec3::new(50.0, 0.0, 0.0))
@@ -3085,8 +3101,8 @@ fn troop_crawler_assault_walks_enter_and_exit() {
         assert!(c.add_occupant(fighter));
     }
     {
-        let h = game_logic.host_object_mut(fighter).unwrap();
-        h.set_contained_by(Some(crawler_id));
+        let (h, fixture_partition_h) = game_logic.host_object_and_partition_mut(fighter).unwrap();
+        h.set_contained_by_with_partition_owner(Some(crawler_id), true, fixture_partition_h);
         h.set_ai_state(
             AIState::Idle,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),

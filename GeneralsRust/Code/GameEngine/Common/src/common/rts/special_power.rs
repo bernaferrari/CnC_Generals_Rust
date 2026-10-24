@@ -340,7 +340,7 @@ pub trait SpecialPowerPlayer {
 
 /// Special power store - manages all available special powers
 /// Reference: C++ SpecialPowerStore class
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SpecialPowerStore {
     templates: Vec<SpecialPowerTemplate>,
     next_special_power_id: u32,
@@ -465,6 +465,25 @@ impl SpecialPowerStore {
         properties: &HashMap<String, String>,
         load_type: INILoadType,
     ) -> Result<(), String> {
+        self.parse_definition_with_sciences(name, properties, load_type, None)
+    }
+
+    pub fn parse_receiving_definition(
+        &mut self,
+        name: &str,
+        properties: &HashMap<String, String>,
+        load_type: INILoadType,
+        sciences: &crate::common::rts::science::ScienceNameFacts,
+    ) -> Result<(), String> {
+        self.parse_definition_with_sciences(name, properties, load_type, Some(sciences))
+    }
+    fn parse_definition_with_sciences(
+        &mut self,
+        name: &str,
+        properties: &HashMap<String, String>,
+        load_type: INILoadType,
+        sciences: Option<&crate::common::rts::science::ScienceNameFacts>,
+    ) -> Result<(), String> {
         if let Some(index) = self
             .templates
             .iter()
@@ -475,7 +494,7 @@ impl SpecialPowerStore {
             }
 
             let mut template = self.templates[index].clone();
-            self.apply_field_parse(&mut template, properties)?;
+            self.apply_field_parse(&mut template, properties, sciences)?;
             self.templates[index] = template;
             return Ok(());
         }
@@ -492,7 +511,7 @@ impl SpecialPowerStore {
 
         // Parse properties using the field parse array
         // Reference: C++ m_specialPowerFieldParse array (lines 85-102)
-        self.apply_field_parse(&mut template, properties)?;
+        self.apply_field_parse(&mut template, properties, sciences)?;
 
         self.templates.push(template);
         Ok(())
@@ -504,6 +523,7 @@ impl SpecialPowerStore {
         &mut self,
         template: &mut SpecialPowerTemplate,
         properties: &HashMap<String, String>,
+        sciences: Option<&crate::common::rts::science::ScienceNameFacts>,
     ) -> Result<(), String> {
         for key in properties.keys() {
             if !Self::is_special_power_field(key) {
@@ -519,7 +539,13 @@ impl SpecialPowerStore {
 
         // { "RequiredScience",         INI::parseScience,              NULL, offsetof(SpecialPowerTemplate, m_requiredScience) },
         if let Some(value) = properties.get("RequiredScience") {
-            template.required_science = Self::parse_science(value)?;
+            template.required_science = if let Some(facts) = sciences {
+                facts
+                    .science(value.trim())
+                    .ok_or_else(|| format!("Unknown receiving science {value}"))?
+            } else {
+                Self::parse_science(value)?
+            };
         }
 
         // { "InitiateSound",           INI::parseAudioEventRTS,        NULL, offsetof(SpecialPowerTemplate, m_initiateSound) },

@@ -197,6 +197,7 @@ fn actual_authored_input_resets_receiving_native_fields_before_next_action_witho
                 observed: Vec::new(),
             };
             let mut effects = ScriptPresentationEffects {
+                partition: None,
                 audio: None,
                 terrain: None,
                 ui: Some(&mut observer),
@@ -271,6 +272,7 @@ fn missing_native_input_capability_rejects_without_ambient_handler_or_owner_writ
         observed: Vec::new(),
     };
     let mut effects = ScriptPresentationEffects {
+        partition: None,
         audio: None,
         terrain: None,
         ui: Some(&mut observer),

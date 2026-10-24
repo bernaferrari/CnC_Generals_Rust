@@ -1015,6 +1015,7 @@ impl CnCGameEngine {
                 template,
                 builder,
                 &mut crate::game_logic::ScriptPresentationEffects {
+                    partition: None,
                     audio: None,
                     ui: None,
                     view: None,

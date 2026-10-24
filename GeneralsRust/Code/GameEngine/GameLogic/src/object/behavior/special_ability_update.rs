@@ -174,7 +174,8 @@ fn parse_special_power_template(
 ) -> Result<(), INIError> {
     let value = first_value_token(tokens).ok_or(INIError::InvalidData)?;
     let name = AsciiString::from(value);
-    data.special_power_template = Some(find_or_create_special_power_template(&name));
+    data.special_power_template =
+        crate::object::special_power_template::special_power_template_from_ini(_ini, &name);
     Ok(())
 }
 
@@ -524,7 +525,6 @@ impl SpecialAbilityUpdate {
             prep_sound_loop: None,
             object_id,
         };
-
 
         behavior
     }
@@ -1588,8 +1588,7 @@ impl SpecialAbilityUpdate {
             if let Some((pos, orient, owner_id)) = owner_snapshot {
                 let _ = new_guard.set_position(&pos);
                 let _ = new_guard.set_orientation(orient);
-                let _ = new_guard
-                    .with_experience_tracker_mut(|t| t.set_experience_sink(owner_id));
+                let _ = new_guard.with_experience_tracker_mut(|t| t.set_experience_sink(owner_id));
             }
             if let Some(physics) = new_guard.get_physics() {
                 physics.set_pitch_rate(0.0);

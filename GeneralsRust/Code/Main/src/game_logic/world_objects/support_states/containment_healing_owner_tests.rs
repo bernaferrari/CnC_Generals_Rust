@@ -104,10 +104,7 @@ End
                 .add_occupant(passenger)
         );
     }
-    owner
-        .host_object_mut(passenger)
-        .unwrap()
-        .set_contained_by(Some(container));
+    owner.set_fixture_object_contained_by(passenger, Some(container));
     owner
         .tunnel_network
         .stamp_contained_by_frame(passenger, 100);
@@ -391,7 +388,11 @@ fn heal_contain_admits_healing_in_passenger_insertion_order_not_object_id_order(
             .objects
             .get_mut(&container)
             .unwrap()
-            .remove_occupant(first, &mut owner.ownership_events)
+            .remove_occupant_with_partition_owner(
+                first,
+                &mut owner.ownership_events,
+                &mut owner.partition_manager
+            )
     );
     assert!(
         owner
@@ -412,7 +413,7 @@ fn heal_contain_admits_healing_in_passenger_insertion_order_not_object_id_order(
     let object = owner.host_object_mut(second).unwrap();
     object.internal_change_health(-80.0);
     object.indestructible = true;
-    object.set_contained_by(Some(container));
+    owner.set_fixture_object_contained_by(second, Some(container));
     owner.tunnel_network.stamp_contained_by_frame(second, 100);
     owner.health_events.drain_ordered();
     owner.frame = 130;

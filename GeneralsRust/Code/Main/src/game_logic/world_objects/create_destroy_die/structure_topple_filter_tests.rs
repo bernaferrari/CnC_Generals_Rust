@@ -203,7 +203,7 @@ fn damage_fx_none_suppresses_every_phase_but_not_crushing_or_completion() {
             assert_eq!(admitted.body_initial_health(), 100.0);
             assert_eq!(admitted.health.current, 100.0);
             assert_eq!(
-                admitted.thing().template.geometry_info,
+                (*admitted.geometry_info()),
                 crate::game_logic::HostGeometryInfo::default()
             );
             owner

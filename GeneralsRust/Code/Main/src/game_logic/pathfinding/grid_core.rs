@@ -763,7 +763,7 @@ impl PathfindingGrid {
         if obj.is_mobile() {
             return None;
         }
-        let geom = obj.thing().template.geometry_info;
+        let geom = (*obj.geometry_info());
         if geom.authored && geom.is_small {
             return None;
         }
@@ -880,7 +880,7 @@ impl PathfindingGrid {
         obj: &Object,
         insert: bool,
     ) -> Option<(GridPos, GridPos)> {
-        let geom = obj.thing().template.geometry_info;
+        let geom = (*obj.geometry_info());
         let pos = obj.get_position();
         let is_transparent = obj.is_kind_of(KindOf::CanSeeThrough);
         let mut lo = GridPos::new(i32::MAX, i32::MAX);

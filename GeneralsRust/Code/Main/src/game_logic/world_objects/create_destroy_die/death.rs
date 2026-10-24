@@ -780,7 +780,7 @@ impl GameLogic {
         self.stop_ambient_sound(id);
 
         if let Some(obj) = self.objects.get_mut(&id) {
-            obj.unstamp_partition_value_threat();
+            obj.unstamp_partition_value_threat_with_partition_owner(&mut self.partition_manager);
             // C++ BoneFXUpdate dtor / onDelete: killRunningParticleSystems.
             if let Some(bfx) = obj.bone_fx_damage.as_mut() {
                 bfx.stop_all_bone_fx();
@@ -1589,7 +1589,7 @@ impl GameLogic {
             if let Some(dying) = self.objects.get(&dying_id) {
                 let yaw = dying.get_orientation();
                 if let Some(n) = self.objects.get_mut(&new_id) {
-                    n.set_orientation(yaw);
+                    n.set_orientation_with_partition_owner(yaw, &mut self.partition_manager);
                     n.producer_id = Some(dying_id);
                 }
             }
@@ -1874,10 +1874,8 @@ impl GameLogic {
             })
             .unwrap_or(0);
         let position = obj.get_position();
-        let radius = (obj.thing().template.geometry_info.major_radius
-            + obj.thing().template.geometry_info.minor_radius)
-            * 0.5
-            * 0.9;
+        let radius =
+            ((*obj.geometry_info()).major_radius + (*obj.geometry_info()).minor_radius) * 0.5 * 0.9;
         let random_unit = self.logic_random.next_u32() as f32 / u32::MAX as f32;
         let angle = match attacker_pos {
             Some((x, z)) => {

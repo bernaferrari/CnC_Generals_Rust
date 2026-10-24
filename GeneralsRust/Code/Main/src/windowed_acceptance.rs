@@ -1038,24 +1038,32 @@ mod tests {
             "manual observation must not send synthetic gameplay/control commands: {manual_phase}"
         );
 
-        let abandon = include_str!("cnc_game_engine/shell.rs");
-        assert!(
-            abandon.contains("bump_startup_worker_generation()")
-                && abandon.contains("startup_worker_owns(worker_gen)"),
-            "abandon must invalidate the boot worker generation"
-        );
-        let drain = include_str!("cnc_game_engine/dispatch.rs");
-        let take = drain
-            .split("fn take_startup_messages_from_stream")
+        let shell = include_str!("cnc_game_engine/shell.rs");
+        let worker = shell
+            .split("pub(super) fn spawn_startup_map_load(")
             .nth(1)
-            .and_then(|s| {
-                s.split("pub(super) fn admit_startup_simulation_inputs")
-                    .next()
-            })
-            .expect("take_startup bounded");
+            .and_then(|s| s.split("fn admit_prepared_startup_map_load(").next())
+            .expect("bounded startup worker");
         assert!(
-            take.contains("startup_worker_owns(owner_gen)") && take.contains("skip stream clear"),
-            "abandoned worker must not clear NewGame from the stream"
+            worker.contains("worker_signal.validate()")
+                && worker.contains("_worker_owner: worker_owner"),
+            "worker cancellation must belong to the receiving startup state"
+        );
+        assert!(
+            !worker.contains("get_message_stream")
+                && !worker.contains("take_startup_messages_from_stream"),
+            "startup must neither consume nor clear another engine's live messages"
+        );
+        assert!(
+            worker.contains("initial_file_message()")
+                && worker.contains("take_lifecycle_messages_owned()"),
+            "startup must merge its own initial-file and Recorder messages in order"
+        );
+        let owner = include_str!("cnc_game_engine/startup_worker_owner.rs");
+        assert!(
+            owner.contains("impl Drop for StartupWorkerOwner")
+                && !owner.contains("static STARTUP_WORKER"),
+            "dropping one startup request must not cancel a process-wide generation"
         );
     }
 

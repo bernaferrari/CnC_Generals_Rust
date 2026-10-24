@@ -564,8 +564,8 @@ fn host_upgrade_capture_mid_flight_save_load_completes_unlock() {
     // authored in-range capture setup before testing the now-unlocked ability;
     // this keeps the assertion about snapshot/research state independent of
     // autonomous movement during the elapsed research time.
+    restored.set_fixture_object_position(captor_id, Vec3::ZERO);
     if let Some(captor) = restored.host_object_mut(captor_id) {
-        captor.set_position(Vec3::ZERO);
         captor.target = None;
         captor.set_ai_state(
             AIState::Idle,

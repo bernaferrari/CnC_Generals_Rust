@@ -135,10 +135,7 @@ fn live_tech_condition_ignores_foreign_registry_and_world_lifecycle() {
             );
             assert_eq!(tick(&second_engine, &mut second), 0);
             // Completed searches latch independently, including a false search.
-            first
-                .host_object_mut(id)
-                .unwrap()
-                .set_position(Vec3::splat(900.0));
+            first.set_fixture_object_position(id, Vec3::splat(900.0));
             second
                 .players
                 .get_mut(&1)
@@ -284,24 +281,15 @@ fn live_tech_search_preserves_center_distance_and_team_affiliation() {
             world.host_object_mut(id).unwrap().owner_player_id = Some(2);
             // Radius sqrt(200) + extra =5 exactly. C++ uses strict center distance.
             let extra = 5.0 - 200.0_f32.sqrt();
-            world
-                .host_object_mut(id)
-                .unwrap()
-                .set_position(Vec3::new(15.0, 500.0, 10.0));
+            world.set_fixture_object_position(id, Vec3::new(15.0, 500.0, 10.0));
             assert_eq!(observed(&mut world, extra), 0);
-            world
-                .host_object_mut(id)
-                .unwrap()
-                .set_position(Vec3::new(14.0, 500.0, 10.0));
+            world.set_fixture_object_position(id, Vec3::new(14.0, 500.0, 10.0));
             assert_eq!(
                 observed(&mut world, extra),
                 1,
                 "negative extra distance shrinks the positive search radius"
             );
-            world
-                .host_object_mut(id)
-                .unwrap()
-                .set_position(Vec3::new(-1.0, 0.0, 10.0));
+            world.set_fixture_object_position(id, Vec3::new(-1.0, 0.0, 10.0));
             assert_eq!(observed(&mut world, 100.0), 0, "off-map tech is excluded");
         },
     );

@@ -382,10 +382,14 @@ impl Object {
                     let pitch_rate =
                         self.shock_pitch_rate * pryf * self.center_of_mass_pitch_scale();
                     let roll_rate = self.shock_roll_rate * pryf;
-                    self.apply_physics_ypr(yaw_rate, pitch_rate, roll_rate);
+                    self.apply_physics_ypr_with_effects(
+                        yaw_rate, pitch_rate, roll_rate, frame, effects,
+                    );
                 }
 
-                let bounce_force = self.compute_ground_bounce_force(old_y, new_pos.y, ground_y);
+                let bounce_force = self.compute_ground_bounce_force_with_operation(
+                    old_y, new_pos.y, ground_y, frame, effects,
+                );
 
                 // Remember z-vel prior to ground-slam (host Y).
                 if new_pos.y <= ground_y {
@@ -453,7 +457,7 @@ impl Object {
                             };
                         }
                         if !self.status.destroyed {
-                            self.right_physics_pitch_keep_flip();
+                            self.right_physics_pitch_keep_flip_with_operation(frame, effects);
                         }
                     }
                 }
@@ -462,7 +466,7 @@ impl Object {
             MotionContact::AfterBounce(tail) => {
                 self.finish_stun_kill(killed, audio);
                 if !killed && !self.status.destroyed {
-                    self.right_physics_pitch_keep_flip();
+                    self.right_physics_pitch_keep_flip_with_operation(frame, effects);
                 }
                 self.begin_motion_landing(tail)
             }
@@ -558,10 +562,12 @@ impl Object {
                 // C++ PhysicsUpdate.cpp:715-727 COM sine applies every YPR frame,
                 // including stunned (shocked units keep pitch/roll rates).
                 let pryf = self.pitch_roll_yaw_factor;
-                self.apply_physics_ypr(
+                self.apply_physics_ypr_with_effects(
                     self.shock_yaw_rate * pryf,
                     self.shock_pitch_rate * pryf * self.center_of_mass_pitch_scale(),
                     self.shock_roll_rate * pryf,
+                    frame,
+                    effects,
                 );
                 self.shock_yaw_rate *= 0.92;
                 self.shock_pitch_rate *= 0.92;
@@ -580,7 +586,9 @@ impl Object {
                         let impact_vy = self.movement.velocity.y;
                         let was_air = self.shock_was_airborne || old_y > ground_y + 0.01;
 
-                        let (bounce, request) = self.begin_contact_bounce(old_y, new_y, ground_y);
+                        let (bounce, request) = self.begin_contact_bounce_with_operation(
+                            old_y, new_y, ground_y, frame, effects,
+                        );
                         let data = StunLanding {
                             tail: StunTail {
                                 already_ground: already_on_ground,
@@ -645,6 +653,17 @@ impl Object {
         new_y: f32,
         ground_y: f32,
     ) -> (f32, Option<ContactDamage>) {
+        self.begin_contact_bounce_with_operation(old_y, new_y, ground_y, 0, &mut Default::default())
+    }
+
+    pub(super) fn begin_contact_bounce_with_operation(
+        &mut self,
+        old_y: f32,
+        new_y: f32,
+        ground_y: f32,
+        operation_frame: u32,
+        operation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> (f32, Option<ContactDamage>) {
         if !self.shock_allow_bounce || new_y > ground_y {
             return (0.0, None);
         }
@@ -658,7 +677,7 @@ impl Object {
         self.shock_pitch_rate *= Self::BOUNCE_YPR_DAMPING;
         self.shock_roll_rate *= Self::BOUNCE_YPR_DAMPING;
         if vy < 0.0 {
-            self.right_physics_pitch_keep_flip();
+            self.right_physics_pitch_keep_flip_with_operation(operation_frame, operation_effects);
         }
         if bounce > 0.0 {
             self.movement.velocity.y = bounce;
@@ -773,7 +792,7 @@ impl crate::game_logic::GameLogic {
                 state,
                 killed,
                 frame,
-                presentation_effects,
+                &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
             match next {

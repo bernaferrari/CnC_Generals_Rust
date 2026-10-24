@@ -1,5 +1,16 @@
 use super::*;
 
+fn set_radar_fixture_owner(
+    world: &mut GameLogic,
+    id: ObjectId,
+    team: Team,
+    owner: Option<u32>,
+    events: &mut crate::game_logic::host_owner_log::OwnershipEvents,
+) {
+    let (object, partition) = world.host_object_and_partition_mut(id).unwrap();
+    object.set_team_and_owner_with_partition_owner(team, owner, events, partition);
+}
+
 fn radar_world() -> (GameLogic, ObjectId) {
     let mut world = GameLogic::new();
     world.add_player(Player::new(1, Team::GLA, "First", true));
@@ -7,10 +18,14 @@ fn radar_world() -> (GameLogic, ObjectId) {
     let mut template = ThingTemplate::new("GLAVehicleRadarVan");
     template.set_health(200.0);
     let id = ObjectId(41);
-    let mut object = Object::new(template, id, Team::GLA);
-    object.construction_percent = 1.0;
-    object.set_team_and_owner(Team::GLA, Some(1), &mut world.ownership_events);
-    world.objects.insert(id, object);
+    let name = template.name.clone();
+    world.templates.insert(name.clone(), template);
+    world.next_object_id = id;
+    assert_eq!(
+        world.create_object_for_player(&name, 1, Vec3::ZERO),
+        Some(id)
+    );
+    world.host_object_mut(id).unwrap().construction_percent = 1.0;
     world.host_radar_add_object(id);
     (world, id)
 }
@@ -24,11 +39,7 @@ fn same_id_sessions_keep_provider_capture_deletion_and_snapshots_local() {
     assert_eq!(id, peer_id);
     assert_eq!(first.players[&1].radar_count, 1);
     let peer_before = peer.host_radar_snapshot();
-    first.objects.get_mut(&id).unwrap().set_team_and_owner(
-        Team::GLA,
-        Some(2),
-        &mut _ownership_output,
-    );
+    set_radar_fixture_owner(&mut first, id, Team::GLA, Some(2), &mut _ownership_output);
     first.on_capture_object_residual(id, Team::GLA, Team::GLA);
     assert_eq!(first.players[&1].radar_count, 0);
     assert_eq!(first.players[&2].radar_count, 1);
@@ -89,10 +100,15 @@ fn player_owned_research_does_not_unlock_a_same_faction_peer() {
         .set_health(500.0);
     for owner in [1, 2] {
         let id = ObjectId(owner + 80);
-        let mut object = Object::new(template.clone(), id, Team::China);
-        object.construction_percent = 1.0;
-        object.set_team_and_owner(Team::China, Some(owner), &mut world.ownership_events);
-        world.objects.insert(id, object);
+        world
+            .templates
+            .insert(template.name.clone(), template.clone());
+        world.next_object_id = id;
+        assert_eq!(
+            world.create_object_for_player(&template.name, owner, Vec3::ZERO),
+            Some(id)
+        );
+        world.host_object_mut(id).unwrap().construction_percent = 1.0;
         world.host_radar_add_object(id);
     }
     world.apply_host_upgrade_complete(Team::China, 1, "Upgrade_ChinaRadar");
@@ -127,11 +143,7 @@ fn snapshot_restores_provider_admission_before_resumed_capture() {
         world.players[&1].radar_count, 1,
         "load must not grant twice"
     );
-    world.objects.get_mut(&id).unwrap().set_team_and_owner(
-        Team::GLA,
-        Some(2),
-        &mut _ownership_output,
-    );
+    set_radar_fixture_owner(&mut world, id, Team::GLA, Some(2), &mut _ownership_output);
     world.on_capture_object_residual(id, Team::GLA, Team::GLA);
     assert_eq!(world.players[&1].radar_count, 0);
     assert_eq!(world.players[&2].radar_count, 1);
@@ -147,11 +159,7 @@ fn capture_emits_remove_then_add_at_the_actual_logic_boundary() {
         .victory_conditions
         .set_victory_conditions(crate::game_logic::victory_conditions::VictoryType::empty());
     world.with_host_logic_step(|world| {
-        world.objects.get_mut(&id).unwrap().set_team_and_owner(
-            Team::GLA,
-            Some(2),
-            &mut _ownership_output,
-        );
+        set_radar_fixture_owner(world, id, Team::GLA, Some(2), &mut _ownership_output);
         world.on_capture_object_residual(id, Team::GLA, Team::GLA);
     });
     assert_eq!(world.queued_audio_events.len(), 2);
@@ -345,11 +353,7 @@ fn authored_executed_save_survives_removed_trigger_and_capture() {
         world.players[&1].radar_count, 1,
         "executed is state, not current trigger availability"
     );
-    world.objects.get_mut(&id).unwrap().set_team_and_owner(
-        Team::GLA,
-        Some(2),
-        &mut _ownership_output,
-    );
+    set_radar_fixture_owner(&mut world, id, Team::GLA, Some(2), &mut _ownership_output);
     world.on_capture_object_residual(id, Team::GLA, Team::GLA);
     assert_eq!(world.players[&1].radar_count, 0);
     assert_eq!(world.players[&2].radar_count, 1);
@@ -427,11 +431,10 @@ fn disabled_grant_capture_and_future_callbacks_preserve_exact_contributors() {
     );
     world.update_player_radar();
     assert_eq!(world.players[&1].radar_count, 1);
-    world.objects.get_mut(&id).unwrap().set_team_and_owner(
-        Team::GLA,
-        Some(2),
-        &mut world.ownership_events,
-    );
+    {
+        let (object, events, partition) = world.host_object_ownership_partition_mut(id).unwrap();
+        object.set_team_and_owner_with_partition_owner(Team::GLA, Some(2), events, partition);
+    }
     world.on_capture_object_residual(id, Team::GLA, Team::GLA);
     assert_eq!(
         world.players[&1].radar_count, 1,

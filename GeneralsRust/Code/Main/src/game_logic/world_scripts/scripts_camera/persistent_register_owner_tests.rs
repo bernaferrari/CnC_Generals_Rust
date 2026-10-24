@@ -8,7 +8,7 @@ const B: Vec3 = Vec3::new(-90., 11., 5.);
 fn fixture() -> (GameLogic, ObjectId, ObjectId) {
     let (mut owner, a, _) = world(110.);
     owner.session_view.target = Vec3::ZERO;
-    owner.host_object_mut(a).unwrap().set_position(A);
+    owner.set_fixture_object_position(a, A);
     let b = owner
         .create_object_for_player("CameraOwnerUnit", 0, B)
         .unwrap();
@@ -124,9 +124,7 @@ fn actual_receiving_persistent_register_rows_for_original_cpp_comparison() {
     ] {
         let (mut owner, _, b) = fixture();
         let (mut peer, peer_a, _) = fixture();
-        peer.host_object_mut(peer_a)
-            .unwrap()
-            .set_position(Vec3::new(210., 25., 230.));
+        peer.set_fixture_object_position(peer_a, Vec3::new(210., 25., 230.));
         track(&mut peer, &owner.mission_scripts, "FocusScout", 0.132, 0.);
         offer(&mut peer);
         let peer_before = peer.capture_camera_continuation().unwrap();

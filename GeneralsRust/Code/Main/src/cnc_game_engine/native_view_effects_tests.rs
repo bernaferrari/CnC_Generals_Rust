@@ -199,8 +199,13 @@ fn actual_view_backend_uses_current_dirty_source_and_rejects_peer_or_unobserved_
     );
     // No display sync or new PresentationFrame is allowed between these host
     // setters and the actual script-time dirty/bone observation.
-    let object = world.objects.get_mut(&ID).unwrap();
-    object.set_position(Vec3::new(43., 17., 29.));
+    let (object, fixture_partition_object) = world.host_object_and_partition_mut(ID).unwrap();
+    object.set_position_with_partition_owner(
+        Vec3::new(43., 17., 29.),
+        0,
+        &mut Default::default(),
+        fixture_partition_object,
+    );
     object.status.moving = true;
     object.refresh_model_condition_bits();
     let fresh = world.current_native_slave_source(ID, 0).unwrap();
@@ -265,6 +270,12 @@ struct ActualFactoryProbe<'a, 'b> {
     births: Vec<u32>,
 }
 impl NativeViewEffects for ActualFactoryProbe<'_, '_> {
+    fn projected_radius_allocator(
+        &mut self,
+    ) -> Option<&mut dyn crate::game_logic::NativeProjectedRadiusAllocator> {
+        self.runtime.projected_radius_allocator()
+    }
+
     #[cfg(feature = "game_client")]
     fn body_visual_changed(
         &mut self,
@@ -496,6 +507,12 @@ fn actual_factory_birth_installs_receiving_drawable_before_immediate_query_and_i
         identity: crate::assets::LiveDrawPlaybackIdentity,
     }
     impl NativeViewEffects for WrongSource<'_, '_> {
+        fn projected_radius_allocator(
+            &mut self,
+        ) -> Option<&mut dyn crate::game_logic::NativeProjectedRadiusAllocator> {
+            self.runtime.projected_radius_allocator()
+        }
+
         #[cfg(feature = "game_client")]
         fn body_visual_changed(
             &mut self,

@@ -160,7 +160,7 @@ impl CommandSet {
 
 fn parse_command_button_at(
     index: usize,
-    _ini: &mut INI,
+    ini: &mut INI,
     data: &mut CommandSet,
     tokens: &[&str],
 ) -> INIResult<()> {
@@ -168,7 +168,11 @@ fn parse_command_button_at(
         return Err(INIError::InvalidData);
     };
 
-    if let Some(control_bar) = get_control_bar() {
+    if let Some(names) = ini.receiving_command_names() {
+        if !names.contains(*name) {
+            return Err(INIError::InvalidData);
+        }
+    } else if let Some(control_bar) = get_control_bar() {
         if control_bar.find_command_button_resolved(name).is_none() {
             return Err(INIError::InvalidData);
         }
@@ -281,7 +285,7 @@ const COMMAND_SET_FIELDS: &[FieldParse<CommandSet>] = &[
 ];
 
 /// Command set manager for handling collections of command sets
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct CommandSetManager {
     command_sets: HashMap<String, CommandSet>,
     command_set_order: Vec<String>,
@@ -382,6 +386,30 @@ impl CommandSetManager {
         self.set_overrides.clear();
     }
 
+    pub fn parse_receiving_definition(
+        &mut self,
+        ini: &mut INI,
+        name: &str,
+        buttons: &super::ini_command_button::ControlBar,
+    ) -> INIResult<()> {
+        let existing = self.find_command_set_resolved(name).cloned();
+        let set = if let Some(base) = existing {
+            self.new_command_set_override(&base)
+        } else {
+            let value = self.new_command_set(name.to_string());
+            value.mark_as_override();
+            value
+        };
+        let names = std::sync::Arc::new(
+            buttons
+                .iter_resolved_buttons()
+                .into_iter()
+                .map(|(name, _)| name.to_string())
+                .collect(),
+        );
+        ini.with_receiving_command_names(names, |ini| set.parse_command_set_fields(ini))?;
+        set.validate()
+    }
     /// Parse command set definition from INI
     pub fn parse_command_set_definition(ini: &mut INI) -> INIResult<()> {
         // Read the command set name

@@ -185,7 +185,7 @@ fn active_return_snapshot_continues_route_deadline_and_phase_without_new_order()
             .unwrap()
             .set_map_relationship(2, gamelogic::common::Relationship::Enemies);
         let position = owner.host_object(id).unwrap().get_position() + Vec3::new(20.0, 0.0, 0.0);
-        owner.host_object_mut(enemy).unwrap().set_position(position);
+        owner.set_fixture_object_position(enemy, position);
         owner.frame = 250;
         owner
             .host_object_mut(id)
@@ -205,10 +205,7 @@ fn same_id_world_guard_phases_deadlines_and_reset_are_isolated() {
     let (mut second, second_id) = unfinished_return();
     assert_eq!(id, second_id);
     authored_rates(&mut second, 90, 11);
-    second
-        .host_object_mut(id)
-        .unwrap()
-        .set_position(Vec3::new(200.0, 0.0, 200.0));
+    second.set_fixture_object_position(id, Vec3::new(200.0, 0.0, 200.0));
     second.return_guard_to_post(id);
     second
         .host_object_mut(id)
@@ -265,7 +262,7 @@ fn due_return_enemy_acquisition_precedes_simultaneous_arrival() {
         .unwrap()
         .set_map_relationship(2, gamelogic::common::Relationship::Enemies);
     let last = *owner.host_object(id).unwrap().movement.path.last().unwrap();
-    owner.host_object_mut(id).unwrap().set_position(last);
+    owner.set_fixture_object_position(id, last);
     assert!(GameLogic::host_internal_move_reached_goal(
         owner.host_object(id).unwrap()
     ));
@@ -286,7 +283,7 @@ fn guardee_drift_is_observed_only_in_due_idle_body() {
     authored_rates(&mut owner, 60, 7);
     assert!(owner.unit_command_guard_object(id, target));
     let last = *owner.host_object(id).unwrap().movement.path.last().unwrap();
-    owner.host_object_mut(id).unwrap().set_position(last);
+    owner.set_fixture_object_position(id, last);
     owner.frame = 1;
     owner.tick_host_guard_states(&[id]);
     assert_eq!(
@@ -305,10 +302,7 @@ fn guardee_drift_is_observed_only_in_due_idle_body() {
         .unit_ai_runtime
         .set_guard_scan_deadline(Some(10));
     let displaced = original_anchor + Vec3::new(50.0, 0.0, 0.0);
-    owner
-        .host_object_mut(target)
-        .unwrap()
-        .set_position(displaced);
+    owner.set_fixture_object_position(target, displaced);
     owner.frame = 9;
     owner.tick_host_guard_states(&[id]);
     let unit = owner.host_object(id).unwrap();
@@ -353,7 +347,7 @@ fn idle_snapshot_preserves_anchor_and_due_drift_continuation() {
         .path
         .last()
         .unwrap();
-    source.host_object_mut(id).unwrap().set_position(last);
+    source.set_fixture_object_position(id, last);
     source.frame = 1;
     source.tick_host_guard_states(&[id]);
     assert_eq!(
@@ -380,7 +374,7 @@ fn idle_snapshot_preserves_anchor_and_due_drift_continuation() {
     assert_eq!(observe(&source, id), observe(&restored, id));
     for owner in [&mut source, &mut restored] {
         let p = owner.host_object(target).unwrap().get_position() + Vec3::new(50.0, 0.0, 0.0);
-        owner.host_object_mut(target).unwrap().set_position(p);
+        owner.set_fixture_object_position(target, p);
         owner.frame = 20;
         owner.tick_host_guard_states(&[id]);
     }
@@ -401,7 +395,7 @@ fn temporary_quick_exit_preserves_idle_and_resumes_once_on_completion_frame() {
     authored_rates(&mut owner, 60, 7);
     assert!(owner.unit_command_guard_object(id, target));
     let last = *owner.host_object(id).unwrap().movement.path.last().unwrap();
-    owner.host_object_mut(id).unwrap().set_position(last);
+    owner.set_fixture_object_position(id, last);
     owner.frame = 1;
     owner.tick_host_guard_states(&[id]);
     let unit = owner.host_object_mut(id).unwrap();

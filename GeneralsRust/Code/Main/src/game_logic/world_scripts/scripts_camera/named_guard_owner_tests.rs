@@ -112,7 +112,7 @@ fn guard_reentry_replaces_previous_object_area_and_route() {
     unit.unit_ai_runtime
         .observe_guard_anchor(Vec3::splat(900.0));
     let position = Vec3::new(120.0, 7.0, 130.0);
-    unit.set_position(position);
+    world.set_fixture_object_position(id, position);
     world.frame = 100;
     guard(&mut world, "NamedUnit");
     let unit = world.host_object(id).unwrap();
@@ -337,7 +337,7 @@ fn guard_this_object_uses_only_the_supplied_owned_id() {
 fn guard_script_anchor_is_not_clipped_to_playable_bounds() {
     let (mut world, id, _) = world();
     let position = Vec3::new(-25.0, 7.0, 1050.0);
-    world.host_object_mut(id).unwrap().set_position(position);
+    world.set_fixture_object_position(id, position);
     guard(&mut world, "NamedUnit");
     assert_eq!(
         world.host_object(id).unwrap().guard_position,

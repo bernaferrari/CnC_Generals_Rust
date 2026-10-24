@@ -422,6 +422,7 @@ impl drawable_world::DrawableWorld {
         }
         debug_assert!(self.drawable_map.is_empty());
         self.ray_effects.reset();
+        self.projected_decals.manager.clear();
         self.next_drawable_id = DrawableId(1);
         first_error.map_or(Ok(()), Err)
     }

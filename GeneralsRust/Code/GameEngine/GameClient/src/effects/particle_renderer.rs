@@ -128,6 +128,23 @@ pub struct DecalVertex {
     pub uv: [f32; 2],
 }
 
+/// C++ flushDecals is an ordered texture/type boundary, not a global bin.
+/// Only the immediately preceding compatible batch can absorb vertices.
+fn append_decal_batch(
+    groups: &mut Vec<(String, u32, Vec<DecalVertex>)>,
+    key: (String, u32),
+    vertices: Vec<DecalVertex>,
+) {
+    if let Some((texture, kind, existing)) = groups.last_mut()
+        && texture == &key.0
+        && *kind == key.1
+    {
+        existing.extend(vertices);
+    } else {
+        groups.push((key.0, key.1, vertices));
+    }
+}
+
 const SHADOW_DECAL_TYPE: u32 = 0x0000_0001;
 const SHADOW_ADDITIVE_DECAL_TYPE: u32 = 0x0000_0040;
 const SHADOW_PROJECTION_TYPE: u32 = 0x0000_0004;
@@ -1763,14 +1780,7 @@ impl ParticleRenderer {
                 self.ensure_clamped_decal_texture(&texture_name);
             }
             let key = (texture_name, decal.shadow_type);
-            if let Some((_, _, existing)) = groups
-                .iter_mut()
-                .find(|(tex, kind, _)| tex == &key.0 && *kind == key.1)
-            {
-                existing.extend(verts);
-            } else {
-                groups.push((key.0, key.1, verts));
-            }
+            append_decal_batch(&mut groups, key, verts);
         }
 
         if groups.is_empty() {
@@ -2134,6 +2144,48 @@ mod tests {
     use super::super::particle_system::ParticleInfo;
     use super::*;
     use parking_lot::Mutex;
+
+    #[test]
+    fn decal_batches_flush_at_each_original_texture_or_type_boundary() {
+        let mut groups = Vec::new();
+        let vertex = |stamp| DecalVertex {
+            position: [stamp, 0.0, 0.0],
+            ..DecalVertex::zeroed()
+        };
+        for (texture, kind, stamp) in [
+            ("A.tga", 2, 1.0),
+            ("A.tga", 2, 2.0),
+            ("B.tga", 2, 3.0),
+            ("A.tga", 2, 4.0),
+            ("A.tga", 1, 5.0),
+            ("A.tga", 2, 6.0),
+        ] {
+            append_decal_batch(&mut groups, (texture.into(), kind), vec![vertex(stamp)]);
+        }
+        let actual: Vec<_> = groups
+            .iter()
+            .map(|(texture, kind, vertices)| {
+                (
+                    texture.as_str(),
+                    *kind,
+                    vertices
+                        .iter()
+                        .map(|vertex| vertex.position[0])
+                        .collect::<Vec<_>>(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            actual,
+            vec![
+                ("A.tga", 2, vec![1.0, 2.0]),
+                ("B.tga", 2, vec![3.0]),
+                ("A.tga", 2, vec![4.0]),
+                ("A.tga", 1, vec![5.0]),
+                ("A.tga", 2, vec![6.0]),
+            ]
+        );
+    }
 
     static HEAT_SMUDGE_TEST_LOCK: Mutex<()> = Mutex::new(());
 

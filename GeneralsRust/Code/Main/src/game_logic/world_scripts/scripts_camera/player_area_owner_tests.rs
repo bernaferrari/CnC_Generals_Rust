@@ -71,17 +71,9 @@ fn actual_owned_area_counts_respect_polygon_owner_zero_and_same_id_peer() {
     assert_eq!(id, peer_id);
     area(&mut owner);
     area(&mut peer);
-    owner
-        .host_object_mut(id)
-        .unwrap()
-        .set_position(Vec3::new(2.0, 0.0, 2.0));
-    owner
-        .host_object_mut(foreign)
-        .unwrap()
-        .set_position(Vec3::new(2.0, 0.0, 2.0));
-    peer.host_object_mut(peer_id)
-        .unwrap()
-        .set_position(Vec3::new(18.0, 0.0, 18.0)); // AABB inside, polygon outside
+    owner.set_fixture_object_position(id, Vec3::new(2.0, 0.0, 2.0));
+    owner.set_fixture_object_position(foreign, Vec3::new(2.0, 0.0, 2.0));
+    peer.set_fixture_object_position(peer_id, Vec3::new(18.0, 0.0, 18.0)); // AABB inside, polygon outside
     let kind = ConditionType::PlayerHasComparisonUnitTypeInTriggerArea;
     assert!(owner.owned_script_condition_for_test(condition(
         kind,
@@ -123,8 +115,13 @@ fn actual_owned_area_counts_respect_polygon_owner_zero_and_same_id_peer() {
 fn actual_area_type_counts_dead_crates_but_kind_and_value_exclude_dead_inert() {
     let (mut owner, id, _) = world();
     area(&mut owner);
-    let object = owner.host_object_mut(id).unwrap();
-    object.set_position(Vec3::new(2.0, 0.0, 2.0));
+    let (object, fixture_partition_object) = owner.host_object_and_partition_mut(id).unwrap();
+    object.set_position_with_partition_owner(
+        Vec3::new(2.0, 0.0, 2.0),
+        0,
+        &mut Default::default(),
+        fixture_partition_object,
+    );
     object
         .template_mut()
         .add_kind_of(KindOf::Crate)

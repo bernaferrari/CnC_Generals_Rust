@@ -123,7 +123,7 @@ impl GameLogic {
             self.health_events
                 .record_applied_heal(o.id, o.health.current);
             let dir = aim - start;
-            o.set_orientation(dir.z.atan2(dir.x));
+            o.set_orientation_with_partition_owner(dir.z.atan2(dir.x), &mut self.partition_manager);
         }
         self.neutron_shells_spawned = self.neutron_shells_spawned.saturating_add(1);
         Some(pid)
@@ -175,10 +175,17 @@ impl GameLogic {
             let pos = neutron_shell_bezier_point(from, aim, t);
             if let Some(o) = self.objects.get_mut(&id) {
                 let prev = o.get_position();
-                o.set_position_with_effects(pos, self.frame, presentation_effects);
+                o.set_position_with_effects(
+                    pos,
+                    self.frame,
+                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                );
                 let d = pos - prev;
                 if d.length_squared() > 1e-6 {
-                    o.set_orientation(d.z.atan2(d.x));
+                    o.set_orientation_with_partition_owner(
+                        d.z.atan2(d.x),
+                        &mut self.partition_manager,
+                    );
                 }
                 o.movement.velocity = d;
             }
@@ -196,7 +203,11 @@ impl GameLogic {
                 o.status.destroyed = true;
                 o.status.effectively_dead = true;
                 o.neutron_cannon_shell_projectile = false;
-                o.set_position_with_effects(pos, self.frame, presentation_effects);
+                o.set_position_with_effects(
+                    pos,
+                    self.frame,
+                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                );
             }
             // DetonateCallsKill residual: NeutronBlastBehavior on shell die.
             let caster_team = source
@@ -428,7 +439,11 @@ impl GameLogic {
         for (container_id, occupants) in contain_pairs {
             if let Some(container) = self.objects.get_mut(&container_id) {
                 for &occ_id in &occupants {
-                    container.remove_occupant(occ_id, &mut self.ownership_events);
+                    container.remove_occupant_with_partition_owner(
+                        occ_id,
+                        &mut self.ownership_events,
+                        &mut self.partition_manager,
+                    );
                 }
             }
             for occ_id in occupants {
@@ -441,7 +456,18 @@ impl GameLogic {
                 if !occ.is_alive() {
                     continue;
                 }
-                occ.set_contained_by(None);
+                let containment_actor_id = occ.id;
+                Self::set_owned_containment_in_parts(
+                    &mut self.objects,
+                    &mut self.partition_manager,
+                    containment_actor_id,
+                    None,
+                    true,
+                );
+                let occ = self
+                    .objects
+                    .get_mut(&containment_actor_id)
+                    .expect("containment operation preserves this birth");
                 occ.set_ai_state(
                     AIState::Idle,
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),

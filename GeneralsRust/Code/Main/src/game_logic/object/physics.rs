@@ -32,6 +32,15 @@ impl Object {
     /// C++ PhysicsUpdate.cpp:357-358: STICK_TO_GROUND early-return only.
     /// Infantry/Structure still tumble unless that flag is set.
     pub fn apply_shock_random_rotation(&mut self, seed: u32) {
+        self.apply_shock_random_rotation_with_operation(seed, 0, &mut Default::default())
+    }
+
+    pub fn apply_shock_random_rotation_with_operation(
+        &mut self,
+        seed: u32,
+        operation_frame: u32,
+        operation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         if self.stick_to_ground {
             return;
         }
@@ -48,16 +57,31 @@ impl Object {
         self.shock_roll_rate += droll;
         // Immediate yaw kick first (set_orientation rebuilds yaw-only).
         let ori = self.get_orientation() + self.shock_yaw_rate;
-        self.set_orientation(ori);
+        self.set_orientation_with_effects(ori, operation_effects);
         // Then apply this increment of pitch/roll onto the transform so
         // upside-down kill can see integrated up-Y, not a synthetic scalar.
         let pryf = self.pitch_roll_yaw_factor;
-        self.apply_physics_ypr(0.0, dpitch * pryf, droll * pryf);
+        self.apply_physics_ypr_with_effects(
+            0.0,
+            dpitch * pryf,
+            droll * pryf,
+            operation_frame,
+            operation_effects,
+        );
         // C++ applyRandomRotation: setAllowBouncing(true) after stick gate.
         self.shock_allow_bounce = true;
     }
 
     pub fn apply_shock_wave_impulse(&mut self, force: glam::Vec3) -> bool {
+        self.apply_shock_wave_impulse_with_operation(force, 0, &mut Default::default())
+    }
+
+    pub fn apply_shock_wave_impulse_with_operation(
+        &mut self,
+        force: glam::Vec3,
+        operation_frame: u32,
+        operation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
         if !self.is_alive() {
             return false;
         }
@@ -84,7 +108,7 @@ impl Object {
             .wrapping_mul(0x9E37_79B9)
             .wrapping_add((force.x.to_bits()).wrapping_mul(0x85EB_CA6B))
             .wrapping_add(force.z.to_bits());
-        self.apply_shock_random_rotation(seed);
+        self.apply_shock_random_rotation_with_operation(seed, operation_frame, operation_effects);
         self.shock_grounded_once = false;
         self.ensure_locomotor_surfaces();
         // Strong upward impulse residual: freefall model bit while airborne from shock.
@@ -634,7 +658,7 @@ impl Object {
         }
         let us = self.get_position();
         let (dx, dz, turn_pos) = if offset.abs() > 1e-6 {
-            let g = &self.thing.template.geometry_info;
+            let g = self.geometry_info();
             let radius = if g.authored {
                 g.bounding_circle_radius()
             } else {
@@ -688,7 +712,7 @@ impl Object {
             let nz = tp.z - rx * sin_a + rz * cos_a;
             self.set_position_with_effects(glam::Vec3::new(nx, us.y, nz), frame, effects);
         }
-        self.set_orientation(angle + amount);
+        self.set_orientation_with_effects(angle + amount, effects);
         self.physics_turning = turning;
         (turning, rel)
     }
@@ -785,13 +809,30 @@ impl Object {
         goal_y: Option<f32>,
         highest_surface: f32,
     ) -> bool {
+        self.handle_behavior_z_with_highest_surface_and_effects(
+            ground_y,
+            goal_y,
+            highest_surface,
+            0,
+            &mut Default::default(),
+        )
+    }
+
+    pub(crate) fn handle_behavior_z_with_highest_surface_and_effects(
+        &mut self,
+        ground_y: f32,
+        goal_y: Option<f32>,
+        highest_surface: f32,
+        frame: u32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
         match self.loco_behavior_z {
             LocomotorBehaviorZ::NoZMotiveForce => false,
             LocomotorBehaviorZ::SeaLevel => {
                 // Fail-closed: no water table — snap to ground layer.
                 let mut p = self.get_position();
                 p.y = ground_y;
-                self.set_position(p);
+                self.set_position_with_effects(p, frame, effects);
                 true
             }
             LocomotorBehaviorZ::FixedSurfaceRelativeHeight
@@ -807,13 +848,13 @@ impl Object {
                 };
                 let mut p = self.get_position();
                 p.y = self.loco_preferred_height + surface;
-                self.set_position(p);
+                self.set_position_with_effects(p, frame, effects);
                 true
             }
             LocomotorBehaviorZ::FixedAbsoluteHeight => {
                 let mut p = self.get_position();
                 p.y = self.loco_preferred_height;
-                self.set_position(p);
+                self.set_position_with_effects(p, frame, effects);
                 true
             }
             LocomotorBehaviorZ::SurfaceRelativeHeight => {
@@ -1157,7 +1198,7 @@ impl Object {
 
     /// C++ `GeometryInfo::getBoundingSphereRadius`, or pick radius when unauthored.
     pub fn physics_collide_sphere_radius(&self) -> f32 {
-        let g = &self.thing.template.geometry_info;
+        let g = self.geometry_info();
         if g.authored {
             g.bounding_sphere_radius()
         } else {
@@ -1167,7 +1208,7 @@ impl Object {
 
     /// C++ `GeometryInfo::getBoundingCircleRadius`, or pick radius when unauthored.
     pub fn physics_collide_circle_radius(&self) -> f32 {
-        let g = &self.thing.template.geometry_info;
+        let g = self.geometry_info();
         if g.authored {
             g.bounding_circle_radius()
         } else {
@@ -1190,7 +1231,7 @@ impl Object {
         if !self.allow_collide_force {
             return;
         }
-        let g = &self.thing.template.geometry_info;
+        let g = self.geometry_info();
         let lift = match g.geom_type {
             crate::game_logic::thing::HostGeometryType::Sphere => 0.0,
             crate::game_logic::thing::HostGeometryType::Box

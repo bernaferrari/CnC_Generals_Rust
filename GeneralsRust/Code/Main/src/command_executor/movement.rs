@@ -42,7 +42,7 @@ impl<'a> CommandExecutor<'a> {
         // (GEOMETRY_SPHERE,1,1,1): it carries no real footprint, so derive
         // the scatter/clamp circle from the pick `selection_radius` like
         // Object::construct does for other unauthored-size consumers.
-        if !unit.thing().template.geometry_info.authored && g.radius <= 1.0 + f32::EPSILON {
+        if !(*unit.geometry_info()).authored && g.radius <= 1.0 + f32::EPSILON {
             unit.selection_radius.max(radius).max(1.0)
         } else {
             radius.max(1.0)
@@ -98,12 +98,8 @@ impl<'a> CommandExecutor<'a> {
             let dx = p.x - dest.x;
             let dz = p.z - dest.z;
             let dist_sq = dx * dx + dz * dz;
-            let r = if other.thing().template.geometry_info.authored {
-                other
-                    .thing()
-                    .template
-                    .geometry_info
-                    .bounding_circle_radius()
+            let r = if (*other.geometry_info()).authored {
+                (*other.geometry_info()).bounding_circle_radius()
             } else {
                 other.selection_radius.max(1.0)
             };

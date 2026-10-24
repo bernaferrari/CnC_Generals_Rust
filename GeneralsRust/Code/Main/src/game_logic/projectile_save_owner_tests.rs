@@ -21,10 +21,7 @@ fn encoded_snapshot(world: &GameLogic) -> WorldSnapshot {
 
 fn launch(delay: u32) -> (GameLogic, super::super::ObjectId, super::super::ObjectId) {
     let (mut world, source, target) = world(delay);
-    world
-        .host_object_mut(target)
-        .unwrap()
-        .set_position(Vec3::new(150.0, 0.0, 0.0));
+    world.set_fixture_object_position(target, Vec3::new(150.0, 0.0, 0.0));
     assert!(world.fire_owned_passive_weapon(source, target, 0, Vec3::ZERO));
     assert_eq!(world.combat_system.projectile_count(), 1);
     world.frame += 1;

@@ -25,6 +25,8 @@ struct TemplateVersion {
 
 #[derive(Clone)]
 pub struct ReceivingModuleContent {
+    action_base: Arc<ReceivingActionDefinitions>,
+    action_current: Arc<ReceivingActionDefinitions>,
     templates: HashMap<String, TemplateVersion>,
     declaration_order: Vec<String>,
     next_template_id: u16,
@@ -33,19 +35,60 @@ pub struct ReceivingModuleContent {
 
 impl ReceivingModuleContent {
     /// Construction neither registers classes nor publishes a mutable owner.
-    pub fn new(modules: ModuleFactory) -> Self {
+    pub fn new(mut modules: ModuleFactory) -> Self {
+        let actions = Arc::new(ReceivingActionDefinitions::default());
+        modules.replace_receiving_special_power_definitions(Arc::new(actions.powers.clone()));
         Self {
+            action_base: actions.clone(),
+            action_current: actions,
             templates: HashMap::new(),
             declaration_order: Vec::new(),
             next_template_id: 1,
             modules,
         }
     }
+    pub fn admit_action_definitions(&mut self, definitions: Arc<ReceivingActionDefinitions>) {
+        self.modules
+            .replace_receiving_special_power_definitions(Arc::new(definitions.powers.clone()));
+        self.action_base = definitions.clone();
+        self.action_current = definitions;
+    }
+    pub fn action_definitions(&self) -> &ReceivingActionDefinitions {
+        &self.action_current
+    }
+    pub fn admit_action_overrides(&mut self, sources: &[String]) -> Result<(), String> {
+        let mut definitions = (*self.action_base).clone();
+        for source in sources {
+            definitions.apply_source(source, self.modules.receiving_science_names())?;
+        }
+        self.modules
+            .replace_receiving_special_power_definitions(Arc::new(definitions.powers.clone()));
+        self.action_current = Arc::new(definitions);
+        Ok(())
+    }
     pub fn template_name_for_id(&self, id: u16) -> Option<&str> {
         self.templates
             .values()
             .find(|entry| entry.current.template_id() == id)
             .map(|entry| entry.current.name())
+    }
+    /// Apply the same already-selected Map/Solo bytes to the receiving immutable
+    /// science definitions before Object module admission resolves science names.
+    pub fn admit_science_overrides(&mut self, sources: &[String]) -> Result<(), String> {
+        let mut definitions = self.modules.receiving_science_names().definitions().clone();
+        definitions.reset();
+        for source in sources {
+            definitions
+                .apply_override_text(source)
+                .map_err(|error| error.to_string())?;
+        }
+        self.modules.replace_receiving_science_facts(Arc::new(
+            crate::common::rts::science::ScienceNameFacts::from_store(&definitions),
+        ));
+        Ok(())
+    }
+    pub fn science_facts(&self) -> Arc<crate::common::rts::science::ScienceNameFacts> {
+        self.modules.receiving_science_facts()
     }
     pub fn science_type(&self, name: &str) -> Option<crate::common::rts::ScienceType> {
         self.modules.receiving_science_names().science(name)
@@ -283,6 +326,12 @@ impl ReceivingModuleContent {
     /// ThingFactory::reset removes override versions/map-only roots. ModuleFactory
     /// reset is explicitly a no-op, so its data list and namespace remain intact.
     pub fn reset_map_overrides(&mut self) {
+        self.action_current = self.action_base.clone();
+        self.modules
+            .replace_receiving_special_power_definitions(Arc::new(
+                self.action_current.powers.clone(),
+            ));
+        self.modules.reset_receiving_science_overrides();
         self.templates.retain(|_, entry| {
             if let Some(base) = &entry.base {
                 entry.current = Arc::clone(base);
@@ -303,3 +352,154 @@ mod tests;
 #[cfg(test)]
 #[path = "receiving_audio_owner_tests.rs"]
 mod audio_owner_tests;
+
+/// Immutable action definitions paired with receiving Object module admission.
+/// These definitions carry no live Player/Object/timer state.
+#[derive(Clone, Debug, Default)]
+pub struct ReceivingActionDefinitions {
+    pub buttons: crate::common::ini::ini_command_button::ControlBar,
+    pub sets: crate::common::ini::ini_command_set::CommandSetManager,
+    pub powers: crate::common::rts::special_power::SpecialPowerStore,
+}
+impl ReceivingActionDefinitions {
+    pub fn apply_source(
+        &mut self,
+        source: &str,
+        sciences: &crate::common::rts::science::ScienceNameFacts,
+    ) -> Result<(), String> {
+        use crate::common::ini::{INI, INILoadType};
+        use crate::common::thing::thing_template::ObjectIniFields;
+        let lines = source.lines().collect::<Vec<_>>();
+        let mut index = 0;
+        while index < lines.len() {
+            let header = lines[index].split(';').next().unwrap_or_default().trim();
+            let tokens = header.split_whitespace().collect::<Vec<_>>();
+            if tokens.is_empty() {
+                index += 1;
+                continue;
+            }
+            // Top-level INI input consists of named/unnamed blocks. Reuse the
+            // retained nested Object extent kernel to keep embedded fields out
+            // of the top-level declaration stream.
+            let (_, next) = ObjectIniFields::capture_body(&lines, index + 1);
+            let kind = tokens[0];
+            if ["CommandButton", "CommandSet", "SpecialPower"]
+                .iter()
+                .any(|name| kind.eq_ignore_ascii_case(name))
+            {
+                let name = *tokens
+                    .get(1)
+                    .ok_or("Missing receiving action definition name")?;
+                if name == "=" {
+                    return Err("Invalid receiving action definition header".into());
+                }
+                let text = lines[index..next.min(lines.len())].join("\n");
+                let mut ini = INI::new();
+                ini.with_inline_source_and_load_type(&text, INILoadType::CreateOverrides, |ini| {
+                    ini.read_line()?;
+                    let _ = ini.get_first_token();
+                    if kind.eq_ignore_ascii_case("CommandButton") {
+                        self.buttons.parse_receiving_definition(ini, name, sciences)
+                    } else if kind.eq_ignore_ascii_case("CommandSet") {
+                        self.sets
+                            .parse_receiving_definition(ini, name, &self.buttons)
+                    } else {
+                        let (_, properties) = ini.read_receiving_named_properties()?;
+                        self.powers
+                            .parse_receiving_definition(
+                                name,
+                                &properties,
+                                INILoadType::CreateOverrides,
+                                sciences,
+                            )
+                            .map_err(|_| crate::common::ini::INIError::InvalidData)
+                    }
+                })
+                .map_err(|error| format!("Receiving {kind} {name}: {error}"))?;
+            }
+            if next <= index {
+                return Err("Invalid receiving action block extent".into());
+            }
+            index = next;
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod receiving_action_catalog_tests {
+    use super::*;
+    #[test]
+    fn ordered_action_overrides_use_own_science_and_command_catalog_and_isolate_peer() {
+        use crate::common::rts::science::{
+            SCIENCE_INVALID, ScienceInfo, ScienceNameFacts, ScienceStore,
+        };
+        let mut sciences = ScienceStore::new();
+        sciences.add_science(ScienceInfo::new(SCIENCE_INVALID, "SCIENCE_CatalogOwn"));
+        let facts = ScienceNameFacts::from_store(&sciences);
+        let science = facts.science("SCIENCE_CatalogOwn").unwrap();
+        let mut base = ReceivingActionDefinitions::default();
+        base.apply_source("SpecialPower OwnedPower\nReloadTime = 3000\nRequiredScience = SCIENCE_CatalogOwn\nEnd\nCommandButton OwnedButton\nCommand = SPECIAL_POWER\nSpecialPower = OwnedPower\nScience = SCIENCE_CatalogOwn\nEnd\nCommandSet OwnedSet\n1 = OwnedButton\nEnd\n",&facts).unwrap();
+        let id = base.powers.find_template("OwnedPower").unwrap().id;
+        let mut a = base.clone();
+        let mut b = base.clone();
+        a.apply_source("SpecialPower OwnedPower\nReloadTime = 6000\nEnd\nCommandButton OwnedButton\nTextLabel = OWNED_A\nEnd\n",&facts).unwrap();
+        a.apply_source("SpecialPower OwnedPower\nPublicTimer = Yes\nEnd\nCommandButton OwnedButton\nButtonImage = OWNED_A_IMAGE\nEnd\n",&facts).unwrap();
+        b.apply_source("SpecialPower OwnedPower\nReloadTime = 9000\nEnd\nCommandButton OwnedButton\nTextLabel = OWNED_B\nEnd\n",&facts).unwrap();
+        let power = a.powers.find_template("OwnedPower").unwrap();
+        assert_eq!(
+            (
+                power.id,
+                power.reload_time,
+                power.required_science,
+                power.public_timer
+            ),
+            (id, 180, science, true)
+        );
+        assert_eq!(
+            b.powers.find_template("OwnedPower").unwrap().reload_time,
+            270
+        );
+        assert_eq!(
+            base.powers.find_template("OwnedPower").unwrap().reload_time,
+            90
+        );
+        let button = a
+            .buttons
+            .find_command_button_resolved("OwnedButton")
+            .unwrap();
+        assert_eq!(button.text_label, "OWNED_A");
+        assert_eq!(button.button_image, "OWNED_A_IMAGE");
+        assert_eq!(button.sciences_ids, vec![science]);
+        assert_eq!(
+            a.sets
+                .find_command_set_resolved("OwnedSet")
+                .unwrap()
+                .buttons[0]
+                .as_deref(),
+            Some("OwnedButton")
+        );
+        assert_eq!(
+            b.buttons
+                .find_command_button_resolved("OwnedButton")
+                .unwrap()
+                .text_label,
+            "OWNED_B"
+        );
+        assert!(
+            a.apply_source("CommandSet Invalid\n1 = MissingOwnedButton\nEnd\n", &facts)
+                .is_err()
+        );
+        assert!(
+            a.apply_source("SpecialPower Broken\nReloadTime = 6000\n", &facts)
+                .is_err()
+        );
+        assert!(
+            a.apply_source(
+                "SpecialPower Broken\nRequiredScience = SCIENCE_Foreign\nEnd\n",
+                &facts
+            )
+            .is_err()
+        );
+    }
+}

@@ -101,14 +101,15 @@ fn reveal(world: &GameLogic) {
     shroud.set_host_object_shroud_status(1, CRUSHER.0, ObjectShroudStatus::Shrouded);
 }
 fn prepare_fall(world: &mut GameLogic, shipping: bool, lethal: bool) {
-    world
-        .objects
-        .get_mut(&CRUSHER)
-        .unwrap()
-        .set_position(Vec3::new(1000., 0., 1000.));
+    world.set_fixture_object_position(CRUSHER, Vec3::new(1000., 0., 1000.));
     world.objects.get_mut(&CRUSHER).unwrap().movement.velocity = Vec3::ZERO;
-    let object = world.objects.get_mut(&VICTIM).unwrap();
-    object.set_position(Vec3::new(0., if shipping { 1. } else { -1. }, 0.));
+    let (object, fixture_partition_object) = world.host_object_and_partition_mut(VICTIM).unwrap();
+    object.set_position_with_partition_owner(
+        Vec3::new(0., if shipping { 1. } else { -1. }, 0.),
+        0,
+        &mut Default::default(),
+        fixture_partition_object,
+    );
     object.was_airborne_last_frame = true;
     object.immune_to_falling_damage = false;
     object.movement.velocity = Vec3::new(0., -4., 0.);
@@ -168,11 +169,7 @@ fn crush_zero_then_huge_keeps_inline_owned_effects_and_receiving_crusher_pose() 
                     events.try_recv().is_err(),
                     "zero hit must not fabricate a Body state edge"
                 );
-                world
-                    .objects
-                    .get_mut(&CRUSHER)
-                    .unwrap()
-                    .set_position(Vec3::new(6., 0., 0.));
+                world.set_fixture_object_position(CRUSHER, Vec3::new(6., 0., 0.));
                 assert!(world.apply_overlap_crush_check(CRUSHER, VICTIM, false));
                 assert!(world.objects[&VICTIM].status.destroyed);
                 assert_effects(&events, Some(CRUSHER), Some(Coord3D::new(6., 0., 0.)));

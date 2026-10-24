@@ -372,7 +372,11 @@ impl GameLogic {
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
             obj.deselect();
-            obj.set_team(Team::Neutral, &mut self.ownership_events);
+            obj.set_team_with_partition_owner(
+                Team::Neutral,
+                &mut self.ownership_events,
+                &mut self.partition_manager,
+            );
         }
         self.admit_host_radar_disabled_edges(id);
         self.admit_local_drawable_deselected(id);
@@ -874,138 +878,36 @@ impl GameLogic {
     /// C++ `PartitionManager::getNearestGroupWithValue` / leftover cell cash strict `>`.
     /// ALLOW_ENEMIES player mask (relationship, not faction Team). Per-cell aggregate
     /// cash, BFS from the group center, dest is the cell corner.
+    #[cfg(test)]
+    pub(crate) fn fixture_nearest_enemy_scalar_group(
+        &self,
+        attacker: u32,
+        source: glam::Vec3,
+        required: i32,
+    ) -> Option<glam::Vec3> {
+        self.host_script_nearest_enemy_group_with_value(attacker, source, required)
+    }
+
     pub(super) fn host_script_nearest_enemy_group_with_value(
         &self,
         attacker_pid: u32,
         origin: glam::Vec3,
         value: i32,
     ) -> Option<glam::Vec3> {
-        use crate::game_logic::partition_manager::PARTITION_CELL_SIZE_RESIDUAL as CELL;
-        use gamelogic::object::collide::partition_manager::ValueOrThreat;
-        use std::collections::{HashMap, HashSet, VecDeque};
-
         let enemy_mask = self.host_script_enemy_player_mask(attacker_pid);
-        if enemy_mask == 0 {
-            return None;
-        }
-
         let source = gamelogic::common::Coord3D::new(origin.x, origin.z, 0.0);
-        if let Some(loc) = gamelogic::helpers::ThePartitionManager::get().and_then(|pm| {
-            pm.get_nearest_group_with_value(
-                attacker_pid as i32,
-                enemy_mask,
-                ValueOrThreat::CashValue,
+        let location = self
+            .world_services
+            .shroud()
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .nearest_host_scalar_group(
                 &source,
+                enemy_mask,
                 value,
-                true,
-            )
-        }) {
-            // C++ ThePartitionManager reflects the live objects of the running
-            // game only. The leftover global bridge can still carry stale
-            // entries from other worlds, so accept the returned cell only when
-            // a live, constructed, enemy-owned object of THIS world occupies
-            // it; otherwise fall through to the host BFS like a partition miss.
-            let cx = (loc.x / CELL).floor() as i32;
-            let cz = (loc.y / CELL).floor() as i32;
-            let live_enemy_in_cell = self.objects.registered_values().any(|obj| {
-                if !obj.is_alive()
-                    || obj.status.destroyed
-                    || obj.status.effectively_dead
-                    || obj.status.under_construction
-                {
-                    return false;
-                }
-                let Some(pid) = obj.owner_player_id else {
-                    return false;
-                };
-                if enemy_mask & (1u32 << pid.min(15)) == 0 {
-                    return false;
-                }
-                let pos = obj.get_position();
-                (pos.x / CELL).floor() as i32 == cx && (pos.z / CELL).floor() as i32 == cz
-            });
-            if live_enemy_in_cell {
-                // C++ hands back the group cell, not an object pose: the host
-                // BFS fallback also returns the cell corner.
-                return Some(glam::Vec3::new(cx as f32 * CELL, 0.0, cz as f32 * CELL));
-            }
-        }
-
-        let mut cells: HashMap<(i32, i32), i32> = HashMap::new();
-        for obj in self.objects.registered_values() {
-            if !obj.is_alive() || obj.status.destroyed || obj.status.effectively_dead {
-                continue;
-            }
-            if obj.status.under_construction {
-                continue;
-            }
-            let Some(pid) = obj.owner_player_id else {
-                continue;
-            };
-            let bit = 1u32 << pid.min(15);
-            if (enemy_mask & bit) == 0 {
-                continue;
-            }
-            let pos = obj.get_position();
-            let cx = (pos.x / CELL).floor() as i32;
-            let cz = (pos.z / CELL).floor() as i32;
-            let cash = if obj.partition_cash_value > 0 {
-                obj.partition_cash_value as i32
-            } else {
-                obj.thing().template.build_cost.supplies as i32
-            };
-            *cells.entry((cx, cz)).or_insert(0) += cash;
-        }
-        if cells.is_empty() {
-            return None;
-        }
-
-        // C++ `parms.greaterThan = valueRequired` (nonzero Int → strict >).
-        let greater_than = value != 0;
-        let start = (
-            (origin.x / CELL).floor() as i32,
-            (origin.z / CELL).floor() as i32,
-        );
-        let mut min_x = start.0;
-        let mut min_z = start.1;
-        let mut max_x = start.0;
-        let mut max_z = start.1;
-        for &(cx, cz) in cells.keys() {
-            min_x = min_x.min(cx);
-            min_z = min_z.min(cz);
-            max_x = max_x.max(cx);
-            max_z = max_z.max(cz);
-        }
-        let max_x_ex = max_x + 1;
-        let max_z_ex = max_z + 1;
-
-        let mut visited: HashSet<(i32, i32)> = HashSet::new();
-        let mut queue: VecDeque<(i32, i32)> = VecDeque::new();
-        visited.insert(start);
-        queue.push_back(start);
-        while let Some((cx, cz)) = queue.pop_front() {
-            let neighbors = [(cx - 1, cz), (cx, cz - 1), (cx + 1, cz), (cx, cz + 1)];
-            for n in neighbors {
-                if n.0 >= min_x
-                    && n.0 < max_x_ex
-                    && n.1 >= min_z
-                    && n.1 < max_z_ex
-                    && visited.insert(n)
-                {
-                    queue.push_back(n);
-                }
-            }
-            let cash = cells.get(&(cx, cz)).copied().unwrap_or(0);
-            let passes = if greater_than {
-                cash > value
-            } else {
-                cash < value
-            };
-            if passes {
-                return Some(glam::Vec3::new(cx as f32 * CELL, 0.0, cz as f32 * CELL));
-            }
-        }
-        None
+                gamelogic::object::collide::partition_manager::ValueOrThreat::CashValue,
+            )?;
+        Some(glam::Vec3::new(location.x, 0.0, location.y))
     }
 
     pub(super) fn host_script_coord_to_world(x: f32, y: f32, z: f32) -> glam::Vec3 {
@@ -1129,7 +1031,10 @@ impl GameLogic {
             ui,
         )? {
             if let Some(object) = self.objects.get_mut(&id) {
-                object.set_orientation(request.angle);
+                object.set_orientation_with_partition_owner(
+                    request.angle,
+                    &mut self.partition_manager,
+                );
             }
         }
         Ok(())
@@ -1239,7 +1144,7 @@ impl GameLogic {
             self.create_object_with_script_effects(thing, team, pos, interpreter, ui)?
         };
         if let Some(obj) = self.objects.get_mut(&id) {
-            obj.set_orientation(angle);
+            obj.set_orientation_with_partition_owner(angle, &mut self.partition_manager);
             // The semantic factory admitted the actual resident Team; a dead
             // controller may have redirected it to neutral. Never overwrite
             // that canonical name from the original requested script string.

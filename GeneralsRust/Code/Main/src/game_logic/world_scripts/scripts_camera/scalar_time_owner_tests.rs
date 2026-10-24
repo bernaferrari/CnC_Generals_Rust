@@ -398,13 +398,8 @@ fn authored_tracking_negative_multiplier_uses_original_nearest_rounding_on_live_
     assert_eq!(owner.session_view.camera.camera_yaw_frame, 0);
     let angle_before = owner.session_view.camera.camera_yaw_radians;
     let first_target = Vec3::new(100., 15., 0.);
-    owner
-        .host_object_mut(owner_id)
-        .unwrap()
-        .set_position(first_target);
-    peer.host_object_mut(peer_id)
-        .unwrap()
-        .set_position(Vec3::new(0., 25., 100.));
+    owner.set_fixture_object_position(owner_id, first_target);
+    peer.set_fixture_object_position(peer_id, Vec3::new(0., 25., 100.));
     owner
         .headless_camera_view_offer_with_script_engine(33, Some(&interpreter))
         .unwrap();
@@ -430,10 +425,7 @@ fn authored_tracking_negative_multiplier_uses_original_nearest_rounding_on_live_
     assert_eq!(owner.visual_speed_multiplier, 3.);
     assert_eq!(peer.capture_camera_continuation().unwrap(), peer_before);
     let second_target = Vec3::new(0., 15., 100.);
-    owner
-        .host_object_mut(owner_id)
-        .unwrap()
-        .set_position(second_target);
+    owner.set_fixture_object_position(owner_id, second_target);
     owner
         .headless_camera_view_offer_with_script_engine(33, Some(&interpreter))
         .unwrap();

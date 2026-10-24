@@ -231,10 +231,15 @@ impl GameLogic {
                     .lock()
                     .expect("owned source")
                     .find_team_by_id(team_id);
-                if let Some((object, ownership_events)) =
-                    self.host_object_and_ownership_events_mut(id)
+                if let Some((object, ownership_events, partition)) =
+                    self.host_object_ownership_partition_mut(id)
                 {
-                    object.set_team_and_owner(Team::Neutral, neutral, ownership_events);
+                    object.set_team_and_owner_with_partition_owner(
+                        Team::Neutral,
+                        neutral,
+                        ownership_events,
+                        partition,
+                    );
                     object.team_instance_name = default_name;
                 }
                 if let Some(source) = source {

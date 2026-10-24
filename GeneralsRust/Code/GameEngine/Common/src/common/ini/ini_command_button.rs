@@ -359,7 +359,7 @@ impl CommandButton {
 }
 
 /// Control bar manager for handling command buttons
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ControlBar {
     command_buttons: HashMap<String, CommandButton>,
     button_order: Vec<String>,
@@ -469,6 +469,39 @@ impl ControlBar {
         self.button_overrides.clear();
     }
 
+    pub fn parse_receiving_definition(
+        &mut self,
+        ini: &mut INI,
+        name: &str,
+        sciences: &crate::common::rts::science::ScienceNameFacts,
+    ) -> INIResult<()> {
+        let existing = self.find_command_button_resolved(name).cloned();
+        let button = if let Some(base) = existing {
+            self.new_command_button_override(&base)
+        } else {
+            let value = self.new_command_button(name.to_string());
+            value.mark_as_override();
+            value
+        };
+        ini.init_from_ini_with_fields(button, CommandButton::get_field_parse())?;
+        button.parsed_science_required.clear();
+        button.parsed_science_disabled.clear();
+        button.sciences_ids.clear();
+        for name in &button.science_required {
+            if let Some(id) = sciences.science(name) {
+                button.parsed_science_required.push(id);
+                if !button.sciences_ids.contains(&id) {
+                    button.sciences_ids.push(id);
+                }
+            }
+        }
+        for name in &button.science_disabled {
+            if let Some(id) = sciences.science(name) {
+                button.parsed_science_disabled.push(id);
+            }
+        }
+        Ok(())
+    }
     /// Parse command button definition from INI
     pub fn parse_command_button_definition(ini: &mut INI) -> INIResult<()> {
         // Read the button name

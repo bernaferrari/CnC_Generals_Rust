@@ -259,10 +259,11 @@ macro_rules! string_field {
 const BATTLE_PLAN_UPDATE_FIELDS: &[FieldParse<BattlePlanUpdateModuleData>] = &[
     FieldParse {
         token: "SpecialPowerTemplate",
-        parse: |_, data, tokens| {
+        parse: |ini, data, tokens| {
             let name = AsciiString::from(required_value(tokens)?);
             data.special_power_template =
-                Some(find_or_create_special_power_template(&name).get_id());
+                crate::object::special_power_template::special_power_template_from_ini(ini, &name)
+                    .map(|value| value.get_id());
             Ok(())
         },
     },

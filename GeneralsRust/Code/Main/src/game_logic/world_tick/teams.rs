@@ -2102,8 +2102,8 @@ mod tests {
         };
         assert_hop(hop);
 
+        logic.set_fixture_object_position(id, hop);
         if let Some(obj) = logic.host_object_mut(id) {
-            obj.set_position(hop);
             obj.movement.target_position = None;
             obj.requested_destination = None;
             obj.status.moving = false;

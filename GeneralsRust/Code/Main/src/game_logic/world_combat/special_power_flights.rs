@@ -58,11 +58,18 @@ impl GameLogic {
             if should_drop {
                 o.kill_delivery_radius_decal();
             }
-            o.set_position_with_effects(new_pos, self.frame, presentation_effects);
+            o.set_position_with_effects(
+                new_pos,
+                self.frame,
+                &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+            );
             o.movement.velocity = vel;
             o.movement.target_position = None;
             if vel.length_squared() > 1e-6 {
-                o.set_orientation(vel.z.atan2(vel.x));
+                o.set_orientation_with_partition_owner(
+                    vel.z.atan2(vel.x),
+                    &mut self.partition_manager,
+                );
             }
             if should_drop {
                 let team = o.team;
@@ -110,7 +117,11 @@ impl GameLogic {
                 };
                 let mut p = o.get_position();
                 p.y += o.movement.velocity.y;
-                o.set_position_with_effects(p, self.frame, presentation_effects);
+                o.set_position_with_effects(
+                    p,
+                    self.frame,
+                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                );
                 (p, o.producer_id, o.team)
             };
             if pos.y <= 5.0 {
@@ -242,7 +253,7 @@ impl GameLogic {
         )?;
         if let Some(o) = self.objects.get_mut(&sid) {
             o.sneak_tunnel_start = true;
-            o.set_orientation(placement_angle);
+            o.set_orientation_with_partition_owner(placement_angle, &mut self.partition_manager);
         }
         self.host_sneak_attacks.record_tunnel_start(mission_id, sid);
         Some(sid)
@@ -315,7 +326,7 @@ impl GameLogic {
             data.map_min = self.world_min;
             data.map_max = self.world_max;
             o.cluster_mines_transport = Some(data);
-            o.set_orientation(dz.atan2(dx));
+            o.set_orientation_with_partition_owner(dz.atan2(dx), &mut self.partition_manager);
         }
         self.cluster_mines_flight_reg.record_transport();
         // C++ OCLSpecialPower::doSpecialPowerAtLocation → base createViewObject.
@@ -327,10 +338,11 @@ impl GameLogic {
             crate::game_logic::host_mines::CLUSTER_MINES_VIEW_OBJECT_DURATION_FRAMES,
             presentation_effects,
         );
-        let _ = self.create_delivery_radius_decal_with_radius(
+        let _ = self.create_delivery_radius_decal_with_effects(
             tid,
             target,
             crate::game_logic::host_mines::CLUSTER_MINES_DELIVERY_DECAL_RADIUS,
+            presentation_effects,
         );
         Some(tid)
     }
@@ -379,10 +391,17 @@ impl GameLogic {
             if should_drop {
                 o.kill_delivery_radius_decal();
             }
-            o.set_position_with_effects(new_pos, self.frame, presentation_effects);
+            o.set_position_with_effects(
+                new_pos,
+                self.frame,
+                &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+            );
             o.movement.velocity = vel;
             if vel.length_squared() > 1e-6 {
-                o.set_orientation(vel.z.atan2(vel.x));
+                o.set_orientation_with_partition_owner(
+                    vel.z.atan2(vel.x),
+                    &mut self.partition_manager,
+                );
             }
             if should_drop {
                 let team = o.team;
@@ -435,7 +454,11 @@ impl GameLogic {
                 };
                 let mut p = o.get_position();
                 p.y += o.movement.velocity.y;
-                o.set_position_with_effects(p, self.frame, presentation_effects);
+                o.set_position_with_effects(
+                    p,
+                    self.frame,
+                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                );
                 (p, o.producer_id, o.team)
             };
             if pos.y <= 5.0 {
@@ -597,7 +620,7 @@ impl GameLogic {
         };
         let pos = victim.get_position();
         let yaw = victim.get_orientation();
-        let geom = victim.thing().template.geometry_info;
+        let geom = (*victim.geometry_info());
         let height = if geom.height > 0.0 {
             geom.height
         } else {
@@ -761,13 +784,14 @@ impl GameLogic {
             data.map_min = self.world_min;
             data.map_max = self.world_max;
             o.emp_pulse_transport = Some(data);
-            o.set_orientation(dz.atan2(dx));
+            o.set_orientation_with_partition_owner(dz.atan2(dx), &mut self.partition_manager);
         }
         self.emp_pulse_flight_reg.record_transport();
-        let _ = self.create_delivery_radius_decal_with_radius(
+        let _ = self.create_delivery_radius_decal_with_effects(
             tid,
             target,
             crate::game_logic::host_emp_pulse::EMP_PULSE_DELIVERY_DECAL_RADIUS,
+            presentation_effects,
         );
         Some(tid)
     }
@@ -818,10 +842,17 @@ impl GameLogic {
             if should_drop {
                 o.kill_delivery_radius_decal();
             }
-            o.set_position_with_effects(new_pos, self.frame, presentation_effects);
+            o.set_position_with_effects(
+                new_pos,
+                self.frame,
+                &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+            );
             o.movement.velocity = vel;
             if vel.length_squared() > 1e-6 {
-                o.set_orientation(vel.z.atan2(vel.x));
+                o.set_orientation_with_partition_owner(
+                    vel.z.atan2(vel.x),
+                    &mut self.partition_manager,
+                );
             }
             if should_drop {
                 let team = o.team;
@@ -869,7 +900,11 @@ impl GameLogic {
                 };
                 let mut p = o.get_position();
                 p.y += o.movement.velocity.y;
-                o.set_position_with_effects(p, self.frame, presentation_effects);
+                o.set_position_with_effects(
+                    p,
+                    self.frame,
+                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                );
                 (p, o.producer_id, o.team)
             };
             if pos.y <= 5.0 {
@@ -1292,7 +1327,10 @@ impl GameLogic {
             if let Some(id) = spawned_id {
                 if let Some(obj) = self.objects.get_mut(&id) {
                     if obj.is_alive() {
-                        obj.shroud_clearing_range = radius;
+                        obj.set_shroud_clearing_range_with_partition_owner(
+                            radius,
+                            &mut self.partition_manager,
+                        );
                         obj.vision_range = SPY_DRONE_VISION_RANGE;
                         let pos = obj.get_position();
                         if let Some(act) = self.spy_drones.activations_mut().get_mut(i) {
@@ -1427,7 +1465,11 @@ impl GameLogic {
                 let mut p = o.get_position();
                 p.x += dx;
                 p.z += dz;
-                o.set_position_with_effects(p, self.frame, presentation_effects);
+                o.set_position_with_effects(
+                    p,
+                    self.frame,
+                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                );
             }
         }
 
@@ -1796,7 +1838,10 @@ impl GameLogic {
         let force = calc_random_force(&plan, salt);
         o.movement.velocity += force * 0.05;
         let spin = spin_nudge_rad(&plan, salt);
-        o.set_orientation(o.get_orientation() + spin);
+        o.set_orientation_with_partition_owner(
+            o.get_orientation() + spin,
+            &mut self.partition_manager,
+        );
         self.ocl_apply_random_force_reg.record(force);
         true
     }
@@ -1959,12 +2004,20 @@ impl GameLogic {
         // Remove from entry tunnel local list (and exit tunnel if mirrored).
         if let Some(entry_id) = entry {
             if let Some(container) = self.objects.get_mut(&entry_id) {
-                container.remove_occupant(unit_id, &mut self.ownership_events);
+                container.remove_occupant_with_partition_owner(
+                    unit_id,
+                    &mut self.ownership_events,
+                    &mut self.partition_manager,
+                );
             }
         }
         if entry != Some(exit_tunnel) {
             if let Some(container) = self.objects.get_mut(&exit_tunnel) {
-                container.remove_occupant(unit_id, &mut self.ownership_events);
+                container.remove_occupant_with_partition_owner(
+                    unit_id,
+                    &mut self.ownership_events,
+                    &mut self.partition_manager,
+                );
             }
         }
         // C++ TunnelContain::onRemoving setSafeOcclusionFrame(frame + OcclusionDelay).
@@ -2041,12 +2094,20 @@ impl GameLogic {
         let (entry, ev) = self.cave_system.record_exit(index, unit_id, exit_cave);
         if let Some(entry_id) = entry {
             if let Some(container) = self.objects.get_mut(&entry_id) {
-                container.remove_occupant(unit_id, &mut self.ownership_events);
+                container.remove_occupant_with_partition_owner(
+                    unit_id,
+                    &mut self.ownership_events,
+                    &mut self.partition_manager,
+                );
             }
         }
         if entry != Some(exit_cave) {
             if let Some(container) = self.objects.get_mut(&exit_cave) {
-                container.remove_occupant(unit_id, &mut self.ownership_events);
+                container.remove_occupant_with_partition_owner(
+                    unit_id,
+                    &mut self.ownership_events,
+                    &mut self.partition_manager,
+                );
             }
         }
         self.apply_cave_capture_event(index, ev);
@@ -2122,7 +2183,10 @@ impl GameLogic {
                 presentation_effects,
             ) {
                 if let Some(obj) = self.objects.get_mut(&sid) {
-                    obj.set_orientation(tile.angle);
+                    obj.set_orientation_with_partition_owner(
+                        tile.angle,
+                        &mut self.partition_manager,
+                    );
                 }
                 ids.push(sid);
                 anims.push(
@@ -2328,7 +2392,11 @@ impl GameLogic {
                 self.destroy_object_with_effects(sid, presentation_effects);
             }
             if let Some(obj) = self.objects.get_mut(&sid) {
-                obj.set_position_with_effects(pos, self.frame, presentation_effects);
+                obj.set_position_with_effects(
+                    pos,
+                    self.frame,
+                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                );
             }
         }
         let span_ids: Vec<ObjectId> = self
@@ -3075,7 +3143,18 @@ impl GameLogic {
                 {
                     hunter.weapon = Some(tank_hunter_missile_weapon());
                 }
-                hunter.set_contained_by(Some(outpost_id));
+                let containment_actor_id = hunter.id;
+                Self::set_owned_containment_in_parts(
+                    &mut self.objects,
+                    &mut self.partition_manager,
+                    containment_actor_id,
+                    Some(outpost_id),
+                    true,
+                );
+                let hunter = self
+                    .objects
+                    .get_mut(&containment_actor_id)
+                    .expect("containment operation preserves this birth");
                 hunter.set_ai_state(
                     AIState::Docked,
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
@@ -3087,7 +3166,11 @@ impl GameLogic {
                 hunter.set_status_moving(false);
                 hunter.set_status_attacking(false);
                 hunter.target = None;
-                hunter.set_position_with_effects(position, self.frame, ui);
+                hunter.set_position_with_effects(
+                    position,
+                    self.frame,
+                    &mut ui.reborrow_for_object(&mut self.partition_manager),
+                );
                 {}
             }
 
@@ -3215,7 +3298,18 @@ impl GameLogic {
                         ..Weapon::default()
                     });
                 }
-                guard.set_contained_by(Some(crawler_id));
+                let containment_actor_id = guard.id;
+                Self::set_owned_containment_in_parts(
+                    &mut self.objects,
+                    &mut self.partition_manager,
+                    containment_actor_id,
+                    Some(crawler_id),
+                    true,
+                );
+                let guard = self
+                    .objects
+                    .get_mut(&containment_actor_id)
+                    .expect("containment operation preserves this birth");
                 guard.set_ai_state(
                     AIState::Docked,
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
@@ -3227,7 +3321,11 @@ impl GameLogic {
                 guard.set_status_moving(false);
                 guard.set_status_attacking(false);
                 guard.target = None;
-                guard.set_position_with_effects(position, self.frame, ui);
+                guard.set_position_with_effects(
+                    position,
+                    self.frame,
+                    &mut ui.reborrow_for_object(&mut self.partition_manager),
+                );
                 {}
             }
 
@@ -3300,7 +3398,11 @@ impl GameLogic {
         for (i, occ_id) in eject_ids.into_iter().enumerate() {
             // Remove from container.
             if let Some(crawler) = self.objects.get_mut(&crawler_id) {
-                crawler.remove_occupant(occ_id, &mut self.ownership_events);
+                crawler.remove_occupant_with_partition_owner(
+                    occ_id,
+                    &mut self.ownership_events,
+                    &mut self.partition_manager,
+                );
             }
             // Drop near crawler and order attack.
             let angle = (occ_id.0 as f32 + i as f32 * 1.37).sin().atan2(1.0) + i as f32 * 0.7;
@@ -3312,10 +3414,21 @@ impl GameLogic {
                 unit.set_position_with_effects(
                     crawler_pos + offset,
                     self.frame,
-                    presentation_effects,
+                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
                 );
                 {}
-                unit.set_contained_by(None);
+                let containment_actor_id = unit.id;
+                Self::set_owned_containment_in_parts(
+                    &mut self.objects,
+                    &mut self.partition_manager,
+                    containment_actor_id,
+                    None,
+                    true,
+                );
+                let unit = self
+                    .objects
+                    .get_mut(&containment_actor_id)
+                    .expect("containment operation preserves this birth");
                 unit.set_status_moving(false);
             }
             // GoAggressiveOnExit residual: attack designated target.

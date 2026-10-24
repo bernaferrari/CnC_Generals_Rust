@@ -244,6 +244,19 @@ impl GameLogic {
         Some(result)
     }
 
+    pub(crate) fn with_owned_radar_disabled_partition_operation<R>(
+        &mut self,
+        id: ObjectId,
+        operation: impl FnOnce(
+            &mut Object,
+            &mut crate::game_logic::partition_manager::PartitionManager,
+        ) -> R,
+    ) -> Option<R> {
+        let result = operation(self.objects.get_mut(&id)?, &mut self.partition_manager);
+        self.admit_host_radar_disabled_edges(id);
+        Some(result)
+    }
+
     /// Consume original callback order, including disable→enable in one operation.
     pub(in super::super) fn admit_host_radar_disabled_edges(&mut self, id: ObjectId) {
         let edges = self

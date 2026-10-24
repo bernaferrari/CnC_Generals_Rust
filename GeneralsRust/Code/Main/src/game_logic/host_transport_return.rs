@@ -315,10 +315,7 @@ mod tests {
             .create_object("ReturnRider", Team::USA, Vec3::new(11.0, 0.0, 20.0))
             .unwrap();
         assert!(logic.host_object_mut(id).unwrap().add_occupant(rider));
-        logic
-            .host_object_mut(rider)
-            .unwrap()
-            .set_contained_by(Some(id));
+        logic.set_fixture_object_contained_by(rider, Some(id));
         let origin = logic.host_object(id).unwrap().get_position();
         let destination = origin + Vec3::new(40.0, 0.0, 0.0);
         assert_eq!(

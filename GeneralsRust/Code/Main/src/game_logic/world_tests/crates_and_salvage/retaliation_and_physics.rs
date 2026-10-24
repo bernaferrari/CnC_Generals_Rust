@@ -2252,11 +2252,7 @@ fn attack_can_fire_at_requires_range() {
         o
     });
     assert!(logic.attack_can_fire_at(aid, vid, 0.0, false));
-    logic
-        .objects
-        .get_mut(&vid)
-        .unwrap()
-        .set_position(Vec3::new(100.0, 0.0, 0.0));
+    logic.set_fixture_object_position(vid, Vec3::new(100.0, 0.0, 0.0));
     assert!(!logic.attack_can_fire_at(aid, vid, 0.0, false));
 }
 

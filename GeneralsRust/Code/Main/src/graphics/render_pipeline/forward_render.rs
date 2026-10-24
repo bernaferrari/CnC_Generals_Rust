@@ -323,6 +323,7 @@ impl ForwardPass {
         camera_position: Vec3,
         time: f32,
         min_terrain_height: f32,
+        native_radius_items: Vec<game_client::effects::decals::DecalRenderItem>,
     ) -> bool {
         let Some(renderer) = self.particle_renderer.as_ref().map(Arc::clone) else {
             return false;
@@ -426,6 +427,10 @@ impl ForwardPass {
             // stay ungated. Unit addShadow blobs are omitted when 2D Shadows off
             // (`collect_render_items` / W3DProjectedShadow.cpp:1303).
             decals.extend(get_projected_shadow_manager().read().collect_render_items());
+            // Radius handles come from the driving native client. This owned
+            // per-frame value cannot rediscover another world's manager during
+            // the deferred GPU callback. Legacy ModelDraw remains separate.
+            decals.extend(native_radius_items);
 
             if !decals.is_empty() {
                 let mut decal_uniforms = uniforms;

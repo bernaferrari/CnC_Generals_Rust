@@ -785,7 +785,7 @@ impl GameLogic {
             0
         };
         let enclosing = container.is_enclosing_garrison_container();
-        let geom = container.thing().template.geometry_info;
+        let geom = (*container.geometry_info());
         let major = if geom.authored {
             geom.major_radius.max(1.0)
         } else {
@@ -891,28 +891,52 @@ impl GameLogic {
             let mut side_end: Option<glam::Vec3> = None;
             // Remove from container first.
             if let Some(c) = self.objects.get_mut(&container_id) {
-                let _ = c.remove_occupant(*pid, &mut self.ownership_events);
+                let _ = c.remove_occupant_with_partition_owner(
+                    *pid,
+                    &mut self.ownership_events,
+                    &mut self.partition_manager,
+                );
             }
             if let Some(p) = self.objects.get_mut(pid) {
                 // Wave 201: host_contain_log last-writer (do not bypass set_contained_by).
-                p.set_contained_by(None);
+                let containment_actor_id = p.id;
+                Self::set_owned_containment_in_parts(
+                    &mut self.objects,
+                    &mut self.partition_manager,
+                    containment_actor_id,
+                    None,
+                    true,
+                );
+                let p = self
+                    .objects
+                    .get_mut(&containment_actor_id)
+                    .expect("containment operation preserves this birth");
                 p.target = None;
                 if is_garrison && (evac == 1 || evac == 2) {
                     let seed = pid.0.wrapping_add(i as u32).wrapping_add(self.frame);
                     let (start, end) =
                         garrison_evac_side_points(building_pos, yaw, major, minor, evac, seed);
-                    p.set_position_with_effects(start, self.frame, presentation_effects);
-                    p.set_orientation(yaw);
+                    p.set_position_with_effects(
+                        start,
+                        self.frame,
+                        &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                    );
+                    p.set_orientation_with_partition_owner(yaw, &mut self.partition_manager);
                     side_end = Some(end);
                 } else if is_garrison {
                     // C++ EVAC_BURST_FROM_CENTER: enclosing occupants snap to
                     // start (Y to ground), then aiFollowPath to adjusted dest.
                     if enclosing {
                         if let Some(start) = burst_start {
-                            p.set_position_with_effects(start, self.frame, presentation_effects);
+                            p.set_position_with_effects(
+                                start,
+                                self.frame,
+                                &mut presentation_effects
+                                    .reborrow_for_object(&mut self.partition_manager),
+                            );
                         }
                     }
-                    p.set_orientation(yaw);
+                    p.set_orientation_with_partition_owner(yaw, &mut self.partition_manager);
                     if let Some(end) = burst_end {
                         p.movement.path.clear();
                         p.movement.path.push(end);
@@ -923,12 +947,15 @@ impl GameLogic {
                             crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_AI;
                         p.refresh_follow_path_extra_distance();
                         p.adjust_destinations = !p.ultra_accurate;
-                        p.set_destination(
+                        p.set_destination_with_operation(
                             end,
                             &mut self.movement_events.writer(self.frame),
                             &mut crate::game_logic::ObjectAudio::queue(
                                 &mut self.queued_audio_events,
                             ),
+                            self.frame,
+                            &mut presentation_effects
+                                .reborrow_for_object(&mut self.partition_manager),
                         );
                     }
                     p.set_ai_state(
@@ -966,10 +993,12 @@ impl GameLogic {
                         crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_AI;
                     p.refresh_follow_path_extra_distance();
                     p.adjust_destinations = !p.ultra_accurate;
-                    p.set_destination(
+                    p.set_destination_with_operation(
                         end,
                         &mut self.movement_events.writer(self.frame),
                         &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
+                        self.frame,
+                        &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
                     );
                     p.set_ai_state(
                         AIState::Moving,
@@ -1160,12 +1189,31 @@ impl GameLogic {
         let (target_is_bldg, dest_y) = self.combat_drop_rappel_dest(hover, drop_target);
 
         if let Some(c) = self.objects.get_mut(&container_id) {
-            let _ = c.remove_occupant(pid, &mut self.ownership_events);
+            let _ = c.remove_occupant_with_partition_owner(
+                pid,
+                &mut self.ownership_events,
+                &mut self.partition_manager,
+            );
         }
         if let Some(p) = self.objects.get_mut(&pid) {
-            p.set_contained_by(None);
+            let containment_actor_id = p.id;
+            Self::set_owned_containment_in_parts(
+                &mut self.objects,
+                &mut self.partition_manager,
+                containment_actor_id,
+                None,
+                true,
+            );
+            let p = self
+                .objects
+                .get_mut(&containment_actor_id)
+                .expect("containment operation preserves this birth");
             p.target = drop_target;
-            p.set_position_with_effects(hover, self.frame, presentation_effects);
+            p.set_position_with_effects(
+                hover,
+                self.frame,
+                &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+            );
             let dest = glam::Vec3::new(hover.x, dest_y, hover.z);
             p.movement.path.clear();
             p.movement.current_path_index = 0;
@@ -1218,11 +1266,7 @@ impl GameLogic {
         if !bldg.is_alive() || !bldg.is_kind_of(KindOf::Structure) {
             return (false, layer_y);
         }
-        let roof = bldg
-            .thing()
-            .template
-            .geometry_info
-            .max_height_above_position();
+        let roof = (*bldg.geometry_info()).max_height_above_position();
         (true, layer_y + roof)
     }
 
@@ -1275,7 +1319,11 @@ impl GameLogic {
         if let Some(obj) = self.objects.get_mut(&pid) {
             let mut p = obj.get_position();
             p.y = new_y;
-            obj.set_position_with_effects(p, self.frame, presentation_effects);
+            obj.set_position_with_effects(
+                p,
+                self.frame,
+                &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+            );
             obj.movement.velocity = glam::Vec3::new(0.0, -speed, 0.0);
             obj.status.rappel_target_is_bldg = target_is_bldg;
             obj.status.rappel_dest_y = dest_y;
@@ -1400,10 +1448,25 @@ impl GameLogic {
                 break;
             };
             if let Some(b) = self.objects.get_mut(&bldg_id) {
-                let _ = b.remove_occupant(enemy_id, &mut self.ownership_events);
+                let _ = b.remove_occupant_with_partition_owner(
+                    enemy_id,
+                    &mut self.ownership_events,
+                    &mut self.partition_manager,
+                );
             }
             if let Some(e) = self.objects.get_mut(&enemy_id) {
-                e.set_contained_by(None);
+                let containment_actor_id = e.id;
+                Self::set_owned_containment_in_parts(
+                    &mut self.objects,
+                    &mut self.partition_manager,
+                    containment_actor_id,
+                    None,
+                    true,
+                );
+                let e = self
+                    .objects
+                    .get_mut(&containment_actor_id)
+                    .expect("containment operation preserves this birth");
             }
             // CPP AIStates.cpp435 scores while the enemy is still alive,
             // before the receiving Body/onDie continuation can change it.
@@ -1465,10 +1528,25 @@ impl GameLogic {
             obj.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                 &mut self.queued_audio_events,
             ));
-            obj.set_contained_by(Some(bldg_id));
+            let containment_actor_id = obj.id;
+            Self::set_owned_containment_in_parts(
+                &mut self.objects,
+                &mut self.partition_manager,
+                containment_actor_id,
+                Some(bldg_id),
+                true,
+            );
+            let obj = self
+                .objects
+                .get_mut(&containment_actor_id)
+                .expect("containment operation preserves this birth");
             obj.target = Some(bldg_id);
             if enclosing {
-                obj.set_position_with_effects(container_pos, self.frame, presentation_effects);
+                obj.set_position_with_effects(
+                    container_pos,
+                    self.frame,
+                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                );
             }
             obj.set_ai_state(
                 AIState::Garrisoned,
@@ -1496,11 +1574,11 @@ impl GameLogic {
         };
         let bldg_pos = bldg.get_position();
         let exit_angle = bldg.get_orientation();
-        let bldg_r = bldg.thing().template.geometry_info.bounding_circle_radius();
+        let bldg_r = (*bldg.geometry_info()).bounding_circle_radius();
         let pax_r = self
             .objects
             .get(&pid)
-            .map(|p| p.thing().template.geometry_info.bounding_circle_radius())
+            .map(|p| (*p.geometry_info()).bounding_circle_radius())
             .unwrap_or(8.0);
         let offset = pax_r.min(bldg_r).max(1.0);
         let angle = std::f32::consts::PI + garrison_evac_rand(pid.0, 0.0, std::f32::consts::PI);
@@ -1512,8 +1590,12 @@ impl GameLogic {
         end.z -= 20.0;
         end.y = self.terrain_height_at(end).unwrap_or(end.y);
         if let Some(obj) = self.objects.get_mut(&pid) {
-            obj.set_position_with_effects(start, self.frame, presentation_effects);
-            obj.set_orientation(exit_angle);
+            obj.set_position_with_effects(
+                start,
+                self.frame,
+                &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+            );
+            obj.set_orientation_with_partition_owner(exit_angle, &mut self.partition_manager);
             obj.movement.path = vec![start, end];
             obj.movement.current_path_index = 1;
             obj.movement.target_position = Some(end);
@@ -1751,11 +1833,15 @@ impl GameLogic {
                 let launch_fx = tick.launch_fx;
                 let ignition_fx = tick.ignition_fx;
                 drop(data);
-                o.set_position_with_effects(new_pos, self.frame, presentation_effects);
+                o.set_position_with_effects(
+                    new_pos,
+                    self.frame,
+                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                );
                 o.movement.velocity = vel;
                 if vel.length_squared() > 1e-6 {
                     let yaw = vel.z.atan2(vel.x);
-                    o.set_orientation(yaw);
+                    o.set_orientation_with_partition_owner(yaw, &mut self.partition_manager);
                 }
                 (grounded, phase, is_cruise, producer, launch_fx, ignition_fx)
             };
@@ -1937,10 +2023,17 @@ impl GameLogic {
                 let new_pos = tick.pos;
                 let vel = tick.vel;
                 drop(data);
-                o.set_position_with_effects(new_pos, self.frame, presentation_effects);
+                o.set_position_with_effects(
+                    new_pos,
+                    self.frame,
+                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                );
                 o.movement.velocity = vel;
                 if vel.length_squared() > 1e-6 {
-                    o.set_orientation(vel.z.atan2(vel.x));
+                    o.set_orientation_with_partition_owner(
+                        vel.z.atan2(vel.x),
+                        &mut self.partition_manager,
+                    );
                 }
                 (grounded, ignition_fx, target, producer)
             };
@@ -2119,7 +2212,7 @@ impl GameLogic {
             data.map_min = self.world_min;
             data.map_max = self.world_max;
             o.carpet_bomb_transport = Some(data);
-            o.set_orientation(dz.atan2(dx));
+            o.set_orientation_with_partition_owner(dz.atan2(dx), &mut self.partition_manager);
         }
         self.carpet_bomb_flight_reg.record_transport();
         self.carpet_bomb_flight_reg.schedule_drops(
@@ -2131,10 +2224,11 @@ impl GameLogic {
             tid.0,
         );
         // C++ DeliverPayloadAIUpdate::deliverPayload createRadiusDecal (formation 0).
-        let _ = self.create_delivery_radius_decal_with_radius(
+        let _ = self.create_delivery_radius_decal_with_effects(
             tid,
             target,
             tier.delivery_decal_radius(),
+            presentation_effects,
         );
         Some(tid)
     }
@@ -2173,10 +2267,17 @@ impl GameLogic {
             };
             let (new_pos, vel, at_exit) = data.tick_transport(pos);
             drop(data);
-            o.set_position_with_effects(new_pos, self.frame, presentation_effects);
+            o.set_position_with_effects(
+                new_pos,
+                self.frame,
+                &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+            );
             o.movement.velocity = vel;
             if vel.length_squared() > 1e-6 {
-                o.set_orientation(vel.z.atan2(vel.x));
+                o.set_orientation_with_partition_owner(
+                    vel.z.atan2(vel.x),
+                    &mut self.partition_manager,
+                );
             }
             if at_exit {
                 leave.push(id);
@@ -2280,7 +2381,11 @@ impl GameLogic {
                 };
                 let mut p = o.get_position();
                 p.y += o.movement.velocity.y;
-                o.set_position_with_effects(p, self.frame, presentation_effects);
+                o.set_position_with_effects(
+                    p,
+                    self.frame,
+                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                );
                 (p, o.producer_id, o.team)
             };
             if pos.y <= 5.0 {
@@ -2442,16 +2547,17 @@ impl GameLogic {
                 data.map_max = self.world_max;
                 data.delay_until_frame = self.frame.saturating_add(delay);
                 o.artillery_barrage_transport = Some(data);
-                o.set_orientation(pose.orient);
+                o.set_orientation_with_partition_owner(pose.orient, &mut self.partition_manager);
             }
             self.artillery_barrage_flight_reg.record_transport();
             if first.is_none() {
                 first = Some(tid);
                 // C++ only formation index 0 gets a DeliveryDecal ring.
-                let _ = self.create_delivery_radius_decal_with_radius(
+                let _ = self.create_delivery_radius_decal_with_effects(
                     tid,
                     target,
                     ARTILLERY_BARRAGE_DECAL_RADIUS,
+                    presentation_effects,
                 );
             }
         }
@@ -2515,10 +2621,17 @@ impl GameLogic {
             if should_drop {
                 o.kill_delivery_radius_decal();
             }
-            o.set_position_with_effects(new_pos, self.frame, presentation_effects);
+            o.set_position_with_effects(
+                new_pos,
+                self.frame,
+                &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+            );
             o.movement.velocity = vel;
             if vel.length_squared() > 1e-6 {
-                o.set_orientation(vel.z.atan2(vel.x));
+                o.set_orientation_with_partition_owner(
+                    vel.z.atan2(vel.x),
+                    &mut self.partition_manager,
+                );
             }
             if at_exit {
                 leave.push(id);
@@ -2575,7 +2688,11 @@ impl GameLogic {
                 };
                 let mut p = o.get_position();
                 p.y += o.movement.velocity.y;
-                o.set_position_with_effects(p, self.frame, presentation_effects);
+                o.set_position_with_effects(
+                    p,
+                    self.frame,
+                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                );
                 (p, o.producer_id, o.team)
             };
             if pos.y <= 5.0 {
@@ -2733,7 +2850,7 @@ impl GameLogic {
                 data.map_min = self.world_min;
                 data.map_max = self.world_max;
                 o.a10_strike_transport = Some(data);
-                o.set_orientation(dz.atan2(dx));
+                o.set_orientation_with_partition_owner(dz.atan2(dx), &mut self.partition_manager);
             }
             let bound = self.a10_strike_flight_reg.bind_transport(delivery_id, tid);
             assert!(bound, "new A10 transport ID must bind exactly once");
@@ -2749,10 +2866,11 @@ impl GameLogic {
             );
             if first.is_none() {
                 first = Some(tid);
-                let _ = self.create_delivery_radius_decal_with_radius(
+                let _ = self.create_delivery_radius_decal_with_effects(
                     tid,
                     target,
                     crate::game_logic::special_power_strikes::A10_DELIVERY_DECAL_RADIUS,
+                    presentation_effects,
                 );
             }
         }
@@ -2851,11 +2969,16 @@ impl GameLogic {
         if let Some(o) = self.objects.get_mut(&tid) {
             o.note_producer(source_id);
             o.leaflet_transport_target = Some(target);
-            o.set_orientation(dz.atan2(dx));
+            o.set_orientation_with_partition_owner(dz.atan2(dx), &mut self.partition_manager);
         }
         self.host_leaflet_drops.transports_spawned =
             self.host_leaflet_drops.transports_spawned.saturating_add(1);
-        let _ = self.create_delivery_radius_decal_with_radius(tid, target, LEAFLET_DECAL_RADIUS);
+        let _ = self.create_delivery_radius_decal_with_effects(
+            tid,
+            target,
+            LEAFLET_DECAL_RADIUS,
+            presentation_effects,
+        );
         Some(tid)
     }
 
@@ -2909,9 +3032,13 @@ impl GameLogic {
                 let step = speed.min(dist);
                 new_pos.x += dx / dist * step;
                 new_pos.z += dz / dist * step;
-                o.set_position_with_effects(new_pos, self.frame, presentation_effects);
+                o.set_position_with_effects(
+                    new_pos,
+                    self.frame,
+                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                );
                 o.movement.velocity = new_pos - pos;
-                o.set_orientation(dz.atan2(dx));
+                o.set_orientation_with_partition_owner(dz.atan2(dx), &mut self.partition_manager);
             }
             if !dest_off_map && dist <= LEAFLET_DELIVERY_DISTANCE * 0.5 {
                 let team = o.team;
@@ -2994,10 +3121,18 @@ impl GameLogic {
             }
             let mut p = o.get_position();
             p.y += o.movement.velocity.y;
-            o.set_position_with_effects(p, self.frame, presentation_effects);
+            o.set_position_with_effects(
+                p,
+                self.frame,
+                &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+            );
             if p.y <= 5.0 {
                 p.y = p.y.max(0.0);
-                o.set_position_with_effects(p, self.frame, presentation_effects);
+                o.set_position_with_effects(
+                    p,
+                    self.frame,
+                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                );
                 o.movement.velocity = Vec3::ZERO;
                 o.leaflet_container = false;
             }
@@ -3071,11 +3206,16 @@ impl GameLogic {
         if let Some(o) = self.objects.get_mut(&tid) {
             o.note_producer(source_id);
             o.paradrop_transport_target = Some(target);
-            o.set_orientation(dz.atan2(dx));
+            o.set_orientation_with_partition_owner(dz.atan2(dx), &mut self.partition_manager);
         }
         self.host_paradrops.transports_spawned =
             self.host_paradrops.transports_spawned.saturating_add(1);
-        let _ = self.create_delivery_radius_decal_with_radius(tid, target, PARADROP_DECAL_RADIUS);
+        let _ = self.create_delivery_radius_decal_with_effects(
+            tid,
+            target,
+            PARADROP_DECAL_RADIUS,
+            presentation_effects,
+        );
         Some(tid)
     }
 
@@ -3129,9 +3269,13 @@ impl GameLogic {
                 let step = speed.min(dist);
                 new_pos.x += dx / dist * step;
                 new_pos.z += dz / dist * step;
-                o.set_position_with_effects(new_pos, self.frame, presentation_effects);
+                o.set_position_with_effects(
+                    new_pos,
+                    self.frame,
+                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                );
                 o.movement.velocity = new_pos - pos;
-                o.set_orientation(dz.atan2(dx));
+                o.set_orientation_with_partition_owner(dz.atan2(dx), &mut self.partition_manager);
             }
             if !dest_off_map && dist <= PARADROP_DELIVERY_DISTANCE {
                 let team = o.team;
@@ -3205,7 +3349,11 @@ impl GameLogic {
             if o.movement.velocity.y < -2.0 {
                 o.movement.velocity.y = -2.5;
             }
-            o.set_position_with_effects(p, self.frame, presentation_effects);
+            o.set_position_with_effects(
+                p,
+                self.frame,
+                &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+            );
             if p.y <= 5.0 {
                 destroy.push(id);
             }
@@ -3321,13 +3469,14 @@ impl GameLogic {
             data.map_min = self.world_min;
             data.map_max = self.world_max;
             o.daisy_cutter_transport = Some(data);
-            o.set_orientation(dz.atan2(dx));
+            o.set_orientation_with_partition_owner(dz.atan2(dx), &mut self.partition_manager);
         }
         self.daisy_cutter_flight_reg.record_transport(tier);
-        let _ = self.create_delivery_radius_decal_with_radius(
+        let _ = self.create_delivery_radius_decal_with_effects(
             tid,
             target,
             crate::game_logic::special_power_strikes::DAISY_CUTTER_RADIUS_CURSOR,
+            presentation_effects,
         );
         Some(tid)
     }
@@ -3378,10 +3527,17 @@ impl GameLogic {
             if should_drop {
                 o.kill_delivery_radius_decal();
             }
-            o.set_position_with_effects(new_pos, self.frame, presentation_effects);
+            o.set_position_with_effects(
+                new_pos,
+                self.frame,
+                &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+            );
             o.movement.velocity = vel;
             if vel.length_squared() > 1e-6 {
-                o.set_orientation(vel.z.atan2(vel.x));
+                o.set_orientation_with_partition_owner(
+                    vel.z.atan2(vel.x),
+                    &mut self.partition_manager,
+                );
             }
             if should_drop {
                 let team = o.team;
@@ -3433,7 +3589,11 @@ impl GameLogic {
                 };
                 let mut p = o.get_position();
                 p.y += o.movement.velocity.y;
-                o.set_position_with_effects(p, self.frame, presentation_effects);
+                o.set_position_with_effects(
+                    p,
+                    self.frame,
+                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                );
                 let is_moab = o.template_name == "MOAB" || o.template_name.contains("MOAB");
                 (p, o.producer_id, o.team, is_moab)
             };
@@ -3578,13 +3738,14 @@ impl GameLogic {
             data.map_max = self.world_max;
             o.anthrax_bomb_transport = Some(data);
             o.movement.target_position = None;
-            o.set_orientation(dz.atan2(dx));
+            o.set_orientation_with_partition_owner(dz.atan2(dx), &mut self.partition_manager);
         }
         self.anthrax_bomb_flight_reg.record_transport();
-        let _ = self.create_delivery_radius_decal_with_radius(
+        let _ = self.create_delivery_radius_decal_with_effects(
             tid,
             target,
             crate::game_logic::host_anthrax_bomb_flight::ANTHRAX_DELIVERY_DECAL_RADIUS,
+            presentation_effects,
         );
         Some(tid)
     }
@@ -3669,9 +3830,14 @@ mod garrison_evac_door_tests {
             )
             .unwrap();
         {
-            let p = logic.host_object_mut(pax).unwrap();
-            p.set_contained_by(Some(fb));
-            p.set_position(glam::Vec3::new(12.0, 8.0, 22.0));
+            let (p, fixture_partition_p) = logic.host_object_and_partition_mut(pax).unwrap();
+            p.set_contained_by_with_partition_owner(Some(fb), true, fixture_partition_p);
+            p.set_position_with_partition_owner(
+                glam::Vec3::new(12.0, 8.0, 22.0),
+                0,
+                &mut Default::default(),
+                fixture_partition_p,
+            );
         }
         assert!(logic.garrison_exit_occupant_via_door(pax, fb));
         let p = logic.host_object(pax).unwrap();
@@ -3689,9 +3855,14 @@ mod garrison_evac_door_tests {
             )
             .unwrap();
         assert!(logic.host_object_mut(fb).unwrap().add_occupant(pax2));
-        if let Some(p) = logic.host_object_mut(pax2) {
-            p.set_contained_by(Some(fb));
-            p.set_position(glam::Vec3::new(11.0, 9.0, 21.0));
+        if let Some((p, partition)) = logic.host_object_and_partition_mut(pax2) {
+            p.set_contained_by_with_partition_owner(Some(fb), true, partition);
+            p.set_position_with_partition_owner(
+                glam::Vec3::new(11.0, 9.0, 21.0),
+                0,
+                &mut Default::default(),
+                partition,
+            );
         }
         assert!(logic.evacuate_container_now(fb, false));
         let p2 = logic.host_object(pax2).unwrap();

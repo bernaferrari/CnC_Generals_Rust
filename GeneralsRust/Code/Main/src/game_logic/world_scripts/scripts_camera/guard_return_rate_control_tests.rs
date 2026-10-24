@@ -25,10 +25,7 @@ pub(super) fn unfinished_return() -> (GameLogic, ObjectId) {
         1
     );
     let post = world.host_object(id).unwrap().guard_position.unwrap();
-    world
-        .host_object_mut(id)
-        .unwrap()
-        .set_position(post + Vec3::new(20.0, 0.0, 0.0));
+    world.set_fixture_object_position(id, post + Vec3::new(20.0, 0.0, 0.0));
     world.host_object_mut(id).unwrap().close_enough_dist = Some(1.0);
     world.return_guard_to_post(id);
     let unit = world.host_object(id).unwrap();

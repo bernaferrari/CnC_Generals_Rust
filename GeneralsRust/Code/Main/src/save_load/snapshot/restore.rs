@@ -78,6 +78,30 @@ impl SnapshotBuilder {
         saved_order: Option<&[ObjectId]>,
         game_logic: &mut GameLogic,
     ) -> SaveLoadResult<()> {
+        self.restore_all_objects_with_geometry(
+            objects,
+            next_object_id,
+            body_kinds,
+            native_lifecycle,
+            saved_order,
+            &HashMap::new(),
+            game_logic,
+        )
+    }
+
+    pub(super) fn restore_all_objects_with_geometry(
+        &self,
+        objects: &HashMap<ObjectId, ObjectSnapshot>,
+        next_object_id: u32,
+        body_kinds: &HashMap<ObjectId, crate::game_logic::thing::BodyKind>,
+        native_lifecycle: &HashMap<
+            ObjectId,
+            crate::game_logic::native_lifecycle::NativeLifecycleRuntime,
+        >,
+        saved_order: Option<&[ObjectId]>,
+        geometry: &HashMap<ObjectId, crate::game_logic::HostGeometryInfo>,
+        game_logic: &mut GameLogic,
+    ) -> SaveLoadResult<()> {
         self.validate_object_restore_admission(objects, game_logic)?;
         super::object_order_persist::validate(saved_order, objects)?;
         self.validate_receiving_object_templates(objects, game_logic)?;
@@ -130,6 +154,16 @@ impl SnapshotBuilder {
             let snapshot = objects.get(&id).ok_or_else(|| {
                 SaveLoadError::Corrupted(format!("Missing snapshot for object {}", id))
             })?;
+            // Admit one checked saved shape before this Object's module
+            // restoration. The row is operation-local reconstruction input.
+            let mut shaped;
+            let snapshot = if let Some(shape) = geometry.get(&id) {
+                shaped = snapshot.clone();
+                shaped.geometry.shape = Some(*shape);
+                &shaped
+            } else {
+                snapshot
+            };
             self.restore_object_with_body_kind(
                 snapshot,
                 body_kinds.get(&snapshot.id).copied(),
@@ -207,6 +241,7 @@ impl SnapshotBuilder {
                 ));
             }
         }
+        super::containment_admission::validate(objects)?;
         Ok(())
     }
 
@@ -288,6 +323,10 @@ impl SnapshotBuilder {
         // Native partition state is reconstructed from the same receiving
         // template as ordinary factory creation, not from a foreign catalog or
         // a serialized stale template observation.
+        // Object::addValue reads friend_getBuildCost from this same template.
+        // Restore must initialize the canonical payload just as factory birth
+        // does; the saved previous-cell receipt is only the undo payload.
+        let partition_cash = template.build_cost.supplies;
         let receiving_partition_threat = game_logic
             .receiving_module_content
             .as_ref()
@@ -303,6 +342,7 @@ impl SnapshotBuilder {
             temporary_weapons,
             game_logic.body_damage_policy(),
         );
+        object.partition_cash_value = partition_cash;
         if let Some(threat) = receiving_partition_threat {
             object.partition_threat_value = threat;
         }
@@ -341,6 +381,9 @@ impl SnapshotBuilder {
         object.set_geometry_bounds_min(snapshot.geometry.bounds_min);
         object.set_geometry_bounds_max(snapshot.geometry.bounds_max);
         object.set_geometry_radius(snapshot.geometry.radius);
+        if let Some(shape) = snapshot.geometry.shape {
+            object.set_geometry_shape(shape);
+        }
         // C++ Object ctor instantiates ChinookAIUpdate / TransportContain
         // before those modules xfer. Spawn-only install must run after pose
         // so default AI original_pos matches the saved hull, and before
@@ -1359,10 +1402,17 @@ impl SnapshotBuilder {
             used.insert(resource_id);
 
             {
-                let Some(resource_obj) = game_logic.host_object_mut(resource_id) else {
+                let Some((resource_obj, partition)) =
+                    game_logic.host_object_and_partition_mut(resource_id)
+                else {
                     continue;
                 };
-                resource_obj.set_position(depot.position);
+                resource_obj.set_position_with_partition_owner(
+                    depot.position,
+                    0,
+                    &mut Default::default(),
+                    partition,
+                );
                 resource_obj.set_stored_supplies(depot.amount);
                 if resource_obj.object_type != ObjectType::Supply
                     && (resource_obj.is_kind_of(KindOf::Resource)

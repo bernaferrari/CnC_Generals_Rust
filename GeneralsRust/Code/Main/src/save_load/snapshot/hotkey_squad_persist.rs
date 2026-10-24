@@ -190,12 +190,12 @@ fn find_hsqd_record(bytes: &[u8]) -> SaveLoadResult<Option<std::ops::Range<usize
             continue;
         }
         let known = [
-            b"CPRJ", b"BDKD", b"NLFC", b"ODIS", b"RDCK", b"OLST", b"NDIE", b"BPPL", b"SUBD",
-            b"HSQD", b"BTRY", b"CBPD", b"PDRP", b"DZRP", b"RHBH", b"WSFL", b"SABL", b"TMAI",
-            b"DCKQ", b"MSRT", b"DPLS", b"OXFR", b"ADPS", b"OCLT", b"JTAI", b"CHNK", b"HKIN",
-            b"WHCR", b"FSGM", b"MCRT", b"GPSG", b"DSCR", b"AMOB", b"PPRD", b"CLHA", b"PDLS",
-            b"PJST", b"TXEB", b"BRBH", b"OXOB", b"INFR", b"FWAL", b"NMSD", b"TRAI", b"STLG",
-            b"WLCH", b"SCKP", b"GFPT", b"SDEN", b"AITQ",
+            b"CPRJ", b"PCOI", b"GMSH", b"BDKD", b"NLFC", b"ODIS", b"RDCK", b"OLST", b"NDIE",
+            b"BPPL", b"SUBD", b"HSQD", b"BTRY", b"CBPD", b"PDRP", b"DZRP", b"RHBH", b"WSFL",
+            b"SABL", b"TMAI", b"DCKQ", b"MSRT", b"DPLS", b"OXFR", b"ADPS", b"OCLT", b"JTAI",
+            b"CHNK", b"HKIN", b"WHCR", b"FSGM", b"MCRT", b"GPSG", b"DSCR", b"AMOB", b"PPRD",
+            b"CLHA", b"PDLS", b"PJST", b"TXEB", b"BRBH", b"OXOB", b"INFR", b"FWAL", b"NMSD",
+            b"TRAI", b"STLG", b"WLCH", b"SCKP", b"GFPT", b"SDEN", b"AITQ",
         ]
         .iter()
         .any(|tag| rest.starts_with(*tag));

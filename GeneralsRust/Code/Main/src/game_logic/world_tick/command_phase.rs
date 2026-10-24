@@ -122,6 +122,11 @@ impl GameLogic {
         mut before: impl FnMut(u32),
         after: impl FnMut(&mut Self),
     ) -> NativeTickProgress {
+        if let Err(error) =
+            ui.validate_projected_radius_recipient(self.requires_native_drawable_owner())
+        {
+            return NativeTickProgress::Failed(error);
+        }
         let (delta, absolute) = timing
             .map(|t| (t.delta_seconds(), Some(t.total_seconds())))
             .unwrap_or((dt, None));
@@ -155,6 +160,11 @@ impl GameLogic {
         mut before: impl FnMut(u32),
         mut after: impl FnMut(&mut Self),
     ) -> NativeTickProgress {
+        if let Err(error) =
+            ui.validate_projected_radius_recipient(self.requires_native_drawable_owner())
+        {
+            return NativeTickProgress::Failed(error);
+        }
         if let Some(error) = self.object_retirement_error() {
             return NativeTickProgress::Failed(error);
         }

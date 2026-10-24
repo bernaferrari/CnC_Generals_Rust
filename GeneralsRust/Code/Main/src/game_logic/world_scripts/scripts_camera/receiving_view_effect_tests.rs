@@ -103,6 +103,7 @@ fn authored_enable_slave_then_home_samples_current_receiving_owner_before_walk_r
                 &mut owner,
                 &interpreter,
                 ScriptPresentationEffects {
+                    partition: None,
                     audio: None,
                     terrain: None,
                     ui: None,
@@ -184,6 +185,7 @@ fn actual_radar_command_borrows_receiving_slave_view_without_peer_delivery() {
         &mut owner,
         0,
         ScriptPresentationEffects {
+            partition: None,
             audio: None,
             terrain: None,
             ui: None,

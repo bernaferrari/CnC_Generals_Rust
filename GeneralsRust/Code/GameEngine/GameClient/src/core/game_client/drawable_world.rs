@@ -22,6 +22,8 @@ pub struct DrawableWorld {
     /// Survives world invalidation so reused IDs do not inherit old bindings.
     pub(super) next_presentation_direct_binding_generation: u64,
     pub(super) text_bearing_drawables: Vec<DrawableId>,
+    // Last field: Drawable destructors run before their resource manager clears.
+    pub(super) projected_decals: super::native_projected_resources::NativeProjectedDecals,
 }
 
 impl DrawableWorld {
@@ -36,6 +38,7 @@ impl DrawableWorld {
             presentation_direct_drawable_bindings: HashMap::new(),
             next_presentation_direct_binding_generation: 1,
             text_bearing_drawables: Vec::new(),
+            projected_decals: Default::default(),
         }
     }
 

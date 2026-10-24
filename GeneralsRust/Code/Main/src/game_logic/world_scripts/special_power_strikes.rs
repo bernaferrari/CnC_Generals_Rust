@@ -152,7 +152,12 @@ impl GameLogic {
 
         // C++ OCL DeliveryDecal via RadiusDecalUpdate on SCUD Storm host.
         if kind == HostSuperweaponKind::ScudStorm {
-            let _ = self.create_delivery_radius_decal(source_object, target_position);
+            let _ = self.create_delivery_radius_decal_with_effects(
+                source_object,
+                target_position,
+                0.0,
+                effects,
+            );
         }
         // C++ SpectreGunshipDeploymentUpdate::initiateIntent residual: the
         // first passing deployment module spawns its GunshipTemplateName and
@@ -326,8 +331,12 @@ impl GameLogic {
                 }
                 OclNuggetKind::Attack(ocl) => {
                     // C++ AttackNugget::create — 9 flying missiles own the warhead.
-                    if self.execute_ocl_attack(ocl, source_object, target_position)
-                        && kind == HostSuperweaponKind::ScudStorm
+                    if self.execute_ocl_attack_with_effects(
+                        ocl,
+                        source_object,
+                        target_position,
+                        effects,
+                    ) && kind == HostSuperweaponKind::ScudStorm
                     {
                         if let Some(s) = self.special_power_strikes.get_mut(id) {
                             s.live_scud_delivery = true;
@@ -552,10 +561,13 @@ impl GameLogic {
         );
         if let Some(oid) = object_id {
             if let Some(o) = self.objects.get_mut(&oid) {
-                o.shroud_clearing_range = range;
                 o.vision_range = range;
                 o.note_producer(source_object);
                 o.owner_player_id = Some(player_id);
+                o.set_shroud_clearing_range_with_partition_owner(
+                    range,
+                    &mut self.partition_manager,
+                );
             }
         }
 
@@ -1239,10 +1251,14 @@ impl GameLogic {
             }
             if let Some(obj) = self.objects.get_mut(&gid) {
                 if let Some(angle) = apply_ori {
-                    obj.set_orientation(angle);
+                    obj.set_orientation_with_partition_owner(angle, &mut self.partition_manager);
                 }
                 if let Some(p) = apply_pos {
-                    obj.set_position_with_effects(p, tree_move_frame, effects);
+                    obj.set_position_with_effects(
+                        p,
+                        tree_move_frame,
+                        &mut effects.reborrow_for_object(&mut self.partition_manager),
+                    );
                 }
                 let p = obj.get_position();
                 let team = obj.team;

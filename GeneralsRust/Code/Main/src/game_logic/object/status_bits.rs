@@ -446,33 +446,63 @@ impl Object {
     }
 
     fn apply_script_status_disabled_side_effects(&mut self, disabled: bool) {
+        self.apply_script_status_disabled_with_partition_context(disabled, None);
+    }
+    pub(crate) fn set_script_disabled_with_partition_owner(
+        &mut self,
+        disabled: bool,
+        partition: &mut crate::game_logic::partition_manager::PartitionManager,
+    ) {
+        self.apply_script_status_disabled_with_partition_context(disabled, Some(partition));
+    }
+    fn apply_script_status_disabled_with_partition_context(
+        &mut self,
+        disabled: bool,
+        partition: Option<&mut crate::game_logic::partition_manager::PartitionManager>,
+    ) {
+        self.require_partition_owner(partition.as_deref());
         if self.status.disabled_script_disabled == disabled {
             return;
         }
-        let was_disabled = self.is_disabled();
-        self.set_status_disabled_script_disabled(disabled);
-        self.handle_partition_cell_maintenance();
-        let now_disabled = self.is_disabled();
-        if !was_disabled && now_disabled {
-            self.on_disabled_edge(true);
-        } else if was_disabled && !now_disabled {
-            self.on_disabled_edge(false);
+        // C++ setScriptStatus1019: dirty before the single disabled callback.
+        if let Some(partition) = partition {
+            partition.mark_receiving_object_dirty(
+                self.id.0,
+                &self.visual_draw_identity_token,
+                true,
+            );
         }
+        self.set_status_disabled_script_disabled(disabled);
     }
 
     fn apply_script_status_underpowered_side_effects(&mut self, underpowered: bool) {
+        self.apply_script_status_underpowered_with_partition_context(underpowered, None);
+    }
+    pub(crate) fn set_script_underpowered_with_partition_owner(
+        &mut self,
+        underpowered: bool,
+        partition: &mut crate::game_logic::partition_manager::PartitionManager,
+    ) {
+        self.apply_script_status_underpowered_with_partition_context(underpowered, Some(partition));
+    }
+    fn apply_script_status_underpowered_with_partition_context(
+        &mut self,
+        underpowered: bool,
+        partition: Option<&mut crate::game_logic::partition_manager::PartitionManager>,
+    ) {
+        self.require_partition_owner(partition.as_deref());
         if self.status.disabled_script_underpowered == underpowered {
             return;
         }
-        let was_disabled = self.is_disabled();
-        self.set_status_disabled_script_underpowered(underpowered);
-        self.handle_partition_cell_maintenance();
-        let now_disabled = self.is_disabled();
-        if !was_disabled && now_disabled {
-            self.on_disabled_edge(true);
-        } else if was_disabled && !now_disabled {
-            self.on_disabled_edge(false);
+        // C++ setScriptStatus1019: dirty before the single disabled callback.
+        if let Some(partition) = partition {
+            partition.mark_receiving_object_dirty(
+                self.id.0,
+                &self.visual_draw_identity_token,
+                true,
+            );
         }
+        self.set_status_disabled_script_underpowered(underpowered);
     }
 
     pub(crate) fn set_awestruck_until(&mut self, deadline: u32, frame: u32) {
@@ -547,14 +577,38 @@ impl Object {
 
     /// C++ `ScriptActions::changeObjectPanelFlagForSingleObject` live residual.
     pub fn apply_object_panel_flag(&mut self, flag_to_change: &str, new_val: bool) {
+        self.apply_object_panel_flag_with_partition_context(flag_to_change, new_val, None);
+    }
+    pub(crate) fn apply_object_panel_flag_with_partition_owner(
+        &mut self,
+        flag_to_change: &str,
+        new_val: bool,
+        partition: &mut crate::game_logic::partition_manager::PartitionManager,
+    ) {
+        self.apply_object_panel_flag_with_partition_context(
+            flag_to_change,
+            new_val,
+            Some(partition),
+        );
+    }
+    fn apply_object_panel_flag_with_partition_context(
+        &mut self,
+        flag_to_change: &str,
+        new_val: bool,
+        partition: Option<&mut crate::game_logic::partition_manager::PartitionManager>,
+    ) {
         let normalized = flag_to_change
             .chars()
             .filter(|c| !c.is_ascii_whitespace() && *c != '_')
             .collect::<String>()
             .to_ascii_lowercase();
         match normalized.as_str() {
-            "enabled" => self.set_script_disabled(!new_val),
-            "powered" => self.set_script_underpowered(!new_val),
+            "enabled" => {
+                self.apply_script_status_disabled_with_partition_context(!new_val, partition)
+            }
+            "powered" => {
+                self.apply_script_status_underpowered_with_partition_context(!new_val, partition)
+            }
             "unsellable" => self.set_script_unsellable(new_val),
             "indestructible" => self.set_indestructible(new_val),
             "playertargetable" => self.set_script_targetable(new_val),

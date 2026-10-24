@@ -421,7 +421,7 @@ impl GameLogic {
         {
             self.update_radar_van_pings_with_effects(&mut ui);
         }
-        self.update_radar_scans();
+        self.update_radar_scans_with_effects(&mut ui);
 
         // Host SpySatellite residual: expire temporary FOW reveals (undo lookers).
         // Fail-closed vs full OCL SpySatellitePing / DynamicShroudClearingRangeUpdate.
@@ -429,7 +429,7 @@ impl GameLogic {
         {
             self.update_spy_satellite_pings_with_effects(&mut ui);
         }
-        self.update_spy_satellites();
+        self.update_spy_satellites_with_effects(&mut ui);
         crate::command_executor::tick_live_beacon_client_updates(self);
 
         // Host CIA Intelligence residual: expire vision-spied marks + FOW undos.
@@ -682,7 +682,7 @@ impl GameLogic {
         self.tick_airfield_runway_clear();
         self.tick_shock_stun_all_with_effects(&mut ui);
         // C++ PartitionManager collide residual (broadphase fail-closed O(n²)).
-        self.tick_physics_collisions_all_with_effects(&mut ui);
+        self.integrate_owned_physics_motion_with_effects(&mut ui);
 
         // Admit accepted shots from this session's CombatSystem before flight.
         // The same owner applies ordered impact damage and body callbacks.
@@ -832,7 +832,7 @@ impl GameLogic {
                 }
                 if let Some(owner) = self.objects.get(&shooter_id) {
                     if owner.is_kind_of(crate::game_logic::KindOf::Vehicle) {
-                        let geom = &owner.thing().template.geometry_info;
+                        let geom = &(*owner.geometry_info());
                         self.projectile_streams.apply_vehicle_roof_skim(
                             shooter_id,
                             owner.get_position(),
@@ -945,8 +945,7 @@ impl GameLogic {
         // C++: ThePartitionManager->UPDATE();
         // Spatial partition updated AFTER all objects moved and BEFORE death
         // cleanup so spatial queries during cleanup use correct positions.
-        // Note: The gamelogic crate's full update_pipeline also runs its own
-        // partition manager update (tick_gamelogic_crate in cnc_game_engine.rs).
+        self.update_owned_partition_with_effects(&mut ui);
 
         // -----------------------------------------------------------------------
         // Phase 13: Death/Cleanup (C++ line 3762)

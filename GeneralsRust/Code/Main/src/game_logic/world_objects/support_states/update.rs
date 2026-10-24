@@ -3,62 +3,12 @@ use super::super::super::*;
 use super::guard_states::GUARD_CHASE_PHASE_INNER;
 use super::special_abilities::{LeftoverSaTick, clear_raising_flag_model};
 
+#[path = "update/rider_scuttle.rs"]
+mod rider_scuttle;
+#[path = "update/support_order_transitions.rs"]
+mod support_order_transitions;
+
 impl GameLogic {
-    /// C++ `aiDock(bestCenter)` — reserve a DockUpdate approach point.
-    /// Do not path at the building center and do not ignore the structure.
-    pub(super) fn begin_return_to_supply_center(
-        &mut self,
-        object_id: ObjectId,
-        team: Team,
-        owner_player_id: Option<u32>,
-        position: glam::Vec3,
-    ) {
-        let Some(center_id) =
-            self.preferred_or_allied_supply_center(object_id, team, owner_player_id, position)
-        else {
-            return;
-        };
-        self.set_ai_state_decision_aware(object_id, AIState::ReturningResources);
-        let _ = self.try_claim_dock(center_id, object_id);
-    }
-
-    fn release_dozer_repair_order(&mut self, object_id: ObjectId) {
-        if let Some(obj) = self.objects.get_mut(&object_id) {
-            obj.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
-                &mut self.queued_audio_events,
-            ));
-            obj.ignored_obstacle_id = None;
-            obj.target = None;
-            obj.target_location = None;
-
-            obj.set_status_force_attack(false);
-            obj.set_status_attacking(false);
-            obj.set_actively_constructing(false);
-        }
-        self.set_ai_state_decision_aware(object_id, AIState::Idle);
-        {}
-        self.dozer_internal_task_complete(object_id, true);
-        let _ = self.dozer_idle_resume_pending_build(object_id);
-    }
-
-    fn release_rejected_special(&mut self, object_id: ObjectId) {
-        self.pending_special_abilities.remove(&object_id);
-        if let Some(obj) = self.objects.get_mut(&object_id) {
-            obj.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
-                &mut self.queued_audio_events,
-            ));
-            obj.ignored_obstacle_id = None;
-            obj.clear_target(&mut crate::game_logic::ObjectAudio::queue(
-                &mut self.queued_audio_events,
-            ));
-            if obj.ai_state != AIState::Idle {
-                obj.set_ai_state(
-                    AIState::Idle,
-                    &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
-                );
-            }
-        }
-    }
     pub(in super::super::super) fn update_support_states(
         &mut self,
         object_ids: &[ObjectId],
@@ -742,16 +692,17 @@ impl GameLogic {
                                     continue;
                                 }
                                 let transferred = self
-                                    .with_object_recrew_feedback(
+                                    .with_object_recrew_feedback_and_partition(
                                         container_id,
-                                        |vehicle, ownership, audio, feedback| {
-                                            vehicle.apply_pilot_recrew(
+                                        |vehicle, ownership, audio, feedback, partition| {
+                                            vehicle.apply_pilot_recrew_with_partition_owner(
                                                 pilot_team,
                                                 pilot_owner_player_id,
                                                 pilot_level,
                                                 ownership,
                                                 audio,
                                                 feedback,
+                                                partition,
                                             )
                                         },
                                     )
@@ -833,10 +784,11 @@ impl GameLogic {
                                             ),
                                         );
                                     }
-                                    veh.set_team_and_owner(
+                                    veh.set_team_and_owner_with_partition_owner(
                                         inf_team,
                                         inf_owner,
                                         &mut self.ownership_events,
+                                        &mut self.partition_manager,
                                     );
                                     veh.set_private_captured(true);
                                 }
@@ -1243,7 +1195,11 @@ impl GameLogic {
                         {
                             // Capacity race: undo local occupant add.
                             if let Some(container) = self.objects.get_mut(&container_id) {
-                                container.remove_occupant(object_id, &mut self.ownership_events);
+                                container.remove_occupant_with_partition_owner(
+                                    object_id,
+                                    &mut self.ownership_events,
+                                    &mut self.partition_manager,
+                                );
                             }
                             if let Some(obj) = self.objects.get_mut(&object_id) {
                                 obj.clear_target(&mut crate::game_logic::ObjectAudio::queue(
@@ -1267,7 +1223,11 @@ impl GameLogic {
                                 .record_enter(idx, object_id, container_id, team);
                         if !ok {
                             if let Some(container) = self.objects.get_mut(&container_id) {
-                                container.remove_occupant(object_id, &mut self.ownership_events);
+                                container.remove_occupant_with_partition_owner(
+                                    object_id,
+                                    &mut self.ownership_events,
+                                    &mut self.partition_manager,
+                                );
                             }
                             if let Some(obj) = self.objects.get_mut(&object_id) {
                                 obj.clear_target(&mut crate::game_logic::ObjectAudio::queue(
@@ -1307,11 +1267,26 @@ impl GameLogic {
                         obj.target_location = None;
                         obj.set_status_force_attack(false);
                         obj.target = Some(container_id);
-                        obj.set_contained_by_enclosing(Some(container_id), enclosing_garrison);
+                        let containment_actor_id = obj.id;
+                        Self::set_owned_containment_in_parts(
+                            &mut self.objects,
+                            &mut self.partition_manager,
+                            containment_actor_id,
+                            Some(container_id),
+                            enclosing_garrison,
+                        );
+                        let obj = self
+                            .objects
+                            .get_mut(&containment_actor_id)
+                            .expect("containment operation preserves this birth");
                         // C++ onContaining snaps enclosing occupants to the building
                         // origin. Fire Base (IsEnclosingContainer=No) stays at stations.
                         if enclosing_garrison || !container_is_structure {
-                            obj.set_position_with_effects(container_pos, tree_move_frame, effects);
+                            obj.set_position_with_effects(
+                                container_pos,
+                                tree_move_frame,
+                                &mut effects.reborrow_for_object(&mut self.partition_manager),
+                            );
                             {}
                         }
                         let __ai_st = if container_is_heal_contain || container_is_tunnel_network {
@@ -2174,11 +2149,12 @@ impl GameLogic {
                             self.try_eva_vehicle_stolen(special_target_id);
                             let donor_snap = self.objects.get(&object_id).cloned();
                             if let Some(target) = self.objects.get_mut(&special_target_id) {
-                                target.apply_hijacked_from(
+                                target.apply_hijacked_from_with_partition_owner(
                                     donor_snap.as_ref(),
                                     &mut crate::game_logic::ObjectAudio::queue(
                                         &mut self.queued_audio_events,
                                     ),
+                                    &mut self.partition_manager,
                                 );
                             }
                             match owner_player_id {
@@ -2191,7 +2167,11 @@ impl GameLogic {
                                 }
                                 None => {
                                     if let Some(target) = self.objects.get_mut(&special_target_id) {
-                                        target.set_team(team, &mut self.ownership_events);
+                                        target.set_team_with_partition_owner(
+                                            team,
+                                            &mut self.ownership_events,
+                                            &mut self.partition_manager,
+                                        );
                                     }
                                 }
                             }
@@ -2232,16 +2212,15 @@ impl GameLogic {
                                 && self.vehicle_supports_hijacker_ride(special_target_id)
                             {
                                 if let Some(h) = self.objects.get_mut(&object_id) {
-                                    h.begin_hijacker_in_vehicle(
+                                    h.begin_hijacker_in_vehicle_with_partition_owner(
                                         special_target_id,
                                         &mut crate::game_logic::ObjectAudio::queue(
                                             &mut self.queued_audio_events,
                                         ),
+                                        &mut self.partition_manager,
                                     );
                                 }
                                 self.admit_object_drawable_deselection(object_id);
-                                // C++ ThePartitionManager->unRegisterObject(hijacker).
-                                self.partition_manager.unregister_object(object_id.0);
                             } else {
                                 self.mark_destroyed_authority_aware(object_id, None);
                                 // Suppress SlowDeath/jet/heli peels so consume sticks.
@@ -2518,7 +2497,11 @@ impl GameLogic {
                                         &mut self.queued_audio_events,
                                     ),
                                 );
-                                target.set_team(Team::Neutral, &mut self.ownership_events);
+                                target.set_team_with_partition_owner(
+                                    Team::Neutral,
+                                    &mut self.ownership_events,
+                                    &mut self.partition_manager,
+                                );
                                 let sniped_vehicle =
                                     target.is_kind_of(crate::game_logic::KindOf::Vehicle);
                                 drop(target);
@@ -2783,13 +2766,14 @@ impl GameLogic {
                             }
                             // Snapshot donor residual (vision/vet) before consume.
                             let donor_snap = self.objects.get(&object_id).cloned();
-                            self.with_object_veterancy_feedback(
+                            self.with_object_veterancy_feedback_and_partition(
                                 special_target_id,
-                                |target, audio, feedback| {
-                                    target.apply_convert_to_car_bomb_from(
+                                |target, audio, feedback, partition| {
+                                    target.apply_convert_to_car_bomb_from_with_partition_owner(
                                         donor_snap.as_ref(),
                                         audio,
                                         feedback,
+                                        partition,
                                     );
                                 },
                             );
@@ -2803,7 +2787,11 @@ impl GameLogic {
                                 }
                                 None => {
                                     if let Some(target) = self.objects.get_mut(&special_target_id) {
-                                        target.set_team(team, &mut self.ownership_events);
+                                        target.set_team_with_partition_owner(
+                                            team,
+                                            &mut self.ownership_events,
+                                            &mut self.partition_manager,
+                                        );
                                     }
                                 }
                             }
@@ -3165,8 +3153,8 @@ impl GameLogic {
                             .get(&object_id)
                             .map(|o| {
                                 crate::game_logic::host_supply_gather::host_bounding_circle_radius(
-                                    o.thing().template.geometry_info.authored,
-                                    o.thing().template.geometry_info.bounding_circle_radius(),
+                                    (*o.geometry_info()).authored,
+                                    (*o.geometry_info()).bounding_circle_radius(),
                                     o.thing().geometry.radius,
                                 )
                             })
@@ -3176,8 +3164,8 @@ impl GameLogic {
                             .get(&source_id)
                             .map(|o| {
                                 crate::game_logic::host_supply_gather::host_bounding_circle_radius(
-                                    o.thing().template.geometry_info.authored,
-                                    o.thing().template.geometry_info.bounding_circle_radius(),
+                                    (*o.geometry_info()).authored,
+                                    (*o.geometry_info()).bounding_circle_radius(),
                                     o.thing().geometry.radius,
                                 )
                             })
@@ -3207,7 +3195,8 @@ impl GameLogic {
                                         obj.set_position_with_effects(
                                             pos,
                                             tree_move_frame,
-                                            effects,
+                                            &mut effects
+                                                .reborrow_for_object(&mut self.partition_manager),
                                         );
                                     }
                                 }
@@ -3309,8 +3298,8 @@ impl GameLogic {
                                 .get(&object_id)
                                 .map(|o| {
                                     crate::game_logic::host_supply_gather::host_bounding_circle_radius(
-                                        o.thing().template.geometry_info.authored,
-                                        o.thing().template.geometry_info.bounding_circle_radius(),
+                                        (*o.geometry_info()).authored,
+                                        (*o.geometry_info()).bounding_circle_radius(),
                                         o.thing().geometry.radius,
                                     )
                                 })
@@ -3320,8 +3309,8 @@ impl GameLogic {
                                 .get(&source_id)
                                 .map(|o| {
                                     crate::game_logic::host_supply_gather::host_bounding_circle_radius(
-                                        o.thing().template.geometry_info.authored,
-                                        o.thing().template.geometry_info.bounding_circle_radius(),
+                                        (*o.geometry_info()).authored,
+                                        (*o.geometry_info()).bounding_circle_radius(),
                                         o.thing().geometry.radius,
                                     )
                                 })
@@ -3746,12 +3735,15 @@ impl GameLogic {
                                             .contains("supplypile")
                                 });
                                 if let Some(obj) = self.objects.get_mut(&object_id) {
-                                    obj.set_order_target(
+                                    obj.set_order_target_with_operation(
                                         Some(next),
                                         &mut self.attack_events,
                                         &mut crate::game_logic::ObjectAudio::queue(
                                             &mut self.queued_audio_events,
                                         ),
+                                        self.frame,
+                                        &mut effects
+                                            .reborrow_for_object(&mut self.partition_manager),
                                     );
                                     obj.supply_truck_state = SupplyTruckState::Wanting;
                                     obj.supply_truck_next_dock_action_frame = 0;
@@ -3818,7 +3810,18 @@ impl GameLogic {
                         .or(target_id);
                     let Some(container_id) = container_id else {
                         if let Some(obj) = self.objects.get_mut(&object_id) {
-                            obj.set_contained_by(None);
+                            let containment_actor_id = obj.id;
+                            Self::set_owned_containment_in_parts(
+                                &mut self.objects,
+                                &mut self.partition_manager,
+                                containment_actor_id,
+                                None,
+                                true,
+                            );
+                            let obj = self
+                                .objects
+                                .get_mut(&containment_actor_id)
+                                .expect("containment operation preserves this birth");
                             obj.clear_target(&mut crate::game_logic::ObjectAudio::queue(
                                 &mut self.queued_audio_events,
                             ));
@@ -3866,7 +3869,18 @@ impl GameLogic {
                     })
                     else {
                         if let Some(obj) = self.objects.get_mut(&object_id) {
-                            obj.set_contained_by(None);
+                            let containment_actor_id = obj.id;
+                            Self::set_owned_containment_in_parts(
+                                &mut self.objects,
+                                &mut self.partition_manager,
+                                containment_actor_id,
+                                None,
+                                true,
+                            );
+                            let obj = self
+                                .objects
+                                .get_mut(&containment_actor_id)
+                                .expect("containment operation preserves this birth");
                             obj.clear_target(&mut crate::game_logic::ObjectAudio::queue(
                                 &mut self.queued_audio_events,
                             ));
@@ -3876,7 +3890,18 @@ impl GameLogic {
 
                     if !container_alive || !container_has_unit {
                         if let Some(obj) = self.objects.get_mut(&object_id) {
-                            obj.set_contained_by(None);
+                            let containment_actor_id = obj.id;
+                            Self::set_owned_containment_in_parts(
+                                &mut self.objects,
+                                &mut self.partition_manager,
+                                containment_actor_id,
+                                None,
+                                true,
+                            );
+                            let obj = self
+                                .objects
+                                .get_mut(&containment_actor_id)
+                                .expect("containment operation preserves this birth");
                             obj.clear_target(&mut crate::game_logic::ObjectAudio::queue(
                                 &mut self.queued_audio_events,
                             ));
@@ -3886,8 +3911,23 @@ impl GameLogic {
 
                     let pin_pos = station_pin.unwrap_or(container_pos);
                     if let Some(obj) = self.objects.get_mut(&object_id) {
-                        obj.set_contained_by_enclosing(Some(container_id), enclosing);
-                        obj.set_position_with_effects(pin_pos, tree_move_frame, effects);
+                        let containment_actor_id = obj.id;
+                        Self::set_owned_containment_in_parts(
+                            &mut self.objects,
+                            &mut self.partition_manager,
+                            containment_actor_id,
+                            Some(container_id),
+                            enclosing,
+                        );
+                        let obj = self
+                            .objects
+                            .get_mut(&containment_actor_id)
+                            .expect("containment operation preserves this birth");
+                        obj.set_position_with_effects(
+                            pin_pos,
+                            tree_move_frame,
+                            &mut effects.reborrow_for_object(&mut self.partition_manager),
+                        );
                         {}
                         obj.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                             &mut self.queued_audio_events,
@@ -3929,36 +3969,7 @@ impl GameLogic {
             }
         }
 
-        // C++ RiderChangeContain::update: after an ordinary rider exit, the
-        // bike remains as an unselectable toppled shell for ScuttleDelay, then
-        // dies with DEATH_TOPPLED.  Replacement keeps m_containing=true and
-        // therefore never reaches this list.
-        let scuttles_due: Vec<ObjectId> = self
-            .objects
-            .registered()
-            .filter_map(|(&id, object)| {
-                let delay = object
-                    .thing()
-                    .template
-                    .contain_module
-                    .rider_change_scuttle_delay_frames?;
-                let started = object.rider_change_scuttled_on_frame;
-                (object.thing().template.contain_module.kind
-                    == crate::game_logic::ContainModuleKind::RiderChange
-                    && started != 0
-                    && !object.status.destroyed
-                    && self.frame >= started.saturating_add(delay))
-                .then_some(id)
-            })
-            .collect();
-        for object_id in scuttles_due {
-            if let Some(object) = self.objects.get_mut(&object_id) {
-                object.status.death_type =
-                    crate::game_logic::host_usa_pilot::HostDeathType::Toppled;
-            }
-            self.mark_destroyed_authority_aware(object_id, None);
-            self.mark_object_for_destruction_with_effects(object_id, None, effects);
-        }
+        self.tick_scuttled_riders_with_effects(effects);
 
         // C++ HealContain::update + TunnelContain::update → TunnelTracker::healObjects.
         self.tick_heal_contain_and_tunnel_with_effects(effects);

@@ -224,7 +224,8 @@ fn parse_special_power_template_field(
     tokens: &[&str],
 ) -> Result<(), INIError> {
     let name = parse_ascii_string(tokens)?;
-    data.special_power_template = Some(find_or_create_special_power_template(&name));
+    data.special_power_template =
+        crate::object::special_power_template::special_power_template_from_ini(_ini, &name);
     Ok(())
 }
 

@@ -42,8 +42,8 @@ fn helipad_heals_landed_helo_without_stall() {
         )
         .unwrap();
     {
-        let h = logic.objects.get_mut(&heli).unwrap();
-        h.set_contained_by(Some(pad));
+        let (h, fixture_partition_h) = logic.host_object_and_partition_mut(heli).unwrap();
+        h.set_contained_by_with_partition_owner(Some(pad), true, fixture_partition_h);
         h.set_ai_state(
             AIState::Docked,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
@@ -116,8 +116,8 @@ fn taxiing_jet_heals_from_reserved_stall() {
     }
     assert!(logic.try_return_to_base_rearm(jet_id));
     {
-        let jet = logic.objects.get_mut(&jet_id).unwrap();
-        jet.set_contained_by(None);
+        let (jet, fixture_partition_jet) = logic.host_object_and_partition_mut(jet_id).unwrap();
+        jet.set_contained_by_with_partition_owner(None, true, fixture_partition_jet);
         jet.status.airborne_target = false;
         jet.jet_ai.takeoff_in_progress = true;
         jet.health.current = 40.0;
@@ -1100,11 +1100,7 @@ fn out_of_weapon_range_object_distance() {
         o
     });
     assert!(!logic.out_of_weapon_range_object(aid, vid));
-    logic
-        .objects
-        .get_mut(&vid)
-        .unwrap()
-        .set_position(Vec3::new(200.0, 0.0, 0.0));
+    logic.set_fixture_object_position(vid, Vec3::new(200.0, 0.0, 0.0));
     assert!(logic.out_of_weapon_range_object(aid, vid));
 }
 
@@ -1666,8 +1662,13 @@ fn hijack_hides_in_eject_capable_vehicle() {
 
     // Move vehicle → rider follows
     {
-        let v = logic.objects.get_mut(&vid).unwrap();
-        v.set_position(glam::Vec3::new(40.0, 0.0, 5.0));
+        let (v, fixture_partition_v) = logic.host_object_and_partition_mut(vid).unwrap();
+        v.set_position_with_partition_owner(
+            glam::Vec3::new(40.0, 0.0, 5.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_v,
+        );
     }
     logic.tick_hijacker_updates();
     let hp = logic.objects[&hid].get_position();
@@ -2094,8 +2095,8 @@ fn parachute_landing_override_steers_xz() {
         }
     }
     {
-        let r = logic.objects.get_mut(&rider_id).unwrap();
-        r.set_contained_by(Some(chute_id));
+        let (r, fixture_partition_r) = logic.host_object_and_partition_mut(rider_id).unwrap();
+        r.set_contained_by_with_partition_owner(Some(chute_id), true, fixture_partition_r);
         r.apply_eject_parachuting();
         r.set_position(glam::Vec3::new(0.0, start_y, 0.0));
     }

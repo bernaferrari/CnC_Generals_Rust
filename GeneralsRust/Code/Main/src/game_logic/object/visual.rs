@@ -93,12 +93,32 @@ impl Object {
         }
     }
 
+    pub(crate) fn set_team_with_partition_owner(
+        &mut self,
+        team: Team,
+        ownership_events: &mut crate::game_logic::host_owner_log::OwnershipEvents,
+        partition: &mut crate::game_logic::partition_manager::PartitionManager,
+    ) {
+        if let Some(event) = self.set_team_state_with_partition_context(team, Some(partition)) {
+            ownership_events.record(event.object, event.team, event.owner_player_id);
+        }
+    }
+
     /// Canonical allegiance mutation for a detached body operation; live callers
     /// immediately admit its immutable observation into their receiving output.
     pub(super) fn set_team_state(
         &mut self,
         team: Team,
     ) -> Option<crate::game_logic::host_owner_log::HostOwnerEvent> {
+        self.set_team_state_with_partition_context(team, None)
+    }
+
+    pub(super) fn set_team_state_with_partition_context(
+        &mut self,
+        team: Team,
+        partition: Option<&mut crate::game_logic::partition_manager::PartitionManager>,
+    ) -> Option<crate::game_logic::host_owner_log::HostOwnerEvent> {
+        self.require_partition_owner(partition.as_deref());
         let changed = self.team != team;
         if changed {
             self.team = team;
@@ -115,7 +135,9 @@ impl Object {
         self.apply_fake_building_terrain_decal();
         if changed {
             // C++ Team::setControllingPlayer / Object::setTeam → handlePartitionCellMaintenance.
-            self.handle_partition_cell_maintenance();
+            if let Some(partition) = partition {
+                self.handle_partition_cell_maintenance_with_partition_owner(partition);
+            }
         }
         changed.then_some(crate::game_logic::host_owner_log::HostOwnerEvent {
             object: self.id,
@@ -144,6 +166,35 @@ impl Object {
         owner_player_id: Option<u32>,
         ownership_events: &mut crate::game_logic::host_owner_log::OwnershipEvents,
     ) {
+        self.set_team_and_owner_with_partition_context(
+            team,
+            owner_player_id,
+            ownership_events,
+            None,
+        );
+    }
+    pub(crate) fn set_team_and_owner_with_partition_owner(
+        &mut self,
+        team: Team,
+        owner_player_id: Option<u32>,
+        ownership_events: &mut crate::game_logic::host_owner_log::OwnershipEvents,
+        partition: &mut crate::game_logic::partition_manager::PartitionManager,
+    ) {
+        self.set_team_and_owner_with_partition_context(
+            team,
+            owner_player_id,
+            ownership_events,
+            Some(partition),
+        );
+    }
+    pub(super) fn set_team_and_owner_with_partition_context(
+        &mut self,
+        team: Team,
+        owner_player_id: Option<u32>,
+        ownership_events: &mut crate::game_logic::host_owner_log::OwnershipEvents,
+        partition: Option<&mut crate::game_logic::partition_manager::PartitionManager>,
+    ) {
+        self.require_partition_owner(partition.as_deref());
         let changed = self.team != team || self.owner_player_id != owner_player_id;
         self.team = team;
         self.team_color = team.get_color();
@@ -155,7 +206,9 @@ impl Object {
         self.apply_fake_building_terrain_decal();
         if changed {
             // C++ Object::setTeam then onCapture handlePartitionCellMaintenance.
-            self.handle_partition_cell_maintenance();
+            if let Some(partition) = partition {
+                self.handle_partition_cell_maintenance_with_partition_owner(partition);
+            }
         }
     }
 

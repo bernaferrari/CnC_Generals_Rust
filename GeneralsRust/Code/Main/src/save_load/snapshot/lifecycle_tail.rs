@@ -207,11 +207,18 @@ fn commit_lifecycle_candidates(
             )));
         }
     }
-    for (id, candidate) in candidates {
-        *game_logic
+    for (id, mut candidate) in candidates {
+        let existing = game_logic
             .objects
             .get_mut(&id)
-            .expect("validated continuation slot") = candidate;
+            .expect("validated continuation slot");
+        // This is a validated continuation of the same lifetime, not a birth
+        // or an observation clone admission. Move its mutation rights exactly
+        // once; repeated saved envelopes transfer from the preceding commit.
+        candidate
+            .take_restored_runtime_attachments_from(existing)
+            .map_err(|error| SaveLoadError::Corrupted(error.to_owned()))?;
+        *existing = candidate;
     }
     Ok(())
 }

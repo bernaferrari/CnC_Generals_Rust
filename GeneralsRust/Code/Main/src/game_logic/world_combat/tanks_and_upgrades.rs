@@ -221,10 +221,17 @@ impl GameLogic {
             let pos = battlemaster_shell_bezier_point(from, aim, t);
             if let Some(o) = self.objects.get_mut(&id) {
                 let prev = o.get_position();
-                o.set_position_with_effects(pos, self.frame, presentation_effects);
+                o.set_position_with_effects(
+                    pos,
+                    self.frame,
+                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                );
                 let d = pos - prev;
                 if d.length_squared() > 1.0e-6 {
-                    o.set_orientation(d.z.atan2(d.x));
+                    o.set_orientation_with_partition_owner(
+                        d.z.atan2(d.x),
+                        &mut self.partition_manager,
+                    );
                 }
             }
             if elapsed >= frames {
@@ -242,7 +249,11 @@ impl GameLogic {
                 o.status.destroyed = true;
                 o.status.effectively_dead = true;
                 o.battlemaster_shell_projectile = false;
-                o.set_position_with_effects(pos, self.frame, presentation_effects);
+                o.set_position_with_effects(
+                    pos,
+                    self.frame,
+                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                );
             }
             let _ = self.apply_battlemaster_residual_at_with_effects(
                 pos,
@@ -653,7 +664,7 @@ impl GameLogic {
                     return None;
                 }
                 let p = o.get_position();
-                let geom = &o.thing().template.geometry_info;
+                let geom = &(*o.geometry_info());
                 Some((
                     *id,
                     o.team,
@@ -1012,7 +1023,7 @@ impl GameLogic {
             self.health_events
                 .record_applied_heal(o.id, o.health.current);
             o.movement.velocity = dir * launch;
-            o.set_orientation(dir.z.atan2(dir.x));
+            o.set_orientation_with_partition_owner(dir.z.atan2(dir.x), &mut self.partition_manager);
         }
         self.tank_hunter_missiles_spawned = self.tank_hunter_missiles_spawned.saturating_add(1);
         Some(pid)
@@ -1093,10 +1104,17 @@ impl GameLogic {
             let step = vel.length().max(speed);
             if let Some(o) = self.objects.get_mut(&id) {
                 o.movement.velocity = vel;
-                o.set_position_with_effects(pos + vel, self.frame, presentation_effects);
+                o.set_position_with_effects(
+                    pos + vel,
+                    self.frame,
+                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                );
                 o.tank_hunter_missile_travelled += step;
                 o.tank_hunter_missile_aim = Some([aim.x, aim.y, aim.z]);
-                o.set_orientation(vel.z.atan2(vel.x));
+                o.set_orientation_with_partition_owner(
+                    vel.z.atan2(vel.x),
+                    &mut self.partition_manager,
+                );
             }
             let new_pos = pos + vel;
             let near = (aim - new_pos).length() < 6.0;
@@ -1115,7 +1133,11 @@ impl GameLogic {
                 o.status.destroyed = true;
                 o.status.effectively_dead = true;
                 o.tank_hunter_missile_projectile = false;
-                o.set_position_with_effects(pos, self.frame, presentation_effects);
+                o.set_position_with_effects(
+                    pos,
+                    self.frame,
+                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                );
             }
             let _ = self.apply_tank_hunter_residual_at_with_effects(
                 pos,
@@ -1513,10 +1535,17 @@ impl GameLogic {
             let pos = flashbang_shell_bezier_point(from, aim, t);
             if let Some(o) = self.objects.get_mut(&id) {
                 let prev = o.get_position();
-                o.set_position_with_effects(pos, self.frame, presentation_effects);
+                o.set_position_with_effects(
+                    pos,
+                    self.frame,
+                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                );
                 let d = pos - prev;
                 if d.length_squared() > 1.0e-6 {
-                    o.set_orientation(d.z.atan2(d.x));
+                    o.set_orientation_with_partition_owner(
+                        d.z.atan2(d.x),
+                        &mut self.partition_manager,
+                    );
                 }
             }
             if elapsed >= frames {
@@ -1534,7 +1563,11 @@ impl GameLogic {
                 o.status.destroyed = true;
                 o.status.effectively_dead = true;
                 o.flashbang_grenade_projectile = false;
-                o.set_position_with_effects(pos, self.frame, presentation_effects);
+                o.set_position_with_effects(
+                    pos,
+                    self.frame,
+                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                );
             }
             let _ = self.apply_ranger_residual_at_with_effects(
                 pos,
@@ -1788,10 +1821,17 @@ impl GameLogic {
             let new_pos = pos + vel;
             if let Some(o) = self.objects.get_mut(&id) {
                 o.movement.velocity = vel;
-                o.set_position_with_effects(new_pos, self.frame, presentation_effects);
+                o.set_position_with_effects(
+                    new_pos,
+                    self.frame,
+                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                );
                 o.humvee_tow_travelled += step;
                 o.humvee_tow_aim = Some([aim.x, aim.y, aim.z]);
-                o.set_orientation(vel.z.atan2(vel.x));
+                o.set_orientation_with_partition_owner(
+                    vel.z.atan2(vel.x),
+                    &mut self.partition_manager,
+                );
             }
             let lock = if air {
                 dist <= HUMVEE_AIR_TOW_MISSILE_LOCK_DISTANCE
@@ -1814,7 +1854,11 @@ impl GameLogic {
                 o.status.destroyed = true;
                 o.status.effectively_dead = true;
                 o.humvee_tow_projectile = false;
-                o.set_position_with_effects(pos, self.frame, presentation_effects);
+                o.set_position_with_effects(
+                    pos,
+                    self.frame,
+                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                );
             }
             let _ = self.apply_humvee_tow_residual_at_with_effects(
                 pos,
@@ -1987,10 +2031,17 @@ impl GameLogic {
             let new_pos = pos + vel;
             if let Some(o) = self.objects.get_mut(&id) {
                 o.movement.velocity = vel;
-                o.set_position_with_effects(new_pos, self.frame, presentation_effects);
+                o.set_position_with_effects(
+                    new_pos,
+                    self.frame,
+                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                );
                 o.dragon_flame_travelled += step;
                 o.dragon_flame_aim = Some([aim.x, aim.y, aim.z]);
-                o.set_orientation(vel.z.atan2(vel.x));
+                o.set_orientation_with_partition_owner(
+                    vel.z.atan2(vel.x),
+                    &mut self.partition_manager,
+                );
             }
             if let Some(sid) = shooter {
                 stream_pts.push((sid, new_pos, intended, aim));
@@ -2022,7 +2073,11 @@ impl GameLogic {
                 o.status.destroyed = true;
                 o.status.effectively_dead = true;
                 o.dragon_flame_projectile = false;
-                o.set_position_with_effects(pos, self.frame, presentation_effects);
+                o.set_position_with_effects(
+                    pos,
+                    self.frame,
+                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                );
             }
             let _ = self.apply_dragon_flame_residual_at_with_effects(
                 pos,
@@ -2210,10 +2265,17 @@ impl GameLogic {
             let new_pos = pos + vel;
             if let Some(o) = self.objects.get_mut(&id) {
                 o.movement.velocity = vel;
-                o.set_position_with_effects(new_pos, self.frame, presentation_effects);
+                o.set_position_with_effects(
+                    new_pos,
+                    self.frame,
+                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                );
                 o.toxin_stream_travelled += step;
                 o.toxin_stream_aim = Some([aim.x, aim.y, aim.z]);
-                o.set_orientation(vel.z.atan2(vel.x));
+                o.set_orientation_with_partition_owner(
+                    vel.z.atan2(vel.x),
+                    &mut self.partition_manager,
+                );
             }
             if let Some(sid) = shooter {
                 stream_pts.push((sid, new_pos, intended, aim));
@@ -2244,7 +2306,11 @@ impl GameLogic {
                 o.status.destroyed = true;
                 o.status.effectively_dead = true;
                 o.toxin_stream_projectile = false;
-                o.set_position_with_effects(pos, self.frame, presentation_effects);
+                o.set_position_with_effects(
+                    pos,
+                    self.frame,
+                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                );
             }
             let source_team = source
                 .and_then(|sid| self.objects.get(&sid).map(|o| o.team))

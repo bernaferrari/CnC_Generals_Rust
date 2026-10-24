@@ -113,10 +113,13 @@ impl GameLogic {
             if u.max_shots_to_fire == 0 {
                 u.max_shots_to_fire = -1;
             }
-            u.note_attack_target(
+            u.note_attack_target_with_operation(
                 victim_id,
                 &mut self.attack_events,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
+                self.frame,
+                &mut crate::game_logic::ScriptPresentationEffects::default()
+                    .reborrow_for_object(&mut self.partition_manager),
             );
             entered_attack = u.ai_state != AIState::Attacking;
             if entered_attack {
@@ -428,10 +431,12 @@ impl GameLogic {
 
         let mut entered_attack = false;
         if let Some(u) = self.objects.get_mut(&unit_id) {
-            u.note_attack_target(
+            u.note_attack_target_with_operation(
                 victim_id,
                 &mut self.attack_events,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
+                self.frame,
+                &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
             );
             u.set_status_attacking(true);
             entered_attack = !matches!(
@@ -991,7 +996,11 @@ impl GameLogic {
             let frame = self.frame;
             for pid in occupants {
                 if let Some(p) = self.objects.get_mut(&pid) {
-                    p.set_position_with_effects(pos, frame, presentation_effects);
+                    p.set_position_with_effects(
+                        pos,
+                        frame,
+                        &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                    );
                 }
             }
         }
@@ -1805,16 +1814,26 @@ impl GameLogic {
                 return AttackAimResult::Failure;
             }
             u.set_status_aiming_weapon(true);
-            u.note_attack_target(
+            u.note_attack_target_with_operation(
                 victim_id,
                 &mut self.attack_events,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
+                self.frame,
+                &mut crate::game_logic::ScriptPresentationEffects::default()
+                    .reborrow_for_object(&mut self.partition_manager),
             );
             {}
             let Some(slot) = u.selected_weapon_slot() else {
                 return AttackAimResult::Failure;
             };
-            let body_aimed = u.turn_toward_position(victim_pos, slot, max_turn_rad.max(0.05));
+            let body_aimed = u.turn_toward_position_with_operation(
+                victim_pos,
+                slot,
+                max_turn_rad.max(0.05),
+                self.frame,
+                &mut crate::game_logic::ScriptPresentationEffects::default()
+                    .reborrow_for_object(&mut self.partition_manager),
+            );
             let range_ok = u.is_within_attack_range_pos_for_slot(slot, victim_pos);
             (body_aimed, range_ok, u.turret_enabled)
         };
@@ -1958,10 +1977,12 @@ impl GameLogic {
                 return AttackFireResult::Failure;
             };
             u.set_status_firing_weapon(true);
-            u.note_attack_target(
+            u.note_attack_target_with_operation(
                 victim_id,
                 &mut self.attack_events,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
+                self.frame,
+                &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
             );
             let entered_attack = !matches!(
                 u.ai_state,
@@ -1976,7 +1997,7 @@ impl GameLogic {
             u.set_status_attacking(true);
             {}
             // TARGET_FAERIE_FIRE ROF residual when victim is painted.
-            u.prepare_autonomous_weapon_shot(
+            u.prepare_autonomous_weapon_shot_with_operation(
                 victim_id,
                 current_time,
                 victim_infantry,
@@ -1988,6 +2009,8 @@ impl GameLogic {
                     .as_ref()
                     .map(|_| &self.projectile_definitions),
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
+                self.frame,
+                &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
             )
         };
 
@@ -2437,11 +2460,7 @@ impl GameLogic {
             } else {
                 raw
             };
-            let vic_r = victim
-                .thing()
-                .template
-                .geometry_info
-                .bounding_circle_radius();
+            let vic_r = (*victim.geometry_info()).bounding_circle_radius();
             let (min_range, max_range, src_r, is_contact) = self
                 .objects
                 .get(&unit_id)
@@ -2465,7 +2484,7 @@ impl GameLogic {
                     (
                         min_r,
                         max_r,
-                        u.thing().template.geometry_info.bounding_circle_radius(),
+                        (*u.geometry_info()).bounding_circle_radius(),
                         contact,
                     )
                 })

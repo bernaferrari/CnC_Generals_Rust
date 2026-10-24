@@ -28,6 +28,12 @@ struct DestructionProbe<'a, 'b> {
     calls: usize,
 }
 impl NativeViewEffects for DestructionProbe<'_, '_> {
+    fn projected_radius_allocator(
+        &mut self,
+    ) -> Option<&mut dyn crate::game_logic::NativeProjectedRadiusAllocator> {
+        self.runtime.projected_radius_allocator()
+    }
+
     #[cfg(feature = "game_client")]
     fn body_visual_changed(
         &mut self,
@@ -378,6 +384,12 @@ struct PanicAfterActualFactoryBirth<'a, 'b> {
     calls: usize,
 }
 impl NativeViewEffects for PanicAfterActualFactoryBirth<'_, '_> {
+    fn projected_radius_allocator(
+        &mut self,
+    ) -> Option<&mut dyn crate::game_logic::NativeProjectedRadiusAllocator> {
+        self.runtime.projected_radius_allocator()
+    }
+
     #[cfg(feature = "game_client")]
     fn body_visual_changed(
         &mut self,

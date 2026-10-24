@@ -337,9 +337,7 @@ fn move_goal(game: &GameLogic, drone: crate::game_logic::ObjectId) -> [f32; 3] {
 #[test]
 fn slaved_update_recalls_past_two_times_guard_max() {
     let (mut game, master, drone) = world();
-    game.host_object_mut(master)
-        .unwrap()
-        .set_position(Vec3::new(100.0, 0.0, 0.0));
+    game.set_fixture_object_position(master, Vec3::new(100.0, 0.0, 0.0));
     game.host_object_mut(drone)
         .unwrap()
         .slaved_update
@@ -718,9 +716,9 @@ fn slave_defect_uses_original_contained_sold_and_construction_status_gates() {
             .write()
             .unwrap()
             .set_override_team_relationship(old, gamelogic::common::Relationship::Enemies);
-        let object = game.host_object_mut(drone).unwrap();
+        let (object, partition) = game.host_object_and_partition_mut(drone).unwrap();
         match gate {
-            0 => object.set_contained_by(Some(master)),
+            0 => object.set_contained_by_with_partition_owner(Some(master), true, partition),
             1 => object.status.sold = true,
             _ => object.status.under_construction = true,
         }

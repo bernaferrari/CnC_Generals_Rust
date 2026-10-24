@@ -93,8 +93,14 @@ fn first_body_callback_neutralizes_controller_before_next_incidental_collision()
 #[test]
 fn registered_dead_target_is_not_missile_target_disappearance() {
     let (mut owner, source, target) = world();
-    let target_object = owner.host_object_mut(target).unwrap();
-    target_object.set_position(Vec3::new(1000.0, 0.0, 0.0));
+    let (target_object, fixture_partition_target_object) =
+        owner.host_object_and_partition_mut(target).unwrap();
+    target_object.set_position_with_partition_owner(
+        Vec3::new(1000.0, 0.0, 0.0),
+        0,
+        &mut Default::default(),
+        fixture_partition_target_object,
+    );
     target_object.health.current = 0.0;
     assert!(!target_object.is_alive());
     let id = ObjectId(9001);

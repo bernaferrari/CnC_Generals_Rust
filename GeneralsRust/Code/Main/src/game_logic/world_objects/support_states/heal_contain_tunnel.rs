@@ -17,11 +17,10 @@ impl GameLogic {
         // C++ GarrisonContain::update: drop effectively-dead occupants so
         // FIREPOINT/STATION slots free before survivors pick a window.
         let dirty_garrisons =
-            crate::game_logic::buildings::BuildingBehavior::sweep_dead_garrison_occupants(
+            crate::game_logic::buildings::BuildingBehavior::sweep_dead_garrison_occupants_with_partition_owner(
                 &mut self.objects,
                 self.frame,
-                &mut self.ownership_events,
-            );
+                &mut self.ownership_events, &mut self.partition_manager);
         for cid in dirty_garrisons {
             self.recalc_garrison_apparent_controller(cid);
         }
@@ -383,9 +382,24 @@ impl GameLogic {
                     }
                 }
                 if let Some(unit) = self.objects.get_mut(&uid) {
-                    unit.set_contained_by(None);
-                    unit.set_position_with_effects(start, tree_move_frame, effects);
-                    unit.set_orientation(yaw);
+                    let containment_actor_id = unit.id;
+                    Self::set_owned_containment_in_parts(
+                        &mut self.objects,
+                        &mut self.partition_manager,
+                        containment_actor_id,
+                        None,
+                        true,
+                    );
+                    let unit = self
+                        .objects
+                        .get_mut(&containment_actor_id)
+                        .expect("containment operation preserves this birth");
+                    unit.set_position_with_effects(
+                        start,
+                        tree_move_frame,
+                        &mut effects.reborrow_for_object(&mut self.partition_manager),
+                    );
+                    unit.set_orientation_with_partition_owner(yaw, &mut self.partition_manager);
                     // OpenContain.cpp:1086 setLayer before adjustToPossibleDestination.
                     unit.pathfind_layer = layer;
                     unit.ignored_obstacle_id = None;
@@ -465,10 +479,12 @@ impl GameLogic {
             };
             if let Some(o) = self.objects.get_mut(&uid) {
                 o.target = Some(best);
-                o.set_order_target(
+                o.set_order_target_with_operation(
                     Some(best),
                     &mut self.attack_events,
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
+                    self.frame,
+                    &mut effects.reborrow_for_object(&mut self.partition_manager),
                 );
                 o.set_ai_state(
                     AIState::Entering,
@@ -656,12 +672,15 @@ impl GameLogic {
                             || s.template_name.to_ascii_lowercase().contains("supplypile")
                     });
                     if let Some(obj) = self.objects.get_mut(&object_id) {
-                        obj.set_order_target(
+                        obj.set_order_target_with_operation(
                             Some(next),
                             &mut self.attack_events,
                             &mut crate::game_logic::ObjectAudio::queue(
                                 &mut self.queued_audio_events,
                             ),
+                            self.frame,
+                            &mut crate::game_logic::ScriptPresentationEffects::default()
+                                .reborrow_for_object(&mut self.partition_manager),
                         );
                         obj.supply_truck_state = SupplyTruckState::Wanting;
                     }
@@ -758,8 +777,8 @@ impl GameLogic {
             .objects
             .get(&object_id)
             .map(|obj| {
-                if obj.thing().template.geometry_info.authored {
-                    obj.thing().template.geometry_info.bounding_circle_radius()
+                if (*obj.geometry_info()).authored {
+                    (*obj.geometry_info()).bounding_circle_radius()
                 } else {
                     obj.selection_radius
                 }
@@ -849,8 +868,8 @@ impl GameLogic {
                 continue;
             }
             let pos = obj.get_position();
-            let radius = if obj.thing().template.geometry_info.authored {
-                obj.thing().template.geometry_info.bounding_circle_radius()
+            let radius = if (*obj.geometry_info()).authored {
+                (*obj.geometry_info()).bounding_circle_radius()
             } else {
                 obj.selection_radius
             };

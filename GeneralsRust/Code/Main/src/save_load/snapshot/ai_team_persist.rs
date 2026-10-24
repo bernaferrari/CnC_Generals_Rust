@@ -1435,7 +1435,7 @@ fn arr_to_vec3(v: [f32; 3]) -> Vec3 {
 }
 
 #[path = "ai_team_framing.rs"]
-mod framing;
+pub(super) mod framing;
 #[cfg(test)]
 fn find_tmai_suffix(bytes: &[u8]) -> Option<&[u8]> {
     framing::find(bytes).ok().flatten()

@@ -899,13 +899,9 @@ impl Object {
             .unwrap_or_else(|| host_target_pitch_limits_for_weapon_name(name));
         let src = self.get_position();
         let tgt = victim.get_position();
-        let src_half = self.thing.template.geometry_info.height.max(0.0) * 0.5;
-        let tgt_above = victim
-            .thing
-            .template
-            .geometry_info
-            .max_height_above_position();
-        let tgt_below = victim.thing.template.geometry_info.height.max(0.0) * 0.5;
+        let src_half = (*self.geometry_info()).height.max(0.0) * 0.5;
+        let tgt_above = (*victim.geometry_info()).max_height_above_position();
+        let tgt_below = (*victim.geometry_info()).height.max(0.0) * 0.5;
         is_pitch_within_limits_geom(src, tgt, &limits, src_half, tgt_above, tgt_below)
     }
 
@@ -1314,6 +1310,23 @@ impl Object {
     /// `max_step_rad` caps per-call turn (default generous for host residual).
     /// Returns true when already within aim delta after the step.
     pub fn turn_toward_position(&mut self, target_pos: Vec3, slot: u8, max_step_rad: f32) -> bool {
+        self.turn_toward_position_with_operation(
+            target_pos,
+            slot,
+            max_step_rad,
+            0,
+            &mut Default::default(),
+        )
+    }
+
+    pub fn turn_toward_position_with_operation(
+        &mut self,
+        target_pos: Vec3,
+        slot: u8,
+        max_step_rad: f32,
+        operation_frame: u32,
+        operation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
         let aim = self.aim_delta_for_slot(slot);
         if aim >= std::f32::consts::PI - 1e-3 {
             return true;
@@ -1325,7 +1338,7 @@ impl Object {
         let step = max_step_rad.max(0.0);
         let turn = rel.clamp(-step, step);
         let new_ori = self.get_orientation() + turn;
-        self.set_orientation(new_ori);
+        self.set_orientation_with_effects(new_ori, operation_effects);
         let rel2 = self.relative_angle_2d_to(target_pos);
         crate::game_logic::weapon_bootstrap::is_within_aim_delta(rel2, aim)
     }

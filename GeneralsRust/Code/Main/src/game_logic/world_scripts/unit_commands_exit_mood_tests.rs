@@ -51,8 +51,8 @@ End
         .create_object("KICK_RANGER", Team::USA, glam::Vec3::new(1.0, 0.0, 0.0))
         .unwrap();
     assert!(logic.host_object_mut(bunker).unwrap().add_occupant(ranger));
-    if let Some(u) = logic.host_object_mut(ranger) {
-        u.set_contained_by(Some(bunker));
+    if let Some((u, partition)) = logic.host_object_and_partition_mut(ranger) {
+        u.set_contained_by_with_partition_owner(Some(bunker), true, partition);
         u.next_mood_check_time = 9999;
         u.randomly_offset_mood_check = false;
     }

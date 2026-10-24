@@ -178,8 +178,13 @@ fn earlier_actual_flight_lethal_damage_prevents_later_flight_movement_in_same_up
     );
     assert!(tick.should_strafe);
     {
-        let actor = owner.host_object_mut(later).unwrap();
-        actor.set_position(tick.strafe_point);
+        let (actor, fixture_partition_actor) = owner.host_object_and_partition_mut(later).unwrap();
+        actor.set_position_with_partition_owner(
+            tick.strafe_point,
+            0,
+            &mut Default::default(),
+            fixture_partition_actor,
+        );
         actor.health.current = 1.;
     }
     let order = owner
@@ -672,8 +677,14 @@ fn actual_retired_a10_producer_reuse_cannot_receive_visible_missile_damage_credi
         .create_object_for_player("FlightSource", 2, Vec3::new(400., 0., 400.))
         .unwrap();
     world.objects.get_mut(&victim).unwrap().health.current = 1.;
-    let missile_actor = world.objects.get_mut(&missile).unwrap();
-    missile_actor.set_position(Vec3::new(400., 1., 400.));
+    let (missile_actor, fixture_partition_missile_actor) =
+        world.host_object_and_partition_mut(missile).unwrap();
+    missile_actor.set_position_with_partition_owner(
+        Vec3::new(400., 1., 400.),
+        0,
+        &mut Default::default(),
+        fixture_partition_missile_actor,
+    );
     missile_actor.movement.velocity = Vec3::ZERO;
     // Freeze before the runtime reconciles the departed capability. The old
     // ID still exists in the ledger, but the replacement must not be hydrated
@@ -775,7 +786,7 @@ fn actual_file_writer_accepts_second_payload_interval_and_preserves_next_future(
     let first = 20_u32;
     for elapsed in 0..=16 {
         source.frame = first + elapsed;
-        source.host_object_mut(jet).unwrap().set_position(airborne);
+        source.set_fixture_object_position(jet, airborne);
         source.update_a10_strike_flights();
         assert!(
             source.host_object(jet).unwrap().is_alive(),
@@ -868,7 +879,7 @@ fn actual_file_writer_accepts_second_payload_interval_and_preserves_next_future(
             "{owner}: original admitted lifetime"
         );
         world.frame = first + 32;
-        world.host_object_mut(jet).unwrap().set_position(airborne);
+        world.set_fixture_object_position(jet, airborne);
         world.update_a10_strike_flights();
         assert!(
             world.host_object(jet).unwrap().is_alive(),
@@ -943,10 +954,7 @@ fn encoded_world_snapshot_continues_live_missiles_after_transport_death() {
         .a10_strike_flight_reg
         .delivery_for_transport(jet)
         .unwrap();
-    source
-        .host_object_mut(jet)
-        .unwrap()
-        .set_position(target + Vec3::new(100., 160., 0.));
+    source.set_fixture_object_position(jet, target + Vec3::new(100., 160., 0.));
     source.frame = 1;
     source.update_a10_strike_flights();
     assert!(
@@ -1087,14 +1095,8 @@ fn encoded_world_snapshot_keeps_two_live_a10_deliveries_independent() {
         .delivery_for_transport(second_jet)
         .unwrap();
     assert_ne!(first_delivery, second_delivery);
-    source
-        .host_object_mut(first_jet)
-        .unwrap()
-        .set_position(first_target);
-    source
-        .host_object_mut(second_jet)
-        .unwrap()
-        .set_position(second_target);
+    source.set_fixture_object_position(first_jet, first_target);
+    source.set_fixture_object_position(second_jet, second_target);
     source.frame = 1;
     source.update_a10_strike_flights();
 
@@ -1126,19 +1128,13 @@ fn encoded_world_snapshot_keeps_two_live_a10_deliveries_independent() {
                 .host_object(first_jet)
                 .is_some_and(|object| object.is_alive())
             {
-                world
-                    .host_object_mut(first_jet)
-                    .unwrap()
-                    .set_position(first_target);
+                world.set_fixture_object_position(first_jet, first_target);
             }
             if world
                 .host_object(second_jet)
                 .is_some_and(|object| object.is_alive())
             {
-                world
-                    .host_object_mut(second_jet)
-                    .unwrap()
-                    .set_position(second_target);
+                world.set_fixture_object_position(second_jet, second_target);
             }
             world.update_a10_strike_flights();
         }

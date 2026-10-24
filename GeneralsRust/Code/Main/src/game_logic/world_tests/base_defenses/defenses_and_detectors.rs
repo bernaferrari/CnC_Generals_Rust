@@ -1392,10 +1392,7 @@ fn scout_and_hellfire_drone_residual_attach_detect_and_fire() {
     // victim in Hellfire's acquisition range. C++ Weapon.cpp:954-989 and
     // HellfireMissileWeapon ScatterRadiusVsInfantry=10 permit a miss;
     // accepted fire at Infantry is not a guaranteed single-shot HP change.
-    game_logic
-        .host_object_mut(stealth_id)
-        .unwrap()
-        .set_position(Vec3::new(1000.0, 0.0, 0.0));
+    game_logic.set_fixture_object_position(stealth_id, Vec3::new(1000.0, 0.0, 0.0));
     let damage_target_id = game_logic
         .create_object("TestTank", Team::GLA, Vec3::new(40.0, 0.0, 0.0))
         .expect("non-infantry Hellfire damage target");

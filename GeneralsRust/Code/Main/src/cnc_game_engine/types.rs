@@ -1009,6 +1009,8 @@ mod evidence_tests;
 
 /// Main C&C game engine with full RTS functionality - restructured to match C++ SAGE architecture
 pub struct CnCGameEngine {
+    // Cancel the receiving worker before later engine fields are dropped.
+    pub(crate) startup_load_state: StartupLoadState,
     /// Application archive service shared with actual loading workers. Mutable
     /// match state never belongs to this service.
     pub(crate) application_assets: Arc<std::sync::Mutex<crate::assets::manager::AssetManager>>,
@@ -1042,7 +1044,6 @@ pub struct CnCGameEngine {
     // Game state machine - matches C++ GameEngine m_quitting and state management
     pub(crate) current_state: GameState,
     pub(crate) pending_state: Option<GameState>,
-    pub(crate) startup_load_state: StartupLoadState,
     pub(crate) startup_target_state: Option<GameState>,
     pub(crate) startup_start_in_menu: bool,
     pub(crate) last_loading_title_update: Option<Instant>,

@@ -2421,17 +2421,22 @@ End
         .create_object("AmericaJetRaptor", Team::USA, Vec3::new(5.0, 0.0, 0.0))
         .expect("jet");
     {
-        let j = logic.objects.get_mut(&jet).unwrap();
+        let (j, partition) = logic.host_object_and_partition_mut(jet).unwrap();
         j.status.airborne_target = false;
         j.jet_ai.rtb_landing_phase = crate::game_logic::object::JET_RTB_PHASE_TAXI;
-        j.set_position(Vec3::ZERO);
+        j.set_position_with_partition_owner(Vec3::ZERO, 0, &mut Default::default(), partition);
     }
     assert!(logic.try_return_to_base_rearm(jet));
     {
-        let j = logic.objects.get_mut(&jet).unwrap();
+        let (j, partition) = logic.host_object_and_partition_mut(jet).unwrap();
         assert_eq!(j.contained_by, Some(af));
         let p = j.get_position();
-        j.set_position(Vec3::new(p.x - 50.0, p.y, p.z));
+        j.set_position_with_partition_owner(
+            Vec3::new(p.x - 50.0, p.y, p.z),
+            0,
+            &mut Default::default(),
+            partition,
+        );
     }
     assert!(logic.try_runway_takeoff_from_airfield(jet));
     {
@@ -2460,9 +2465,7 @@ End
         .and_then(|j| j.jet_ai.takeoff_runway_start)
         .map(|p| Vec3::new(p[0], p[1], p[2]))
         .expect("runway start");
-    if let Some(j) = logic.objects.get_mut(&jet) {
-        j.set_position(start);
-    }
+    logic.set_fixture_object_position(jet, start);
     logic.tick_jet_ai_update_all();
     {
         let j = logic.objects.get(&jet).unwrap();

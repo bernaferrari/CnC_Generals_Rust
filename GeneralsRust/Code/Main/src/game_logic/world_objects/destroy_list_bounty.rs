@@ -200,7 +200,11 @@ impl GameLogic {
                         .get(&cid)
                         .is_some_and(|c| c.is_garrison_contain());
                     if let Some(container) = self.objects.get_mut(&cid) {
-                        let _ = container.remove_occupant(event.id, &mut self.ownership_events);
+                        let _ = container.remove_occupant_with_partition_owner(
+                            event.id,
+                            &mut self.ownership_events,
+                            &mut self.partition_manager,
+                        );
                     }
                     if is_garrison {
                         self.recalc_garrison_apparent_controller(cid);
@@ -670,8 +674,8 @@ mod tests {
             o.set_status_under_construction(false);
             o.construction_percent = 1.0;
         }
-        if let Some(u) = logic.host_object_mut(uid) {
-            u.set_contained_by(Some(t1));
+        if let Some((u, fixture_partition_u)) = logic.host_object_and_partition_mut(uid) {
+            u.set_contained_by_with_partition_owner(Some(t1), true, fixture_partition_u);
         }
         // C++ TunnelContain uses the admitted controlling player's tracker.
         // A faction sentinel is a different pool from the actual owner.
@@ -1014,9 +1018,9 @@ End
                 hull + glam::Vec3::new(1.0, 0.0, 0.0),
             )
             .expect("rider");
-        if let Some(r) = logic.host_object_mut(rider) {
+        if let Some((r, fixture_partition_r)) = logic.host_object_and_partition_mut(rider) {
             r.locomotor_surfaces = crate::game_logic::object::LOCO_SURFACE_GROUND;
-            r.set_contained_by(Some(transport));
+            r.set_contained_by_with_partition_owner(Some(transport), true, fixture_partition_r);
         }
         assert!(
             logic
@@ -1066,15 +1070,21 @@ End
         logic.frame = 42;
         if let Some(c) = logic.host_object_mut(transport) {
             c.is_technical_transport = true;
-            c.template_mut().geometry_info = crate::game_logic::HostGeometryInfo {
+        }
+        // OpenContain uses the live container GeometryInfo, not its immutable
+        // template defaults. Install the intended cylinder on that actor.
+        logic.set_fixture_object_geometry(
+            transport,
+            crate::game_logic::HostGeometryInfo {
                 geom_type: crate::game_logic::HostGeometryType::Cylinder,
                 is_small: false,
                 height: 10.0,
                 major_radius: 10.0,
                 minor_radius: 10.0,
                 authored: true,
-            };
-        }
+            }
+            .to_host_geometry(),
+        );
         if let Some(r) = logic.host_object_mut(rider) {
             r.health.current = 100.0;
             r.max_health = 100.0;

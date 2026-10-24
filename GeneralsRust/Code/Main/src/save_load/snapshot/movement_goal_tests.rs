@@ -66,10 +66,7 @@ fn movement_goal_v12_round_trip_retains_missing_target_and_future_goal() {
         Some(target)
     );
     let future = Vec3::new(190.0, 0.0, 30.0);
-    restored
-        .host_object_mut(target)
-        .unwrap()
-        .set_position(future);
+    restored.set_fixture_object_position(target, future);
     restored.refresh_movement_goal_objects(&[id]);
     assert_eq!(
         restored.host_object(id).unwrap().requested_destination,

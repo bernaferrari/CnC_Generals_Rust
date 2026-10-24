@@ -333,6 +333,7 @@ impl GameLogic {
         after_step: impl FnMut(&mut Self),
     ) -> SimTimingSnapshot {
         let effects = crate::game_logic::ScriptPresentationEffects {
+            partition: None,
             audio: None,
             terrain: None,
             ui: ui,
@@ -591,6 +592,12 @@ impl GameLogic {
         ui: crate::game_logic::ScriptPresentationEffects<'_>,
         command_phase: CommandPhaseMode,
     ) -> SimulationStepOutcome {
+        let mut ui = ui;
+        if let Err(error) =
+            ui.validate_projected_radius_recipient(self.requires_native_drawable_owner())
+        {
+            return SimulationStepOutcome::Failed(error);
+        }
         if let Some(error) = self.object_retirement_error() {
             return SimulationStepOutcome::Failed(error);
         }

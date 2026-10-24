@@ -27,11 +27,7 @@ fn transport_world() -> (GameLogic, ObjectId, ObjectId) {
             .unwrap()
             .add_occupant(passenger)
     );
-    world
-        .objects
-        .get_mut(&passenger)
-        .unwrap()
-        .set_contained_by(Some(transport));
+    world.set_fixture_object_contained_by(passenger, Some(transport));
     world.objects.get_mut(&transport).unwrap().set_ai_state(
         AIState::Moving,
         &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
@@ -43,11 +39,10 @@ fn transport_world() -> (GameLogic, ObjectId, ObjectId) {
 fn same_faction_owner_change_idles_and_orders_exit_only_in_receiving_world() {
     let (mut world, transport, passenger) = transport_world();
     let (peer, peer_transport, _) = transport_world();
-    world
-        .objects
-        .get_mut(&transport)
-        .unwrap()
-        .set_team_and_owner(Team::USA, Some(2), &mut world.ownership_events);
+    let (object, events, partition) = world
+        .host_object_ownership_partition_mut(transport)
+        .unwrap();
+    object.set_team_and_owner_with_partition_owner(Team::USA, Some(2), events, partition);
     world.on_capture_object_owned(transport, Team::USA, Team::USA, true);
     assert_eq!(world.objects[&transport].ai_state, AIState::Idle);
     assert!(world.objects[&transport].pending_evacuate_on_stop);

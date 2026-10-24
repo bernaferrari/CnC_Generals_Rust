@@ -42,8 +42,8 @@ fn setup_rider(
     let rider = world
         .create_object("MoodPassenger", Team::USA, glam::Vec3::X)
         .unwrap();
-    let unit = world.host_object_mut(rider).unwrap();
-    unit.set_contained_by(Some(transport));
+    let (unit, fixture_partition_unit) = world.host_object_and_partition_mut(rider).unwrap();
+    unit.set_contained_by_with_partition_owner(Some(transport), true, fixture_partition_unit);
     unit.set_ai_state(
         state,
         &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),

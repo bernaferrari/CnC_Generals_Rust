@@ -129,10 +129,20 @@ fn explosion_detonation_damage_source_authority_source() {
     );
     assert_eq!(
         owner
-            .matches(".begin_damage_with_context_and_effects(")
+            .matches(".begin_damage_with_context_and_effects_with_operation(")
             .count(),
         2,
         "native and no-client routes must enter the effects-bearing Body kernel"
+    );
+    assert_eq!(
+        owner.matches(".finish_with_body_fx_and_partition(").count(),
+        2,
+        "native and no-client post-FX continuations must keep the same owner"
+    );
+    assert_eq!(
+        owner.matches("&mutself.partition_manager").count(),
+        4,
+        "both Body entries and both post-FX continuations require the receiving partition owner"
     );
     assert!(
         owner.contains("Self::execute_body_state_fx_without_view(")

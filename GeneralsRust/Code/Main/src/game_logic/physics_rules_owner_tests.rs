@@ -71,8 +71,13 @@ fn receiving_rules_preserve_bounce_and_normal_saved_continuation() {
     let (mut source, id) = rules_world(-0.1, 0.5, 0.5);
     let (mut peer, _) = rules_world(-0.1, 0.2, 0.8);
     for world in [&mut source, &mut peer] {
-        let object = world.objects.get_mut(&id).unwrap();
-        object.set_position(Vec3::new(0.0, 1.0, 0.0));
+        let (object, fixture_partition_object) = world.host_object_and_partition_mut(id).unwrap();
+        object.set_position_with_partition_owner(
+            Vec3::new(0.0, 1.0, 0.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_object,
+        );
         object.movement.velocity = Vec3::new(0.0, -4.0, 0.0);
         object.shock_stun_frames = 20;
     }

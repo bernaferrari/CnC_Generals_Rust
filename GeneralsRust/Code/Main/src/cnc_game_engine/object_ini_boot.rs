@@ -19,6 +19,19 @@ impl ObjectSourceSnapshot {
     pub(super) fn sources(&self) -> &[(String, String)] {
         &self.sources
     }
+    pub(super) fn admit_with_catalogs(
+        &self,
+        sciences: std::sync::Arc<game_engine::common::rts::science::ScienceNameFacts>,
+        actions: std::sync::Arc<
+            game_engine::common::thing::receiving_module_content::ReceivingActionDefinitions,
+        >,
+    ) -> Result<crate::assets::ReceivingObjectContent, String> {
+        crate::assets::ReceivingObjectContent::from_sources_with_catalogs(
+            self.sources.iter().cloned(),
+            sciences,
+            actions,
+        )
+    }
     pub(super) fn admit(
         &self,
         sciences: std::sync::Arc<game_engine::common::rts::science::ScienceNameFacts>,
@@ -297,13 +310,23 @@ pub(super) fn load_receiving_object_content_with_sciences(
     mut read: impl FnMut(&str) -> Result<Option<String>, String>,
     sciences: std::sync::Arc<game_engine::common::rts::science::ScienceNameFacts>,
 ) -> Result<crate::assets::ReceivingObjectContent, String> {
+    load_receiving_object_content_with_catalogs(paths,read,sciences,std::sync::Arc::new(game_engine::common::thing::receiving_module_content::ReceivingActionDefinitions::default()))
+}
+pub(super) fn load_receiving_object_content_with_catalogs(
+    paths: &[String],
+    mut read: impl FnMut(&str) -> Result<Option<String>, String>,
+    sciences: std::sync::Arc<game_engine::common::rts::science::ScienceNameFacts>,
+    actions: std::sync::Arc<
+        game_engine::common::thing::receiving_module_content::ReceivingActionDefinitions,
+    >,
+) -> Result<crate::assets::ReceivingObjectContent, String> {
     let mut sources = Vec::new();
     for path in paths {
         if let Some(source) = read(path)? {
             sources.push((path.clone(), source));
         }
     }
-    crate::assets::ReceivingObjectContent::from_sources_with_sciences(sources, sciences)
+    crate::assets::ReceivingObjectContent::from_sources_with_catalogs(sources, sciences, actions)
 }
 
 /// Read one selected startup source without turning malformed/busy/unreadable
@@ -528,9 +551,27 @@ mod retail_receiving_content_tests {
         let sciences = std::sync::Arc::new(
             game_engine::common::rts::science::ScienceNameFacts::from_store(&science_store),
         );
+        let mut actions=game_engine::common::thing::receiving_module_content::ReceivingActionDefinitions::default();
+        for path in [
+            "Data/INI/Default/SpecialPower.ini",
+            "Data/INI/SpecialPower.ini",
+        ] {
+            if let Some(text) = read_receiving_object_source(path, &root_refs, |path| {
+                files
+                    .read_optional_definition_source(path)
+                    .map_err(|error| error.to_string())
+            })
+            .unwrap()
+            {
+                actions
+                    .apply_source(&text, &sciences)
+                    .expect("actual retail SpecialPower into explicit receiving catalog");
+            }
+        }
+        let actions = std::sync::Arc::new(actions);
         let mut reads = Vec::new();
         let mut hash = crc32fast::Hasher::new();
-        let content = load_receiving_object_content_with_sciences(&paths, |path| {
+        let content = load_receiving_object_content_with_catalogs(&paths, |path| {
             let text = read_receiving_object_source(path,&root_refs,
                 |path| files.read_optional_definition_source(path).map_err(|error|error.to_string()))?
                 .ok_or_else(||format!("listed retail Object source missing: {path}"))?;
@@ -546,7 +587,7 @@ mod retail_receiving_content_tests {
             hash.update(&[0]);hash.update(text.as_bytes());hash.update(&[0]);
             reads.push(path.to_owned());
             Ok(Some(text))
-        }, sciences).expect("all actual retail Object definitions must admit strictly; no unknown-field/module skip");
+        }, sciences,actions).expect("all actual retail Object definitions must admit strictly; no unknown-field/module skip");
         assert_eq!(
             reads, paths,
             "each actual selected path is read once in original order"

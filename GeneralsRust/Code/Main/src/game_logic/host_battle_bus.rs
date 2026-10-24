@@ -698,11 +698,11 @@ mod tests {
         );
         assert!(start_win.contains("self.start_battle_bus_second_life_with_body_fx("));
         let completion = include_str!("object/damage/application.rs");
-        assert!(completion.contains(
-            "victim.start_battle_bus_second_life_with_body_fx(self.frame, source, body_fx)"
-        ));
+        assert!(
+            completion.contains("victim.start_battle_bus_second_life_with_body_fx_with_operation(")
+        );
         let native = include_str!("world_objects/damage_application.rs");
-        assert!(native.contains("after_fx.finish_with_body_fx("));
+        assert!(native.contains("after_fx.finish_with_body_fx_and_partition("));
         assert!(native.contains("Self::execute_body_state_fx_with_view("));
         let effects = include_str!("object/fx.rs");
         let phase = &effects[effects

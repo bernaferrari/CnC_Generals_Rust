@@ -107,7 +107,18 @@ impl GameLogic {
 
     fn attach_overlord_portable_occupant(&mut self, host_id: ObjectId, occupant_id: ObjectId) {
         if let Some(occ) = self.objects.get_mut(&occupant_id) {
-            occ.set_contained_by_enclosing(Some(host_id), false);
+            let containment_actor_id = occ.id;
+            Self::set_owned_containment_in_parts(
+                &mut self.objects,
+                &mut self.partition_manager,
+                containment_actor_id,
+                Some(host_id),
+                false,
+            );
+            let occ = self
+                .objects
+                .get_mut(&containment_actor_id)
+                .expect("containment operation preserves this birth");
             occ.set_experience_sink(Some(host_id));
             if occ.template_name == crate::game_logic::host_overlord_addons::OVERLORD_PAYLOAD_BUNKER
             {
@@ -138,7 +149,18 @@ impl GameLogic {
             }
         }
         if let Some(occ) = self.objects.get_mut(&occupant_id) {
-            occ.set_contained_by(None);
+            let containment_actor_id = occ.id;
+            Self::set_owned_containment_in_parts(
+                &mut self.objects,
+                &mut self.partition_manager,
+                containment_actor_id,
+                None,
+                true,
+            );
+            let occ = self
+                .objects
+                .get_mut(&containment_actor_id)
+                .expect("containment operation preserves this birth");
             occ.status.destroyed = true;
         }
     }
@@ -194,7 +216,11 @@ impl GameLogic {
             if occ.body_damage_state != state {
                 occ.apply_overlord_addon_set_damage_state(state);
             }
-            occ.set_position_with_effects(pos, self.frame, effects);
+            occ.set_position_with_effects(
+                pos,
+                self.frame,
+                &mut effects.reborrow_for_object(&mut self.partition_manager),
+            );
         }
         if let Some(host) = self.objects.get_mut(&host_id) {
             host.overlord_addon_body_damage_state = state;
@@ -256,7 +282,12 @@ impl GameLogic {
             .get(&host_id)
             .and_then(|host| host.owner_player_id);
         if let Some(addon) = self.objects.get_mut(&addon_id) {
-            addon.set_team_and_owner(new_team, owner, &mut self.ownership_events);
+            addon.set_team_and_owner_with_partition_owner(
+                new_team,
+                owner,
+                &mut self.ownership_events,
+                &mut self.partition_manager,
+            );
         }
         self.attach_overlord_portable_occupant(host_id, addon_id);
         Some(addon_id)

@@ -156,10 +156,7 @@ fn sighting_uses_driving_world_despite_foreign_registry_and_same_ids() {
         let (mut first, observer, target) = world();
         let (mut second, other_observer, other_target) = world();
         assert_eq!((observer, target), (other_observer, other_target));
-        second
-            .host_object_mut(other_target)
-            .unwrap()
-            .set_position(Vec3::new(500.0, 0.0, 500.0));
+        second.set_fixture_object_position(other_target, Vec3::new(500.0, 0.0, 500.0));
         // Existing publication is deliberately hostile input, not the query owner.
         second.inject_host_script_query_snapshot();
         let foreign = std::sync::Arc::new(std::sync::RwLock::new(
@@ -173,10 +170,7 @@ fn sighting_uses_driving_world_despite_foreign_registry_and_same_ids() {
         drop(second);
         let _inert = GameLogic::new();
         both(&mut first, true);
-        first
-            .host_object_mut(target)
-            .unwrap()
-            .set_position(Vec3::new(500.0, 0.0, 500.0));
+        first.set_fixture_object_position(target, Vec3::new(500.0, 0.0, 500.0));
         both(&mut first, false);
         // Never clear a foreign fixture's registry or unregister a replacement.
         if registry
@@ -194,30 +188,15 @@ fn sighting_strict_planar_range_and_same_map_status() {
         let (mut world, observer, target) = world();
         both(&mut world, true); // altitude ignored
         for (x, expected) in [(69.99, true), (70.0, false), (70.01, false)] {
-            world
-                .host_object_mut(target)
-                .unwrap()
-                .set_position(Vec3::new(x, 900.0, 50.0));
+            world.set_fixture_object_position(target, Vec3::new(x, 900.0, 50.0));
             both(&mut world, expected);
         }
-        world
-            .host_object_mut(observer)
-            .unwrap()
-            .set_position(Vec3::new(995.0, 0.0, 50.0));
-        world
-            .host_object_mut(target)
-            .unwrap()
-            .set_position(Vec3::new(1005.0, 0.0, 50.0));
+        world.set_fixture_object_position(observer, Vec3::new(995.0, 0.0, 50.0));
+        world.set_fixture_object_position(target, Vec3::new(1005.0, 0.0, 50.0));
         both(&mut world, false);
-        world
-            .host_object_mut(observer)
-            .unwrap()
-            .set_position(Vec3::new(1001.0, 0.0, 50.0));
+        world.set_fixture_object_position(observer, Vec3::new(1001.0, 0.0, 50.0));
         both(&mut world, true); // both off map is allowed
-        world
-            .host_object_mut(target)
-            .unwrap()
-            .set_position(Vec3::new(1000.0, 0.0, 50.0));
+        world.set_fixture_object_position(target, Vec3::new(1000.0, 0.0, 50.0));
         both(&mut world, false); // extent edge is on map
     });
 }
@@ -498,10 +477,7 @@ fn sighting_supplied_this_object_and_current_player_are_owned_identities() {
         let (mut first, observer, _) = world();
         let (mut foreign, foreign_observer, foreign_target) = world();
         assert_eq!(observer, foreign_observer);
-        foreign
-            .host_object_mut(foreign_target)
-            .unwrap()
-            .set_position(Vec3::splat(900.0));
+        foreign.set_fixture_object_position(foreign_target, Vec3::splat(900.0));
         foreign.inject_host_script_query_snapshot();
         let names = [TYPE.into()];
         let driver = HostScriptExecutionDriver::new(&mut first);

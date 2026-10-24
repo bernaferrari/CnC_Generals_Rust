@@ -153,7 +153,7 @@ fn actual_transport_team_wait_observes_only_driving_roster_and_physical_containm
             ScriptOwnerQuery::Present(false)
         );
     }
-    owner.host_object_mut(unit).unwrap().set_contained_by(None);
+    owner.set_fixture_object_contained_by(unit, None);
     owner.host_object_mut(unit).unwrap().ai_state = AIState::Exiting;
     assert_eq!(
         HostScriptExecutionDriver::with_interpreter(&mut owner, &engine).team_contained(

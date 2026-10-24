@@ -5,7 +5,63 @@ impl Object {
         &mut self,
         world: &std::sync::Arc<std::sync::Mutex<gamelogic::scripting::HostTriggerWorld>>,
     ) {
-        self.host_trigger_world = std::sync::Arc::downgrade(world);
+        self.host_trigger_world.bind(world);
+    }
+
+    pub(crate) fn validate_partition_namespace(&self, namespace: &std::sync::Arc<()>) {
+        assert!(
+            !self.partition_namespace.is_detached_clone(),
+            "Object observation clone requires actual admission before partition attachment"
+        );
+        assert!(
+            self.partition_namespace.upgrade().is_none()
+                || self
+                    .partition_namespace
+                    .ptr_eq(&std::sync::Arc::downgrade(namespace)),
+            "Object partition attachment belongs to a different world"
+        );
+    }
+
+    /// Lifecycle restore changes continuation values on the same installed
+    /// lifetime. Transfer its leases only after the candidate has been checked.
+    pub(crate) fn take_restored_runtime_attachments_from(
+        &mut self,
+        original: &mut Self,
+    ) -> Result<(), &'static str> {
+        if self.id != original.id
+            || self.visual_object_generation != original.visual_object_generation
+            || !std::sync::Arc::ptr_eq(
+                &self.visual_draw_identity_token,
+                &original.visual_draw_identity_token,
+            )
+        {
+            return Err("lifecycle attachment transfer changed Object lifetime");
+        }
+        self.partition_namespace = std::mem::take(&mut original.partition_namespace);
+        self.host_trigger_world = std::mem::take(&mut original.host_trigger_world);
+        Ok(())
+    }
+
+    pub(crate) fn bind_partition_namespace(&mut self, namespace: &std::sync::Arc<()>) {
+        self.validate_partition_namespace(namespace);
+        self.partition_namespace.bind(namespace);
+    }
+
+    pub(in crate::game_logic) fn require_partition_owner(
+        &self,
+        partition: Option<&crate::game_logic::partition_manager::PartitionManager>,
+    ) {
+        assert!(
+            !self.partition_namespace.is_detached_clone() || partition.is_none(),
+            "detached Object observation clone has no partition mutation capability"
+        );
+        if let Some(owner) = self.partition_namespace.upgrade() {
+            assert!(
+                partition
+                    .is_some_and(|partition| std::sync::Arc::ptr_eq(&owner, partition.namespace())),
+                "registered Object transform requires its explicit receiving partition owner"
+            );
+        }
     }
 
     pub fn get_position(&self) -> Vec3 {
@@ -22,9 +78,40 @@ impl Object {
         frame: u32,
         effects: &mut crate::game_logic::script_presentation::ScriptPresentationEffects<'_>,
     ) {
+        self.set_position_with_partition_context(position, frame, effects, None);
+    }
+
+    pub(crate) fn set_position_with_partition_owner(
+        &mut self,
+        position: Vec3,
+        frame: u32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+        partition: &mut crate::game_logic::partition_manager::PartitionManager,
+    ) {
+        self.set_position_with_effects(
+            position,
+            frame,
+            &mut effects.reborrow_for_object(partition),
+        );
+    }
+
+    fn set_position_with_partition_context(
+        &mut self,
+        position: Vec3,
+        frame: u32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+        partition: Option<&mut crate::game_logic::partition_manager::PartitionManager>,
+    ) {
+        self.require_partition_owner(partition.as_deref().or(effects.partition.as_deref()));
         let old_position = self.get_position();
+        let old_angle = self.get_orientation();
         self.thing.set_position(position);
         self.notify_native_pose_installed();
+        if let Some(partition) = partition {
+            partition.receiving_transform_changed(self, old_position, old_angle);
+        } else if let Some(partition) = effects.partition.as_deref_mut() {
+            partition.receiving_transform_changed(self, old_position, old_angle);
+        }
         self.react_to_position_change(old_position, frame, effects);
     }
 
@@ -40,9 +127,40 @@ impl Object {
         frame: u32,
         effects: &mut crate::game_logic::script_presentation::ScriptPresentationEffects<'_>,
     ) {
+        self.set_transform_matrix_with_partition_context(transform, frame, effects, None);
+    }
+
+    pub(crate) fn set_transform_matrix_with_partition_owner(
+        &mut self,
+        transform: Mat4,
+        frame: u32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+        partition: &mut crate::game_logic::partition_manager::PartitionManager,
+    ) {
+        self.set_transform_matrix_with_effects(
+            transform,
+            frame,
+            &mut effects.reborrow_for_object(partition),
+        );
+    }
+
+    fn set_transform_matrix_with_partition_context(
+        &mut self,
+        transform: Mat4,
+        frame: u32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+        partition: Option<&mut crate::game_logic::partition_manager::PartitionManager>,
+    ) {
+        self.require_partition_owner(partition.as_deref().or(effects.partition.as_deref()));
         let old_position = self.get_position();
+        let old_angle = self.get_orientation();
         self.thing.set_transform_matrix(transform);
         self.notify_native_pose_installed();
+        if let Some(partition) = partition {
+            partition.receiving_transform_changed(self, old_position, old_angle);
+        } else if let Some(partition) = effects.partition.as_deref_mut() {
+            partition.receiving_transform_changed(self, old_position, old_angle);
+        }
         self.react_to_position_change(old_position, frame, effects);
     }
 
@@ -53,16 +171,6 @@ impl Object {
         effects: &mut crate::game_logic::script_presentation::ScriptPresentationEffects<'_>,
     ) {
         let position = self.get_position();
-        let old_cell = crate::game_logic::partition_manager::PartitionManager::cell_coords(
-            old_position.x,
-            old_position.z,
-        );
-        let new_cell = crate::game_logic::partition_manager::PartitionManager::cell_coords(
-            position.x, position.z,
-        );
-        if old_cell != new_cell {
-            self.restamp_partition_value_threat();
-        }
         // CPP Object.cpp:2563–2587 uses integer horizontal coordinates.
         if old_position.x as i32 != position.x as i32 || old_position.z as i32 != position.z as i32
         {
@@ -95,6 +203,20 @@ impl Object {
         &mut self.thing.template
     }
 
+    /// Live shape follows Thing lifetime; the authored template is only its
+    /// construction seed. Copying geometry to a rebuild hole copies this value.
+    pub(crate) fn geometry_info(&self) -> &HostGeometryInfo {
+        self.thing
+            .geometry
+            .shape
+            .as_ref()
+            .expect("live Thing geometry has admitted shape")
+    }
+
+    pub(crate) fn set_geometry_shape(&mut self, shape: HostGeometryInfo) {
+        self.set_geometry_info(shape.to_host_geometry());
+    }
+
     pub fn set_geometry_radius(&mut self, radius: f32) {
         self.thing.geometry.radius = radius;
     }
@@ -108,7 +230,41 @@ impl Object {
     }
 
     /// C++ setGeometryInfo changes shape, never the object's pose.
+    pub(crate) fn set_geometry_info_with_partition_owner(
+        &mut self,
+        geometry: GeometryInfo,
+        partition: &mut crate::game_logic::partition_manager::PartitionManager,
+    ) {
+        let attached =
+            partition.receiving_object_is_attached(self.id.0, &self.visual_draw_identity_token);
+        self.require_partition_owner(Some(partition));
+        if attached {
+            partition.unregister_object(self.id.0);
+            self.partition_namespace = Default::default();
+        }
+        self.set_geometry_info(geometry);
+        if attached {
+            partition.attach_receiving_object(self);
+        }
+        // Original Drawable dispatch follows membership replacement. All shipped
+        // concrete reactToGeometryChange overrides are empty inline functions.
+    }
+
+    pub(crate) fn set_geometry_info_z(&mut self, height: f32) {
+        let mut shape = *self.geometry_info();
+        match shape.geom_type {
+            HostGeometryType::Sphere => shape.major_radius = height,
+            HostGeometryType::Box | HostGeometryType::Cylinder => shape.height = height,
+        }
+        let mut geometry = shape.to_host_geometry();
+        geometry.position = self.get_position();
+        geometry.rotation = self.get_orientation();
+        self.thing.geometry = geometry;
+        // The shipped concrete Drawable::reactToGeometryChange overrides are empty.
+    }
+
     pub fn set_geometry_info(&mut self, mut geometry: GeometryInfo) {
+        self.require_partition_owner(None);
         geometry.position = self.get_position();
         geometry.rotation = self.get_orientation();
         self.thing.geometry = geometry;
@@ -150,59 +306,39 @@ impl Object {
         }
     }
 
-    /// C++ Object::addValue/addThreat via PartitionManager (Object.cpp:4807-4883).
-    pub fn stamp_partition_value_threat(&mut self) {
-        if self.status.under_construction || !self.is_alive() {
-            self.unstamp_partition_value_threat();
-            return;
-        }
-        if self.shroud_clearing_range <= 0.0 {
-            self.unstamp_partition_value_threat();
-            return;
-        }
-        let Some(player_id) = self.owner_player_id else {
-            self.unstamp_partition_value_threat();
-            return;
-        };
-        self.unstamp_partition_value_threat();
-        let stamp = crate::game_logic::partition_manager::HostPartitionAffectStamp {
-            x: self.get_position().x,
-            z: self.get_position().z,
-            range: self.vision_range.max(1.0),
-            value: self.partition_cash_value,
-            threat: self.partition_threat_value,
-            mask: 1u32 << player_id.min(15),
-        };
-        stamp.apply(true);
-        self.partition_last_affect = Some(stamp);
-    }
-
-    pub fn unstamp_partition_value_threat(&mut self) {
-        if let Some(stamp) = self.partition_last_affect.take() {
-            stamp.apply(false);
-        }
-    }
-
-    /// C++ Object::handlePartitionCellMaintenance value+threat half
-    /// (Object.cpp:4771-4776 handleValueMap + handleThreatMap): unstamp then restamp
-    /// with the current controlling-player mask.
-    pub fn handle_partition_cell_maintenance(&mut self) {
-        self.stamp_partition_value_threat();
-    }
-
-    fn restamp_partition_value_threat(&mut self) {
-        if self.partition_last_affect.is_some() || self.partition_cash_value > 0 {
-            self.stamp_partition_value_threat();
-        }
-    }
-
     pub fn get_orientation(&self) -> f32 {
         self.thing.get_orientation()
     }
 
     pub fn set_orientation(&mut self, angle: f32) {
+        self.require_partition_owner(None);
         self.thing.set_orientation(angle);
         self.notify_native_pose_installed();
+    }
+
+    pub(crate) fn set_orientation_with_partition_owner(
+        &mut self,
+        angle: f32,
+        partition: &mut crate::game_logic::partition_manager::PartitionManager,
+    ) {
+        let old_position = self.get_position();
+        let old_angle = self.get_orientation();
+        self.require_partition_owner(Some(partition));
+        self.thing.set_orientation(angle);
+        self.notify_native_pose_installed();
+        partition.receiving_transform_changed(self, old_position, old_angle);
+    }
+
+    pub(crate) fn set_orientation_with_effects(
+        &mut self,
+        angle: f32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
+        if let Some(partition) = effects.partition.as_deref_mut() {
+            self.set_orientation_with_partition_owner(angle, partition);
+        } else {
+            self.set_orientation(angle);
+        }
     }
 
     pub(crate) fn native_pose_revision(&self) -> u64 {
@@ -224,7 +360,7 @@ impl Object {
     /// Host pose is Y-up: C++ world Z maps to `position.y`.
     pub fn get_health_box_position(&self) -> Vec3 {
         let pos = self.get_position();
-        let geom = &self.thing.template.geometry_info;
+        let geom = self.geometry_info();
         let max_h = if geom.authored {
             geom.max_height_above_position()
         } else {
@@ -247,7 +383,7 @@ impl Object {
         if self.is_kind_of(KindOf::IgnoredInGui) {
             return (0.0, 0.0);
         }
-        let geom = &self.thing.template.geometry_info;
+        let geom = self.geometry_info();
         let (major, minor) = if geom.authored {
             (geom.major_radius, geom.minor_radius)
         } else {
@@ -260,7 +396,7 @@ impl Object {
 
     /// Presentation overlay: C++ Z-up height of the health bar above ground pose.
     pub fn health_box_world_z_offset(&self) -> f32 {
-        let geom = &self.thing.template.geometry_info;
+        let geom = self.geometry_info();
         let max_h = if geom.authored {
             geom.max_height_above_position()
         } else {
@@ -1186,6 +1322,16 @@ impl Object {
 #[cfg(test)]
 mod native_pose_notification_tests {
     use super::*;
+
+    #[test]
+    fn standalone_orientation_effects_fallback_notifies_once() {
+        let mut object =
+            Object::new_simple(ObjectId(1), ObjectType::Vehicle, "PoseFallback".into());
+        let before = object.native_pose_revision();
+        object.set_orientation_with_effects(0.7, &mut Default::default());
+        assert_eq!(object.get_orientation(), 0.7);
+        assert_eq!(object.native_pose_revision(), before + 1);
+    }
 
     #[test]
     fn equal_setters_notify_and_queries_do_not() {

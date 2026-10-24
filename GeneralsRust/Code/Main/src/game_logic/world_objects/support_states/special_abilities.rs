@@ -725,7 +725,10 @@ impl GameLogic {
 
     fn leftover_sa_flip_orientation(&mut self, object_id: ObjectId) {
         if let Some(object) = self.objects.get_mut(&object_id) {
-            object.set_orientation(object.get_orientation() + std::f32::consts::PI);
+            object.set_orientation_with_partition_owner(
+                object.get_orientation() + std::f32::consts::PI,
+                &mut self.partition_manager,
+            );
         }
     }
 
@@ -1111,7 +1114,12 @@ impl GameLogic {
                 obj.face_can_turn_in_place = obj.min_speed == 0.0;
                 obj.face_active = true;
             }
-            obj.tick_face_towards_with_effects(target_pos, dt.max(1.0 / 30.0), frame, effects)
+            obj.tick_face_towards_with_effects(
+                target_pos,
+                dt.max(1.0 / 30.0),
+                frame,
+                &mut effects.reborrow_for_object(&mut self.partition_manager),
+            )
         } else {
             false
         }
@@ -1245,7 +1253,7 @@ impl GameLogic {
     ) -> Option<(glam::Vec3, glam::Vec3)> {
         let caster = self.objects.get(&caster_id)?;
         let target = self.objects.get(&target_id)?;
-        let geom = &target.thing().template.geometry_info;
+        let geom = &(*target.geometry_info());
         let start = special_ability_attach_bone_world(caster, attach_bone);
         Some(
             crate::game_logic::host_weapon_laser::special_ability_laser_endpoints(
@@ -1343,7 +1351,11 @@ impl GameLogic {
         }
         if let Some(sid) = special_object_id {
             if let Some(o) = self.objects.get_mut(&sid) {
-                o.set_position_with_effects(from, tree_move_frame, effects);
+                o.set_position_with_effects(
+                    from,
+                    tree_move_frame,
+                    &mut effects.reborrow_for_object(&mut self.partition_manager),
+                );
                 let extra = if o.missile_defender_laser_beam {
                     crate::game_logic::host_missile_defender::LASER_GUIDED_BEAM_LIFETIME_FRAMES
                 } else {
@@ -1371,7 +1383,7 @@ impl GameLogic {
     ) -> bool {
         let (is_structure, footprint, pos, yaw, geom) = match self.objects.get(&target_id) {
             Some(target) => {
-                let geom = target.thing().template.geometry_info;
+                let geom = (*target.geometry_info());
                 let area =
                     crate::game_logic::host_hero_abilities::leftover_disable_fx_footprint_area(
                         geom.authored,
@@ -2244,8 +2256,23 @@ impl GameLogic {
                     &mut self.queued_audio_events,
                 ));
                 rider.target = Some(container_id);
-                rider.set_contained_by(Some(container_id));
-                rider.set_position_with_effects(plan.container_position, tree_move_frame, effects);
+                let containment_actor_id = rider.id;
+                Self::set_owned_containment_in_parts(
+                    &mut self.objects,
+                    &mut self.partition_manager,
+                    containment_actor_id,
+                    Some(container_id),
+                    true,
+                );
+                let rider = self
+                    .objects
+                    .get_mut(&containment_actor_id)
+                    .expect("containment operation preserves this birth");
+                rider.set_position_with_effects(
+                    plan.container_position,
+                    tree_move_frame,
+                    &mut effects.reborrow_for_object(&mut self.partition_manager),
+                );
                 rider.set_ai_state(
                     AIState::Docked,
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
@@ -2291,7 +2318,11 @@ impl GameLogic {
                 .objects
                 .get_mut(&container_id)
                 .expect("RiderChange preflight container disappeared")
-                .remove_occupant(previous_rider_id, &mut self.ownership_events);
+                .remove_occupant_with_partition_owner(
+                    previous_rider_id,
+                    &mut self.ownership_events,
+                    &mut self.partition_manager,
+                );
             debug_assert!(removed, "RiderChange preflight must make eject infallible");
             if !removed {
                 return false;
@@ -2308,9 +2339,20 @@ impl GameLogic {
                 previous.set_position_with_effects(
                     plan.container_position,
                     tree_move_frame,
-                    effects,
+                    &mut effects.reborrow_for_object(&mut self.partition_manager),
                 );
-                previous.set_contained_by(None);
+                let containment_actor_id = previous.id;
+                Self::set_owned_containment_in_parts(
+                    &mut self.objects,
+                    &mut self.partition_manager,
+                    containment_actor_id,
+                    None,
+                    true,
+                );
+                let previous = self
+                    .objects
+                    .get_mut(&containment_actor_id)
+                    .expect("containment operation preserves this birth");
                 previous.clear_target(&mut crate::game_logic::ObjectAudio::queue(
                     &mut self.queued_audio_events,
                 ));
@@ -2374,8 +2416,23 @@ impl GameLogic {
             rider.target_location = None;
             rider.set_status_force_attack(false);
             rider.target = Some(container_id);
-            rider.set_contained_by(Some(container_id));
-            rider.set_position_with_effects(plan.container_position, tree_move_frame, effects);
+            let containment_actor_id = rider.id;
+            Self::set_owned_containment_in_parts(
+                &mut self.objects,
+                &mut self.partition_manager,
+                containment_actor_id,
+                Some(container_id),
+                true,
+            );
+            let rider = self
+                .objects
+                .get_mut(&containment_actor_id)
+                .expect("containment operation preserves this birth");
+            rider.set_position_with_effects(
+                plan.container_position,
+                tree_move_frame,
+                &mut effects.reborrow_for_object(&mut self.partition_manager),
+            );
             rider.set_ai_state(
                 AIState::Docked,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
@@ -2485,7 +2542,11 @@ impl GameLogic {
             .objects
             .get_mut(&container_id)
             .expect("RiderChange preflight container disappeared")
-            .remove_occupant(rider_id, &mut self.ownership_events);
+            .remove_occupant_with_partition_owner(
+                rider_id,
+                &mut self.ownership_events,
+                &mut self.partition_manager,
+            );
         debug_assert!(removed, "RiderChange preflight must make exit infallible");
         if !removed {
             return false;
@@ -2495,8 +2556,23 @@ impl GameLogic {
             rider.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                 &mut self.queued_audio_events,
             ));
-            rider.set_position_with_effects(position, tree_move_frame, effects);
-            rider.set_contained_by(None);
+            rider.set_position_with_effects(
+                position,
+                tree_move_frame,
+                &mut effects.reborrow_for_object(&mut self.partition_manager),
+            );
+            let containment_actor_id = rider.id;
+            Self::set_owned_containment_in_parts(
+                &mut self.objects,
+                &mut self.partition_manager,
+                containment_actor_id,
+                None,
+                true,
+            );
+            let rider = self
+                .objects
+                .get_mut(&containment_actor_id)
+                .expect("containment operation preserves this birth");
             rider.clear_target(&mut crate::game_logic::ObjectAudio::queue(
                 &mut self.queued_audio_events,
             ));
@@ -2608,7 +2684,11 @@ impl GameLogic {
 
         if let Some(container) = self.objects.get_mut(&container_id) {
             for (occupant_id, _) in &kicked {
-                let _ = container.remove_occupant(*occupant_id, &mut self.ownership_events);
+                let _ = container.remove_occupant_with_partition_owner(
+                    *occupant_id,
+                    &mut self.ownership_events,
+                    &mut self.partition_manager,
+                );
             }
         }
         for (occupant_id, stealth_garrison) in kicked {
@@ -2643,7 +2723,11 @@ impl GameLogic {
 
         if let Some(structure) = self.objects.get_mut(&structure_id) {
             for occupant_id in &occupants {
-                let _ = structure.remove_occupant(*occupant_id, &mut self.ownership_events);
+                let _ = structure.remove_occupant_with_partition_owner(
+                    *occupant_id,
+                    &mut self.ownership_events,
+                    &mut self.partition_manager,
+                );
             }
         }
 

@@ -64,10 +64,7 @@ End
             .create_object_for_player("OwnedRappelEnemy", 2, glam::Vec3::ZERO)
             .unwrap();
         assert!(world.host_object_mut(building).unwrap().add_occupant(enemy));
-        world
-            .host_object_mut(enemy)
-            .unwrap()
-            .set_contained_by(Some(building));
+        world.set_fixture_object_contained_by(enemy, Some(building));
         enemies.push(enemy);
     }
     (world, rappeller, building, enemies)

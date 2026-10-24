@@ -282,17 +282,21 @@ impl GameLogic {
             }
             self.drop_jet_targeters_on_attack_exit(passenger);
             self.clear_unit_movement_path(passenger);
-            let (object, attack_events, audio_events) = self
-                .host_object_attack_audio_mut(passenger)
+            let operation_frame = self.frame;
+            let (object, attack_events, audio_events, partition) = self
+                .host_object_attack_audio_partition_mut(passenger)
                 .expect("resolved passenger");
             Self::clear_owned_named_ai_goal(
                 object,
                 &mut crate::game_logic::ObjectAudio::queue(audio_events),
             );
-            object.set_target(
+            object.set_target_with_operation(
                 Some(container_id),
                 attack_events,
                 &mut crate::game_logic::ObjectAudio::queue(audio_events),
+                operation_frame,
+                &mut crate::game_logic::ScriptPresentationEffects::default()
+                    .reborrow_for_object(partition),
             );
             object.last_command_source =
                 crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT;
@@ -353,10 +357,10 @@ impl GameLogic {
         }
         if container.is_garrison_contain() {
             {
-                let (object, ownership_events) = self
-                    .host_object_and_ownership_events_mut(container_id)
+                let (object, ownership_events, partition) = self
+                    .host_object_ownership_partition_mut(container_id)
                     .unwrap();
-                object.remove_occupant(passenger, ownership_events)
+                object.remove_occupant_with_partition_owner(passenger, ownership_events, partition)
             };
             self.garrison_exit_occupant_via_door_with_effects(passenger, container_id, effects);
         } else {

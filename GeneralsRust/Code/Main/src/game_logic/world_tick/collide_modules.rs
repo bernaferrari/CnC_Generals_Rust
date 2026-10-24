@@ -43,7 +43,11 @@ impl super::super::GameLogic {
                 .is_some_and(|c| c.add_occupant(self_id));
             if boarded {
                 if let Some(us) = self.objects.get_mut(&self_id) {
-                    us.set_contained_by(Some(other_id));
+                    us.set_contained_by_with_partition_owner(
+                        Some(other_id),
+                        true,
+                        &mut self.partition_manager,
+                    );
                     us.ai_state = AIState::Garrisoned;
                     us.status.moving = false;
                 }

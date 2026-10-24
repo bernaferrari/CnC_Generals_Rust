@@ -23,9 +23,7 @@ fn receiving_team_observation_keeps_live_idle_counts_without_unrequested_sightin
             gamelogic::common::Relationship::Enemies
         );
     }
-    peer.host_object_mut(target)
-        .unwrap()
-        .set_position(Vec3::new(900., 0., 900.));
+    peer.set_fixture_object_position(target, Vec3::new(900., 0., 900.));
     let members = [unit.0];
     let disabled = owner.observe_owned_team_state(&members, false);
     let enabled = owner.observe_owned_team_state(&members, true);

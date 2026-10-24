@@ -307,10 +307,11 @@ impl GameLogic {
             if is_tech {
                 // C++ Team::killTeam: KINDOF_TECH_BUILDING → Neutral default team.
                 if let Some(obj) = self.objects.get_mut(&id) {
-                    obj.set_team_and_owner(
+                    obj.set_team_and_owner_with_partition_owner(
                         Team::Neutral,
                         neutral_owner,
                         &mut self.ownership_events,
+                        &mut self.partition_manager,
                     );
                 }
                 continue;

@@ -45,7 +45,11 @@ impl GameLogic {
             spawned_object_ids.iter().copied().zip(grounded_positions)
         {
             if let Some(object) = self.objects.get_mut(&object_id) {
-                object.set_position_with_effects(Vec3::new(x, y, z), frame, effects);
+                object.set_position_with_effects(
+                    Vec3::new(x, y, z),
+                    frame,
+                    &mut effects.reborrow_for_object(&mut self.partition_manager),
+                );
                 // y is world height after grounding; residual height sample = y when terrain present.
                 object.set_ground_height_residual(y, true);
                 {}
@@ -268,8 +272,13 @@ impl GameLogic {
         // fallback: if both attempts fail, callers must see that no map loaded.
         self.map_loaded = false;
         self.finish_all_building_sounds();
+        self.objects
+            .retire_owned_scalar_stamps(&mut self.partition_manager);
         self.objects.clear();
-        self.partition_manager = Default::default();
+        self.partition_manager =
+            crate::game_logic::partition_manager::PartitionManager::with_scalar_owner(
+                self.world_services.shroud(),
+            );
         self.world_services
             .shroud()
             .lock()
@@ -696,12 +705,18 @@ impl GameLogic {
                                 }
                                 if obj.enabled == Some(false) {
                                     if let Some(created) = self.objects.get_mut(&id) {
-                                        created.set_script_disabled(true);
+                                        created.set_script_disabled_with_partition_owner(
+                                            true,
+                                            &mut self.partition_manager,
+                                        );
                                     }
                                 }
                                 if obj.powered == Some(false) {
                                     if let Some(created) = self.objects.get_mut(&id) {
-                                        created.set_script_underpowered(true);
+                                        created.set_script_underpowered_with_partition_owner(
+                                            true,
+                                            &mut self.partition_manager,
+                                        );
                                     }
                                 }
                                 if let Some(indestructible) = obj.indestructible {
@@ -721,7 +736,10 @@ impl GameLogic {
                                 self.sync_named_shell_object_into_legacy_runtime(obj, id);
                                 if let Some(rot) = obj.rotation {
                                     if let Some(created) = self.objects.get_mut(&id) {
-                                        created.set_orientation(rot);
+                                        created.set_orientation_with_partition_owner(
+                                            rot,
+                                            &mut self.partition_manager,
+                                        );
                                     }
                                 }
                                 if let Some(upgrade) = obj.upgrade.as_deref() {
@@ -737,7 +755,10 @@ impl GameLogic {
                                         if !applied_facing && obj.rotation.is_none() {
                                             if let Ok(angle) = trimmed.parse::<f32>() {
                                                 if let Some(created) = self.objects.get_mut(&id) {
-                                                    created.set_orientation(angle);
+                                                    created.set_orientation_with_partition_owner(
+                                                        angle,
+                                                        &mut self.partition_manager,
+                                                    );
                                                 }
                                                 applied_facing = true;
                                                 continue;
@@ -1141,6 +1162,15 @@ impl GameLogic {
                 .unwrap_or_default(),
         );
 
+        // GameLogic.cpp2060: initial PartitionManager::update before the
+        // first script frame. Constructors only attached dirty modules.
+        self.update_owned_partition_with_effects(
+            &mut native
+                .as_mut()
+                .map(|native| native.effects())
+                .unwrap_or_default(),
+        );
+
         self.map_loaded = true;
         // C++ start-of-match residual: reveal FOW around loaded units/structures
         // immediately so build placement / presentation FOW are not stuck LBC_SHROUD
@@ -1303,7 +1333,7 @@ pub(in super::super) fn landmark_bridge_half_sizes(
             }
         }
     }
-    let geom = &obj.thing().template.geometry_info;
+    let geom = &(*obj.geometry_info());
     if geom.authored && geom.major_radius > 0.0 && geom.minor_radius > 0.0 {
         return (geom.major_radius, geom.minor_radius);
     }

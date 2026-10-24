@@ -28,6 +28,9 @@ impl<'de> Deserialize<'de> for Thing {
             cached_dir_vector: persisted.cached_dir_vector,
             cache_valid: persisted.cache_valid,
         };
+        // Raw predecessor Thing records contain only legacy bounds caches.
+        // The complete WorldSnapshot GMSH tail restores a changed live shape.
+        thing.geometry.shape = Some(thing.template.geometry_info);
         thing.update_cache();
         Ok(thing)
     }

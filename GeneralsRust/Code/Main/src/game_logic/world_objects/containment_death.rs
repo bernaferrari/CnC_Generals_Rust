@@ -91,11 +91,8 @@ fn apply_transport_death_scatter(
         Some(container_pos.y),
     );
     let dest = glam::Vec3::new(leftover.dest_x, leftover.dest_z, leftover.dest_y);
-    unit.stop_moving(audio);
-    unit.target = None;
-    unit.set_contained_by(None);
     unit.set_position_with_effects(container_pos, frame, effects);
-    unit.set_orientation(leftover.orientation);
+    unit.set_orientation_with_effects(leftover.orientation, effects);
     unit.set_ai_state(AIState::Moving, audio);
     unit.status.moving = true;
     // Pathfinder ignore for the queued move. Physics still skips the wreck
@@ -239,7 +236,18 @@ impl GameLogic {
             if outcome.cave_in {
                 for child in outcome.cave_in_units {
                     if let Some(child) = self.objects.get_mut(&child) {
-                        child.set_contained_by(None);
+                        let containment_actor_id = child.id;
+                        Self::set_owned_containment_in_parts(
+                            &mut self.objects,
+                            &mut self.partition_manager,
+                            containment_actor_id,
+                            None,
+                            true,
+                        );
+                        let child = self
+                            .objects
+                            .get_mut(&containment_actor_id)
+                            .expect("containment operation preserves this birth");
                     }
                     // TunnelTracker cave-in is direct destruction, not body death.
                     self.destroy_object_with_effects(child, presentation_effects);
@@ -248,7 +256,18 @@ impl GameLogic {
                 for child in self.cave_system.contained_for_index(index) {
                     if let Some(child) = self.objects.get_mut(&child) {
                         if child.contained_by == Some(id) {
-                            child.set_contained_by(Some(entrance));
+                            let containment_actor_id = child.id;
+                            Self::set_owned_containment_in_parts(
+                                &mut self.objects,
+                                &mut self.partition_manager,
+                                containment_actor_id,
+                                Some(entrance),
+                                true,
+                            );
+                            let child = self
+                                .objects
+                                .get_mut(&containment_actor_id)
+                                .expect("containment operation preserves this birth");
                         }
                     }
                 }
@@ -314,7 +333,7 @@ impl GameLogic {
             return;
         }
         let position = container.get_position();
-        let geometry = &container.thing().template.geometry_info;
+        let geometry = &(*container.geometry_info());
         let radius = if geometry.authored {
             geometry.bounding_circle_radius()
         } else {
@@ -322,6 +341,23 @@ impl GameLogic {
                 .selection_radius
                 .max(container.thing().geometry.radius)
         };
+        {
+            let rider = self
+                .objects
+                .get_mut(&rider_id)
+                .expect("installed contain rider");
+            rider.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
+                &mut self.queued_audio_events,
+            ));
+            rider.target = None;
+        }
+        Self::set_owned_containment_in_parts(
+            &mut self.objects,
+            &mut self.partition_manager,
+            rider_id,
+            None,
+            true,
+        );
         let destination = {
             let rider = self
                 .objects
@@ -333,7 +369,7 @@ impl GameLogic {
                 position,
                 radius,
                 self.frame,
-                effects,
+                &mut effects.reborrow_for_object(&mut self.partition_manager),
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             )
         };

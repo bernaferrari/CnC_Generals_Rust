@@ -641,6 +641,30 @@ impl Object {
         audio: &mut crate::game_logic::ObjectAudio<'_>,
         feedback: &mut crate::game_logic::VeterancyFeedback<'_>,
     ) {
+        self.apply_convert_to_car_bomb_from_with_partition_context(donor, audio, feedback, None)
+    }
+    pub(crate) fn apply_convert_to_car_bomb_from_with_partition_owner(
+        &mut self,
+        donor: Option<&Object>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
+        feedback: &mut crate::game_logic::VeterancyFeedback<'_>,
+        partition: &mut crate::game_logic::partition_manager::PartitionManager,
+    ) {
+        self.apply_convert_to_car_bomb_from_with_partition_context(
+            donor,
+            audio,
+            feedback,
+            Some(partition),
+        )
+    }
+    fn apply_convert_to_car_bomb_from_with_partition_context(
+        &mut self,
+        donor: Option<&Object>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
+        feedback: &mut crate::game_logic::VeterancyFeedback<'_>,
+        mut partition: Option<&mut crate::game_logic::partition_manager::PartitionManager>,
+    ) {
+        self.require_partition_owner(partition.as_deref());
         self.set_status_is_carbomb(true);
         let _ = self.set_weapon_set_flag(2, true);
         self.set_status_disabled_unmanned(false);
@@ -667,7 +691,10 @@ impl Object {
         if let Some(d) = donor {
             // C++ setVisionRange / setShroudClearingRange from converter.
             self.vision_range = d.vision_range;
-            self.shroud_clearing_range = d.shroud_clearing_range.max(d.vision_range);
+            self.set_shroud_clearing_range_with_partition_context(
+                d.shroud_clearing_range.max(d.vision_range),
+                partition.as_deref_mut(),
+            );
             // C++ ExperienceTracker::setVeterancyLevel(converter level).
             let donor_level = d.experience.level;
             if !matches!(donor_level, crate::game_logic::VeterancyLevel::Rookie) {
@@ -701,6 +728,15 @@ impl Object {
         vehicle_id: ObjectId,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
+        self.require_partition_owner(None);
+        self.begin_hijacker_in_vehicle_unattached(vehicle_id, audio);
+    }
+
+    fn begin_hijacker_in_vehicle_unattached(
+        &mut self,
+        vehicle_id: ObjectId,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
+    ) {
         self.hijack_vehicle_id = Some(vehicle_id);
         self.hijacker_in_vehicle = true;
         self.hijacker_update_active = true;
@@ -716,6 +752,17 @@ impl Object {
         }
         // C++ ConvertToHijackedVehicleCrateCollide: setDrawableHidden(true).
         self.set_drawable_hidden(true);
+    }
+
+    pub(crate) fn begin_hijacker_in_vehicle_with_partition_owner(
+        &mut self,
+        vehicle_id: ObjectId,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
+        partition: &mut crate::game_logic::partition_manager::PartitionManager,
+    ) {
+        self.require_partition_owner(Some(partition));
+        partition.unregister_object(self.id.0);
+        self.begin_hijacker_in_vehicle_unattached(vehicle_id, audio);
     }
 
     /// C++ HijackerUpdate exit when vehicle dies residual.
@@ -742,6 +789,11 @@ impl Object {
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
+        // HijackerUpdate.cpp87 reattaches before unhiding/clearing status.
+        self.require_partition_owner(effects.partition.as_deref());
+        if let Some(partition) = effects.partition.as_deref_mut() {
+            partition.attach_receiving_object(self);
+        }
         self.hijack_vehicle_id = None;
         self.hijacker_in_vehicle = false;
         self.hijacker_update_active = false;
@@ -842,6 +894,23 @@ impl Object {
         donor: Option<&Object>,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
+        self.apply_hijacked_from_with_partition_context(donor, audio, None)
+    }
+    pub(crate) fn apply_hijacked_from_with_partition_owner(
+        &mut self,
+        donor: Option<&Object>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
+        partition: &mut crate::game_logic::partition_manager::PartitionManager,
+    ) {
+        self.apply_hijacked_from_with_partition_context(donor, audio, Some(partition))
+    }
+    fn apply_hijacked_from_with_partition_context(
+        &mut self,
+        donor: Option<&Object>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
+        mut partition: Option<&mut crate::game_logic::partition_manager::PartitionManager>,
+    ) {
+        self.require_partition_owner(partition.as_deref());
         self.set_status_hijacked(true);
         self.set_status_disabled_unmanned(false);
         self.set_status_disabled_hacked(false);
@@ -866,7 +935,10 @@ impl Object {
             // C++ other->setVisionRange / setShroudClearingRange from hijacker
             // ("since we are driving"). Exact copy, not MAX.
             self.vision_range = d.vision_range;
-            self.shroud_clearing_range = d.shroud_clearing_range;
+            self.set_shroud_clearing_range_with_partition_context(
+                d.shroud_clearing_range,
+                partition.as_deref_mut(),
+            );
 
             use crate::game_logic::VeterancyLevel;
             // MAX of target and jacker veterancy residual.
@@ -919,6 +991,15 @@ impl Object {
         &mut self,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) -> Option<ObjectId> {
+        self.takeoff_from_airfield_parking_with_operation(audio, 0, &mut Default::default())
+    }
+
+    pub fn takeoff_from_airfield_parking_with_operation(
+        &mut self,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
+        operation_frame: u32,
+        operation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> Option<ObjectId> {
         if !(self.is_kind_of(KindOf::Aircraft) || self.object_type == ObjectType::Aircraft) {
             return None;
         }
@@ -940,7 +1021,7 @@ impl Object {
             let mut pos = self.get_position();
             if pos.y < PARKING_PLACE_AIRFIELD_APPROACH_HEIGHT {
                 pos.y = PARKING_PLACE_AIRFIELD_APPROACH_HEIGHT;
-                self.set_position(pos);
+                self.set_position_with_effects(pos, operation_frame, operation_effects);
             }
         }
         af

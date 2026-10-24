@@ -623,11 +623,9 @@ impl HostBridgeBehaviorRegistry {
 
     pub fn mark_death(&mut self, bridge: ObjectId, frame: u32) {
         if let Some(span) = self.spans.get_mut(&bridge.0) {
-            if span.death_frame == 0 {
-                span.death_frame = frame.max(1);
-                span.die_fx_fired_mask = 0;
-                span.die_ocl_fired_mask = 0;
-            }
+            span.death_frame = frame;
+            span.die_fx_fired_mask = 0;
+            span.die_ocl_fired_mask = 0;
         }
     }
 
@@ -639,7 +637,7 @@ impl HostBridgeBehaviorRegistry {
         if span.death_frame == 0 {
             return 0;
         }
-        let death_time = frame.saturating_sub(span.death_frame);
+        let death_time = frame.wrapping_sub(span.death_frame);
         let mut n = 0usize;
         for (i, delay) in BRIDGE_DIE_FX_DELAYS.iter().copied().enumerate() {
             let bit = 1u8 << i;
@@ -662,7 +660,7 @@ impl HostBridgeBehaviorRegistry {
         if span.death_frame == 0 {
             return 0;
         }
-        let death_time = frame.saturating_sub(span.death_frame);
+        let death_time = frame.wrapping_sub(span.death_frame);
         let mut n = 0usize;
         for (i, delay) in BRIDGE_DIE_FX_DELAYS.iter().copied().enumerate() {
             let bit = 1u8 << i;
@@ -1068,5 +1066,27 @@ mod tests {
         assert_eq!(reg.callback_target_at(captured_span, victim, 4), Some(span));
         assert_eq!(reg.callback_target_at(span, span, 4), None);
         assert_eq!(reg.callback_target_at(span, span, 2), None);
+    }
+    #[test]
+    fn original_bridge_death_zero_sentinel_and_wrapped_clock_survive_encoded_owner() {
+        let mut registry = HostBridgeBehaviorRegistry::new();
+        let id = ObjectId(9);
+        registry.register_span(id, Vec3::ZERO, Vec3::X, Vec3::Z, Vec3::X + Vec3::Z);
+        registry.mark_death(id, 0);
+        assert_eq!(registry.span(id).unwrap().death_frame, 0);
+        assert_eq!(registry.take_due_die_fx(id, 0), 0);
+        assert_eq!(registry.take_due_die_ocl(id, 8), 0);
+        registry.mark_death(id, u32::MAX - 3);
+        let encoded = bincode_legacy::serialize(&registry).unwrap();
+        let mut restored: HostBridgeBehaviorRegistry =
+            bincode_legacy::deserialize(&encoded).unwrap();
+        assert_eq!(restored.take_due_die_fx(id, 4), 1);
+        assert_eq!(restored.take_due_die_ocl(id, 4), 1);
+        assert_eq!(restored.take_due_die_fx(id, 4), 0);
+        assert_eq!(restored.take_due_die_ocl(id, 4), 0);
+        // Original onDie assigns the current frame, not only the first ever hit.
+        restored.mark_death(id, 13);
+        assert_eq!(restored.span(id).unwrap().death_frame, 13);
+        assert_eq!(restored.take_due_die_fx(id, 13), 1);
     }
 }

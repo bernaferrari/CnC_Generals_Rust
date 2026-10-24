@@ -503,7 +503,7 @@ impl GameLogic {
                     .get_mut(&victim_id)
                     .expect("validated receiving victim");
                 let players = &mut self.players;
-                victim.begin_damage_with_context_and_effects(
+                victim.begin_damage_with_context_and_effects_with_operation(
                     damage,
                     source_id,
                     damage_type,
@@ -568,6 +568,9 @@ impl GameLogic {
                             view,
                         );
                     },
+                    self.frame,
+                    &mut crate::game_logic::ScriptPresentationEffects::default()
+                        .reborrow_for_object(&mut self.partition_manager),
                 )
             },
         );
@@ -576,7 +579,7 @@ impl GameLogic {
             let players = &mut self.players;
             self.objects
                 .get_mut(&victim_id)?
-                .begin_damage_with_context_and_effects(
+                .begin_damage_with_context_and_effects_with_operation(
                     damage,
                     source_id,
                     damage_type,
@@ -597,6 +600,9 @@ impl GameLogic {
                             &mut self.queued_audio_events,
                         )
                     },
+                    self.frame,
+                    &mut crate::game_logic::ScriptPresentationEffects::default()
+                        .reborrow_for_object(&mut self.partition_manager),
                 )
         };
         let victim = self
@@ -884,7 +890,7 @@ impl GameLogic {
                     .objects
                     .get_mut(&victim_id)
                     .expect("post-FX victim remains installed until destroy-list cleanup");
-                after_fx.finish_with_body_fx(
+                after_fx.finish_with_body_fx_and_partition(
                     victim,
                     source.as_ref(),
                     enable_repulsors,
@@ -902,6 +908,8 @@ impl GameLogic {
                             view,
                         )
                     },
+                    self.frame,
+                    &mut self.partition_manager,
                 )
             },
         );
@@ -911,7 +919,7 @@ impl GameLogic {
                 .objects
                 .get_mut(&victim_id)
                 .expect("post-FX victim remains installed until destroy-list cleanup");
-            after_fx.finish_with_body_fx(
+            after_fx.finish_with_body_fx_and_partition(
                 victim,
                 source.as_ref(),
                 enable_repulsors,
@@ -923,6 +931,8 @@ impl GameLogic {
                         &mut self.queued_audio_events,
                     )
                 },
+                self.frame,
+                &mut self.partition_manager,
             )
         };
         self.admit_object_drawable_deselection(victim_id);
@@ -1332,7 +1342,11 @@ impl GameLogic {
                     );
                 }
                 if let Some(force) = shock {
-                    let _ = victim.apply_shock_wave_impulse(force);
+                    let _ = victim.apply_shock_wave_impulse_with_operation(
+                        force,
+                        self.frame,
+                        &mut effects.reborrow_for_object(&mut self.partition_manager),
+                    );
                 }
             }
             if let Some(result) = result {

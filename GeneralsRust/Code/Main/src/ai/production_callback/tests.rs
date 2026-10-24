@@ -1,6 +1,14 @@
 use super::*;
 
 fn production_world(unit_name: &str, dozer: bool) -> (GameLogic, ObjectId) {
+    production_world_with_exit(unit_name, dozer, None)
+}
+
+fn production_world_with_exit(
+    unit_name: &str,
+    dozer: bool,
+    exit: Option<crate::game_logic::thing::ProductionExitMetadata>,
+) -> (GameLogic, ObjectId) {
     let mut world = GameLogic::new();
     let mut player = Player::new(1, Team::USA, "Production AI", false);
     player.resources.supplies = 10_000;
@@ -9,6 +17,7 @@ fn production_world(unit_name: &str, dozer: bool) -> (GameLogic, ObjectId) {
     factory
         .add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::FSBarracks);
+    factory.production_exit_metadata = exit;
     world.templates.insert(factory.name.clone(), factory);
     let mut unit = ThingTemplate::new(unit_name);
     unit.add_kind_of(KindOf::Selectable)
@@ -506,7 +515,6 @@ fn production_completion_receipts_follow_actual_owner_fifo_across_peer_reset_and
     }
 
     let name = "ReceiptInfantry";
-    let (mut owner, factory) = production_world(name, false);
     let metadata = ProductionExitMetadata {
         style: ProductionExitStyle::Default,
         unit_create_point: [0.0; 3],
@@ -517,20 +525,8 @@ fn production_completion_receipts_follow_actual_owner_fifo_across_peer_reset_and
         use_spawn_rally_point: false,
         grant_temporary_stealth_frames: 0,
     };
-    // The actual producer owns its immutable authored exit, not a shared registry.
-    owner
-        .templates
-        .get_mut("DeliveryFactory")
-        .unwrap()
-        .production_exit_metadata = Some(metadata);
-    // Recreate so the installed template carries the authored exit definition.
-    let mut installed = Object::new(
-        owner.templates["DeliveryFactory"].clone(),
-        factory,
-        Team::USA,
-    );
-    installed.owner_player_id = Some(1);
-    owner.objects.insert(factory, installed);
+    // Admit the real producer with its authored exit before its first birth.
+    let (mut owner, factory) = production_world_with_exit(name, false, Some(metadata));
     let first = finish(&mut owner, factory, name);
     let (mut peer, peer_factory) = production_world(name, false);
     assert_eq!(factory, peer_factory);

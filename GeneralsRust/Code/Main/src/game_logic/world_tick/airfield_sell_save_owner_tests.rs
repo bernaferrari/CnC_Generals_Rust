@@ -8,9 +8,9 @@ fn continuation_roster() -> (GameLogic, ObjectId, [ObjectId; 3], ObjectId) {
         world.reserve_airfield_parking_space(rack, survivor),
         Some(3)
     );
-    let object = world.host_object_mut(survivor).unwrap();
-    object.ground_height = 0.0;
-    object.set_position(Vec3::new(100.0, 20.0, 100.0));
+    world.host_object_mut(survivor).unwrap().ground_height = 0.0;
+    world.set_fixture_object_position(survivor, Vec3::new(100.0, 20.0, 100.0));
+    let object = world.host_object(survivor).unwrap();
     assert!(object.is_above_terrain());
     (world, rack, slots, survivor)
 }

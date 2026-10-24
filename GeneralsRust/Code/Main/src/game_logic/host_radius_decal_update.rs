@@ -125,8 +125,32 @@ impl HostRadiusDecalTemplate {
     }
 }
 
+/// Runtime-only allocation provenance. Both variants own the same existing
+/// handle type; only the standalone adapter may compact its legacy manager.
+#[cfg(feature = "game_client")]
+#[derive(Debug)]
+enum RadiusProjection {
+    Standalone(game_client::radius_decal::ShadowHandle),
+    Receiving(game_client::radius_decal::ShadowHandle),
+}
+#[cfg(feature = "game_client")]
+impl RadiusProjection {
+    fn handle(&self) -> &game_client::radius_decal::ShadowHandle {
+        match self {
+            Self::Standalone(handle) | Self::Receiving(handle) => handle,
+        }
+    }
+    fn set_position(&self, pos: Vec3) {
+        match self {
+            Self::Standalone(handle) => handle.set_position(pos.x, pos.y, pos.z),
+            // Native client effect shaders consume original C++ XYZ (Z up).
+            Self::Receiving(handle) => handle.set_position(pos.x, pos.z, pos.y),
+        }
+    }
+}
+
 /// Live RadiusDecal residual instance.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Serialize, Deserialize, Default)]
 pub struct HostRadiusDecal {
     pub empty: bool,
     pub position: Vec3,
@@ -137,17 +161,39 @@ pub struct HostRadiusDecal {
     /// C++ `RadiusDecal::m_decal` — not serialized (C++ xfer clears on load).
     #[cfg(feature = "game_client")]
     #[serde(skip)]
-    projected: Option<game_client::radius_decal::ShadowHandle>,
+    projected: Option<RadiusProjection>,
+}
+
+/// Observation clones copy the authored/in-flight scalar values, never a
+/// resource-retirement right belonging to the original receiving instance.
+impl Clone for HostRadiusDecal {
+    fn clone(&self) -> Self {
+        Self {
+            empty: self.empty,
+            position: self.position,
+            radius: self.radius,
+            opacity: self.opacity,
+            template: self.template.clone(),
+            birth_frame: self.birth_frame,
+            #[cfg(feature = "game_client")]
+            projected: None,
+        }
+    }
 }
 
 impl HostRadiusDecal {
     #[cfg(feature = "game_client")]
     fn release_projected(&mut self) {
-        if let Some(handle) = self.projected.take() {
-            handle.release();
-            game_client::radius_decal::get_projected_shadow_manager()
-                .write()
-                .cleanup();
+        if let Some(projection) = self.projected.take() {
+            let standalone = matches!(&projection, RadiusProjection::Standalone(_));
+            projection.handle().release();
+            if standalone {
+                game_client::radius_decal::get_projected_shadow_manager()
+                    .write()
+                    .cleanup();
+            }
+            // Receiving compaction belongs to the explicit client frame/reset;
+            // this branch never discovers or mutates a different manager.
         }
     }
 
@@ -225,6 +271,75 @@ impl HostRadiusDecal {
         owner_index: Option<i32>,
         players: RadiusDecalPlayerView,
     ) -> Self {
+        #[cfg(feature = "game_client")]
+        let mut allocator = |texture: &str, radius, pos: Vec3, color, opacity| {
+            game_client::radius_decal::enqueue_delivery_decal_argb(
+                texture, radius, pos.x, pos.y, pos.z, color, opacity,
+            )
+            .map(RadiusProjection::Standalone)
+        };
+        Self::create_with_player_view_and_allocator(
+            tmpl,
+            radius,
+            pos,
+            frame,
+            owner_index,
+            players,
+            #[cfg(feature = "game_client")]
+            &mut allocator,
+        )
+    }
+
+    pub(crate) fn create_with_player_view_and_effects(
+        tmpl: HostRadiusDecalTemplate,
+        radius: f32,
+        pos: Vec3,
+        frame: u32,
+        owner_index: Option<i32>,
+        players: RadiusDecalPlayerView,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> Self {
+        #[cfg(feature = "game_client")]
+        let mut recipient = effects
+            .view
+            .as_deref_mut()
+            .and_then(|view| view.projected_radius_allocator());
+        #[cfg(feature = "game_client")]
+        let mut allocator = |texture: &str, radius, pos: Vec3, color, opacity| {
+            recipient.as_deref_mut().and_then(|owner| {
+                owner
+                    .allocate_radius(texture, radius, [pos.x, pos.z, pos.y], color, opacity)
+                    .map(RadiusProjection::Receiving)
+            })
+        };
+        Self::create_with_player_view_and_allocator(
+            tmpl,
+            radius,
+            pos,
+            frame,
+            owner_index,
+            players,
+            #[cfg(feature = "game_client")]
+            &mut allocator,
+        )
+    }
+
+    fn create_with_player_view_and_allocator(
+        tmpl: HostRadiusDecalTemplate,
+        radius: f32,
+        pos: Vec3,
+        frame: u32,
+        owner_index: Option<i32>,
+        players: RadiusDecalPlayerView,
+        #[cfg(feature = "game_client")] allocator: &mut dyn FnMut(
+            &str,
+            f32,
+            Vec3,
+            u32,
+            f32,
+        )
+            -> Option<RadiusProjection>,
+    ) -> Self {
         let radius = radius.max(0.0);
         if owner_index.is_none()
             || owner_index != players.owner_player_index
@@ -260,15 +375,7 @@ impl HostRadiusDecal {
 
         #[cfg(feature = "game_client")]
         let projected = if allow_decal {
-            game_client::radius_decal::enqueue_delivery_decal_argb(
-                &tmpl.texture,
-                radius,
-                pos.x,
-                pos.y,
-                pos.z,
-                color,
-                opacity,
-            )
+            allocator(&tmpl.texture, radius, pos, color, opacity)
         } else {
             None
         };
@@ -304,7 +411,9 @@ impl HostRadiusDecal {
         };
         #[cfg(feature = "game_client")]
         if let Some(handle) = &self.projected {
-            handle.set_opacity((self.opacity.clamp(0.0, 1.0) * 255.0).trunc() as i32);
+            handle
+                .handle()
+                .set_opacity((self.opacity.clamp(0.0, 1.0) * 255.0).trunc() as i32);
         }
     }
 
@@ -313,7 +422,7 @@ impl HostRadiusDecal {
         self.position = pos;
         #[cfg(feature = "game_client")]
         if let Some(handle) = &self.projected {
-            handle.set_position(pos.x, pos.y, pos.z);
+            handle.set_position(pos);
         }
     }
 }
@@ -413,6 +522,29 @@ impl HostRadiusDecalUpdateData {
             owner_index,
             players,
         );
+        self.awake = !self.delivery_decal.is_empty();
+    }
+
+    pub(crate) fn create_radius_decal_with_player_view_and_effects(
+        &mut self,
+        tmpl: HostRadiusDecalTemplate,
+        radius: f32,
+        pos: Vec3,
+        frame: u32,
+        owner_index: Option<i32>,
+        players: RadiusDecalPlayerView,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
+        let decal = HostRadiusDecal::create_with_player_view_and_effects(
+            tmpl,
+            radius,
+            pos,
+            frame,
+            owner_index,
+            players,
+            effects,
+        );
+        self.delivery_decal = decal;
         self.awake = !self.delivery_decal.is_empty();
     }
 
@@ -784,12 +916,152 @@ mod player_owner_tests {
         );
     }
 
+    #[derive(Default)]
+    struct ReceivingRadiusClient {
+        #[cfg(feature = "game_client")]
+        owner: game_client::core::game_client::NativeDrawableWorld,
+        local_player: u32,
+    }
+    impl ReceivingRadiusClient {
+        fn with_effects<T>(
+            &mut self,
+            body: impl FnOnce(&mut crate::game_logic::ScriptPresentationEffects<'_>) -> T,
+        ) -> T {
+            #[cfg(feature = "game_client")]
+            {
+                let mut view = ReceivingRadiusView(self.owner.borrow_native(), self.local_player);
+                body(&mut crate::game_logic::ScriptPresentationEffects {
+                    view: Some(&mut view),
+                    ..Default::default()
+                })
+            }
+            #[cfg(not(feature = "game_client"))]
+            body(&mut Default::default())
+        }
+    }
+    #[cfg(feature = "game_client")]
+    struct ReceivingRadiusView<'a>(game_client::core::game_client::NativeDrawableOwner<'a>, u32);
+    #[cfg(feature = "game_client")]
+    impl crate::game_logic::NativeViewEffects for ReceivingRadiusView<'_> {
+        fn projected_radius_allocator(
+            &mut self,
+        ) -> Option<&mut dyn crate::game_logic::NativeProjectedRadiusAllocator> {
+            Some(&mut self.0)
+        }
+        fn local_player_id(&self) -> u32 {
+            self.1
+        }
+        fn host_epoch(&self) -> u64 {
+            1
+        }
+        fn sample_slave(
+            &mut self,
+            _: &crate::game_logic::NativeSlaveSource,
+            _: &str,
+        ) -> crate::presentation_frame::camera::build::SlaveCameraSample {
+            unreachable!("radius fixture does not sample cameras")
+        }
+        fn body_visual_changed(
+            &mut self,
+            _: &crate::game_logic::NativeBodyVisualChange,
+            _: Option<&mut dyn game_client::drawable::drawable::NativeAmbientAudio>,
+        ) -> Result<bool, String> {
+            Err("radius fixture has no native Body receiver".into())
+        }
+        fn retire_physical_object_drawable(
+            &mut self,
+            _: &crate::game_logic::NativeObjectRetirement<'_>,
+        ) -> Result<(), String> {
+            Err("radius fixture does not retire native Drawables".into())
+        }
+        fn admit_factory_drawable(
+            &mut self,
+            source: crate::game_logic::NativeFactoryDrawableSource,
+            birth: game_client::core::game_client::NativeDrawableBirthContext,
+            content: &mut game_engine::common::thing::module_factory::ModuleFactory,
+        ) -> Result<(), String> {
+            // This fixture owns the real receiving client constructor, with an
+            // admitted empty Draw roster. No GPU/model observer is required.
+            let expected_id = source.drawable.object_id;
+            let game_client::core::game_client::PresentationModuleAdmission::Authored(template) =
+                &source.drawable.module_admission
+            else {
+                panic!("Spectre fixture requires its actual receiving definition");
+            };
+            assert!(template.draw_modules().iter().next().is_none());
+            let mut phases = Vec::new();
+            let key = self
+                .0
+                .admit_semantic_drawable_with_content(
+                    source.drawable,
+                    birth,
+                    0,
+                    content,
+                    game_client::core::game_client::ReceivingDrawablePolicy {
+                        time_of_day: Some(game_client::system::TimeOfDay::Morning),
+                        use_draw_module_lod: false,
+                        static_game_lod:
+                            game_engine::common::thing::module::StaticGameLodLevel::High,
+                        use_tree_sway: false,
+                    },
+                    &mut RadiusFixtureRetirement,
+                    |event| {
+                        use game_client::core::game_client::PresentationDrawableMutation;
+                        assert_eq!(event.object_id(), expected_id);
+                        phases.push(match event {
+                            PresentationDrawableMutation::Creating { .. } => "create",
+                            PresentationDrawableMutation::TransformInstalled { .. } => "transform",
+                            PresentationDrawableMutation::ConditionsMarked { .. } => "conditions",
+                            PresentationDrawableMutation::Destroyed { .. } => {
+                                panic!("successful birth cannot retire")
+                            }
+                        });
+                        Ok(())
+                    },
+                )
+                .map_err(|error| error.to_string())?;
+            assert_eq!(phases, ["create", "transform", "transform", "conditions"]);
+            assert_eq!(key.object_id, expected_id);
+            assert!(self.0.binding_key(1, expected_id).is_some());
+            Ok(())
+        }
+    }
+
+    #[cfg(feature = "game_client")]
+    struct RadiusFixtureRetirement;
+    #[cfg(feature = "game_client")]
+    impl game_client::core::game_client::NativeDrawableRetirement for RadiusFixtureRetirement {
+        fn retire(
+            &mut self,
+            owner: &mut game_client::core::game_client::NativeDrawableOwner<'_>,
+            selected: Option<game_client::drawable::DrawableId>,
+        ) -> game_client::core::GameClientResult<()> {
+            match selected {
+                Some(id) => owner.try_remove_for_map_attempt(id, None),
+                None => owner.try_clear_for_map_attempt(None),
+            }
+        }
+    }
+
     #[test]
     fn actual_spectre_create_uses_actor_owner_and_encoded_lazy_recreation_uses_receiver() {
-        fn deployment(local: u32) -> (GameLogic, crate::game_logic::ObjectId) {
-            let mut world = GameLogic::new();
+        fn prepare(world: &mut GameLogic, local: u32) {
+            world
+                .admit_receiving_module_content(
+                    crate::assets::ReceivingObjectContent::from_sources([(
+                        "spectre-radius-receiving-factory.ini".into(),
+                        "Object AmericaCommandCenter\nEnd\nObject AmericaJetSpectreGunship\nEnd\n"
+                            .into(),
+                    )])
+                    .unwrap(),
+                )
+                .unwrap();
             world.add_player(Player::new(0, Team::USA, "Owner", local == 0));
             world.add_player(Player::new(1, Team::GLA, "Viewer", local == 1));
+        }
+        fn deployment(local: u32) -> (GameLogic, crate::game_logic::ObjectId) {
+            let mut world = GameLogic::new();
+            prepare(&mut world, local);
             let template = ThingTemplate::new("AmericaCommandCenter");
             world.templates.insert(template.name.clone(), template);
             let caster = world
@@ -799,12 +1071,28 @@ mod player_owner_tests {
         }
         let (mut source, caster) = deployment(0);
         let (mut peer, peer_caster) = deployment(1);
-        let ship = source
-            .initiate_spectre_gunship_deployment(caster, Vec3::new(120.0, 0.0, 220.0))
-            .unwrap();
-        let peer_ship = peer
-            .initiate_spectre_gunship_deployment(peer_caster, Vec3::new(320.0, 0.0, 420.0))
-            .unwrap();
+        let mut source_client = ReceivingRadiusClient::default();
+        let mut peer_client = ReceivingRadiusClient {
+            local_player: 1,
+            ..Default::default()
+        };
+        let ship = source_client.with_effects(|effects| {
+            source
+                .initiate_spectre_gunship_deployment_with_effects(
+                    caster,
+                    Vec3::new(120.0, 0.0, 220.0),
+                    effects,
+                )
+                .unwrap()
+        });
+        let peer_ship = peer_client.with_effects(|effects| {
+            peer.initiate_spectre_gunship_deployment_with_effects(
+                peer_caster,
+                Vec3::new(320.0, 0.0, 420.0),
+                effects,
+            )
+            .unwrap()
+        });
         assert_eq!(ship, peer_ship);
         assert_eq!(source.host_object(ship).unwrap().owner_player_id, Some(0));
         let data = source
@@ -817,13 +1105,16 @@ mod player_owner_tests {
         #[cfg(feature = "game_client")]
         {
             assert!(data.attack_area_decal.has_projected_shadow());
-            let items = game_client::radius_decal::get_projected_shadow_manager()
-                .read()
-                .collect_render_items();
+            let items = source_client
+                .owner
+                .borrow_native()
+                .collect_projected_decal_items(false);
             let ring = items
                 .iter()
                 .find(|item| {
-                    (item.position.x - 120.0).abs() < 0.01 && (item.position.z - 220.0).abs() < 0.01
+                    (item.position.x - 120.0).abs() < 0.01
+                        && (item.position.y - 220.0).abs() < 0.01
+                        && item.position.z.abs() < 0.01
                 })
                 .unwrap();
             assert!((ring.color[0] - 127.0 / 255.0).abs() < 0.001);
@@ -842,8 +1133,8 @@ mod player_owner_tests {
         let saved = builder.create_world_snapshot(&source).unwrap();
         let encoded = bincode_legacy::serialize(&saved).unwrap();
         let decoded = crate::save_load::decode_bincode_world_snapshot(&encoded).unwrap();
-        let (mut restored, prepared_caster) = deployment(0);
-        assert_eq!(prepared_caster, caster);
+        let mut restored = GameLogic::new();
+        prepare(&mut restored, 0);
         restored.templates = source.templates.clone();
         builder
             .restore_from_snapshot(&decoded, &mut restored)
@@ -859,8 +1150,19 @@ mod player_owner_tests {
                 .attack_area_decal
                 .has_projected_shadow()
         );
-        // Actual receiving flight update lazily creates the derived projection.
-        restored.update();
+        assert_eq!(restored.host_object(caster).unwrap().id, caster);
+        let mut restored_client = ReceivingRadiusClient::default();
+        // Same actual full logic phase, now with its explicit receiving allocator.
+        restored_client.with_effects(|effects| {
+            restored.tick_logic_frame_with_script_effects(
+                1.0 / 30.0,
+                None,
+                None,
+                effects.reborrow(),
+                |_| {},
+                |_| {},
+            );
+        });
         #[cfg(feature = "game_client")]
         assert!(
             restored
@@ -881,7 +1183,16 @@ mod player_owner_tests {
             .as_mut()
             .unwrap()
             .clean_up_decals();
-        restored.update();
+        restored_client.with_effects(|effects| {
+            restored.tick_logic_frame_with_script_effects(
+                1.0 / 30.0,
+                None,
+                None,
+                effects.reborrow(),
+                |_| {},
+                |_| {},
+            );
+        });
         let data = restored
             .host_object(ship)
             .unwrap()
@@ -892,5 +1203,17 @@ mod player_owner_tests {
         assert!(data.targeting_reticle_decal.is_empty());
         peer.reset();
         assert_eq!(source.host_object(ship).unwrap().owner_player_id, Some(0));
+        #[cfg(feature = "game_client")]
+        assert!(
+            !source_client
+                .owner
+                .borrow_native()
+                .collect_projected_decal_items(false)
+                .is_empty()
+        );
     }
 }
+
+#[cfg(all(test, feature = "game_client"))]
+#[path = "host_radius_decal_update/clone_owner_tests.rs"]
+mod clone_owner_tests;

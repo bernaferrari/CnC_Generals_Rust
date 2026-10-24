@@ -210,8 +210,14 @@ fn actual_shock_stun_fall_completes_installed_die_before_self_source_armor() {
             let (mut owner, id) = world();
             let (peer, peer_id) = world();
             assert_eq!(id, peer_id);
-            let object = owner.objects.get_mut(&id).unwrap();
-            object.set_position(Vec3::new(0., 1., 0.));
+            let (object, fixture_partition_object) =
+                owner.host_object_and_partition_mut(id).unwrap();
+            object.set_position_with_partition_owner(
+                Vec3::new(0., 1., 0.),
+                0,
+                &mut Default::default(),
+                fixture_partition_object,
+            );
             object.shock_stun_frames = 20;
             object.shock_allow_bounce = false;
             object.shock_was_airborne = true;
@@ -244,10 +250,12 @@ fn stamp_clears_freefall_before_resting_request_and_rereads_effective_death_for_
     use crate::game_logic::object::{ContactStep, StampContact};
     let (mut owner, id) = world();
     resting(&mut owner, id);
-    let object = owner.objects.get_mut(&id).unwrap();
-    let ContactStep::Damage { request, .. } = object.step_stamp_contact(
+    let (object, partition) = owner.host_object_and_partition_mut(id).unwrap();
+    let ContactStep::Damage { request, .. } = object.step_stamp_contact_with_effects(
         StampContact::Start(0.),
         false,
+        0,
+        &mut crate::game_logic::ScriptPresentationEffects::default().reborrow_for_object(partition),
         &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
     ) else {
         panic!("resting kill must yield at actual Body boundary");

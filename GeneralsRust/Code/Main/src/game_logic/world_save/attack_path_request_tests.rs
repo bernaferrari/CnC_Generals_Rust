@@ -81,11 +81,7 @@ fn attack_request_queued_fallback_observes_current_victim_position() {
     let mut world = world(true, goal);
     assert!(world.request_attack_path(ATTACKER, Some(VICTIM), goal));
     let current = Vec3::new(120.0, 0.0, 0.0);
-    world
-        .objects
-        .get_mut(&VICTIM)
-        .unwrap()
-        .set_position(current);
+    world.set_fixture_object_position(VICTIM, current);
     let mut adjusted = current;
     world.adjust_to_possible_destination(ATTACKER, &mut adjusted);
     resolve(&mut world);

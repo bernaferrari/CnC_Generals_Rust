@@ -48,8 +48,8 @@ fn dock_helipad_comanche(logic: &mut GameLogic) -> (ObjectId, ObjectId) {
         )
         .expect("comanche");
     {
-        let heli = logic.objects.get_mut(&heli_id).unwrap();
-        heli.set_contained_by(Some(pad_id));
+        let (heli, fixture_partition_heli) = logic.host_object_and_partition_mut(heli_id).unwrap();
+        heli.set_contained_by_with_partition_owner(Some(pad_id), true, fixture_partition_heli);
         heli.set_ai_state(
             AIState::Docked,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),

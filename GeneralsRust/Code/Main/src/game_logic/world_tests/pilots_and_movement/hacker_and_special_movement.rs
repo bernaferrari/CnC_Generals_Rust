@@ -2607,7 +2607,7 @@ fn replace_object_upgrade_fake_gla_becomes_real() {
             glam::Vec3::new(10.0, 0.0, 20.0),
         )
         .unwrap();
-    logic.objects.get_mut(&id).unwrap().set_orientation(0.75);
+    logic.set_fixture_object_orientation(id, 0.75);
     let original_transform = logic.objects[&id].get_transform_matrix();
     let original_team = logic.objects[&id].team_instance_id;
     logic

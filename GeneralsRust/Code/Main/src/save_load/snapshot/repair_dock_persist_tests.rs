@@ -19,7 +19,7 @@ fn capsule_offset(bytes: &[u8]) -> usize {
         if tag == TAG {
             break;
         }
-        assert!([b"CPRJ", b"BDKD", b"NLFC", b"ODIS"].contains(&tag));
+        assert!([b"CPRJ", b"PCOI", b"GMSH", b"BDKD", b"NLFC", b"ODIS"].contains(&tag));
         let len = u32::from_le_bytes(bytes[offset + 8..offset + 12].try_into().unwrap()) as usize;
         offset += 12 + len;
     }

@@ -10,6 +10,14 @@ impl GameLogic {
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> u32 {
+        self.integrate_owned_physics_motion_with_effects(effects);
+        self.update_owned_partition_with_effects(effects)
+    }
+
+    pub(crate) fn integrate_owned_physics_motion_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         self.sync_all_contained_items_mass();
         // Per-frame blocked bookkeeping residual (before new collide pairs).
         // Snapshot ground heights before mut pass (terrain borrow).
@@ -92,114 +100,148 @@ impl GameLogic {
         for id in landed {
             self.dispatch_physics_ground_collide_with_effects(id, effects);
         }
-        // Rebuild partition cells (C++ registerObject residual each update).
-        // Dead wrecks stay registered and still onCollide (C++ PartitionManager).
-        self.partition_manager.clear_registered_objects();
-        // C++ OpenContain::addOrRemoveObjFromWorld unRegisterObject when
-        // isEnclosingContainerFor (Humvee/Chinook/garrison/Troop Crawler).
-        // Fire Base / parachute / Overlord portable stay registered.
-        let enclosing_hidden = enclosing_hidden_rider_ids(self.objects.read());
-        // O(1) id → pose/radius for pair resolution (was linear find per neighbor).
-        let mut entry_by_id: std::collections::HashMap<u32, (glam::Vec3, f32)> =
-            std::collections::HashMap::new();
-        let mut mobile_ids: Vec<ObjectId> = Vec::new();
-        for (id, o) in self.objects.registered() {
-            // C++ unRegisterObject while ride-hidden (hijacker mesh + collide).
-            if o.drawable_hidden || o.hijacker_in_vehicle {
-                continue;
-            }
-            if enclosing_hidden.contains(&id.0) {
-                continue;
-            }
-            let pos = o.get_position();
-            let fp = super::collide_dispatch::host_object_footprint(o);
-            self.partition_manager
-                .register_object_geometry(id.0, pos.x, pos.z, fp);
-            let r = o.physics_on_collide_radius();
-            entry_by_id.insert(id.0, (pos, r));
-            // Mobile bodies and physics-active wrecks initiate collide queries.
-            // Dead hulks stay registered as obstacles; only moving/falling ones query.
-            let wreck_physics = (o.status.destroyed || !o.is_alive())
-                && (o.movement.velocity.length_squared() > 1e-6
-                    || o.get_position().y > o.ground_height
-                    || o.allow_to_fall
-                    || o.shock_stun_frames > 0);
-            if o.can_move() || wreck_physics {
-                mobile_ids.push(*id);
-            }
-        }
-        mobile_ids.sort_by_key(|id| id.0);
+    }
 
-        let mut handled = 0u32;
-        let mut seen_pairs: std::collections::HashSet<(u32, u32)> =
-            std::collections::HashSet::new();
-        for a_id in &mobile_ids {
-            let Some((_a_pos, a_r)) = entry_by_id.get(&a_id.0).copied() else {
-                continue;
-            };
-            // C++ addPossibleCollisions: every other module in every COI cell.
-            let neighbors = self.partition_manager.neighbor_object_ids_of(a_id.0);
-            for b_raw in neighbors {
-                if b_raw == a_id.0 {
-                    continue;
+    /// Original PartitionManager::update: consume first-dirty order, gather
+    /// contacts while each module is visited, dispatch after the list is empty.
+    /// New dirtiness from contact callbacks belongs to the next phase.
+    pub(crate) fn update_owned_partition_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> u32 {
+        let mut contacts = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        while let Some(dirty) = self.partition_manager.take_next_receiving_dirty() {
+            let id = ObjectId(dirty.object_id);
+            let object = self.objects.get_mut(&id).expect(
+                "attached partition dirty Object remains installed until physical retirement",
+            );
+            assert!(
+                dirty.matches(&object.visual_draw_identity_token),
+                "partition phase cannot consume a different Object lifetime"
+            );
+            if dirty.update_cells {
+                let position = object.get_position();
+                let footprint = super::collide_dispatch::host_object_footprint(object);
+                self.partition_manager
+                    .register_object_geometry(id.0, position.x, position.z, footprint);
+                let (changed, cell) = self
+                    .partition_manager
+                    .scalar_cell_observation(id.0, position.x, position.z);
+                if changed {
+                    object.handle_partition_cell_maintenance_with_partition_owner(
+                        &mut self.partition_manager,
+                    );
+                    self.partition_manager
+                        .finish_scalar_cell_observation(id.0, cell);
                 }
-                let lo = a_id.0.min(b_raw);
-                let hi = a_id.0.max(b_raw);
-                if !seen_pairs.insert((lo, hi)) {
-                    continue;
-                }
-                let Some((_b_pos, b_r)) = entry_by_id.get(&b_raw).copied() else {
-                    continue;
-                };
-                let b_id = ObjectId(b_raw);
-                let geom_hit = if let (Some(a), Some(b)) =
-                    (self.objects.lookup(a_id), self.objects.lookup(&b_id))
-                {
-                    super::collide_dispatch::host_geom_collides(a, b)
-                } else {
-                    None
-                };
-                // C++ processContactList only onCollide after geomCollidesWithGeom.
-                // First-overlap 0-damage crush bookkeeping must not fire from
-                // a shared partition cell without contact (hq-zsklj).
-                if let Some((loc, normal)) = geom_hit {
-                    // C++ processContactList skips OBJECT_STATUS_NO_COLLISIONS
-                    // (PartitionManager.cpp:2466-2468).
-                    let skip_status = self
-                        .objects
-                        .lookup(a_id)
-                        .is_some_and(|o| o.status.no_collisions)
-                        || self
-                            .objects
-                            .lookup(&b_id)
-                            .is_some_and(|o| o.status.no_collisions);
-                    if skip_status {
+            }
+            // End the cell-maintenance mutable loan before neighboring actors
+            // are observed. The same installed birth remains the contact source.
+            let object = self.objects.get(&id).expect("partition-maintained Object");
+            if dirty.check_collisions && !object.is_kind_of(KindOf::Immobile) {
+                for other in self.partition_manager.neighbor_ids_in_coi_order(id.0) {
+                    let pair = (id.0.min(other), id.0.max(other));
+                    if !seen.insert(pair) {
                         continue;
                     }
-                    super::collide_dispatch::dispatch_collide_modules(*a_id, b_id, loc, normal);
-
-                    // Both onCollide (hq-uerpy): higher-id crusher still crushes.
-                    // try_physics_collide dispatches host collide modules once per side.
-                    if self.try_physics_collide_with_effects(*a_id, b_id, a_r, effects) {
-                        handled = handled.saturating_add(1);
-                    }
-                    let reverse_ok = self
-                        .objects
-                        .lookup(a_id)
-                        .is_some_and(|o| !o.status.destroyed)
-                        && self
-                            .objects
-                            .lookup(&b_id)
-                            .is_some_and(|o| !o.status.destroyed);
-                    if reverse_ok
-                        && self.try_physics_collide_with_effects(b_id, *a_id, b_r, effects)
-                    {
-                        handled = handled.saturating_add(1);
+                    let Some(other_object) = self.objects.get(&ObjectId(other)) else {
+                        continue;
+                    };
+                    if let (Some(first), Some(second)) = (
+                        self.partition_manager.receiving_contact_object(object),
+                        self.partition_manager
+                            .receiving_contact_object(other_object),
+                    ) {
+                        contacts.push(crate::game_logic::partition_manager::PartitionContact {
+                            first,
+                            second,
+                        });
                     }
                 }
             }
         }
-        // C++ previousOverlap = currentOverlap end of physics update residual.
+        // PartitionContactList::addToContactList prepends each first pair.
+        contacts.reverse();
+        let mut handled = 0u32;
+        for contact in contacts {
+            let a_id = ObjectId(contact.first.id);
+            let b_id = ObjectId(contact.second.id);
+            let current = |owner: &Self| {
+                owner.objects.get(&a_id).is_some_and(|object| {
+                    owner
+                        .partition_manager
+                        .contact_object_is_current(&contact.first, object)
+                }) && owner.objects.get(&b_id).is_some_and(|object| {
+                    owner
+                        .partition_manager
+                        .contact_object_is_current(&contact.second, object)
+                })
+            };
+            if !current(self) {
+                continue;
+            }
+            let a = &self.objects[&a_id];
+            let b = &self.objects[&b_id];
+            if a.status.no_collisions || b.status.no_collisions {
+                continue;
+            }
+            if super::collide_dispatch::host_geom_collides(a, b).is_none() {
+                continue;
+            }
+            let a_radius = a.physics_on_collide_radius();
+            let b_radius = b.physics_on_collide_radius();
+            // Main actors dispatch receiving modules in try_physics_collide.
+            // Core OBJECT_REGISTRY is a different world and must not be probed.
+            if self.try_physics_collide_with_effects(a_id, b_id, a_radius, effects) {
+                handled = handled.saturating_add(1);
+            }
+            let reverse = self
+                .objects
+                .get(&a_id)
+                .is_some_and(|object| !object.status.destroyed)
+                && self
+                    .objects
+                    .get(&b_id)
+                    .is_some_and(|object| !object.status.destroyed);
+            if reverse && self.try_physics_collide_with_effects(b_id, a_id, b_radius, effects) {
+                handled = handled.saturating_add(1);
+            }
+            // Source rereads partition attachment after both onCollide calls.
+            // Contact-caused geometry replacement may have a NEW module.
+            for id in [a_id, b_id] {
+                if let Some(object) = self.objects.get(&id) {
+                    if !object.status.destroyed && !object.is_kind_of(KindOf::Immobile) {
+                        self.partition_manager.mark_receiving_object_dirty(
+                            id.0,
+                            &object.visual_draw_identity_token,
+                            false,
+                        );
+                    }
+                }
+            }
+        }
+        // Preserve the existing overlap residual recipients independently of
+        // the original partition dirty/contact list. This is not query order.
+        let enclosing_hidden = enclosing_hidden_rider_ids(self.objects.read());
+        let mobile_ids: Vec<_> = self
+            .objects
+            .registered()
+            .filter_map(|(id, object)| {
+                if object.drawable_hidden
+                    || object.hijacker_in_vehicle
+                    || enclosing_hidden.contains(&id.0)
+                {
+                    return None;
+                }
+                let wreck_physics = (object.status.destroyed || !object.is_alive())
+                    && (object.movement.velocity.length_squared() > 1e-6
+                        || object.get_position().y > object.ground_height
+                        || object.allow_to_fall
+                        || object.shock_stun_frames > 0);
+                (object.can_move() || wreck_physics).then_some(*id)
+            })
+            .collect();
         for id in mobile_ids {
             if let Some(o) = self.objects.get_mut(&id) {
                 o.advance_physics_overlap_frame();
@@ -372,7 +414,12 @@ impl GameLogic {
                 continue;
             };
             if let Some(o) = self.objects.get_mut(&id) {
-                if o.apply_shock_wave_impulse(force) {
+                if o.apply_shock_wave_impulse_with_operation(
+                    force,
+                    self.frame,
+                    &mut crate::game_logic::ScriptPresentationEffects::default()
+                        .reborrow_for_object(&mut self.partition_manager),
+                ) {
                     n = n.saturating_add(1);
                 }
             }
@@ -917,17 +964,13 @@ impl GameLogic {
         let src = attacker.get_position();
         let orientation = attacker.get_orientation();
         let above = attacker.is_above_terrain();
-        let src_r = attacker
-            .thing()
-            .template
-            .geometry_info
-            .bounding_circle_radius();
+        let src_r = (*attacker.geometry_info()).bounding_circle_radius();
         let mut dx = src.x - target_pos.x;
         let mut dz = src.z - target_pos.z;
         let center = (dx * dx + dz * dz).sqrt();
         let tgt_r = target_id
             .and_then(|id| self.objects.lookup(&id))
-            .map(|o| o.thing().template.geometry_info.bounding_circle_radius())
+            .map(|o| (*o.geometry_info()).bounding_circle_radius())
             .unwrap_or(0.0);
         // C++ getVectorTo FROM_BOUNDINGSPHERE_2D.
         let dist = (center - src_r - tgt_r).max(0.0);
@@ -1028,14 +1071,10 @@ impl GameLogic {
             .map(|w| w.range - under)
             .unwrap_or(weapon_range);
         let src = attacker.get_position();
-        let src_r = attacker
-            .thing()
-            .template
-            .geometry_info
-            .bounding_circle_radius();
+        let src_r = (*attacker.geometry_info()).bounding_circle_radius();
         let tgt_r = target_id
             .and_then(|id| self.objects.lookup(&id))
-            .map(|o| o.thing().template.geometry_info.bounding_circle_radius())
+            .map(|o| (*o.geometry_info()).bounding_circle_radius())
             .unwrap_or(0.0);
         let dx = target_pos.x - src.x;
         let dz = target_pos.z - src.z;
@@ -1076,7 +1115,7 @@ impl GameLogic {
         if !PathfindingGrid::is_aircraft_that_adjusts_destination(obj) {
             return dest;
         }
-        let src_r = obj.thing().template.geometry_info.bounding_circle_radius();
+        let src_r = (*obj.geometry_info()).bounding_circle_radius();
         let unit_radius = obj.selection_radius.max(src_r);
         let tgt_r = self
             .objects
@@ -1088,7 +1127,7 @@ impl GameLogic {
                 let dz = p.z - target_pos.z;
                 dx * dx + dz * dz < 1.0
             })
-            .map(|o| o.thing().template.geometry_info.bounding_circle_radius())
+            .map(|o| (*o.geometry_info()).bounding_circle_radius())
             .unwrap_or(0.0);
         let min_range = self
             .objects
@@ -1397,7 +1436,8 @@ impl GameLogic {
 }
 
 /// C++ `OpenContain::addOrRemoveObjFromWorld` — enclosing riders leave the
-/// collide partition on enter and re-register on exit. Live rebuilds each tick.
+/// collide partition on enter and re-register on exit. This helper only
+/// observes containment for unrelated legacy query filters; it never rebuilds COIs.
 fn enclosing_hidden_rider_ids(
     objects: crate::game_logic::HostObjectRead<'_>,
 ) -> std::collections::HashSet<u32> {

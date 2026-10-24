@@ -309,8 +309,8 @@ fn troop_crawler_assault_decision_authority() {
         c.install_troop_crawler_transport();
         let _ = c.add_occupant(occ);
     }
-    if let Some(o) = logic.host_object_mut(occ) {
-        o.set_contained_by(Some(crawler));
+    if let Some((o, fixture_partition)) = logic.host_object_and_partition_mut(occ) {
+        o.set_contained_by_with_partition_owner(Some(crawler), true, fixture_partition);
     }
     let ordered = logic.apply_troop_crawler_assault_deploy_for_test(crawler, enemy);
     assert!(

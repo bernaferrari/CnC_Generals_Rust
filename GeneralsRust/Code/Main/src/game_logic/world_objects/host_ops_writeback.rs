@@ -546,7 +546,12 @@ impl GameLogic {
             } => {
                 if let Some(obj) = self.objects.get_mut(&id) {
                     if let Some(pos) = position {
-                        obj.set_position_with_effects(pos, frame, effects);
+                        obj.set_position_with_partition_owner(
+                            pos,
+                            frame,
+                            effects,
+                            &mut self.partition_manager,
+                        );
                     }
                     {
                         obj.internal_change_health(-obj.health.current);
@@ -767,8 +772,9 @@ impl GameLogic {
                 position,
                 sticky_follow_tick,
             } => {
-                if let Some(obj) = self.host_objects_mut().get_mut(&id) {
-                    obj.set_position_with_effects(position, frame, effects);
+                let (objects, partition) = self.host_objects_and_partition_mut();
+                if let Some(obj) = objects.get_mut(&id) {
+                    obj.set_position_with_partition_owner(position, frame, effects, partition);
                 }
                 if sticky_follow_tick {
                     self.sticky_bomb_follow_ticks = self.sticky_bomb_follow_ticks.saturating_add(1);
@@ -1040,6 +1046,139 @@ impl GameLogic {
         self.objects.get_mut(&id)
     }
 
+    #[cfg(test)]
+    pub(crate) fn set_fixture_object_position(&mut self, id: ObjectId, position: Vec3) {
+        let frame = self.frame;
+        let (object, partition) = self
+            .host_object_and_partition_mut(id)
+            .expect("fixture Object");
+        object.set_position_with_partition_owner(
+            position,
+            frame,
+            &mut Default::default(),
+            partition,
+        );
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_fixture_object_orientation(&mut self, id: ObjectId, angle: f32) {
+        let (object, partition) = self
+            .host_object_and_partition_mut(id)
+            .expect("fixture Object");
+        object.set_orientation_with_partition_owner(angle, partition);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_fixture_object_contained_by(
+        &mut self,
+        id: ObjectId,
+        container: Option<ObjectId>,
+    ) {
+        let (object, partition) = self
+            .host_object_and_partition_mut(id)
+            .expect("fixture Object");
+        object.set_contained_by_with_partition_owner(container, true, partition);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_fixture_object_geometry(
+        &mut self,
+        id: ObjectId,
+        geometry: crate::game_logic::GeometryInfo,
+    ) {
+        let (object, partition) = self
+            .host_object_and_partition_mut(id)
+            .expect("fixture Object");
+        object.set_geometry_info_with_partition_owner(geometry, partition);
+    }
+
+    /// CommandExecutor's non-AI fallback still belongs to this Object owner.
+    /// Complete any aircraft takeoff transform before the caller observes success.
+    pub(crate) fn set_owned_fallback_attack_target_with_effects(
+        &mut self,
+        id: ObjectId,
+        target: ObjectId,
+        forced: bool,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
+        let _ = self.host_object_mut(id);
+        let Some(object) = self.objects.get_mut(&id) else {
+            return false;
+        };
+        if forced {
+            object.set_force_attack(true);
+        }
+        object.set_target_with_operation(
+            Some(target),
+            &mut self.attack_events,
+            &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
+            self.frame,
+            &mut effects.reborrow_for_object(&mut self.partition_manager),
+        );
+        true
+    }
+
+    /// Split command services and the simulation owner for nested aircraft moves.
+    pub(crate) fn host_object_attack_audio_partition_mut(
+        &mut self,
+        id: ObjectId,
+    ) -> Option<(
+        &mut Object,
+        &mut crate::game_logic::host_attack_log::AttackEvents,
+        &mut Vec<crate::game_logic::AudioEventRequest>,
+        &mut crate::game_logic::partition_manager::PartitionManager,
+    )> {
+        let _ = self.host_object_mut(id)?;
+        Some((
+            self.objects.get_mut(&id)?,
+            &mut self.attack_events,
+            &mut self.queued_audio_events,
+            &mut self.partition_manager,
+        ))
+    }
+
+    pub(crate) fn host_object_movement_audio_partition_mut(
+        &mut self,
+        id: ObjectId,
+    ) -> Option<(
+        &mut Object,
+        crate::game_logic::movement_events::MovementEventWriter<'_>,
+        &mut Vec<crate::game_logic::AudioEventRequest>,
+        &mut crate::game_logic::partition_manager::PartitionManager,
+    )> {
+        let _ = self.host_object_mut(id)?;
+        Some((
+            self.objects.get_mut(&id)?,
+            self.movement_events.writer(self.frame),
+            &mut self.queued_audio_events,
+            &mut self.partition_manager,
+        ))
+    }
+
+    /// A short explicit loan for Object operations that change PartitionData.
+    /// Preserve host_object_mut's named-unit observation before splitting fields.
+    pub(crate) fn host_object_and_partition_mut(
+        &mut self,
+        id: ObjectId,
+    ) -> Option<(
+        &mut Object,
+        &mut crate::game_logic::partition_manager::PartitionManager,
+    )> {
+        let _ = self.host_object_mut(id)?;
+        Some((self.objects.get_mut(&id)?, &mut self.partition_manager))
+    }
+
+    /// Same named-unit observation as host_objects_mut, with a disjoint owner loan.
+    pub(crate) fn host_objects_and_partition_mut(
+        &mut self,
+    ) -> (
+        &mut HostObjectStore,
+        &mut crate::game_logic::partition_manager::PartitionManager,
+    ) {
+        let _ = self.host_objects_mut();
+        (&mut self.objects, &mut self.partition_manager)
+    }
+
     /// Split the canonical Object and this session's existing audio output.
     /// Preserve the same named-unit observation as host_object_mut.
     pub(crate) fn host_object_and_audio_events_mut(
@@ -1108,6 +1247,40 @@ impl GameLogic {
         self.objects
             .get_mut(&id)
             .map(|object| (object, &mut self.attack_events))
+    }
+
+    pub(crate) fn host_object_ownership_partition_mut(
+        &mut self,
+        id: ObjectId,
+    ) -> Option<(
+        &mut Object,
+        &mut crate::game_logic::host_owner_log::OwnershipEvents,
+        &mut crate::game_logic::partition_manager::PartitionManager,
+    )> {
+        if let Some(object) = self.objects.get(&id) {
+            if !object.name.is_empty() {
+                self.named_unit_history.insert(object.name.clone());
+            }
+        }
+        self.objects.get_mut(&id).map(|object| {
+            (
+                object,
+                &mut self.ownership_events,
+                &mut self.partition_manager,
+            )
+        })
+    }
+    pub(crate) fn host_object_health_partition_mut(
+        &mut self,
+        id: ObjectId,
+    ) -> Option<(
+        &mut Object,
+        &mut crate::game_logic::HostHealthEvents,
+        &mut crate::game_logic::partition_manager::PartitionManager,
+    )> {
+        self.objects
+            .get_mut(&id)
+            .map(|object| (object, &mut self.health_events, &mut self.partition_manager))
     }
 
     pub(crate) fn host_object_and_ownership_events_mut(
@@ -1253,10 +1426,12 @@ impl GameLogic {
                 // Host attack channel (default production path — host ObjectIds only).
                 if let Some(obj_mut) = self.objects.get_mut(&object_id) {
                     obj_mut.set_force_attack(false);
-                    obj_mut.attack_target(
+                    obj_mut.attack_target_with_operation(
                         target_id,
                         &mut self.attack_events,
                         &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
+                        self.frame,
+                        &mut effects.reborrow_for_object(&mut self.partition_manager),
                     );
                 }
                 // Host residual: path toward target, then ensure the unit is inside
@@ -1297,13 +1472,21 @@ impl GameLogic {
                                     let stand = tpos - dir * (range * 0.55);
                                     let stand = glam::Vec3::new(stand.x, from.y, stand.z);
                                     if let Some(a) = self.objects.get_mut(&object_id) {
-                                        a.set_position_with_effects(stand, frame, effects);
-                                        a.attack_target(
+                                        a.set_position_with_partition_owner(
+                                            stand,
+                                            frame,
+                                            effects,
+                                            &mut self.partition_manager,
+                                        );
+                                        a.attack_target_with_operation(
                                             target_id,
                                             &mut self.attack_events,
                                             &mut crate::game_logic::ObjectAudio::queue(
                                                 &mut self.queued_audio_events,
                                             ),
+                                            self.frame,
+                                            &mut effects
+                                                .reborrow_for_object(&mut self.partition_manager),
                                         );
                                         // Host-immediate engagement residual (host-only
                                         // path when movement auth is off).
@@ -1758,8 +1941,8 @@ mod select_object_cpp_parity_tests {
         let walker = spawn(&mut logic, "SelectParityUnit", 0, 0.0);
         let rider = spawn(&mut logic, "SelectParityUnit", 0, 10.0);
         {
-            let o = logic.host_object_mut(rider).expect("rider");
-            o.set_contained_by(Some(ObjectId(99)));
+            let (o, partition) = logic.host_object_and_partition_mut(rider).expect("rider");
+            o.set_contained_by_with_partition_owner(Some(ObjectId(99)), true, partition);
             // hq-90dsv: control-group recall is not this bead. Live selectObject
             // still gates is_selectable; clear UNSELECTABLE so this test stays
             // the contained/MASKED (no-contained-gate) check.
@@ -1933,8 +2116,10 @@ mod select_object_cpp_parity_tests {
             }
         }
         {
-            let i = logic.host_object_mut(infantry).expect("infantry");
-            i.set_contained_by(Some(helix));
+            let (i, partition) = logic
+                .host_object_and_partition_mut(infantry)
+                .expect("infantry");
+            i.set_contained_by_with_partition_owner(Some(helix), true, partition);
         }
         let addon = logic
             .host_object(helix)

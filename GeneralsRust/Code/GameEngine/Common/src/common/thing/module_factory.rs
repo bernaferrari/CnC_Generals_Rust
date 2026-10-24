@@ -356,6 +356,7 @@ pub struct ModuleFactory {
     // Present only for an explicitly admitted receiving content owner.
     // This plain value moves with the loader; it is never installed globally.
     runtime_name_keys: Option<crate::common::name_key_generator::NameKeyNamespace>,
+    receiving_special_powers: Option<Arc<crate::common::rts::special_power::SpecialPowerStore>>,
     receiving_sciences: Arc<crate::common::rts::science::ScienceNameFacts>,
     module_template_map: ModuleMap<ModuleTemplate>,
     module_overrides: ModuleMap<ModuleOverride>,
@@ -568,6 +569,28 @@ impl ModuleFactory {
         factory.receiving_sciences = sciences;
         factory
     }
+    pub fn reset_receiving_science_overrides(&mut self) {
+        let mut definitions = self.receiving_sciences.definitions().clone();
+        definitions.reset();
+        self.receiving_sciences = Arc::new(
+            crate::common::rts::science::ScienceNameFacts::from_store(&definitions),
+        );
+    }
+    pub fn replace_receiving_science_facts(
+        &mut self,
+        facts: Arc<crate::common::rts::science::ScienceNameFacts>,
+    ) {
+        self.receiving_sciences = facts;
+    }
+    pub fn receiving_science_facts(&self) -> Arc<crate::common::rts::science::ScienceNameFacts> {
+        self.receiving_sciences.clone()
+    }
+    pub fn replace_receiving_special_power_definitions(
+        &mut self,
+        powers: Arc<crate::common::rts::special_power::SpecialPowerStore>,
+    ) {
+        self.receiving_special_powers = Some(powers);
+    }
     pub fn receiving_science_names(&self) -> &crate::common::rts::science::ScienceNameFacts {
         &self.receiving_sciences
     }
@@ -577,6 +600,7 @@ impl ModuleFactory {
     ) -> Self {
         let mut factory = Self {
             runtime_name_keys,
+            receiving_special_powers: None,
             receiving_sciences: Arc::new(crate::common::rts::science::ScienceNameFacts::default()),
             module_template_map: module_maps(),
             module_overrides: module_maps(),
@@ -689,9 +713,14 @@ impl ModuleFactory {
         let receiving = self.runtime_name_keys.is_some();
         let keys = self.runtime_name_keys.take().unwrap_or_default();
         let (keys, result) = match ini {
-            Some(ini) => ini.with_receiving_science_names(self.receiving_sciences.clone(), |ini| {
-                ini.with_name_key_namespace(keys, |ini| constructor(Some(ini)))
-            }),
+            Some(ini) => ini.with_receiving_special_power_definitions(
+                self.receiving_special_powers.clone(),
+                |ini| {
+                    ini.with_receiving_science_names(self.receiving_sciences.clone(), |ini| {
+                        ini.with_name_key_namespace(keys, |ini| constructor(Some(ini)))
+                    })
+                },
+            ),
             None => (keys, constructor(None)),
         };
         if receiving {

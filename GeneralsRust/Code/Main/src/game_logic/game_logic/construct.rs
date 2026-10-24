@@ -64,6 +64,7 @@ impl GameLogic {
         // The same existing playback namespace also binds lookup registration.
         // Hoisting this one allocation creates no additional identity owner.
         let live_draw_playback_world = std::sync::Arc::new(());
+        let world_services = gamelogic::system::engine_stores::new_world_services();
         let mut instance = Self {
             w3d_ghosts: Default::default(),
             host_ghosts: Default::default(),
@@ -92,7 +93,7 @@ impl GameLogic {
             // is admitted before the world. Main constructs no Core AI.
             // Construction is inert (no active-slot write); Main installs
             // the bundle at the explicit world-start boundaries below.
-            world_services: gamelogic::system::engine_stores::new_world_services(),
+            world_services: std::sync::Arc::clone(&world_services),
             host_trigger_world,
             team_factory: team_factory.clone(),
             prepared_map_sides: gamelogic::sides_list::SidesList::new(),
@@ -607,7 +608,7 @@ impl GameLogic {
             pending_special_abilities: HashMap::new(),
             selected_objects: Vec::new(),
             selection_changed_frame: 0,
-            partition_manager: PartitionManager::new(),
+            partition_manager: PartitionManager::with_scalar_owner(world_services.shroud()),
             radar_notifications: RadarNotifications::new(),
             last_radar_kind_time: [-10.0; 3],
             last_radar_audio_time: -10.0,
@@ -855,6 +856,8 @@ impl GameLogic {
         // clearGameData route through here (C++ GameLogic.cpp newGame calls
         // clearGameData before rebuilding the player list). Explicitly on
         // this world's own bundle. Constructors already create fresh state.
+        self.objects
+            .retire_owned_scalar_stamps(&mut self.partition_manager);
         self.world_services
             .shroud()
             .lock()
@@ -876,7 +879,7 @@ impl GameLogic {
         self.drawable_tint_envelopes.clear();
         self.finish_all_building_sounds();
         self.objects.clear();
-        self.partition_manager = Default::default();
+        self.partition_manager = PartitionManager::with_scalar_owner(self.world_services.shroud());
         self.beacon_client.clear();
         self.named_unit_history.clear();
         self.objects_receive_difficulty_bonus = true;

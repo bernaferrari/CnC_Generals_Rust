@@ -212,7 +212,7 @@ impl Object {
         let mut np = pos;
         np.y = (np.y + dy).max(terrain_height);
         self.set_position_with_effects(np, current_frame, effects);
-        self.set_orientation(ori + d_roll);
+        self.set_orientation_with_effects(ori + d_roll, effects);
         self.apply_jet_death_phase(ev);
         if done {
             // Final phase reports completion; destroyObject owns admission.
@@ -347,7 +347,7 @@ impl Object {
         np.y = (np.y + dy).max(terrain_height);
         np.z += dz;
         self.set_position_with_effects(np, current_frame, effects);
-        self.set_orientation(ori + dori);
+        self.set_orientation_with_effects(ori + dori, effects);
         if done {
             // Final phase reports completion; destroyObject owns admission.
             // Preserve the body state established before this timer tick.

@@ -131,16 +131,20 @@ impl GameLogic {
                 None => return false,
             };
         if is_pilot && self.can_execute_pilot_recrew(infantry_id, vehicle_id) {
-            self.with_object_recrew_feedback(vehicle_id, |vehicle, ownership, audio, feedback| {
-                vehicle.apply_pilot_recrew(
-                    inf_team,
-                    inf_owner_player_id,
-                    inf_level,
-                    ownership,
-                    audio,
-                    feedback,
-                )
-            });
+            self.with_object_recrew_feedback_and_partition(
+                vehicle_id,
+                |vehicle, ownership, audio, feedback, partition| {
+                    vehicle.apply_pilot_recrew_with_partition_owner(
+                        inf_team,
+                        inf_owner_player_id,
+                        inf_level,
+                        ownership,
+                        audio,
+                        feedback,
+                        partition,
+                    )
+                },
+            );
             self.admit_host_radar_disabled_edges(vehicle_id);
             let _ = self.transfer_script_object_name(infantry_id, vehicle_id);
             self.destroy_object_with_effects(infantry_id, effects);
@@ -165,7 +169,12 @@ impl GameLogic {
                     crate::game_logic::AIState::Idle,
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
-                veh.set_team_and_owner(inf_team, inf_owner_player_id, &mut self.ownership_events);
+                veh.set_team_and_owner_with_partition_owner(
+                    inf_team,
+                    inf_owner_player_id,
+                    &mut self.ownership_events,
+                    &mut self.partition_manager,
+                );
                 veh.set_private_captured(true);
             }
         }
@@ -266,7 +275,18 @@ impl GameLogic {
         if outcome.cave_in {
             for uid in outcome.cave_in_units {
                 if let Some(unit) = self.objects.get_mut(&uid) {
-                    unit.set_contained_by(None);
+                    let containment_actor_id = unit.id;
+                    Self::set_owned_containment_in_parts(
+                        &mut self.objects,
+                        &mut self.partition_manager,
+                        containment_actor_id,
+                        None,
+                        true,
+                    );
+                    let unit = self
+                        .objects
+                        .get_mut(&containment_actor_id)
+                        .expect("containment operation preserves this birth");
                     unit.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                         &mut self.queued_audio_events,
                     ));
@@ -294,7 +314,18 @@ impl GameLogic {
                 .collect();
             for uid in remapped {
                 if let Some(unit) = self.objects.get_mut(&uid) {
-                    unit.set_contained_by(Some(valid));
+                    let containment_actor_id = unit.id;
+                    Self::set_owned_containment_in_parts(
+                        &mut self.objects,
+                        &mut self.partition_manager,
+                        containment_actor_id,
+                        Some(valid),
+                        true,
+                    );
+                    let unit = self
+                        .objects
+                        .get_mut(&containment_actor_id)
+                        .expect("containment operation preserves this birth");
                 }
                 self.admit_object_drawable_deselection(uid);
                 // C++ Object::onContainedBy restamps m_containedByFrame.
@@ -487,7 +518,9 @@ impl GameLogic {
 
         // Object.cpp:4531-4538 follows all behavior callbacks.
         if let Some(object) = self.objects.get_mut(&object_id) {
-            object.handle_partition_cell_maintenance();
+            object.handle_partition_cell_maintenance_with_partition_owner(
+                &mut self.partition_manager,
+            );
             object.set_script_unsellable(false);
         }
 
@@ -682,13 +715,28 @@ impl GameLogic {
                 unit.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                     &mut self.queued_audio_events,
                 ));
-                unit.set_position_with_effects(pos + offset, tree_move_frame, effects);
+                unit.set_position_with_effects(
+                    pos + offset,
+                    tree_move_frame,
+                    &mut effects.reborrow_for_object(&mut self.partition_manager),
+                );
                 {}
                 unit.clear_target(&mut crate::game_logic::ObjectAudio::queue(
                     &mut self.queued_audio_events,
                 ));
                 {}
-                unit.set_contained_by(None);
+                let containment_actor_id = unit.id;
+                Self::set_owned_containment_in_parts(
+                    &mut self.objects,
+                    &mut self.partition_manager,
+                    containment_actor_id,
+                    None,
+                    true,
+                );
+                let unit = self
+                    .objects
+                    .get_mut(&containment_actor_id)
+                    .expect("containment operation preserves this birth");
                 unit.set_ai_state(
                     AIState::Idle,
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
@@ -698,11 +746,19 @@ impl GameLogic {
                 unit.set_status_attacking(false);
             }
             if let Some(c) = self.objects.get_mut(&container_id) {
-                let _ = c.remove_occupant(uid, &mut self.ownership_events);
+                let _ = c.remove_occupant_with_partition_owner(
+                    uid,
+                    &mut self.ownership_events,
+                    &mut self.partition_manager,
+                );
             }
             if let Some(pid) = portable_id {
                 if let Some(addon) = self.objects.get_mut(&pid) {
-                    let _ = addon.remove_occupant(uid, &mut self.ownership_events);
+                    let _ = addon.remove_occupant_with_partition_owner(
+                        uid,
+                        &mut self.ownership_events,
+                        &mut self.partition_manager,
+                    );
                 }
             }
             self.capture_kick_outs = self.capture_kick_outs.saturating_add(1);
@@ -746,12 +802,27 @@ impl GameLogic {
                 unit.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                     &mut self.queued_audio_events,
                 ));
-                unit.set_position_with_effects(pos + offset, tree_move_frame, effects);
+                unit.set_position_with_effects(
+                    pos + offset,
+                    tree_move_frame,
+                    &mut effects.reborrow_for_object(&mut self.partition_manager),
+                );
                 {}
                 unit.clear_target(&mut crate::game_logic::ObjectAudio::queue(
                     &mut self.queued_audio_events,
                 ));
-                unit.set_contained_by(None);
+                let containment_actor_id = unit.id;
+                Self::set_owned_containment_in_parts(
+                    &mut self.objects,
+                    &mut self.partition_manager,
+                    containment_actor_id,
+                    None,
+                    true,
+                );
+                let unit = self
+                    .objects
+                    .get_mut(&containment_actor_id)
+                    .expect("containment operation preserves this birth");
                 unit.set_ai_state(
                     AIState::Idle,
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
@@ -761,7 +832,11 @@ impl GameLogic {
                 unit.set_status_attacking(false);
             }
             if let Some(st) = self.objects.get_mut(&structure_id) {
-                let _ = st.remove_occupant(uid, &mut self.ownership_events);
+                let _ = st.remove_occupant_with_partition_owner(
+                    uid,
+                    &mut self.ownership_events,
+                    &mut self.partition_manager,
+                );
             }
             self.sell_passengers_ejected = self.sell_passengers_ejected.saturating_add(1);
         }
@@ -812,12 +887,27 @@ impl GameLogic {
                             unit.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                                 &mut self.queued_audio_events,
                             ));
-                            unit.set_position_with_effects(pos + offset, tree_move_frame, effects);
+                            unit.set_position_with_effects(
+                                pos + offset,
+                                tree_move_frame,
+                                &mut effects.reborrow_for_object(&mut self.partition_manager),
+                            );
                             {}
                             unit.clear_target(&mut crate::game_logic::ObjectAudio::queue(
                                 &mut self.queued_audio_events,
                             ));
-                            unit.set_contained_by(None);
+                            let containment_actor_id = unit.id;
+                            Self::set_owned_containment_in_parts(
+                                &mut self.objects,
+                                &mut self.partition_manager,
+                                containment_actor_id,
+                                None,
+                                true,
+                            );
+                            let unit = self
+                                .objects
+                                .get_mut(&containment_actor_id)
+                                .expect("containment operation preserves this birth");
                             unit.set_ai_state(
                                 AIState::Idle,
                                 &mut crate::game_logic::ObjectAudio::queue(
@@ -2014,8 +2104,13 @@ impl GameLogic {
             // A rebuild hole is a continuation of the destroyed building, not
             // a new team-level object.  Preserve exact ownership for the
             // later worker and reconstruction spawn chain.
-            h.set_team_and_owner(team, owner_player_id, &mut self.ownership_events);
-            h.set_orientation(orient);
+            h.set_team_and_owner_with_partition_owner(
+                team,
+                owner_player_id,
+                &mut self.ownership_events,
+                &mut self.partition_manager,
+            );
+            h.set_orientation_with_partition_owner(orient, &mut self.partition_manager);
         }
         self.set_object_under_construction_with_effects(hole_id, false, effects);
         if let Some(h) = self.objects.get_mut(&hole_id) {
@@ -2032,7 +2127,7 @@ impl GameLogic {
             h.rebuild_spawner_id = Some(destroyed_id);
             // C++ RebuildHoleExposeDie.cpp:126 hole->setGeometryInfo(us->getGeometryInfo()).
             // Preserve the dying pad's collision / selection / pathfind footprint.
-            h.set_geometry_info(dying_geometry);
+            h.set_geometry_info_with_partition_owner(dying_geometry, &mut self.partition_manager);
             h.selection_radius = dying_selection_radius;
             h.rebuild_ready_frame = self
                 .frame
@@ -2232,7 +2327,12 @@ impl GameLogic {
                 continue;
             };
             if let Some(w) = self.objects.get_mut(&worker_id) {
-                w.set_team_and_owner(team, owner_player_id, &mut self.ownership_events);
+                w.set_team_and_owner_with_partition_owner(
+                    team,
+                    owner_player_id,
+                    &mut self.ownership_events,
+                    &mut self.partition_manager,
+                );
                 w.set_status_unselectable(true);
                 w.set_status_masked(false);
             }
@@ -2317,8 +2417,13 @@ impl GameLogic {
                 continue;
             };
             if let Some(o) = self.objects.get_mut(&new_id) {
-                o.set_team_and_owner(team, owner_player_id, &mut self.ownership_events);
-                o.set_orientation(orient);
+                o.set_team_and_owner_with_partition_owner(
+                    team,
+                    owner_player_id,
+                    &mut self.ownership_events,
+                    &mut self.partition_manager,
+                );
+                o.set_orientation_with_partition_owner(orient, &mut self.partition_manager);
             }
             self.set_object_under_construction_with_effects(new_id, true, effects);
             if let Some(o) = self.objects.get_mut(&new_id) {

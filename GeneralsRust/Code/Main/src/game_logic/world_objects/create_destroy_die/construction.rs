@@ -236,8 +236,12 @@ impl GameLogic {
         }
         {
             let object = self.objects.get_mut(&id)?;
-            object.set_position_with_effects(position, self.frame, ui);
-            object.set_orientation(orientation);
+            object.set_position_with_effects(
+                position,
+                self.frame,
+                &mut ui.reborrow_for_object(&mut self.partition_manager),
+            );
+            object.set_orientation_with_partition_owner(orientation, &mut self.partition_manager);
         }
         // DozerAIUpdate.cpp:1692-1702: flatten, snap, then path admission.
         self.flatten_and_snap_construction(id, ui);

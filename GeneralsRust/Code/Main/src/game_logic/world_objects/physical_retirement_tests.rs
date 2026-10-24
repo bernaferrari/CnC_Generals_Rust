@@ -493,11 +493,7 @@ fn bulk_retirement_preserves_prior_queue_then_registration_and_containment_order
         .unwrap()
         .occupants
         .push(child);
-    owner
-        .objects
-        .get_mut(&child)
-        .unwrap()
-        .set_contained_by(Some(parent));
+    owner.set_fixture_object_contained_by(child, Some(parent));
     assert_eq!(owner.objects.ordered_ids(), &[last, parent, child, queued]);
     owner.destroy_object(queued);
     let mut probe = OrderedProbe {

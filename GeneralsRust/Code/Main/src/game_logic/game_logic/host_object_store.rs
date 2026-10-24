@@ -26,6 +26,25 @@ struct FailedObjectRetirement {
 }
 
 impl HostObjectStore {
+    /// Explicit old-owner cleanup for reset/Drop, including a retained failed
+    /// native destructor. No callbacks or ambient publication occur here.
+    pub(in crate::game_logic) fn retire_owned_scalar_stamps(
+        &mut self,
+        partition: &mut crate::game_logic::partition_manager::PartitionManager,
+    ) {
+        for id in &self.registration_order {
+            self.map
+                .get_mut(id)
+                .expect("registered scalar actor")
+                .unstamp_partition_value_threat_with_partition_owner(partition);
+        }
+        if let Some(failed) = self.failed_retirement.as_mut() {
+            failed
+                .object
+                .unstamp_partition_value_threat_with_partition_owner(partition);
+        }
+    }
+
     pub fn new() -> Self {
         Self::default()
     }

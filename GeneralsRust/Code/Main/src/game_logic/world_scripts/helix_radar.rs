@@ -450,7 +450,11 @@ impl GameLogic {
         }
         for (cid, pos) in moves {
             if let Some(o) = self.objects.get_mut(&cid) {
-                o.set_position_with_effects(pos, tree_move_frame, effects);
+                o.set_position_with_effects(
+                    pos,
+                    tree_move_frame,
+                    &mut effects.reborrow_for_object(&mut self.partition_manager),
+                );
             }
         }
         for cid in destroy {
@@ -812,7 +816,11 @@ impl GameLogic {
             if let Some(o) = self.objects.get_mut(&id) {
                 let p = o.get_position();
                 let v = o.movement.velocity;
-                o.set_position_with_effects(p + v, tree_move_frame, effects);
+                o.set_position_with_effects(
+                    p + v,
+                    tree_move_frame,
+                    &mut effects.reborrow_for_object(&mut self.partition_manager),
+                );
             }
         }
     }
@@ -1365,7 +1373,14 @@ impl GameLogic {
 
     /// Advance RadarScan residual: shrink FOW + expire + undo.
     pub(in super::super) fn update_radar_scans(&mut self) {
-        self.apply_radar_scan_dynamic_shroud();
+        self.update_radar_scans_with_effects(&mut Default::default());
+    }
+
+    pub(in super::super) fn update_radar_scans_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
+        self.apply_radar_scan_dynamic_shroud(effects);
         self.undo_expired_radar_scan_shroud();
         self.radar_scans.prune_expired(self.frame);
         if let Ok(mut shroud_mgr) = std::sync::Arc::clone(self.world_services.shroud()).lock() {
@@ -1567,7 +1582,10 @@ impl GameLogic {
                 flight.dir_x = dx / dlen;
                 flight.dir_z = dz / dlen;
                 if let Some(t) = self.objects.get_mut(&tid) {
-                    t.set_orientation(flight.dir_z.atan2(flight.dir_x));
+                    t.set_orientation_with_partition_owner(
+                        flight.dir_z.atan2(flight.dir_x),
+                        &mut self.partition_manager,
+                    );
                 }
             }
         }
@@ -1863,7 +1881,8 @@ impl GameLogic {
         let frame = self.frame;
         let start_radius = spy_drone_scan_radius_after_updates(0);
         if let Some(id) = spawned_id {
-            if let Some((obj, health_events)) = self.host_object_and_health_events_mut(id) {
+            if let Some((obj, health_events, partition)) = self.host_object_health_partition_mut(id)
+            {
                 obj.health.maximum = SPY_DRONE_MAX_HEALTH;
                 Self::write_object_health_authority_aware(obj, SPY_DRONE_MAX_HEALTH, health_events);
                 obj.template_mut().add_kind_of(KindOf::Selectable);
@@ -1878,7 +1897,7 @@ impl GameLogic {
 
                 obj.apply_stealth_detector_ctor_stagger(frame);
                 obj.vision_range = SPY_DRONE_VISION_RANGE;
-                obj.shroud_clearing_range = start_radius;
+                obj.set_shroud_clearing_range_with_partition_owner(start_radius, partition);
                 if obj.movement.max_speed <= 10.01 {
                     if let Some(binding) =
                         crate::game_logic::locomotor_bootstrap::resolve_host_locomotor_binding(
@@ -2022,8 +2041,12 @@ impl GameLogic {
         )?;
         let expires = self.frame.saturating_add(FLARE_LIFETIME_FRAMES.max(1));
         if let Some(o) = self.objects.get_mut(&fid) {
-            o.set_position_with_effects(origin, tree_move_frame, effects);
-            o.set_orientation(ori);
+            o.set_position_with_effects(
+                origin,
+                tree_move_frame,
+                &mut effects.reborrow_for_object(&mut self.partition_manager),
+            );
+            o.set_orientation_with_partition_owner(ori, &mut self.partition_manager);
             o.movement.velocity += vel;
             o.invalidate_velocity_magnitude();
             let (mx, my, mz) = flare_volley_motive_force(facing, volley_index, VOLLEY_SIZE, speed);
@@ -2098,7 +2121,11 @@ impl GameLogic {
                 let v = o.movement.velocity;
                 let mut p = o.get_position();
                 p += v * dt;
-                o.set_position_with_effects(p, tree_move_frame, effects);
+                o.set_position_with_effects(
+                    p,
+                    tree_move_frame,
+                    &mut effects.reborrow_for_object(&mut self.partition_manager),
+                );
             }
         }
         let due: Vec<(ObjectId, Option<ObjectId>)> = self
@@ -2161,7 +2188,14 @@ impl GameLogic {
 
     /// Advance SpySatellite residual: DynamicShroud grow/shrink + expire + undo.
     pub(in super::super) fn update_spy_satellites(&mut self) {
-        self.apply_spy_satellite_dynamic_shroud();
+        self.update_spy_satellites_with_effects(&mut Default::default());
+    }
+
+    pub(in super::super) fn update_spy_satellites_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
+        self.apply_spy_satellite_dynamic_shroud(effects);
         self.undo_expired_spy_satellite_shroud();
         self.spy_satellites.prune_expired(self.frame);
         self.spy_drones.prune_expired(self.frame);
@@ -2171,7 +2205,10 @@ impl GameLogic {
     }
 
     /// C++ DynamicShroudClearingRangeUpdate::update → setShroudClearingRange.
-    fn apply_spy_satellite_dynamic_shroud(&mut self) {
+    fn apply_spy_satellite_dynamic_shroud(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         use gamelogic::common::Coord3D;
         let frame = self.frame;
         let work: Vec<(u32, Vec3, f32, f32, u32)> = self
@@ -2240,7 +2277,7 @@ impl GameLogic {
         for _ in 0..newly_visible {
             self.spy_satellites.record_fow_reveal();
         }
-        self.refresh_dynamic_shroud_grid_decals();
+        self.refresh_dynamic_shroud_grid_decals(effects);
     }
 
     fn undo_expired_spy_satellite_shroud(&mut self) {
@@ -2265,7 +2302,10 @@ impl GameLogic {
     }
 
     /// C++ RadarVanPing DynamicShroudClearingRangeUpdate shrink curve.
-    fn apply_radar_scan_dynamic_shroud(&mut self) {
+    fn apply_radar_scan_dynamic_shroud(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         use gamelogic::common::Coord3D;
         let frame = self.frame;
         let work: Vec<(Vec3, f32, f32, u32, u32)> = self
@@ -2305,7 +2345,7 @@ impl GameLogic {
             scan.last_applied_radius = new_r;
             scan.radius = new_r;
         }
-        self.refresh_dynamic_shroud_grid_decals();
+        self.refresh_dynamic_shroud_grid_decals(effects);
     }
 
     fn undo_expired_radar_scan_shroud(&mut self) {
@@ -2330,7 +2370,10 @@ impl GameLogic {
     }
 
     /// C++ DynamicShroudClearingRangeUpdate GridDecalTemplate ring.
-    fn refresh_dynamic_shroud_grid_decals(&mut self) {
+    fn refresh_dynamic_shroud_grid_decals(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let frame = self.frame;
         let mut updates: Vec<(ObjectId, f32, Vec3, Option<u32>)> = Vec::new();
         for (id, obj) in self.objects.registered() {
@@ -2358,7 +2401,7 @@ impl GameLogic {
             updates.push((*id, radius, obj.get_position(), obj.owner_player_id));
         }
         for (id, radius, pos, owner) in updates {
-            self.apply_ping_grid_decal(id, radius, pos, owner, frame);
+            self.apply_ping_grid_decal(id, radius, pos, owner, frame, effects);
         }
     }
 
@@ -2369,6 +2412,7 @@ impl GameLogic {
         pos: Vec3,
         owner: Option<u32>,
         frame: u32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         use crate::game_logic::host_radius_decal_update::{
             HostRadiusDecalTemplate, HostRadiusDecalUpdateData,
@@ -2401,13 +2445,14 @@ impl GameLogic {
             only_visible_to_owner: true,
             color: 0,
         };
-        rd.create_radius_decal_with_player_view(
+        rd.create_radius_decal_with_player_view_and_effects(
             tmpl,
             radius,
             pos,
             frame,
             owner.map(|id| id as i32),
             players,
+            effects,
         );
     }
 }

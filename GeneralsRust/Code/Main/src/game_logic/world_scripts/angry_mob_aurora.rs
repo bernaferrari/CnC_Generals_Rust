@@ -153,7 +153,11 @@ impl GameLogic {
             // handlePartitionCellMaintenance. It does **not** mark DETECTED
             // or destalth (SpyVisionSpecialPower.cpp:64-102).
             if let Some(obj) = self.objects.get_mut(&obj_id) {
-                obj.set_vision_spied_by_player(player_id, true);
+                obj.set_vision_spied_by_player_with_partition_owner(
+                    player_id,
+                    true,
+                    &mut self.partition_manager,
+                );
                 any_vision_spied = true;
             }
 
@@ -367,7 +371,11 @@ impl GameLogic {
         let mut any_fow = false;
         for (obj_id, location, radius) in enemy_snapshots {
             if let Some(obj) = self.objects.get_mut(&obj_id) {
-                obj.set_vision_spied_by_player(player_id, true);
+                obj.set_vision_spied_by_player_with_partition_owner(
+                    player_id,
+                    true,
+                    &mut self.partition_manager,
+                );
                 any_vision_spied = true;
             }
             let center_pos = Coord3D::new(location.x, location.z, location.y);
@@ -964,10 +972,17 @@ impl GameLogic {
             let pos = inferno_shell_bezier_point(from, aim, t);
             if let Some(o) = self.objects.get_mut(&id) {
                 let prev = o.get_position();
-                o.set_position_with_effects(pos, tree_move_frame, effects);
+                o.set_position_with_effects(
+                    pos,
+                    tree_move_frame,
+                    &mut effects.reborrow_for_object(&mut self.partition_manager),
+                );
                 let d = pos - prev;
                 if d.length_squared() > 1.0e-6 {
-                    o.set_orientation(d.z.atan2(d.x));
+                    o.set_orientation_with_partition_owner(
+                        d.z.atan2(d.x),
+                        &mut self.partition_manager,
+                    );
                 }
             }
             if elapsed >= frames {
@@ -985,7 +1000,11 @@ impl GameLogic {
                 o.status.destroyed = true;
                 o.status.effectively_dead = true;
                 o.inferno_shell_projectile = false;
-                o.set_position_with_effects(pos, tree_move_frame, effects);
+                o.set_position_with_effects(
+                    pos,
+                    tree_move_frame,
+                    &mut effects.reborrow_for_object(&mut self.partition_manager),
+                );
             }
             let _ =
                 self.apply_inferno_shell_residual_at_with_effects(pos, source, intended, effects);
@@ -1562,10 +1581,12 @@ impl GameLogic {
                     None => true,
                 };
                 if retarget {
-                    o.set_destination(
+                    o.set_destination_with_operation(
                         pos,
                         &mut self.movement_events.writer(self.frame),
                         &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
+                        self.frame,
+                        &mut effects.reborrow_for_object(&mut self.partition_manager),
                     );
                 }
             }
@@ -2056,7 +2077,7 @@ impl GameLogic {
                 &mut self.health_events,
             );
             o.movement.velocity = vel;
-            o.set_orientation(dir.z.atan2(dir.x));
+            o.set_orientation_with_partition_owner(dir.z.atan2(dir.x), &mut self.partition_manager);
             if o.native_lifecycle.is_none() {
                 o.height_die = Some(HostHeightDieData::with_target(
                     AURORA_BOMB_HEIGHT_DIE_TARGET,
@@ -2148,8 +2169,15 @@ impl GameLogic {
             };
             if let Some(o) = self.objects.get_mut(&id) {
                 o.movement.velocity = vel;
-                o.set_position_with_effects(pos + vel, tree_move_frame, effects);
-                o.set_orientation(vel.z.atan2(vel.x));
+                o.set_position_with_effects(
+                    pos + vel,
+                    tree_move_frame,
+                    &mut effects.reborrow_for_object(&mut self.partition_manager),
+                );
+                o.set_orientation_with_partition_owner(
+                    vel.z.atan2(vel.x),
+                    &mut self.partition_manager,
+                );
             }
             let new_pos = pos + vel;
             let near = glam::Vec3::new(aim.x - new_pos.x, 0.0, aim.z - new_pos.z).length() < 8.0
@@ -2170,7 +2198,7 @@ impl GameLogic {
                     o.set_position_with_effects(
                         glam::Vec3::new(a[0], a[1], a[2]),
                         tree_move_frame,
-                        effects,
+                        &mut effects.reborrow_for_object(&mut self.partition_manager),
                     );
                 }
                 // Wave 752: under damage authority, do not zero host HP mid-frame

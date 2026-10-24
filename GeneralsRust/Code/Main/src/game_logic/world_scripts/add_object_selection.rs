@@ -45,6 +45,11 @@ impl GameLogic {
         self.validate_host_object_admission(object.id)?;
         let prepared = self.prepare_external_host_object_team(&object, interpreter, effects)?;
         let id = self.admit_external_object_to_prepared_team(object, prepared)?;
+        self.partition_manager.attach_receiving_object(
+            self.objects
+                .get_mut(&id)
+                .expect("external Object admitted before partition attachment"),
+        );
         self.host_radar_add_object_with_effects(id, effects);
         Ok(id)
     }
@@ -91,7 +96,14 @@ impl GameLogic {
         &mut self,
         object: Object,
     ) -> gamelogic::GameLogicResult<()> {
-        self.admit_host_object_storage(object)
+        let id = object.id;
+        self.admit_host_object_storage(object)?;
+        self.partition_manager.attach_receiving_object(
+            self.objects
+                .get_mut(&id)
+                .expect("restored Object admitted before partition attachment"),
+        );
+        Ok(())
     }
 
     pub(in crate::game_logic) fn admit_host_object_storage(
@@ -100,6 +112,11 @@ impl GameLogic {
     ) -> gamelogic::GameLogicResult<()> {
         // Validate before touching old reservations, identities or callback state.
         self.validate_host_object_admission(object.id)?;
+        // Observation copies retain scalar history, not a receipt authorizing
+        // subtraction from another receiving grid. New admission starts clean.
+        if object.partition_namespace.is_detached_clone() {
+            object.forget_retired_partition_scalar_receipt();
+        }
         // Every admission, including detached clones, receives this world's
         // immutable runtime rules. Preserve resolved module/snapshot scalars.
         object.bind_body_damage_policy(self.body_damage_policy());
@@ -116,6 +133,7 @@ impl GameLogic {
         object.attach_host_trigger_world(&self.host_trigger_world);
         object.visual_object_generation = self.allocate_visual_object_generation();
         object.visual_draw_identity_token = std::sync::Arc::new(());
+        object.partition_namespace = Default::default();
         object.unit_ai_runtime = Default::default();
         let id = object.id;
         self.objects.admit(id, object);

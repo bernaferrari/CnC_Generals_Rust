@@ -275,19 +275,15 @@ impl<'a> CommandExecutor<'a> {
             if !has_ai {
                 continue;
             }
-            // Preserve facade history admission before splitting receiving fields.
-            let _ = self.game_logic.host_object_mut(unit_id);
-            if let Some(u) = self.game_logic.objects.get_mut(&unit_id) {
-                if forced {
-                    u.set_force_attack(true);
-                }
-                u.set_target(
-                    Some(target_id),
-                    &mut self.game_logic.attack_events,
-                    &mut crate::game_logic::ObjectAudio::queue(
-                        &mut self.game_logic.queued_audio_events,
-                    ),
-                );
+            if self
+                .game_logic
+                .set_owned_fallback_attack_target_with_effects(
+                    unit_id,
+                    target_id,
+                    forced,
+                    &mut self.ui,
+                )
+            {
                 any_attacker = true;
             }
         }

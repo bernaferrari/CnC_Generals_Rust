@@ -61,7 +61,9 @@ impl GameLogic {
             if let Some(bone_fx) = object.bone_fx_damage.as_mut() {
                 bone_fx.kill_running_particle_systems();
             }
-            object.handle_partition_cell_maintenance();
+            object.handle_partition_cell_maintenance_with_partition_owner(
+                &mut self.partition_manager,
+            );
         }
         if self
             .objects
@@ -193,17 +195,28 @@ impl GameLogic {
             .then_some(container.movement.velocity);
         let aggressive = container.transport_go_aggressive_on_exit();
         let delay = container.transport_exit_delay_frames();
-        if let Some((container, ownership_events)) =
-            self.host_object_and_ownership_events_mut(container_id)
+        if let Some((container, ownership_events, partition)) =
+            self.host_object_ownership_partition_mut(container_id)
         {
-            container.remove_occupant(child_id, ownership_events);
+            container.remove_occupant_with_partition_owner(child_id, ownership_events, partition);
             if container.overlord_portable_occupant == Some(child_id) {
                 container.overlord_portable_occupant = None;
             }
         }
         self.play_container_removing_template_sounds(container_id, child_id, effects);
-        if let Some(child) = self.host_object_mut(child_id) {
-            child.set_contained_by(None);
+        let _ = self.host_object_mut(child_id);
+        if self.objects.contains_key(&child_id) {
+            Self::set_owned_containment_in_parts(
+                &mut self.objects,
+                &mut self.partition_manager,
+                child_id,
+                None,
+                true,
+            );
+            let child = self
+                .objects
+                .get_mut(&child_id)
+                .expect("installed detached child");
             if transport {
                 child.status.disabled_held = false;
                 if airborne {
@@ -276,7 +289,18 @@ impl GameLogic {
         if outcome.cave_in {
             for child in outcome.cave_in_units {
                 if let Some(object) = self.objects.get_mut(&child) {
-                    object.set_contained_by(None);
+                    let containment_actor_id = object.id;
+                    Self::set_owned_containment_in_parts(
+                        &mut self.objects,
+                        &mut self.partition_manager,
+                        containment_actor_id,
+                        None,
+                        true,
+                    );
+                    let object = self
+                        .objects
+                        .get_mut(&containment_actor_id)
+                        .expect("containment operation preserves this birth");
                 }
                 self.destroy_object_with_effects(child, effects);
             }
@@ -284,7 +308,18 @@ impl GameLogic {
             for child in self.tunnel_network.contained_for_player(player) {
                 if let Some(object) = self.objects.get_mut(&child) {
                     if object.contained_by == Some(id) {
-                        object.set_contained_by(Some(entrance));
+                        let containment_actor_id = object.id;
+                        Self::set_owned_containment_in_parts(
+                            &mut self.objects,
+                            &mut self.partition_manager,
+                            containment_actor_id,
+                            Some(entrance),
+                            true,
+                        );
+                        let object = self
+                            .objects
+                            .get_mut(&containment_actor_id)
+                            .expect("containment operation preserves this birth");
                         self.tunnel_network
                             .stamp_contained_by_frame(child, self.frame);
                     }
@@ -307,10 +342,25 @@ impl GameLogic {
                     container.overlord_portable_occupant = None;
                     container.overlord_redirection_active = false;
                 }
-                container.remove_occupant(id, &mut self.ownership_events);
+                container.remove_occupant_with_partition_owner(
+                    id,
+                    &mut self.ownership_events,
+                    &mut self.partition_manager,
+                );
             }
             if let Some(object) = self.objects.get_mut(&id) {
-                object.set_contained_by(None);
+                let containment_actor_id = object.id;
+                Self::set_owned_containment_in_parts(
+                    &mut self.objects,
+                    &mut self.partition_manager,
+                    containment_actor_id,
+                    None,
+                    true,
+                );
+                let object = self
+                    .objects
+                    .get_mut(&containment_actor_id)
+                    .expect("containment operation preserves this birth");
             }
             if garrison {
                 self.recalc_garrison_apparent_controller(cid);

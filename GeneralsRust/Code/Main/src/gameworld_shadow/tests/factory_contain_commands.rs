@@ -166,8 +166,8 @@ fn contain_enter_exit_roster_and_container_destroy_ejects_before_remove() {
         assert!(o.add_occupant(inf));
     }
     {
-        let o = logic.host_object_mut(inf).expect("i");
-        o.set_contained_by(Some(bunker));
+        let (o, fixture_partition) = logic.host_object_and_partition_mut(inf).expect("i");
+        o.set_contained_by_with_partition_owner(Some(bunker), true, fixture_partition);
     }
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);

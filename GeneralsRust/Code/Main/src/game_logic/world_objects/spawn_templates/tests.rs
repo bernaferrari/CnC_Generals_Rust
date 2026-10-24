@@ -105,9 +105,23 @@ mod tests {
                 .iter()
                 .map(|(path, text)| ((*path).to_owned(), (*text).to_owned())),
         );
-        crate::assets::ReceivingObjectContent::from_sources_with_sciences(
+        let facts =
+            Arc::new(game_engine::common::rts::science::ScienceNameFacts::from_store(&sciences));
+        let mut actions = game_engine::common::thing::receiving_module_content::ReceivingActionDefinitions::default();
+        let power_source = files
+            .read_optional_definition_source("Data/INI/SpecialPower.ini")
+            .expect("retail SpecialPower source read")
+            .expect("licensed retail SpecialPower definitions");
+        actions
+            .apply_source(
+                std::str::from_utf8(&power_source).expect("retail SpecialPower UTF-8"),
+                &facts,
+            )
+            .expect("owned retail SpecialPower definitions with receiving Science facts");
+        crate::assets::ReceivingObjectContent::from_sources_with_catalogs(
             sources,
-            Arc::new(game_engine::common::rts::science::ScienceNameFacts::from_store(&sciences)),
+            facts,
+            Arc::new(actions),
         )
         .expect("actual complete retail receiving content, no partial namespace fallback")
     }
@@ -240,10 +254,7 @@ mod tests {
                 .expect("Internet Center object")
                 .add_occupant(contained_hacker)
         );
-        logic
-            .host_object_mut(contained_hacker)
-            .expect("contained hacker object")
-            .set_contained_by(Some(center));
+        logic.set_fixture_object_contained_by(contained_hacker, Some(center));
 
         logic.frame = 0;
         assert!(logic.start_hacker_internet_hack(field_hacker));
@@ -407,41 +418,8 @@ End
     #[test]
     fn retail_superweapon_modules_drive_arm_limit_energy_and_presentation_not_names() {
         use glam::Vec3;
-        use std::collections::HashMap;
-
-        // The fixture uses the actual retail FactionBuilding declarations and
-        // only seeds the corresponding loaded SpecialPower records when the
-        // wider shell bootstrap has not already done so.
-        {
-            use game_engine::common::rts::special_power::get_special_power_store_mut;
-
-            let mut powers = get_special_power_store_mut();
-            for (name, enum_name, reload) in [
-                (
-                    "SuperweaponParticleUplinkCannon",
-                    "SPECIAL_PARTICLE_UPLINK_CANNON",
-                    "240000",
-                ),
-                ("SuperweaponScudStorm", "SPECIAL_SCUD_STORM", "300000"),
-                (
-                    "SuperweaponNeutronMissile",
-                    "SPECIAL_NEUTRON_MISSILE",
-                    "360000",
-                ),
-            ] {
-                if powers.find_template(name).is_none() {
-                    let mut fields = HashMap::new();
-                    fields.insert("Enum".to_string(), enum_name.to_string());
-                    fields.insert("ReloadTime".to_string(), reload.to_string());
-                    fields.insert("PublicTimer".to_string(), "Yes".to_string());
-                    powers
-                        .parse_special_power_definition(name, &fields)
-                        .unwrap_or_else(|error| {
-                            panic!("seed required retail special power {name}: {error}")
-                        });
-                }
-            }
-        }
+        // The complete receiving content below captures actual retail
+        // SpecialPower source before typed Object modules are admitted.
 
         const SPOOF_SOURCE: &str = r#"
 Object AmericaParticleCannonUplinkNamedButNoModule
@@ -455,15 +433,27 @@ End
         .expect("standalone authored-absence projection");
         let content = retail_receiving_fixture(&[("superweapon_name_spoof.ini", SPOOF_SOURCE)]);
 
-        let parsed = |name| {
-            GameLogic::build_template_from_object_definition(
-                name,
-                content
-                    .projections()
-                    .get(name)
-                    .unwrap_or_else(|| panic!("missing retail Object {name}")),
-                None,
-            )
+        let mut logic = GameLogic::new();
+        logic.add_player(Player::new(1, Team::USA, "USA", true));
+        admit_fixture_content(
+            &mut logic,
+            content,
+            &[
+                "AmericaParticleCannonUplink",
+                "GLAScudStorm",
+                "ChinaNuclearMissileLauncher",
+                "AmericaParticleCannonUplinkNamedButNoModule",
+            ],
+        );
+
+        // Inspect the exact template produced by actual receiving admission,
+        // including its immutable SpecialPower catalog and typed module roster.
+        let parsed = |name: &str| {
+            logic
+                .templates
+                .get(name)
+                .cloned()
+                .unwrap_or_else(|| panic!("missing admitted retail Object {name}"))
         };
         let particle = parsed("AmericaParticleCannonUplink");
         let scud = parsed("GLAScudStorm");
@@ -507,18 +497,6 @@ End
         assert_eq!(spoof.energy_production, Some(0));
         assert!(!spoof.has_superweapon_restriction_link_key());
 
-        let mut logic = GameLogic::new();
-        logic.add_player(Player::new(1, Team::USA, "USA", true));
-        admit_fixture_content(
-            &mut logic,
-            content,
-            &[
-                "AmericaParticleCannonUplink",
-                "GLAScudStorm",
-                "ChinaNuclearMissileLauncher",
-                "AmericaParticleCannonUplinkNamedButNoModule",
-            ],
-        );
         logic.skirmish_rules.limit_superweapons = true;
 
         // The retail POWERED cannon consumes ten Energy. Supply real owned
@@ -3048,8 +3026,8 @@ End
         if let Some(obj) = logic.host_object_mut(unit) {
             obj.health.current = 20.0;
             obj.health.maximum = 80.0;
-            obj.set_contained_by(Some(pad));
         }
+        logic.set_fixture_object_contained_by(unit, Some(pad));
         logic
             .tunnel_network
             .stamp_contained_by_frame(unit, logic.frame);
@@ -3099,9 +3077,7 @@ End
         logic.update_main_crate_vision();
         assert_eq!(logic.vision_last_looks.len(), 1);
 
-        if let Some(obj) = logic.host_object_mut(id) {
-            obj.set_position(Vec3::new(80.0, 0.0, 90.0));
-        }
+        logic.set_fixture_object_position(id, Vec3::new(80.0, 0.0, 90.0));
         logic.update_main_crate_vision();
         let moved = *logic.vision_last_looks.get(&id).expect("moved looker");
         assert!((moved.0 - 80.0).abs() < 0.01);
@@ -3192,9 +3168,7 @@ End
             assert!(mgr.host_object_ever_seen(1, bunker_id.0));
         }
 
-        if let Some(obj) = logic.host_object_mut(_looker_id) {
-            obj.set_position(Vec3::new(400.0, 0.0, 400.0));
-        }
+        logic.set_fixture_object_position(_looker_id, Vec3::new(400.0, 0.0, 400.0));
         let moved_frame = logic.frame;
         logic.update_main_crate_vision();
         // C++ PartitionManager.cpp:3971,4026-4037 queues the old reveal for
@@ -3292,9 +3266,7 @@ End
                 assert_eq!(status(&a, a_enemy), Some(ObjectShroudStatus::Clear));
                 assert_eq!(status(&b, b_enemy), Some(ObjectShroudStatus::Shrouded));
 
-                a.host_object_mut(a_looker)
-                    .unwrap()
-                    .set_position(Vec3::new(400.0, 0.0, 400.0));
+                a.set_fixture_object_position(a_looker, Vec3::new(400.0, 0.0, 400.0));
                 a.update_main_crate_vision();
                 let pending = a.world_services.shroud().lock().unwrap().snapshot_state();
                 assert_eq!(pending.pending_undo_shroud_reveals.len(), 1);
@@ -3462,9 +3434,7 @@ End
         let rider = logic
             .create_object_for_player("RangerLook", 1, Vec3::new(0.0, 0.0, 0.0))
             .expect("ranger");
-        if let Some(obj) = logic.host_object_mut(rider) {
-            obj.set_contained_by(Some(bird));
-        }
+        logic.set_fixture_object_contained_by(rider, Some(bird));
         logic.update_main_crate_vision();
         assert!(
             logic.vision_last_looks.contains_key(&bird),
@@ -3539,8 +3509,8 @@ End
         let id = logic
             .create_object_for_player("SpiedScout", 1, Vec3::new(10.0, 0.0, 20.0))
             .expect("spawn");
-        if let Some(obj) = logic.host_object_mut(id) {
-            obj.set_vision_spied_by_player(0, true);
+        if let Some((obj, partition)) = logic.host_object_and_partition_mut(id) {
+            obj.set_vision_spied_by_player_with_partition_owner(0, true, partition);
         }
         logic.update_main_crate_vision();
         let look = *logic.vision_last_looks.get(&id).expect("looker");
@@ -3552,9 +3522,7 @@ End
         );
         assert!((look.3 - 80.0).abs() < 0.01);
 
-        if let Some(obj) = logic.host_object_mut(id) {
-            obj.set_position(Vec3::new(90.0, 0.0, 110.0));
-        }
+        logic.set_fixture_object_position(id, Vec3::new(90.0, 0.0, 110.0));
         logic.update_main_crate_vision();
         let moved = *logic.vision_last_looks.get(&id).expect("moved looker");
         assert!((moved.0 - 90.0).abs() < 0.01);
@@ -3670,9 +3638,7 @@ End
             "script/skirmish ally must see through"
         );
 
-        if let Some(obj) = logic.host_object_mut(id) {
-            obj.set_position(Vec3::new(90.0, 0.0, 110.0));
-        }
+        logic.set_fixture_object_position(id, Vec3::new(90.0, 0.0, 110.0));
         logic.update_main_crate_vision();
         let moved = *logic.vision_last_shroud.get(&id).expect("moved cover");
         assert!((moved.0 - 90.0).abs() < 0.01);

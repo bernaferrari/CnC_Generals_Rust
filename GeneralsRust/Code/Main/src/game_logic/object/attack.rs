@@ -113,7 +113,40 @@ impl Object {
         content: Option<&crate::game_logic::projectile_definitions::ProjectileDefinitions>,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) -> Option<(u8, super::combat::PendingProjectile)> {
-        self.prepare_weapon_shot(
+        self.prepare_passive_weapon_shot_with_operation(
+            slot,
+            target_id,
+            current_time,
+            target_is_infantry,
+            target_has_faerie_fire,
+            logic_frame,
+            muzzle_origin,
+            sound_events,
+            attack_events,
+            content,
+            audio,
+            0,
+            &mut Default::default(),
+        )
+    }
+
+    pub(crate) fn prepare_passive_weapon_shot_with_operation(
+        &mut self,
+        slot: u8,
+        target_id: ObjectId,
+        current_time: f32,
+        target_is_infantry: bool,
+        target_has_faerie_fire: bool,
+        logic_frame: u32,
+        muzzle_origin: Vec3,
+        sound_events: &mut crate::game_logic::host_fire_sound_loop_log::FireSoundLoopEvents,
+        attack_events: &mut crate::game_logic::host_attack_log::AttackEvents,
+        content: Option<&crate::game_logic::projectile_definitions::ProjectileDefinitions>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
+        operation_frame: u32,
+        operation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> Option<(u8, super::combat::PendingProjectile)> {
+        self.prepare_weapon_shot_with_operation(
             WeaponShotRoute::Passive {
                 slot,
                 origin: muzzle_origin,
@@ -127,6 +160,8 @@ impl Object {
             attack_events,
             content,
             audio,
+            operation_frame,
+            operation_effects,
         )
     }
 
@@ -142,7 +177,36 @@ impl Object {
         content: Option<&crate::game_logic::projectile_definitions::ProjectileDefinitions>,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) -> Option<(u8, super::combat::PendingProjectile)> {
-        self.prepare_weapon_shot(
+        self.prepare_autonomous_weapon_shot_with_operation(
+            target,
+            time,
+            infantry,
+            faerie,
+            frame,
+            sound,
+            attacks,
+            content,
+            audio,
+            0,
+            &mut Default::default(),
+        )
+    }
+
+    pub(crate) fn prepare_autonomous_weapon_shot_with_operation(
+        &mut self,
+        target: ObjectId,
+        time: f32,
+        infantry: bool,
+        faerie: bool,
+        frame: u32,
+        sound: &mut crate::game_logic::host_fire_sound_loop_log::FireSoundLoopEvents,
+        attacks: &mut crate::game_logic::host_attack_log::AttackEvents,
+        content: Option<&crate::game_logic::projectile_definitions::ProjectileDefinitions>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
+        operation_frame: u32,
+        operation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> Option<(u8, super::combat::PendingProjectile)> {
+        self.prepare_weapon_shot_with_operation(
             WeaponShotRoute::Autonomous,
             target,
             time,
@@ -153,6 +217,8 @@ impl Object {
             attacks,
             content,
             audio,
+            operation_frame,
+            operation_effects,
         )
     }
 
@@ -195,6 +261,37 @@ impl Object {
         attack_events: &mut crate::game_logic::host_attack_log::AttackEvents,
         content: Option<&crate::game_logic::projectile_definitions::ProjectileDefinitions>,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
+    ) -> Option<(u8, super::combat::PendingProjectile)> {
+        self.prepare_weapon_shot_with_operation(
+            route,
+            target_id,
+            current_time,
+            target_is_infantry,
+            target_has_faerie_fire,
+            logic_frame,
+            sound_events,
+            attack_events,
+            content,
+            audio,
+            0,
+            &mut Default::default(),
+        )
+    }
+
+    fn prepare_weapon_shot_with_operation(
+        &mut self,
+        route: WeaponShotRoute,
+        target_id: ObjectId,
+        current_time: f32,
+        target_is_infantry: bool,
+        target_has_faerie_fire: bool,
+        logic_frame: u32,
+        sound_events: &mut crate::game_logic::host_fire_sound_loop_log::FireSoundLoopEvents,
+        attack_events: &mut crate::game_logic::host_attack_log::AttackEvents,
+        content: Option<&crate::game_logic::projectile_definitions::ProjectileDefinitions>,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
+        operation_frame: u32,
+        operation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> Option<(u8, super::combat::PendingProjectile)> {
         let autonomous = matches!(route, WeaponShotRoute::Autonomous);
         // C++ Weapon::getMaxShotCount residual — AI burst / scatter limits.
@@ -356,7 +453,13 @@ impl Object {
                 self.activate_leech_range_for_slot(slot);
             }
             if current_time + 1e-6 < self.pre_attack_ready_at {
-                self.note_attack_target(target_id, attack_events, audio);
+                self.note_attack_target_with_operation(
+                    target_id,
+                    attack_events,
+                    audio,
+                    operation_frame,
+                    operation_effects,
+                );
                 let entered_attack = !matches!(
                     self.ai_state,
                     AIState::Patrolling | AIState::AttackMoving | AIState::Attacking
@@ -372,7 +475,13 @@ impl Object {
             self.pre_attack_target = Some(target_id);
         }
 
-        self.note_attack_target(target_id, attack_events, audio);
+        self.note_attack_target_with_operation(
+            target_id,
+            attack_events,
+            audio,
+            operation_frame,
+            operation_effects,
+        );
         let entered_attack = !matches!(
             self.ai_state,
             AIState::Patrolling | AIState::AttackMoving | AIState::Attacking
@@ -911,6 +1020,23 @@ impl Object {
         attack_events: &mut crate::game_logic::host_attack_log::AttackEvents,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
+        self.attack_target_with_operation(
+            target_id,
+            attack_events,
+            audio,
+            0,
+            &mut Default::default(),
+        )
+    }
+
+    pub fn attack_target_with_operation(
+        &mut self,
+        target_id: ObjectId,
+        attack_events: &mut crate::game_logic::host_attack_log::AttackEvents,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
+        operation_frame: u32,
+        operation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         if !self.is_alive() {
             return;
         }
@@ -919,7 +1045,11 @@ impl Object {
             return;
         }
         // Jet takeoff residual: leave hangar before engaging.
-        let _ = self.takeoff_from_airfield_parking(audio);
+        let _ = self.takeoff_from_airfield_parking_with_operation(
+            audio,
+            operation_frame,
+            operation_effects,
+        );
         if self.can_attack() {
             if self.pre_attack_target != Some(target_id) {
                 // New target — fire_at will start PRE_ATTACK clock.

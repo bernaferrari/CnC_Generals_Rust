@@ -245,8 +245,14 @@ fn authored_jet_on_elevated_ground_uses_receiving_ground_effect_before_delete() 
             let (mut owner, victim, source) = world(&format!(
                 "Behavior = JetSlowDeathBehavior JetTag\nDeathTypes = NONE\nFXOnGroundDeath = {CHILD}\nFXInitialDeath = {ARMOR}\nEnd"
             ));
-            let object = owner.objects.get_mut(&victim).unwrap();
-            object.set_position(Vec3::new(0., 100., 0.));
+            let (object, fixture_partition_object) =
+                owner.host_object_and_partition_mut(victim).unwrap();
+            object.set_position_with_partition_owner(
+                Vec3::new(0., 100., 0.),
+                0,
+                &mut Default::default(),
+                fixture_partition_object,
+            );
             object.ground_height = 100.;
             assert!(!object.is_significantly_above_terrain());
             hit(&mut owner, victim, Some(source), 1000.);

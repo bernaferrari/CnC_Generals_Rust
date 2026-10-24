@@ -2100,10 +2100,10 @@ fn leaflet_drop_residual_disables_enemy_infantry_and_vehicles() {
     assert!(until > game_logic.frame);
     // EMPUpdate.cpp:467-506 refreshes the deadline every frame inside the
     // cloud. Leave its radius before testing expiration of the last pulse.
-    game_logic
-        .host_object_mut(enemy_vehicle_id)
-        .unwrap()
-        .set_position(Vec3::new(HOST_LEAFLET_RADIUS + 50.0, 0.0, 0.0));
+    game_logic.set_fixture_object_position(
+        enemy_vehicle_id,
+        Vec3::new(HOST_LEAFLET_RADIUS + 50.0, 0.0, 0.0),
+    );
     // Object.cpp:2317-2335 observes the current frame, before GameLogic.cpp:
     // 3798-3802 increments it. Check both sides of that phase boundary.
     game_logic.frame = until - 1;

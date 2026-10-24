@@ -161,7 +161,7 @@ pub(crate) fn open_contain_exit_path(
 ) -> (glam::Vec3, glam::Vec3, u8) {
     let origin = container.get_position();
     let yaw = container.get_orientation();
-    let geom = container.thing().template.geometry_info;
+    let geom = (*container.geometry_info());
     let major = if geom.authored {
         geom.major_radius.max(8.0)
     } else {

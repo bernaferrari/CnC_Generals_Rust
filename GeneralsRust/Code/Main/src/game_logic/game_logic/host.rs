@@ -1205,7 +1205,7 @@ pub struct GameLogic {
     pub selected_objects: Vec<ObjectId>,
     pub(crate) selection_changed_frame: u32,
 
-    pub(super) partition_manager: PartitionManager,
+    pub(in crate::game_logic) partition_manager: PartitionManager,
     pub(super) radar_notifications: RadarNotifications,
     pub(super) last_radar_kind_time: [f32; 3],
     pub(super) last_radar_audio_time: f32,
@@ -1481,6 +1481,13 @@ impl GameLogic {
 
 impl Drop for GameLogic {
     fn drop(&mut self) {
+        // Logical owner teardown clears this exact grid, including literal
+        // direct-delete residuals. Drop never needs an Object operation loan.
+        self.world_services
+            .shroud()
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .clear_host_scalar_grid();
         // C++ TheUpgradeCenter/TheAI live and die with the owning world.
         // Pop this world's bundle only while it still heads the active
         // stack; the bundle it displaced is reinstated, and a world that

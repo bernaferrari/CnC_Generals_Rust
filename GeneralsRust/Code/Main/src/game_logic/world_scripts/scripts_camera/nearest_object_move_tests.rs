@@ -120,7 +120,7 @@ fn nearest_actual_script_tracks_selected_identity_and_preserves_missing_goal() {
         Some("BasicHumanLocomotor")
     );
     let moved = Vec3::new(180.0, 0.0, 170.0);
-    world.host_object_mut(target).unwrap().set_position(moved);
+    world.set_fixture_object_position(target, moved);
     let before_frame = world.frame;
     for _ in 0..12 {
         world.update_with_dt(1.0 / 30.0);
@@ -174,10 +174,7 @@ fn nearest_script_team_uses_owned_roster_and_foreign_world_cannot_move_goal() {
     let (mut foreign, foreign_unit, foreign_target) = tracking_world();
     assert_eq!(unit, foreign_unit);
     assert_eq!(target, foreign_target);
-    foreign
-        .host_object_mut(foreign_target)
-        .unwrap()
-        .set_position(Vec3::splat(900.0));
+    foreign.set_fixture_object_position(foreign_target, Vec3::splat(900.0));
     execute(&mut world, true, "NearestRoster");
     assert_eq!(
         world.host_object(unit).unwrap().movement_goal_object(),
@@ -217,11 +214,8 @@ fn nearest_actual_script_snapshot_preserves_moving_goal_continuation() {
         .restore_from_snapshot(&snapshot, &mut restored)
         .unwrap();
     let future = Vec3::new(160.0, 0.0, 140.0);
-    source.host_object_mut(target).unwrap().set_position(future);
-    restored
-        .host_object_mut(target)
-        .unwrap()
-        .set_position(future);
+    source.set_fixture_object_position(target, future);
+    restored.set_fixture_object_position(target, future);
     let initial = source.host_object(unit).unwrap().get_position();
     for _ in 0..18 {
         source.update_with_dt(1.0 / 30.0);

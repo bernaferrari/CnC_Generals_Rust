@@ -1203,6 +1203,32 @@ impl BuildingBehavior {
         current_frame: u32,
         ownership_events: &mut crate::game_logic::host_owner_log::OwnershipEvents,
     ) -> Vec<ObjectId> {
+        Self::sweep_dead_garrison_occupants_with_partition_context(
+            objects,
+            current_frame,
+            ownership_events,
+            None,
+        )
+    }
+    pub(crate) fn sweep_dead_garrison_occupants_with_partition_owner(
+        objects: &mut crate::game_logic::HostObjectStore,
+        current_frame: u32,
+        ownership_events: &mut crate::game_logic::host_owner_log::OwnershipEvents,
+        partition: &mut crate::game_logic::partition_manager::PartitionManager,
+    ) -> Vec<ObjectId> {
+        Self::sweep_dead_garrison_occupants_with_partition_context(
+            objects,
+            current_frame,
+            ownership_events,
+            Some(partition),
+        )
+    }
+    fn sweep_dead_garrison_occupants_with_partition_context(
+        objects: &mut crate::game_logic::HostObjectStore,
+        current_frame: u32,
+        ownership_events: &mut crate::game_logic::host_owner_log::OwnershipEvents,
+        mut partition: Option<&mut crate::game_logic::partition_manager::PartitionManager>,
+    ) -> Vec<ObjectId> {
         let mut dead: Vec<(ObjectId, ObjectId)> = Vec::new();
         for (&cid, container) in objects.registered() {
             if !container.is_garrison_contain() {
@@ -1218,7 +1244,12 @@ impl BuildingBehavior {
         let mut dirty: Vec<ObjectId> = Vec::new();
         for (cid, occ) in dead {
             if let Some(container) = objects.get_mut(&cid) {
-                if container.remove_occupant(occ, ownership_events) && !dirty.contains(&cid) {
+                if container.remove_occupant_with_partition_context(
+                    occ,
+                    ownership_events,
+                    partition.as_deref_mut(),
+                ) && !dirty.contains(&cid)
+                {
                     dirty.push(cid);
                 }
             }

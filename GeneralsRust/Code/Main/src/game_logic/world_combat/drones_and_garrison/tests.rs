@@ -405,8 +405,8 @@ fn immune_to_clear_bunker_keeps_occupants() {
             .unwrap()
             .add_occupant(ranger_id)
     );
-    if let Some(r) = logic.host_object_mut(ranger_id) {
-        r.set_contained_by(Some(bunker));
+    if let Some((r, fixture_partition_r)) = logic.host_object_and_partition_mut(ranger_id) {
+        r.set_contained_by_with_partition_owner(Some(bunker), true, fixture_partition_r);
     }
     let killed = logic.apply_kill_garrisoned_to_target(bunker, Team::USA, 5.0, None);
     assert_eq!(killed, 0, "ImmuneToClear bunkers keep occupants");
@@ -466,8 +466,8 @@ fn microwave_clearer_delay_is_100ms_one_occupant_per_shot() {
         assert!(o.add_occupant(b));
     }
     for id in [a, b] {
-        if let Some(r) = logic.host_object_mut(id) {
-            r.set_contained_by(Some(bunker));
+        if let Some((r, fixture_partition_r)) = logic.host_object_and_partition_mut(id) {
+            r.set_contained_by_with_partition_owner(Some(bunker), true, fixture_partition_r);
         }
     }
     let killed = logic.apply_kill_garrisoned_to_target(
@@ -520,9 +520,9 @@ fn occupied_building_gets_can_attack_and_loses_it_when_empty() {
         );
     }
     assert!({
-        let (object, ownership_events) =
-            logic.host_object_and_ownership_events_mut(bunker).unwrap();
-        object.remove_occupant(ranger_id, ownership_events)
+        let (object, ownership_events, partition) =
+            logic.host_object_ownership_partition_mut(bunker).unwrap();
+        object.remove_occupant_with_partition_owner(ranger_id, ownership_events, partition)
     });
     let b = logic.host_object(bunker).unwrap();
     assert!(!b.has_object_status_bit("CAN_ATTACK"));
@@ -614,8 +614,8 @@ fn garrison_enter_deselects_occupant() {
             .unwrap()
             .add_occupant(ranger_id)
     );
-    if let Some(r) = logic.host_object_mut(ranger_id) {
-        r.set_contained_by(Some(bunker));
+    if let Some((r, fixture_partition_r)) = logic.host_object_and_partition_mut(ranger_id) {
+        r.set_contained_by_with_partition_owner(Some(bunker), true, fixture_partition_r);
         r.deselect();
     }
     logic
@@ -765,8 +765,8 @@ fn hide_uses_stealth_garrison_kind_not_stealthed_bits() {
             .unwrap()
             .add_occupant(ranger_id)
     );
-    if let Some(r) = logic.host_object_mut(ranger_id) {
-        r.set_contained_by(Some(bunker));
+    if let Some((r, fixture_partition_r)) = logic.host_object_and_partition_mut(ranger_id) {
+        r.set_contained_by_with_partition_owner(Some(bunker), true, fixture_partition_r);
     }
     logic.recalc_garrison_apparent_controller(bunker);
     assert!(
@@ -781,9 +781,9 @@ fn hide_uses_stealth_garrison_kind_not_stealthed_bits() {
     );
 
     assert!({
-        let (object, ownership_events) =
-            logic.host_object_and_ownership_events_mut(bunker).unwrap();
-        object.remove_occupant(ranger_id, ownership_events)
+        let (object, ownership_events, partition) =
+            logic.host_object_ownership_partition_mut(bunker).unwrap();
+        object.remove_occupant_with_partition_owner(ranger_id, ownership_events, partition)
     });
     let ninja_id = logic
         .create_object("JapanNinja", Team::USA, Vec3::new(5.0, 0.0, 0.0))
@@ -798,8 +798,8 @@ fn hide_uses_stealth_garrison_kind_not_stealthed_bits() {
             .unwrap()
             .add_occupant(ninja_id)
     );
-    if let Some(n) = logic.host_object_mut(ninja_id) {
-        n.set_contained_by(Some(bunker));
+    if let Some((n, fixture_partition_n)) = logic.host_object_and_partition_mut(ninja_id) {
+        n.set_contained_by_with_partition_owner(Some(bunker), true, fixture_partition_n);
     }
     logic.recalc_garrison_apparent_controller(bunker);
     assert!(
@@ -853,8 +853,8 @@ fn enemy_may_enter_stealth_garrison_only_civilian_and_kick() {
             .unwrap()
             .add_occupant(ninja_id)
     );
-    if let Some(n) = logic.host_object_mut(ninja_id) {
-        n.set_contained_by(Some(bunker));
+    if let Some((n, fixture_partition_n)) = logic.host_object_and_partition_mut(ninja_id) {
+        n.set_contained_by_with_partition_owner(Some(bunker), true, fixture_partition_n);
     }
     let enemy = logic
         .create_object("ChinaRedguard", Team::China, Vec3::new(3.0, 0.0, 0.0))
@@ -908,8 +908,8 @@ fn evac_burst_walks_out_instead_of_idling_at_origin() {
             .unwrap()
             .add_occupant(ranger_id)
     );
-    if let Some(r) = logic.host_object_mut(ranger_id) {
-        r.set_contained_by(Some(bunker));
+    if let Some((r, fixture_partition_r)) = logic.host_object_and_partition_mut(ranger_id) {
+        r.set_contained_by_with_partition_owner(Some(bunker), true, fixture_partition_r);
     }
     assert!(logic.evacuate_container_now(bunker, false));
     let r = logic.host_object(ranger_id).unwrap();
@@ -980,8 +980,8 @@ fn really_damaged_ejects_garrison_with_burst_walk() {
             .unwrap()
             .add_occupant(ranger_id)
     );
-    if let Some(r) = logic.host_object_mut(ranger_id) {
-        r.set_contained_by(Some(bunker));
+    if let Some((r, fixture_partition_r)) = logic.host_object_and_partition_mut(ranger_id) {
+        r.set_contained_by_with_partition_owner(Some(bunker), true, fixture_partition_r);
         r.set_ai_state(
             AIState::Garrisoned,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
@@ -1026,8 +1026,8 @@ fn firebase_really_damaged_does_not_eject() {
         .create_object("AmericaRanger", Team::USA, Vec3::new(2.0, 0.0, 0.0))
         .unwrap();
     assert!(logic.host_object_mut(fb).unwrap().add_occupant(ranger_id));
-    if let Some(r) = logic.host_object_mut(ranger_id) {
-        r.set_contained_by(Some(fb));
+    if let Some((r, fixture_partition_r)) = logic.host_object_and_partition_mut(ranger_id) {
+        r.set_contained_by_with_partition_owner(Some(fb), true, fixture_partition_r);
         r.set_ai_state(
             AIState::Garrisoned,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
@@ -1105,7 +1105,7 @@ fn garrison_fire_releases_old_firepoint_before_taking_closer() {
         .create_object("AmericaRanger", Team::USA, Vec3::new(1.0, 0.0, 0.0))
         .unwrap();
     {
-        let r = logic.host_object_mut(ranger).unwrap();
+        let (r, fixture_partition_r) = logic.host_object_and_partition_mut(ranger).unwrap();
         r.weapon = Some(crate::game_logic::Weapon {
             damage: 40.0,
             range: 200.0,
@@ -1113,7 +1113,7 @@ fn garrison_fire_releases_old_firepoint_before_taking_closer() {
             last_fire_time: -10.0,
             ..crate::game_logic::Weapon::default()
         });
-        r.set_contained_by(Some(bunker));
+        r.set_contained_by_with_partition_owner(Some(bunker), true, fixture_partition_r);
         r.set_ai_state(
             AIState::Garrisoned,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
@@ -1168,7 +1168,7 @@ fn garrison_fire_frees_firepoint_when_no_in_range_victim() {
         .create_object("AmericaRanger", Team::USA, Vec3::new(1.0, 0.0, 0.0))
         .unwrap();
     {
-        let r = logic.host_object_mut(ranger).unwrap();
+        let (r, fixture_partition_r) = logic.host_object_and_partition_mut(ranger).unwrap();
         r.weapon = Some(crate::game_logic::Weapon {
             damage: 10.0,
             range: 20.0,
@@ -1176,7 +1176,7 @@ fn garrison_fire_frees_firepoint_when_no_in_range_victim() {
             last_fire_time: -10.0,
             ..crate::game_logic::Weapon::default()
         });
-        r.set_contained_by(Some(bunker));
+        r.set_contained_by_with_partition_owner(Some(bunker), true, fixture_partition_r);
         r.set_ai_state(
             AIState::Garrisoned,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
@@ -1275,8 +1275,8 @@ fn heal_contain_auto_exit_walks_exit_path() {
             .unwrap()
             .add_occupant(ranger_id)
     );
-    if let Some(r) = logic.host_object_mut(ranger_id) {
-        r.set_contained_by(Some(barracks));
+    if let Some((r, fixture_partition_r)) = logic.host_object_and_partition_mut(ranger_id) {
+        r.set_contained_by_with_partition_owner(Some(barracks), true, fixture_partition_r);
     }
     logic.tunnel_network.stamp_contained_by_frame(ranger_id, 0);
     logic.frame = 1;
@@ -1413,9 +1413,9 @@ End
     let rider = logic
         .create_object("MOOD_HV_P", Team::USA, Vec3::new(1.0, 0.0, 0.0))
         .unwrap();
-    if let Some(u) = logic.host_object_mut(rider) {
+    if let Some((u, fixture_partition_u)) = logic.host_object_and_partition_mut(rider) {
         u.next_mood_check_time = 9999;
-        u.set_contained_by(Some(transport));
+        u.set_contained_by_with_partition_owner(Some(transport), true, fixture_partition_u);
     }
     logic.walk_unit_via_open_contain_exit_with_effects(
         rider,
@@ -1459,8 +1459,8 @@ fn walk_unit_via_open_contain_exit_airborne_falls_without_invented_hull_kick() {
     let rider = logic
         .create_object("AIR_DROP_P", Team::USA, Vec3::new(1.0, 0.0, 0.0))
         .unwrap();
-    if let Some(u) = logic.host_object_mut(rider) {
-        u.set_contained_by(Some(transport));
+    if let Some((u, fixture_partition_u)) = logic.host_object_and_partition_mut(rider) {
+        u.set_contained_by_with_partition_owner(Some(transport), true, fixture_partition_u);
     }
     logic.walk_unit_via_open_contain_exit(rider, transport);
     let u = logic.host_object(rider).unwrap();
@@ -1496,8 +1496,8 @@ fn walk_unit_via_open_contain_exit_keep_velocity_applies_authored_kick() {
     let rider = logic
         .create_object("KEEP_VEL_P", Team::USA, Vec3::new(1.0, 0.0, 0.0))
         .unwrap();
-    if let Some(u) = logic.host_object_mut(rider) {
-        u.set_contained_by(Some(transport));
+    if let Some((u, fixture_partition_u)) = logic.host_object_and_partition_mut(rider) {
+        u.set_contained_by_with_partition_owner(Some(transport), true, fixture_partition_u);
     }
     logic.walk_unit_via_open_contain_exit(rider, transport);
     let u = logic.host_object(rider).unwrap();
@@ -1535,8 +1535,8 @@ fn walk_unit_via_open_contain_exit_opens_and_closes_leftover_door() {
     let rider = logic
         .create_object("DOOR_HV_P", Team::USA, Vec3::new(1.0, 0.0, 0.0))
         .unwrap();
-    if let Some(u) = logic.host_object_mut(rider) {
-        u.set_contained_by(Some(transport));
+    if let Some((u, fixture_partition_u)) = logic.host_object_and_partition_mut(rider) {
+        u.set_contained_by_with_partition_owner(Some(transport), true, fixture_partition_u);
     }
     logic.walk_unit_via_open_contain_exit(rider, transport);
     let open_b = door_1_opening_model_bit();
@@ -1652,10 +1652,10 @@ fn walk_unit_via_open_contain_exit_copies_layer_and_gates_allow_to_fall() {
     let rider = logic
         .create_object("LAYER_HV_P", Team::USA, Vec3::new(1.0, 0.0, 0.0))
         .unwrap();
-    if let Some(u) = logic.host_object_mut(rider) {
+    if let Some((u, fixture_partition_u)) = logic.host_object_and_partition_mut(rider) {
         u.allow_to_fall = true;
         u.pathfind_layer = 1;
-        u.set_contained_by(Some(transport));
+        u.set_contained_by_with_partition_owner(Some(transport), true, fixture_partition_u);
     }
     logic.walk_unit_via_open_contain_exit(rider, transport);
     let u = logic.host_object(rider).unwrap();
@@ -1728,8 +1728,8 @@ fn defector_rejects_structure_contained_and_unfinished() {
     let contained = logic
         .create_object("TestTank", Team::GLA, Vec3::new(60.0, 0.0, 0.0))
         .unwrap();
-    if let Some(o) = logic.host_object_mut(contained) {
-        o.set_contained_by(Some(building));
+    if let Some((o, fixture_partition_o)) = logic.host_object_and_partition_mut(contained) {
+        o.set_contained_by_with_partition_owner(Some(building), true, fixture_partition_o);
     }
     let sold = logic
         .create_object("TestTank", Team::GLA, Vec3::new(70.0, 0.0, 0.0))
@@ -1798,8 +1798,8 @@ fn defector_idles_and_kicks_cargo() {
         v.set_status_attacking(true);
         v.occupants.push(cargo);
     }
-    if let Some(c) = logic.host_object_mut(cargo) {
-        c.set_contained_by(Some(victim));
+    if let Some((c, fixture_partition_c)) = logic.host_object_and_partition_mut(cargo) {
+        c.set_contained_by_with_partition_owner(Some(victim), true, fixture_partition_c);
     }
 
     assert!(logic.activate_defector(caster, victim));
@@ -1844,7 +1844,7 @@ fn garrison_residual_fire_skips_undetected_stealth() {
         .create_object("GLARebel", Team::GLA, Vec3::new(30.0, 0.0, 0.0))
         .unwrap();
     {
-        let r = logic.host_object_mut(ranger).unwrap();
+        let (r, fixture_partition_r) = logic.host_object_and_partition_mut(ranger).unwrap();
         r.weapon = Some(crate::game_logic::Weapon {
             damage: 40.0,
             range: 100.0,
@@ -1852,7 +1852,7 @@ fn garrison_residual_fire_skips_undetected_stealth() {
             last_fire_time: -10.0,
             ..crate::game_logic::Weapon::default()
         });
-        r.set_contained_by(Some(bunker));
+        r.set_contained_by_with_partition_owner(Some(bunker), true, fixture_partition_r);
         r.set_ai_state(
             AIState::Garrisoned,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
@@ -1915,7 +1915,7 @@ fn garrison_residual_fire_uses_garrisoned_133_range() {
         .create_object("GLATank", Team::GLA, Vec3::new(120.0, 0.0, 0.0))
         .unwrap();
     {
-        let r = logic.host_object_mut(ranger).unwrap();
+        let (r, fixture_partition_r) = logic.host_object_and_partition_mut(ranger).unwrap();
         r.weapon = Some(crate::game_logic::Weapon {
             damage: 25.0,
             range: 100.0,
@@ -1923,7 +1923,7 @@ fn garrison_residual_fire_uses_garrisoned_133_range() {
             last_fire_time: -10.0,
             ..crate::game_logic::Weapon::default()
         });
-        r.set_contained_by(Some(bunker));
+        r.set_contained_by_with_partition_owner(Some(bunker), true, fixture_partition_r);
         r.set_ai_state(
             AIState::Garrisoned,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
@@ -1978,8 +1978,8 @@ fn helix_infantry_residual_fire_uses_garrisoned_133_range() {
         .unwrap();
     assert!(logic.host_object_mut(heli).unwrap().add_occupant(rider));
     {
-        let r = logic.host_object_mut(rider).unwrap();
-        r.set_contained_by(Some(heli));
+        let (r, fixture_partition_r) = logic.host_object_and_partition_mut(rider).unwrap();
+        r.set_contained_by_with_partition_owner(Some(heli), true, fixture_partition_r);
         r.set_ai_state(
             AIState::Docked,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
@@ -2063,10 +2063,10 @@ fn garrison_without_heal_objects_does_not_heal_occupants() {
             .unwrap()
             .add_occupant(ranger_id)
     );
-    if let Some(r) = logic.host_object_mut(ranger_id) {
+    if let Some((r, fixture_partition_r)) = logic.host_object_and_partition_mut(ranger_id) {
         r.health.current = 40.0;
         r.health.maximum = 120.0;
-        r.set_contained_by(Some(bunker));
+        r.set_contained_by_with_partition_owner(Some(bunker), true, fixture_partition_r);
     }
     logic
         .tunnel_network
@@ -2214,7 +2214,7 @@ fn firebase_does_not_spawn_garrison_gun() {
         .create_object("GLARebel", Team::GLA, Vec3::new(20.0, 0.0, 0.0))
         .unwrap();
     {
-        let r = logic.host_object_mut(ranger).unwrap();
+        let (r, fixture_partition_r) = logic.host_object_and_partition_mut(ranger).unwrap();
         r.weapon = Some(crate::game_logic::Weapon {
             damage: 25.0,
             range: 100.0,
@@ -2222,7 +2222,7 @@ fn firebase_does_not_spawn_garrison_gun() {
             last_fire_time: -10.0,
             ..crate::game_logic::Weapon::default()
         });
-        r.set_contained_by(Some(fb));
+        r.set_contained_by_with_partition_owner(Some(fb), true, fixture_partition_r);
         r.set_ai_state(
             AIState::Garrisoned,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
@@ -2290,7 +2290,7 @@ fn poison_garrison_shot_skips_muzzle_flash() {
         .create_object("AmericaRanger", Team::GLA, Vec3::new(20.0, 0.0, 0.0))
         .unwrap();
     {
-        let r = logic.host_object_mut(rebel).unwrap();
+        let (r, fixture_partition_r) = logic.host_object_and_partition_mut(rebel).unwrap();
         r.weapon = Some(crate::game_logic::Weapon {
             damage: 20.0,
             range: 100.0,
@@ -2298,7 +2298,7 @@ fn poison_garrison_shot_skips_muzzle_flash() {
             last_fire_time: -10.0,
             ..crate::game_logic::Weapon::default()
         });
-        r.set_contained_by(Some(bunker));
+        r.set_contained_by_with_partition_owner(Some(bunker), true, fixture_partition_r);
         r.set_ai_state(
             AIState::Garrisoned,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
@@ -2361,7 +2361,7 @@ fn garrison_gun_aims_at_occupant_target() {
         .create_object("GLARebel", Team::GLA, Vec3::new(20.0, 0.0, 10.0))
         .unwrap();
     {
-        let r = logic.host_object_mut(ranger).unwrap();
+        let (r, fixture_partition_r) = logic.host_object_and_partition_mut(ranger).unwrap();
         r.weapon = Some(crate::game_logic::Weapon {
             damage: 25.0,
             range: 100.0,
@@ -2369,7 +2369,7 @@ fn garrison_gun_aims_at_occupant_target() {
             last_fire_time: -10.0,
             ..crate::game_logic::Weapon::default()
         });
-        r.set_contained_by(Some(bunker));
+        r.set_contained_by_with_partition_owner(Some(bunker), true, fixture_partition_r);
         r.set_ai_state(
             AIState::Garrisoned,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
@@ -2433,11 +2433,11 @@ fn partial_exit_recalcs_hide_garrisoned_state() {
             .unwrap()
             .add_occupant(ninja_id)
     );
-    if let Some(r) = logic.host_object_mut(ranger_id) {
-        r.set_contained_by(Some(bunker));
+    if let Some((r, fixture_partition_r)) = logic.host_object_and_partition_mut(ranger_id) {
+        r.set_contained_by_with_partition_owner(Some(bunker), true, fixture_partition_r);
     }
-    if let Some(n) = logic.host_object_mut(ninja_id) {
-        n.set_contained_by(Some(bunker));
+    if let Some((n, fixture_partition_n)) = logic.host_object_and_partition_mut(ninja_id) {
+        n.set_contained_by_with_partition_owner(Some(bunker), true, fixture_partition_n);
         n.status.detected = false;
     }
     logic.recalc_garrison_apparent_controller(bunker);
@@ -2500,11 +2500,11 @@ fn occupant_death_recalcs_hide_garrisoned_state() {
             .unwrap()
             .add_occupant(ninja_id)
     );
-    if let Some(r) = logic.host_object_mut(ranger_id) {
-        r.set_contained_by(Some(bunker));
+    if let Some((r, fixture_partition_r)) = logic.host_object_and_partition_mut(ranger_id) {
+        r.set_contained_by_with_partition_owner(Some(bunker), true, fixture_partition_r);
     }
-    if let Some(n) = logic.host_object_mut(ninja_id) {
-        n.set_contained_by(Some(bunker));
+    if let Some((n, fixture_partition_n)) = logic.host_object_and_partition_mut(ninja_id) {
+        n.set_contained_by_with_partition_owner(Some(bunker), true, fixture_partition_n);
         n.status.detected = false;
     }
     logic.recalc_garrison_apparent_controller(bunker);
@@ -2556,8 +2556,8 @@ fn player_who_entered_pulses_one_frame() {
             .unwrap()
             .add_occupant(ranger_id)
     );
-    if let Some(r) = logic.host_object_mut(ranger_id) {
-        r.set_contained_by(Some(bunker));
+    if let Some((r, fixture_partition_r)) = logic.host_object_and_partition_mut(ranger_id) {
+        r.set_contained_by_with_partition_owner(Some(bunker), true, fixture_partition_r);
     }
     logic.stamp_player_who_entered(bunker, ranger_id);
     logic.inject_host_script_query_snapshot();

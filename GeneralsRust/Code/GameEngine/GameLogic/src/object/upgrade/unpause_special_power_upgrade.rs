@@ -230,7 +230,8 @@ fn parse_special_power_template_field(
         return Err(INIError::InvalidData);
     }
     let name = AsciiString::from(tokens[0]);
-    data.special_power_template = Some(find_or_create_special_power_template(&name));
+    data.special_power_template =
+        crate::object::special_power_template::special_power_template_from_ini(_ini, &name);
     Ok(())
 }
 

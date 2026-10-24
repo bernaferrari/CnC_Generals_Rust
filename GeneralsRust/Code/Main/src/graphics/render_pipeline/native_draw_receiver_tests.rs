@@ -234,10 +234,7 @@ fn real_receiver_owns_constructor_dirty_setters_and_peer_reset_lifetimes_before_
             .x,
         3.
     );
-    a.objects
-        .get_mut(&ID)
-        .unwrap()
-        .set_position(Vec3::new(3., 5., 7.));
+    a.set_fixture_object_position(ID, Vec3::new(3., 5., 7.));
     let moved = source(&mut a);
     sync(&mut client, &mut pipeline, &mut graphics, &moved, 1000);
     assert_eq!(

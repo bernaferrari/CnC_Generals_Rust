@@ -146,6 +146,21 @@ impl super::GameLogic {
         id: super::ObjectId,
         action: impl FnOnce(&mut Object, &mut ObjectAudio<'_>, &mut VeterancyFeedback<'_>) -> R,
     ) -> Option<R> {
+        self.with_object_veterancy_feedback_and_partition(
+            id,
+            |object, audio, feedback, _partition| action(object, audio, feedback),
+        )
+    }
+    pub(crate) fn with_object_veterancy_feedback_and_partition<R>(
+        &mut self,
+        id: super::ObjectId,
+        action: impl FnOnce(
+            &mut Object,
+            &mut ObjectAudio<'_>,
+            &mut VeterancyFeedback<'_>,
+            &mut super::partition_manager::PartitionManager,
+        ) -> R,
+    ) -> Option<R> {
         let local = self.local_player_id();
         let draw_icon_ui = self.get_draw_icon_ui();
         let mut feedback = VeterancyFeedback::new(
@@ -160,6 +175,7 @@ impl super::GameLogic {
             self.objects.get_mut(&id)?,
             &mut audio,
             &mut feedback,
+            &mut self.partition_manager,
         ))
     }
 }
@@ -200,6 +216,24 @@ impl super::GameLogic {
             &mut VeterancyFeedback<'_>,
         ) -> R,
     ) -> Option<R> {
+        self.with_object_recrew_feedback_and_partition(
+            id,
+            |object, ownership, audio, feedback, _partition| {
+                action(object, ownership, audio, feedback)
+            },
+        )
+    }
+    pub(crate) fn with_object_recrew_feedback_and_partition<R>(
+        &mut self,
+        id: super::ObjectId,
+        action: impl FnOnce(
+            &mut Object,
+            &mut super::host_owner_log::OwnershipEvents,
+            &mut ObjectAudio<'_>,
+            &mut VeterancyFeedback<'_>,
+            &mut super::partition_manager::PartitionManager,
+        ) -> R,
+    ) -> Option<R> {
         let local = self.local_player_id();
         let draw_icon_ui = self.get_draw_icon_ui();
         let mut feedback = VeterancyFeedback::new(
@@ -215,6 +249,7 @@ impl super::GameLogic {
             &mut self.ownership_events,
             &mut audio,
             &mut feedback,
+            &mut self.partition_manager,
         ))
     }
 }
