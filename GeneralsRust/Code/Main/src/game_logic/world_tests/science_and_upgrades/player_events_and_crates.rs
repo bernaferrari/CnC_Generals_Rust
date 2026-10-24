@@ -73,7 +73,7 @@ fn script_set_rank_level_plays_eva_general_level_up() {
     logic.scripts_loaded = true;
     logic.players.insert(
         0,
-        crate::game_logic::Player::new(0, Team::USA, "Local", true),
+        crate::game_logic::Player::new(0, Team::USA, "Local", true).with_script_identity("Local"),
     );
     gamelogic::scripting::request_host_rank(HostScriptRankRequest::SetRankLevel {
         player: "Local".into(),
@@ -170,13 +170,11 @@ fn calculate_score_skips_self_kills() {
     p.record_structure_built();
     p.add_money_earned(50);
     p.record_unit_destroyed();
-    p.record_unit_destroyed();
-    p.record_self_unit_destroyed();
-    p.record_structure_destroyed();
-    p.record_self_structure_destroyed();
+    p.record_test_self_destroyed(false);
+    p.record_test_self_destroyed(true);
     // Display totals still include self-kills.
-    assert_eq!(p.statistics.units_destroyed, 2);
-    assert_eq!(p.statistics.structures_destroyed, 1);
+    assert_eq!(p.statistics.units_destroyed(), 2);
+    assert_eq!(p.statistics.structures_destroyed(), 1);
     // Score: 1 built unit + 50 money + 1 built structure + 1 enemy unit + 0 enemy buildings.
     assert_eq!(p.calculate_score(), 100 + 50 + 100 + 100);
 }
@@ -286,8 +284,13 @@ fn try_under_attack_event_base_eva_and_throttle() {
     // Throttle: second event near same pos within 300 frames rejected.
     assert!(!logic.try_under_attack_event(id));
     // C++ precedence quirk: far-away same-type events still throttle for 10s.
-    if let Some(o) = logic.host_object_mut(id) {
-        o.set_position(glam::Vec3::new(1000.0, 0.0, 1000.0));
+    if let Some((o, fixture_partition_o)) = logic.host_object_and_partition_mut(id) {
+        o.set_position_with_partition_owner(
+            glam::Vec3::new(1000.0, 0.0, 1000.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_o,
+        );
     }
     assert!(!logic.try_under_attack_event(id));
 }
@@ -500,7 +503,7 @@ fn black_lotus_cash_steal_records_score_and_floating_text() {
         .values()
         .find(|p| p.team == Team::China)
         .expect("china");
-    assert!(china.statistics.money_earned >= 1000);
+    assert!(china.statistics.money_earned() >= 1000);
     assert!(logic.saboteur.honesty_cash_floating_texts_ok());
     let events = logic.take_eva_requests();
     assert!(events.iter().any(|e| *e == EvaEvent::CashStolen));
@@ -1375,7 +1378,12 @@ fn america_parachute_midair_death_free_fall_damages_rider() {
         h.set_contained_by_with_partition_owner(Some(chute_id), true, fixture_partition_h);
         h.apply_eject_parachuting();
         h.set_status_parachute_open(true);
-        h.set_position(glam::Vec3::new(0.0, high, 0.0));
+        h.set_position_with_partition_owner(
+            glam::Vec3::new(0.0, high, 0.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_h,
+        );
         h.health.current = h.health.maximum;
     }
     let hp_before = logic.objects[&hid].health.current;
@@ -1429,8 +1437,16 @@ fn america_parachute_land_releases_hijacker() {
     });
     {
         let v = logic.objects.get_mut(&vid).unwrap();
-        v.apply_hijacked(&mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()));
-        v.set_team(Team::GLA, &mut logic.ownership_events);
+        v.apply_hijacked_from_with_partition_owner(
+            None,
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut logic.partition_manager,
+        );
+        v.set_team_with_partition_owner(
+            Team::GLA,
+            &mut logic.ownership_events,
+            &mut logic.partition_manager,
+        );
     }
     {
         let h = logic.objects.get_mut(&hid).unwrap();
@@ -1538,9 +1554,9 @@ fn parachute_land_use_spawn_rally_point_walks_factory_exit() {
     let factory_id = logic
         .create_object("SpawnRallyFactory", Team::USA, factory_pos)
         .expect("factory");
-    if let Some(o) = logic.host_object_mut(factory_id) {
+    if let Some((o, fixture_partition_o)) = logic.host_object_and_partition_mut(factory_id) {
         o.building_data = Some(BuildingData::new(BuildingType::WarFactory));
-        o.set_orientation(0.0);
+        o.set_orientation_with_partition_owner(0.0, fixture_partition_o);
     }
 
     let high = PARACHUTE_OPEN_DIST + 80.0;
@@ -1753,7 +1769,12 @@ fn america_parachute_empty_dies_midair_after_rider_loss() {
         let (h, fixture_partition_h) = logic.host_object_and_partition_mut(hid).unwrap();
         h.set_contained_by_with_partition_owner(Some(chute_id), true, fixture_partition_h);
         h.apply_eject_parachuting();
-        h.set_position(glam::Vec3::new(0.0, high, 0.0));
+        h.set_position_with_partition_owner(
+            glam::Vec3::new(0.0, high, 0.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_h,
+        );
     }
     logic.tick_eject_parachute_residual(chute_id);
     assert!(
@@ -1828,11 +1849,16 @@ fn hijack_takes_max_veterancy_and_marks_status() {
     let donor = logic.objects.get(&hid).cloned();
     {
         let v = logic.objects.get_mut(&vid).unwrap();
-        v.apply_hijacked_from(
+        v.apply_hijacked_from_with_partition_owner(
             donor.as_ref(),
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut logic.partition_manager,
         );
-        v.set_team(Team::GLA, &mut logic.ownership_events);
+        v.set_team_with_partition_owner(
+            Team::GLA,
+            &mut logic.ownership_events,
+            &mut logic.partition_manager,
+        );
     }
     let _ = logic.transfer_script_object_name(hid, vid);
     let v = &logic.objects[&vid];

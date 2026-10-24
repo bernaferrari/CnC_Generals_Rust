@@ -1722,7 +1722,9 @@ fn frenzy_residual_buffs_allies_and_boosts_damage() {
         .health
         .current;
     {
-        let ally = game_logic.host_object_mut(ally_id).expect("ally");
+        let (ally, fixture_partition_ally) = game_logic
+            .host_object_and_partition_mut(ally_id)
+            .expect("ally");
         ally.target = Some(enemy_id);
         ally.set_ai_state(
             AIState::Attacking,
@@ -1730,11 +1732,23 @@ fn frenzy_residual_buffs_allies_and_boosts_damage() {
         );
         ally.set_status_attacking(true);
         // Place in range without path chase residual.
-        ally.set_position(Vec3::new(10.0, 0.0, 0.0));
+        ally.set_position_with_partition_owner(
+            Vec3::new(10.0, 0.0, 0.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_ally,
+        );
     }
     {
-        let enemy = game_logic.host_object_mut(enemy_id).expect("enemy");
-        enemy.set_position(Vec3::new(15.0, 0.0, 0.0));
+        let (enemy, fixture_partition_enemy) = game_logic
+            .host_object_and_partition_mut(enemy_id)
+            .expect("enemy");
+        enemy.set_position_with_partition_owner(
+            Vec3::new(15.0, 0.0, 0.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_enemy,
+        );
     }
     game_logic.update_combat(&[ally_id, enemy_id], 1.0 / 30.0);
     let enemy_hp_after = game_logic
@@ -2127,18 +2141,32 @@ fn strategy_center_battle_plan_residual_applies_unit_bonuses() {
         .health
         .current;
     {
-        let ally = game_logic.host_object_mut(ally_id).expect("ally");
+        let (ally, fixture_partition_ally) = game_logic
+            .host_object_and_partition_mut(ally_id)
+            .expect("ally");
         ally.target = Some(enemy_id);
         ally.set_ai_state(
             AIState::Attacking,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         ally.set_status_attacking(true);
-        ally.set_position(Vec3::new(10.0, 0.0, 0.0));
+        ally.set_position_with_partition_owner(
+            Vec3::new(10.0, 0.0, 0.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_ally,
+        );
     }
     {
-        let enemy = game_logic.host_object_mut(enemy_id).expect("enemy");
-        enemy.set_position(Vec3::new(15.0, 0.0, 0.0));
+        let (enemy, fixture_partition_enemy) = game_logic
+            .host_object_and_partition_mut(enemy_id)
+            .expect("enemy");
+        enemy.set_position_with_partition_owner(
+            Vec3::new(15.0, 0.0, 0.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_enemy,
+        );
         enemy.template_mut().armor = 0.0;
     }
     game_logic.health_events.clear_damage();
@@ -2204,7 +2232,9 @@ fn strategy_center_battle_plan_residual_applies_unit_bonuses() {
     }
     let ally_hp_before = game_logic.host_object(ally_id).unwrap().health.current;
     {
-        let enemy = game_logic.host_object_mut(enemy_id).expect("enemy");
+        let (enemy, fixture_partition_enemy) = game_logic
+            .host_object_and_partition_mut(enemy_id)
+            .expect("enemy");
         enemy.weapon = Some(Weapon {
             damage: 20.0,
             range: 150.0,
@@ -2218,12 +2248,24 @@ fn strategy_center_battle_plan_residual_applies_unit_bonuses() {
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         enemy.set_status_attacking(true);
-        enemy.set_position(Vec3::new(15.0, 0.0, 0.0));
+        enemy.set_position_with_partition_owner(
+            Vec3::new(15.0, 0.0, 0.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_enemy,
+        );
         enemy.template_mut().armor = 0.0;
     }
     {
-        let ally = game_logic.host_object_mut(ally_id).expect("ally");
-        ally.set_position(Vec3::new(10.0, 0.0, 0.0));
+        let (ally, fixture_partition_ally) = game_logic
+            .host_object_and_partition_mut(ally_id)
+            .expect("ally");
+        ally.set_position_with_partition_owner(
+            Vec3::new(10.0, 0.0, 0.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_ally,
+        );
         ally.target = None;
         ally.set_status_attacking(false);
     }
@@ -2267,7 +2309,9 @@ fn strategy_center_battle_plan_residual_applies_unit_bonuses() {
     game_logic.pathfinding_height_samples = None;
     game_logic.pathfinding_system.clear_static_blocks();
     {
-        let ally = game_logic.host_object_mut(ally_id).expect("ally");
+        let (ally, fixture_partition_ally) = game_logic
+            .host_object_and_partition_mut(ally_id)
+            .expect("ally");
         ally.set_status_disabled_paralyzed(false);
         ally.status.disabled_paralyzed_until_frame = 0;
         ally.weapon = Some(Weapon {
@@ -2277,7 +2321,12 @@ fn strategy_center_battle_plan_residual_applies_unit_bonuses() {
             last_fire_time: -10.0,
             ..Weapon::default()
         });
-        ally.set_position(Vec3::new(0.0, 0.0, 0.0));
+        ally.set_position_with_partition_owner(
+            Vec3::new(0.0, 0.0, 0.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_ally,
+        );
         ally.target = Some(enemy_id);
         ally.set_ai_state(
             AIState::Attacking,
@@ -2289,8 +2338,15 @@ fn strategy_center_battle_plan_residual_applies_unit_bonuses() {
         ally.status.is_firing_weapon = false;
     }
     {
-        let enemy = game_logic.host_object_mut(enemy_id).expect("enemy");
-        enemy.set_position(Vec3::new(110.0, 0.0, 0.0)); // 110 > 100 base, < 120 residual
+        let (enemy, fixture_partition_enemy) = game_logic
+            .host_object_and_partition_mut(enemy_id)
+            .expect("enemy");
+        enemy.set_position_with_partition_owner(
+            Vec3::new(110.0, 0.0, 0.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_enemy,
+        ); // 110 > 100 base, < 120 residual
         enemy.template_mut().armor = 0.0;
         enemy.health.current = 100.0;
         enemy.target = None;
@@ -2412,18 +2468,32 @@ fn strategy_center_battle_plan_paralyze_residual_on_plan_change() {
     // Observable: paralyzed unit cannot fire residual.
     let enemy_hp_before = game_logic.host_object(enemy_id).unwrap().health.current;
     {
-        let ally = game_logic.host_object_mut(ally_id).expect("ally");
+        let (ally, fixture_partition_ally) = game_logic
+            .host_object_and_partition_mut(ally_id)
+            .expect("ally");
         ally.target = Some(enemy_id);
         ally.set_ai_state(
             AIState::Attacking,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         ally.set_status_attacking(true);
-        ally.set_position(Vec3::new(10.0, 0.0, 0.0));
+        ally.set_position_with_partition_owner(
+            Vec3::new(10.0, 0.0, 0.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_ally,
+        );
     }
     {
-        let enemy = game_logic.host_object_mut(enemy_id).expect("enemy");
-        enemy.set_position(Vec3::new(15.0, 0.0, 0.0));
+        let (enemy, fixture_partition_enemy) = game_logic
+            .host_object_and_partition_mut(enemy_id)
+            .expect("enemy");
+        enemy.set_position_with_partition_owner(
+            Vec3::new(15.0, 0.0, 0.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_enemy,
+        );
         enemy.template_mut().armor = 0.0;
     }
     game_logic.health_events.clear_damage();
@@ -2970,11 +3040,15 @@ fn eject_pilot_die_mux_death_types_and_hijacked_residual() {
         )
         .expect("hijacked humvee");
     {
-        let (h, health_events) = game_logic
-            .host_object_and_health_events_mut(hijack_id)
+        let (h, health_events, partition) = game_logic
+            .host_object_health_partition_mut(hijack_id)
             .expect("hijacked");
         h.experience.level = VeterancyLevel::Veteran;
-        h.apply_hijacked(&mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()));
+        h.apply_hijacked_from_with_partition_owner(
+            None,
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            partition,
+        );
         let _ = h.take_damage(h.max_health * 2.0, health_events);
         // Preserve HIJACKED after damage residual.
         h.set_status_hijacked(true);
@@ -3086,24 +3160,26 @@ fn pilot_find_vehicle_collide_module_would_like_residual() {
         .create_object("TestTank", Team::USA, Vec3::new(5.0, 0.0, 0.0))
         .expect("heroic tank");
     {
-        let (t, health_events, ownership_events) = {
+        let (t, health_events, ownership_events, partition_manager) = {
             let crate::game_logic::GameLogic {
                 objects,
                 health_events,
                 ownership_events,
+                partition_manager,
                 ..
             } = &mut game_logic;
             (
                 objects.get_mut(&heroic_id).expect("heroic"),
                 health_events,
                 ownership_events,
+                partition_manager,
             )
         };
         t.apply_kill_pilot_unmanned(
             health_events,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
-        t.set_team(Team::Neutral, ownership_events);
+        t.set_team_with_partition_owner(Team::Neutral, ownership_events, partition_manager);
         t.experience.level = VeterancyLevel::Heroic;
         t.health.current = t.max_health;
     }
@@ -3119,24 +3195,26 @@ fn pilot_find_vehicle_collide_module_would_like_residual() {
         )
         .expect("elevated tank");
     {
-        let (t, health_events, ownership_events) = {
+        let (t, health_events, ownership_events, partition_manager) = {
             let crate::game_logic::GameLogic {
                 objects,
                 health_events,
                 ownership_events,
+                partition_manager,
                 ..
             } = &mut game_logic;
             (
                 objects.get_mut(&elevated_id).expect("elevated"),
                 health_events,
                 ownership_events,
+                partition_manager,
             )
         };
         t.apply_kill_pilot_unmanned(
             health_events,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
-        t.set_team(Team::Neutral, ownership_events);
+        t.set_team_with_partition_owner(Team::Neutral, ownership_events, partition_manager);
         t.experience.level = VeterancyLevel::Rookie;
         t.health.current = t.max_health;
     }
@@ -3146,24 +3224,26 @@ fn pilot_find_vehicle_collide_module_would_like_residual() {
         .create_object("TestTank", Team::USA, Vec3::new(20.0, 0.0, 0.0))
         .expect("ok tank");
     {
-        let (t, health_events, ownership_events) = {
+        let (t, health_events, ownership_events, partition_manager) = {
             let crate::game_logic::GameLogic {
                 objects,
                 health_events,
                 ownership_events,
+                partition_manager,
                 ..
             } = &mut game_logic;
             (
                 objects.get_mut(&ok_id).expect("ok"),
                 health_events,
                 ownership_events,
+                partition_manager,
             )
         };
         t.apply_kill_pilot_unmanned(
             health_events,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
-        t.set_team(Team::Neutral, ownership_events);
+        t.set_team_with_partition_owner(Team::Neutral, ownership_events, partition_manager);
         t.experience.level = VeterancyLevel::Rookie;
         t.health.current = t.max_health;
     }

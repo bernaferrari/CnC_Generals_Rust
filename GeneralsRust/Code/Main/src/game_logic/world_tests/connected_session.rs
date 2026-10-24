@@ -120,7 +120,7 @@ fn authored_world(cash: u32) -> (GameLogic, ObjectId) {
 }
 
 fn construct_and_produce(world: &mut GameLogic, dozer: ObjectId) -> (ObjectId, ObjectId) {
-    let structures_before = world.get_player(0).unwrap().statistics.structures_built;
+    let structures_before = world.get_player(0).unwrap().statistics.structures_built();
     assert_eq!(
         world.unit_owner_if_can_construct(dozer),
         Some((0, Team::USA))
@@ -168,7 +168,7 @@ fn construct_and_produce(world: &mut GameLogic, dozer: ObjectId) -> (ObjectId, O
     );
     assert!(building.construction_power_admitted);
     assert_eq!(
-        world.get_player(0).unwrap().statistics.structures_built,
+        world.get_player(0).unwrap().statistics.structures_built(),
         structures_before + 1
     );
     command(

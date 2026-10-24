@@ -78,8 +78,14 @@ fn allied_resume_uses_builder_handicap_power_and_keeps_site_completion_owner() {
         first.update_construction(&[site], 1.0 / 30.0);
     }
     assert!(!first.host_object(site).unwrap().status.under_construction);
-    assert_eq!(first.get_player(1).unwrap().statistics.structures_built, 1);
-    assert_eq!(first.get_player(0).unwrap().statistics.structures_built, 0);
+    assert_eq!(
+        first.get_player(1).unwrap().statistics.structures_built(),
+        1
+    );
+    assert_eq!(
+        first.get_player(0).unwrap().statistics.structures_built(),
+        0
+    );
     assert_eq!(
         (
             first.get_player(0).unwrap().resources.supplies,

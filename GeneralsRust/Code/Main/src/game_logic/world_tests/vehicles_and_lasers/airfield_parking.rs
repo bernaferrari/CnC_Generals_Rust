@@ -46,7 +46,7 @@ fn airfield_parking_rearm_docks_and_heals() {
         .expect("jet");
 
     {
-        let jet = logic.objects.get_mut(&jet_id).unwrap();
+        let (jet, fixture_partition_jet) = logic.host_object_and_partition_mut(jet_id).unwrap();
         jet.weapon = Some(Weapon {
             damage: 50.0,
             range: 200.0,
@@ -61,7 +61,12 @@ fn airfield_parking_rearm_docks_and_heals() {
         jet.health.current = 40.0;
         jet.status.airborne_target = false;
         jet.jet_ai.rtb_landing_phase = crate::game_logic::object::JET_RTB_PHASE_TAXI;
-        jet.set_position(Vec3::ZERO);
+        jet.set_position_with_partition_owner(
+            Vec3::ZERO,
+            0,
+            &mut Default::default(),
+            fixture_partition_jet,
+        );
     }
 
     assert!(logic.try_return_to_base_rearm(jet_id));

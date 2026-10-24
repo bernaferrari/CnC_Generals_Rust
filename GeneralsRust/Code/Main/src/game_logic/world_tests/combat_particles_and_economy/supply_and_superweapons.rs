@@ -472,8 +472,13 @@ fn full_truck_returns_to_its_supply_center() {
         );
     }
 
-    if let Some(truck) = logic.host_object_mut(id) {
-        truck.set_position(Vec3::new(80.0, 0.0, 20.0));
+    if let Some((truck, fixture_partition_truck)) = logic.host_object_and_partition_mut(id) {
+        truck.set_position_with_partition_owner(
+            Vec3::new(80.0, 0.0, 20.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_truck,
+        );
     }
     let starting = logic.get_player(0).expect("player").resources.supplies;
     logic.update_support_states(&[id, source, center_id], 1.0 / 30.0);
@@ -852,12 +857,16 @@ fn supply_center_deposits_credit_center_owner_and_reject_allies() {
         "C++ SupplyCenterDockUpdate deposits to the center owner"
     );
     assert_eq!(
-        logic.get_player(1).expect("china").statistics.money_earned,
+        logic
+            .get_player(1)
+            .expect("china")
+            .statistics
+            .money_earned(),
         75,
         "C++ ScoreKeeper::addMoneyEarned must count the drop-off"
     );
     assert_eq!(
-        logic.get_player(0).expect("usa").statistics.money_earned,
+        logic.get_player(0).expect("usa").statistics.money_earned(),
         0,
         "allied collector owner must not score the center's deposit"
     );

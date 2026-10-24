@@ -58,8 +58,8 @@ fn internet_center_subdual_idles_occupant_hackers_and_resumes() {
         .create_object("TestHackerSubdual", Team::China, Vec3::new(1.0, 0.0, 0.0))
         .expect("hacker");
     assert!(logic.host_object_mut(ic).expect("ic").add_occupant(hacker));
-    if let Some(obj) = logic.host_object_mut(hacker) {
-        obj.set_contained_by(Some(ic));
+    if let Some((obj, fixture_partition_obj)) = logic.host_object_and_partition_mut(hacker) {
+        obj.set_contained_by_with_partition_owner(Some(ic), true, fixture_partition_obj);
         obj.set_ai_state(
             AIState::Docked,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
@@ -209,7 +209,7 @@ fn hacker_field_residual_deposits_cash_on_interval() {
     assert_eq!(
         game_logic
             .get_player_mut_by_team(Team::China)
-            .map(|p| p.statistics.money_earned)
+            .map(|p| p.statistics.money_earned())
             .unwrap_or(0),
         HACKER_CASH_REGULAR
     );
@@ -661,10 +661,15 @@ fn steal_cash_hack_command_transfers_cash_after_reach() {
 
     // StartAbilityRange 150 residual: mid-range should still complete.
     {
-        let lotus = game_logic
-            .host_object_mut(lotus_id)
+        let (lotus, fixture_partition_lotus) = game_logic
+            .host_object_and_partition_mut(lotus_id)
             .expect("lotus should exist");
-        lotus.set_position(Vec3::new(100.0, 0.0, 0.0));
+        lotus.set_position_with_partition_owner(
+            Vec3::new(100.0, 0.0, 0.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_lotus,
+        );
         lotus.set_ai_state(
             AIState::SpecialAbility,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
@@ -753,8 +758,15 @@ fn steal_cash_hack_awards_lotus_award_xp_for_triggering() {
     });
     game_logic.process_commands();
     {
-        let lotus = game_logic.host_object_mut(lotus_id).expect("lotus");
-        lotus.set_position(Vec3::new(100.0, 0.0, 0.0));
+        let (lotus, fixture_partition_lotus) = game_logic
+            .host_object_and_partition_mut(lotus_id)
+            .expect("lotus");
+        lotus.set_position_with_partition_owner(
+            Vec3::new(100.0, 0.0, 0.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_lotus,
+        );
         lotus.set_ai_state(
             AIState::SpecialAbility,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
@@ -900,8 +912,15 @@ fn steal_cash_hack_uses_controlling_players_not_faction_slot() {
     });
     game_logic.process_commands();
     {
-        let lotus = game_logic.host_object_mut(lotus_id).expect("lotus");
-        lotus.set_position(Vec3::new(100.0, 0.0, 0.0));
+        let (lotus, fixture_partition_lotus) = game_logic
+            .host_object_and_partition_mut(lotus_id)
+            .expect("lotus");
+        lotus.set_position_with_partition_owner(
+            Vec3::new(100.0, 0.0, 0.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_lotus,
+        );
         lotus.set_ai_state(
             AIState::SpecialAbility,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
@@ -983,8 +1002,15 @@ fn leftover_lotus_prep_aborts_when_target_stealthed() {
     });
     game_logic.process_commands();
     {
-        let lotus = game_logic.host_object_mut(lotus_id).expect("lotus");
-        lotus.set_position(Vec3::new(100.0, 0.0, 0.0));
+        let (lotus, fixture_partition_lotus) = game_logic
+            .host_object_and_partition_mut(lotus_id)
+            .expect("lotus");
+        lotus.set_position_with_partition_owner(
+            Vec3::new(100.0, 0.0, 0.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_lotus,
+        );
         lotus.set_ai_state(
             AIState::SpecialAbility,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
@@ -1059,8 +1085,15 @@ fn leftover_lotus_unpack_sets_model_and_unpack_sound() {
     });
     game_logic.process_commands();
     {
-        let lotus = game_logic.host_object_mut(lotus_id).expect("lotus");
-        lotus.set_position(Vec3::new(100.0, 0.0, 0.0));
+        let (lotus, fixture_partition_lotus) = game_logic
+            .host_object_and_partition_mut(lotus_id)
+            .expect("lotus");
+        lotus.set_position_with_partition_owner(
+            Vec3::new(100.0, 0.0, 0.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_lotus,
+        );
         lotus.set_ai_state(
             AIState::SpecialAbility,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
@@ -1129,8 +1162,15 @@ fn leftover_sa_trigger_queues_ini_trigger_sound() {
     });
     game_logic.process_commands();
     {
-        let lotus = game_logic.host_object_mut(lotus_id).expect("lotus");
-        lotus.set_position(Vec3::new(100.0, 0.0, 0.0));
+        let (lotus, fixture_partition_lotus) = game_logic
+            .host_object_and_partition_mut(lotus_id)
+            .expect("lotus");
+        lotus.set_position_with_partition_owner(
+            Vec3::new(100.0, 0.0, 0.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_lotus,
+        );
         lotus.set_ai_state(
             AIState::SpecialAbility,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
@@ -1208,8 +1248,15 @@ fn leftover_sa_hot_swap_aborts_in_flight_channel() {
     });
     game_logic.process_commands();
     {
-        let lotus = game_logic.host_object_mut(lotus_id).expect("lotus");
-        lotus.set_position(Vec3::new(100.0, 0.0, 0.0));
+        let (lotus, fixture_partition_lotus) = game_logic
+            .host_object_and_partition_mut(lotus_id)
+            .expect("lotus");
+        lotus.set_position_with_partition_owner(
+            Vec3::new(100.0, 0.0, 0.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_lotus,
+        );
         lotus.set_ai_state(
             AIState::SpecialAbility,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
@@ -1242,8 +1289,15 @@ fn leftover_sa_hot_swap_aborts_in_flight_channel() {
         "new leftover SA must onExit the in-flight steal channel"
     );
     {
-        let lotus = game_logic.host_object_mut(lotus_id).expect("lotus");
-        lotus.set_position(Vec3::new(10.0, 0.0, 0.0));
+        let (lotus, fixture_partition_lotus) = game_logic
+            .host_object_and_partition_mut(lotus_id)
+            .expect("lotus");
+        lotus.set_position_with_partition_owner(
+            Vec3::new(10.0, 0.0, 0.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_lotus,
+        );
         lotus.set_ai_state(
             AIState::SpecialAbility,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
@@ -1779,10 +1833,15 @@ fn disable_vehicle_hack_command_disables_after_reach() {
 
     // Within StartAbilityRange 150 residual (not melee pad).
     {
-        let lotus = game_logic
-            .host_object_mut(lotus_id)
+        let (lotus, fixture_partition_lotus) = game_logic
+            .host_object_and_partition_mut(lotus_id)
             .expect("lotus should exist");
-        lotus.set_position(Vec3::new(100.0, 0.0, 0.0));
+        lotus.set_position_with_partition_owner(
+            Vec3::new(100.0, 0.0, 0.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_lotus,
+        );
         lotus.set_ai_state(
             AIState::SpecialAbility,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
@@ -1934,8 +1993,15 @@ fn black_lotus_capture_building_without_upgrade() {
 
     // Within residual range 150.
     {
-        let lotus = game_logic.host_object_mut(lotus_id).expect("lotus");
-        lotus.set_position(Vec3::new(100.0, 0.0, 0.0));
+        let (lotus, fixture_partition_lotus) = game_logic
+            .host_object_and_partition_mut(lotus_id)
+            .expect("lotus");
+        lotus.set_position_with_partition_owner(
+            Vec3::new(100.0, 0.0, 0.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_lotus,
+        );
         // The out-of-range tick above installed an approach leg; the fixture
         // teleport must settle it (C++ SpecialAbilityUpdate.cpp:209-220
         // aborts unpack/prep while the capturer is still moving).
@@ -2052,8 +2118,13 @@ fn ecm_missile_jam_scatters_in_flight_projectile() {
     let missile = logic
         .spawn_tomahawk_missile_projectile(tom, from, aim, None)
         .expect("missile");
-    if let Some(o) = logic.objects.get_mut(&missile) {
-        o.set_position(Vec3::new(10.0, 5.0, 0.0));
+    if let Some((o, fixture_partition_o)) = logic.host_object_and_partition_mut(missile) {
+        o.set_position_with_partition_owner(
+            Vec3::new(10.0, 5.0, 0.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_o,
+        );
     }
     let aim_before = logic
         .objects
@@ -2271,8 +2342,15 @@ fn ecm_jam_residual_jams_enemy_weapons_in_radius() {
 
     // Leave radius — C++ SubdualDamageHelper lingers; do not instantly unjam.
     {
-        let enemy = game_logic.host_object_mut(enemy_id).expect("enemy");
-        enemy.set_position(Vec3::new(400.0, 0.0, 0.0));
+        let (enemy, fixture_partition_enemy) = game_logic
+            .host_object_and_partition_mut(enemy_id)
+            .expect("enemy");
+        enemy.set_position_with_partition_owner(
+            Vec3::new(400.0, 0.0, 0.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_enemy,
+        );
     }
     game_logic.update_ecm_jam_field();
     assert!(
@@ -2354,8 +2432,15 @@ fn ecm_jam_residual_out_of_range_then_in_range() {
     assert!(!game_logic.honesty_ecm_jam_ok());
 
     {
-        let enemy = game_logic.host_object_mut(enemy_id).expect("enemy");
-        enemy.set_position(Vec3::new(20.0, 0.0, 0.0));
+        let (enemy, fixture_partition_enemy) = game_logic
+            .host_object_and_partition_mut(enemy_id)
+            .expect("enemy");
+        enemy.set_position_with_partition_owner(
+            Vec3::new(20.0, 0.0, 0.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_enemy,
+        );
     }
     game_logic.update_ecm_jam_field();
     assert!(

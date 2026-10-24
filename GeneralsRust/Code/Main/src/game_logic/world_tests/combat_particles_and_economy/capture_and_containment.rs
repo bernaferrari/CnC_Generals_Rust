@@ -2221,7 +2221,9 @@ fn garrison_residual_fire_from_garrison_damages_nearby_enemy() {
 
     // Equip residual weapon + force garrisoned state.
     {
-        let unit = game_logic.host_object_mut(infantry_id).unwrap();
+        let (unit, fixture_partition_unit) = game_logic
+            .host_object_and_partition_mut(infantry_id)
+            .unwrap();
         unit.weapon = Some(Weapon {
             damage: 40.0,
             range: 100.0,
@@ -2230,12 +2232,17 @@ fn garrison_residual_fire_from_garrison_damages_nearby_enemy() {
             ..Weapon::default()
         });
         unit.target = Some(bunker_id);
-        unit.set_contained_by(Some(bunker_id));
+        unit.set_contained_by_with_partition_owner(Some(bunker_id), true, fixture_partition_unit);
         unit.set_ai_state(
             AIState::Garrisoned,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
-        unit.set_position(Vec3::new(0.0, 0.0, 0.0));
+        unit.set_position_with_partition_owner(
+            Vec3::new(0.0, 0.0, 0.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_unit,
+        );
     }
     {
         let bunker = game_logic.host_object_mut(bunker_id).unwrap();

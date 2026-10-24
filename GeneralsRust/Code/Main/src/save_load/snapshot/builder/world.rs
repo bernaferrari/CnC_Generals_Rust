@@ -456,6 +456,8 @@ impl SnapshotBuilder {
             &body_kinds,
         )?;
         let lifecycle_tail = native_die.legacy_tail.as_ref();
+        super::super::subdual_persist::preflight_from_lifecycle_tail(lifecycle_tail, snapshot)?;
+
         let body_rules_candidate =
             super::super::body_rules_persist::prepare(lifecycle_tail, snapshot.version)?;
         let lifecycle_for_a10 =

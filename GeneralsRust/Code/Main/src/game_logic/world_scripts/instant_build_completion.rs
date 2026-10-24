@@ -140,6 +140,7 @@ impl GameLogic {
         }
         let counts_as_building = Self::live_score_counts_as_building_create(object);
         let template_name = object.template_name.clone();
+        let score_kind = super::super::score_kind_of(object.get_template());
         let base_cost = object.thing().template.build_cost.supplies;
         let cost = self.modified_build_cost_supplies(owner, &template_name, base_cost);
         // Player.cpp1639: invalidate this session's script census before
@@ -167,7 +168,7 @@ impl GameLogic {
         let scoring_enabled = self.is_scoring_enabled();
         if let Some(player) = self.players.get_mut(&owner) {
             if !rebuilding && scoring_enabled && counts_as_building {
-                player.record_structure_built();
+                player.statistics.record_built(&template_name, &score_kind);
             }
             // CPP ScoreKeeper::addMoneySpent has no scoring-enabled gate.
             if !rebuilding {

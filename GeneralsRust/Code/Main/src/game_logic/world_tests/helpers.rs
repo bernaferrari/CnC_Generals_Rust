@@ -608,7 +608,8 @@ pub(super) fn ensure_test_player_for_team(game_logic: &mut GameLogic, team: Team
     };
 
     if game_logic.get_player(player_id).is_none() {
-        let mut player = Player::new(player_id, team, player_name, true);
+        let mut player =
+            Player::new(player_id, team, player_name, true).with_script_identity(player_name);
         player.resources.supplies = 100_000;
         player.power_available = 100;
         player.resources.power = 100;

@@ -1663,6 +1663,18 @@ fn w3d_hlod_visibility_compressed_channel_fails_closed_for_its_authored_pivot() 
             .is_none(),
         "a compressed visibility source must not be rendered using a guessed value"
     );
+    let binding = W3dAnimationBinding::local(0);
+    assert!(
+        model
+            .mesh_local_transform_and_visibility_for_binding_and_capture_controls(
+                0,
+                Some(&binding),
+                0.0,
+                &[]
+            )
+            .is_none(),
+        "the native capture-control entry must preserve the same unavailable visibility result"
+    );
 }
 
 #[test]
@@ -1680,6 +1692,10 @@ fn w3d_companion_animation_external_binding_wins_over_local_clip() {
     let mut compressed_companion = companion.clone();
     compressed_companion.source_is_compressed = true;
     assert!(companion.matches_draw_identity("vis_hier.external"));
+    assert_eq!(
+        companion.channels[0].data[1], 12.0,
+        "authored companion delta is retained"
+    );
     assert_eq!(
         w3d_companion_animation_filename("VIS_HIER.EXTERNAL"),
         Some("EXTERNAL.w3d".to_string())
@@ -1702,8 +1718,8 @@ fn w3d_companion_animation_external_binding_wins_over_local_clip() {
         .expect("exact external binding should sample")[1][12];
     assert_eq!(local_x, 3.0, "fixture local clip is only the bind pose");
     assert_eq!(
-        external_x, 12.0,
-        "companion motion must override local clip"
+        external_x, 15.0,
+        "C++ HTree composes the companion delta12 after the base pivot translation3"
     );
 
     let (transform, visible) = geometry
@@ -1711,8 +1727,8 @@ fn w3d_companion_animation_external_binding_wins_over_local_clip() {
         .expect("external companion must carry through the exact HLOD record");
     assert!(visible, "companion with no bit channel defaults to visible");
     assert!(
-        (transform.w_axis.x - 12.0).abs() < 0.0001,
-        "HLOD transform must use the external companion, got {transform:?}"
+        (transform.w_axis.x - 15.0).abs() < 0.0001,
+        "HLOD transform must retain base3 plus the selected companion delta12, got {transform:?}"
     );
 
     // A missing external binding becomes the source bind pose at the

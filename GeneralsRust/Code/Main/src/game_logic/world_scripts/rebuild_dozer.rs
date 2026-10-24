@@ -448,10 +448,17 @@ impl GameLogic {
                 .get(&object_id)
                 .is_some_and(|object| object.is_kind_of(KindOf::Structure))
         {
-            if let Some(player) =
-                captured_owner_player_id.and_then(|player_id| self.get_player_mut(player_id))
-            {
-                player.record_object_captured();
+            let score_facts = self.objects.get(&object_id).map(|object| {
+                (
+                    object.template_name.clone(),
+                    super::super::score_kind_of(object.get_template()),
+                )
+            });
+            if let (Some((name, mask)), Some(player)) = (
+                score_facts,
+                captured_owner_player_id.and_then(|player_id| self.get_player_mut(player_id)),
+            ) {
+                player.statistics.record_captured(&name, &mask);
             }
         }
 

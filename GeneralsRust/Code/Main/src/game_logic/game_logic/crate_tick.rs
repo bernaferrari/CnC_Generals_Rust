@@ -225,29 +225,19 @@ pub struct SimTimingSnapshot {
     pub accumulated_time_seconds: f32,
 }
 
-/// Aggregate player statistics for victory screen reporting.
+#[path = "player_statistics.rs"]
+mod player_statistics;
+pub(crate) use player_statistics::score_kind_of;
+
+/// Match-owned score history and independent Academy/economy observations.
 #[derive(Debug, Clone, Default)]
 pub struct PlayerStatistics {
-    pub units_destroyed: u32,
-    pub units_lost: u32,
-    pub units_built: u32,
-    pub structures_destroyed: u32,
-    /// C++ `m_totalUnitsDestroyed[m_myPlayerIdx]` — display includes, score skips.
-    pub units_destroyed_self: u32,
-    /// C++ `m_totalBuildingsDestroyed[m_myPlayerIdx]`.
-    pub structures_destroyed_self: u32,
-    pub structures_lost: u32,
-    pub structures_built: u32,
+    score: game_engine::common::rts::score_keeper::ScoreKeeper,
     pub resources_collected: u32,
-    pub resources_spent: u32,
-    /// C++ ScoreKeeper::m_totalMoneyEarned residual.
-    pub money_earned: u32,
     /// C++ AcademyStats::m_structuresCaptured residual.
     pub structures_captured: u32,
     /// Alias honesty counter for academy capture residual.
     pub academy_building_captures: u32,
-    /// C++ ScoreKeeper::addObjectCaptured residual count.
-    pub objects_captured: u32,
     /// C++ AcademyStats::m_structuresGarrisoned residual.
     pub structures_garrisoned: u32,
     /// Alias honesty counter for academy garrison residual.

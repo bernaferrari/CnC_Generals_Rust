@@ -1607,12 +1607,12 @@ fn tn_guard_nemesis_uses_tunnel_attack_goal() {
     let uid = logic
         .create_object("GLARebelGoal", Team::GLA, glam::Vec3::new(1.0, 0.0, 0.0))
         .expect("rebel");
-    if let Some(u) = logic.host_object_mut(uid) {
+    if let Some((u, fixture_partition_u)) = logic.host_object_and_partition_mut(uid) {
         u.owner_player_id = Some(1);
         u.guard_target = Some(tnl);
         u.weapon = Some(wave21_guard_weapon());
         u.team_instance_name = "GLA_TunnelGuard".into();
-        u.set_contained_by(Some(tnl));
+        u.set_contained_by_with_partition_owner(Some(tnl), true, fixture_partition_u);
     }
 
     let mut et = ThingTemplate::new("USARangerGoal");
@@ -1751,12 +1751,12 @@ fn tn_guard_nemesis_rejects_unattackable_damager() {
     let uid = logic
         .create_object("GLARebelGate", Team::GLA, glam::Vec3::new(1.0, 0.0, 0.0))
         .expect("rebel");
-    if let Some(u) = logic.host_object_mut(uid) {
+    if let Some((u, fixture_partition_u)) = logic.host_object_and_partition_mut(uid) {
         u.owner_player_id = Some(1);
         u.guard_target = Some(tnl);
         u.weapon = Some(wave21_guard_weapon());
         u.team_instance_name = "GLA_TunnelGate".into();
-        u.set_contained_by(Some(tnl));
+        u.set_contained_by_with_partition_owner(Some(tnl), true, fixture_partition_u);
     }
 
     let mut et = ThingTemplate::new("UnattackableSrc");

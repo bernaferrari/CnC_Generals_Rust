@@ -87,8 +87,8 @@ fn last_cave_destroy_caves_in_instead_of_eject() {
         .create_object("AmericaInfantryRanger", Team::USA, Vec3::new(2.0, 0.0, 0.0))
         .expect("ranger");
     assert!(logic.cave_system.record_enter(1, unit, a, Team::USA).0);
-    if let Some(u) = logic.host_object_mut(unit) {
-        u.set_contained_by(Some(a));
+    if let Some((u, fixture_partition_u)) = logic.host_object_and_partition_mut(unit) {
+        u.set_contained_by_with_partition_owner(Some(a), true, fixture_partition_u);
     }
     if let Some(c) = logic.host_object_mut(a) {
         let _ = c.add_occupant(unit);
@@ -118,8 +118,8 @@ fn occupant_death_leaves_cave_system_pool_and_reverts_team() {
     logic.apply_cave_capture_event(7, ev);
     assert_eq!(logic.host_object(a).unwrap().team, Team::USA);
     assert_eq!(logic.host_object(b).unwrap().team, Team::USA);
-    if let Some(u) = logic.host_object_mut(unit) {
-        u.set_contained_by(Some(a));
+    if let Some((u, fixture_partition_u)) = logic.host_object_and_partition_mut(unit) {
+        u.set_contained_by_with_partition_owner(Some(a), true, fixture_partition_u);
         u.health.current = 0.0;
         u.status.destroyed = true;
     }

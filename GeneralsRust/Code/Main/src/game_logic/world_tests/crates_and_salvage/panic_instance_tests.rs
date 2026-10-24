@@ -39,10 +39,17 @@ fn seeded_panic_logic(seed: u32) -> GameLogic {
     game_engine::common::random_value::with_session_random(&random, || {
         issue_authored_team_panic(&mut logic);
     });
-    let unit = logic.objects.get_mut(&PANIC_UNIT).expect("panic unit");
+    let (unit, fixture_partition_unit) = logic
+        .host_object_and_partition_mut(PANIC_UNIT)
+        .expect("panic unit");
     unit.wander_width_factor = 30.0;
     let path_end = *unit.movement.path.last().expect("initial waypoint path");
-    unit.set_position(path_end);
+    unit.set_position_with_partition_owner(
+        path_end,
+        0,
+        &mut Default::default(),
+        fixture_partition_unit,
+    );
     assert_panic_arrival_preconditions(unit);
     logic
 }

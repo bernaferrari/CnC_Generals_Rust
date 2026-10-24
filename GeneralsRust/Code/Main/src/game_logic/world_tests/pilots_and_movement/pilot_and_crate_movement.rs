@@ -154,9 +154,16 @@ fn worker_shoes_upgrade_speed_and_supply_boost_residual() {
 
     // Drop-off residual: worker with cargo deposits +8 shoes boost.
     {
-        let w = game_logic.host_object_mut(worker_id).expect("worker mut");
+        let (w, fixture_partition_w) = game_logic
+            .host_object_and_partition_mut(worker_id)
+            .expect("worker mut");
         w.set_stored_supplies(100);
-        w.set_position(Vec3::new(5.0, 0.0, 0.0));
+        w.set_position_with_partition_owner(
+            Vec3::new(5.0, 0.0, 0.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_w,
+        );
         w.target = Some(supply_id);
         w.set_ai_state(
             AIState::ReturningResources,
@@ -299,8 +306,13 @@ fn booby_trap_plant_spawns_special_object() {
     assert_eq!(charge.producer_id, Some(planter));
 
     // Follow sticky attachment.
-    if let Some(s) = logic.objects.get_mut(&structure) {
-        s.set_position(Vec3::new(40.0, 0.0, 20.0));
+    if let Some((s, fixture_partition_s)) = logic.host_object_and_partition_mut(structure) {
+        s.set_position_with_partition_owner(
+            Vec3::new(40.0, 0.0, 20.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_s,
+        );
     }
     logic.update_booby_trap_special_attachments();
     let cpos = logic.host_object(cid).unwrap().get_position();
@@ -866,8 +878,13 @@ fn angry_mob_spawns_member_objects_on_nexus() {
     let _ = ANGRY_MOB_INITIAL_MEMBERS;
 
     // Follow nexus move via pathfind, not orbit teleport.
-    if let Some(n) = logic.objects.get_mut(&nid) {
-        n.set_position(Vec3::new(50.0, 0.0, 20.0));
+    if let Some((n, fixture_partition_n)) = logic.host_object_and_partition_mut(nid) {
+        n.set_position_with_partition_owner(
+            Vec3::new(50.0, 0.0, 20.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_n,
+        );
     }
     logic.update_angry_mob_member_follow();
     let mid = logic
@@ -917,12 +934,12 @@ fn countermeasures_divert_spawns_flare_objects() {
         .create_object("AmericaJetRaptor", Team::USA, Vec3::new(0.0, 40.0, 0.0))
         .unwrap();
     {
-        let o = logic.host_object_mut(air).unwrap();
+        let (o, fixture_partition_o) = logic.host_object_and_partition_mut(air).unwrap();
         o.applied_upgrades
             .insert(UPGRADE_AMERICA_COUNTERMEASURES.to_string());
         o.status.airborne_target = true;
         o.movement.velocity = Vec3::new(20.0, 0.0, 0.0);
-        o.set_orientation(0.0);
+        o.set_orientation_with_partition_owner(0.0, fixture_partition_o);
     }
     logic.countermeasures.ensure(air);
 
@@ -1077,8 +1094,13 @@ fn sticky_bomb_follows_moving_vehicle() {
         .place_timed_demo_charge(Team::USA, glam::Vec3::ZERO, None, Some(tid), Some(300))
         .expect("charge");
     // Move target.
-    if let Some(t) = logic.objects.get_mut(&tid) {
-        t.set_position(glam::Vec3::new(50.0, 0.0, 20.0));
+    if let Some((t, fixture_partition_t)) = logic.host_object_and_partition_mut(tid) {
+        t.set_position_with_partition_owner(
+            glam::Vec3::new(50.0, 0.0, 20.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_t,
+        );
     }
     logic.update_sticky_bomb_attachments();
     let cpos = logic.objects.get(&charge).unwrap().get_position();
@@ -1309,10 +1331,15 @@ fn plant_timed_demo_charge_command_plants_after_reach() {
     assert!(!game_logic.honesty_plant_timed_demo_charge_ok());
 
     {
-        let burton = game_logic
-            .host_object_mut(burton_id)
+        let (burton, fixture_partition_burton) = game_logic
+            .host_object_and_partition_mut(burton_id)
             .expect("burton should exist");
-        burton.set_position(Vec3::new(2.0, 0.0, 0.0));
+        burton.set_position_with_partition_owner(
+            Vec3::new(2.0, 0.0, 0.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_burton,
+        );
         burton.set_ai_state(
             AIState::SpecialAbility,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
@@ -1394,10 +1421,15 @@ fn plant_and_detonate_remote_demo_charge_residual() {
     assert!(!game_logic.honesty_plant_remote_demo_charge_ok());
 
     {
-        let burton = game_logic
-            .host_object_mut(burton_id)
+        let (burton, fixture_partition_burton) = game_logic
+            .host_object_and_partition_mut(burton_id)
             .expect("burton should exist");
-        burton.set_position(Vec3::new(2.0, 0.0, 0.0));
+        burton.set_position_with_partition_owner(
+            Vec3::new(2.0, 0.0, 0.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_burton,
+        );
         burton.set_ai_state(
             AIState::SpecialAbility,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
@@ -1800,10 +1832,10 @@ fn oil_derrick_residual_deposits_cash_on_interval() {
     assert_eq!(mid, cash_before, "neutral derrick must not deposit");
 
     // Capture residual: flip team to USA → InitialCaptureBonus.
-    if let Some((obj, ownership_events)) =
-        game_logic.host_object_and_ownership_events_mut(derrick_id)
+    if let Some((obj, ownership_events, fixture_partition_obj)) =
+        game_logic.host_object_ownership_partition_mut(derrick_id)
     {
-        obj.set_team(Team::USA, ownership_events);
+        obj.set_team_with_partition_owner(Team::USA, ownership_events, fixture_partition_obj);
     }
     game_logic.frame = 0;
     game_logic.update_oil_derrick_deposits();
@@ -2835,8 +2867,9 @@ fn hacker_internet_center_residual_deposits_cash() {
             .expect("Internet Center")
             .add_occupant(hacker_id)
     );
-    if let Some(obj) = game_logic.host_object_mut(hacker_id) {
-        obj.set_contained_by(Some(ic_id));
+    if let Some((obj, fixture_partition_obj)) = game_logic.host_object_and_partition_mut(hacker_id)
+    {
+        obj.set_contained_by_with_partition_owner(Some(ic_id), true, fixture_partition_obj);
         obj.set_ai_state(
             AIState::Docked,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
@@ -2884,7 +2917,7 @@ fn hacker_internet_center_residual_deposits_cash() {
     assert_eq!(
         game_logic
             .get_player_mut_by_team(Team::China)
-            .map(|p| p.statistics.money_earned)
+            .map(|p| p.statistics.money_earned())
             .unwrap_or(0),
         HACKER_CASH_REGULAR
     );

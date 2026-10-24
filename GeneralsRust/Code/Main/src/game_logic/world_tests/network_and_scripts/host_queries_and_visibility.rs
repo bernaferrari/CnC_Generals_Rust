@@ -1959,15 +1959,20 @@ fn evacuate_command_unloads_selected_transport_occupants() {
         assert!(transport.add_occupant(unit_id));
     }
     {
-        let unit = game_logic
-            .host_object_mut(unit_id)
+        let (unit, fixture_partition_unit) = game_logic
+            .host_object_and_partition_mut(unit_id)
             .expect("unit should exist");
         unit.target = Some(transport_id);
         unit.set_ai_state(
             AIState::Docked,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
-        unit.set_position(Vec3::new(0.0, 0.0, 0.0));
+        unit.set_position_with_partition_owner(
+            Vec3::new(0.0, 0.0, 0.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_unit,
+        );
     }
 
     game_logic.queue_command(crate::command_system::GameCommand {
@@ -2446,10 +2451,7 @@ fn capture_authority_rejects_immune_and_nonstealthed_garrison_targets() {
             .add_occupant(occupant_id),
         "authored GarrisonContain capacity must hold the occupant"
     );
-    game_logic
-        .host_object_mut(occupant_id)
-        .expect("occupant")
-        .set_contained_by(Some(garrison_id));
+    game_logic.set_fixture_object_contained_by(occupant_id, Some(garrison_id));
     assert!(
         !game_logic.can_unit_capture_building(captor_id, garrison_id, false),
         "a non-stealthed garrison occupant must block CaptureBuilding"
@@ -3268,10 +3270,7 @@ fn host_trigger_snapshot_capture_is_isolated_between_live_worlds() {
         .expect("world A source object")
         .clone();
     world_c.add_object(cloned_a);
-    world_c
-        .host_object_mut(id_a)
-        .expect("admitted clone")
-        .set_position(Vec3::new(210.0, 0.0, 210.0));
+    world_c.set_fixture_object_position(id_a, Vec3::new(210.0, 0.0, 210.0));
 
     let snapshot_c = builder
         .create_world_snapshot(&world_c)

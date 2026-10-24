@@ -1636,11 +1636,16 @@ fn hijack_hides_in_eject_capable_vehicle() {
     let donor = logic.objects.get(&hid).cloned();
     {
         let v = logic.objects.get_mut(&vid).unwrap();
-        v.apply_hijacked_from(
+        v.apply_hijacked_from_with_partition_owner(
             donor.as_ref(),
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut logic.partition_manager,
         );
-        v.set_team(Team::GLA, &mut logic.ownership_events);
+        v.set_team_with_partition_owner(
+            Team::GLA,
+            &mut logic.ownership_events,
+            &mut logic.partition_manager,
+        );
     }
     logic.partition_manager.register_object_at(hid.0, 10.0, 0.0);
     {
@@ -1716,8 +1721,16 @@ fn hijack_airborne_eject_puts_in_america_parachute() {
     });
     {
         let v = logic.objects.get_mut(&vid).unwrap();
-        v.apply_hijacked(&mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()));
-        v.set_team(Team::GLA, &mut logic.ownership_events);
+        v.apply_hijacked_from_with_partition_owner(
+            None,
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut logic.partition_manager,
+        );
+        v.set_team_with_partition_owner(
+            Team::GLA,
+            &mut logic.ownership_events,
+            &mut logic.partition_manager,
+        );
     }
     {
         let h = logic.objects.get_mut(&hid).unwrap();
@@ -2098,7 +2111,12 @@ fn parachute_landing_override_steers_xz() {
         let (r, fixture_partition_r) = logic.host_object_and_partition_mut(rider_id).unwrap();
         r.set_contained_by_with_partition_owner(Some(chute_id), true, fixture_partition_r);
         r.apply_eject_parachuting();
-        r.set_position(glam::Vec3::new(0.0, start_y, 0.0));
+        r.set_position_with_partition_owner(
+            glam::Vec3::new(0.0, start_y, 0.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_r,
+        );
     }
     let dest = glam::Vec3::new(100.0, 0.0, 50.0);
     assert!(logic.set_parachute_override_destination(chute_id, dest));

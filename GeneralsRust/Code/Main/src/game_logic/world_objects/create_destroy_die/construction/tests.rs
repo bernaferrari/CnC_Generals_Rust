@@ -77,7 +77,10 @@ fn ordinary_scaffold_factory_observes_cpp_birth_before_payment_and_placement() {
     assert_eq!(object.get_orientation(), 0.7);
     assert_eq!(logic.get_player(0).unwrap().effective_supplies(), 700);
     assert_eq!(logic.get_player(0).unwrap().power_available, before_power);
-    assert_eq!(logic.get_player(0).unwrap().statistics.structures_built, 0);
+    assert_eq!(
+        logic.get_player(0).unwrap().statistics.structures_built(),
+        0
+    );
 }
 
 #[test]
@@ -234,7 +237,7 @@ fn ordinary_player_completion_reaches_owned_ai_script_and_power_before_modules()
             Some(id)
         );
         assert!(!object.construction_power_admitted);
-        assert_eq!(world.get_player(0).unwrap().statistics.resources_spent, 0);
+        assert_eq!(world.get_player(0).unwrap().statistics.resources_spent(), 0);
         assert_eq!(world.supply_create_center_registers, 0);
         assert_eq!(world.ai_manager.ai_players[&0].next_building_time, 700.0);
         assert!(
@@ -250,10 +253,16 @@ fn ordinary_player_completion_reaches_owned_ai_script_and_power_before_modules()
             world.host_object(id).unwrap().model_condition_bits
         )
     );
-    assert_eq!(world.get_player(0).unwrap().statistics.resources_spent, 300);
+    assert_eq!(
+        world.get_player(0).unwrap().statistics.resources_spent(),
+        300
+    );
     assert_eq!(world.supply_create_center_registers, 1);
     world.notify_structure_construction_complete(id);
-    assert_eq!(world.get_player(0).unwrap().statistics.resources_spent, 300);
+    assert_eq!(
+        world.get_player(0).unwrap().statistics.resources_spent(),
+        300
+    );
     assert_eq!(world.supply_create_center_registers, 1);
 }
 

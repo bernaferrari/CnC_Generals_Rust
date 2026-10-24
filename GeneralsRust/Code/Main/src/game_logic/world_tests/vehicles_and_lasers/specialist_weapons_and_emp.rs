@@ -101,10 +101,15 @@ fn colonel_burton_residual_sniper_and_knife() {
         .create_object("TestInfantry", Team::GLA, Vec3::new(2.0, 0.0, 0.0))
         .expect("melee");
     {
-        let (b, attack_events) = game_logic
-            .host_object_and_attack_events_mut(burton_id)
+        let (b, attack_events, _fixture_audio_b, fixture_partition_b) = game_logic
+            .host_object_attack_audio_partition_mut(burton_id)
             .unwrap();
-        b.set_position(Vec3::new(0.0, 0.0, 0.0));
+        b.set_position_with_partition_owner(
+            Vec3::new(0.0, 0.0, 0.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_b,
+        );
         b.attack_target(
             melee,
             attack_events,
@@ -415,8 +420,15 @@ fn rebel_booby_trap_plant_and_capture_detonate_residual() {
         modifier_keys: ModifierKeys::default(),
     });
     game_logic.process_commands();
-    if let Some(rebel) = game_logic.host_object_mut(rebel_id) {
-        rebel.set_position(Vec3::new(1.0, 0.0, 0.0));
+    if let Some((rebel, fixture_partition_rebel)) =
+        game_logic.host_object_and_partition_mut(rebel_id)
+    {
+        rebel.set_position_with_partition_owner(
+            Vec3::new(1.0, 0.0, 0.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_rebel,
+        );
         rebel.set_ai_state(
             AIState::SpecialAbility,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
@@ -549,8 +561,14 @@ fn booby_trap_detonates_enemy_and_refuses_replace() {
         modifier_keys: ModifierKeys::default(),
     });
     game_logic.process_commands();
-    if let Some(ally) = game_logic.host_object_mut(ally_id) {
-        ally.set_position(Vec3::new(1.0, 0.0, 0.0));
+    if let Some((ally, fixture_partition_ally)) = game_logic.host_object_and_partition_mut(ally_id)
+    {
+        ally.set_position_with_partition_owner(
+            Vec3::new(1.0, 0.0, 0.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_ally,
+        );
         ally.set_ai_state(
             AIState::SpecialAbility,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
@@ -598,8 +616,14 @@ fn booby_trap_detonates_enemy_and_refuses_replace() {
         modifier_keys: ModifierKeys::default(),
     });
     game_logic.process_commands();
-    if let Some(ally) = game_logic.host_object_mut(ally_id) {
-        ally.set_position(Vec3::new(1.0, 0.0, 0.0));
+    if let Some((ally, fixture_partition_ally)) = game_logic.host_object_and_partition_mut(ally_id)
+    {
+        ally.set_position_with_partition_owner(
+            Vec3::new(1.0, 0.0, 0.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_ally,
+        );
         ally.set_ai_state(
             AIState::SpecialAbility,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
@@ -632,8 +656,15 @@ fn booby_trap_detonates_enemy_and_refuses_replace() {
         modifier_keys: ModifierKeys::default(),
     });
     game_logic.process_commands();
-    if let Some(enemy) = game_logic.host_object_mut(enemy_id) {
-        enemy.set_position(Vec3::new(1.0, 0.0, 0.0));
+    if let Some((enemy, fixture_partition_enemy)) =
+        game_logic.host_object_and_partition_mut(enemy_id)
+    {
+        enemy.set_position_with_partition_owner(
+            Vec3::new(1.0, 0.0, 0.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_enemy,
+        );
         enemy.set_ai_state(
             AIState::SpecialAbility,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
@@ -785,8 +816,13 @@ fn supw_patriot_emp_residual_dual_slot_and_disable() {
     );
 
     // AA residual path: move ground enemy away.
-    if let Some(e) = game_logic.host_object_mut(enemy_id) {
-        e.set_position(Vec3::new(5000.0, 0.0, 0.0));
+    if let Some((e, fixture_partition_e)) = game_logic.host_object_and_partition_mut(enemy_id) {
+        e.set_position_with_partition_owner(
+            Vec3::new(5000.0, 0.0, 0.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_e,
+        );
     }
     game_logic.health_events.clear_damage();
     let air_hp_before = game_logic.host_object(air_id).unwrap().health.current;

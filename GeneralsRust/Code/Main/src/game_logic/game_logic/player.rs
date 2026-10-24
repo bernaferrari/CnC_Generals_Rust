@@ -417,7 +417,7 @@ impl Player {
             did_preorder: false,
             is_alive: true,
             is_observer: false,
-            statistics: PlayerStatistics::default(),
+            statistics: PlayerStatistics::for_player(id),
             academy_stats: game_engine::common::rts::academy_stats::AcademyStats::new(),
             power_sabotaged_till_frame: 0,
             color_rgb: (200, 200, 200),
@@ -1103,9 +1103,12 @@ impl Player {
             self.statistics.academy_building_captures.saturating_add(1);
     }
     /// C++ ScoreKeeper::addObjectCaptured residual.
-    pub fn record_object_captured(&mut self) {
-        self.statistics.objects_captured = self.statistics.objects_captured.saturating_add(1);
+    #[cfg(test)]
+    pub(crate) fn record_object_captured(&mut self) {
+        self.statistics
+            .record_captured("FixtureBuilding", &Self::fixture_score_mask(true));
     }
+
     /// C++ AcademyStats::recordBuildingGarrisoned residual.
     pub fn record_building_garrisoned(&mut self) {
         self.statistics.structures_garrisoned =
@@ -1120,7 +1123,7 @@ impl Player {
         if amount == 0 {
             return;
         }
-        self.statistics.money_earned = self.statistics.money_earned.saturating_add(amount);
+        self.statistics.earn_money(amount);
     }
 
     /// Gain supplies under economy authority (pending delta) or direct mutate.
@@ -1327,61 +1330,69 @@ impl Player {
             .cloned()
     }
 
-    pub fn record_unit_destroyed(&mut self) {
-        self.statistics.units_destroyed = self.statistics.units_destroyed.saturating_add(1);
-    }
-
-    pub fn record_unit_lost(&mut self) {
-        self.statistics.units_lost = self.statistics.units_lost.saturating_add(1);
-    }
-
-    pub fn record_unit_produced(&mut self) {
-        self.statistics.units_built = self.statistics.units_built.saturating_add(1);
-    }
-
-    pub fn record_structure_built(&mut self) {
-        self.statistics.structures_built = self.statistics.structures_built.saturating_add(1);
-    }
-
-    pub fn record_structure_destroyed(&mut self) {
-        self.statistics.structures_destroyed =
-            self.statistics.structures_destroyed.saturating_add(1);
-    }
-
-    /// C++ `ScoreKeeper::addObjectDestroyed` still increments the per-victim
-    /// array for self-kills; `calculateScore` skips `i == m_myPlayerIdx`.
-    pub fn record_self_unit_destroyed(&mut self) {
-        self.statistics.units_destroyed_self =
-            self.statistics.units_destroyed_self.saturating_add(1);
-    }
-
-    pub fn record_self_structure_destroyed(&mut self) {
-        self.statistics.structures_destroyed_self =
-            self.statistics.structures_destroyed_self.saturating_add(1);
-    }
-
-    pub fn record_structure_lost(&mut self) {
-        self.statistics.structures_lost = self.statistics.structures_lost.saturating_add(1);
-    }
-
-    /// C++ `ScoreKeeper::calculateScore` — self-kills stay in display totals
-    /// but never enter the score.
+    /// Read the single receiving ScoreKeeper; no writable total reconciliation.
     pub fn calculate_score(&self) -> i32 {
-        let s = &self.statistics;
-        let enemy_units = s.units_destroyed.saturating_sub(s.units_destroyed_self);
-        let enemy_structures = s
-            .structures_destroyed
-            .saturating_sub(s.structures_destroyed_self);
-        (s.units_built as i32)
-            .saturating_mul(100)
-            .saturating_add(s.money_earned as i32)
-            .saturating_add((s.structures_built as i32).saturating_mul(100))
-            .saturating_add((enemy_units as i32).saturating_mul(100))
-            .saturating_add((enemy_structures as i32).saturating_mul(100))
+        self.statistics.score_keeper().total_score()
+    }
+
+    #[cfg(test)]
+    fn fixture_score_mask(
+        building: bool,
+    ) -> game_engine::common::rts::score_keeper::KindOfMaskType {
+        use game_engine::common::rts::score_keeper::{KindOf, KindOfMaskType};
+        let mut mask = KindOfMaskType::new();
+        mask.set(KindOf::Score);
+        mask.set(if building {
+            KindOf::Structure
+        } else {
+            KindOf::Vehicle
+        });
+        mask
+    }
+    #[cfg(test)]
+    pub(crate) fn record_unit_produced(&mut self) {
+        self.statistics
+            .record_built("FixtureUnit", &Self::fixture_score_mask(false));
+    }
+    #[cfg(test)]
+    pub(crate) fn record_structure_built(&mut self) {
+        self.statistics
+            .record_built("FixtureBuilding", &Self::fixture_score_mask(true));
+    }
+    #[cfg(test)]
+    pub(crate) fn record_unit_destroyed(&mut self) {
+        self.statistics.record_destroyed(
+            "FixtureUnit",
+            &Self::fixture_score_mask(false),
+            if self.id == 0 { 1 } else { 0 },
+            false,
+        );
+    }
+    #[cfg(test)]
+    pub(crate) fn record_structure_destroyed(&mut self) {
+        self.statistics.record_destroyed(
+            "FixtureBuilding",
+            &Self::fixture_score_mask(true),
+            if self.id == 0 { 1 } else { 0 },
+            false,
+        );
+    }
+    #[cfg(test)]
+    pub(crate) fn record_test_self_destroyed(&mut self, building: bool) {
+        self.statistics.record_destroyed(
+            if building {
+                "FixtureBuilding"
+            } else {
+                "FixtureUnit"
+            },
+            &Self::fixture_score_mask(building),
+            self.id,
+            false,
+        );
     }
 
     pub fn record_resources_spent(&mut self, amount: u32) {
-        self.statistics.resources_spent = self.statistics.resources_spent.saturating_add(amount);
+        self.statistics.spend_money(amount);
     }
 
     /// C++ `Player::initFromDict` money/color/handicap.
@@ -2165,10 +2176,10 @@ mod map_side_dict_tests {
             &mut economy
         ));
         assert_eq!(owner.resources.supplies, 200);
-        assert_eq!(owner.statistics.resources_spent, 0);
+        assert_eq!(owner.statistics.resources_spent(), 0);
         assert_eq!(owner.academy_stats.get_upgrades_purchased(), 0);
         owner.record_upgrade_production_spending(&definition);
-        assert_eq!(owner.statistics.resources_spent, 800);
+        assert_eq!(owner.statistics.resources_spent(), 800);
         assert!(!owner.has_unlocked_upgrade("ReceivingRadar"));
         assert_eq!(owner.academy_stats.get_upgrades_purchased(), 0);
         owner
@@ -2178,8 +2189,8 @@ mod map_side_dict_tests {
         owner.record_upgrade_production_academy(&definition, 73);
         assert_eq!(owner.academy_stats.get_upgrades_purchased(), 1);
         assert!(owner.academy_stats.has_researched_radar());
-        assert_eq!(owner.statistics.resources_spent, 800);
-        assert_eq!(peer.statistics.resources_spent, 0);
+        assert_eq!(owner.statistics.resources_spent(), 800);
+        assert_eq!(peer.statistics.resources_spent(), 0);
         assert_eq!(peer.academy_stats.get_upgrades_purchased(), 0);
         assert!(!peer.academy_stats.has_researched_radar());
     }
@@ -2201,7 +2212,7 @@ mod map_side_dict_tests {
         ));
         assert!(owner.cancel_queued_upgrade("Cancelled", &cost, &mut economy));
         assert_eq!(owner.resources.supplies, 1000);
-        assert_eq!(owner.statistics.resources_spent, 0);
+        assert_eq!(owner.statistics.resources_spent(), 0);
         assert_eq!(owner.academy_stats.get_upgrades_purchased(), 0);
         assert!(!owner.cancel_queued_upgrade("Cancelled", &cost, &mut economy));
         assert_eq!(owner.resources.supplies, 1000);

@@ -647,10 +647,15 @@ fn carbomb_command_converts_vehicle_after_reach() {
     assert!(!target_after_far_update.status.is_carbomb);
 
     {
-        let bomber = game_logic
-            .host_object_mut(bomber_id)
+        let (bomber, fixture_partition_bomber) = game_logic
+            .host_object_and_partition_mut(bomber_id)
             .expect("bomber should exist");
-        bomber.set_position(Vec3::new(2.0, 0.0, 0.0));
+        bomber.set_position_with_partition_owner(
+            Vec3::new(2.0, 0.0, 0.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_bomber,
+        );
         bomber.set_ai_state(
             AIState::SpecialAbility,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
@@ -773,10 +778,15 @@ fn carbomb_command_allows_neutral_targets() {
     }
 
     {
-        let bomber = game_logic
-            .host_object_mut(bomber_id)
+        let (bomber, fixture_partition_bomber) = game_logic
+            .host_object_and_partition_mut(bomber_id)
             .expect("bomber should exist");
-        bomber.set_position(Vec3::new(2.0, 0.0, 0.0));
+        bomber.set_position_with_partition_owner(
+            Vec3::new(2.0, 0.0, 0.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_bomber,
+        );
         bomber.set_ai_state(
             AIState::SpecialAbility,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
@@ -818,8 +828,10 @@ fn carbomb_attack_structure_detonates_with_observable_damage() {
         .expect("structure should be created");
 
     game_logic
-        .with_object_veterancy_feedback(car_id, |car, audio, feedback| {
-            car.apply_convert_to_car_bomb(audio, feedback);
+        .with_object_veterancy_feedback_and_partition(car_id, |car, audio, feedback, partition| {
+            car.apply_convert_to_car_bomb_from_with_partition_owner(
+                None, audio, feedback, partition,
+            );
         })
         .expect("actual car-bomb owner");
     {
@@ -828,7 +840,11 @@ fn carbomb_attack_structure_detonates_with_observable_damage() {
             .get_mut(&car_id)
             .expect("car should exist");
         let attack_events = &mut game_logic.attack_events;
-        car.set_team(Team::GLA, &mut game_logic.ownership_events);
+        car.set_team_with_partition_owner(
+            Team::GLA,
+            &mut game_logic.ownership_events,
+            &mut game_logic.partition_manager,
+        );
         // Ensure weapon is ready to fire immediately.
         if let Some(w) = car.weapon.as_mut() {
             w.last_fire_time = 0.0;
@@ -1198,10 +1214,10 @@ fn china_barracks_quantity_modifier_spawns_two_redguards_residual() {
             glam::Vec3::new(100.0, 0.0, 100.0),
         )
         .expect("barracks");
-    if let Some(o) = logic.host_object_mut(bid) {
+    if let Some((o, fixture_partition_o)) = logic.host_object_and_partition_mut(bid) {
         o.building_data = Some(crate::game_logic::BuildingData::new(BuildingType::Barracks));
         // Orient for deterministic natural rally residual.
-        o.set_orientation(0.0);
+        o.set_orientation_with_partition_owner(0.0, fixture_partition_o);
     }
     // One queue entry pays once, QuantityModifier yields two exits.
     assert!(logic.enqueue_production(bid, "ChinaInfantryRedguard".into()));
@@ -1355,9 +1371,9 @@ fn queue_factory_exit_follows_snapped_production_path() {
             glam::Vec3::new(100.0, 15.0, 100.0),
         )
         .expect("barracks");
-    if let Some(o) = logic.host_object_mut(bid) {
+    if let Some((o, fixture_partition_o)) = logic.host_object_and_partition_mut(bid) {
         o.building_data = Some(crate::game_logic::BuildingData::new(BuildingType::Barracks));
-        o.set_orientation(0.0);
+        o.set_orientation_with_partition_owner(0.0, fixture_partition_o);
     }
     let uid = logic
         .create_object(
@@ -1484,9 +1500,9 @@ fn queue_exit_with_a_rally_keeps_the_next_segment() {
             glam::Vec3::new(100.0, 15.0, 100.0),
         )
         .expect("barracks");
-    if let Some(o) = logic.host_object_mut(bid) {
+    if let Some((o, fixture_partition_o)) = logic.host_object_and_partition_mut(bid) {
         o.building_data = Some(crate::game_logic::BuildingData::new(BuildingType::Barracks));
-        o.set_orientation(0.0);
+        o.set_orientation_with_partition_owner(0.0, fixture_partition_o);
     }
     let uid = logic
         .create_object(
@@ -1566,9 +1582,9 @@ fn factory_spawn_keeps_unit_create_point_without_selection_radius_jitter() {
             glam::Vec3::new(100.0, 15.0, 100.0),
         )
         .expect("barracks");
-    if let Some(o) = logic.host_object_mut(bid) {
+    if let Some((o, fixture_partition_o)) = logic.host_object_and_partition_mut(bid) {
         o.building_data = Some(crate::game_logic::BuildingData::new(BuildingType::Barracks));
-        o.set_orientation(0.0);
+        o.set_orientation_with_partition_owner(0.0, fixture_partition_o);
     }
     let create_pos = glam::Vec3::new(100.0, 15.0, 75.0);
     let uid = logic
@@ -1645,9 +1661,9 @@ fn queue_exit_applies_airborne_motive_and_pitch_after_ground_snap() {
         )
         .expect("barracks");
     let producer_vel = glam::Vec3::new(8.0, 3.0, -2.0);
-    if let Some(o) = logic.host_object_mut(bid) {
+    if let Some((o, fixture_partition_o)) = logic.host_object_and_partition_mut(bid) {
         o.building_data = Some(crate::game_logic::BuildingData::new(BuildingType::Barracks));
-        o.set_orientation(0.0);
+        o.set_orientation_with_partition_owner(0.0, fixture_partition_o);
         o.movement.velocity = producer_vel;
     }
     let create_pos = glam::Vec3::new(20.0, 15.0, 10.0);
@@ -2136,8 +2152,8 @@ fn can_make_aircraft_blocked_when_airfield_parking_full() {
                 glam::Vec3::new(10.0 * (i as f32 + 1.0), 0.0, 0.0),
             )
             .expect("jet");
-        if let Some(jet) = logic.host_object_mut(j) {
-            jet.set_contained_by(Some(af));
+        if let Some((jet, fixture_partition_jet)) = logic.host_object_and_partition_mut(j) {
+            jet.set_contained_by_with_partition_owner(Some(af), true, fixture_partition_jet);
             jet.set_ai_state(
                 AIState::Docked,
                 &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
@@ -2856,9 +2872,9 @@ fn script_wait_for_not_contained_uses_live_contained_by_census() {
     let rider = logic
         .create_object("TestInfantry", Team::USA, glam::Vec3::ZERO)
         .expect("rider");
-    if let Some(obj) = logic.host_object_mut(rider) {
+    if let Some((obj, fixture_partition_obj)) = logic.host_object_and_partition_mut(rider) {
         obj.team_instance_name = "USA_Contained".into();
-        obj.set_contained_by(Some(ObjectId(99)));
+        obj.set_contained_by_with_partition_owner(Some(ObjectId(99)), true, fixture_partition_obj);
     }
     logic.inject_host_script_query_snapshot();
     assert_eq!(
@@ -2879,8 +2895,8 @@ fn script_wait_for_not_contained_uses_live_contained_by_census() {
         ScriptActionResult::Pending(1.0)
     );
 
-    if let Some(obj) = logic.host_object_mut(rider) {
-        obj.set_contained_by(None);
+    if let Some((obj, fixture_partition_obj)) = logic.host_object_and_partition_mut(rider) {
+        obj.set_contained_by_with_partition_owner(None, true, fixture_partition_obj);
     }
     logic.inject_host_script_query_snapshot();
     assert_eq!(
@@ -2956,7 +2972,7 @@ fn script_set_base_construction_speed_writes_live_ai_team_seconds() {
     );
 
     let _ = gamelogic::scripting::take_host_set_base_construction_speed_requests();
-    request_host_set_base_construction_speed("PlyrUSA", 3);
+    request_host_set_base_construction_speed("TestPlayer", 3);
     logic.evaluate_and_execute_scripts(0.0);
     assert_eq!(
         logic

@@ -75,12 +75,12 @@ fn authored_removal_keeps_enemy_credit_bounty_and_once_only_stats() {
             "{class}: physical removal completed"
         );
         let source_player = world.get_player(0).unwrap();
-        assert_eq!(source_player.statistics.units_destroyed, 1, "{class}");
-        assert_eq!(source_player.statistics.money_earned, 100, "{class}");
+        assert_eq!(source_player.statistics.units_destroyed(), 1, "{class}");
+        assert_eq!(source_player.statistics.money_earned(), 100, "{class}");
         assert_eq!(source_player.resources.supplies, 1100, "{class}");
         assert_eq!(source_player.skill_points, 25, "{class}");
         assert_eq!(
-            world.get_player(2).unwrap().statistics.units_lost,
+            world.get_player(2).unwrap().statistics.units_lost(),
             1,
             "{class}"
         );
@@ -90,7 +90,7 @@ fn authored_removal_keeps_enemy_credit_bounty_and_once_only_stats() {
         );
         world.process_destroy_list();
         assert_eq!(
-            world.get_player(0).unwrap().statistics.units_destroyed,
+            world.get_player(0).unwrap().statistics.units_destroyed(),
             1,
             "{class}: repeated drain is inert"
         );

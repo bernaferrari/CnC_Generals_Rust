@@ -160,13 +160,15 @@ fn flee_after_plant_ignores_the_structure() {
         .create_object_for_player("Planter", 0, Vec3::ZERO)
         .expect("planter");
     {
-        let unit = logic.host_object_mut(planter).expect("planter");
+        let (unit, fixture_partition_unit) = logic
+            .host_object_and_partition_mut(planter)
+            .expect("planter");
         unit.ignored_obstacle_id = None;
         unit.set_ai_state(
             AIState::SpecialAbility,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
-        unit.set_orientation(0.0);
+        unit.set_orientation_with_partition_owner(0.0, fixture_partition_unit);
     }
     use crate::game_logic::pathfinding::GridPos;
     let wall_x = {
@@ -702,10 +704,15 @@ fn construction_complete_end_dock_uses_stored_action() {
         obj.builder_id = Some(dozer);
     }
     {
-        let (obj, attack_events) = logic
-            .host_object_and_attack_events_mut(dozer)
+        let (obj, attack_events, _fixture_audio_obj, fixture_partition_obj) = logic
+            .host_object_attack_audio_partition_mut(dozer)
             .expect("dozer");
-        obj.set_position(off_line);
+        obj.set_position_with_partition_owner(
+            off_line,
+            0,
+            &mut Default::default(),
+            fixture_partition_obj,
+        );
         obj.set_target(
             Some(pad_id),
             attack_events,
@@ -1269,7 +1276,7 @@ fn nuke_cannon_primary_residual_area_and_radiation() {
         )
         .expect("cannon");
     {
-        let c = game_logic.host_object_mut(cannon_id).unwrap();
+        let (c, fixture_partition_c) = game_logic.host_object_and_partition_mut(cannon_id).unwrap();
         assert!(is_nuke_cannon_template(&c.template_name));
         c.active_weapon_slot = 0;
         if let Some(w) = c.weapon.as_mut() {
@@ -1298,7 +1305,12 @@ fn nuke_cannon_primary_residual_area_and_radiation() {
             });
         }
         // Place cannon within residual range of targets.
-        c.set_position(Vec3::new(180.0, 0.0, 0.0));
+        c.set_position_with_partition_owner(
+            Vec3::new(180.0, 0.0, 0.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_c,
+        );
     }
 
     let primary_id = game_logic
@@ -1606,7 +1618,9 @@ fn battle_bus_residual_passenger_fire_damages_nearby_enemy() {
         .expect("enemy");
 
     {
-        let unit = game_logic.host_object_mut(infantry_id).unwrap();
+        let (unit, fixture_partition_unit) = game_logic
+            .host_object_and_partition_mut(infantry_id)
+            .unwrap();
         unit.weapon = Some(Weapon {
             damage: 40.0,
             range: 100.0,
@@ -1615,12 +1629,17 @@ fn battle_bus_residual_passenger_fire_damages_nearby_enemy() {
             ..Weapon::default()
         });
         unit.target = Some(bus_id);
-        unit.set_contained_by(Some(bus_id));
+        unit.set_contained_by_with_partition_owner(Some(bus_id), true, fixture_partition_unit);
         unit.set_ai_state(
             AIState::Docked,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
-        unit.set_position(Vec3::new(0.0, 0.0, 0.0));
+        unit.set_position_with_partition_owner(
+            Vec3::new(0.0, 0.0, 0.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_unit,
+        );
     }
     {
         let bus = game_logic.host_object_mut(bus_id).unwrap();
@@ -1768,22 +1787,19 @@ fn battle_bus_undead_body_first_life_converts_to_second_life() {
     }
     // Lethal explosion should intercept → second life 650 HP full.
     // BattleBusSlowDeathBehavior.cpp:119 arms the driving match frame + 10.
-    let damage_frame = game_logic.frame;
-    let killed = {
-        let (bus, health_events) = game_logic
-            .host_object_and_health_events_mut(bus_id)
-            .unwrap();
-        bus.take_damage_from_typed_death_at_frame(
+    let damage_type = crate::game_logic::combat::DamageType::Explosive;
+    let killed = game_logic
+        .apply_owned_damage(
+            bus_id,
             500.0,
             None,
-            crate::game_logic::combat::DamageType::Explosive,
-            crate::game_logic::host_usa_pilot::HostDeathType::from_host_damage_type(
-                crate::game_logic::combat::DamageType::Explosive,
-            ),
-            damage_frame,
-            health_events,
+            damage_type,
+            crate::game_logic::host_usa_pilot::HostDeathType::from_host_damage_type(damage_type),
+            None,
+            &crate::game_logic::object::DamageHitContext::new(None, None, damage_type),
         )
-    };
+        .expect("receiving BattleBus body")
+        .destroyed();
     assert!(!killed, "UndeadBody must intercept first lethal hit");
     let bus = game_logic.host_object(bus_id).unwrap();
     assert!(bus.is_alive());
@@ -1844,22 +1860,19 @@ fn battle_bus_undead_damages_passengers_and_empty_hulk_destroys() {
         r.contained_by = Some(bus_id);
     }
     // BattleBusSlowDeathBehavior.cpp:119 arms the driving match frame + 10.
-    let damage_frame = game_logic.frame;
-    let _ = {
-        let (bus, health_events) = game_logic
-            .host_object_and_health_events_mut(bus_id)
-            .unwrap();
-        bus.take_damage_from_typed_death_at_frame(
+    let damage_type = crate::game_logic::combat::DamageType::Explosive;
+    let _ = game_logic
+        .apply_owned_damage(
+            bus_id,
             999.0,
             None,
-            crate::game_logic::combat::DamageType::Explosive,
-            crate::game_logic::host_usa_pilot::HostDeathType::from_host_damage_type(
-                crate::game_logic::combat::DamageType::Explosive,
-            ),
-            damage_frame,
-            health_events,
+            damage_type,
+            crate::game_logic::host_usa_pilot::HostDeathType::from_host_damage_type(damage_type),
+            None,
+            &crate::game_logic::object::DamageHitContext::new(None, None, damage_type),
         )
-    };
+        .expect("receiving BattleBus body")
+        .destroyed();
     // First tick applies 50% passenger damage.
     game_logic.frame = 1;
     game_logic.tick_battle_bus_slow_deaths();
@@ -1875,8 +1888,8 @@ fn battle_bus_undead_damages_passengers_and_empty_hulk_destroys() {
     if let Some(bus) = game_logic.host_object_mut(bus_id) {
         bus.occupants.clear();
     }
-    if let Some(r) = game_logic.host_object_mut(rider_id) {
-        r.set_contained_by(None);
+    if let Some((r, fixture_partition_r)) = game_logic.host_object_and_partition_mut(rider_id) {
+        r.set_contained_by_with_partition_owner(None, true, fixture_partition_r);
     }
     // Advance past ground check + land + empty delay.
     for f in 2..90 {
@@ -2741,7 +2754,7 @@ fn jet_airfield_rearm_waits_clip_reload_frames() {
         .create_object("AmericaJetRaptor", Team::USA, Vec3::new(40.0, 40.0, 0.0))
         .unwrap();
     {
-        let jet = logic.objects.get_mut(&jet_id).unwrap();
+        let (jet, fixture_partition_jet) = logic.host_object_and_partition_mut(jet_id).unwrap();
         jet.weapon = Some(Weapon {
             damage: 50.0,
             range: 200.0,
@@ -2757,7 +2770,12 @@ fn jet_airfield_rearm_waits_clip_reload_frames() {
         });
         jet.status.airborne_target = false;
         jet.jet_ai.rtb_landing_phase = crate::game_logic::object::JET_RTB_PHASE_TAXI;
-        jet.set_position(Vec3::ZERO);
+        jet.set_position_with_partition_owner(
+            Vec3::ZERO,
+            0,
+            &mut Default::default(),
+            fixture_partition_jet,
+        );
     }
 
     logic.frame = 10;

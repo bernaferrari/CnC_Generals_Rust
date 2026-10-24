@@ -510,7 +510,9 @@ fn comanche_rocket_pods_residual_upgrade_and_area_attack() {
     // already have started an auto-acquired nested attack; this command must
     // replace that state rather than letting it consume PRIMARY/SECONDARY.
     {
-        let c = game_logic.host_object_mut(comanche_id).expect("comanche");
+        let (c, fixture_partition_c) = game_logic
+            .host_object_and_partition_mut(comanche_id)
+            .expect("comanche");
         if let Some(w) = c.tertiary_weapon.as_mut() {
             w.last_fire_time = -100.0;
             w.reload_time = 0.1;
@@ -520,7 +522,12 @@ fn comanche_rocket_pods_residual_upgrade_and_area_attack() {
             w.last_fire_time = 0.0;
             w.reload_time = 1000.0; // primary reloading
         }
-        c.set_position(Vec3::new(80.0, 0.0, 0.0));
+        c.set_position_with_partition_owner(
+            Vec3::new(80.0, 0.0, 0.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_c,
+        );
     }
     assert!(game_logic.unit_command_select_weapon_slot(comanche_id, 2));
     assert!(game_logic.unit_command_fire_weapon(comanche_id, Some(tank_id), None, -1));
@@ -788,11 +795,16 @@ fn rocket_buggy_residual_long_range_splash() {
         .expect("infantry");
 
     {
-        let (b, attack_events) = game_logic
-            .host_object_and_attack_events_mut(buggy_id)
+        let (b, attack_events, _fixture_audio_b, fixture_partition_b) = game_logic
+            .host_object_attack_audio_partition_mut(buggy_id)
             .unwrap();
         // Inside max range, outside min range residual.
-        b.set_position(Vec3::new(0.0, 0.0, 0.0));
+        b.set_position_with_partition_owner(
+            Vec3::new(0.0, 0.0, 0.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_b,
+        );
         b.attack_target(
             tank_id,
             attack_events,
@@ -1010,9 +1022,16 @@ fn quad_cannon_residual_anti_air_and_multi_barrel() {
         .create_object("TestAircraft", Team::USA, Vec3::new(200.0, 50.0, 0.0))
         .expect("aircraft");
     {
-        let a = game_logic.host_object_mut(aircraft_id).unwrap();
+        let (a, fixture_partition_a) = game_logic
+            .host_object_and_partition_mut(aircraft_id)
+            .unwrap();
         a.status.airborne_target = true;
-        a.set_position(Vec3::new(200.0, 50.0, 0.0));
+        a.set_position_with_partition_owner(
+            Vec3::new(200.0, 50.0, 0.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_a,
+        );
     }
 
     let ground_tank = game_logic
@@ -1163,10 +1182,15 @@ fn scud_launcher_residual_area_and_toxin() {
 
     // Explosive primary area residual.
     {
-        let (s, attack_events) = game_logic
-            .host_object_and_attack_events_mut(scud_id)
+        let (s, attack_events, _fixture_audio_s, fixture_partition_s) = game_logic
+            .host_object_attack_audio_partition_mut(scud_id)
             .unwrap();
-        s.set_position(Vec3::new(0.0, 0.0, 0.0));
+        s.set_position_with_partition_owner(
+            Vec3::new(0.0, 0.0, 0.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_s,
+        );
         s.attack_target(
             tank_id,
             attack_events,

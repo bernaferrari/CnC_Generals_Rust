@@ -216,9 +216,9 @@ fn china_wall_linebuild_uses_first_constructor_full_body_and_no_cash_debit() {
         assert!(builder.movement.target_position.is_none());
     }
     assert_eq!(a.get_player(0).unwrap().resources.supplies, 50);
-    assert_eq!(a.get_player(0).unwrap().statistics.resources_spent, 200);
+    assert_eq!(a.get_player(0).unwrap().statistics.resources_spent(), 200);
     assert_eq!(b.get_player(0).unwrap().resources.supplies, 777);
-    assert_eq!(b.get_player(0).unwrap().statistics.resources_spent, 0);
+    assert_eq!(b.get_player(0).unwrap().statistics.resources_spent(), 0);
     assert_eq!(wall_count(&b), 0);
     assert_eq!(b.host_object(b_first).unwrap().get_position(), b_position);
     b.reset();
@@ -250,7 +250,7 @@ fn linebuild_rejects_invalid_first_constructor_without_switching_to_second() {
         order(&mut world, vec![first, second]);
         assert_eq!(wall_count(&world), 0, "invalid first constructor: {case}");
         assert_eq!(world.get_player(0).unwrap().resources.supplies, 50);
-        assert_eq!(world.get_player(0).unwrap().statistics.resources_spent, 0);
+        assert_eq!(world.get_player(0).unwrap().statistics.resources_spent(), 0);
         assert!(
             world
                 .host_object(second)
@@ -306,7 +306,7 @@ fn instant_linebuild_still_rejects_a_preexisting_immobile_start_blocker() {
     assert_eq!(wall_count(&world), 0);
     assert!(world.host_object(blocker).unwrap().is_alive());
     assert_eq!(world.get_player(0).unwrap().resources.supplies, 50);
-    assert_eq!(world.get_player(0).unwrap().statistics.resources_spent, 0);
+    assert_eq!(world.get_player(0).unwrap().statistics.resources_spent(), 0);
     for id in [first, second] {
         assert!(
             world
@@ -429,7 +429,7 @@ fn parsed_signed_line_limit_is_consumed_by_actual_wall_command() {
         );
         assert_eq!(world.get_player(0).unwrap().resources.supplies, 50);
         assert_eq!(
-            world.get_player(0).unwrap().statistics.resources_spent,
+            world.get_player(0).unwrap().statistics.resources_spent(),
             expected as u32 * 100
         );
         for wall in world
@@ -534,7 +534,7 @@ fn linebuild_authored_facing_controls_rotated_footprints_in_the_driving_world() 
         }
         assert_eq!(world.get_player(0).unwrap().resources.supplies, 50);
         assert_eq!(
-            world.get_player(0).unwrap().statistics.resources_spent,
+            world.get_player(0).unwrap().statistics.resources_spent(),
             walls.len() as u32 * 100
         );
         for id in [*first, *second] {
@@ -552,7 +552,7 @@ fn linebuild_authored_facing_controls_rotated_footprints_in_the_driving_world() 
     b.reset();
     drop(b);
     assert_eq!(wall_count(&a), 2);
-    assert_eq!(a.get_player(0).unwrap().statistics.resources_spent, 200);
+    assert_eq!(a.get_player(0).unwrap().statistics.resources_spent(), 200);
 }
 
 #[test]
@@ -607,7 +607,7 @@ fn linebuild_diagonal_positions_preserve_cpp_division_and_product_order() {
     assert_eq!(actual, expected);
     assert_eq!(world.get_player(0).unwrap().resources.supplies, 50);
     assert_eq!(
-        world.get_player(0).unwrap().statistics.resources_spent,
+        world.get_player(0).unwrap().statistics.resources_spent(),
         count as u32 * 100
     );
 }
@@ -626,10 +626,10 @@ fn instant_linebuild_records_money_spent_even_when_object_scoring_is_disabled() 
         assert_eq!(wall_count(&world), 2);
         let player = world.get_player(0).unwrap();
         assert_eq!(
-            player.statistics.structures_built,
+            player.statistics.structures_built(),
             if scoring { 2 } else { 0 }
         );
-        assert_eq!(player.statistics.resources_spent, 200);
+        assert_eq!(player.statistics.resources_spent(), 200);
         assert_eq!(player.resources.supplies, 50);
     }
 }

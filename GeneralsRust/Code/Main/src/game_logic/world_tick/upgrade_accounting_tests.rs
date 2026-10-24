@@ -37,7 +37,7 @@ fn production_completion_accounts_only_receiving_owner_and_keeps_object_upgrade_
             upgrade_type,
             &mut Default::default()
         ));
-        assert_eq!(owner.get_player(0).unwrap().statistics.resources_spent, 0);
+        assert_eq!(owner.get_player(0).unwrap().statistics.resources_spent(), 0);
         owner.host_apply_upgrade_production_completions(vec![(
             Team::USA,
             "Upgrade_OwnedProductionAccounting".into(),
@@ -45,13 +45,13 @@ fn production_completion_accounts_only_receiving_owner_and_keeps_object_upgrade_
         )]);
         let p = owner.get_player(0).unwrap();
         assert_eq!(p.resources.supplies, 4200);
-        assert_eq!(p.statistics.resources_spent, 800);
+        assert_eq!(p.statistics.resources_spent(), 800);
         assert_eq!(p.academy_stats.get_upgrades_purchased(), 1);
         assert_eq!(
             p.has_unlocked_upgrade("Upgrade_OwnedProductionAccounting"),
             kind == "PLAYER"
         );
-        assert_eq!(owner.get_player(1).unwrap().statistics.resources_spent, 0);
+        assert_eq!(owner.get_player(1).unwrap().statistics.resources_spent(), 0);
         assert_eq!(
             owner
                 .get_player(1)
@@ -60,7 +60,7 @@ fn production_completion_accounts_only_receiving_owner_and_keeps_object_upgrade_
                 .get_upgrades_purchased(),
             0
         );
-        assert_eq!(peer.get_player(0).unwrap().statistics.resources_spent, 0);
+        assert_eq!(peer.get_player(0).unwrap().statistics.resources_spent(), 0);
         assert_eq!(
             peer.get_player(0)
                 .unwrap()
@@ -97,7 +97,7 @@ fn completed_upgrade_score_and_academy_survive_encoded_save_and_future_completio
         .restore_from_snapshot(&snapshot, &mut restored)
         .unwrap();
     assert_eq!(
-        restored.get_player(0).unwrap().statistics.resources_spent,
+        restored.get_player(0).unwrap().statistics.resources_spent(),
         800
     );
     assert_eq!(
@@ -124,7 +124,7 @@ fn completed_upgrade_score_and_academy_survive_encoded_save_and_future_completio
     )]);
     assert_eq!(restored.get_player(0).unwrap().resources.supplies, 3400);
     assert_eq!(
-        restored.get_player(0).unwrap().statistics.resources_spent,
+        restored.get_player(0).unwrap().statistics.resources_spent(),
         1600
     );
     assert_eq!(
@@ -136,7 +136,7 @@ fn completed_upgrade_score_and_academy_survive_encoded_save_and_future_completio
         2
     );
     assert_eq!(
-        source.get_player(0).unwrap().statistics.resources_spent,
+        source.get_player(0).unwrap().statistics.resources_spent(),
         800
     );
     assert_eq!(

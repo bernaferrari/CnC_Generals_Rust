@@ -2158,7 +2158,7 @@ fn cash_bounty_increases_cash_on_enemy_kill() {
     assert_eq!(
         game_logic
             .get_player(0)
-            .map(|p| p.statistics.money_earned)
+            .map(|p| p.statistics.money_earned())
             .unwrap_or(0),
         expected_bounty,
         "C++ ScoreKeeper::addMoneyEarned must count bounty dollars"

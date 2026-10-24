@@ -262,11 +262,11 @@ fn off_map_panic_entry_disables_destination_adjustment_without_waypoint_links() 
 #[test]
 fn authored_team_panic_bounces_infantry_collision_before_blocked_state() {
     let mut logic = panic_logic();
-    if let Some(unit) = logic.objects.get_mut(&PANIC_UNIT) {
+    if let Some((unit, fixture_partition_unit)) = logic.host_object_and_partition_mut(PANIC_UNIT) {
         unit.cur_locomotor_name = Some("BasicHumanLocomotor".into());
         unit.locomotor_surfaces = crate::game_logic::object::LOCO_SURFACE_GROUND;
         unit.movement.velocity = Vec3::new(2.0, 0.0, 0.0);
-        unit.set_orientation(0.0);
+        unit.set_orientation_with_partition_owner(0.0, fixture_partition_unit);
         unit.selection_radius = 5.0;
     }
     issue_authored_team_panic(&mut logic);
@@ -639,11 +639,17 @@ fn blocked_panic_repath_runs_before_arrival_and_timer_processing() {
         .last()
         .expect("authored panic route");
     {
-        let unit = logic.objects.get_mut(&PANIC_UNIT).unwrap();
+        let (unit, fixture_partition_unit) =
+            logic.host_object_and_partition_mut(PANIC_UNIT).unwrap();
         unit.cur_locomotor_name = Some("BasicHumanLocomotor".into());
         // Require a real route recompute instead of the host's zero-hop
         // shortcut, while remaining inside the selected locomotor's threshold.
-        unit.set_position(terminal - Vec3::new(0.5, 0.0, 0.0));
+        unit.set_position_with_partition_owner(
+            terminal - Vec3::new(0.5, 0.0, 0.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_unit,
+        );
         unit.movement.current_path_index = unit.movement.path.len() - 1;
         unit.set_locomotor_goal_position_on_path();
         unit.movement.target_position = None;
@@ -678,9 +684,15 @@ fn panic_waypoint_choice_and_next_rng_survive_save_load_continuation() {
     install_panic_fork_path(&source);
     issue_authored_team_panic(&mut source);
     {
-        let unit = source.objects.get_mut(&PANIC_UNIT).unwrap();
+        let (unit, fixture_partition_unit) =
+            source.host_object_and_partition_mut(PANIC_UNIT).unwrap();
         let last = *unit.movement.path.last().expect("authored fork path");
-        unit.set_position(last);
+        unit.set_position_with_partition_owner(
+            last,
+            0,
+            &mut Default::default(),
+            fixture_partition_unit,
+        );
     }
 
     let builder = crate::save_load::snapshot::SnapshotBuilder::new();

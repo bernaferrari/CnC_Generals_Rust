@@ -1205,8 +1205,10 @@ fn capture_sets_private_captured_and_score() {
         .expect("barracks");
     assert!(!logic.host_object(id).unwrap().is_private_captured());
 
-    if let Some((o, ownership_events)) = logic.host_object_and_ownership_events_mut(id) {
-        o.set_team(Team::GLA, ownership_events);
+    if let Some((o, ownership_events, fixture_partition_o)) =
+        logic.host_object_ownership_partition_mut(id)
+    {
+        o.set_team_with_partition_owner(Team::GLA, ownership_events, fixture_partition_o);
     }
     logic.on_capture_object_residual(id, Team::USA, Team::GLA);
 
@@ -1214,7 +1216,7 @@ fn capture_sets_private_captured_and_score() {
     let captured = logic
         .players
         .get(&1)
-        .map(|p| p.statistics.objects_captured)
+        .map(|p| p.statistics.objects_captured())
         .unwrap_or(0);
     assert!(captured >= 1, "new owner score must count object captured");
 }
@@ -1249,8 +1251,8 @@ fn car_bomb_detonates_when_pilot_sniped_unmanned() {
         .expect("car");
     let _ = logic.host_object_mut(cid);
     logic
-        .with_object_veterancy_feedback(cid, |c, audio, feedback| {
-            c.apply_convert_to_car_bomb(audio, feedback);
+        .with_object_veterancy_feedback_and_partition(cid, |c, audio, feedback, partition| {
+            c.apply_convert_to_car_bomb_from_with_partition_owner(None, audio, feedback, partition);
         })
         .expect("actual car-bomb owner");
     let sid = logic
@@ -1313,7 +1315,11 @@ fn infantry_collision_reclaims_unmanned_vehicle() {
             &mut logic.health_events,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
-        v.set_team(Team::Neutral, ownership_events);
+        v.set_team_with_partition_owner(
+            Team::Neutral,
+            ownership_events,
+            &mut logic.partition_manager,
+        );
     }
     let iid = logic
         .create_object(
@@ -1386,7 +1392,11 @@ fn unmanned_recrew_transfers_script_name_and_captured_bit() {
             &mut logic.health_events,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
-        v.set_team(Team::Neutral, ownership_events);
+        v.set_team_with_partition_owner(
+            Team::Neutral,
+            ownership_events,
+            &mut logic.partition_manager,
+        );
         v.name.clear();
     }
     let iid = logic
@@ -1435,8 +1445,10 @@ fn capture_tech_building_sets_captured_model_condition() {
             .has_captured_model_condition()
     );
 
-    if let Some((o, ownership_events)) = logic.host_object_and_ownership_events_mut(id) {
-        o.set_team(Team::USA, ownership_events);
+    if let Some((o, ownership_events, fixture_partition_o)) =
+        logic.host_object_ownership_partition_mut(id)
+    {
+        o.set_team_with_partition_owner(Team::USA, ownership_events, fixture_partition_o);
     }
     logic.on_capture_object_residual(id, Team::Neutral, Team::USA);
     assert!(logic.capture_tech_model_updates > 0);
@@ -1449,8 +1461,10 @@ fn capture_tech_building_sets_captured_model_condition() {
     );
 
     // Return to neutral clears.
-    if let Some((o, ownership_events)) = logic.host_object_and_ownership_events_mut(id) {
-        o.set_team(Team::Neutral, ownership_events);
+    if let Some((o, ownership_events, fixture_partition_o)) =
+        logic.host_object_ownership_partition_mut(id)
+    {
+        o.set_team_with_partition_owner(Team::Neutral, ownership_events, fixture_partition_o);
     }
     logic.on_capture_object_residual(id, Team::USA, Team::Neutral);
     assert!(
@@ -1499,8 +1513,15 @@ fn capture_last_tunnel_ejects_shared_pool_for_old_owner() {
     assert_eq!(logic.tunnel_network.contain_count(gla_key), 1);
 
     // Flip ownership then onCapture residual.
-    if let Some((o, ownership_events)) = logic.host_object_and_ownership_events_mut(tnl) {
-        o.set_team_and_owner(Team::USA, Some(0), ownership_events);
+    if let Some((o, ownership_events, fixture_partition_o)) =
+        logic.host_object_ownership_partition_mut(tnl)
+    {
+        o.set_team_and_owner_with_partition_owner(
+            Team::USA,
+            Some(0),
+            ownership_events,
+            fixture_partition_o,
+        );
     }
     logic.on_capture_object_residual(tnl, Team::GLA, Team::USA);
 
@@ -1559,14 +1580,21 @@ fn capture_non_last_tunnel_keeps_old_team_pool() {
     logic.tunnel_network.on_tunnel_created(gla_key, t1);
     logic.tunnel_network.on_tunnel_created(gla_key, t2);
     assert!(logic.tunnel_network.record_enter(gla_key, uid, t1));
-    if let Some(u) = logic.host_object_mut(uid) {
-        u.set_contained_by(Some(t1));
+    if let Some((u, fixture_partition_u)) = logic.host_object_and_partition_mut(uid) {
+        u.set_contained_by_with_partition_owner(Some(t1), true, fixture_partition_u);
     }
     logic.tunnel_network.stamp_contained_by_frame(uid, 0);
     logic.frame = 25;
 
-    if let Some((o, ownership_events)) = logic.host_object_and_ownership_events_mut(t1) {
-        o.set_team_and_owner(Team::USA, Some(0), ownership_events);
+    if let Some((o, ownership_events, fixture_partition_o)) =
+        logic.host_object_ownership_partition_mut(t1)
+    {
+        o.set_team_and_owner_with_partition_owner(
+            Team::USA,
+            Some(0),
+            ownership_events,
+            fixture_partition_o,
+        );
     }
     logic.on_capture_object_residual(t1, Team::GLA, Team::USA);
 
@@ -1618,8 +1646,10 @@ fn capture_object_residual_idle_deselect_ai_sell() {
     assert!(logic.host_object(id).unwrap().selected);
     assert!(logic.host_object(id).unwrap().status.selected);
     // Flip ownership first (C++ order: setTeam then onCapture).
-    if let Some((obj, ownership_events)) = logic.host_object_and_ownership_events_mut(id) {
-        obj.set_team(Team::GLA, ownership_events);
+    if let Some((obj, ownership_events, fixture_partition_obj)) =
+        logic.host_object_ownership_partition_mut(id)
+    {
+        obj.set_team_with_partition_owner(Team::GLA, ownership_events, fixture_partition_obj);
         obj.set_ai_state(
             AIState::Attacking,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
@@ -1690,8 +1720,15 @@ fn create_stamps_threat_value_not_build_cost_and_capture_restamps_mask() {
         assert_eq!(stamp.mask, 1u32 << 0);
     }
 
-    if let Some((obj, ownership_events)) = logic.host_object_and_ownership_events_mut(id) {
-        obj.set_team_and_owner(Team::GLA, Some(1), ownership_events);
+    if let Some((obj, ownership_events, fixture_partition_obj)) =
+        logic.host_object_ownership_partition_mut(id)
+    {
+        obj.set_team_and_owner_with_partition_owner(
+            Team::GLA,
+            Some(1),
+            ownership_events,
+            fixture_partition_obj,
+        );
     }
     logic.on_capture_object_residual(id, Team::USA, Team::GLA);
     let stamp = logic
@@ -1751,8 +1788,8 @@ fn capture_kicks_transport_passengers_but_not_tunnel_pool() {
     if let Some(t) = logic.host_object_mut(tid) {
         assert!(t.add_occupant(rid));
     }
-    if let Some(r) = logic.host_object_mut(rid) {
-        r.set_contained_by(Some(tid));
+    if let Some((r, fixture_partition_r)) = logic.host_object_and_partition_mut(rid) {
+        r.set_contained_by_with_partition_owner(Some(tid), true, fixture_partition_r);
         r.set_ai_state(
             AIState::Docked,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
@@ -1824,8 +1861,15 @@ fn capture_team_flips_overlord_helix_portable_addon() {
     assert_eq!(logic.host_object(addon).unwrap().team, Team::China);
 
     // Capture already flipped host owner (on_capture_object_residual).
-    if let Some((o, ownership_events)) = logic.host_object_and_ownership_events_mut(overlord) {
-        o.set_team_and_owner(Team::USA, Some(1), ownership_events);
+    if let Some((o, ownership_events, fixture_partition_o)) =
+        logic.host_object_ownership_partition_mut(overlord)
+    {
+        o.set_team_and_owner_with_partition_owner(
+            Team::USA,
+            Some(1),
+            ownership_events,
+            fixture_partition_o,
+        );
     }
     logic.on_capture_kick_passengers(overlord, Team::China, Team::USA);
     let addon_obj = logic.host_object(addon).expect("addon stays live");
@@ -1860,8 +1904,15 @@ fn capture_team_flips_overlord_helix_portable_addon() {
     let helix_addon = logic
         .overlord_helix_portable_occupant_id(helix)
         .expect("helix portable");
-    if let Some((o, ownership_events)) = logic.host_object_and_ownership_events_mut(helix) {
-        o.set_team_and_owner(Team::USA, Some(1), ownership_events);
+    if let Some((o, ownership_events, fixture_partition_o)) =
+        logic.host_object_ownership_partition_mut(helix)
+    {
+        o.set_team_and_owner_with_partition_owner(
+            Team::USA,
+            Some(1),
+            ownership_events,
+            fixture_partition_o,
+        );
     }
     logic.on_capture_kick_passengers(helix, Team::China, Team::USA);
     let ha = logic.host_object(helix_addon).expect("helix addon");
@@ -1974,8 +2025,8 @@ fn sell_ejects_garrison_and_kills_parked_aircraft() {
     if let Some(b) = logic.host_object_mut(bid) {
         assert!(b.add_occupant(rid));
     }
-    if let Some(r) = logic.host_object_mut(rid) {
-        r.set_contained_by(Some(bid));
+    if let Some((r, fixture_partition_r)) = logic.host_object_and_partition_mut(rid) {
+        r.set_contained_by_with_partition_owner(Some(bid), true, fixture_partition_r);
         r.set_ai_state(
             AIState::Garrisoned,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
@@ -2006,9 +2057,9 @@ fn sell_ejects_garrison_and_kills_parked_aircraft() {
             glam::Vec3::new(100.0, 0.0, 0.0),
         )
         .expect("jet");
-    if let Some(j) = logic.host_object_mut(jid) {
+    if let Some((j, fixture_partition_j)) = logic.host_object_and_partition_mut(jid) {
         j.object_type = ObjectType::Aircraft;
-        j.set_contained_by(Some(afid));
+        j.set_contained_by_with_partition_owner(Some(afid), true, fixture_partition_j);
         j.set_ai_state(
             AIState::Docked,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
@@ -2956,7 +3007,7 @@ fn player_grant_science_script_honors_is_grantable() {
     logic.scripts_loaded = true;
     logic.players.insert(
         0,
-        crate::game_logic::Player::new(0, Team::USA, "Local", true),
+        crate::game_logic::Player::new(0, Team::USA, "Local", true).with_script_identity("Local"),
     );
     let _ = gamelogic::scripting::take_host_science_action_requests();
     gamelogic::scripting::request_host_science_action("Local", "SCIENCE_PaladinTank", true);
@@ -2981,7 +3032,8 @@ fn player_grant_science_script_readies_shared_special_power() {
 
     let mut logic = GameLogic::new();
     logic.scripts_loaded = true;
-    let mut player = crate::game_logic::Player::new(0, Team::USA, "Local", true);
+    let mut player =
+        crate::game_logic::Player::new(0, Team::USA, "Local", true).with_script_identity("Local");
     player.apply_faction_intrinsic_sciences();
     // Retail Science.ini: SCIENCE_A10ThunderboltMissileStrike1 requires
     // SCIENCE_AMERICA + SCIENCE_Rank3 (Science.cpp:257-274 purchase gate

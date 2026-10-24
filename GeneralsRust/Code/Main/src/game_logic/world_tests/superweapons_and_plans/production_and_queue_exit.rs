@@ -26,17 +26,28 @@ fn script_skirmish_attack_nearest_group_uses_relationship_and_cell_value() {
     use gamelogic::common::Relationship;
     use gamelogic::scripting::request_host_skirmish_attack_nearest_group;
 
-    if let Ok(mut pm) = gamelogic::object::collide::partition_manager::PARTITION_MANAGER.write() {
-        pm.clear();
-    }
     let _ = gamelogic::scripting::take_host_skirmish_attack_nearest_group_requests();
 
     let mut logic = GameLogic::new();
+    // Match admission initializes the actual receiving scalar grid before
+    // Object births; no process-global partition from another test supplies it.
+    {
+        let mut shroud = logic.world_services.shroud().lock().unwrap();
+        shroud
+            .init_shroud_grid_at_origin_with_cell_size(
+                [0.0, 0.0],
+                1024.0,
+                1024.0,
+                PARTITION_CELL_SIZE_RESIDUAL,
+            )
+            .unwrap();
+        logic.partition_manager.configure_grid_from_shroud(&shroud);
+    }
     logic.scripts_loaded = true;
 
-    let mut p0 = Player::new(0, Team::USA, "USA1", true);
-    let mut p1 = Player::new(1, Team::USA, "USA2", false);
-    let p_neutral = Player::new(3, Team::Neutral, "Neutral", false);
+    let mut p0 = Player::new(0, Team::USA, "USA1", true).with_script_identity("USA1");
+    let mut p1 = Player::new(1, Team::USA, "USA2", false).with_script_identity("USA2");
+    let p_neutral = Player::new(3, Team::Neutral, "Neutral", false).with_script_identity("Neutral");
     p0.set_map_relationship(1, Relationship::Enemies);
     p1.set_map_relationship(0, Relationship::Enemies);
     p0.resources.supplies = 100_000;
@@ -65,27 +76,29 @@ fn script_skirmish_attack_nearest_group_uses_relationship_and_cell_value() {
     logic.templates.insert("NeutralPalace".into(), decoy);
 
     let attacker = logic
-        .create_object("TestTank", Team::USA, glam::Vec3::ZERO)
+        .create_object_for_player("TestTank", 0, glam::Vec3::ZERO)
         .expect("attacker");
     if let Some(obj) = logic.host_object_mut(attacker) {
-        obj.team_instance_name = "teamAmerica".into();
-        obj.owner_player_id = Some(0);
-        obj.shroud_clearing_range = 0.0;
+        // Object.cpp:addValue excludes zero shroud range. Keep positive
+        // eligibility with a one-unit influence contained inside this cell.
+        obj.shroud_clearing_range = 1.0;
+        obj.vision_range = 1.0;
     }
 
     // Same-faction USA enemy pair in cell (5, 0). Each costs 30; aggregate 60 > 50.
     // Off-corner so dest must be the cell corner, not an object pose.
     let e1 = logic
-        .create_object("CheapHut", Team::USA, glam::Vec3::new(205.0, 0.0, 10.0))
+        .create_object_for_player("CheapHut", 1, glam::Vec3::new(205.0, 0.0, 10.0))
         .expect("e1");
     let e2 = logic
-        .create_object("CheapHut", Team::USA, glam::Vec3::new(215.0, 0.0, 15.0))
+        .create_object_for_player("CheapHut", 1, glam::Vec3::new(215.0, 0.0, 15.0))
         .expect("e2");
     for id in [e1, e2] {
         if let Some(obj) = logic.host_object_mut(id) {
-            obj.owner_player_id = Some(1);
-            obj.partition_cash_value = 30;
-            obj.shroud_clearing_range = 0.0;
+            // Object.cpp:addValue excludes zero shroud range. Keep positive
+            // eligibility with a one-unit influence contained inside this cell.
+            obj.shroud_clearing_range = 1.0;
+            obj.vision_range = 1.0;
         }
     }
 
@@ -100,20 +113,13 @@ fn script_skirmish_attack_nearest_group_uses_relationship_and_cell_value() {
         )
         .expect("neutral");
     if let Some(obj) = logic.host_object_mut(n) {
-        obj.owner_player_id = Some(3);
-        obj.partition_cash_value = 5000;
-        obj.shroud_clearing_range = 0.0;
+        // Object.cpp:addValue excludes zero shroud range. Keep positive
+        // eligibility with a one-unit influence contained inside this cell.
+        obj.shroud_clearing_range = 1.0;
+        obj.vision_range = 1.0;
     }
-    // The leftover partition bridge is a process-global other tests may
-    // repopulate; serialize and clear immediately before the scripted frame
-    // so the host fallback BFS decides the destination.
-    let _env_guard = HOST_STATE_RESIDUAL_TEST_ENV_LOCK
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
-    if let Ok(mut pm) = gamelogic::object::collide::partition_manager::PARTITION_MANAGER.write() {
-        pm.clear();
-    }
-    request_host_skirmish_attack_nearest_group("teamAmerica", 4, 50);
+    logic.update_owned_partition_with_effects(&mut Default::default());
+    request_host_skirmish_attack_nearest_group("teamUSA1", 4, 50);
     logic.evaluate_and_execute_scripts(0.0);
 
     let after = logic.host_object(attacker).expect("attacker");

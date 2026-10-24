@@ -26,7 +26,7 @@ fn same_faction_player_transfer_moves_roster_before_capture_once_and_isolates_pe
     assert!(game.transfer_object_to_player(object, 1));
     assert_eq!(game.objects[&object].team_instance_id, Some(destination));
     assert_eq!(game.objects[&object].ai_state, AIState::Idle);
-    assert_eq!(game.get_player(1).unwrap().statistics.objects_captured, 0);
+    assert_eq!(game.get_player(1).unwrap().statistics.objects_captured(), 0);
     let factory = game.team_factory.lock().unwrap();
     assert!(
         !factory
@@ -47,9 +47,9 @@ fn same_faction_player_transfer_moves_roster_before_capture_once_and_isolates_pe
     );
     drop(factory);
     assert!(game.transfer_object_to_player(object, 1));
-    assert_eq!(game.get_player(1).unwrap().statistics.objects_captured, 0);
+    assert_eq!(game.get_player(1).unwrap().statistics.objects_captured(), 0);
     assert_eq!(peer.objects[&peer_object].team_instance_id, Some(previous));
-    assert_eq!(peer.get_player(1).unwrap().statistics.objects_captured, 0);
+    assert_eq!(peer.get_player(1).unwrap().statistics.objects_captured(), 0);
 }
 
 #[test]
@@ -62,7 +62,7 @@ fn exact_team_no_op_keeps_order_orders_and_capture_score() {
     );
     assert!(game.set_host_object_team(object, identity));
     assert_eq!(game.objects[&object].ai_state, AIState::Moving);
-    assert_eq!(game.get_player(0).unwrap().statistics.objects_captured, 0);
+    assert_eq!(game.get_player(0).unwrap().statistics.objects_captured(), 0);
     assert!(
         !game.defect_host_object(object, identity, 300),
         "CPP default-team defect guard"
@@ -177,7 +177,7 @@ fn admitted_ai_presence_is_local_and_no_ai_capture_preserves_non_ai_orders() {
         AIState::Moving,
         "CPP onCapture idles only an admitted AI interface"
     );
-    assert_eq!(game.get_player(1).unwrap().statistics.objects_captured, 0);
+    assert_eq!(game.get_player(1).unwrap().statistics.objects_captured(), 0);
     assert!(!game.objects[&object].has_ai_update_interface());
     assert!(peer.objects[&peer_object].has_ai_update_interface());
 }
@@ -194,12 +194,12 @@ fn structure_capture_score_obeys_scoring_flag_and_exact_same_team_no_op() {
         .unwrap();
     game.set_scoring_enabled(false);
     assert!(game.transfer_object_to_player(object, 1));
-    assert_eq!(game.get_player(1).unwrap().statistics.objects_captured, 0);
+    assert_eq!(game.get_player(1).unwrap().statistics.objects_captured(), 0);
     game.set_scoring_enabled(true);
     assert!(game.transfer_object_to_player(object, 0));
-    assert_eq!(game.get_player(0).unwrap().statistics.objects_captured, 1);
+    assert_eq!(game.get_player(0).unwrap().statistics.objects_captured(), 1);
     assert!(game.transfer_object_to_player(object, 0));
-    assert_eq!(game.get_player(0).unwrap().statistics.objects_captured, 1);
+    assert_eq!(game.get_player(0).unwrap().statistics.objects_captured(), 1);
     let sibling = {
         let mut factory = game.team_factory.lock().unwrap();
         factory
@@ -217,7 +217,7 @@ fn structure_capture_score_obeys_scoring_flag_and_exact_same_team_no_op() {
     };
     assert!(game.set_host_object_team(object, sibling));
     assert_eq!(
-        game.get_player(0).unwrap().statistics.objects_captured,
+        game.get_player(0).unwrap().statistics.objects_captured(),
         2,
         "CPP onCapture scores a different Team even when its controller is unchanged"
     );

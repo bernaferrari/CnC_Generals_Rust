@@ -948,7 +948,7 @@ mod tests {
         };
         assert_eq!(bounty, 96);
         let usa = logic.get_player(0).expect("usa");
-        assert_eq!(usa.statistics.money_earned, 96);
+        assert_eq!(usa.statistics.money_earned(), 96);
         assert_eq!(usa.resources.supplies, 1_096);
         assert_eq!(usa.calculate_score() as u32, 96);
     }
@@ -1212,8 +1212,8 @@ End
             )
             .unwrap();
         logic.process_destroy_list();
-        assert_eq!(logic.get_player(0).unwrap().statistics.units_destroyed, 1);
-        assert_eq!(logic.get_player(2).unwrap().statistics.units_lost, 1);
+        assert_eq!(logic.get_player(0).unwrap().statistics.units_destroyed(), 1);
+        assert_eq!(logic.get_player(2).unwrap().statistics.units_lost(), 1);
 
         if let Some(v) = logic.host_object_mut(ally) {
             v.last_damage_source = Some(killer);
@@ -1231,17 +1231,17 @@ End
             .unwrap();
         logic.process_destroy_list();
         assert_eq!(
-            logic.get_player(0).unwrap().statistics.units_destroyed,
+            logic.get_player(0).unwrap().statistics.units_destroyed(),
             1,
             "allied friendly-fire must not add Destroyed"
         );
-        assert_eq!(logic.get_player(1).unwrap().statistics.units_lost, 1);
+        assert_eq!(logic.get_player(1).unwrap().statistics.units_lost(), 1);
 
-        let gla_lost = logic.get_player(2).unwrap().statistics.units_lost;
+        let gla_lost = logic.get_player(2).unwrap().statistics.units_lost();
         logic.mark_object_for_destruction(sold, None);
         logic.process_destroy_list();
         assert_eq!(
-            logic.get_player(2).unwrap().statistics.units_lost,
+            logic.get_player(2).unwrap().statistics.units_lost(),
             gla_lost,
             "killer-less sell/script destroy must not add Lost"
         );
@@ -1261,8 +1261,11 @@ End
             )
             .unwrap();
         logic.process_destroy_list();
-        assert_eq!(logic.get_player(0).unwrap().statistics.units_destroyed, 1);
-        assert_eq!(logic.get_player(2).unwrap().statistics.units_lost, gla_lost);
+        assert_eq!(logic.get_player(0).unwrap().statistics.units_destroyed(), 1);
+        assert_eq!(
+            logic.get_player(2).unwrap().statistics.units_lost(),
+            gla_lost
+        );
     }
 
     fn bind_score_template_identity(logic: &mut GameLogic, player_id: u32, template_name: &str) {
@@ -1340,16 +1343,16 @@ End
             )
             .unwrap();
         logic.process_destroy_list();
-        assert_eq!(logic.get_player(2).unwrap().statistics.units_destroyed, 1);
-        assert_eq!(logic.get_player(0).unwrap().statistics.units_lost, 1);
+        assert_eq!(logic.get_player(2).unwrap().statistics.units_destroyed(), 1);
+        assert_eq!(logic.get_player(0).unwrap().statistics.units_lost(), 1);
         assert!(
-            logic.get_player(2).unwrap().statistics.money_earned > 0,
+            logic.get_player(2).unwrap().statistics.money_earned() > 0,
             "bounty still awards when the named-Civilian victim is playable"
         );
 
-        let usa_destroyed = logic.get_player(0).unwrap().statistics.units_destroyed;
-        let gla_lost = logic.get_player(2).unwrap().statistics.units_lost;
-        let usa_money = logic.get_player(0).unwrap().statistics.money_earned;
+        let usa_destroyed = logic.get_player(0).unwrap().statistics.units_destroyed();
+        let gla_lost = logic.get_player(2).unwrap().statistics.units_lost();
+        let usa_money = logic.get_player(0).unwrap().statistics.money_earned();
         if let Some(v) = logic.host_object_mut(gla_victim) {
             v.last_damage_source = Some(usa_killer);
         }
@@ -1366,17 +1369,17 @@ End
             .unwrap();
         logic.process_destroy_list();
         assert_eq!(
-            logic.get_player(0).unwrap().statistics.units_destroyed,
+            logic.get_player(0).unwrap().statistics.units_destroyed(),
             usa_destroyed,
             "non-playable template victim must not increment Destroyed"
         );
         assert_eq!(
-            logic.get_player(2).unwrap().statistics.units_lost,
+            logic.get_player(2).unwrap().statistics.units_lost(),
             gla_lost,
             "non-playable template victim must not increment Lost"
         );
         assert_eq!(
-            logic.get_player(0).unwrap().statistics.money_earned,
+            logic.get_player(0).unwrap().statistics.money_earned(),
             usa_money,
             "non-playable template victim must not award bounty"
         );
@@ -1420,10 +1423,10 @@ End
             )
             .unwrap();
         logic.process_destroy_list();
-        assert_eq!(logic.get_player(0).unwrap().statistics.units_destroyed, 0);
-        assert_eq!(logic.get_player(2).unwrap().statistics.units_lost, 0);
+        assert_eq!(logic.get_player(0).unwrap().statistics.units_destroyed(), 0);
+        assert_eq!(logic.get_player(2).unwrap().statistics.units_lost(), 0);
         assert!(
-            logic.get_player(0).unwrap().statistics.money_earned > 0,
+            logic.get_player(0).unwrap().statistics.money_earned() > 0,
             "DISABLE_SCORING must still award bounty"
         );
         assert!(
@@ -1447,8 +1450,8 @@ End
             )
             .unwrap();
         logic.process_destroy_list();
-        assert_eq!(logic.get_player(0).unwrap().statistics.units_destroyed, 1);
-        assert_eq!(logic.get_player(2).unwrap().statistics.units_lost, 1);
+        assert_eq!(logic.get_player(0).unwrap().statistics.units_destroyed(), 1);
+        assert_eq!(logic.get_player(2).unwrap().statistics.units_lost(), 1);
     }
 
     /// CPP ActiveBody646–653 scores a live killing source before onDie;
@@ -1526,11 +1529,11 @@ End
             "kill awards the victim ExperienceValue to the canonical killer immediately"
         );
         assert_eq!(
-            logic.get_player(0).unwrap().statistics.units_destroyed,
+            logic.get_player(0).unwrap().statistics.units_destroyed(),
             1,
             "canonical kill must credit the killer team's score keeper"
         );
-        assert_eq!(logic.get_player(2).unwrap().statistics.units_lost, 1);
+        assert_eq!(logic.get_player(2).unwrap().statistics.units_lost(), 1);
         assert!(
             logic.get_player(0).unwrap().skill_points > 0,
             "C++ scoreTheKill adds SkillPointValue for the killer's owner"

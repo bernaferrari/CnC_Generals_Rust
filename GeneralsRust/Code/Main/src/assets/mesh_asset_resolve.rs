@@ -1453,18 +1453,18 @@ mod tests {
     }
 
     #[test]
-    fn airanger_alias_maps_to_airanger_s() {
+    fn airanger_alias_maps_to_authored_ranger_skin() {
         assert_eq!(
             remap_model_key_alias("airanger").to_ascii_lowercase(),
-            "airanger_s"
+            "airngr_skn"
         );
         assert_eq!(
             remap_model_key_alias("USA_Ranger").to_ascii_lowercase(),
-            "airanger_s"
+            "airngr_skn"
         );
         assert_eq!(
             remap_model_key_alias("AmericaInfantryRanger").to_ascii_lowercase(),
-            "airanger_s"
+            "airngr_skn"
         );
     }
 
@@ -1482,7 +1482,7 @@ mod tests {
         let key = model_key_from_presentation(Some("avhummer"), "USA_Humvee");
         assert_eq!(key.to_ascii_lowercase(), "avhummer");
         let key2 = model_key_from_presentation(None, "USA_Ranger");
-        assert_eq!(key2.to_ascii_lowercase(), "airanger_s");
+        assert_eq!(key2.to_ascii_lowercase(), "airngr_skn");
     }
 
     #[test]
@@ -1634,8 +1634,8 @@ mod tests {
         t.set_model("airanger"); // legacy alias
         let from_template = model_key_from_template(&t);
         let from_pres = model_key_from_presentation(Some("airanger"), "USA_Ranger");
-        assert_eq!(from_template.to_ascii_lowercase(), "airanger_s");
-        assert_eq!(from_pres.to_ascii_lowercase(), "airanger_s");
+        assert_eq!(from_template.to_ascii_lowercase(), "airngr_skn");
+        assert_eq!(from_pres.to_ascii_lowercase(), "airngr_skn");
     }
 
     #[test]
@@ -1739,7 +1739,7 @@ mod tests {
         );
         assert_eq!(
             remap_model_key_alias("USA_Raptor").to_ascii_lowercase(),
-            "avraptorag"
+            "avraptor"
         );
         assert_eq!(
             remap_model_key_alias("AmericaPatriotBattery").to_ascii_lowercase(),
@@ -1749,34 +1749,43 @@ mod tests {
 
     #[test]
     fn placeholder_key_ring_buffer_residual() {
-        assert!(honesty_placeholder_key_ring_ok());
-        MeshResolveHonesty::reset_for_tests();
-        // Fill beyond capacity → ring drops oldest.
-        let mut resolver = super::super::resolver::LiveAssetResolver::new(
-            super::super::resolver::default_asset_roots(),
-        );
-        for i in 0..(PLACEHOLDER_KEY_RING_CAPACITY + 4) {
-            let key = format!("__ring_placeholder_{i}__");
-            let _ = resolve_mesh_for_model_key_with_resolver(&key, true, &mut resolver);
-        }
-        let keys = recent_placeholder_model_keys();
-        assert!(
-            keys.len() <= PLACEHOLDER_KEY_RING_CAPACITY,
-            "ring must cap at {PLACEHOLDER_KEY_RING_CAPACITY}, got {}",
-            keys.len()
-        );
-        // Newest keys retained.
-        assert!(
-            keys.iter()
-                .any(|k| k.contains(&format!("{}", PLACEHOLDER_KEY_RING_CAPACITY + 3))),
-            "newest key must remain in ring: {keys:?}"
-        );
-        // Oldest dropped.
-        assert!(
-            !keys
-                .iter()
-                .any(|k| k.ends_with("_0__") && k.contains("ring_placeholder_0")),
-            "oldest key should be dropped from ring: {keys:?}"
+        // This one fixture resets the actual process counters/ring. Run its
+        // complete original assertions in a child so parallel honesty readers
+        // cannot observe their counters being reset by another test.
+        crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+            module_path!(),
+            "placeholder_key_ring_buffer_residual",
+            || {
+                assert!(honesty_placeholder_key_ring_ok());
+                MeshResolveHonesty::reset_for_tests();
+                // Fill beyond capacity → ring drops oldest.
+                let mut resolver = super::super::resolver::LiveAssetResolver::new(
+                    super::super::resolver::default_asset_roots(),
+                );
+                for i in 0..(PLACEHOLDER_KEY_RING_CAPACITY + 4) {
+                    let key = format!("__ring_placeholder_{i}__");
+                    let _ = resolve_mesh_for_model_key_with_resolver(&key, true, &mut resolver);
+                }
+                let keys = recent_placeholder_model_keys();
+                assert!(
+                    keys.len() <= PLACEHOLDER_KEY_RING_CAPACITY,
+                    "ring must cap at {PLACEHOLDER_KEY_RING_CAPACITY}, got {}",
+                    keys.len()
+                );
+                // Newest keys retained.
+                assert!(
+                    keys.iter()
+                        .any(|k| k.contains(&format!("{}", PLACEHOLDER_KEY_RING_CAPACITY + 3))),
+                    "newest key must remain in ring: {keys:?}"
+                );
+                // Oldest dropped.
+                assert!(
+                    !keys
+                        .iter()
+                        .any(|k| k.ends_with("_0__") && k.contains("ring_placeholder_0")),
+                    "oldest key should be dropped from ring: {keys:?}"
+                );
+            },
         );
     }
 

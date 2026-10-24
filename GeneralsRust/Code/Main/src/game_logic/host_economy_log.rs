@@ -190,7 +190,7 @@ mod owned_receipt_tests {
         let (player, output) = owner.player_and_economy_events_mut(0).unwrap();
         assert_eq!(player.do_bounty_for_kill(101, output), 13);
         assert_eq!(player.resources.supplies, 1_013);
-        assert_eq!(player.statistics.money_earned, 13);
+        assert_eq!(player.statistics.money_earned(), 13);
         owner.economy_events.complete_boundary();
         assert_eq!(
             owner.economy_events.take_money_audio(),

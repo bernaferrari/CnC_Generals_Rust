@@ -674,6 +674,7 @@ fn radius_decal_scud_storm_create_and_kill_on_idle() {
     assert!(honesty_radius_decal_update_residual_ok());
 
     let mut logic = GameLogic::new();
+    ensure_test_player_for_team(&mut logic, Team::GLA);
     let mut tpl = crate::game_logic::ThingTemplate::new("GLAScudStorm");
     tpl.set_health(4000.0);
     logic.templates.insert("GLAScudStorm".to_string(), tpl);
@@ -1220,6 +1221,7 @@ fn a10_strike_flight_drops_missiles() {
     use crate::game_logic::KindOf;
     use crate::game_logic::special_power_strikes::A10StrikeScienceTier;
     let mut logic = GameLogic::new();
+    logic.override_world_size(4000.0, 4000.0);
     ensure_test_player_for_team(&mut logic, Team::USA);
     ensure_test_player_for_team(&mut logic, Team::GLA);
     let mut cc = crate::game_logic::ThingTemplate::new("AmericaCommandCenter");
@@ -1232,12 +1234,18 @@ fn a10_strike_flight_drops_missiles() {
         .create_object("AmericaCommandCenter", Team::USA, Vec3::new(0.0, 0.0, 0.0))
         .unwrap();
     let _foe = logic
-        .create_object("GLATankScorpion", Team::GLA, Vec3::new(180.0, 0.0, 0.0))
+        .create_object("GLATankScorpion", Team::GLA, Vec3::new(1200.0, 0.0, 0.0))
         .unwrap();
+    // The receiving factory must have the real payload definition; constructing
+    // a transport never fabricates successful missile creation.
+    let payload_name = crate::game_logic::special_power_strikes::A10_PAYLOAD_TEMPLATE;
+    let mut payload = ThingTemplate::new(payload_name);
+    payload.add_kind_of(KindOf::Projectile).set_health(40.0);
+    logic.templates.insert(payload_name.into(), payload);
     let jet = logic
         .spawn_a10_strike_flight(
             cc_id,
-            Vec3::new(180.0, 0.0, 0.0),
+            Vec3::new(1200.0, 0.0, 0.0),
             A10StrikeScienceTier::Level1,
         )
         .expect("a10");
@@ -1248,14 +1256,19 @@ fn a10_strike_flight_drops_missiles() {
             .a10_strike_transport
             .is_some()
     );
-    assert!(logic.a10_strike_flight_reg.missiles_scheduled >= 6);
+    // DeliverPayloadAIUpdate.cpp:770-802 creates visible payload during delivery,
+    // not while the flight is constructed. Observe admitted payload at that phase.
+    assert_eq!(logic.a10_strike_flight_reg.missiles_scheduled, 0);
     for f in 0..400 {
         logic.frame = f;
         logic.update_a10_strike_flights();
-        if logic.a10_strike_flight_reg.impacts >= 1 {
+        if logic.a10_strike_flight_reg.impacts >= 1
+            && logic.a10_strike_flight_reg.missiles_scheduled >= 6
+        {
             break;
         }
     }
+    assert!(logic.a10_strike_flight_reg.missiles_scheduled >= 6);
     assert!(logic.a10_strike_flight_reg.missiles_dropped >= 1);
     assert!(logic.a10_strike_flight_reg.impacts >= 1);
     assert!(logic.honesty_a10_strike_flight_ok());

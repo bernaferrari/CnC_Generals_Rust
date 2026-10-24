@@ -47,11 +47,11 @@ fn same_faction_owner_change_idles_and_orders_exit_only_in_receiving_world() {
     assert_eq!(world.objects[&transport].ai_state, AIState::Idle);
     assert!(world.objects[&transport].pending_evacuate_on_stop);
     assert_eq!(world.objects[&passenger].contained_by, Some(transport));
-    assert_eq!(world.players[&2].statistics.objects_captured, 0);
-    assert_eq!(world.players[&1].statistics.objects_captured, 0);
+    assert_eq!(world.players[&2].statistics.objects_captured(), 0);
+    assert_eq!(world.players[&1].statistics.objects_captured(), 0);
     assert_eq!(peer.objects[&peer_transport].ai_state, AIState::Moving);
     assert!(!peer.objects[&peer_transport].pending_evacuate_on_stop);
-    assert_eq!(peer.players[&2].statistics.objects_captured, 0);
+    assert_eq!(peer.players[&2].statistics.objects_captured(), 0);
 }
 
 #[test]
@@ -66,7 +66,7 @@ fn same_owner_unit_team_callback_preserves_orders_without_scoring_or_evacuation(
     assert_eq!(world.objects[&transport].ai_state, AIState::Moving);
     assert!(!world.objects[&transport].pending_evacuate_on_stop);
     assert_eq!(world.objects[&passenger].contained_by, Some(transport));
-    assert_eq!(world.players[&1].statistics.objects_captured, 0);
+    assert_eq!(world.players[&1].statistics.objects_captured(), 0);
 }
 
 #[test]

@@ -653,8 +653,15 @@ fn ambulance_auto_heal_residual_out_of_range_then_in_range() {
 
     // Move into radius.
     {
-        let infantry = game_logic.host_object_mut(infantry_id).expect("infantry");
-        infantry.set_position(Vec3::new(30.0, 0.0, 0.0));
+        let (infantry, fixture_partition_infantry) = game_logic
+            .host_object_and_partition_mut(infantry_id)
+            .expect("infantry");
+        infantry.set_position_with_partition_owner(
+            Vec3::new(30.0, 0.0, 0.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_infantry,
+        );
     }
     // Live-clock stamp past frame 0 (C++ sole-benefactor expiration gate).
     game_logic.frame = 1;
@@ -854,8 +861,15 @@ fn propaganda_tower_residual_out_of_range_then_in_range() {
 
     // Move into radius — membership waits for the next 2s scan.
     {
-        let unit = game_logic.host_object_mut(unit_id).expect("unit");
-        unit.set_position(Vec3::new(40.0, 0.0, 0.0));
+        let (unit, fixture_partition_unit) = game_logic
+            .host_object_and_partition_mut(unit_id)
+            .expect("unit");
+        unit.set_position_with_partition_owner(
+            Vec3::new(40.0, 0.0, 0.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_unit,
+        );
     }
     game_logic.update_propaganda_tower_pulse(1.0 / 30.0);
     {
@@ -883,8 +897,15 @@ fn propaganda_tower_residual_out_of_range_then_in_range() {
 
     // Leave radius: buff sticks until the next scan.
     {
-        let unit = game_logic.host_object_mut(unit_id).expect("unit");
-        unit.set_position(Vec3::new(300.0, 0.0, 0.0));
+        let (unit, fixture_partition_unit) = game_logic
+            .host_object_and_partition_mut(unit_id)
+            .expect("unit");
+        unit.set_position_with_partition_owner(
+            Vec3::new(300.0, 0.0, 0.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_unit,
+        );
     }
     game_logic.update_propaganda_tower_pulse(1.0 / 30.0);
     {
@@ -1939,10 +1960,14 @@ fn hijack_rejects_already_hijacked_vehicle() {
         .create_object("TestTank", Team::GLA, Vec3::new(4.0, 0.0, 0.0))
         .expect("target should be created");
     {
-        let target = game_logic
-            .host_object_mut(target_id)
+        let (target, fixture_partition_target) = game_logic
+            .host_object_and_partition_mut(target_id)
             .expect("target should exist");
-        target.apply_hijacked(&mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()));
+        target.apply_hijacked_from_with_partition_owner(
+            None,
+            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            fixture_partition_target,
+        );
     }
 
     game_logic.queue_command(crate::command_system::GameCommand {
@@ -2027,10 +2052,15 @@ fn hijack_command_applies_only_after_unit_reaches_target() {
     );
 
     {
-        let hijacker = game_logic
-            .host_object_mut(hijacker_id)
+        let (hijacker, fixture_partition_hijacker) = game_logic
+            .host_object_and_partition_mut(hijacker_id)
             .expect("hijacker should exist");
-        hijacker.set_position(Vec3::new(2.0, 0.0, 0.0));
+        hijacker.set_position_with_partition_owner(
+            Vec3::new(2.0, 0.0, 0.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_hijacker,
+        );
         hijacker.set_ai_state(
             AIState::SpecialAbility,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
@@ -2089,10 +2119,15 @@ fn sabotage_command_applies_only_after_unit_reaches_target() {
     assert!(!game_logic.honesty_saboteur_power_ok());
 
     {
-        let saboteur = game_logic
-            .host_object_mut(saboteur_id)
+        let (saboteur, fixture_partition_saboteur) = game_logic
+            .host_object_and_partition_mut(saboteur_id)
             .expect("saboteur should exist");
-        saboteur.set_position(Vec3::new(2.0, 0.0, 0.0));
+        saboteur.set_position_with_partition_owner(
+            Vec3::new(2.0, 0.0, 0.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_saboteur,
+        );
         saboteur.set_ai_state(
             AIState::SpecialAbility,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
@@ -2286,12 +2321,17 @@ fn snipe_vehicle_command_applies_only_after_unit_reaches_target() {
     assert!(!target_after_far_update.is_unmanned());
 
     {
-        let sniper = game_logic
-            .host_object_mut(sniper_id)
+        let (sniper, fixture_partition_sniper) = game_logic
+            .host_object_and_partition_mut(sniper_id)
             .expect("sniper should exist");
         // C++ MSG_DO_WEAPON_AT_OBJECT uses GLAJarmenKellVehiclePilotSniperRifle
         // AttackRange 225, not contact radii+4.
-        sniper.set_position(Vec3::new(200.0, 0.0, 0.0));
+        sniper.set_position_with_partition_owner(
+            Vec3::new(200.0, 0.0, 0.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_sniper,
+        );
         sniper.set_ai_state(
             AIState::SpecialAbility,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
@@ -2440,11 +2480,12 @@ fn retail_pilot_metadata_drives_starting_veteran_and_same_owner_recrew() {
         .create_object_for_player("TestTank", 1, Vec3::new(0.0, 0.0, 0.0))
         .expect("foreign tank");
     {
-        let (t, health_events, ownership_events) = {
+        let (t, health_events, ownership_events, partition_manager) = {
             let crate::game_logic::GameLogic {
                 objects,
                 health_events,
                 ownership_events,
+                partition_manager,
                 ..
             } = &mut game_logic;
             (
@@ -2453,13 +2494,14 @@ fn retail_pilot_metadata_drives_starting_veteran_and_same_owner_recrew() {
                     .expect("foreign tank object"),
                 health_events,
                 ownership_events,
+                partition_manager,
             )
         };
         t.apply_kill_pilot_unmanned(
             health_events,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
-        t.set_team(Team::Neutral, ownership_events);
+        t.set_team_with_partition_owner(Team::Neutral, ownership_events, partition_manager);
         t.experience.level = VeterancyLevel::Rookie;
         assert_eq!(t.status.unmanned_owner_player_id, Some(1));
     }
@@ -2490,24 +2532,26 @@ fn retail_pilot_metadata_drives_starting_veteran_and_same_owner_recrew() {
         .create_object_for_player("TestTank", 0, Vec3::new(0.0, 0.0, 0.0))
         .expect("own tank");
     {
-        let (t, health_events, ownership_events) = {
+        let (t, health_events, ownership_events, partition_manager) = {
             let crate::game_logic::GameLogic {
                 objects,
                 health_events,
                 ownership_events,
+                partition_manager,
                 ..
             } = &mut game_logic;
             (
                 objects.get_mut(&tank_id).expect("own tank object"),
                 health_events,
                 ownership_events,
+                partition_manager,
             )
         };
         t.apply_kill_pilot_unmanned(
             health_events,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
-        t.set_team(Team::Neutral, ownership_events);
+        t.set_team_with_partition_owner(Team::Neutral, ownership_events, partition_manager);
         t.experience.level = VeterancyLevel::Rookie;
         assert_eq!(t.status.unmanned_owner_player_id, Some(0));
     }
@@ -2878,11 +2922,8 @@ fn live_set_stopping_distance_drains_and_arrives_at_scripted_band() {
         );
     }
 
-    if let Some(o) = logic.host_object_mut(id) {
-        o.update_movement(
-            1.0 / 30.0,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
-        );
+    logic.update_movement(&[id], 1.0 / 30.0);
+    if let Some(o) = logic.host_object(id) {
         assert!(
             o.movement.target_position.is_none(),
             "scripted closeEnoughDist 25 must stop a 10wu goal"

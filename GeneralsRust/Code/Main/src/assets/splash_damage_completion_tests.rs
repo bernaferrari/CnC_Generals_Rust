@@ -7,9 +7,7 @@ use super::*;
 use crate::game_logic::{GameLogic, ObjectId, Player, Team, VeterancyLevel};
 use game_engine::common::ini::INI;
 use game_engine::common::ini::ini_damage_fx::init_global_damage_fx_store;
-use game_engine::common::ini::ini_fx_list::{
-    DispatchedFxNugget, FxListObjRuntime, register_fx_list_obj_runtime, take_dispatched_fx_nuggets,
-};
+use game_engine::common::ini::ini_fx_list::DispatchedFxNugget;
 use glam::Vec3;
 use std::time::Duration;
 
@@ -32,6 +30,8 @@ impl Splash {
         }
     }
     fn apply(self, world: &mut GameLogic, source: ObjectId, team: Team, skip: ObjectId) -> u32 {
+        // The match's partition phase admits factory births before combat queries.
+        world.update_owned_partition_with_effects(&mut Default::default());
         match self {
             Self::Hit => world.apply_instant_hit_splash_at(
                 Vec3::new(30.0, 0.0, 0.0),
@@ -117,22 +117,55 @@ struct FxCall {
     victim: Option<u32>,
     source: Option<u32>,
 }
-#[derive(Default)]
-struct Observer(Mutex<Vec<FxCall>>);
-impl FxListObjRuntime for Observer {
-    fn do_fx_obj(&self, name: &str, victim: Option<u32>, source: Option<u32>) -> bool {
-        self.0.lock().unwrap().push(FxCall {
-            name: name.into(),
-            victim,
-            source,
-        });
-        false // Continue through the real parsed FXList Sound nugget.
+struct Observer(std::sync::mpsc::Receiver<FxCall>);
+struct ObserveList {
+    name: String,
+    sender: std::sync::mpsc::Sender<FxCall>,
+}
+impl game_client::fx_list::FXNugget for ObserveList {
+    fn do_fx_pos(
+        &self,
+        _: Option<&gamelogic::common::Coord3D>,
+        _: Option<&gamelogic::common::Matrix3D>,
+        _: f32,
+        _: Option<&gamelogic::common::Coord3D>,
+        _: f32,
+    ) {
+        panic!("Armor FX must retain object dispatch");
+    }
+    fn do_fx_obj_host(
+        &self,
+        victim: &gamelogic::helpers::HostFxObjectPose,
+        source: Option<&gamelogic::helpers::HostFxObjectPose>,
+    ) {
+        self.sender
+            .send(FxCall {
+                name: self.name.clone(),
+                victim: Some(victim.id),
+                source: source.map(|pose| pose.id),
+            })
+            .unwrap();
     }
 }
 impl Observer {
     fn take(&self) -> Vec<FxCall> {
-        std::mem::take(&mut *self.0.lock().unwrap())
+        self.0.try_iter().collect()
     }
+}
+// Read actual native Sound-nugget submissions in admission order. This checks
+// queued audio names, not hardware playback or the obsolete Common dispatch log.
+fn take_dispatched_fx_nuggets() -> Vec<DispatchedFxNugget> {
+    let Some(manager) = game_engine::common::audio::game_audio::get_global_audio_manager() else {
+        return Vec::new();
+    };
+    let mut manager = manager.lock().unwrap();
+    let sounds = manager
+        .pending_play_events()
+        .filter(|event| event.get_event_name().starts_with("Sound_SplashCompletion"))
+        .map(|event| DispatchedFxNugget::Sound(event.get_event_name().to_owned()))
+        .collect();
+    manager.remove_all_audio_requests();
+    sounds
 }
 
 fn object(
@@ -149,7 +182,7 @@ fn object(
     format!(
         r#"
 Object {name}
- KindOf = INFANTRY SELECTABLE ATTACKABLE SCORE
+ KindOf = INFANTRY SELECTABLE CAN_ATTACK SCORE
  IsTrainable = Yes
  ExperienceRequired = 0 10 20 1000
  ExperienceValue = {xp} {xp} {xp} {xp}
@@ -157,6 +190,7 @@ Object {name}
  GeometryMajorRadius = 1
  Body = ActiveBody ModuleTag_Body
   MaxHealth = {health}
+  InitialHealth = {health}
  End
  ArmorSet
   Conditions = None
@@ -184,7 +218,7 @@ fn create_single_file_big(path: &Path, virtual_path: &str, data: &[u8]) {
     file.write_all(data).unwrap();
 }
 
-fn install() -> (GameLogic, Arc<Observer>) {
+fn install() -> (GameLogic, Observer) {
     assert!(ASSET_MANAGER.get().is_none());
     gamelogic::initialize_weapon_store().unwrap();
     let mut weapons = String::new();
@@ -313,13 +347,64 @@ End
         objects.as_bytes(),
     );
     let mut manager = AssetManager::new().unwrap();
+    let mut receiving_weapons = std::collections::HashMap::new();
+    assert_eq!(
+        crate::assets::ini_template_loader::parse_weapon_definitions_ini_into(
+            &mut receiving_weapons,
+            &weapons,
+            crate::assets::ini_template_loader::WeaponDefinitionLoadType::Normal,
+        ),
+        3
+    );
+    manager.weapon_definitions = receiving_weapons
+        .into_values()
+        .map(|rule| (rule.name.clone(), rule))
+        .collect();
     futures::executor::block_on(manager.archive_system.load_big_file(&big)).unwrap();
     manager.archive_system.set_local_search_roots(Vec::new());
     futures::executor::block_on(manager.ww3d_manager.initialize(&mut manager.archive_system))
         .unwrap();
     assert_eq!(manager.get_object_definition_count(), 8);
     assert!(ASSET_MANAGER.set(Arc::new(Mutex::new(manager))).is_ok());
+    let (sender, receiver) = std::sync::mpsc::channel();
+    for rows in ["SplashCompletionRows", "SplashCompletionNestedRows"] {
+        for level in ["REGULAR", "VETERAN", "ELITE"] {
+            let name = format!("FX_{rows}_{level}");
+            let definition = game_engine::common::ini::ini_fx_list::get_fx_list_store()
+                .find_fx_list(&name)
+                .expect("actual parsed FX list")
+                .clone();
+            let mut list = game_client::fx_list::FXList::from_definition(&definition);
+            list.add_fx_nugget(Box::new(ObserveList {
+                name: name.clone(),
+                sender: sender.clone(),
+            }));
+            game_client::fx_list::get_fx_list_store_mut().add_fx_list(name, list);
+            let sound = format!("Sound_{rows}_{level}");
+            let manager = game_engine::common::audio::game_audio::get_global_audio_manager()
+                .unwrap_or_else(
+                    game_engine::common::audio::game_audio::initialize_global_audio_manager,
+                );
+            manager.lock().unwrap().register_audio_event_info(
+                game_engine::common::audio::audio_event_rts::AudioEventInfo {
+                    audio_name: sound.clone(),
+                    sounds: vec![format!("{sound}.wav")],
+                    volume: 1.0,
+                    type_field: game_engine::common::audio::audio_event_rts::ST_WORLD,
+                    ..Default::default()
+                },
+            );
+        }
+    }
     let mut world = GameLogic::new();
+    let content = crate::assets::ReceivingObjectContent::from_sources([(
+        "Data/INI/Object/SplashCompletion.ini".into(),
+        objects,
+    )])
+    .expect("actual ordered fixture content");
+    world
+        .admit_receiving_module_content(content)
+        .expect("receiving authored content admission");
     for (id, team) in [(0, Team::USA), (1, Team::China), (2, Team::GLA)] {
         let mut player = Player::new(id, team, &format!("SplashPlayer{id}"), true);
         player.alliance_team = id as i32;
@@ -327,8 +412,12 @@ End
         world.add_player(player);
     }
     world.set_current_frame(100);
-    let observer = Arc::new(Observer::default());
-    register_fx_list_obj_runtime(observer.clone());
+    {
+        let mut shroud = world.world_services.shroud().lock().unwrap();
+        shroud.init_shroud_grid_at_origin([-128.0, -128.0], 256.0, 256.0);
+        shroud.reveal_map_for_player_permanently(0).unwrap();
+    }
+    let observer = Observer(receiver);
     assert!(take_dispatched_fx_nuggets().is_empty());
     (world, observer)
 }
@@ -337,8 +426,16 @@ fn admit(world: &mut GameLogic, name: &str, player: u32, pos: Vec3) -> ObjectId 
     let id = world
         .create_object_for_player(name, player, pos)
         .expect("actual authored admission");
+    world
+        .world_services
+        .shroud()
+        .lock()
+        .unwrap()
+        .set_host_object_shroud_status(0, id.0, gamelogic::common::ObjectShroudStatus::Clear);
     let o = &world.objects[&id];
     assert_eq!(o.owner_player_id, Some(player));
+    assert!(o.is_alive(), "authored ActiveBody must begin alive");
+    assert_eq!(o.health.current, o.health.maximum);
     assert_eq!(o.experience.current, 0.0);
     assert_eq!(o.experience.level, VeterancyLevel::Rookie);
     assert!(o.is_trainable());
@@ -576,7 +673,7 @@ fn missing_source(kind: Splash) {
     world.process_destroy_list();
     assert!(!world.objects.contains_key(&target));
     assert_eq!(
-        world.get_player(1).unwrap().statistics.units_lost,
+        world.get_player(1).unwrap().statistics.units_lost(),
         1,
         "supplied killer team keeps the pre-existing missing-source death event"
     );
@@ -599,11 +696,11 @@ fn supplied_team(kind: Splash) {
     assert_fx(&fx, target, Some(source), "SplashCompletionRows", "VETERAN");
     world.process_destroy_list();
     assert_eq!(
-        world.get_player(2).unwrap().statistics.units_destroyed,
+        world.get_player(2).unwrap().statistics.units_destroyed(),
         0,
         "event team is the explicit caller team, not the source's later team"
     );
-    assert_eq!(world.get_player(1).unwrap().statistics.units_lost, 1);
+    assert_eq!(world.get_player(1).unwrap().statistics.units_lost(), 1);
 }
 
 macro_rules! cases {

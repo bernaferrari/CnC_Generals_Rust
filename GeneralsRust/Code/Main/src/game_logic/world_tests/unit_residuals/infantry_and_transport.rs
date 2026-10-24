@@ -326,10 +326,7 @@ fn hacker_disable_building_uses_typed_persistent_channel_and_packs_on_relation_l
     // Enter range: the channel exposes its authored 7300 ms unpack before
     // initial 3000 ms preparation.  The test directly moves the source only
     // to isolate SpecialAbilityUpdate timing from pathfinding geometry.
-    game_logic
-        .host_object_mut(hacker_id)
-        .expect("hacker")
-        .set_position(Vec3::new(10.0, 0.0, 0.0));
+    game_logic.set_fixture_object_position(hacker_id, Vec3::new(10.0, 0.0, 0.0));
     game_logic.update_ai(&[hacker_id, target_id], 1.0 / 60.0);
     // C++ NeedToFace before unpack: first in-range tick may still be approaching.
     game_logic.update_ai(&[hacker_id, target_id], 1.0);
@@ -1575,11 +1572,21 @@ fn height_die_kills_bomb_via_object_tick() {
         )
         .unwrap();
     {
-        let o = logic.objects.get_mut(&id).unwrap();
+        let (o, fixture_partition_o) = logic.host_object_and_partition_mut(id).unwrap();
         o.height_die = Some(HostHeightDieData::with_target(5.0, true, 0));
-        o.set_position(glam::Vec3::new(0.0, 80.0, 0.0));
+        o.set_position_with_partition_owner(
+            glam::Vec3::new(0.0, 80.0, 0.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_o,
+        );
         assert!(!o.tick_height_die(1, 0.0));
-        o.set_position(glam::Vec3::new(0.0, 3.0, 0.0));
+        o.set_position_with_partition_owner(
+            glam::Vec3::new(0.0, 3.0, 0.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_o,
+        );
         assert!(o.tick_height_die(2, 0.0));
     }
     assert!(logic.objects.get(&id).unwrap().status.destroyed);
@@ -2618,13 +2625,13 @@ fn troop_crawler_assault_keeps_wounded_and_retrieves_outside() {
         .map(|c| c.occupants.clone())
         .unwrap_or_default();
     for oid in old_occ {
-        if let Some((c, ownership_events)) =
-            game_logic.host_object_and_ownership_events_mut(crawler_id)
+        if let Some((c, ownership_events, fixture_partition_c)) =
+            game_logic.host_object_ownership_partition_mut(crawler_id)
         {
-            c.remove_occupant(oid, ownership_events);
+            c.remove_occupant_with_partition_owner(oid, ownership_events, fixture_partition_c);
         }
-        if let Some(u) = game_logic.host_object_mut(oid) {
-            u.set_contained_by(None);
+        if let Some((u, fixture_partition_u)) = game_logic.host_object_and_partition_mut(oid) {
+            u.set_contained_by_with_partition_owner(None, true, fixture_partition_u);
         }
         game_logic.destroy_object(oid);
     }

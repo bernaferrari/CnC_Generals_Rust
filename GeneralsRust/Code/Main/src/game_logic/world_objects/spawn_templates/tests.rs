@@ -270,14 +270,14 @@ mod tests {
         logic.frame = 274;
         logic.update_hacker_income();
         assert_eq!(logic.get_player(1).unwrap().resources.supplies, 5);
-        assert_eq!(logic.get_player(1).unwrap().statistics.money_earned, 5);
+        assert_eq!(logic.get_player(1).unwrap().statistics.money_earned(), 5);
         logic.frame = 279;
         logic.update_hacker_income();
         assert_eq!(logic.get_player(1).unwrap().resources.supplies, 5);
         logic.frame = 280;
         logic.update_hacker_income();
         assert_eq!(logic.get_player(1).unwrap().resources.supplies, 10);
-        assert_eq!(logic.get_player(1).unwrap().statistics.money_earned, 10);
+        assert_eq!(logic.get_player(1).unwrap().statistics.money_earned(), 10);
     }
 
     #[test]

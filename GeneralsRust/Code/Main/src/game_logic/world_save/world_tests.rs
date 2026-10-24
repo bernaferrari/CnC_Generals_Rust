@@ -108,11 +108,18 @@ mod sides_host_apply_tests {
                 out.close_data_chunk();
                 out.close_data_chunk();
                 out.open_data_chunk("SidesList", 2);
-                out.write_int(2);
-                for name in ["UnrelatedMapSide", "PlyrCivilian"] {
+                out.write_int(3);
+                // CPP Player792-819 forces an AI Human when its faction has no
+                // matching source side. Supply that definition so this witness
+                // exercises occupied-slot preservation on a valid skirmish map.
+                for (name, faction) in [
+                    ("UnrelatedMapSide", "FactionCivilian"),
+                    ("PlyrCivilian", "FactionCivilian"),
+                    ("PlyrGLA", "FactionGLA"),
+                ] {
                     let mut dict = Dict::new();
                     dict.set_ascii_string(key_player_name(), name);
-                    dict.set_ascii_string(key_player_faction(), "FactionCivilian");
+                    dict.set_ascii_string(key_player_faction(), faction);
                     dict.set_bool(key_player_is_human(), false);
                     dict.set_int(key_player_color(), 0);
                     dict.set_int(key_player_night_color(), 0);

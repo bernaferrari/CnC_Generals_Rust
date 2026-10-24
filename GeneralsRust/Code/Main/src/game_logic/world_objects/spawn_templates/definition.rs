@@ -202,12 +202,13 @@ impl GameLogic {
             return;
         }
         let template = obj.template_name.clone();
+        let score_kind = super::super::super::score_kind_of(obj.get_template());
         let player_id = obj
             .owner_player_id
             .or_else(|| self.player_id_for_team(obj.team));
         if let Some(player_id) = player_id {
             if let Some(player) = self.players.get_mut(&player_id) {
-                player.record_unit_produced();
+                player.statistics.record_built(&template, &score_kind);
             }
             gamelogic::player::notify_live_object_built(player_id, &template);
         }
@@ -227,12 +228,13 @@ impl GameLogic {
             return;
         }
         let template = obj.template_name.clone();
+        let score_kind = super::super::super::score_kind_of(obj.get_template());
         let player_id = obj
             .owner_player_id
             .or_else(|| self.player_id_for_team(obj.team));
         if let Some(player_id) = player_id {
             if let Some(player) = self.players.get_mut(&player_id) {
-                player.record_structure_built();
+                player.statistics.record_built(&template, &score_kind);
             }
             gamelogic::player::notify_live_object_built(player_id, &template);
         }

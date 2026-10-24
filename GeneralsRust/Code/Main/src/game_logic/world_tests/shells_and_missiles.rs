@@ -2920,8 +2920,13 @@ fn battle_drone_residual_attach_fire_and_repair() {
             .host_object(master_id)
             .map(|m| m.get_position())
             .unwrap_or(Vec3::ZERO);
-        if let Some(d) = game_logic.host_object_mut(drone_id) {
-            d.set_position(Vec3::new(mpos.x + 3.0, mpos.y, mpos.z));
+        if let Some((d, fixture_partition_d)) = game_logic.host_object_and_partition_mut(drone_id) {
+            d.set_position_with_partition_owner(
+                Vec3::new(mpos.x + 3.0, mpos.y, mpos.z),
+                0,
+                &mut Default::default(),
+                fixture_partition_d,
+            );
         }
     }
     for _ in 0..90 {
@@ -3610,8 +3615,15 @@ fn red_guard_residual_gun_horde_nationalism_and_bayonet() {
         .create_object("TestInfantry", Team::USA, Vec3::new(1.0, 0.0, 0.0))
         .expect("melee");
     {
-        let (rg, attack_events) = game_logic.host_object_and_attack_events_mut(rg0).unwrap();
-        rg.set_position(Vec3::new(0.0, 0.0, 0.0));
+        let (rg, attack_events, _fixture_audio_rg, fixture_partition_rg) = game_logic
+            .host_object_attack_audio_partition_mut(rg0)
+            .unwrap();
+        rg.set_position_with_partition_owner(
+            Vec3::new(0.0, 0.0, 0.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_rg,
+        );
         rg.attack_target(
             melee,
             attack_events,
@@ -3821,7 +3833,7 @@ fn tank_hunter_residual_rpg_horde_and_tnt() {
             fixture_partition_th,
         );
         // Facing direction to the building is atan2(-dz, dx) = +PI/2 (0 faces +X).
-        th.set_orientation(std::f32::consts::FRAC_PI_2);
+        th.set_orientation_with_partition_owner(std::f32::consts::FRAC_PI_2, fixture_partition_th);
         th.set_ai_state(
             AIState::SpecialAbility,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),

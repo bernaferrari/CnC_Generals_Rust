@@ -18,6 +18,7 @@ mod camera_continuation;
 pub(crate) mod command_overrides;
 mod construct;
 mod crate_tick;
+pub(crate) use crate_tick::score_kind_of;
 mod host;
 mod host_object_store;
 mod map_loading;

@@ -401,6 +401,9 @@ mod tests {
         // OXOB-style trailing sibling suffix.
         bytes.extend_from_slice(b"OXOB");
         bytes.extend_from_slice(&1u32.to_le_bytes());
+        // The sibling payload stays opaque to SPCD, but its declared length
+        // must frame the eight supplied bytes rather than read 0xabababab.
+        bytes.extend_from_slice(&8u32.to_le_bytes());
         bytes.extend_from_slice(&[0xab; 8]);
 
         let mut logic = GameLogic::new();
@@ -428,6 +431,9 @@ mod tests {
         encode_table(&mut bytes, &[]);
         bytes.extend_from_slice(b"OXOB");
         bytes.extend_from_slice(&1u32.to_le_bytes());
+        // The sibling payload stays opaque to SPCD, but its declared length
+        // must frame the eight supplied bytes rather than read 0xabababab.
+        bytes.extend_from_slice(&8u32.to_le_bytes());
         bytes.extend_from_slice(&[0xab; 8]);
 
         let mut logic = GameLogic::new();

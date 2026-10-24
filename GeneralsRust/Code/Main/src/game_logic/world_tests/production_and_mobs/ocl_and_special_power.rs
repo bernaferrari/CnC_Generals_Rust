@@ -150,7 +150,9 @@ fn combat_chinook_residual_passenger_fire_damages_nearby_enemy() {
         .expect("enemy");
 
     {
-        let unit = game_logic.host_object_mut(infantry_id).unwrap();
+        let (unit, fixture_partition_unit) = game_logic
+            .host_object_and_partition_mut(infantry_id)
+            .unwrap();
         unit.weapon = Some(Weapon {
             damage: 40.0,
             range: 100.0,
@@ -159,12 +161,17 @@ fn combat_chinook_residual_passenger_fire_damages_nearby_enemy() {
             ..Weapon::default()
         });
         unit.target = Some(chinook_id);
-        unit.set_contained_by(Some(chinook_id));
+        unit.set_contained_by_with_partition_owner(Some(chinook_id), true, fixture_partition_unit);
         unit.set_ai_state(
             AIState::Docked,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
-        unit.set_position(Vec3::new(0.0, 0.0, 0.0));
+        unit.set_position_with_partition_owner(
+            Vec3::new(0.0, 0.0, 0.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_unit,
+        );
     }
     {
         let chinook = game_logic.host_object_mut(chinook_id).unwrap();
@@ -316,13 +323,14 @@ fn combat_chinook_vehicle_rider_does_not_arm_weapon_set() {
         .create_object("TestTank", Team::USA, Vec3::new(2.0, 0.0, 0.0))
         .expect("tank");
     {
-        let unit = game_logic.host_object_mut(tank_id).unwrap();
+        let (unit, fixture_partition_unit) =
+            game_logic.host_object_and_partition_mut(tank_id).unwrap();
         unit.weapon = Some(Weapon {
             damage: 20.0,
             range: 80.0,
             ..Weapon::default()
         });
-        unit.set_contained_by(Some(chinook_id));
+        unit.set_contained_by_with_partition_owner(Some(chinook_id), true, fixture_partition_unit);
         unit.set_ai_state(
             AIState::Docked,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),

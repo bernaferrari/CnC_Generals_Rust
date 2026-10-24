@@ -1384,10 +1384,10 @@ impl SnapshotBuilder {
 
     fn snapshot_player_statistics(&self, player: &Player) -> PlayerStatisticsSnapshot {
         PlayerStatisticsSnapshot {
-            units_built: player.statistics.units_built,
-            units_lost: player.statistics.units_lost,
-            buildings_built: player.statistics.structures_built,
-            buildings_lost: player.statistics.structures_lost,
+            units_built: player.statistics.units_built(),
+            units_lost: player.statistics.units_lost(),
+            buildings_built: player.statistics.structures_built(),
+            buildings_lost: player.statistics.structures_lost(),
             damage_dealt: 0.0, // Would need combat tracking
             damage_received: 0.0,
             resources_gathered: player.statistics.resources_collected,

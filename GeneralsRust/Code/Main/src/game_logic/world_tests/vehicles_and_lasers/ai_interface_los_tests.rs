@@ -281,9 +281,15 @@ fn authored_ai_interface_los_preserves_held_airborne_target_and_leech_exceptions
             logic.host_object_mut(source).unwrap().status.disabled_held = true;
             assert!(!logic.out_of_weapon_range_object(source, target));
             logic.host_object_mut(source).unwrap().status.disabled_held = false;
-            let object = logic.host_object_mut(source).unwrap();
+            let (object, fixture_partition_object) =
+                logic.host_object_and_partition_mut(source).unwrap();
             object.allow_to_fall = true;
-            object.set_position(glam::Vec3::new(10.0, 60.0, 10.0));
+            object.set_position_with_partition_owner(
+                glam::Vec3::new(10.0, 60.0, 10.0),
+                0,
+                &mut Default::default(),
+                fixture_partition_object,
+            );
             assert!(object.is_above_terrain());
             assert!(!logic.out_of_weapon_range_object(source, target));
             let (object, fixture_partition_object) =

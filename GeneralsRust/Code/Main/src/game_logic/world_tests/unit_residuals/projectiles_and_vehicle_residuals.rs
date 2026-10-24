@@ -1174,8 +1174,13 @@ fn lazr_patriot_residual_laser_dual_slot() {
     let _ = game_logic; // keep air for dual-slot path on next shot
     let air_hp_before = game_logic.host_object(air_id).unwrap().health.current;
     // Move ground enemy out of range so dual-slot prefers AA.
-    if let Some(e) = game_logic.host_object_mut(enemy_id) {
-        e.set_position(Vec3::new(5000.0, 0.0, 0.0));
+    if let Some((e, fixture_partition_e)) = game_logic.host_object_and_partition_mut(enemy_id) {
+        e.set_position_with_partition_owner(
+            Vec3::new(5000.0, 0.0, 0.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_e,
+        );
     }
     {
         let p = game_logic.host_object_mut(pat_id).unwrap();

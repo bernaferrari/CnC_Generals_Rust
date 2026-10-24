@@ -42,6 +42,7 @@ impl GameLogic {
         let is_building = Self::live_score_counts_as_building_destroy(victim);
         let is_unit = Self::live_score_counts_as_unit_destroy(victim);
         let template = victim.template_name.clone();
+        let score_kind = super::score_kind_of(victim.get_template());
         let enemy = match (killer_owner, victim_owner) {
             (Some(a), Some(b)) => {
                 a != b && self.player_relationship(a, b) == gamelogic::common::Relationship::Enemies
@@ -69,11 +70,7 @@ impl GameLogic {
         if !under_construction && (is_building || is_unit) && scoring {
             if let Some(owner) = victim_owner {
                 if let Some(player) = self.players.get_mut(&owner) {
-                    if is_building {
-                        player.record_structure_lost();
-                    } else {
-                        player.record_unit_lost();
-                    }
+                    player.statistics.record_lost(&template, &score_kind, false);
                 }
                 gamelogic::player::notify_live_object_lost(owner, &template, false);
             }
@@ -87,10 +84,10 @@ impl GameLogic {
         // Preserve scoreTheKill order: destroyed, skill, bounty, then caller XP.
         if !under_construction && (is_building || is_unit) && scoring {
             if let Some(player) = self.players.get_mut(&owner) {
-                if is_building {
-                    player.record_structure_destroyed();
-                } else {
-                    player.record_unit_destroyed();
+                if let Some(victim_owner) = victim_owner {
+                    player
+                        .statistics
+                        .record_destroyed(&template, &score_kind, victim_owner, false);
                 }
             }
             if let Some(victim_owner) = victim_owner {

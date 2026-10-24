@@ -555,19 +555,21 @@ impl W3DModel {
             .map(|source_transform| (source_transform, true));
         // C++ W3DModelDraw keeps the HLod in bind pose when HAnim is missing
         // or authored for a different hierarchy. Never drop every mesh.
-        let animated = animation_binding.and_then(|animation_binding| {
-            if !self.animation_binding_is_compatible(animation_binding) {
-                return None;
+        let (source_transform, visible) = match animation_binding {
+            Some(binding) if self.animation_binding_is_compatible(binding) => {
+                let animation = binding.animation(self)?;
+                let source_transform = self
+                    .sample_animation_binding(binding, animation_frame)?
+                    .get(bone_index)
+                    .copied()?;
+                // Missing/incompatible HAnim selects the base pose. A selected
+                // compatible HAnim with unavailable source visibility does not:
+                // drawing a visible base pose here would invent that value.
+                let visible = animation.visibility_for_pivot(bone_index, animation_frame)?;
+                (source_transform, visible)
             }
-            let animation = animation_binding.animation(self)?;
-            let source_transform = self
-                .sample_animation_binding(animation_binding, animation_frame)?
-                .get(bone_index)
-                .copied()?;
-            let visible = animation.visibility_for_pivot(bone_index, animation_frame)?;
-            Some((source_transform, visible))
-        });
-        let (source_transform, visible) = animated.or(bind_pose)?;
+            _ => bind_pose?,
+        };
 
         Some((
             Self::skin_render_local_transform(

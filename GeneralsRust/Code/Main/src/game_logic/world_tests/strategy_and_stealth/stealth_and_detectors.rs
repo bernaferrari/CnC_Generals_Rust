@@ -2409,11 +2409,11 @@ fn detected_stealth_garrison_unhides_building() {
         )
         .expect("burton");
     {
-        let b = logic.host_object_mut(burton).unwrap();
+        let (b, fixture_partition_b) = logic.host_object_and_partition_mut(burton).unwrap();
         b.innate_stealth = true;
         b.set_status_stealthed(true);
         b.set_status_detected(false);
-        b.set_contained_by(Some(bunker));
+        b.set_contained_by_with_partition_owner(Some(bunker), true, fixture_partition_b);
     }
     assert!(logic.host_object_mut(bunker).unwrap().add_occupant(burton));
     if let Some(bd) = logic

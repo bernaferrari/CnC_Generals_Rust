@@ -1116,8 +1116,8 @@ fn neutron_shell_residual_upgrade_and_blast() {
 
     // Fire secondary at infantry location (slot lock residual).
     {
-        let (c, attack_events) = game_logic
-            .host_object_and_attack_events_mut(cannon_id)
+        let (c, attack_events, _fixture_audio_c, fixture_partition_c) = game_logic
+            .host_object_attack_audio_partition_mut(cannon_id)
             .expect("cannon");
         c.active_weapon_slot = 1;
         c.attack_target(
@@ -1136,7 +1136,12 @@ fn neutron_shell_residual_upgrade_and_blast() {
             w.reload_time = 1000.0; // primary reloading
         }
         // Place cannon in range of infantry for combat residual.
-        c.set_position(Vec3::new(180.0, 0.0, 0.0));
+        c.set_position_with_partition_owner(
+            Vec3::new(180.0, 0.0, 0.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_c,
+        );
     }
 
     let vehicle_hp_before = game_logic
@@ -1356,7 +1361,12 @@ fn bunker_buster_residual_kills_garrison_and_damages_bunker() {
             AIState::Garrisoned,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
-        u.set_position(Vec3::new(150.0, 0.0, 0.0));
+        u.set_position_with_partition_owner(
+            Vec3::new(150.0, 0.0, 0.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_u,
+        );
     }
 
     let bunker_hp_before = game_logic
@@ -1415,8 +1425,8 @@ fn bunker_buster_residual_kills_garrison_and_damages_bunker() {
 
     // Fire residual missile at bunker (fighter at origin, bunker at 150).
     {
-        let (f, attack_events) = game_logic
-            .host_object_and_attack_events_mut(fighter_id)
+        let (f, attack_events, _fixture_audio_f, fixture_partition_f) = game_logic
+            .host_object_attack_audio_partition_mut(fighter_id)
             .unwrap();
         f.attack_target(
             bunker_id,
@@ -1428,7 +1438,12 @@ fn bunker_buster_residual_kills_garrison_and_damages_bunker() {
             w.reload_time = 0.05;
             w.damage = 100.0; // StealthJetMissile residual
         }
-        f.set_position(Vec3::new(0.0, 0.0, 0.0));
+        f.set_position_with_partition_owner(
+            Vec3::new(0.0, 0.0, 0.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_f,
+        );
     }
 
     // Keep the completed research frame: projectile deadlines must not rewind.

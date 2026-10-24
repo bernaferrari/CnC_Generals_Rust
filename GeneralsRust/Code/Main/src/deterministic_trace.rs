@@ -79,11 +79,11 @@ impl TracePlayer {
             rank_level: 0,
             skill_points: 0,
             science_purchase_points: player.unlocked_sciences.len() as i32,
-            total_score: player.statistics.units_destroyed as i32
-                + player.statistics.structures_destroyed as i32
+            total_score: player.statistics.units_destroyed() as i32
+                + player.statistics.structures_destroyed() as i32
                 + player.statistics.resources_collected as i32
-                - player.statistics.units_lost as i32
-                - player.statistics.structures_lost as i32,
+                - player.statistics.units_lost() as i32
+                - player.statistics.structures_lost() as i32,
         }
     }
 }

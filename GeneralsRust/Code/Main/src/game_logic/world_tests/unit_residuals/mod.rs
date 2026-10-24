@@ -17,13 +17,13 @@ fn strip_troop_crawler_payload(game_logic: &mut GameLogic, crawler_id: ObjectId)
         .map(|c| c.contained_units())
         .unwrap_or_default();
     for oid in old_occ {
-        if let Some((c, ownership_events)) =
-            game_logic.host_object_and_ownership_events_mut(crawler_id)
+        if let Some((c, ownership_events, fixture_partition_c)) =
+            game_logic.host_object_ownership_partition_mut(crawler_id)
         {
-            c.remove_occupant(oid, ownership_events);
+            c.remove_occupant_with_partition_owner(oid, ownership_events, fixture_partition_c);
         }
-        if let Some(u) = game_logic.host_object_mut(oid) {
-            u.set_contained_by(None);
+        if let Some((u, fixture_partition_u)) = game_logic.host_object_and_partition_mut(oid) {
+            u.set_contained_by_with_partition_owner(None, true, fixture_partition_u);
         }
         game_logic.destroy_object(oid);
     }

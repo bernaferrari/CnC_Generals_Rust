@@ -766,10 +766,12 @@ fn completed_production_preserves_factory_identity_exit_facing_and_rally() {
     let exit_facing = 1.25;
     let rally = glam::Vec3::new(48.0, 0.0, -36.0);
     {
-        let producer = logic.host_object_mut(producer_id).expect("producer object");
+        let (producer, fixture_partition_producer) = logic
+            .host_object_and_partition_mut(producer_id)
+            .expect("producer object");
         producer.set_status_under_construction(false);
         producer.construction_percent = 1.0;
-        producer.set_orientation(exit_facing);
+        producer.set_orientation_with_partition_owner(exit_facing, fixture_partition_producer);
     }
 
     assert!(logic.enqueue_production(producer_id, "TestInfantry".into()));

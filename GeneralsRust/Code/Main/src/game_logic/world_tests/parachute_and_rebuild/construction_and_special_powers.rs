@@ -2362,13 +2362,13 @@ fn airfield_dock_reloads_countermeasures_residual() {
         )
         .expect("raptor");
     {
-        let o = logic.host_object_mut(air).unwrap();
+        let (o, fixture_partition_o) = logic.host_object_and_partition_mut(air).unwrap();
         o.apply_upgrade_tag(UPGRADE_AMERICA_COUNTERMEASURES);
         o.set_ai_state(
             AIState::Docked,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
-        o.set_contained_by(Some(af_id));
+        o.set_contained_by_with_partition_owner(Some(af_id), true, fixture_partition_o);
         assert!(aircraft_has_countermeasures_upgrade(&o.applied_upgrades));
     }
     // Exhaust flares residual.

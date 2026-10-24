@@ -424,7 +424,7 @@ fn parsed_upgrade_ledger_cancel_refunds_once() {
             power: 0,
         };
         let (player, economy_events) = logic.player_and_economy_events_mut(OWNER).unwrap();
-        let spent_before = player.statistics.resources_spent;
+        let spent_before = player.statistics.resources_spent();
         let income_before = player.statistics.resources_collected;
         assert!(player.queue_upgrade(
             "Upgrade_AuthoredRefundLedger",
@@ -434,7 +434,8 @@ fn parsed_upgrade_ledger_cancel_refunds_once() {
         ));
         assert!(player.has_queued_upgrade("Upgrade_AuthoredRefundLedger"));
         assert_eq!(
-            player.statistics.resources_spent, spent_before,
+            player.statistics.resources_spent(),
+            spent_before,
             "uncompleted research withdrawal is not ScoreKeeper completed spend"
         );
         // Observe the completed enqueue operation separately. Cancellation
@@ -463,7 +464,8 @@ fn parsed_upgrade_ledger_cancel_refunds_once() {
         ));
         assert!(!player.has_queued_upgrade("Upgrade_AuthoredRefundLedger"));
         assert_eq!(
-            player.statistics.resources_spent, spent_before,
+            player.statistics.resources_spent(),
+            spent_before,
             "cancelled research never completed"
         );
         assert_eq!(

@@ -16,6 +16,7 @@
 
 use crate::game_logic::{GameLogic, ObjectId};
 use crate::save_load::{SaveLoadError, SaveLoadResult};
+use bincode_legacy::Options;
 use serde::{Deserialize, Serialize};
 
 const SUBD_MAGIC: &[u8; 4] = b"SUBD";
@@ -49,25 +50,80 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     bytes.extend_from_slice(&encoded);
 }
 
-pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> SaveLoadResult<()> {
-    let Some(suffix) = find_subd_suffix(bytes) else {
-        return Ok(());
+fn decode_from_lifecycle_tail(bytes: &[u8]) -> SaveLoadResult<Option<SubdualPersistPayload>> {
+    let Some(suffix) = find_subd_suffix(bytes)? else {
+        return Ok(None);
     };
     let mut rest = suffix;
     let version = take_u32(&mut rest)?;
-    if version != SUBD_VERSION {
-        return Err(SaveLoadError::Corrupted(format!(
-            "unknown SUBD suffix version {version}"
-        )));
-    }
     let payload_len = take_u32(&mut rest)? as usize;
-    if rest.len() < payload_len {
+    if version != SUBD_VERSION || payload_len != rest.len() || payload_len > 16 * 1024 * 1024 {
         return Err(SaveLoadError::Corrupted(
-            "SUBD payload truncated".to_string(),
+            "invalid SUBD version/length".into(),
         ));
     }
-    let payload: SubdualPersistPayload = bincode_legacy::deserialize(&rest[..payload_len])
-        .map_err(|err| SaveLoadError::Corrupted(format!("SUBD payload decode: {err}")))?;
+    // The fixed-int wire is one Vec length (u64), then three four-byte
+    // fields per entry. Validate that count before serde can reserve memory.
+    let count = rest
+        .get(..8)
+        .ok_or_else(|| SaveLoadError::Corrupted("SUBD missing object count".into()))?;
+    let count = usize::try_from(u64::from_le_bytes(count.try_into().unwrap()))
+        .map_err(|_| SaveLoadError::Corrupted("SUBD object count overflow".into()))?;
+    if count
+        .checked_mul(12)
+        .and_then(|length| length.checked_add(8))
+        != Some(rest.len())
+    {
+        return Err(SaveLoadError::Corrupted(
+            "SUBD object count/length mismatch".into(),
+        ));
+    }
+    let payload: SubdualPersistPayload = bincode_legacy::DefaultOptions::new()
+        .with_fixint_encoding()
+        .reject_trailing_bytes()
+        .deserialize(rest)
+        .map_err(|error| SaveLoadError::Corrupted(format!("SUBD payload decode: {error}")))?;
+    let mut seen = std::collections::HashSet::new();
+    for entry in &payload.objects {
+        // Original internalAddSubdualDamage clamps only the upper cap; finite
+        // negative residual pools and every unsigned countdown are valid.
+        if !entry.current_subdual_damage.is_finite() || !seen.insert(entry.object_id) {
+            return Err(SaveLoadError::Corrupted(
+                "nonfinite/duplicate SUBD owner".into(),
+            ));
+        }
+    }
+    Ok(Some(payload))
+}
+pub(super) fn preflight_from_lifecycle_tail(
+    bytes: &[u8],
+    snapshot: &super::WorldSnapshot,
+) -> SaveLoadResult<()> {
+    if let Some(payload) = decode_from_lifecycle_tail(bytes)? {
+        for entry in payload.objects {
+            if !snapshot.objects.contains_key(&ObjectId(entry.object_id)) {
+                return Err(SaveLoadError::Corrupted(
+                    "SUBD references no saved receiving actor".into(),
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> SaveLoadResult<()> {
+    let Some(payload) = decode_from_lifecycle_tail(bytes)? else {
+        return Ok(());
+    };
+    // Complete owner validation before assigning any pool/countdown.
+    if payload
+        .objects
+        .iter()
+        .any(|entry| game_logic.host_object(ObjectId(entry.object_id)).is_none())
+    {
+        return Err(SaveLoadError::Corrupted(
+            "SUBD references no receiving actor".into(),
+        ));
+    }
     apply_payload(game_logic, payload);
     Ok(())
 }
@@ -106,11 +162,14 @@ fn apply_payload(game_logic: &mut GameLogic, payload: SubdualPersistPayload) {
     }
 }
 
-fn find_subd_suffix(bytes: &[u8]) -> Option<&[u8]> {
-    bytes
-        .windows(4)
-        .rposition(|window| window == SUBD_MAGIC)
-        .map(|idx| &bytes[idx + 4..])
+fn find_subd_suffix(bytes: &[u8]) -> SaveLoadResult<Option<&[u8]>> {
+    // Preserve the old absent-owner adapter on arbitrary detached opaque tails.
+    // This negative presence proof never selects a record or reads its fields.
+    // Every possible owner still must pass the shared structural grammar.
+    if !bytes.windows(4).any(|window| window == SUBD_MAGIC) {
+        return Ok(None);
+    }
+    super::ai_team_persist::framing::find_record(bytes, SUBD_MAGIC)
 }
 
 fn append_u32(out: &mut Vec<u8>, value: u32) {
@@ -132,9 +191,124 @@ mod tests {
     use crate::game_logic::{Player, Team, ThingTemplate};
     use glam::Vec3;
 
+    fn framed_payload(payload: &SubdualPersistPayload) -> Vec<u8> {
+        let encoded = bincode_legacy::serialize(payload).unwrap();
+        let mut bytes = SUBD_MAGIC.to_vec();
+        append_u32(&mut bytes, SUBD_VERSION);
+        append_u32(&mut bytes, encoded.len() as u32);
+        bytes.extend_from_slice(&encoded);
+        bytes
+    }
+    #[test]
+    fn subd_magic_inside_framed_timer_name_is_not_an_owner() {
+        let mut bytes = b"SPCD".to_vec();
+        append_u32(&mut bytes, 2); // supported legacy SPCD with three tables
+        append_u32(&mut bytes, 1);
+        append_u32(&mut bytes, 1);
+        append_u32(&mut bytes, 1);
+        append_u32(&mut bytes, 4);
+        bytes.extend_from_slice(b"SUBD");
+        bytes.extend_from_slice(&1.0f32.to_le_bytes());
+        append_u32(&mut bytes, 0);
+        append_u32(&mut bytes, 0);
+        assert!(decode_from_lifecycle_tail(&bytes).unwrap().is_none());
+        let actual = framed_payload(&SubdualPersistPayload {
+            objects: vec![ObjectSubdualPersist {
+                object_id: 9,
+                current_subdual_damage: -3.5,
+                healing_step_countdown: u32::MAX,
+            }],
+        });
+        bytes.extend_from_slice(&actual);
+        let decoded = decode_from_lifecycle_tail(&bytes).unwrap().unwrap();
+        assert_eq!(decoded.objects[0].current_subdual_damage, -3.5);
+        assert_eq!(decoded.objects[0].healing_step_countdown, u32::MAX);
+        bytes.extend_from_slice(&actual);
+        assert!(
+            decode_from_lifecycle_tail(&bytes).is_err(),
+            "duplicate actual owner rejects"
+        );
+    }
+    #[test]
+    fn malformed_subd_rejects_duplicates_and_nonfinite_but_not_negative_history() {
+        let entry = || ObjectSubdualPersist {
+            object_id: 7,
+            current_subdual_damage: -2.0,
+            healing_step_countdown: 0,
+        };
+        assert!(
+            decode_from_lifecycle_tail(&framed_payload(&SubdualPersistPayload {
+                objects: vec![entry()],
+            }))
+            .unwrap()
+            .is_some()
+        );
+        assert!(
+            decode_from_lifecycle_tail(&framed_payload(&SubdualPersistPayload {
+                objects: vec![entry(), entry()],
+            }))
+            .is_err()
+        );
+        let mut bad = entry();
+        bad.current_subdual_damage = f32::NAN;
+        assert!(
+            decode_from_lifecycle_tail(&framed_payload(&SubdualPersistPayload {
+                objects: vec![bad],
+            }))
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn foreign_subdual_actor_rejects_before_changing_the_receiving_pool() {
+        let mut world = GameLogic::new();
+        world.templates.insert(
+            "ReceivingSubdual".into(),
+            ThingTemplate::new("ReceivingSubdual"),
+        );
+        world.add_player(Player::new(0, Team::USA, "Owner", true));
+        let id = world
+            .create_object("ReceivingSubdual", Team::USA, Vec3::ZERO)
+            .unwrap();
+        {
+            let actor = world.host_object_mut(id).unwrap();
+            actor.subdual_damage = 12.0;
+            actor.subdual_heal_countdown = 3;
+        }
+        let snapshot = super::super::SnapshotBuilder::new()
+            .create_world_snapshot(&world)
+            .unwrap();
+        let payload = SubdualPersistPayload {
+            objects: vec![
+                ObjectSubdualPersist {
+                    object_id: id.0,
+                    current_subdual_damage: 99.0,
+                    healing_step_countdown: 7,
+                },
+                ObjectSubdualPersist {
+                    object_id: u32::MAX,
+                    current_subdual_damage: -2.0,
+                    healing_step_countdown: u32::MAX,
+                },
+            ],
+        };
+        let bytes = framed_payload(&payload);
+        assert!(preflight_from_lifecycle_tail(&bytes, &snapshot).is_err());
+        assert!(apply_from_lifecycle_tail(&bytes, &mut world).is_err());
+        let actor = world.host_object(id).unwrap();
+        assert_eq!(
+            (actor.subdual_damage, actor.subdual_heal_countdown),
+            (12.0, 3)
+        );
+        // The advertised table count must never drive an unbounded allocation.
+        let mut forged = framed_payload(&SubdualPersistPayload::default());
+        forged[12..20].copy_from_slice(&u64::MAX.to_le_bytes());
+        assert!(decode_from_lifecycle_tail(&forged).is_err());
+    }
+
     #[test]
     fn absent_suffix_is_ignored() {
-        assert!(find_subd_suffix(b"no-magic-here").is_none());
+        assert!(find_subd_suffix(b"no-magic-here").unwrap().is_none());
     }
 
     #[test]
@@ -170,7 +344,9 @@ mod tests {
         let builder = super::super::SnapshotBuilder::new();
         let snapshot = builder.create_world_snapshot(&source).expect("snapshot");
         assert!(
-            find_subd_suffix(&snapshot.lifecycle_tail).is_some(),
+            find_subd_suffix(&snapshot.lifecycle_tail)
+                .unwrap()
+                .is_some(),
             "SUBD suffix must be appended to lifecycle tail"
         );
 

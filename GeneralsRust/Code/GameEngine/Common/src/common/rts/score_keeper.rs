@@ -726,34 +726,86 @@ impl ScoreKeeper {
     /// - Enemy units destroyed: +100 points each
     /// - Enemy buildings destroyed: +100 points each
     pub fn calculate_score(&mut self) -> i32 {
-        let mut score = 0;
-
-        // C++ line 318: Units built
-        score += self.total_units_built * 100;
-
-        // C++ line 319: Money earned
-        score += self.total_money_earned;
-
-        // C++ line 320: Buildings built
-        score += self.total_buildings_built * 100;
-
-        // C++ lines 321-327: Enemy units and buildings destroyed
-        for i in 0..MAX_PLAYER_COUNT {
-            // C++ lines 323-324: Skip own player index
-            if i == self.player_index as usize {
-                continue;
-            }
-            // C++ line 325: Enemy units destroyed
-            score += self.total_units_destroyed[i] * 100;
-            // C++ line 326: Enemy buildings destroyed
-            score += self.total_buildings_destroyed[i] * 100;
-        }
-
-        // C++ line 329: Store calculated score
-        self.current_score = score;
-
-        // C++ line 330: Return score
+        self.current_score = self.total_score();
         self.current_score
+    }
+
+    /// Original score observation, without changing the cached Xfer field.
+    pub fn total_score(&self) -> i32 {
+        let mut score = self
+            .total_units_built
+            .wrapping_mul(100)
+            .wrapping_add(self.total_money_earned)
+            .wrapping_add(self.total_buildings_built.wrapping_mul(100));
+        for i in 0..MAX_PLAYER_COUNT {
+            if i != self.player_index as usize {
+                score = score
+                    .wrapping_add(self.total_units_destroyed[i].wrapping_mul(100))
+                    .wrapping_add(self.total_buildings_destroyed[i].wrapping_mul(100));
+            }
+        }
+        score
+    }
+
+    pub fn player_index(&self) -> i32 {
+        self.player_index
+    }
+
+    pub fn own_units_destroyed(&self) -> i32 {
+        self.total_units_destroyed
+            .get(self.player_index as usize)
+            .copied()
+            .unwrap_or(0)
+    }
+
+    pub fn own_buildings_destroyed(&self) -> i32 {
+        self.total_buildings_destroyed
+            .get(self.player_index as usize)
+            .copied()
+            .unwrap_or(0)
+    }
+
+    /// Import the four counts available in an older native Player snapshot.
+    /// That schema has no template/victim history; never invent such records.
+    pub fn with_legacy_counts(
+        player_index: i32,
+        units_built: i32,
+        units_lost: i32,
+        buildings_built: i32,
+        buildings_lost: i32,
+    ) -> Self {
+        let mut score = Self::new();
+        score.reset(player_index);
+        score.total_units_built = units_built;
+        score.total_units_lost = units_lost;
+        score.total_buildings_built = buildings_built;
+        score.total_buildings_lost = buildings_lost;
+        score
+    }
+
+    /// Receiving template facts are resolved by the actual session, not a global factory.
+    pub fn total_units_built_with_facts(
+        &self,
+        valid: &KindOfMaskType,
+        invalid: &KindOfMaskType,
+        mut facts: impl FnMut(&str) -> Option<KindOfMaskType>,
+    ) -> i32 {
+        self.objects_built
+            .iter()
+            .filter_map(|(name, count)| {
+                facts(name)
+                    .filter(|mask| mask.matches_multi(valid, invalid))
+                    .map(|_| *count)
+            })
+            .fold(0, i32::wrapping_add)
+    }
+
+    /// C++ counts equivalent map entries, including retained zero-count entries.
+    pub fn total_objects_built_matching(&self, mut equivalent: impl FnMut(&str) -> bool) -> i32 {
+        self.objects_built
+            .keys()
+            .filter(|name| equivalent(name))
+            .count() as i32
     }
 
     /// Get objects destroyed for a specific player
@@ -1170,7 +1222,9 @@ impl ScoreKeeper {
 
         // Objects captured map
         keeper.objects_captured = Self::deserialize_map(data, &mut offset)?;
-
+        if offset != data.len() {
+            return Err("Trailing ScoreKeeper data");
+        }
         Ok(keeper)
     }
 
@@ -1550,5 +1604,46 @@ mod tests {
         // Should NOT match if invalid bit is present
         test_mask.set(KindOf::Infantry);
         assert!(!test_mask.matches_multi(&valid_mask, &invalid_mask));
+    }
+}
+
+#[cfg(test)]
+mod receiving_score_fact_tests {
+    use super::*;
+    #[test]
+    fn receiving_queries_preserve_equivalent_entries_and_use_exact_supplied_kind_facts() {
+        let mut score = ScoreKeeper::new();
+        let mut vehicle = KindOfMaskType::new();
+        vehicle.set(KindOf::Vehicle);
+        vehicle.set(KindOf::Score);
+        score.add_object_built("BaseTank", &vehicle, false);
+        score.add_object_built("BaseTank", &vehicle, false);
+        score.add_object_built("ReskinTank", &vehicle, false);
+        score.remove_object_built("BaseTank", &vehicle);
+        score.remove_object_built("BaseTank", &vehicle);
+        assert_eq!(score.get_objects_built_map().get("BaseTank"), Some(&0));
+        assert_eq!(
+            score.total_objects_built_matching(|name| matches!(name, "BaseTank" | "ReskinTank")),
+            2
+        );
+        let mut wanted = KindOfMaskType::new();
+        wanted.set(KindOf::Vehicle);
+        let none = KindOfMaskType::new();
+        assert_eq!(
+            score.total_units_built_with_facts(&wanted, &none, |_| Some(vehicle)),
+            1
+        );
+        assert_eq!(
+            score.total_units_built_with_facts(&wanted, &none, |_| None),
+            0
+        );
+        let mut trailing = score.serialize();
+        trailing.push(0);
+        assert!(ScoreKeeper::deserialize(&trailing).is_err());
+        let decoded = ScoreKeeper::deserialize(&score.serialize()).unwrap();
+        assert_eq!(
+            decoded.total_objects_built_matching(|name| matches!(name, "BaseTank" | "ReskinTank")),
+            2
+        );
     }
 }

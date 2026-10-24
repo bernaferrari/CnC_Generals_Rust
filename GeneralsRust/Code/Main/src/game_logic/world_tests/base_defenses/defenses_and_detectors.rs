@@ -842,9 +842,16 @@ fn sentry_drone_residual_detect_and_auto_fire() {
         e.health.current = 10_000.0;
         e.health.maximum = 10_000.0;
     } else {
-        let e = game_logic.host_object_mut(stealth_id).unwrap();
+        let (e, fixture_partition_e) = game_logic
+            .host_object_and_partition_mut(stealth_id)
+            .unwrap();
         e.set_status_stealthed(false);
-        e.set_position(Vec3::new(40.0, 0.0, 0.0));
+        e.set_position_with_partition_owner(
+            Vec3::new(40.0, 0.0, 0.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_e,
+        );
     }
     {
         let s = game_logic.host_object_mut(sentry_id).unwrap();
@@ -1189,9 +1196,16 @@ fn pathfinder_residual_detect_stealth_and_sniper() {
         }
     }
     {
-        let e = game_logic.host_object_mut(stealth_id).unwrap();
+        let (e, fixture_partition_e) = game_logic
+            .host_object_and_partition_mut(stealth_id)
+            .unwrap();
         e.set_status_stealthed(false); // targetable
-        e.set_position(Vec3::new(40.0, 0.0, 0.0));
+        e.set_position_with_partition_owner(
+            Vec3::new(40.0, 0.0, 0.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_e,
+        );
     }
     let enemy_hp_before = game_logic
         .host_object(stealth_id)
@@ -1412,14 +1426,19 @@ fn scout_and_hellfire_drone_residual_attach_detect_and_fire() {
     // Hellfire auto-fire residual damages the nearby Vehicle. The separate
     // hellfire_scatter_misses_infantry_residual case retains scatter coverage.
     {
-        let h = game_logic.host_object_mut(hf_id).unwrap();
+        let (h, fixture_partition_h) = game_logic.host_object_and_partition_mut(hf_id).unwrap();
         h.set_ai_state(
             AIState::Idle,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         h.target = None;
         h.target_location = None;
-        h.set_position(Vec3::new(0.0, 0.0, 0.0));
+        h.set_position_with_partition_owner(
+            Vec3::new(0.0, 0.0, 0.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_h,
+        );
         if let Some(w) = h.weapon.as_mut() {
             w.last_fire_time = -100.0;
             w.reload_time = 0.1;

@@ -1091,14 +1091,14 @@ impl SnapshotBuilder {
         game_logic.clear_all_players();
         for snap in players {
             let initialized = admitted.remove(&snap.id);
-            let statistics = PlayerStatistics {
-                units_built: snap.statistics.units_built,
-                units_lost: snap.statistics.units_lost,
-                structures_built: snap.statistics.buildings_built,
-                structures_lost: snap.statistics.buildings_lost,
-                resources_collected: snap.statistics.resources_gathered,
-                ..PlayerStatistics::default()
-            };
+            let statistics = PlayerStatistics::from_snapshot_totals(
+                snap.id,
+                snap.statistics.units_built,
+                snap.statistics.units_lost,
+                snap.statistics.buildings_built,
+                snap.statistics.buildings_lost,
+                snap.statistics.resources_gathered,
+            );
 
             let mut unlocked_sciences: std::collections::HashSet<String> =
                 snap.tech_tree.unlocked_upgrades.iter().cloned().collect();

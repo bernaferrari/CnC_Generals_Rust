@@ -83,15 +83,18 @@ fn scoring_owner_script_toggle_same_ids_and_reset_preserve_other_world_statistic
     second.execute_scoring_script_for_test(false);
     second.execute_scoring_script_for_test(true);
     kill(&mut second, other_killer, other_victim);
-    assert_eq!(second.get_player(0).unwrap().statistics.units_destroyed, 1);
-    assert_eq!(second.get_player(2).unwrap().statistics.units_lost, 1);
+    assert_eq!(
+        second.get_player(0).unwrap().statistics.units_destroyed(),
+        1
+    );
+    assert_eq!(second.get_player(2).unwrap().statistics.units_lost(), 1);
     second.reset();
     assert!(second.is_scoring_enabled());
     assert!(!first.is_scoring_enabled());
     kill(&mut first, killer, victim);
-    assert_eq!(first.get_player(0).unwrap().statistics.units_destroyed, 0);
-    assert_eq!(first.get_player(2).unwrap().statistics.units_lost, 0);
-    assert!(first.get_player(0).unwrap().statistics.money_earned > 0);
+    assert_eq!(first.get_player(0).unwrap().statistics.units_destroyed(), 0);
+    assert_eq!(first.get_player(2).unwrap().statistics.units_lost(), 0);
+    assert!(first.get_player(0).unwrap().statistics.money_earned() > 0);
     assert!(first.get_player(0).unwrap().skill_points > 0);
 }
 
@@ -127,16 +130,16 @@ fn scoring_owner_encoded_save_and_failed_candidate_preserve_actual_kill_gates() 
     assert!(!restored.is_scoring_enabled());
     kill(&mut live, killer, victim);
     kill(&mut restored, killer, victim);
-    assert_eq!(live.get_player(0).unwrap().statistics.units_destroyed, 0);
+    assert_eq!(live.get_player(0).unwrap().statistics.units_destroyed(), 0);
     assert_eq!(
-        restored.get_player(0).unwrap().statistics.units_destroyed,
+        restored.get_player(0).unwrap().statistics.units_destroyed(),
         0
     );
-    assert_eq!(live.get_player(2).unwrap().statistics.units_lost, 0);
-    assert_eq!(restored.get_player(2).unwrap().statistics.units_lost, 0);
+    assert_eq!(live.get_player(2).unwrap().statistics.units_lost(), 0);
+    assert_eq!(restored.get_player(2).unwrap().statistics.units_lost(), 0);
     assert_eq!(
-        live.get_player(0).unwrap().statistics.money_earned,
-        restored.get_player(0).unwrap().statistics.money_earned
+        live.get_player(0).unwrap().statistics.money_earned(),
+        restored.get_player(0).unwrap().statistics.money_earned()
     );
     restored.execute_scoring_script_for_test(true);
     assert!(!live.is_scoring_enabled());
@@ -145,9 +148,121 @@ fn scoring_owner_encoded_save_and_failed_candidate_preserve_actual_kill_gates() 
         .unwrap();
     kill(&mut restored, killer, next);
     assert_eq!(
-        restored.get_player(0).unwrap().statistics.units_destroyed,
+        restored.get_player(0).unwrap().statistics.units_destroyed(),
         1
     );
-    assert_eq!(restored.get_player(2).unwrap().statistics.units_lost, 1);
-    assert_eq!(live.get_player(0).unwrap().statistics.units_destroyed, 0);
+    assert_eq!(restored.get_player(2).unwrap().statistics.units_lost(), 1);
+    assert_eq!(live.get_player(0).unwrap().statistics.units_destroyed(), 0);
+}
+
+#[test]
+fn receiving_score_history_keeps_real_templates_victim_slots_and_encoded_peer_isolation() {
+    let (mut actual, killer, victim) = world();
+    let (mut peer, peer_killer, _) = world();
+    actual.frame = 1;
+    peer.frame = 1;
+    actual.record_unit_production(killer);
+    peer.record_unit_production(peer_killer);
+    let mut third = Player::new(3, Team::China, "Third", false);
+    third.alliance_team = 3;
+    actual.add_player(third);
+    let mut template = ThingTemplate::new("OwnedScoringTruck");
+    template
+        .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Score)
+        .set_health(10.0);
+    actual
+        .templates
+        .insert("OwnedScoringTruck".into(), template);
+    let third = actual
+        .create_object("OwnedScoringTruck", Team::China, Vec3::new(30.0, 0.0, 0.0))
+        .unwrap();
+    assert_eq!(actual.host_object(third).unwrap().owner_player_id, Some(3));
+    kill(&mut actual, killer, victim);
+    kill(&mut actual, killer, third);
+    let score = actual.get_player(0).unwrap().statistics.score_keeper();
+    assert_eq!(score.get_total_units_destroyed(), 2);
+    assert_eq!(
+        score.get_objects_built_map().get("OwnedScoringTank"),
+        Some(&1)
+    );
+    assert_eq!(
+        score
+            .get_objects_destroyed_for_player(2)
+            .unwrap()
+            .get("OwnedScoringTank"),
+        Some(&1)
+    );
+    assert_eq!(
+        score
+            .get_objects_destroyed_for_player(3)
+            .unwrap()
+            .get("OwnedScoringTruck"),
+        Some(&1)
+    );
+    assert_eq!(
+        actual
+            .get_player(2)
+            .unwrap()
+            .statistics
+            .score_keeper()
+            .get_objects_lost_map()
+            .get("OwnedScoringTank"),
+        Some(&1)
+    );
+    let frozen = score.serialize();
+    let peer_frozen = peer
+        .get_player(0)
+        .unwrap()
+        .statistics
+        .score_keeper()
+        .serialize();
+    let builder = crate::save_load::SnapshotBuilder::new();
+    let snapshot = builder.create_world_snapshot(&actual).unwrap();
+    let mut loaded = GameLogic::new();
+    loaded.templates = actual.templates.clone();
+    // The receiving load target admits its actual participant/team prototypes
+    // before applying the saved roster; never replay saved score events.
+    for id in [0, 2, 3] {
+        let player = actual.get_player(id).unwrap();
+        loaded.add_player(Player::new(id, player.team, &player.name, player.is_human));
+    }
+    builder
+        .restore_from_snapshot(&snapshot, &mut loaded)
+        .unwrap();
+    assert_eq!(
+        loaded
+            .get_player(0)
+            .unwrap()
+            .statistics
+            .score_keeper()
+            .serialize(),
+        frozen
+    );
+    assert_eq!(
+        peer.get_player(0)
+            .unwrap()
+            .statistics
+            .score_keeper()
+            .serialize(),
+        peer_frozen
+    );
+    loaded.reset();
+    assert_eq!(
+        actual
+            .get_player(0)
+            .unwrap()
+            .statistics
+            .score_keeper()
+            .serialize(),
+        frozen
+    );
+    assert_eq!(
+        peer.get_player(0)
+            .unwrap()
+            .statistics
+            .score_keeper()
+            .serialize(),
+        peer_frozen
+    );
 }

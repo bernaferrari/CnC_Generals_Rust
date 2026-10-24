@@ -1717,8 +1717,8 @@ fn gps_scrambler_residual_grants_stealth_to_ally_units() {
 
     // Attack breaks stealth (STEALTH_NOT_WHILE_ATTACKING residual).
     {
-        let ally = game_logic
-            .host_object_mut(ally_vehicle_id)
+        let (ally, fixture_partition_ally) = game_logic
+            .host_object_and_partition_mut(ally_vehicle_id)
             .expect("ally vehicle");
         ally.target = Some(enemy_id);
         ally.set_ai_state(
@@ -1726,11 +1726,23 @@ fn gps_scrambler_residual_grants_stealth_to_ally_units() {
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
         ally.set_status_attacking(true);
-        ally.set_position(Vec3::new(10.0, 0.0, 0.0));
+        ally.set_position_with_partition_owner(
+            Vec3::new(10.0, 0.0, 0.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_ally,
+        );
     }
     {
-        let enemy = game_logic.host_object_mut(enemy_id).expect("enemy");
-        enemy.set_position(Vec3::new(15.0, 0.0, 0.0));
+        let (enemy, fixture_partition_enemy) = game_logic
+            .host_object_and_partition_mut(enemy_id)
+            .expect("enemy");
+        enemy.set_position_with_partition_owner(
+            Vec3::new(15.0, 0.0, 0.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_enemy,
+        );
     }
     game_logic.update_combat(&[ally_vehicle_id, enemy_id], 1.0 / 30.0);
     let after_fire = game_logic
@@ -2068,8 +2080,15 @@ fn leaflet_drop_residual_disables_enemy_infantry_and_vehicles() {
 
     // Leftover update_simple after start_frame: walk-in still disabled.
     {
-        let far = game_logic.host_object_mut(far_vehicle_id).expect("far mut");
-        far.set_position(Vec3::new(5.0, 0.0, 0.0));
+        let (far, fixture_partition_far) = game_logic
+            .host_object_and_partition_mut(far_vehicle_id)
+            .expect("far mut");
+        far.set_position_with_partition_owner(
+            Vec3::new(5.0, 0.0, 0.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_far,
+        );
     }
     game_logic.frame = LEAFLET_DELAY_FRAMES + 1;
     game_logic.update_leaflet_drops();
@@ -2935,8 +2954,15 @@ fn anthrax_bomb_flight_drops_payload() {
                 .find(|o| o.anthrax_bomb_payload)
                 .map(|o| o.get_position());
             if let Some(bp) = bomb_pos {
-                if let Some(victim) = logic.host_object_mut(foe) {
-                    victim.set_position(Vec3::new(bp.x, 0.0, bp.z));
+                if let Some((victim, fixture_partition_victim)) =
+                    logic.host_object_and_partition_mut(foe)
+                {
+                    victim.set_position_with_partition_owner(
+                        Vec3::new(bp.x, 0.0, bp.z),
+                        0,
+                        &mut Default::default(),
+                        fixture_partition_victim,
+                    );
                 }
             }
         }

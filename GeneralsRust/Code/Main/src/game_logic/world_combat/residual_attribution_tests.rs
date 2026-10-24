@@ -72,11 +72,12 @@ fn credited(world: &GameLogic, source: ObjectId, owner: u32) {
     for id in [0, 1, 3] {
         let expected = u32::from(id == owner);
         assert_eq!(
-            world.players[&id].statistics.units_destroyed, expected,
+            world.players[&id].statistics.units_destroyed(),
+            expected,
             "owner {id}"
         );
         assert_eq!(
-            world.players[&id].statistics.money_earned,
+            world.players[&id].statistics.money_earned(),
             expected * 100,
             "owner {id}"
         );
@@ -91,19 +92,20 @@ fn credited(world: &GameLogic, source: ObjectId, owner: u32) {
             "owner {id}"
         );
     }
-    assert_eq!(world.players[&2].statistics.units_lost, 1);
+    assert_eq!(world.players[&2].statistics.units_lost(), 1);
     if let Some(source) = world.host_object(source) {
         assert_eq!(source.experience.current, 25.);
     }
 }
 fn uncredited(world: &GameLogic) {
     for id in [0, 1, 3] {
-        assert_eq!(world.players[&id].statistics.units_destroyed, 0);
+        assert_eq!(world.players[&id].statistics.units_destroyed(), 0);
         assert_eq!(world.players[&id].resources.supplies, 1000);
         assert_eq!(world.players[&id].skill_points, 0);
     }
     assert_eq!(
-        world.players[&2].statistics.units_lost, 0,
+        world.players[&2].statistics.units_lost(),
+        0,
         "no live damager means no scoreTheKill, including victim loss"
     );
 }
@@ -372,9 +374,9 @@ fn encoded_pre_drain_save_retains_admitted_credit_and_ordered_removals() {
             (1, true)
         );
         for repeat in 0..2 {
-            assert_eq!(world.players[&0].statistics.units_destroyed, 2);
-            assert_eq!(world.players[&2].statistics.units_lost, 2);
-            assert_eq!(world.players[&0].statistics.money_earned, 200);
+            assert_eq!(world.players[&0].statistics.units_destroyed(), 2);
+            assert_eq!(world.players[&2].statistics.units_lost(), 2);
+            assert_eq!(world.players[&0].statistics.money_earned(), 200);
             assert_eq!(world.players[&0].resources.supplies, 1200);
             assert_eq!(world.players[&0].skill_points, 50);
             assert_eq!(world.objects[&source].experience.current, 25.);
@@ -392,8 +394,8 @@ fn encoded_pre_drain_save_retains_admitted_credit_and_ordered_removals() {
         world.process_destroy_list();
         assert!(world.objects.get(&victim).is_none());
         assert!(world.objects.get(&source).is_some());
-        assert_eq!(world.players[&0].statistics.units_destroyed, 2);
-        assert_eq!(world.players[&0].statistics.money_earned, 200);
+        assert_eq!(world.players[&0].statistics.units_destroyed(), 2);
+        assert_eq!(world.players[&0].statistics.money_earned(), 200);
         assert_eq!(world.objects[&source].experience.current, 25.);
     }
     uncredited(&peer);

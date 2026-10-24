@@ -61,24 +61,26 @@ fn pilot_find_vehicle_ai_auto_scan_min_health_residual() {
         .create_object("TestTank", Team::USA, Vec3::new(20.0, 0.0, 0.0))
         .expect("tank");
     {
-        let (t, health_events, ownership_events) = {
+        let (t, health_events, ownership_events, partition_manager) = {
             let crate::game_logic::GameLogic {
                 objects,
                 health_events,
                 ownership_events,
+                partition_manager,
                 ..
             } = &mut game_logic;
             (
                 objects.get_mut(&tank_id).expect("tank"),
                 health_events,
                 ownership_events,
+                partition_manager,
             )
         };
         t.apply_kill_pilot_unmanned(
             health_events,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
-        t.set_team(Team::Neutral, ownership_events);
+        t.set_team_with_partition_owner(Team::Neutral, ownership_events, partition_manager);
         t.health.current = t.max_health;
     }
 
@@ -87,24 +89,26 @@ fn pilot_find_vehicle_ai_auto_scan_min_health_residual() {
         .create_object("TestTank", Team::USA, Vec3::new(5.0, 0.0, 0.0))
         .expect("low tank");
     {
-        let (t, health_events, ownership_events) = {
+        let (t, health_events, ownership_events, partition_manager) = {
             let crate::game_logic::GameLogic {
                 objects,
                 health_events,
                 ownership_events,
+                partition_manager,
                 ..
             } = &mut game_logic;
             (
                 objects.get_mut(&low_id).expect("low"),
                 health_events,
                 ownership_events,
+                partition_manager,
             )
         };
         t.apply_kill_pilot_unmanned(
             health_events,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
-        t.set_team(Team::Neutral, ownership_events);
+        t.set_team_with_partition_owner(Team::Neutral, ownership_events, partition_manager);
         t.health.current = t.max_health * (PILOT_FIND_VEHICLE_MIN_HEALTH - 0.1);
     }
 
@@ -895,24 +899,26 @@ fn pilot_find_vehicle_same_player_partition_filter_residual() {
         .create_object("TestTank", Team::China, Vec3::new(5.0, 0.0, 0.0))
         .expect("foreign tank");
     {
-        let (t, health_events, ownership_events) = {
+        let (t, health_events, ownership_events, partition_manager) = {
             let crate::game_logic::GameLogic {
                 objects,
                 health_events,
                 ownership_events,
+                partition_manager,
                 ..
             } = &mut game_logic;
             (
                 objects.get_mut(&foreign_id).expect("foreign"),
                 health_events,
                 ownership_events,
+                partition_manager,
             )
         };
         t.apply_kill_pilot_unmanned(
             health_events,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
-        t.set_team(Team::Neutral, ownership_events);
+        t.set_team_with_partition_owner(Team::Neutral, ownership_events, partition_manager);
         t.experience.level = VeterancyLevel::Rookie;
         t.health.current = t.max_health;
         assert_eq!(t.status.unmanned_owner_team, Some(Team::China));
@@ -923,24 +929,26 @@ fn pilot_find_vehicle_same_player_partition_filter_residual() {
         .create_object("TestTank", Team::USA, Vec3::new(20.0, 0.0, 0.0))
         .expect("own tank");
     {
-        let (t, health_events, ownership_events) = {
+        let (t, health_events, ownership_events, partition_manager) = {
             let crate::game_logic::GameLogic {
                 objects,
                 health_events,
                 ownership_events,
+                partition_manager,
                 ..
             } = &mut game_logic;
             (
                 objects.get_mut(&own_id).expect("own"),
                 health_events,
                 ownership_events,
+                partition_manager,
             )
         };
         t.apply_kill_pilot_unmanned(
             health_events,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
         );
-        t.set_team(Team::Neutral, ownership_events);
+        t.set_team_with_partition_owner(Team::Neutral, ownership_events, partition_manager);
         t.experience.level = VeterancyLevel::Rookie;
         t.health.current = t.max_health;
         assert_eq!(t.status.unmanned_owner_team, Some(Team::USA));
@@ -1038,10 +1046,12 @@ fn eject_pilot_parachute_open_fudge_and_free_fall_damage_residual() {
     // Raise pilot so significantly-above-terrain gate passes.
     {
         let thr = crate::game_logic::host_usa_pilot::significantly_above_terrain_threshold();
-        let p = game_logic.host_object_mut(pilot_id).expect("pilot");
+        let (p, fixture_partition_p) = game_logic
+            .host_object_and_partition_mut(pilot_id)
+            .expect("pilot");
         let mut pos = p.get_position();
         pos.y = thr + 50.0;
-        p.set_position(pos);
+        p.set_position_with_partition_owner(pos, 0, &mut Default::default(), fixture_partition_p);
         p.set_status_parachute_open(true); // open chute then cut residual
         p.health.current = p.health.maximum;
     }
@@ -1086,10 +1096,12 @@ fn eject_pilot_parachute_open_fudge_and_free_fall_damage_residual() {
     }
     // Ground pilot residual: FreeFallDamage must not apply.
     {
-        let p = game_logic.host_object_mut(pilot_id).expect("pilot");
+        let (p, fixture_partition_p) = game_logic
+            .host_object_and_partition_mut(pilot_id)
+            .expect("pilot");
         let mut pos = p.get_position();
         pos.y = 0.0;
-        p.set_position(pos);
+        p.set_position_with_partition_owner(pos, 0, &mut Default::default(), fixture_partition_p);
         p.clear_eject_parachuting();
     }
     assert!(
@@ -1582,8 +1594,15 @@ fn strategy_center_turret_mood_target_residual() {
 
     // Move enemy out of max range → mood clear residual.
     {
-        let e = game_logic.host_object_mut(enemy_id).expect("enemy");
-        e.set_position(Vec3::new(900.0, 0.0, 0.0));
+        let (e, fixture_partition_e) = game_logic
+            .host_object_and_partition_mut(enemy_id)
+            .expect("enemy");
+        e.set_position_with_partition_owner(
+            Vec3::new(900.0, 0.0, 0.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_e,
+        );
     }
     game_logic.tick_battle_plan_door_residuals();
     {

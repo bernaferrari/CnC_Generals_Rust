@@ -281,29 +281,36 @@ fn collision_without_current_locomotor_does_not_mark_blocked() {
 #[test]
 fn partition_cell_broadphase_and_collide_force() {
     use crate::game_logic::partition_manager::PARTITION_CELL_SIZE_RESIDUAL;
-    use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
     use glam::Vec3;
     assert_eq!(PARTITION_CELL_SIZE_RESIDUAL, 40.0);
     let mut logic = GameLogic::new();
     // Far objects different cells — no crush.
     let mut vt = ThingTemplate::new("FarTank");
     vt.add_kind_of(KindOf::Vehicle);
-    let tid = ObjectId(601);
-    let mut tank = Object::new(vt, tid, Team::USA);
-    tank.crusher_level = 1;
+    vt.set_health(100.0);
+    vt.crusher_level = 1;
+    let template_name = vt.name.clone();
+    logic.templates.insert(template_name.clone(), vt);
+    let tid = logic
+        .create_object(&template_name, Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("factory-admitted collision participant");
+    let tank = logic.objects.get_mut(&tid).unwrap();
     tank.movement.velocity = Vec3::new(5.0, 0.0, 0.0);
-    tank.set_position(Vec3::new(0.0, 0.0, 0.0));
     tank.selection_radius = 5.0;
-    logic.objects.insert(tid, tank);
 
     let mut it = ThingTemplate::new("FarInf");
     it.add_kind_of(KindOf::Infantry);
-    let iid = ObjectId(602);
-    let mut inf = Object::new(it, iid, Team::GLA);
-    inf.crushable_level = 0;
-    inf.set_position(Vec3::new(200.0, 0.0, 200.0));
+    it.set_health(100.0);
+    it.crusher_level = 0;
+    let template_name = it.name.clone();
+    logic.templates.insert(template_name.clone(), it);
+    let iid = logic
+        .create_object(&template_name, Team::GLA, Vec3::new(200.0, 0.0, 200.0))
+        .expect("factory-admitted collision participant");
+    let inf = logic.objects.get_mut(&iid).unwrap();
     inf.selection_radius = 5.0;
-    logic.objects.insert(iid, inf);
+
     let _ = logic.tick_physics_collisions_all();
     assert!(!logic.objects.get(&iid).unwrap().status.destroyed);
     assert!(logic.partition_manager.registered_count() >= 2);
@@ -311,8 +318,11 @@ fn partition_cell_broadphase_and_collide_force() {
     // allowCollideForce false on structure bounce.
     let mut st = ThingTemplate::new("StiffOff");
     st.add_kind_of(KindOf::Structure);
-    let sid = ObjectId(603);
-    logic.objects.insert(sid, Object::new(st, sid, Team::China));
+    st.set_health(100.0);
+    logic.templates.insert("StiffOff".into(), st);
+    let sid = logic
+        .create_object("StiffOff", Team::China, Vec3::ZERO)
+        .expect("factory-admitted structure");
     logic.objects.get_mut(&tid).unwrap().allow_collide_force = false;
     logic.set_fixture_object_position(tid, Vec3::new(0.0, 1.0, 0.0));
     logic.set_fixture_object_position(sid, Vec3::new(2.0, 1.0, 0.0));
@@ -322,29 +332,41 @@ fn partition_cell_broadphase_and_collide_force() {
 #[test]
 fn tick_physics_collisions_all_crushes_nearby() {
     use crate::game_logic::host_usa_pilot::HostDeathType;
-    use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
     use glam::Vec3;
     let mut logic = GameLogic::new();
     let mut vt = ThingTemplate::new("DispTank");
     vt.add_kind_of(KindOf::Vehicle);
-    let tid = ObjectId(501);
-    let mut tank = Object::new(vt, tid, Team::USA);
-    tank.crusher_level = 1;
-    tank.set_orientation(0.0);
+    vt.set_health(100.0);
+    vt.crusher_level = 1;
+    let template_name = vt.name.clone();
+    logic.templates.insert(template_name.clone(), vt);
+    let tid = logic
+        .create_object(&template_name, Team::USA, Vec3::new(0.75, 0.0, 0.0))
+        .expect("factory-admitted collision participant");
+    let tank = logic.objects.get_mut(&tid).unwrap();
+    // The integrated phase moves first, then checks overlap. Arrange a
+    // frictionless crossing that ends past both infantry contact points.
     tank.movement.velocity = Vec3::new(5.0, 0.0, 0.0);
-    tank.set_position(Vec3::new(6.0, 0.0, 0.0));
+    tank.forward_friction = 0.0;
+    tank.lateral_friction = 0.0;
+    tank.aerodynamic_friction = 0.0;
+    tank.extra_friction = 0.0;
     tank.selection_radius = 8.0;
-    logic.objects.insert(tid, tank);
 
     let mut it = ThingTemplate::new("DispInf");
     it.add_kind_of(KindOf::Infantry);
-    let iid = ObjectId(502);
-    let mut inf = Object::new(it, iid, Team::GLA);
-    inf.crushable_level = 0;
+    it.set_health(100.0);
+    it.crusher_level = 0;
+    it.crushable_level = 0;
+    let template_name = it.name.clone();
+    logic.templates.insert(template_name.clone(), it);
+    let iid = logic
+        .create_object(&template_name, Team::GLA, Vec3::new(5.0, 0.0, 0.0))
+        .expect("factory-admitted collision participant");
+    let inf = logic.objects.get_mut(&iid).unwrap();
     inf.has_squish_collide = true;
     inf.selection_radius = 8.0;
-    inf.set_position(Vec3::new(5.0, 0.0, 0.0));
-    logic.objects.insert(iid, inf);
 
     let n = logic.tick_physics_collisions_all();
     assert!(n >= 1, "nearby pair must be processed");
@@ -487,29 +509,41 @@ fn apply_overlap_crush_check_crushes_enemy_infantry() {
 fn higher_id_crusher_still_squishes() {
     // C++ both onCollide. Tank built after map infantry must still crush.
     use crate::game_logic::host_usa_pilot::HostDeathType;
-    use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
     use glam::Vec3;
     let mut logic = GameLogic::new();
     let mut it = ThingTemplate::new("FirstInf");
     it.add_kind_of(KindOf::Infantry);
-    let iid = ObjectId(501);
-    let mut inf = Object::new(it, iid, Team::GLA);
-    inf.crushable_level = 0;
+    it.set_health(100.0);
+    it.crusher_level = 0;
+    it.crushable_level = 0;
+    let template_name = it.name.clone();
+    logic.templates.insert(template_name.clone(), it);
+    let iid = logic
+        .create_object(&template_name, Team::GLA, Vec3::new(5.0, 0.0, 0.0))
+        .expect("factory-admitted collision participant");
+    let inf = logic.objects.get_mut(&iid).unwrap();
     inf.has_squish_collide = true;
     inf.selection_radius = 8.0;
-    inf.set_position(Vec3::new(5.0, 0.0, 0.0));
-    logic.objects.insert(iid, inf);
 
     let mut vt = ThingTemplate::new("LaterTank");
     vt.add_kind_of(KindOf::Vehicle);
-    let tid = ObjectId(502);
-    let mut tank = Object::new(vt, tid, Team::USA);
-    tank.crusher_level = 1;
-    tank.set_orientation(0.0);
+    vt.set_health(100.0);
+    vt.crusher_level = 1;
+    let template_name = vt.name.clone();
+    logic.templates.insert(template_name.clone(), vt);
+    let tid = logic
+        .create_object(&template_name, Team::USA, Vec3::new(0.75, 0.0, 0.0))
+        .expect("factory-admitted collision participant");
+    let tank = logic.objects.get_mut(&tid).unwrap();
+    // The integrated phase moves first, then checks overlap. Arrange a
+    // frictionless crossing that ends past both infantry contact points.
     tank.movement.velocity = Vec3::new(5.0, 0.0, 0.0);
-    tank.set_position(Vec3::new(6.0, 0.0, 0.0));
+    tank.forward_friction = 0.0;
+    tank.lateral_friction = 0.0;
+    tank.aerodynamic_friction = 0.0;
+    tank.extra_friction = 0.0;
     tank.selection_radius = 8.0;
-    logic.objects.insert(tid, tank);
 
     let _ = logic.tick_physics_collisions_all();
     let inf = logic.objects.get(&iid).unwrap();
@@ -1751,8 +1785,13 @@ fn minimum_attack_range_too_close_backs_away() {
     );
     // Combat path should not deal damage while still inside min (if still close).
     // Place again inside and run combat.
-    if let Some(o) = logic.objects.get_mut(&arty) {
-        o.set_position(glam::Vec3::new(20.0, 0.0, 0.0));
+    if let Some((o, fixture_partition_o)) = logic.host_object_and_partition_mut(arty) {
+        o.set_position_with_partition_owner(
+            glam::Vec3::new(20.0, 0.0, 0.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_o,
+        );
         o.movement.target_position = None;
         o.movement.path.clear();
         o.target = Some(tgt);
@@ -1777,8 +1816,13 @@ fn minimum_attack_range_too_close_backs_away() {
         "must not fire inside min range (h0={h0} h1={h1})"
     );
     // Outside min range — may fire.
-    if let Some(o) = logic.objects.get_mut(&arty) {
-        o.set_position(glam::Vec3::new(80.0, 0.0, 0.0));
+    if let Some((o, fixture_partition_o)) = logic.host_object_and_partition_mut(arty) {
+        o.set_position_with_partition_owner(
+            glam::Vec3::new(80.0, 0.0, 0.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_o,
+        );
         o.movement.target_position = None;
         o.movement.path.clear();
         o.set_status_moving(false);
@@ -1919,13 +1963,13 @@ fn airfield_runway_reservation_limits_parallel_takeoff() {
                 glam::Vec3::new(i as f32 * 5.0, 0.0, 0.0),
             )
             .expect("jet");
-        if let Some(o) = logic.objects.get_mut(&j) {
+        if let Some((o, fixture_partition_o)) = logic.host_object_and_partition_mut(j) {
             o.object_type = ObjectType::Aircraft;
             o.set_ai_state(
                 AIState::Docked,
                 &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
             );
-            o.set_contained_by(Some(af));
+            o.set_contained_by_with_partition_owner(Some(af), true, fixture_partition_o);
             o.status.airborne_target = false;
         }
         if let Some(a) = logic.objects.get_mut(&af) {
@@ -1975,8 +2019,13 @@ fn airfield_runway_reservation_limits_parallel_takeoff() {
     // Move first jet clear and tick → frees a runway for third.
     // C++ ParkingPlaceBehavior releases a runway only once the holder is
     // airborne beyond the clear distance.
-    if let Some(o) = logic.objects.get_mut(&jets[0]) {
-        o.set_position(glam::Vec3::new(500.0, 50.0, 0.0));
+    if let Some((o, fixture_partition_o)) = logic.host_object_and_partition_mut(jets[0]) {
+        o.set_position_with_partition_owner(
+            glam::Vec3::new(500.0, 50.0, 0.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_o,
+        );
         o.status.airborne_target = true;
     }
     logic.tick_airfield_runway_clear();
@@ -2042,12 +2091,12 @@ fn airfield_runway_blocks_rtb_landing_when_busy() {
         .create_object("LandJet", Team::USA, glam::Vec3::new(20.0, 50.0, 0.0))
         .expect("h2");
     for &h in &[h1, h2] {
-        if let Some(o) = logic.objects.get_mut(&h) {
+        if let Some((o, fixture_partition_o)) = logic.host_object_and_partition_mut(h) {
             o.object_type = ObjectType::Aircraft;
             o.status.airborne_target = true;
             // C++: "only planes with reserved spaces can reserve runways"
             // (ParkingPlaceBehavior.cpp:468-472) — holders dock in a stall.
-            o.set_contained_by(Some(af));
+            o.set_contained_by_with_partition_owner(Some(af), true, fixture_partition_o);
         }
         assert!(logic.reserve_airfield_runway(af, h).is_some());
     }
@@ -2092,12 +2141,17 @@ fn airfield_runway_blocks_rtb_landing_when_busy() {
         .unwrap_or(false)
     {
         let af_pos = logic.objects.get(&af).unwrap().get_position();
-        if let Some(j) = logic.objects.get_mut(&jet) {
+        if let Some((j, fixture_partition_j)) = logic.host_object_and_partition_mut(jet) {
             j.status.airborne_target = false;
             j.jet_ai.rtb_landing_phase = crate::game_logic::object::JET_RTB_PHASE_TAXI;
-            j.set_position(af_pos);
+            j.set_position_with_partition_owner(
+                af_pos,
+                0,
+                &mut Default::default(),
+                fixture_partition_j,
+            );
             // Final approach complete: taxi ends inside the reserved stall.
-            j.set_contained_by(Some(af));
+            j.set_contained_by_with_partition_owner(Some(af), true, fixture_partition_j);
         }
         assert!(logic.try_return_to_base_rearm(jet));
         let j = logic.objects.get(&jet).unwrap();
@@ -2172,10 +2226,10 @@ fn airfield_takeoff_releases_parking_slot() {
     assert!(logic.try_return_to_base_rearm(jet_id));
     {
         // C++ JetAIUpdate lands over updates: finish the approach in-stall.
-        let jet = logic.objects.get_mut(&jet_id).unwrap();
+        let (jet, fixture_partition_jet) = logic.host_object_and_partition_mut(jet_id).unwrap();
         jet.status.airborne_target = false;
         jet.jet_ai.rtb_landing_phase = crate::game_logic::object::JET_RTB_PHASE_TAXI;
-        jet.set_contained_by(Some(af_id));
+        jet.set_contained_by_with_partition_owner(Some(af_id), true, fixture_partition_jet);
     }
     assert!(logic.try_return_to_base_rearm(jet_id));
     assert_eq!(logic.airfield_parked_count(af_id), 1);
@@ -2188,10 +2242,13 @@ fn airfield_takeoff_releases_parking_slot() {
         .and_then(|jet| jet.airfield_parking_space_index);
     {
         let jet = logic.objects.get_mut(&jet_id).unwrap();
-        jet.attack_target(
+        jet.attack_target_with_operation(
             ObjectId(777),
             &mut logic.attack_events,
             &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            0,
+            &mut crate::game_logic::ScriptPresentationEffects::default()
+                .reborrow_for_object(&mut logic.partition_manager),
         );
     }
     assert!(logic.release_jet_from_airfield_parking(jet_id));
@@ -2245,7 +2302,11 @@ fn helipad_takeoff_is_two_point_climb_not_altitude_pop() {
                     &mut Default::default(),
                     fixture_partition_heli,
                 );
-                heli.set_contained_by(Some(pad_id));
+                heli.set_contained_by_with_partition_owner(
+                    Some(pad_id),
+                    true,
+                    fixture_partition_heli,
+                );
                 heli.set_ai_state(
                     AIState::Docked,
                     &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
@@ -2465,9 +2526,14 @@ fn target_pitch_gate_blocks_strategy_center_out_of_loft() {
     );
 
     // Elevate target into loft window (~60°) and allow fire.
-    if let Some(o) = logic.objects.get_mut(&tgt) {
+    if let Some((o, fixture_partition_o)) = logic.host_object_and_partition_mut(tgt) {
         let dy = 100.0_f32 * 60f32.to_radians().tan();
-        o.set_position(glam::Vec3::new(100.0, dy, 0.0));
+        o.set_position_with_partition_owner(
+            glam::Vec3::new(100.0, dy, 0.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_o,
+        );
         o.health.current = h0;
     }
     if let Some(o) = logic.objects.get_mut(&sc) {

@@ -203,8 +203,13 @@ fn missile_defender_laser_endpoints_follow_moving_target() {
         .map(|l| l.to_pos())
         .expect("beam");
 
-    if let Some(o) = logic.host_object_mut(target) {
-        o.set_position(Vec3::new(140.0, 0.0, 30.0));
+    if let Some((o, fixture_partition_o)) = logic.host_object_and_partition_mut(target) {
+        o.set_position_with_partition_owner(
+            Vec3::new(140.0, 0.0, 30.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_o,
+        );
     }
     logic.update_leftover_laser_guided_channels(0.1);
     let second = logic
@@ -353,8 +358,13 @@ fn lotus_disable_laser_endpoints_follow_moving_vehicle() {
         scroll_offset: 0.0,
     });
     let first = logic.weapon_lasers[0].to_pos();
-    if let Some(o) = logic.host_object_mut(target) {
-        o.set_position(Vec3::new(90.0, 0.0, 25.0));
+    if let Some((o, fixture_partition_o)) = logic.host_object_and_partition_mut(target) {
+        o.set_position_with_partition_owner(
+            Vec3::new(90.0, 0.0, 25.0),
+            0,
+            &mut Default::default(),
+            fixture_partition_o,
+        );
     }
     assert!(logic.reinit_special_ability_laser(caster, target, None));
     let second = logic.weapon_lasers[0].to_pos();
