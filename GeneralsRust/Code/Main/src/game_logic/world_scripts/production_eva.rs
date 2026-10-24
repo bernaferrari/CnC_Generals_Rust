@@ -397,13 +397,9 @@ impl GameLogic {
         let Some(obj) = self.objects.get(&object_id) else {
             return false;
         };
-        let owner_id = obj
-            .owner_player_id
-            .filter(|id| self.players.get(id).is_some_and(|player| player.is_alive))
-            .or_else(|| self.unique_player_id_for_team(obj.team));
-        owner_id
+        self.player_owner_for_host_object(obj)
             .and_then(|id| self.players.get(&id))
-            .is_some_and(|player| player.is_local && player.is_alive)
+            .is_some_and(|player| player.is_local)
     }
 
     /// C++ TheEva->setShouldPlay(EVA_BuildingSabotaged) when victim is local.
@@ -602,16 +598,14 @@ impl GameLogic {
             .map(|player| player.id)
     }
 
-    /// Owner id wins; otherwise the unique player for `owner_team`.
-    /// Never first-of-faction — two USA slots stay unambiguous.
+    /// Event-time controller identity stays exact, including explicit NULL.
+    /// A faction label never supplies a different announcement owner.
     fn eva_resolve_owner_player_id(
         &self,
         owner_player_id: Option<u32>,
         owner_team: Team,
     ) -> Option<u32> {
-        owner_player_id
-            .filter(|id| self.players.get(id).is_some_and(|player| player.is_alive))
-            .or_else(|| self.unique_player_id_for_team(owner_team))
+        self.player_owner_for_event(owner_player_id, owner_team)
     }
 
     /// C++ Superweapon Detected/Launched/Ready:
@@ -2118,8 +2112,10 @@ mod tests {
         logic
             .players
             .insert(0, Player::new(0, Team::USA, "Local", true));
+        let source_id = spawn_local_particle_cannon(&mut logic, None);
+        assert!(logic.is_object_locally_controlled(source_id));
         logic.set_script_superweapon_display_enabled_for_test(false);
-        logic.try_eva_superweapon_ready(ObjectId(1), Team::USA, "AmericaParticleUplinkCannon");
+        logic.try_eva_superweapon_ready(source_id, Team::USA, "AmericaParticleUplinkCannon");
         assert!(
             logic.honesty_eva_superweapon_ready_ok(),
             "global m_superweaponHiddenByScript is draw-only"

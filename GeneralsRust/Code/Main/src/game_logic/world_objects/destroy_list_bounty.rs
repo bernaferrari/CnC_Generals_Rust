@@ -589,10 +589,7 @@ impl GameLogic {
         if !has_cash_bounty {
             return;
         }
-        let player_id = object.owner_player_id.or_else(|| {
-            let team = object.team;
-            self.unique_player_id_for_team(team)
-        });
+        let player_id = self.player_owner_for_host_object(object);
         let Some(player_id) = player_id else {
             return;
         };

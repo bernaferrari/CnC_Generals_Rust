@@ -4,37 +4,23 @@
 use super::super::*;
 
 impl GameLogic {
-    /// Resolve the player controlling an object without collapsing two active
-    /// players that happen to use the same faction.  A legacy team-only object
-    /// may retain the old behavior only when that faction has one unambiguous
-    /// active player; an explicit but stale owner fails closed instead.
+    /// Object::getControllingPlayer reads its actual Team's controller. A
+    /// missing owner stays missing; faction labels never create ownership.
+    /// Existing inactive Players remain controllers until an actual Team change.
     pub(crate) fn player_owner_for_host_object(&self, object: &Object) -> Option<u32> {
-        match object.owner_player_id {
-            Some(player_id) => self
-                .players
-                .get(&player_id)
-                .filter(|player| player.is_alive && player.team == object.team)
-                .map(|player| player.id),
-            None => self.unique_player_id_for_team(object.team),
-        }
+        object
+            .owner_player_id
+            .filter(|id| self.players.contains_key(id))
     }
 
-    /// Resolve owner provenance transported by a deferred event.  Unlike the
-    /// old `player_id_for_team` lookup this never chooses the first matching
-    /// faction slot.
+    /// A deferred event retains its exact controller identity. NULL and a
+    /// retired controller cannot resolve to another same-faction Player.
     pub(in super::super) fn player_owner_for_event(
         &self,
         owner_player_id: Option<u32>,
-        team: Team,
+        _team: Team,
     ) -> Option<u32> {
-        match owner_player_id {
-            Some(player_id) => self
-                .players
-                .get(&player_id)
-                .filter(|player| player.is_alive && player.team == team)
-                .map(|player| player.id),
-            None => self.unique_player_id_for_team(team),
-        }
+        owner_player_id.filter(|id| self.players.contains_key(id))
     }
 
     /// BuildAssistant retains UNDER_CONSTRUCTION on instant structures.
@@ -1216,3 +1202,7 @@ impl GameLogic {
             .insert(SUPPLY_DROP_PAYLOAD_RESIDUAL_TEMPLATE.to_string(), t);
     }
 }
+
+#[cfg(test)]
+#[path = "nullable_controller_owner_tests.rs"]
+mod nullable_controller_owner_tests;
